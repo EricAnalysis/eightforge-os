@@ -4,7 +4,8 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'EightForge OS',
-  description: 'The operating system for automated decision systems in complex operations.',
+  description:
+    'The operating system for automated decision systems in complex operations.',
 };
 
 export default function RootLayout({

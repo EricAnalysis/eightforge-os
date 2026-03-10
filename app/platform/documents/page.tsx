@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, FormEvent } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 
@@ -190,7 +191,14 @@ export default function DocumentsPage() {
                   <td className="py-2 pr-3">
                     {new Date(doc.created_at).toLocaleString()}
                   </td>
-                  <td className="py-2 text-[#8B94A3]">—</td>
+                  <td className="py-2">
+                    <Link
+                      href={`/platform/documents/${doc.id}`}
+                      className="text-[11px] text-[#7C5CFF] hover:underline"
+                    >
+                      View
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

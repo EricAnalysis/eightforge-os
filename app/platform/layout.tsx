@@ -11,6 +11,10 @@ const navItems = [
   { href: '/platform/workflows', label: 'Workflows' },
   { href: '/platform/decisions', label: 'Decisions' },
   { href: '/platform/documents', label: 'Documents' },
+  { href: '/platform/projects', label: 'Projects' },
+  { href: '/platform/reviews', label: 'Reviews' },
+  { href: '/platform/agents', label: 'Agents' },
+  { href: '/platform/issues', label: 'Issues' },
   { href: '/platform/settings', label: 'Settings' },
 ];
 

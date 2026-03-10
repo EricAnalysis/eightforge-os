@@ -24,6 +24,12 @@ type DocumentDetail = {
   projects: { id: string; name: string } | { id: string; name: string }[] | null;
 };
 
+type ExtractionRow = {
+  id: string;
+  data: Record<string, unknown>;
+  created_at: string;
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -76,6 +82,8 @@ export default function DocumentDetailPage({
   const [notFound, setNotFound] = useState(false);
   const [signedUrl, setSignedUrl]   = useState<string | null>(null);
   const [fileError, setFileError]   = useState(false);
+  const [extractions, setExtractions]     = useState<ExtractionRow[]>([]);
+  const [extractionsLoading, setExtractionsLoading] = useState(false);
 
   useEffect(() => {
     if (orgLoading) return;
@@ -83,24 +91,39 @@ export default function DocumentDetailPage({
 
     const load = async () => {
       setLoading(true);
+      setExtractionsLoading(true);
 
-      const { data, error } = await supabase
-        .from('documents')
-        .select(
-          'id, title, name, document_type, status, created_at, storage_path, project_id, projects(id, name)',
-        )
-        .eq('id', id)
-        .eq('organization_id', organizationId)
-        .single();
+      const [docResult, extractionsResult] = await Promise.all([
+        supabase
+          .from('documents')
+          .select(
+            'id, title, name, document_type, status, created_at, storage_path, project_id, projects(id, name)',
+          )
+          .eq('id', id)
+          .eq('organization_id', organizationId)
+          .single(),
+        supabase
+          .from('document_extractions')
+          .select('id, data, created_at')
+          .eq('document_id', id)
+          .order('created_at', { ascending: false }),
+      ]);
 
-      if (error || !data) {
+      if (docResult.error || !docResult.data) {
         setNotFound(true);
         setLoading(false);
+        setExtractionsLoading(false);
         return;
       }
 
+      const data = docResult.data;
       setDoc(data as DocumentDetail);
       setLoading(false);
+
+      if (!extractionsResult.error && extractionsResult.data) {
+        setExtractions(extractionsResult.data as ExtractionRow[]);
+      }
+      setExtractionsLoading(false);
 
       // Generate signed URL for the private bucket
       if (data.storage_path) {
@@ -258,6 +281,29 @@ export default function DocumentDetailPage({
           </div>
         ) : (
           <p className="text-[11px] text-[#8B94A3]">Generating secure link…</p>
+        )}
+      </section>
+
+      {/* Extractions */}
+      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Extractions</div>
+        {extractionsLoading ? (
+          <p className="text-[11px] text-[#8B94A3]">Loading extractions…</p>
+        ) : extractions.length === 0 ? (
+          <p className="text-[11px] text-[#8B94A3]">No extractions yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {extractions.map((ex) => (
+              <div key={ex.id} className="rounded-md border border-[#1A1F27] bg-[#0A0C10] p-3">
+                <p className="mb-2 text-[10px] text-[#8B94A3]">
+                  {new Date(ex.created_at).toLocaleString()}
+                </p>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-[#F1F3F5]">
+                  {JSON.stringify(ex.data, null, 2)}
+                </pre>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 

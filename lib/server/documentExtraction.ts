@@ -1,6 +1,5 @@
 // lib/server/documentExtraction.ts
-// Server-side document extraction: text decoding and structured fallbacks.
-// No heavy PDF parsing; PDF and other binary return a valid fallback payload.
+// Server-side document extraction: text decoding, PDF text extraction, and fallbacks.
 
 const TEXT_EXTENSIONS = new Set([
   'txt',
@@ -45,7 +44,7 @@ export type ExtractionPayload = {
     size_bytes: number | null;
   };
   extraction: {
-    mode: 'text' | 'pdf_fallback' | 'binary_fallback';
+    mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'binary_fallback';
     text_preview: string | null;
     detected_document_type: string | null;
   };
@@ -87,9 +86,33 @@ function decodeTextPreview(bytes: ArrayBuffer): string | null {
   }
 }
 
+function normalizeWhitespace(s: string): string {
+  return s.trim().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extracts text from PDF bytes using pdf-parse. Returns null on failure or empty result.
+ */
+async function extractPdfText(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const pdf = (await import('pdf-parse')).default as
+      | ((buffer: Buffer) => Promise<{ text?: string }>)
+      | undefined;
+    if (typeof pdf !== 'function') return null;
+    const buffer = Buffer.from(bytes);
+    const result = await pdf(buffer);
+    const raw = result?.text;
+    if (typeof raw !== 'string') return null;
+    const text = normalizeWhitespace(raw);
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildBase(
   metadata: DocumentMetadata,
-  mode: 'text' | 'pdf_fallback' | 'binary_fallback',
+  mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'binary_fallback',
   textPreview: string | null
 ): ExtractionPayload {
   const title = metadata.title ?? metadata.name;
@@ -121,14 +144,14 @@ function buildBase(
 
 /**
  * Extracts structured information from file bytes. Text-like files get a preview;
- * PDF and other binary get a fallback payload so the pipeline stays end-to-end.
+ * PDFs attempt real text extraction, then fall back to metadata-only; other binary get fallback.
  */
-export function extractDocument(
+export async function extractDocument(
   metadata: DocumentMetadata,
   fileBytes: ArrayBuffer,
   mimeType: string | null,
   fileName: string
-): ExtractionPayload {
+): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
   const ext = getExtension(fileName);
 
@@ -141,6 +164,21 @@ export function extractDocument(
   }
 
   if (isPdf(fileName, mimeType)) {
+    const extractedText = await extractPdfText(fileBytes);
+    const textPreview =
+      extractedText != null && extractedText.length > 0
+        ? extractedText.length > MAX_PREVIEW_CHARS
+          ? extractedText.slice(0, MAX_PREVIEW_CHARS)
+          : extractedText
+        : null;
+
+    if (textPreview != null && textPreview.length > 0) {
+      const payload = buildBase(metadata, 'pdf_text', textPreview);
+      payload.file.mime_type = mimeType ?? 'application/pdf';
+      payload.file.size_bytes = size;
+      return payload;
+    }
+
     const payload = buildBase(metadata, 'pdf_fallback', null);
     payload.file.mime_type = mimeType ?? 'application/pdf';
     payload.file.size_bytes = size;

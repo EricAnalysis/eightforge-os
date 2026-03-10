@@ -102,12 +102,12 @@ export async function POST(
       storage_path: storagePath,
     };
 
-    const payload = extractDocument(
+    const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
       fileName
-    ) as ExtractionPayload;
+    )) as ExtractionPayload;
 
     const { data: inserted, error: insertError } = await admin
       .from('document_extractions')

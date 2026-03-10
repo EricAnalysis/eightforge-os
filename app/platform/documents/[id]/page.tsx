@@ -160,38 +160,34 @@ export default function DocumentDetailPage({
     setAnalyzing(true);
     setAnalyzeMsg(null);
     try {
-      const payload = {
-        status: 'completed',
-        source: 'manual_test_trigger',
-        summary: 'Test extraction created from the document detail page',
-        document_id: doc.id,
-        document_title: doc.title ?? doc.name,
-        analyzed_at: new Date().toISOString(),
-        fields: {
-          detected_document_type: doc.document_type ?? null,
-          file_name: doc.name,
-        },
-      };
-
-      const { error: insertError } = await supabase
-        .from('document_extractions')
-        .insert({ document_id: doc.id, data: payload });
-
-      if (insertError) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
         setAnalyzeMsg({ type: 'error', text: 'Analysis failed. Please try again.' });
         return;
       }
 
-      const { data: fresh, error: fetchError } = await supabase
-        .from('document_extractions')
-        .select('id, data, created_at')
-        .eq('document_id', doc.id)
-        .order('created_at', { ascending: false });
+      const res = await fetch(`/api/documents/${id}/analyze`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
 
-      if (!fetchError && fresh) {
-        setExtractions(fresh as ExtractionRow[]);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          body?.error === 'Document not found'
+            ? 'Document not found.'
+            : body?.error === 'Unable to download file from storage'
+              ? 'Unable to access file for analysis.'
+              : body?.error === 'Server analysis is not configured'
+                ? 'Server analysis is not configured.'
+                : 'Analysis failed. Please try again.';
+        setAnalyzeMsg({ type: 'error', text: msg });
+        return;
       }
 
+      if (body?.success && body?.extraction) {
+        setExtractions((prev) => [body.extraction as ExtractionRow, ...prev]);
+      }
       setAnalyzeMsg({ type: 'success', text: 'Analysis complete. New extraction added.' });
     } finally {
       setAnalyzing(false);

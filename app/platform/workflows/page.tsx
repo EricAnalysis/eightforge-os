@@ -55,14 +55,25 @@ export default function WorkflowsPage() {
 
   return (
     <div className="space-y-4">
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-[#F1F3F5]">
-          Workflows
-        </h2>
-        <p className="text-xs text-[#8B94A3]">
-          Workflow Builder for orchestrating operational processes across
-          EightForge OS.
-        </p>
+      <section className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="mb-1 text-sm font-semibold text-[#F1F3F5]">
+            Workflows
+          </h2>
+          <p className="text-xs text-[#8B94A3]">
+            Workflow Builder for orchestrating operational processes across
+            EightForge OS.
+          </p>
+        </div>
+        <div className="shrink-0">
+          <button
+            type="button"
+            onClick={handleCreateWorkflow}
+            className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+          >
+            Create Workflow
+          </button>
+        </div>
       </section>
 
       <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-3">

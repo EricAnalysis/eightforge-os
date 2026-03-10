@@ -103,13 +103,23 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-4">
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-[#F1F3F5]">
-          Document Intelligence
-        </h2>
-        <p className="text-xs text-[#8B94A3]">
-          Inbox for PDFs, contracts, and reports processed by EightForge OS.
-        </p>
+      <section className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="mb-1 text-sm font-semibold text-[#F1F3F5]">
+            Document Intelligence
+          </h2>
+          <p className="text-xs text-[#8B94A3]">
+            Inbox for PDFs, contracts, and reports processed by EightForge OS.
+          </p>
+        </div>
+        <div className="shrink-0">
+          <button
+            type="button"
+            className="rounded-md bg-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#F1F3F5] hover:bg-[#252a33]"
+          >
+            Upload Document
+          </button>
+        </div>
       </section>
 
       {/* Upload form */}

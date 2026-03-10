@@ -107,17 +107,27 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-[#F1F3F5]">
-          Dashboard
-        </h2>
-        <p className="text-xs text-[#8B94A3]">
-          Operations Command Center for EightForge OS. This view surfaces workflows,
-          decisions, and operational risk in real time.
-        </p>
-        <p className="mt-2 text-[11px] text-[#8B94A3]">
-          Organization: {organization?.name ?? 'No organization found'}
-        </p>
+      <section className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="mb-1 text-sm font-semibold text-[#F1F3F5]">
+            Dashboard
+          </h2>
+          <p className="text-xs text-[#8B94A3]">
+            Operations Command Center for EightForge OS. This view surfaces workflows,
+            decisions, and operational risk in real time.
+          </p>
+          <p className="mt-1 text-[11px] text-[#8B94A3]">
+            Organization: {organization?.name ?? 'No organization found'}
+          </p>
+        </div>
+        <div className="shrink-0">
+          <button
+            type="button"
+            className="rounded-md bg-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#F1F3F5] hover:bg-[#252a33]"
+          >
+            Refresh
+          </button>
+        </div>
       </section>
 
       <section className="grid gap-3 md:grid-cols-5">

@@ -84,12 +84,19 @@ export default function DocumentDetailPage({
   const [fileError, setFileError]   = useState(false);
   const [extractions, setExtractions]     = useState<ExtractionRow[]>([]);
   const [extractionsLoading, setExtractionsLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeMsg, setAnalyzeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (orgLoading) return;
     if (!organizationId) return;
 
     const load = async () => {
+      setDoc(null);
+      setSignedUrl(null);
+      setFileError(false);
+      setExtractions([]);
+      setNotFound(false);
       setLoading(true);
       setExtractionsLoading(true);
 
@@ -110,6 +117,10 @@ export default function DocumentDetailPage({
       ]);
 
       if (docResult.error || !docResult.data) {
+        setDoc(null);
+        setSignedUrl(null);
+        setFileError(false);
+        setExtractions([]);
         setNotFound(true);
         setLoading(false);
         setExtractionsLoading(false);
@@ -143,6 +154,49 @@ export default function DocumentDetailPage({
 
     load();
   }, [id, organizationId, orgLoading]);
+
+  const handleAnalyze = async () => {
+    if (!doc || !organizationId || analyzing) return;
+    setAnalyzing(true);
+    setAnalyzeMsg(null);
+    try {
+      const payload = {
+        status: 'completed',
+        source: 'manual_test_trigger',
+        summary: 'Test extraction created from the document detail page',
+        document_id: doc.id,
+        document_title: doc.title ?? doc.name,
+        analyzed_at: new Date().toISOString(),
+        fields: {
+          detected_document_type: doc.document_type ?? null,
+          file_name: doc.name,
+        },
+      };
+
+      const { error: insertError } = await supabase
+        .from('document_extractions')
+        .insert({ document_id: doc.id, data: payload });
+
+      if (insertError) {
+        setAnalyzeMsg({ type: 'error', text: 'Analysis failed. Please try again.' });
+        return;
+      }
+
+      const { data: fresh, error: fetchError } = await supabase
+        .from('document_extractions')
+        .select('id, data, created_at')
+        .eq('document_id', doc.id)
+        .order('created_at', { ascending: false });
+
+      if (!fetchError && fresh) {
+        setExtractions(fresh as ExtractionRow[]);
+      }
+
+      setAnalyzeMsg({ type: 'success', text: 'Analysis complete. New extraction added.' });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
@@ -307,17 +361,25 @@ export default function DocumentDetailPage({
         )}
       </section>
 
-      {/* Analyze placeholder */}
       <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Analyze</div>
         <button
           type="button"
-          className="rounded-md bg-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#8B94A3] cursor-not-allowed"
-          disabled
+          onClick={handleAnalyze}
+          disabled={analyzing}
+          className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Analyze Document
+          {analyzing ? 'Analyzing…' : 'Analyze Document'}
         </button>
-        <p className="mt-2 text-[10px] text-[#3a3f4a]">Coming soon</p>
+        {analyzeMsg && (
+          <p
+            className={`mt-2 text-[11px] ${
+              analyzeMsg.type === 'success' ? 'text-emerald-400' : 'text-red-400'
+            }`}
+          >
+            {analyzeMsg.text}
+          </p>
+        )}
       </section>
     </div>
   );

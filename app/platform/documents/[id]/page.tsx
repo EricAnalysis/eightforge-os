@@ -1,33 +1,37 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { useCurrentOrg } from '@/lib/useCurrentOrg';
 
-const bucket = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET ?? 'documents';
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const BUCKET = 'documents';
+const SIGNED_URL_EXPIRY = 300; // 5 minutes
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type DocumentDetail = {
   id: string;
+  title: string | null;
   name: string;
+  document_type: string | null;
   status: string;
   created_at: string;
   storage_path: string;
+  project_id: string | null;
+  projects: { id: string; name: string } | { id: string; name: string }[] | null;
 };
 
-async function getSignedUrl(path: string): Promise<string | null> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded: 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
+    uploaded:   'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
     processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    processed: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    failed: 'bg-red-500/20 text-red-400 border border-red-500/40',
+    processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
   };
   const cls = map[status] ?? 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]';
   return (
@@ -37,168 +41,237 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function filenameFromPath(path: string): string {
-  const segments = path.split('/');
-  return segments[segments.length - 1] ?? path;
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 text-[11px]">
+      <span className="w-28 shrink-0 text-[#8B94A3]">{label}</span>
+      <span className="text-[#F1F3F5]">{children}</span>
+    </div>
+  );
 }
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+function resolveProject(
+  raw: DocumentDetail['projects'],
+): { id: string; name: string } | null {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return raw;
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DocumentDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const { id } = params;
-  const [doc, setDoc] = useState<DocumentDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [viewUrl, setViewUrl] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [fileUnavailable, setFileUnavailable] = useState(false);
+  const { id } = use(params);
+  const { organization, loading: orgLoading } = useCurrentOrg();
+  const organizationId = organization?.id ?? null;
+
+  const [doc, setDoc]           = useState<DocumentDetail | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [signedUrl, setSignedUrl]   = useState<string | null>(null);
+  const [fileError, setFileError]   = useState(false);
 
   useEffect(() => {
+    if (orgLoading) return;
+    if (!organizationId) return;
+
     const load = async () => {
+      setLoading(true);
+
       const { data, error } = await supabase
         .from('documents')
-        .select('id, name, status, created_at, storage_path')
+        .select(
+          'id, title, name, document_type, status, created_at, storage_path, project_id, projects(id, name)',
+        )
         .eq('id', id)
+        .eq('organization_id', organizationId)
         .single();
 
       if (error || !data) {
-        setDoc(null);
+        setNotFound(true);
         setLoading(false);
         return;
       }
+
       setDoc(data as DocumentDetail);
       setLoading(false);
 
+      // Generate signed URL for the private bucket
       if (data.storage_path) {
-        const url = await getSignedUrl(data.storage_path);
-        if (url) {
-          setViewUrl(url);
-          setDownloadUrl(url);
+        const { data: urlData, error: urlError } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrl(data.storage_path, SIGNED_URL_EXPIRY);
+
+        if (!urlError && urlData?.signedUrl) {
+          setSignedUrl(urlData.signedUrl);
         } else {
-          setFileUnavailable(true);
+          setFileError(true);
         }
       } else {
-        setFileUnavailable(true);
+        setFileError(true);
       }
     };
+
     load();
-  }, [id]);
+  }, [id, organizationId, orgLoading]);
 
-  const handleAnalyze = () => {
-    console.log('Analyze document', id);
-  };
+  // ── Loading ────────────────────────────────────────────────────────────────
 
-  if (loading) {
+  if (loading || orgLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
+        <Link
+          href="/platform/documents"
+          className="text-[11px] text-[#7C5CFF] hover:underline"
+        >
+          ← Documents
+        </Link>
         <p className="text-[11px] text-[#8B94A3]">Loading…</p>
-        <Link
-          href="/platform/documents"
-          className="text-[11px] text-[#7C5CFF] hover:underline"
-        >
-          Back to Documents
-        </Link>
       </div>
     );
   }
 
-  if (!doc) {
+  // ── Not found ──────────────────────────────────────────────────────────────
+
+  if (notFound || !doc) {
     return (
-      <div className="space-y-4">
-        <p className="text-[11px] text-[#F1F3F5]">Document not found.</p>
+      <div className="space-y-3">
         <Link
           href="/platform/documents"
           className="text-[11px] text-[#7C5CFF] hover:underline"
         >
-          Back to Documents
+          ← Documents
         </Link>
+        <p className="text-[11px] text-[#8B94A3]">Document not found.</p>
       </div>
     );
   }
 
-  const filename = doc.storage_path ? filenameFromPath(doc.storage_path) : '—';
+  const displayTitle = doc.title ?? doc.name;
+  const project      = resolveProject(doc.projects);
+  const filename     = doc.storage_path.split('/').at(-1) ?? doc.storage_path;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4">
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-[#F1F3F5]">
-          {doc.name}
-        </h2>
-        <Link
-          href="/platform/documents"
-          className="text-[11px] text-[#7C5CFF] hover:underline"
-        >
-          Back to Documents
-        </Link>
+
+      {/* Page header */}
+      <section className="flex items-start justify-between gap-4">
+        <div>
+          <div className="mb-1">
+            <Link
+              href="/platform/documents"
+              className="text-[11px] text-[#7C5CFF] hover:underline"
+            >
+              ← Documents
+            </Link>
+          </div>
+          <h2 className="text-sm font-semibold text-[#F1F3F5]">{displayTitle}</h2>
+          <p className="text-xs text-[#8B94A3]">
+            {doc.document_type
+              ? doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1)
+              : 'Document'}{' '}
+            · <StatusBadge status={doc.status} />
+          </p>
+        </div>
+        <div className="shrink-0">
+          {signedUrl ? (
+            <a
+              href={signedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+            >
+              View File
+            </a>
+          ) : fileError ? (
+            <span className="text-[11px] text-red-400">File unavailable</span>
+          ) : (
+            <span className="text-[11px] text-[#8B94A3]">Generating link…</span>
+          )}
+        </div>
       </section>
 
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-3">
-        <div className="mb-2 text-[11px] font-medium text-[#F1F3F5]">
-          Metadata
-        </div>
-        <dl className="space-y-1 text-[11px] text-[#8B94A3]">
-          <div>
-            <span className="text-[#F1F3F5]">Created:</span>{' '}
-            {new Date(doc.created_at).toLocaleString()}
-          </div>
-          <div>
-            <span className="text-[#F1F3F5]">Status:</span>{' '}
+      {/* Metadata */}
+      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Details</div>
+        <div className="space-y-2">
+          <MetaRow label="Title">{displayTitle}</MetaRow>
+          <MetaRow label="File name">{doc.name}</MetaRow>
+          <MetaRow label="Document type">
+            {doc.document_type
+              ? doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1)
+              : <span className="text-[#3a3f4a]">—</span>}
+          </MetaRow>
+          <MetaRow label="Status">
             <StatusBadge status={doc.status} />
-          </div>
-          <div>
-            <span className="text-[#F1F3F5]">Storage path:</span> {doc.storage_path || '—'}
-          </div>
-          <div>
-            <span className="text-[#F1F3F5]">Filename:</span> {filename}
-          </div>
-        </dl>
+          </MetaRow>
+          <MetaRow label="Created">
+            {new Date(doc.created_at).toLocaleString()}
+          </MetaRow>
+          <MetaRow label="Project">
+            {project
+              ? <span>{project.name}</span>
+              : <span className="text-[#3a3f4a]">—</span>}
+          </MetaRow>
+          <MetaRow label="Storage path">
+            <span className="font-mono text-[10px] text-[#8B94A3]">{doc.storage_path}</span>
+          </MetaRow>
+          <MetaRow label="File">
+            <span className="font-mono text-[10px] text-[#8B94A3]">{filename}</span>
+          </MetaRow>
+        </div>
       </section>
 
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-3">
-        <div className="mb-2 text-[11px] font-medium text-[#F1F3F5]">
-          File actions
-        </div>
-        {fileUnavailable ? (
-          <p className="text-[11px] text-red-400">File unavailable.</p>
-        ) : (
-          <div className="flex flex-wrap gap-3">
-            {viewUrl && (
-              <a
-                href={viewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
-              >
-                View File
-              </a>
-            )}
-            {downloadUrl && (
-              <a
-                href={downloadUrl}
-                download={filename}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md border border-[#1A1F27] bg-[#0F1115] px-3 py-2 text-[11px] font-medium text-[#F1F3F5] hover:bg-[#1A1F27]"
-              >
-                Download File
-              </a>
-            )}
+      {/* File actions */}
+      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">File</div>
+        {fileError ? (
+          <p className="text-[11px] text-red-400">
+            File unavailable. The storage object may have been removed.
+          </p>
+        ) : signedUrl ? (
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={signedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+            >
+              View File
+            </a>
+            <a
+              href={signedUrl}
+              download={filename}
+              rel="noopener noreferrer"
+              className="rounded-md border border-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#F1F3F5] hover:bg-[#1A1F27]"
+            >
+              Download
+            </a>
           </div>
+        ) : (
+          <p className="text-[11px] text-[#8B94A3]">Generating secure link…</p>
         )}
       </section>
 
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-3">
-        <div className="mb-2 text-[11px] font-medium text-[#F1F3F5]">
-          Analyze
-        </div>
+      {/* Analyze placeholder */}
+      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Analyze</div>
         <button
           type="button"
-          onClick={handleAnalyze}
-          className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+          className="rounded-md bg-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#8B94A3] cursor-not-allowed"
+          disabled
         >
           Analyze Document
         </button>
+        <p className="mt-2 text-[10px] text-[#3a3f4a]">Coming soon</p>
       </section>
     </div>
   );

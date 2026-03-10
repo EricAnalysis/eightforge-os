@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 
@@ -250,6 +251,7 @@ function UploadModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DocumentsPage() {
+  const router = useRouter();
   const { organization, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
 
@@ -315,12 +317,17 @@ export default function DocumentsPage() {
                 <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Title</th>
                 <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Type</th>
                 <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Status</th>
-                <th className="py-2 font-medium text-[#F1F3F5]">Created</th>
+                <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Created</th>
+                <th className="py-2 font-medium text-[#F1F3F5]"></th>
               </tr>
             </thead>
             <tbody>
               {docs.map((doc) => (
-                <tr key={doc.id} className="border-b border-[#1A1F27] last:border-0">
+                <tr
+                  key={doc.id}
+                  onClick={() => router.push(`/platform/documents/${doc.id}`)}
+                  className="cursor-pointer border-b border-[#1A1F27] last:border-0 hover:bg-[#13171E]"
+                >
                   <td className="py-2 pr-3 text-[#F1F3F5]">
                     {doc.title ?? doc.name}
                   </td>
@@ -332,8 +339,19 @@ export default function DocumentsPage() {
                   <td className="py-2 pr-3">
                     <StatusBadge status={doc.status} />
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 pr-3">
                     {new Date(doc.created_at).toLocaleString()}
+                  </td>
+                  <td
+                    className="py-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <a
+                      href={`/platform/documents/${doc.id}`}
+                      className="text-[#7C5CFF] hover:underline"
+                    >
+                      View
+                    </a>
                   </td>
                 </tr>
               ))}

@@ -15,17 +15,29 @@ export function useCurrentOrg() {
   useEffect(() => {
     const fetchOrganization = async () => {
       try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          setOrganization(null);
+          return;
+        }
+
         const { data, error } = await supabase
-          .from('organizations')
-          .select('id, name')
-          .limit(1)
+          .from('user_profiles')
+          .select('organization_id, organizations(id, name)')
+          .eq('id', user.id)
           .single();
 
-        if (error) {
-          console.error('Error loading organization:', error.message);
+        if (error || !data) {
+          console.error('Error loading user profile:', error?.message);
           setOrganization(null);
         } else {
-          setOrganization(data);
+          // Supabase infers the join as array but the FK is many-to-one,
+          // so PostgREST returns a single object at runtime.
+          const raw = data.organizations;
+          const org: Organization | null = Array.isArray(raw)
+            ? (raw[0] as Organization) ?? null
+            : (raw as unknown as Organization | null);
+          setOrganization(org);
         }
       } catch (err) {
         console.error('Unexpected error loading organization:', err);

@@ -49,7 +49,7 @@ export default function PlatformLayout({ children }: { children: ReactNode }) {
       <aside className="w-64 border-r border-[#1A1F27] bg-[#0F1115] px-4 py-6">
         <div className="mb-8">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#9F7AEA]" />
+            <div className="h-8 w-8 rounded-full bg-linear-to-br from-[#7C5CFF] to-[#9F7AEA]" />
             <div className="text-sm font-semibold tracking-wide">
               EightForge OS
             </div>

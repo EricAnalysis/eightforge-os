@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useCurrentOrg } from '@/lib/useCurrentOrg';
 
-type Project = {
+type ProjectRow = {
   id: string;
   name: string;
   code: string;
@@ -12,65 +13,44 @@ type Project = {
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  active: "bg-[#1A2E1A] text-[#4ADE80]",
-  inactive: "bg-[#2A2A1A] text-[#FACC15]",
-  archived: "bg-[#1A1F27] text-[#8B94A3]",
+  active:   'bg-[#1A2E1A] text-[#4ADE80]',
+  inactive: 'bg-[#2A2A1A] text-[#FACC15]',
+  draft:    'bg-[#1A1F27] text-[#8B94A3]',
+  archived: 'bg-[#1A1F27] text-[#8B94A3]',
+  paused:   'bg-amber-500/20 text-amber-400',
 };
 
 export default function ProjectsPage() {
-  const supabase = createClientComponentClient();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { organization, loading: orgLoading } = useCurrentOrg();
+  const organizationId = organization?.id ?? null;
+
+  const [projects, setProjects]       = useState<ProjectRow[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [error, setError]             = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchProjects() {
-      setLoading(true);
+    if (orgLoading) return;
+    if (!organizationId) return;
+
+    const load = async () => {
+      setProjectsLoading(true);
       setError(null);
-      try {
-        // Get the current user's organization_id from user_profiles
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          setError("Not authenticated.");
-          setLoading(false);
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from("user_profiles")
-          .select("organization_id")
-          .eq("id", user.id)
-          .single();
-
-        if (profileError || !profile) {
-          setError("Could not load user profile.");
-          setLoading(false);
-          return;
-        }
-
-        const { data: projectData, error: projectError } = await supabase
-          .from("projects")
-          .select("id, name, code, status, created_at")
-          .eq("organization_id", profile.organization_id)
-          .order("created_at", { ascending: false });
-
-        if (projectError) {
-          setError("Failed to load projects.");
-        } else {
-          setProjects(projectData ?? []);
-        }
-      } catch {
-        setError("An unexpected error occurred.");
-      } finally {
-        setLoading(false);
+      const { data, error: fetchError } = await supabase
+        .from('projects')
+        .select('id, name, code, status, created_at')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false });
+      if (fetchError) {
+        setError('Failed to load projects.');
+      } else {
+        setProjects((data ?? []) as ProjectRow[]);
       }
-    }
+      setProjectsLoading(false);
+    };
+    load();
+  }, [organizationId, orgLoading]);
 
-    fetchProjects();
-  }, [supabase]);
+  const loading = orgLoading || projectsLoading;
 
   return (
     <div className="space-y-4">
@@ -94,22 +74,22 @@ export default function ProjectsPage() {
 
       {loading && (
         <div className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-          <div className="text-[11px] text-[#8B94A3]">Loading projects…</div>
+          <p className="text-[11px] text-[#8B94A3]">Loading projects…</p>
         </div>
       )}
 
       {!loading && error && (
-        <div className="rounded-lg border border-[#2A1A1A] bg-[#0F1115] p-4">
-          <div className="text-[11px] font-medium text-red-400">{error}</div>
+        <div className="rounded-lg border border-red-900/40 bg-[#0F1115] p-4">
+          <p className="text-[11px] font-medium text-red-400">{error}</p>
         </div>
       )}
 
       {!loading && !error && projects.length === 0 && (
         <div className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-          <div className="text-[11px] font-medium text-[#F1F3F5]">No projects yet</div>
-          <div className="mt-1 text-[11px] text-[#8B94A3]">
+          <p className="text-[11px] font-medium text-[#F1F3F5]">No projects yet</p>
+          <p className="mt-1 text-[11px] text-[#8B94A3]">
             Projects will appear here once they are created.
-          </div>
+          </p>
         </div>
       )}
 
@@ -135,17 +115,17 @@ export default function ProjectsPage() {
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium capitalize ${
-                        STATUS_STYLES[project.status] ?? STATUS_STYLES["archived"]
+                        STATUS_STYLES[project.status] ?? STATUS_STYLES['archived']
                       }`}
                     >
                       {project.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-[#8B94A3]">
-                    {new Date(project.created_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
+                    {new Date(project.created_at).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
                     })}
                   </td>
                 </tr>

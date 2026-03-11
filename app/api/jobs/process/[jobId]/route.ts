@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
+import { runDecisionEngine } from '@/lib/server/decisionEngine';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
@@ -127,6 +128,20 @@ export async function POST(
     if (insertError) {
       await markJobFailed(jobId, job.document_id, insertError.message);
       return jsonError('Analysis failed. Please try again.', 500);
+    }
+
+    try {
+      await runDecisionEngine({
+        documentId: job.document_id,
+        organizationId: job.organization_id,
+        extraction: payload as unknown as {
+          fields: Record<string, unknown>;
+          extraction?: { mode: string; text_preview: string | null };
+          ai_enrichment?: Record<string, unknown>;
+        },
+      });
+    } catch (e) {
+      console.error('[jobs/process] decision engine error:', e);
     }
 
     await updateJobStatus({

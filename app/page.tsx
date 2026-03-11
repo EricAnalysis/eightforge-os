@@ -1,3 +1,38 @@
+import Link from 'next/link';
+
+const CARDS = [
+  {
+    title: 'Dashboard',
+    description: 'High level operating view across projects, issues, and throughput.',
+    href: '/platform',
+  },
+  {
+    title: 'Workflows',
+    description: 'Track review pipelines, stage gates, and process execution.',
+    href: '/platform/workflows',
+  },
+  {
+    title: 'Documents',
+    description: 'Manage contract intelligence, uploads, and extracted findings.',
+    href: '/platform/documents',
+  },
+  {
+    title: 'QA Systems',
+    description: 'Run validation checks and surface exceptions before downstream errors.',
+    href: '/platform/reviews',
+  },
+  {
+    title: 'Agents',
+    description: 'Coordinate AI driven tasks, reviews, and operational assistants.',
+    href: '/platform/agents',
+  },
+  {
+    title: 'Insights',
+    description: 'Turn data, reviews, and documents into actionable decisions.',
+    href: '/platform/decisions',
+  },
+] as const;
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-black text-white">
@@ -18,41 +53,17 @@ export default function Home() {
         </div>
 
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            {
-              title: 'Dashboard',
-              description: 'High level operating view across projects, issues, and throughput.',
-            },
-            {
-              title: 'Workflows',
-              description: 'Track review pipelines, stage gates, and process execution.',
-            },
-            {
-              title: 'Documents',
-              description: 'Manage contract intelligence, uploads, and extracted findings.',
-            },
-            {
-              title: 'QA Systems',
-              description: 'Run validation checks and surface exceptions before downstream errors.',
-            },
-            {
-              title: 'Agents',
-              description: 'Coordinate AI driven tasks, reviews, and operational assistants.',
-            },
-            {
-              title: 'Insights',
-              description: 'Turn data, reviews, and documents into actionable decisions.',
-            },
-          ].map((item) => (
-            <section
+          {CARDS.map((item) => (
+            <Link
               key={item.title}
-              className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6"
+              href={item.href}
+              className="block rounded-2xl border border-zinc-800 bg-zinc-950 p-6 transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus:outline focus:outline-2 focus:outline-zinc-500 focus:outline-offset-2"
             >
               <h2 className="text-xl font-medium text-white">{item.title}</h2>
               <p className="mt-3 text-sm leading-6 text-zinc-400">
                 {item.description}
               </p>
-            </section>
+            </Link>
           ))}
         </div>
       </div>

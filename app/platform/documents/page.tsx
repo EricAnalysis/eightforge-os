@@ -27,6 +27,7 @@ const BUCKET = 'documents';
 
 const DOC_TYPES = [
   'contract',
+  'invoice',
   'report',
   'policy',
   'procedure',

@@ -1,6 +1,42 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import type { DecisionSource, DocumentDecision } from '@/lib/types/decisions';
 
+type TypedFieldsShape = {
+  schema_type?: string;
+  // Contract fields
+  vendor_name?: string | null;
+  termination_clause?: string | null;
+  insurance_requirements?: string | null;
+  bonding_requirements?: string | null;
+  fema_reference?: boolean;
+  rate_table?: Array<{
+    material_type: string | null;
+    unit: string | null;
+    rate_amount: number | null;
+    rate_raw: string;
+  }>;
+  hauling_rates?: string[];
+  tipping_fees?: string[];
+  expiration_date?: string | null;
+  // Invoice fields
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  line_items?: Array<{
+    description: string;
+    quantity: number | null;
+    unit: string | null;
+    unit_price: number | null;
+    total: number | null;
+  }>;
+  total_amount?: number | null;
+  payment_terms?: string | null;
+  po_number?: string | null;
+  // Report fields
+  report_type?: string | null;
+  compliance_status?: string | null;
+  findings?: Array<{ finding_text: string; severity: string | null }>;
+};
+
 type ExtractionShape = {
   fields: {
     rate_mentions?: string[];
@@ -11,6 +47,7 @@ type ExtractionShape = {
     detected_document_type?: string | null;
     file_name?: string;
     title?: string | null;
+    typed_fields?: TypedFieldsShape | null;
   };
   extraction?: {
     mode: string;
@@ -219,6 +256,185 @@ export async function runDecisionEngine(params: {
     confidence: 1.0,
     source: 'deterministic',
   });
+
+  // ── Typed-schema rules ───────────────────────────────────────────────────────
+  const typed = params.extraction.fields?.typed_fields;
+  const docId = params.documentId;
+  const orgId = params.organizationId;
+
+  // Contract rules
+  if (typed?.schema_type === 'contract') {
+    // Rate validation
+    const rates = Array.isArray(typed.rate_table) ? typed.rate_table : [];
+    for (const entry of rates) {
+      if (entry.rate_amount == null) continue;
+      const unitLower = (entry.unit ?? '').toLowerCase();
+      if ((unitLower.includes('cubic yard') || unitLower.includes('cy')) && entry.rate_amount > 100) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'rate_validation', decision_value: 'rate_high_cy',
+          confidence: 0.7, source: 'deterministic',
+        });
+      }
+      if (unitLower.includes('ton') && entry.rate_amount > 80) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'rate_validation', decision_value: 'rate_high_ton',
+          confidence: 0.7, source: 'deterministic',
+        });
+      }
+      if (entry.rate_amount < 5) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'rate_validation', decision_value: 'rate_suspiciously_low',
+          confidence: 0.7, source: 'deterministic',
+        });
+      }
+    }
+
+    // Contract completeness
+    const hasTermination = typed.termination_clause != null;
+    const hasInsurance = typed.insurance_requirements != null;
+    const hasBonding = typed.bonding_requirements != null;
+
+    if (hasTermination && hasInsurance && hasBonding) {
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'contract_completeness', decision_value: 'complete',
+        confidence: 0.85, source: 'deterministic',
+      });
+    } else {
+      if (!hasTermination) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'contract_gap', decision_value: 'missing_termination_clause',
+          confidence: 0.8, source: 'deterministic',
+        });
+      }
+      if (!hasInsurance) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'contract_gap', decision_value: 'missing_insurance_requirements',
+          confidence: 0.8, source: 'deterministic',
+        });
+      }
+      if (!hasBonding) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'contract_gap', decision_value: 'missing_bonding_requirements',
+          confidence: 0.8, source: 'deterministic',
+        });
+      }
+    }
+
+    // FEMA eligibility (granular)
+    if (typed.fema_reference === true) {
+      const femaChecks = [
+        { present: hasInsurance, label: 'insurance' },
+        { present: hasBonding, label: 'bonding' },
+        { present: hasTermination, label: 'termination_for_convenience' },
+      ];
+      const allPresent = femaChecks.every((c) => c.present);
+
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'fema_eligibility',
+        decision_value: allPresent ? 'likely_eligible' : 'eligibility_risk',
+        confidence: allPresent ? 0.8 : 0.75,
+        source: 'deterministic',
+      });
+
+      for (const check of femaChecks) {
+        if (!check.present) {
+          addDecision(decisions, seen, {
+            document_id: docId, organization_id: orgId,
+            decision_type: 'fema_eligibility_gap',
+            decision_value: `missing_${check.label}`,
+            confidence: 0.75, source: 'deterministic',
+          });
+        }
+      }
+    }
+  }
+
+  // Invoice rules
+  if (typed?.schema_type === 'invoice') {
+    const fieldChecks = [
+      { present: typed.invoice_number != null, label: 'invoice_number' },
+      { present: typed.invoice_date != null, label: 'invoice_date' },
+      { present: typed.vendor_name != null, label: 'vendor_name' },
+      { present: Array.isArray(typed.line_items) && typed.line_items.length > 0, label: 'line_items' },
+      { present: typed.total_amount != null, label: 'total_amount' },
+    ];
+    const presentCount = fieldChecks.filter((f) => f.present).length;
+
+    const completeness = presentCount === 5 ? 'complete'
+      : presentCount >= 3 ? 'partial'
+      : 'incomplete';
+    const conf = presentCount === 5 ? 0.9 : presentCount >= 3 ? 0.75 : 0.8;
+
+    addDecision(decisions, seen, {
+      document_id: docId, organization_id: orgId,
+      decision_type: 'invoice_completeness', decision_value: completeness,
+      confidence: conf, source: 'deterministic',
+    });
+
+    for (const check of fieldChecks) {
+      if (!check.present) {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'missing_field', decision_value: check.label,
+          confidence: 0.8, source: 'deterministic',
+        });
+      }
+    }
+  }
+
+  // Report rules
+  if (typed?.schema_type === 'report') {
+    if (typed.compliance_status === 'non_compliant') {
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'compliance_alert', decision_value: 'non_compliant',
+        confidence: 0.85, source: 'deterministic',
+      });
+    }
+
+    const findings = Array.isArray(typed.findings) ? typed.findings : [];
+    for (const f of findings.slice(0, 5)) {
+      if (f.severity === 'critical') {
+        addDecision(decisions, seen, {
+          document_id: docId, organization_id: orgId,
+          decision_type: 'critical_finding',
+          decision_value: f.finding_text.slice(0, 100),
+          confidence: 0.8, source: 'deterministic',
+        });
+      }
+    }
+  }
+
+  // Classification confidence (any typed schema)
+  if (typed?.schema_type) {
+    const detectedType = params.extraction.fields?.detected_document_type ?? null;
+    if (detectedType === typed.schema_type) {
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'classification_confidence', decision_value: 'confirmed',
+        confidence: 0.9, source: 'deterministic',
+      });
+    } else if (detectedType && detectedType !== typed.schema_type) {
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'classification_confidence', decision_value: 'mismatch',
+        confidence: 0.7, source: 'deterministic',
+      });
+      addDecision(decisions, seen, {
+        document_id: docId, organization_id: orgId,
+        decision_type: 'suggested_document_type', decision_value: typed.schema_type,
+        confidence: 0.7, source: 'deterministic',
+      });
+    }
+  }
 
   // AI-enriched rules (only when real provider is present)
   const ai = params.extraction.ai_enrichment;

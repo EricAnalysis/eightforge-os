@@ -18,18 +18,35 @@ export async function runAiEnrichment(params: {
   extractedText: string | null;
   heuristicFields: Record<string, unknown>;
 }): Promise<AiEnrichmentResult> {
-  const hasKey = !!process.env.OPENAI_API_KEY;
-  return {
-    classification: null,
-    key_clauses: [],
-    pricing_summary: null,
-    scope_summary: null,
-    eligibility_risks: [],
-    termination_flags: [],
-    confidence_note: hasKey
-      ? 'AI enrichment is configured. Full implementation coming soon.'
-      : 'AI enrichment not configured. Set OPENAI_API_KEY to enable.',
-    provider: hasKey ? 'openai_pending' : 'none',
-    enriched_at: new Date().toISOString(),
-  };
+  try {
+    // (params is currently unused; keep signature for future integration)
+    void params;
+
+    const hasKey = !!process.env.OPENAI_API_KEY;
+    return {
+      classification: null,
+      key_clauses: [],
+      pricing_summary: null,
+      scope_summary: null,
+      eligibility_risks: [],
+      termination_flags: [],
+      confidence_note: hasKey
+        ? 'AI enrichment is configured. Full implementation coming soon.'
+        : 'AI enrichment not configured. Set OPENAI_API_KEY to enable.',
+      provider: hasKey ? 'openai_pending' : 'none',
+      enriched_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    return {
+      classification: null,
+      key_clauses: [],
+      pricing_summary: null,
+      scope_summary: null,
+      eligibility_risks: [],
+      termination_flags: [],
+      confidence_note: `AI enrichment error: ${err instanceof Error ? err.message : String(err)}`,
+      provider: 'error',
+      enriched_at: new Date().toISOString(),
+    };
+  }
 }

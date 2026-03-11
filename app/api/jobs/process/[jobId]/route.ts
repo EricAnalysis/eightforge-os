@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
+import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
 import { runDecisionEngine } from '@/lib/server/decisionEngine';
 import { runWorkflowEngine } from '@/lib/server/workflowEngine';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
@@ -119,6 +120,18 @@ export async function POST(
         heuristicFields: (payload.fields ?? {}) as Record<string, unknown>,
       });
       payload.ai_enrichment = aiResult;
+
+      const aiDecisionResult = await persistAiEnrichmentDecisions({
+        supabase: admin,
+        organizationId: job.organization_id,
+        documentId: job.document_id,
+        jobId,
+        enrichment: {
+          ...aiResult,
+          confidence_note: aiResult.confidence_note ?? null,
+        },
+      });
+      console.log('AI decision persistence result', aiDecisionResult);
     }
 
     const { data: inserted, error: insertError } = await admin

@@ -7,6 +7,7 @@ import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysi
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { runDecisionEngine } from '@/lib/server/decisionEngine';
+import { runWorkflowEngine } from '@/lib/server/workflowEngine';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
@@ -131,7 +132,7 @@ export async function POST(
     }
 
     try {
-      await runDecisionEngine({
+      const decisions = await runDecisionEngine({
         documentId: job.document_id,
         organizationId: job.organization_id,
         extraction: payload as unknown as {
@@ -140,6 +141,19 @@ export async function POST(
           ai_enrichment?: Record<string, unknown>;
         },
       });
+
+      try {
+        await runWorkflowEngine({
+          documentId: job.document_id,
+          organizationId: job.organization_id,
+          decisions: (decisions ?? []).map((d) => ({
+            decision_type: d.decision_type,
+            decision_value: d.decision_value,
+          })),
+        });
+      } catch (e) {
+        console.error('[jobs/process] workflow engine error:', e);
+      }
     } catch (e) {
       console.error('[jobs/process] decision engine error:', e);
     }

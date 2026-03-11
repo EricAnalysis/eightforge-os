@@ -1,0 +1,155 @@
+// app/api/jobs/process/[jobId]/route.ts
+// Processes a single document analysis job: download, extract, optional AI enrich, persist.
+
+import { NextResponse } from 'next/server';
+import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
+import { extractDocument } from '@/lib/server/documentExtraction';
+import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
+import type { ExtractionPayload } from '@/lib/server/documentExtraction';
+
+const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
+
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
+async function markJobFailed(jobId: string, documentId: string, errorMessage: string): Promise<void> {
+  await updateJobStatus({
+    jobId,
+    status: 'failed',
+    errorMessage,
+  });
+  await setDocumentStatus({ documentId, status: 'failed' });
+}
+
+export async function POST(
+  _req: Request,
+  { params }: { params: Promise<{ jobId: string }> }
+) {
+  let jobId: string | null = null;
+  let job: Awaited<ReturnType<typeof getJob>> = null;
+  try {
+    const resolved = await params;
+    jobId = resolved.jobId ?? null;
+    if (!jobId) {
+      return jsonError('Job not found', 404);
+    }
+
+    job = await getJob(jobId);
+    if (!job) {
+      return jsonError('Job not found', 404);
+    }
+    if (job.status !== 'queued') {
+      return NextResponse.json(
+        { error: 'Job is not in queued state' },
+        { status: 409 }
+      );
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return jsonError('Server not configured', 503);
+    }
+
+    const { data: docRow, error: docError } = await admin
+      .from('documents')
+      .select('id, title, name, document_type, status, storage_path, organization_id')
+      .eq('id', job.document_id)
+      .single();
+
+    if (docError || !docRow) {
+      await markJobFailed(jobId, job.document_id, 'Document not found');
+      return jsonError('Document not found', 404);
+    }
+
+    const storagePath = docRow.storage_path;
+    if (!storagePath || typeof storagePath !== 'string') {
+      await markJobFailed(jobId, job.document_id, 'storage_path missing');
+      return jsonError('storage_path missing', 400);
+    }
+
+    await updateJobStatus({
+      jobId,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    });
+    await setDocumentStatus({ documentId: job.document_id, status: 'processing' });
+
+    const { data: fileData, error: downloadError } = await admin.storage
+      .from(BUCKET)
+      .download(storagePath);
+
+    if (downloadError || !fileData) {
+      await markJobFailed(jobId, job.document_id, 'Unable to download file from storage');
+      await setDocumentStatus({ documentId: job.document_id, status: 'failed' });
+      return jsonError('Unable to download file from storage', 502);
+    }
+
+    const bytes = await fileData.arrayBuffer();
+    const fileName = docRow.name ?? storagePath.split('/').pop() ?? 'file';
+    const mimeType = (fileData as Blob & { type?: string }).type ?? null;
+    const metadata = {
+      id: docRow.id,
+      title: docRow.title ?? null,
+      name: docRow.name ?? fileName,
+      document_type: docRow.document_type ?? null,
+      storage_path: storagePath,
+    };
+
+    let payload = (await extractDocument(
+      metadata,
+      bytes,
+      mimeType,
+      fileName
+    )) as ExtractionPayload & { ai_enrichment?: unknown };
+
+    if (job.analysis_mode === 'ai_enriched') {
+      const aiResult = await runAiEnrichment({
+        documentMetadata: {
+          id: metadata.id,
+          title: metadata.title,
+          name: metadata.name,
+          document_type: metadata.document_type,
+        },
+        extractedText: payload.extraction?.text_preview ?? null,
+        heuristicFields: (payload.fields ?? {}) as Record<string, unknown>,
+      });
+      payload.ai_enrichment = aiResult;
+    }
+
+    const { data: inserted, error: insertError } = await admin
+      .from('document_extractions')
+      .insert({ document_id: job.document_id, data: payload })
+      .select('id, data, created_at')
+      .single();
+
+    if (insertError) {
+      await markJobFailed(jobId, job.document_id, insertError.message);
+      return jsonError('Analysis failed. Please try again.', 500);
+    }
+
+    await updateJobStatus({
+      jobId,
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      resultExtractionId: inserted?.id ?? null,
+    });
+    await setDocumentStatus({ documentId: job.document_id, status: 'processed' });
+
+    return NextResponse.json({
+      success: true,
+      extraction: inserted,
+      jobId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Analysis failed. Please try again.';
+    if (job && jobId) {
+      await markJobFailed(job.id, job.document_id, message);
+    }
+    return NextResponse.json(
+      { error: 'Analysis failed. Please try again.' },
+      { status: 500 }
+    );
+  }
+}

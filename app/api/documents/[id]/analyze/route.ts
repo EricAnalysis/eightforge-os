@@ -1,17 +1,16 @@
 // app/api/documents/[id]/analyze/route.ts
-// Server-side document analysis: auth, org scope, storage download, extraction, insert.
+// Enqueues a document analysis job and dispatches to the job processor.
 
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { extractDocument } from '@/lib/server/documentExtraction';
-import type { ExtractionPayload } from '@/lib/server/documentExtraction';
-
-const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
+import { createAnalysisJob } from '@/lib/server/analysisJobService';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
+
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
 export async function POST(
   _req: Request,
@@ -66,10 +65,6 @@ export async function POST(
 
     const organizationId = profile.organization_id as string;
 
-    // Use authClient (user JWT) for the document lookup so that the user's
-    // authenticated session is used. This fixes cases where the admin service-role
-    // key is misconfigured or unavailable, while still enforcing org-scoped access
-    // through both the explicit organization_id filter and any RLS policy.
     const { data: docRow, error: docError } = await authClient
       .from('documents')
       .select('id, title, name, document_type, storage_path')
@@ -81,52 +76,52 @@ export async function POST(
       return jsonError('Document not found', 404);
     }
 
-    const storagePath = docRow.storage_path;
-    if (!storagePath || typeof storagePath !== 'string') {
-      return jsonError('Document file path is missing', 400);
-    }
-
-    const { data: fileData, error: downloadError } = await admin.storage
-      .from(BUCKET)
-      .download(storagePath);
-
-    if (downloadError || !fileData) {
-      return jsonError('Unable to download file from storage', 502);
-    }
-
-    const bytes = await fileData.arrayBuffer();
-    const fileName = docRow.name ?? storagePath.split('/').pop() ?? 'file';
-    const mimeType = (fileData as Blob & { type?: string }).type ?? null;
-
-    const metadata = {
-      id: docRow.id,
-      title: docRow.title ?? null,
-      name: docRow.name ?? fileName,
-      document_type: docRow.document_type ?? null,
-      storage_path: storagePath,
-    };
-
-    const payload = (await extractDocument(
-      metadata,
-      bytes,
-      mimeType,
-      fileName
-    )) as ExtractionPayload;
-
-    const { data: inserted, error: insertError } = await admin
-      .from('document_extractions')
-      .insert({ document_id: documentId, data: payload })
-      .select('id, data, created_at')
+    const { data: orgRow, error: orgError } = await authClient
+      .from('organizations')
+      .select('analysis_mode')
+      .eq('id', organizationId)
       .single();
 
-    if (insertError) {
-      return jsonError('Analysis failed. Please try again.', 500);
+    const analysisMode = (orgError ? 'deterministic' : orgRow?.analysis_mode) ?? 'deterministic';
+    if (analysisMode === 'disabled') {
+      return NextResponse.json(
+        { error: 'Document analysis is disabled for this organization' },
+        { status: 422 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      extraction: inserted,
+    const job = await createAnalysisJob({
+      documentId,
+      organizationId,
+      analysisMode,
+      triggeredBy: 'manual',
     });
+
+    if (!job) {
+      return jsonError('Failed to create analysis job', 503);
+    }
+
+    const processorRes = await fetch(`${BASE_URL}/api/jobs/process/${job.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const processorData = await processorRes.json().catch(() => ({}));
+
+    if (processorRes.ok && processorData.success === true) {
+      return NextResponse.json({
+        success: true,
+        extraction: processorData.extraction,
+        jobId: job.id,
+      });
+    }
+
+    const status = processorRes.status;
+    const errorMessage =
+      typeof processorData.error === 'string'
+        ? processorData.error
+        : 'Analysis failed. Please try again.';
+    return NextResponse.json({ error: errorMessage }, { status });
   } catch (err) {
     console.error('Analyze route error:', err);
     return NextResponse.json(

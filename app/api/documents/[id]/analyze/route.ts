@@ -7,7 +7,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 
-const BUCKET = 'documents';
+const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -34,7 +34,6 @@ export async function POST(
     const supabaseUrl =
       process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    console.log('[analyze] supabase hostname:', supabaseUrl ? new URL(supabaseUrl).hostname : 'MISSING');
     if (!supabaseUrl || !anonKey) {
       return jsonError('Server analysis is not configured', 503);
     }

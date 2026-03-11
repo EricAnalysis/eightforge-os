@@ -34,6 +34,7 @@ export async function POST(
     const supabaseUrl =
       process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    console.log('[analyze] supabase hostname:', supabaseUrl ? new URL(supabaseUrl).hostname : 'MISSING');
     if (!supabaseUrl || !anonKey) {
       return jsonError('Server analysis is not configured', 503);
     }
@@ -66,7 +67,11 @@ export async function POST(
 
     const organizationId = profile.organization_id as string;
 
-    const { data: docRow, error: docError } = await admin
+    // Use authClient (user JWT) for the document lookup so that the user's
+    // authenticated session is used. This fixes cases where the admin service-role
+    // key is misconfigured or unavailable, while still enforcing org-scoped access
+    // through both the explicit organization_id filter and any RLS policy.
+    const { data: docRow, error: docError } = await authClient
       .from('documents')
       .select('id, title, name, document_type, storage_path')
       .eq('id', documentId)

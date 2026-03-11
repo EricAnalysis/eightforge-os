@@ -172,13 +172,19 @@ export async function POST(
       jobId,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Analysis failed. Please try again.';
-    if (job && jobId) {
-      await markJobFailed(job.id, job.document_id, message);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+
+    if (job?.document_id) {
+      await setDocumentStatus({ documentId: job.document_id, status: 'failed' });
     }
-    return NextResponse.json(
-      { error: 'Analysis failed. Please try again.' },
-      { status: 500 }
-    );
+    if (jobId) {
+      await updateJobStatus({
+        jobId,
+        status: 'failed',
+        errorMessage,
+      });
+    }
+
+    return NextResponse.json({ error: 'Job processing failed' }, { status: 500 });
   }
 }

@@ -108,6 +108,7 @@ export async function POST(
 
     if (job.analysis_mode === 'ai_enriched') {
       const aiResult = await runAiEnrichment({
+        organizationId: job.organization_id,
         documentMetadata: {
           id: metadata.id,
           title: metadata.title,

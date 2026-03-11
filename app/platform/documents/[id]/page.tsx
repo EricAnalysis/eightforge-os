@@ -115,6 +115,9 @@ export default function DocumentDetailPage({
   const [extractionsLoading, setExtractionsLoading] = useState(false);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [decisionsLoading, setDecisionsLoading] = useState(false);
+  const [feedbackMap, setFeedbackMap] = useState<
+    Record<string, 'correct' | 'incorrect'>
+  >({});
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -128,6 +131,7 @@ export default function DocumentDetailPage({
       setFileError(false);
       setExtractions([]);
       setDecisions([]);
+      setFeedbackMap({});
       setNotFound(false);
       setLoading(true);
       setExtractionsLoading(true);
@@ -180,6 +184,22 @@ export default function DocumentDetailPage({
       }
       setDecisionsLoading(false);
 
+      const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
+      if (loadedDecisions.length > 0) {
+        const { data: feedbackRows } = await supabase
+          .from('decision_feedback')
+          .select('decision_id, is_correct')
+          .in('decision_id', loadedDecisions.map((d) => d.id));
+
+        if (feedbackRows) {
+          const next: Record<string, 'correct' | 'incorrect'> = {};
+          for (const row of feedbackRows as Array<{ decision_id: string; is_correct: boolean }>) {
+            next[row.decision_id] = row.is_correct ? 'correct' : 'incorrect';
+          }
+          setFeedbackMap(next);
+        }
+      }
+
       // Generate signed URL for the private bucket
       if (data.storage_path) {
         const { data: urlData, error: urlError } = await supabase.storage
@@ -198,6 +218,38 @@ export default function DocumentDetailPage({
 
     load();
   }, [id, organizationId, orgLoading]);
+
+  const handleDecisionFeedback = async (
+    decisionId: string,
+    isCorrect: boolean
+  ) => {
+    if (!organizationId) return;
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id ?? null;
+      if (!userId) return;
+
+      await supabase
+        .from('decision_feedback')
+        .upsert(
+          {
+            decision_id: decisionId,
+            organization_id: organizationId,
+            is_correct: isCorrect,
+            reviewed_by: userId,
+            created_at: new Date().toISOString(),
+          },
+          { onConflict: 'decision_id,reviewed_by' }
+        );
+
+      setFeedbackMap((prev) => ({
+        ...prev,
+        [decisionId]: isCorrect ? 'correct' : 'incorrect',
+      }));
+    } catch {
+      // Inline-only feedback: ignore errors silently for now.
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!doc || !organizationId || analyzing) return;
@@ -429,6 +481,7 @@ export default function DocumentDetailPage({
                   <th className="py-2 pr-3 font-medium">Value</th>
                   <th className="py-2 pr-3 font-medium">Confidence</th>
                   <th className="py-2 pr-3 font-medium">Source</th>
+                  <th className="py-2 text-right font-medium"> </th>
                 </tr>
               </thead>
               <tbody className="text-[#F1F3F5]">
@@ -445,6 +498,32 @@ export default function DocumentDetailPage({
                     </td>
                     <td className="py-2 pr-3">
                       <DecisionSourceBadge source={d.source} />
+                    </td>
+                    <td className="py-2 text-right">
+                      {feedbackMap[d.id] === 'correct' ? (
+                        <span className="text-[11px] text-emerald-400">✓</span>
+                      ) : feedbackMap[d.id] === 'incorrect' ? (
+                        <span className="text-[11px] text-red-400">✗</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleDecisionFeedback(d.id, true)}
+                            className="text-[11px] text-[#8B94A3] hover:text-emerald-400"
+                            aria-label="Mark decision correct"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDecisionFeedback(d.id, false)}
+                            className="text-[11px] text-[#8B94A3] hover:text-red-400"
+                            aria-label="Mark decision incorrect"
+                          >
+                            ✗
+                          </button>
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

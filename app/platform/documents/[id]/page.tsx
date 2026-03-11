@@ -233,14 +233,16 @@ export default function DocumentDetailPage({
         setExtractions((prev) => [body.extraction as ExtractionRow, ...prev]);
       }
 
-      const { data: decisionRows } = await supabase
+      setAnalyzeMsg({ type: 'success', text: 'Analysis complete. New extraction added.' });
+
+      setDoc((prev) => (prev ? { ...prev, status: 'processed' } : prev));
+
+      const { data: freshDecisions } = await supabase
         .from('document_decisions')
         .select('id, decision_type, decision_value, confidence, source, created_at')
         .eq('document_id', id)
         .order('created_at', { ascending: true });
-      if (decisionRows) setDecisions(decisionRows as DecisionRow[]);
-
-      setAnalyzeMsg({ type: 'success', text: 'Analysis complete. New extraction added.' });
+      if (freshDecisions) setDecisions(freshDecisions as DecisionRow[]);
     } finally {
       setAnalyzing(false);
     }
@@ -458,9 +460,9 @@ export default function DocumentDetailPage({
           type="button"
           onClick={handleAnalyze}
           disabled={analyzing}
-          className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0] disabled:cursor-not-allowed disabled:opacity-50"
+          className="text-[#8B94A3] text-[11px] hover:text-[#7C5CFF] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {analyzing ? 'Analyzing…' : 'Analyze Document'}
+          {analyzing ? 'Re-analyzing…' : 'Re-analyze document'}
         </button>
         {analyzeMsg && (
           <p

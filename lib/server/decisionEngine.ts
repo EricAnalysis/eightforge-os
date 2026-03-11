@@ -66,6 +66,14 @@ export async function runDecisionEngine(params: {
   const admin = getSupabaseAdmin();
   if (!admin) return [];
 
+  // Re-analysis should produce a clean, current decision set.
+  // Delete-before-insert is the primary dedupe mechanism; DB constraint is a safety net.
+  try {
+    await admin.from('document_decisions').delete().eq('document_id', params.documentId);
+  } catch (e) {
+    console.error('[decisionEngine] pre-delete exception:', e);
+  }
+
   const decisions: DecisionInsertRow[] = [];
   const seen = new Set<string>();
 

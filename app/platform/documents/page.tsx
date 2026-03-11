@@ -38,12 +38,12 @@ const DOC_TYPES = [
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
+    uploaded:   'bg-[#1A1F27] text-[#8B94A3]',
     processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
     processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
   };
-  const cls = map[status] ?? 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]';
+  const cls = map[status] ?? 'bg-[#1A1F27] text-[#8B94A3]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {status}

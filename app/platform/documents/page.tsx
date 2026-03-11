@@ -39,7 +39,7 @@ const DOC_TYPES = [
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     uploaded:   'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
-    processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
     processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
   };
@@ -60,7 +60,10 @@ function UploadModal({
 }: {
   organizationId: string;
   onClose: () => void;
-  onUploaded: () => void;
+  onUploaded: (params: {
+    doc: DocRow;
+    analyzePromise: Promise<Response>;
+  }) => void;
 }) {
   const [title, setTitle]               = useState('');
   const [documentType, setDocumentType] = useState('');
@@ -112,22 +115,40 @@ function UploadModal({
         return;
       }
 
-      const { error: dbError } = await supabase.from('documents').insert({
-        organization_id: organizationId,
-        project_id:      projectId || null,
-        title:           title.trim(),
-        name:            file.name,        // file_name
-        storage_path:    filePath,         // file_path
-        document_type:   documentType || null,
-        status:          'uploaded',
-      });
+      const { data: insertedDoc, error: dbError } = await supabase
+        .from('documents')
+        .insert({
+          organization_id: organizationId,
+          project_id:      projectId || null,
+          title:           title.trim(),
+          name:            file.name,        // file_name
+          storage_path:    filePath,         // file_path
+          document_type:   documentType || null,
+          status:          'uploaded',
+        })
+        .select('id, title, name, document_type, status, created_at')
+        .single();
 
-      if (dbError) {
-        setError(dbError.message);
+      if (dbError || !insertedDoc) {
+        setError(dbError?.message ?? 'Upload failed. Please try again.');
         return;
       }
 
-      onUploaded();
+      const { data: { session } } = await supabase.auth.getSession();
+      const newDocId = (insertedDoc as DocRow).id;
+
+      const analyzePromise = fetch(`/api/documents/${newDocId}/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token ?? ''}`,
+        },
+      });
+
+      onUploaded({
+        doc: insertedDoc as DocRow,
+        analyzePromise,
+      });
     } finally {
       setUploading(false);
     }
@@ -365,9 +386,18 @@ export default function DocumentsPage() {
         <UploadModal
           organizationId={organizationId}
           onClose={() => setModalOpen(false)}
-          onUploaded={() => {
+          onUploaded={({ doc, analyzePromise }) => {
             setModalOpen(false);
+            setDocs((prev) => [{ ...doc, status: 'processing' }, ...prev]);
             if (organizationId) fetchDocs(organizationId);
+
+            analyzePromise
+              .then(() => {
+                if (organizationId) fetchDocs(organizationId);
+              })
+              .catch(() => {
+                if (organizationId) fetchDocs(organizationId);
+              });
           }}
         />
       )}

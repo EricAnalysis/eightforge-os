@@ -30,3 +30,20 @@ export type WorkflowEvent = {
   created_at: string;
 };
 
+/** Row from public.workflow_trigger_rules for decision → workflow task mapping. */
+export type WorkflowTriggerRule = {
+  id: string;
+  organization_id: string;
+  is_active: boolean;
+  decision_type: string | null;
+  severity: string | null;
+  decision_status: string | null;
+  task_type: string;
+  title_template: string;
+  description_template: string;
+  priority: string;
+  conditions: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+};
+

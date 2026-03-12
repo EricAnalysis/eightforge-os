@@ -8,7 +8,9 @@ import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
 import { runDecisionEngine } from '@/lib/server/decisionEngine';
+import { persistDecisions, documentDecisionsToPersisted } from '@/lib/server/decisionPersistence';
 import { runWorkflowEngine } from '@/lib/server/workflowEngine';
+import { createWorkflowTasksFromDecisions } from '@/lib/server/workflowTasks';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
@@ -155,6 +157,37 @@ export async function POST(
           ai_enrichment?: Record<string, unknown>;
         },
       });
+
+      if (decisions?.length) {
+        const toPersist = documentDecisionsToPersisted(decisions, {
+          document_type: docRow.document_type ?? null,
+        });
+        await persistDecisions(admin, {
+          organization_id: job.organization_id,
+          document_id: job.document_id,
+          decisions: toPersist,
+          source: 'system',
+        });
+
+        try {
+          const { data: openDecisions } = await admin
+            .from('decisions')
+            .select('id, decision_type, severity, status, title, summary')
+            .eq('organization_id', job.organization_id)
+            .eq('document_id', job.document_id)
+            .eq('status', 'open');
+          if (openDecisions?.length) {
+            await createWorkflowTasksFromDecisions(
+              admin,
+              job.organization_id,
+              job.document_id,
+              openDecisions
+            );
+          }
+        } catch (workflowErr) {
+          console.error('[jobs/process] workflow tasks from decisions:', workflowErr);
+        }
+      }
 
       try {
         await runWorkflowEngine({

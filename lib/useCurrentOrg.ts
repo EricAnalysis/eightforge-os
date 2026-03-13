@@ -10,6 +10,7 @@ type Organization = {
 
 export function useCurrentOrg() {
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,8 +19,11 @@ export function useCurrentOrg() {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
           setOrganization(null);
+          setUserId(null);
           return;
         }
+
+        setUserId(user.id);
 
         const { data, error } = await supabase
           .from('user_profiles')
@@ -50,5 +54,5 @@ export function useCurrentOrg() {
     fetchOrganization();
   }, []);
 
-  return { organization, loading };
+  return { organization, userId, loading };
 }

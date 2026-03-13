@@ -1,54 +1,58 @@
 import Link from 'next/link';
+import { EightForgeLogo } from '@/components/ui/EightForgeLogo';
 
 const CARDS = [
   {
-    title: 'Dashboard',
-    description: 'High level operating view across projects, issues, and throughput.',
+    title: 'Overview',
+    description: 'Operational dashboard across decisions, workflows, and documents.',
     href: '/platform',
   },
   {
-    title: 'Workflows',
-    description: 'Track review pipelines, stage gates, and process execution.',
-    href: '/platform/workflows',
-  },
-  {
-    title: 'Documents',
-    description: 'Manage contract intelligence, uploads, and extracted findings.',
+    title: 'Docs',
+    description: 'Document intelligence — upload, extract, and analyze operational files.',
     href: '/platform/documents',
   },
   {
-    title: 'QA Systems',
-    description: 'Run validation checks and surface exceptions before downstream errors.',
+    title: 'Decisions',
+    description: 'Decision engine findings, severity tracking, and resolution management.',
+    href: '/platform/decisions',
+  },
+  {
+    title: 'Flow',
+    description: 'Workflow orchestration — tasks, approvals, escalations, and assignments.',
+    href: '/platform/workflows',
+  },
+  {
+    title: 'Review',
+    description: 'Human-in-the-loop review queue for approvals and quality sign-off.',
     href: '/platform/reviews',
   },
   {
-    title: 'Agents',
-    description: 'Coordinate AI driven tasks, reviews, and operational assistants.',
-    href: '/platform/agents',
-  },
-  {
-    title: 'Insights',
-    description: 'Turn data, reviews, and documents into actionable decisions.',
-    href: '/platform/decisions',
+    title: 'Signals',
+    description: 'Operational anomalies, exceptions, and system-detected issues.',
+    href: '/platform/issues',
   },
 ] as const;
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-black text-white">
+    <main className="min-h-screen bg-[#050514] text-[#F5F7FA]">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-8 py-16">
         <div className="max-w-3xl">
-          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-zinc-400">
-            Operational Systems Layer
-          </p>
+          <div className="mb-6 flex items-center gap-3">
+            <EightForgeLogo size={36} />
+            <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#8B94A3]">
+              EightForge
+            </p>
+          </div>
 
-          <h1 className="text-5xl font-semibold tracking-tight text-white sm:text-6xl">
-            EightForge OS
+          <h1 className="text-5xl font-semibold tracking-tight text-[#F5F7FA] sm:text-6xl">
+            Operational Systems Platform
           </h1>
 
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
-            A command center for workflow systems, project QA, document intelligence,
-            review automation, and operational visibility.
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-[#8B94A3]">
+            Documents produce facts. Facts drive decisions. Decisions trigger workflows.
+            Workflows produce operational outcomes.
           </p>
         </div>
 
@@ -57,10 +61,10 @@ export default function Home() {
             <Link
               key={item.title}
               href={item.href}
-              className="block rounded-2xl border border-zinc-800 bg-zinc-950 p-6 transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus:outline focus:outline-2 focus:outline-zinc-500 focus:outline-offset-2"
+              className="block rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-6 transition-colors hover:border-[#8B5CFF]/30 hover:bg-[#12122E] focus:outline focus:outline-2 focus:outline-[#8B5CFF]/40 focus:outline-offset-2"
             >
-              <h2 className="text-xl font-medium text-white">{item.title}</h2>
-              <p className="mt-3 text-sm leading-6 text-zinc-400">
+              <h2 className="text-base font-semibold text-[#F5F7FA]">{item.title}</h2>
+              <p className="mt-2 text-[13px] leading-6 text-[#8B94A3]">
                 {item.description}
               </p>
             </Link>

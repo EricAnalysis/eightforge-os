@@ -13,11 +13,11 @@ type ProjectRow = {
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  active:   'bg-[#1A2E1A] text-[#4ADE80]',
-  inactive: 'bg-[#2A2A1A] text-[#FACC15]',
-  draft:    'bg-[#1A1F27] text-[#8B94A3]',
-  archived: 'bg-[#1A1F27] text-[#8B94A3]',
-  paused:   'bg-amber-500/20 text-amber-400',
+  active:   'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+  inactive: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+  draft:    'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+  archived: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+  paused:   'bg-amber-500/10 text-amber-400 border border-amber-500/20',
 };
 
 export default function ProjectsPage() {
@@ -56,7 +56,7 @@ export default function ProjectsPage() {
     <div className="space-y-4">
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F1F3F5]">Projects</h2>
+          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Projects</h2>
           <p className="text-xs text-[#8B94A3]">
             Track and manage active projects across your organization. Monitor
             progress, milestones, and team assignments from a single view.
@@ -65,7 +65,7 @@ export default function ProjectsPage() {
         <div className="shrink-0">
           <button
             type="button"
-            className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
           >
             New Project
           </button>
@@ -73,20 +73,20 @@ export default function ProjectsPage() {
       </section>
 
       {loading && (
-        <div className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
+        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
           <p className="text-[11px] text-[#8B94A3]">Loading projects…</p>
         </div>
       )}
 
       {!loading && error && (
-        <div className="rounded-lg border border-red-900/40 bg-[#0F1115] p-4">
+        <div className="rounded-lg border border-red-900/40 bg-[#0E0E2A] p-4">
           <p className="text-[11px] font-medium text-red-400">{error}</p>
         </div>
       )}
 
       {!loading && !error && projects.length === 0 && (
-        <div className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-          <p className="text-[11px] font-medium text-[#F1F3F5]">No projects yet</p>
+        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+          <p className="text-[11px] font-medium text-[#F5F7FA]">No projects yet</p>
           <p className="mt-1 text-[11px] text-[#8B94A3]">
             Projects will appear here once they are created.
           </p>
@@ -94,10 +94,10 @@ export default function ProjectsPage() {
       )}
 
       {!loading && !error && projects.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-[#1A1F27] bg-[#0F1115]">
+        <div className="overflow-hidden rounded-lg border border-[#1A1A3E] bg-[#0E0E2A]">
           <table className="w-full text-[11px]">
             <thead>
-              <tr className="border-b border-[#1A1F27]">
+              <tr className="border-b border-[#1A1A3E]">
                 <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Code</th>
                 <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Name</th>
                 <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Status</th>
@@ -108,10 +108,10 @@ export default function ProjectsPage() {
               {projects.map((project) => (
                 <tr
                   key={project.id}
-                  className="border-b border-[#1A1F27] last:border-0 hover:bg-[#13171E]"
+                  className="border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]"
                 >
                   <td className="px-4 py-3 font-mono text-[#8B94A3]">{project.code}</td>
-                  <td className="px-4 py-3 font-medium text-[#F1F3F5]">{project.name}</td>
+                  <td className="px-4 py-3 font-medium text-[#F5F7FA]">{project.name}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium capitalize ${

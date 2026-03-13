@@ -6,57 +6,48 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers, memberDisplayName } from '@/lib/useOrgMembers';
 import { formatDueDate, dueDateInputValue, dueDateToISO } from '@/lib/dateUtils';
-import { isDecisionOverdue, OverdueBadge } from '@/lib/overdue';
+import { isTaskOverdue, OverdueBadge } from '@/lib/overdue';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 
-type DecisionDetail = {
+type WorkflowTaskDetail = {
   id: string;
+  decision_id: string | null;
   document_id: string | null;
-  decision_type: string;
+  task_type: string;
   title: string;
-  summary: string | null;
-  severity: string;
+  description: string | null;
+  priority: string;
   status: string;
-  confidence: number | null;
-  source: string;
+  source: string | null;
+  source_metadata: Record<string, unknown> | null;
+  details: Record<string, unknown> | null;
   created_at: string;
-  first_detected_at: string | null;
-  last_detected_at: string | null;
-  resolved_at: string | null;
+  updated_at: string;
   due_at: string | null;
+  completed_at: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
   assigned_by: string | null;
-  details: Record<string, unknown> | null;
   documents?: DocumentRef | DocumentRef[];
-};
-
-type FeedbackRow = {
-  id: string;
-  created_at: string;
-  feedback_type: string;
-  disposition: string | null;
-  decision_status_at_feedback: string | null;
-  created_by: string | null;
-  metadata: Record<string, unknown> | null;
 };
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
+const STATUS_OPTIONS = ['open', 'in_progress', 'blocked', 'resolved', 'cancelled'] as const;
 
-// ─── Badges (aligned with list page) ───────────────────────────────────────────
+// ─── Badges ─────────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     open: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    in_review: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
+    in_progress: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
+    blocked: 'bg-red-500/20 text-red-400 border border-red-500/40',
     resolved: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    suppressed: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    cancelled: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
   };
   const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
   return (
@@ -66,16 +57,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
+function PriorityBadge({ priority }: { priority: string }) {
   const map: Record<string, string> = {
-    high: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    medium: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
+    high: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    medium: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
     low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
   };
-  const cls = map[severity] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[priority] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
-      {severity}
+      {priority}
     </span>
   );
 }
@@ -104,15 +96,10 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : '—';
 }
 
-function truncateId(id: string | null): string {
-  if (!id) return '—';
-  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
-}
-
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function DecisionDetailPage({
+export default function WorkflowTaskDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -123,8 +110,7 @@ export default function DecisionDetailPage({
 
   const { members } = useOrgMembers(organizationId);
 
-  const [decision, setDecision] = useState<DecisionDetail | null>(null);
-  const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
+  const [task, setTask] = useState<WorkflowTaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -159,33 +145,24 @@ export default function DecisionDetailPage({
     const load = async () => {
       setLoading(true);
       setNotFound(false);
-      setDecision(null);
-      setFeedback([]);
+      setTask(null);
 
-      const { data: decisionData, error: decisionError } = await supabase
-        .from('decisions')
+      const { data, error } = await supabase
+        .from('workflow_tasks')
         .select(
-          'id, document_id, decision_type, title, summary, severity, status, confidence, source, created_at, first_detected_at, last_detected_at, resolved_at, due_at, assigned_to, assigned_at, assigned_by, details, documents(id, title, name)'
+          'id, decision_id, document_id, task_type, title, description, priority, status, source, source_metadata, details, created_at, updated_at, due_at, completed_at, assigned_to, assigned_at, assigned_by, documents(id, title, name)'
         )
         .eq('id', id)
         .eq('organization_id', organizationId)
         .single();
 
-      if (decisionError || !decisionData) {
+      if (error || !data) {
         setNotFound(true);
         setLoading(false);
         return;
       }
 
-      setDecision(decisionData as DecisionDetail);
-
-      const { data: feedbackData } = await supabase
-        .from('decision_feedback')
-        .select('id, created_at, feedback_type, disposition, decision_status_at_feedback, created_by, metadata')
-        .eq('decision_id', id)
-        .order('created_at', { ascending: false });
-
-      if (feedbackData) setFeedback(feedbackData as FeedbackRow[]);
+      setTask(data as WorkflowTaskDetail);
       setLoading(false);
     };
 
@@ -193,7 +170,7 @@ export default function DecisionDetailPage({
   }, [id, organizationId, orgLoading]);
 
   const updateStatus = async (newStatus: string) => {
-    if (!organizationId || !decision) return;
+    if (!organizationId || !task) return;
     setUpdateError(false);
     setStatusSaved(false);
     setUpdatingStatus(true);
@@ -202,7 +179,7 @@ export default function DecisionDetailPage({
       const token = session?.access_token;
       if (!token) { setUpdateError(true); return; }
 
-      const res = await fetch(`/api/decisions/${decision.id}/status`, {
+      const res = await fetch(`/api/workflow-tasks/${task.id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: newStatus }),
@@ -210,7 +187,7 @@ export default function DecisionDetailPage({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setUpdateError(true); return; }
 
-      setDecision((prev) =>
+      setTask((prev) =>
         prev ? { ...prev, ...data, documents: prev.documents } : null
       );
 
@@ -218,51 +195,13 @@ export default function DecisionDetailPage({
       setStatusSaved(true);
       statusTimer.current = setTimeout(() => setStatusSaved(false), 2000);
       setActivityKey((k) => k + 1);
-
-      const { data: feedbackData } = await supabase
-        .from('decision_feedback')
-        .select('id, created_at, feedback_type, disposition, decision_status_at_feedback, created_by, metadata')
-        .eq('decision_id', decision.id)
-        .order('created_at', { ascending: false });
-      if (feedbackData) setFeedback(feedbackData as FeedbackRow[]);
     } finally {
       setUpdatingStatus(false);
     }
   };
 
-  const assignDecision = async (assignedTo: string | null) => {
-    if (!organizationId || !decision) return;
-    setAssignError(false);
-    setAssignSaved(false);
-    setAssigning(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) { setAssignError(true); return; }
-
-      const res = await fetch(`/api/decisions/${decision.id}/assign`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ assigned_to: assignedTo }),
-      });
-      if (!res.ok) { setAssignError(true); return; }
-
-      const data = await res.json().catch(() => ({}));
-      setDecision((prev) =>
-        prev ? { ...prev, ...data, documents: prev.documents } : null
-      );
-
-      clearTimeout(assignTimer.current);
-      setAssignSaved(true);
-      assignTimer.current = setTimeout(() => setAssignSaved(false), 2000);
-      setActivityKey((k) => k + 1);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
   const updateDueDate = async (dueAt: string | null) => {
-    if (!organizationId || !decision) return;
+    if (!organizationId || !task) return;
     setDueDateError(false);
     setDueDateSaved(false);
     setUpdatingDueDate(true);
@@ -271,7 +210,7 @@ export default function DecisionDetailPage({
       const token = session?.access_token;
       if (!token) { setDueDateError(true); return; }
 
-      const res = await fetch(`/api/decisions/${decision.id}/due-date`, {
+      const res = await fetch(`/api/workflow-tasks/${task.id}/due-date`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ due_at: dueAt }),
@@ -279,7 +218,7 @@ export default function DecisionDetailPage({
       if (!res.ok) { setDueDateError(true); return; }
 
       const data = await res.json().catch(() => ({}));
-      setDecision((prev) =>
+      setTask((prev) =>
         prev ? { ...prev, ...data, documents: prev.documents } : null
       );
 
@@ -292,16 +231,44 @@ export default function DecisionDetailPage({
     }
   };
 
-  // ── Loading ───────────────────────────────────────────────────────────────────
+  const assignTask = async (assignedTo: string | null) => {
+    if (!organizationId || !task) return;
+    setAssignError(false);
+    setAssignSaved(false);
+    setAssigning(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { setAssignError(true); return; }
+
+      const res = await fetch(`/api/workflow-tasks/${task.id}/assign`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ assigned_to: assignedTo }),
+      });
+      if (!res.ok) { setAssignError(true); return; }
+
+      const data = await res.json().catch(() => ({}));
+      setTask((prev) =>
+        prev ? { ...prev, ...data, documents: prev.documents } : null
+      );
+
+      clearTimeout(assignTimer.current);
+      setAssignSaved(true);
+      assignTimer.current = setTimeout(() => setAssignSaved(false), 2000);
+      setActivityKey((k) => k + 1);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  // ── Loading ─────────────────────────────────────────────────────────────────
 
   if (loading || orgLoading) {
     return (
       <div className="space-y-3">
-        <Link
-          href="/platform/decisions"
-          className="text-[11px] text-[#8B5CFF] hover:underline"
-        >
-          ← Decisions
+        <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+          ← Workflow Tasks
         </Link>
         <p className="text-[11px] text-[#8B94A3]">Loading…</p>
       </div>
@@ -310,21 +277,18 @@ export default function DecisionDetailPage({
 
   // ── Not found ───────────────────────────────────────────────────────────────
 
-  if (notFound || !decision) {
+  if (notFound || !task) {
     return (
       <div className="space-y-3">
-        <Link
-          href="/platform/decisions"
-          className="text-[11px] text-[#8B5CFF] hover:underline"
-        >
-          ← Decisions
+        <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+          ← Workflow Tasks
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Decision not found.</p>
+        <p className="text-[11px] text-[#8B94A3]">Workflow task not found.</p>
       </div>
     );
   }
 
-  const doc = decision.documents;
+  const doc = task.documents;
   const documentRef = Array.isArray(doc) ? doc?.[0] : doc;
   const docLabel = documentRef?.title ?? documentRef?.name ?? 'View document';
 
@@ -333,23 +297,20 @@ export default function DecisionDetailPage({
       {/* Header */}
       <section className="flex items-start justify-between gap-4">
         <div>
-          <Link
-            href="/platform/decisions"
-            className="text-[11px] text-[#8B5CFF] hover:underline"
-          >
-            ← Decisions
+          <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+            ← Workflow Tasks
           </Link>
-          <h2 className="mt-1 text-sm font-semibold text-[#F5F7FA]">{decision.title || '—'}</h2>
+          <h2 className="mt-1 text-sm font-semibold text-[#F5F7FA]">{task.title || '—'}</h2>
           <p className="text-xs text-[#8B94A3]">
-            {titleize(decision.decision_type)} · <SeverityBadge severity={decision.severity} /> · <StatusBadge status={decision.status} />
-            {isDecisionOverdue(decision.due_at, decision.status) && <> · <OverdueBadge /></>}
+            {titleize(task.task_type)} · <PriorityBadge priority={task.priority} /> · <StatusBadge status={task.status} />
+            {isTaskOverdue(task.due_at, task.status) && <> · <OverdueBadge /></>}
           </p>
         </div>
         <div className="shrink-0 flex flex-col items-end gap-2">
           <div>
             <select
-              aria-label="Update decision status"
-              value={STATUS_OPTIONS.includes(decision.status as (typeof STATUS_OPTIONS)[number]) ? decision.status : STATUS_OPTIONS[0]}
+              aria-label="Update task status"
+              value={STATUS_OPTIONS.includes(task.status as (typeof STATUS_OPTIONS)[number]) ? task.status : STATUS_OPTIONS[0]}
               onChange={(e) => updateStatus(e.target.value)}
               disabled={updatingStatus}
               className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
@@ -364,9 +325,9 @@ export default function DecisionDetailPage({
           </div>
           <div>
             <select
-              aria-label="Assign decision"
-              value={decision.assigned_to ?? ''}
-              onChange={(e) => assignDecision(e.target.value || null)}
+              aria-label="Assign task"
+              value={task.assigned_to ?? ''}
+              onChange={(e) => assignTask(e.target.value || null)}
               disabled={assigning}
               className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
             >
@@ -384,12 +345,12 @@ export default function DecisionDetailPage({
             <input
               type="date"
               aria-label="Set due date"
-              value={decision.due_at ? dueDateInputValue(decision.due_at) : ''}
+              value={task.due_at ? dueDateInputValue(task.due_at) : ''}
               onChange={(e) => updateDueDate(dueDateToISO(e.target.value))}
               disabled={updatingDueDate}
               className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
             />
-            {decision.due_at && (
+            {task.due_at && (
               <button
                 type="button"
                 onClick={() => updateDueDate(null)}
@@ -406,39 +367,47 @@ export default function DecisionDetailPage({
         </div>
       </section>
 
-      {/* Decision details */}
+      {/* Task details */}
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details</div>
         <div className="space-y-2">
-          <MetaRow label="Title">{decision.title || '—'}</MetaRow>
-          <MetaRow label="Decision type">{titleize(decision.decision_type)}</MetaRow>
-          <MetaRow label="Severity"><SeverityBadge severity={decision.severity} /></MetaRow>
-          <MetaRow label="Status"><StatusBadge status={decision.status} /></MetaRow>
-          <MetaRow label="Confidence">
-            {decision.confidence != null ? `${Math.round(decision.confidence * 100)}%` : '—'}
-          </MetaRow>
-          <MetaRow label="Summary">{decision.summary ?? '—'}</MetaRow>
-          <MetaRow label="Source">{decision.source ?? '—'}</MetaRow>
-          <MetaRow label="Created at">{formatDate(decision.created_at)}</MetaRow>
-          <MetaRow label="First detected at">{formatDate(decision.first_detected_at)}</MetaRow>
-          <MetaRow label="Last detected at">{formatDate(decision.last_detected_at)}</MetaRow>
+          <MetaRow label="Title">{task.title || '—'}</MetaRow>
+          <MetaRow label="Task type">{titleize(task.task_type)}</MetaRow>
+          <MetaRow label="Priority"><PriorityBadge priority={task.priority} /></MetaRow>
+          <MetaRow label="Status"><StatusBadge status={task.status} /></MetaRow>
+          <MetaRow label="Description">{task.description ?? '—'}</MetaRow>
+          <MetaRow label="Source">{task.source ?? '—'}</MetaRow>
+          <MetaRow label="Created at">{formatDate(task.created_at)}</MetaRow>
+          <MetaRow label="Updated at">{formatDate(task.updated_at)}</MetaRow>
           <MetaRow label="Due date">
-            {decision.due_at ? (
+            {task.due_at ? (
               <span className="flex items-center gap-1.5">
-                {formatDueDate(decision.due_at)}
-                {isDecisionOverdue(decision.due_at, decision.status) && <OverdueBadge />}
+                {formatDueDate(task.due_at)}
+                {isTaskOverdue(task.due_at, task.status) && <OverdueBadge />}
               </span>
             ) : (
               <span className="text-[#8B94A3]">No due date</span>
             )}
           </MetaRow>
-          <MetaRow label="Resolved at">{formatDate(decision.resolved_at)}</MetaRow>
-          <MetaRow label="Assigned to">{memberDisplayName(members, decision.assigned_to)}</MetaRow>
-          <MetaRow label="Assigned at">{formatDate(decision.assigned_at)}</MetaRow>
-          <MetaRow label="Document">
-            {decision.document_id ? (
+          <MetaRow label="Completed at">{formatDate(task.completed_at)}</MetaRow>
+          <MetaRow label="Assigned to">{memberDisplayName(members, task.assigned_to)}</MetaRow>
+          <MetaRow label="Assigned at">{formatDate(task.assigned_at)}</MetaRow>
+          <MetaRow label="Decision">
+            {task.decision_id ? (
               <Link
-                href={`/platform/documents/${decision.document_id}`}
+                href={`/platform/decisions/${task.decision_id}`}
+                className="text-[#8B5CFF] hover:underline"
+              >
+                View decision
+              </Link>
+            ) : (
+              '—'
+            )}
+          </MetaRow>
+          <MetaRow label="Document">
+            {task.document_id ? (
+              <Link
+                href={`/platform/documents/${task.document_id}`}
                 className="text-[#8B5CFF] hover:underline"
               >
                 {docLabel}
@@ -451,60 +420,27 @@ export default function DecisionDetailPage({
       </section>
 
       {/* Activity timeline */}
-      <ActivityTimeline organizationId={organizationId} entityType="decision" entityId={decision.id} refreshKey={activityKey} />
+      <ActivityTimeline organizationId={organizationId} entityType="workflow_task" entityId={task.id} refreshKey={activityKey} />
 
       {/* Details JSON */}
-      {decision.details != null && Object.keys(decision.details).length > 0 && (
+      {task.details != null && Object.keys(task.details).length > 0 && (
         <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
           <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details (JSON)</div>
           <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[#1A1A3E] bg-[#0A0A20] p-3 text-[10px] text-[#F5F7FA]">
-            {JSON.stringify(decision.details, null, 2)}
+            {JSON.stringify(task.details, null, 2)}
           </pre>
         </section>
       )}
 
-      {/* Feedback history */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Feedback history</div>
-        {feedback.length === 0 ? (
-          <p className="text-[11px] text-[#8B94A3]">No feedback recorded yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[11px] text-[#8B94A3]">
-              <thead className="border-b border-[#1A1A3E] text-left">
-                <tr>
-                  <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Created</th>
-                  <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Type</th>
-                  <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Disposition</th>
-                  <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Status at feedback</th>
-                  <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Created by</th>
-                  <th className="py-2 font-medium text-[#F5F7FA]">Metadata</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feedback.map((row) => (
-                  <tr key={row.id} className="border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]">
-                    <td className="py-2 pr-3 whitespace-nowrap">{formatDate(row.created_at)}</td>
-                    <td className="py-2 pr-3">{row.feedback_type ?? '—'}</td>
-                    <td className="py-2 pr-3">{row.disposition ?? '—'}</td>
-                    <td className="py-2 pr-3">{row.decision_status_at_feedback ?? '—'}</td>
-                    <td className="py-2 pr-3 font-mono text-[10px]">{truncateId(row.created_by)}</td>
-                    <td className="py-2">
-                      {row.metadata && Object.keys(row.metadata).length > 0 ? (
-                        <pre className="max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px]" title={JSON.stringify(row.metadata)}>
-                          {JSON.stringify(row.metadata)}
-                        </pre>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {/* Source metadata */}
+      {task.source_metadata != null && Object.keys(task.source_metadata).length > 0 && (
+        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+          <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Source metadata</div>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[#1A1A3E] bg-[#0A0A20] p-3 text-[10px] text-[#F5F7FA]">
+            {JSON.stringify(task.source_metadata, null, 2)}
+          </pre>
+        </section>
+      )}
     </div>
   );
 }

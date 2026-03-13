@@ -1,13 +1,11 @@
-// app/api/workflow-tasks/[id]/status/route.ts
-// PATCH: update workflow task status (org-scoped). Sets completed_at when resolved.
+// app/api/workflow-tasks/[id]/assign/route.ts
+// PATCH: assign workflow task to a user (org-scoped).
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
-
-const VALID_STATUSES = ['open', 'in_progress', 'blocked', 'resolved', 'cancelled'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -32,7 +30,7 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('workflow_tasks')
-      .select('id, organization_id, status, decision_id')
+      .select('id, organization_id, assigned_to')
       .eq('id', taskId)
       .single();
 
@@ -45,19 +43,30 @@ export async function PATCH(
 
     // 4. Validate input
     const body = await req.json().catch(() => ({}));
-    const newStatus = typeof body?.status === 'string' ? body.status : null;
-    if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
-      return jsonError('Invalid status', 400);
+    const assignedTo: string | null =
+      typeof body?.assigned_to === 'string' && body.assigned_to.length > 0
+        ? body.assigned_to
+        : null;
+
+    if (assignedTo) {
+      const { data: target, error: targetError } = await admin
+        .from('user_profiles')
+        .select('id')
+        .eq('id', assignedTo)
+        .eq('organization_id', organizationId)
+        .single();
+      if (targetError || !target) return jsonError('Assignee not in organization', 400);
     }
 
-    const previousStatus = (existing.status as string) ?? null;
+    const previousAssignee = (existing.assigned_to as string | null) ?? null;
 
     // 5. Update task
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = {
-      status: newStatus,
+      assigned_to: assignedTo,
+      assigned_at: assignedTo ? now : null,
+      assigned_by: assignedTo ? actorId : null,
       updated_at: now,
-      completed_at: newStatus === 'resolved' ? now : null,
     };
 
     const { data: updated, error: updateError } = await admin
@@ -72,33 +81,29 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // 6. Log activity event only when status actually changed
-    if (previousStatus !== newStatus) {
+    // 6. Log activity event only when assignment actually changed
+    if (previousAssignee !== assignedTo) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
         entity_type: 'workflow_task',
         entity_id: taskId,
-        event_type: 'status_changed',
+        event_type: 'assignment_changed',
         changed_by: actorId,
-        old_value: { status: previousStatus },
-        new_value: { status: newStatus },
+        old_value: { assigned_to: previousAssignee },
+        new_value: { assigned_to: assignedTo },
       });
 
       if (!activityResult.ok) {
-        console.error('[workflow-task/status] activity event failed:', activityResult.error);
+        console.error('[workflow-task/assign] activity event failed:', activityResult.error);
       }
 
-      // 7. Run workflow triggers (Rule 4: task completed → decision advancement check)
+      // 7. Run workflow triggers
       await processWorkflowTriggers({
         organizationId,
-        eventType: 'status_changed',
+        eventType: 'assignment_changed',
         entityType: 'workflow_task',
         entityId: taskId,
-        payload: {
-          from: previousStatus,
-          to: newStatus,
-          related_decision_id: (existing.decision_id as string | null) ?? undefined,
-        },
+        payload: { from: previousAssignee, to: assignedTo },
       });
     }
 

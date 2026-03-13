@@ -1,14 +1,11 @@
-// app/api/decisions/[id]/status/route.ts
-// PATCH: update decision status (org-scoped). Sets resolved_at when status is resolved.
+// app/api/decisions/[id]/due-date/route.ts
+// PATCH: update decision due_at (org-scoped). Accepts { due_at: string | null }.
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
-import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
-
-const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -33,85 +30,68 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('decisions')
-      .select('id, organization_id, status, severity')
+      .select('id, organization_id, due_at')
       .eq('id', decisionId)
       .single();
 
     if (fetchError || !existing) return jsonError('Decision not found', 404);
 
-    // 3. Verify org ownership (do not trust browser-supplied org)
+    // 3. Verify org ownership
     if ((existing.organization_id as string) !== organizationId) {
       return jsonError('Decision not found', 404);
     }
 
     // 4. Validate input
     const body = await req.json().catch(() => ({}));
-    const newStatus = typeof body?.status === 'string' ? body.status : null;
-    if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
-      return jsonError('Invalid status', 400);
-    }
+    const dueAt: string | null | undefined =
+      body?.due_at === null
+        ? null
+        : typeof body?.due_at === 'string'
+          ? body.due_at
+          : undefined;
 
-    const previousStatus = (existing.status as string) ?? null;
+    if (dueAt === undefined) return jsonError('Invalid due_at value', 400);
+    if (dueAt !== null && isNaN(Date.parse(dueAt)))
+      return jsonError('Invalid due_at date', 400);
+
+    const previousDueAt = (existing.due_at as string | null) ?? null;
 
     // 5. Update decision
-    const now = new Date().toISOString();
-    const updates: Record<string, unknown> = {
-      status: newStatus,
-      updated_at: now,
-      resolved_at: newStatus === 'resolved' ? now : null,
-    };
-
     const { data: updated, error: updateError } = await admin
       .from('decisions')
-      .update(updates)
+      .update({ due_at: dueAt, updated_at: new Date().toISOString() })
       .eq('id', decisionId)
       .eq('organization_id', organizationId)
       .select()
       .single();
 
-    if (updateError) {
+    if (updateError)
       return NextResponse.json({ error: updateError.message }, { status: 500 });
-    }
+    if (!updated) return jsonError('Decision not found', 404);
 
-    // 6. Log activity event only when status actually changed
-    if (previousStatus !== newStatus) {
+    // 6. Log activity event only when due_at actually changed
+    if (previousDueAt !== dueAt) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
         entity_type: 'decision',
         entity_id: decisionId,
-        event_type: 'status_changed',
+        event_type: 'due_date_changed',
         changed_by: actorId,
-        old_value: { status: previousStatus },
-        new_value: { status: newStatus },
+        old_value: { due_at: previousDueAt },
+        new_value: { due_at: dueAt },
       });
 
       if (!activityResult.ok) {
-        console.error('[decision/status] activity event failed:', activityResult.error);
+        console.error('[decision/due-date] activity event failed:', activityResult.error);
       }
 
-      // Legacy audit log — keep until fully migrated to activity_events
-      const feedbackResult = await logDecisionFeedback(admin, {
-        organization_id: organizationId,
-        decision_id: decisionId,
-        new_status: newStatus,
-        previous_status: previousStatus,
-        created_by: actorId,
-      });
-      if (!feedbackResult.ok) {
-        console.error('[decision/status] feedback insert failed:', feedbackResult.error);
-      }
-
-      // 7. Run workflow triggers after successful write + activity event
+      // 7. Run workflow triggers (Rule 3: due date change — activity only for now)
       await processWorkflowTriggers({
         organizationId,
-        eventType: 'status_changed',
+        eventType: 'due_date_changed',
         entityType: 'decision',
         entityId: decisionId,
-        payload: {
-          from: previousStatus,
-          to: newStatus,
-          severity: existing.severity as string | null,
-        },
+        payload: { from: previousDueAt, to: dueAt },
       });
     }
 

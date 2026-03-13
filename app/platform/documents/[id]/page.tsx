@@ -40,12 +40,12 @@ type DecisionRow = Pick<
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
+    uploaded:   'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
     processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
     processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
   };
-  const cls = map[status] ?? 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]';
+  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {status}
@@ -57,7 +57,7 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
   return (
     <div className="flex gap-3 text-[11px]">
       <span className="w-28 shrink-0 text-[#8B94A3]">{label}</span>
-      <span className="text-[#F1F3F5]">{children}</span>
+      <span className="text-[#F5F7FA]">{children}</span>
     </div>
   );
 }
@@ -83,11 +83,11 @@ function titleize(s: string): string {
 
 function DecisionSourceBadge({ source }: { source: DecisionRow['source'] }) {
   const map: Record<string, string> = {
-    deterministic: 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]',
+    deterministic: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
     ai_enriched: 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
     manual: 'bg-blue-500/20 text-blue-300 border border-blue-500/40',
   };
-  const cls = map[source] ?? 'bg-[#1A1F27] text-[#8B94A3] border border-[#1A1F27]';
+  const cls = map[source] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {source}
@@ -307,7 +307,7 @@ export default function DocumentDetailPage({
       <div className="space-y-3">
         <Link
           href="/platform/documents"
-          className="text-[11px] text-[#7C5CFF] hover:underline"
+          className="text-[11px] text-[#8B5CFF] hover:underline"
         >
           ← Documents
         </Link>
@@ -323,7 +323,7 @@ export default function DocumentDetailPage({
       <div className="space-y-3">
         <Link
           href="/platform/documents"
-          className="text-[11px] text-[#7C5CFF] hover:underline"
+          className="text-[11px] text-[#8B5CFF] hover:underline"
         >
           ← Documents
         </Link>
@@ -347,12 +347,12 @@ export default function DocumentDetailPage({
           <div className="mb-1">
             <Link
               href="/platform/documents"
-              className="text-[11px] text-[#7C5CFF] hover:underline"
+              className="text-[11px] text-[#8B5CFF] hover:underline"
             >
               ← Documents
             </Link>
           </div>
-          <h2 className="text-sm font-semibold text-[#F1F3F5]">{displayTitle}</h2>
+          <h2 className="text-sm font-semibold text-[#F5F7FA]">{displayTitle}</h2>
           <p className="text-xs text-[#8B94A3]">
             {doc.document_type
               ? doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1)
@@ -366,7 +366,7 @@ export default function DocumentDetailPage({
               href={signedUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
             >
               View File
             </a>
@@ -379,15 +379,15 @@ export default function DocumentDetailPage({
       </section>
 
       {/* Metadata */}
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Details</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details</div>
         <div className="space-y-2">
           <MetaRow label="Title">{displayTitle}</MetaRow>
           <MetaRow label="File name">{doc.name}</MetaRow>
           <MetaRow label="Document type">
             {doc.document_type
               ? doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1)
-              : <span className="text-[#3a3f4a]">—</span>}
+              : <span className="text-[#3a3f5a]">—</span>}
           </MetaRow>
           <MetaRow label="Status">
             <StatusBadge status={doc.status} />
@@ -398,7 +398,7 @@ export default function DocumentDetailPage({
           <MetaRow label="Project">
             {project
               ? <span>{project.name}</span>
-              : <span className="text-[#3a3f4a]">—</span>}
+              : <span className="text-[#3a3f5a]">—</span>}
           </MetaRow>
           <MetaRow label="Storage path">
             <span className="font-mono text-[10px] text-[#8B94A3]">{doc.storage_path}</span>
@@ -410,8 +410,8 @@ export default function DocumentDetailPage({
       </section>
 
       {/* File actions */}
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">File</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">File</div>
         {fileError ? (
           <p className="text-[11px] text-red-400">
             File unavailable. The storage object may have been removed.
@@ -422,7 +422,7 @@ export default function DocumentDetailPage({
               href={signedUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
             >
               View File
             </a>
@@ -430,7 +430,7 @@ export default function DocumentDetailPage({
               href={signedUrl}
               download={filename}
               rel="noopener noreferrer"
-              className="rounded-md border border-[#1A1F27] px-3 py-2 text-[11px] font-medium text-[#F1F3F5] hover:bg-[#1A1F27]"
+              className="rounded-md border border-[#1A1A3E] px-3 py-2 text-[11px] font-medium text-[#F5F7FA] hover:bg-[#1A1A3E]"
             >
               Download
             </a>
@@ -441,8 +441,8 @@ export default function DocumentDetailPage({
       </section>
 
       {/* Extractions */}
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Extractions</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Extractions</div>
         {extractionsLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading extractions…</p>
         ) : extractions.length === 0 ? (
@@ -450,11 +450,11 @@ export default function DocumentDetailPage({
         ) : (
           <div className="space-y-3">
             {extractions.map((ex) => (
-              <div key={ex.id} className="rounded-md border border-[#1A1F27] bg-[#0A0C10] p-3">
+              <div key={ex.id} className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] p-3">
                 <p className="mb-2 text-[10px] text-[#8B94A3]">
                   {new Date(ex.created_at).toLocaleString()}
                 </p>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-[#F1F3F5]">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-[#F5F7FA]">
                   {JSON.stringify(ex.data, null, 2)}
                 </pre>
               </div>
@@ -464,8 +464,8 @@ export default function DocumentDetailPage({
       </section>
 
       {/* Decisions */}
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Decisions</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decisions</div>
         {decisionsLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading decisions…</p>
         ) : decisions.length === 0 ? (
@@ -476,7 +476,7 @@ export default function DocumentDetailPage({
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-[11px]">
               <thead className="text-[#8B94A3]">
-                <tr className="border-b border-[#1A1F27]">
+                <tr className="border-b border-[#1A1A3E]">
                   <th className="py-2 pr-3 font-medium">Type</th>
                   <th className="py-2 pr-3 font-medium">Value</th>
                   <th className="py-2 pr-3 font-medium">Confidence</th>
@@ -484,17 +484,17 @@ export default function DocumentDetailPage({
                   <th className="py-2 text-right font-medium"> </th>
                 </tr>
               </thead>
-              <tbody className="text-[#F1F3F5]">
+              <tbody className="text-[#F5F7FA]">
                 {decisions.map((d) => (
-                  <tr key={d.id} className="border-b border-[#1A1F27] last:border-b-0">
+                  <tr key={d.id} className="border-b border-[#1A1A3E] last:border-b-0">
                     <td className="py-2 pr-3">{titleize(d.decision_type)}</td>
                     <td className="py-2 pr-3">
-                      {d.decision_value ? titleize(d.decision_value) : <span className="text-[#3a3f4a]">—</span>}
+                      {d.decision_value ? titleize(d.decision_value) : <span className="text-[#3a3f5a]">—</span>}
                     </td>
                     <td className="py-2 pr-3">
                       {typeof d.confidence === 'number'
                         ? `${Math.round(d.confidence * 100)}%`
-                        : <span className="text-[#3a3f4a]">—</span>}
+                        : <span className="text-[#3a3f5a]">—</span>}
                     </td>
                     <td className="py-2 pr-3">
                       <DecisionSourceBadge source={d.source} />
@@ -533,13 +533,13 @@ export default function DocumentDetailPage({
         )}
       </section>
 
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Analyze</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Analyze</div>
         <button
           type="button"
           onClick={handleAnalyze}
           disabled={analyzing}
-          className="text-[#8B94A3] text-[11px] hover:text-[#7C5CFF] disabled:cursor-not-allowed disabled:opacity-50"
+          className="text-[#8B94A3] text-[11px] hover:text-[#8B5CFF] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {analyzing ? 'Re-analyzing…' : 'Re-analyze document'}
         </button>

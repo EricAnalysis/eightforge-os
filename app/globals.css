@@ -1,8 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ef-bg: #07071A;
+  --ef-surface: #0E0E2A;
+  --ef-border: #1A1A3E;
+  --ef-input: #0A0A20;
+  --ef-hover: #12122E;
+  --ef-hover-surface: #252548;
+  --ef-text: #F5F7FA;
+  --ef-muted: #8B94A3;
+  --ef-inactive: #3a3f5a;
+  --ef-purple: #8B5CFF;
+  --ef-purple-glow: #B794FF;
+  --ef-purple-accent: #A66BFF;
+  --ef-purple-hover: #7A4FE8;
+
+  --background: #07071A;
+  --foreground: #F5F7FA;
 }
 
 @theme inline {
@@ -12,15 +26,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(139, 92, 255, 0.3);
+  color: #F5F7FA;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
 }

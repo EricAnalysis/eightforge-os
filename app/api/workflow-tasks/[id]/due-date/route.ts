@@ -1,13 +1,11 @@
-// app/api/workflow-tasks/[id]/status/route.ts
-// PATCH: update workflow task status (org-scoped). Sets completed_at when resolved.
+// app/api/workflow-tasks/[id]/due-date/route.ts
+// PATCH: update workflow task due_at (org-scoped). Accepts { due_at: string | null }.
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
-
-const VALID_STATUSES = ['open', 'in_progress', 'blocked', 'resolved', 'cancelled'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -32,7 +30,7 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('workflow_tasks')
-      .select('id, organization_id, status, decision_id')
+      .select('id, organization_id, due_at')
       .eq('id', taskId)
       .single();
 
@@ -45,60 +43,55 @@ export async function PATCH(
 
     // 4. Validate input
     const body = await req.json().catch(() => ({}));
-    const newStatus = typeof body?.status === 'string' ? body.status : null;
-    if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
-      return jsonError('Invalid status', 400);
-    }
+    const dueAt: string | null | undefined =
+      body?.due_at === null
+        ? null
+        : typeof body?.due_at === 'string'
+          ? body.due_at
+          : undefined;
 
-    const previousStatus = (existing.status as string) ?? null;
+    if (dueAt === undefined) return jsonError('Invalid due_at value', 400);
+    if (dueAt !== null && isNaN(Date.parse(dueAt)))
+      return jsonError('Invalid due_at date', 400);
+
+    const previousDueAt = (existing.due_at as string | null) ?? null;
 
     // 5. Update task
-    const now = new Date().toISOString();
-    const updates: Record<string, unknown> = {
-      status: newStatus,
-      updated_at: now,
-      completed_at: newStatus === 'resolved' ? now : null,
-    };
-
     const { data: updated, error: updateError } = await admin
       .from('workflow_tasks')
-      .update(updates)
+      .update({ due_at: dueAt, updated_at: new Date().toISOString() })
       .eq('id', taskId)
       .eq('organization_id', organizationId)
       .select()
       .single();
 
-    if (updateError) {
+    if (updateError)
       return NextResponse.json({ error: updateError.message }, { status: 500 });
-    }
+    if (!updated) return jsonError('Task not found', 404);
 
-    // 6. Log activity event only when status actually changed
-    if (previousStatus !== newStatus) {
+    // 6. Log activity event only when due_at actually changed
+    if (previousDueAt !== dueAt) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
         entity_type: 'workflow_task',
         entity_id: taskId,
-        event_type: 'status_changed',
+        event_type: 'due_date_changed',
         changed_by: actorId,
-        old_value: { status: previousStatus },
-        new_value: { status: newStatus },
+        old_value: { due_at: previousDueAt },
+        new_value: { due_at: dueAt },
       });
 
       if (!activityResult.ok) {
-        console.error('[workflow-task/status] activity event failed:', activityResult.error);
+        console.error('[workflow-task/due-date] activity event failed:', activityResult.error);
       }
 
-      // 7. Run workflow triggers (Rule 4: task completed → decision advancement check)
+      // 7. Run workflow triggers
       await processWorkflowTriggers({
         organizationId,
-        eventType: 'status_changed',
+        eventType: 'due_date_changed',
         entityType: 'workflow_task',
         entityId: taskId,
-        payload: {
-          from: previousStatus,
-          to: newStatus,
-          related_decision_id: (existing.decision_id as string | null) ?? undefined,
-        },
+        payload: { from: previousDueAt, to: dueAt },
       });
     }
 

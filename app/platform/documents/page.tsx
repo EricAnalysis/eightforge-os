@@ -39,12 +39,12 @@ const DOC_TYPES = [
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1F27] text-[#8B94A3]',
+    uploaded:   'bg-[#1A1A3E] text-[#8B94A3]',
     processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
     processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
   };
-  const cls = map[status] ?? 'bg-[#1A1F27] text-[#8B94A3]';
+  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {status}
@@ -100,8 +100,14 @@ function UploadModal({
     e.preventDefault();
     setError(null);
 
-    if (!file)         { setError('Select a file.'); return; }
-    if (!title.trim()) { setError('Title is required.'); return; }
+    if (!file) {
+      setError('Select a file.');
+      return;
+    }
+    if (!title.trim()) {
+      setError('Title is required.');
+      return;
+    }
 
     setUploading(true);
     try {
@@ -112,7 +118,7 @@ function UploadModal({
         .upload(filePath, file);
 
       if (storageError) {
-        setError(storageError.message);
+        setError(`Storage upload failed: ${storageError.message}`);
         return;
       }
 
@@ -122,8 +128,8 @@ function UploadModal({
           organization_id: organizationId,
           project_id:      projectId || null,
           title:           title.trim(),
-          name:            file.name,        // file_name
-          storage_path:    filePath,         // file_path
+          name:            file.name,
+          storage_path:    filePath,
           document_type:   documentType || null,
           status:          'uploaded',
         })
@@ -131,7 +137,7 @@ function UploadModal({
         .single();
 
       if (dbError || !insertedDoc) {
-        setError(dbError?.message ?? 'Upload failed. Please try again.');
+        setError(dbError?.message ?? 'Failed to create document record. Please try again.');
         return;
       }
 
@@ -150,6 +156,9 @@ function UploadModal({
         doc: insertedDoc as DocRow,
         analyzePromise,
       });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      setError(msg);
     } finally {
       setUploading(false);
     }
@@ -160,15 +169,15 @@ function UploadModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-md rounded-lg border border-[#1A1F27] bg-[#0F1115] p-5 shadow-xl">
+      <div className="w-full max-w-md rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
 
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-[#F1F3F5]">Upload Document</span>
+          <span className="text-sm font-semibold text-[#F5F7FA]">Upload Document</span>
           <button
             type="button"
             onClick={onClose}
-            className="text-lg leading-none text-[#8B94A3] hover:text-[#F1F3F5]"
+            className="text-lg leading-none text-[#8B94A3] hover:text-[#F5F7FA]"
             aria-label="Close"
           >
             ×
@@ -179,7 +188,7 @@ function UploadModal({
 
           {/* Title */}
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F1F3F5]">
+            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
               Title <span className="text-red-400">*</span>
             </label>
             <input
@@ -187,19 +196,19 @@ function UploadModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Q1 Compliance Report"
-              className="block w-full rounded-md border border-[#1A1F27] bg-[#0A0C10] px-3 py-2 text-[11px] text-[#F1F3F5] placeholder:text-[#3a3f4a] outline-none focus:border-[#7C5CFF]"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]"
             />
           </div>
 
           {/* Document Type */}
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F1F3F5]">
+            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
               Document Type
             </label>
             <select
               value={documentType}
               onChange={(e) => setDocumentType(e.target.value)}
-              className="block w-full rounded-md border border-[#1A1F27] bg-[#0A0C10] px-3 py-2 text-[11px] text-[#F1F3F5] outline-none focus:border-[#7C5CFF]"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
             >
               <option value="">Select type…</option>
               {DOC_TYPES.map((t) => (
@@ -213,14 +222,14 @@ function UploadModal({
           {/* Project (only shown when projects exist) */}
           {projects.length > 0 && (
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-[#F1F3F5]">
+              <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
                 Project{' '}
                 <span className="font-normal text-[#8B94A3]">(optional)</span>
               </label>
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="block w-full rounded-md border border-[#1A1F27] bg-[#0A0C10] px-3 py-2 text-[11px] text-[#F1F3F5] outline-none focus:border-[#7C5CFF]"
+                className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
               >
                 <option value="">None</option>
                 {projects.map((p) => (
@@ -232,13 +241,13 @@ function UploadModal({
 
           {/* File picker */}
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F1F3F5]">
+            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
               File <span className="text-red-400">*</span>
             </label>
             <input
               type="file"
               onChange={handleFileChange}
-              className="block w-full rounded-md border border-[#1A1F27] bg-[#0A0C10] px-3 py-2 text-[11px] text-[#F1F3F5] outline-none focus:border-[#7C5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#1A1F27] file:px-2 file:py-1 file:text-[10px] file:text-[#F1F3F5] file:cursor-pointer"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#1A1A3E] file:px-2 file:py-1 file:text-[10px] file:text-[#F5F7FA] file:cursor-pointer"
             />
           </div>
 
@@ -252,14 +261,14 @@ function UploadModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F1F3F5]"
+              className="rounded-md px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={uploading || !file || !title.trim()}
-              className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0] disabled:opacity-50"
+              disabled={uploading}
+              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? 'Uploading…' : 'Upload'}
             </button>
@@ -305,7 +314,7 @@ export default function DocumentsPage() {
       {/* Page header */}
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F1F3F5]">Documents</h2>
+          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Documents</h2>
           <p className="text-xs text-[#8B94A3]">
             Manage documents processed by EightForge OS. Upload contracts,
             reports, and operational files for extraction and analysis.
@@ -315,7 +324,7 @@ export default function DocumentsPage() {
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="rounded-md bg-[#7C5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#6A4DE0]"
+            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
           >
             Upload Document
           </button>
@@ -323,8 +332,8 @@ export default function DocumentsPage() {
       </section>
 
       {/* Document list */}
-      <section className="rounded-lg border border-[#1A1F27] bg-[#0F1115] p-3">
-        <div className="mb-3 text-[11px] font-medium text-[#F1F3F5]">Document list</div>
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-3">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Document list</div>
 
         {loading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
@@ -334,13 +343,13 @@ export default function DocumentsPage() {
           </p>
         ) : (
           <table className="w-full border-collapse text-[11px] text-[#8B94A3]">
-            <thead className="border-b border-[#1A1F27] text-left">
+            <thead className="border-b border-[#1A1A3E] text-left">
               <tr>
-                <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Title</th>
-                <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Type</th>
-                <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Status</th>
-                <th className="py-2 pr-3 font-medium text-[#F1F3F5]">Created</th>
-                <th className="py-2 font-medium text-[#F1F3F5]"></th>
+                <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Title</th>
+                <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Type</th>
+                <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Status</th>
+                <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Created</th>
+                <th className="py-2 font-medium text-[#F5F7FA]"></th>
               </tr>
             </thead>
             <tbody>
@@ -348,15 +357,15 @@ export default function DocumentsPage() {
                 <tr
                   key={doc.id}
                   onClick={() => router.push(`/platform/documents/${doc.id}`)}
-                  className="cursor-pointer border-b border-[#1A1F27] last:border-0 hover:bg-[#13171E]"
+                  className="cursor-pointer border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]"
                 >
-                  <td className="py-2 pr-3 text-[#F1F3F5]">
+                  <td className="py-2 pr-3 text-[#F5F7FA]">
                     {doc.title ?? doc.name}
                   </td>
                   <td className="py-2 pr-3">
                     {doc.document_type
                       ? doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1)
-                      : <span className="text-[#3a3f4a]">—</span>}
+                      : <span className="text-[#3a3f5a]">—</span>}
                   </td>
                   <td className="py-2 pr-3">
                     <StatusBadge status={doc.status} />
@@ -370,7 +379,7 @@ export default function DocumentsPage() {
                   >
                     <a
                       href={`/platform/documents/${doc.id}`}
-                      className="text-[#7C5CFF] hover:underline"
+                      className="text-[#8B5CFF] hover:underline"
                     >
                       View
                     </a>
@@ -401,6 +410,46 @@ export default function DocumentsPage() {
               });
           }}
         />
+      )}
+
+      {/* Loading org: show feedback while organization is loading */}
+      {modalOpen && !organizationId && orgLoading && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
+        >
+          <div className="w-full max-w-md rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
+            <p className="mb-4 text-sm text-[#F5F7FA]">Loading organization…</p>
+            <button
+              type="button"
+              onClick={() => setModalOpen(false)}
+              className="rounded-md px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* No-org feedback when user clicks Upload Document but has no organization */}
+      {modalOpen && !organizationId && !orgLoading && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
+        >
+          <div className="w-full max-w-md rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
+            <p className="mb-4 text-sm text-[#F5F7FA]">
+              No organization selected. Please refresh the page or contact your administrator to be assigned to an organization.
+            </p>
+            <button
+              type="button"
+              onClick={() => setModalOpen(false)}
+              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

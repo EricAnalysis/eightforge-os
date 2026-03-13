@@ -1,0 +1,15 @@
+export const brand = {
+  bg: '#07071A',
+  surface: '#0E0E2A',
+  border: '#1A1A3E',
+  input: '#0A0A20',
+  hover: '#12122E',
+  hoverSurface: '#252548',
+  text: '#F5F7FA',
+  muted: '#8B94A3',
+  inactive: '#3a3f5a',
+  purple: '#8B5CFF',
+  purpleGlow: '#B794FF',
+  purpleAccent: '#A66BFF',
+  purpleHover: '#7A4FE8',
+} as const;

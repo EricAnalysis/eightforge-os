@@ -1,15 +1,17 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { DocumentProcessingStatus } from '@/components/DocumentProcessingStatus';
+import { extractKeyFacts } from '@/lib/types/extraction';
 import type { DocumentDecision } from '@/lib/types/decisions';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BUCKET = 'documents';
-const SIGNED_URL_EXPIRY = 300; // 5 minutes
+const SIGNED_URL_EXPIRY = 300;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,28 @@ type DecisionRow = Pick<
   DocumentDecision,
   'id' | 'decision_type' | 'decision_value' | 'confidence' | 'source' | 'created_at'
 >;
+
+type PersistentDecisionRow = {
+  id: string;
+  decision_type: string;
+  title: string;
+  summary: string | null;
+  severity: string;
+  status: string;
+  confidence: number | null;
+  created_at: string;
+};
+
+type WorkflowTaskRow = {
+  id: string;
+  task_type: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  status: string;
+  decision_id: string | null;
+  created_at: string;
+};
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -62,7 +86,52 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+function SeverityBadge({ severity }: { severity: string }) {
+  const map: Record<string, string> = {
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
+    high:     'bg-orange-500/20 text-orange-400 border border-orange-500/40',
+    medium:   'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    low:      'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+  };
+  const cls = map[severity] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {severity}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const map: Record<string, string> = {
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
+    high:     'bg-orange-500/20 text-orange-400 border border-orange-500/40',
+    normal:   'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    low:      'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+  };
+  const cls = map[priority] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {priority}
+    </span>
+  );
+}
+
+function TaskStatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    open:       'bg-[#8B5CFF]/20 text-[#B794FF] border border-[#8B5CFF]/40',
+    in_progress:'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    resolved:   'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    cancelled:  'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+  };
+  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveProject(
   raw: DocumentDetail['projects'],
@@ -115,29 +184,35 @@ export default function DocumentDetailPage({
   const [extractionsLoading, setExtractionsLoading] = useState(false);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [decisionsLoading, setDecisionsLoading] = useState(false);
+  const [persistentDecisions, setPersistentDecisions] = useState<PersistentDecisionRow[]>([]);
+  const [persistentDecisionsLoading, setPersistentDecisionsLoading] = useState(false);
+  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTaskRow[]>([]);
+  const [workflowTasksLoading, setWorkflowTasksLoading] = useState(false);
   const [feedbackMap, setFeedbackMap] = useState<
     Record<string, 'correct' | 'incorrect'>
   >({});
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeMsg, setAnalyzeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    if (orgLoading) return;
+  const loadAllData = useCallback(async () => {
     if (!organizationId) return;
 
-    const load = async () => {
-      setDoc(null);
-      setSignedUrl(null);
-      setFileError(false);
-      setExtractions([]);
-      setDecisions([]);
-      setFeedbackMap({});
-      setNotFound(false);
-      setLoading(true);
-      setExtractionsLoading(true);
-      setDecisionsLoading(true);
+    setDoc(null);
+    setSignedUrl(null);
+    setFileError(false);
+    setExtractions([]);
+    setDecisions([]);
+    setPersistentDecisions([]);
+    setWorkflowTasks([]);
+    setFeedbackMap({});
+    setNotFound(false);
+    setLoading(true);
+    setExtractionsLoading(true);
+    setDecisionsLoading(true);
+    setPersistentDecisionsLoading(true);
+    setWorkflowTasksLoading(true);
 
-      const [docResult, extractionsResult, decisionsResult] = await Promise.all([
+    const [docResult, extractionsResult, decisionsResult, persistentResult, tasksResult] =
+      await Promise.all([
         supabase
           .from('documents')
           .select(
@@ -156,72 +231,90 @@ export default function DocumentDetailPage({
           .select('id, decision_type, decision_value, confidence, source, created_at')
           .eq('document_id', id)
           .order('created_at', { ascending: true }),
+        supabase
+          .from('decisions')
+          .select('id, decision_type, title, summary, severity, status, confidence, created_at')
+          .eq('document_id', id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('workflow_tasks')
+          .select('id, task_type, title, description, priority, status, decision_id, created_at')
+          .eq('document_id', id)
+          .order('created_at', { ascending: true }),
       ]);
 
-      if (docResult.error || !docResult.data) {
-        setDoc(null);
-        setSignedUrl(null);
-        setFileError(false);
-        setExtractions([]);
-        setNotFound(true);
-        setLoading(false);
-        setExtractionsLoading(false);
-        setDecisionsLoading(false);
-        return;
-      }
-
-      const data = docResult.data;
-      setDoc(data as DocumentDetail);
+    if (docResult.error || !docResult.data) {
+      setNotFound(true);
       setLoading(false);
-
-      if (!extractionsResult.error && extractionsResult.data) {
-        setExtractions(extractionsResult.data as ExtractionRow[]);
-      }
       setExtractionsLoading(false);
-
-      if (!decisionsResult.error && decisionsResult.data) {
-        setDecisions(decisionsResult.data as DecisionRow[]);
-      }
       setDecisionsLoading(false);
+      setPersistentDecisionsLoading(false);
+      setWorkflowTasksLoading(false);
+      return;
+    }
 
-      const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
-      if (loadedDecisions.length > 0) {
-        const { data: feedbackRows } = await supabase
-          .from('decision_feedback')
-          .select('decision_id, is_correct')
-          .in('decision_id', loadedDecisions.map((d) => d.id));
+    setDoc(docResult.data as DocumentDetail);
+    setLoading(false);
 
-        if (feedbackRows) {
-          const next: Record<string, 'correct' | 'incorrect'> = {};
-          for (const row of feedbackRows as Array<{ decision_id: string; is_correct: boolean }>) {
-            next[row.decision_id] = row.is_correct ? 'correct' : 'incorrect';
-          }
-          setFeedbackMap(next);
+    if (!extractionsResult.error && extractionsResult.data) {
+      setExtractions(extractionsResult.data as ExtractionRow[]);
+    }
+    setExtractionsLoading(false);
+
+    if (!decisionsResult.error && decisionsResult.data) {
+      setDecisions(decisionsResult.data as DecisionRow[]);
+    }
+    setDecisionsLoading(false);
+
+    if (!persistentResult.error && persistentResult.data) {
+      setPersistentDecisions(persistentResult.data as PersistentDecisionRow[]);
+    }
+    setPersistentDecisionsLoading(false);
+
+    if (!tasksResult.error && tasksResult.data) {
+      setWorkflowTasks(tasksResult.data as WorkflowTaskRow[]);
+    }
+    setWorkflowTasksLoading(false);
+
+    const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
+    if (loadedDecisions.length > 0) {
+      const { data: feedbackRows } = await supabase
+        .from('decision_feedback')
+        .select('decision_id, is_correct')
+        .in('decision_id', loadedDecisions.map((d) => d.id));
+
+      if (feedbackRows) {
+        const next: Record<string, 'correct' | 'incorrect'> = {};
+        for (const row of feedbackRows as Array<{ decision_id: string; is_correct: boolean }>) {
+          next[row.decision_id] = row.is_correct ? 'correct' : 'incorrect';
         }
+        setFeedbackMap(next);
       }
+    }
 
-      // Generate signed URL for the private bucket
-      if (data.storage_path) {
-        const { data: urlData, error: urlError } = await supabase.storage
-          .from(BUCKET)
-          .createSignedUrl(data.storage_path, SIGNED_URL_EXPIRY);
+    if (docResult.data.storage_path) {
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(docResult.data.storage_path as string, SIGNED_URL_EXPIRY);
 
-        if (!urlError && urlData?.signedUrl) {
-          setSignedUrl(urlData.signedUrl);
-        } else {
-          setFileError(true);
-        }
+      if (!urlError && urlData?.signedUrl) {
+        setSignedUrl(urlData.signedUrl);
       } else {
         setFileError(true);
       }
-    };
+    } else {
+      setFileError(true);
+    }
+  }, [id, organizationId]);
 
-    load();
-  }, [id, organizationId, orgLoading]);
+  useEffect(() => {
+    if (orgLoading || !organizationId) return;
+    loadAllData();
+  }, [orgLoading, organizationId, loadAllData, refreshKey]);
 
   const handleDecisionFeedback = async (
     decisionId: string,
-    isCorrect: boolean
+    isCorrect: boolean,
   ) => {
     if (!organizationId) return;
     try {
@@ -239,7 +332,7 @@ export default function DocumentDetailPage({
             reviewed_by: userId,
             created_at: new Date().toISOString(),
           },
-          { onConflict: 'decision_id,reviewed_by' }
+          { onConflict: 'decision_id,reviewed_by' },
         );
 
       setFeedbackMap((prev) => ({
@@ -247,56 +340,14 @@ export default function DocumentDetailPage({
         [decisionId]: isCorrect ? 'correct' : 'incorrect',
       }));
     } catch {
-      // Inline-only feedback: ignore errors silently for now.
+      // Silently handle feedback errors
     }
   };
 
-  const handleAnalyze = async () => {
-    if (!doc || !organizationId || analyzing) return;
-    setAnalyzing(true);
-    setAnalyzeMsg(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setAnalyzeMsg({ type: 'error', text: 'Analysis failed. Please try again.' });
-        return;
-      }
-
-      const res = await fetch(`/api/documents/${id}/analyze`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg =
-          body?.error === 'Document not found'
-            ? 'Document not found.'
-            : body?.error === 'Unable to download file from storage'
-              ? 'Unable to access file for analysis.'
-              : body?.error === 'Server analysis is not configured'
-                ? 'Server analysis is not configured.'
-                : 'Analysis failed. Please try again.';
-        setAnalyzeMsg({ type: 'error', text: msg });
-        return;
-      }
-
-      if (body?.success && body?.extraction) {
-        setExtractions((prev) => [body.extraction as ExtractionRow, ...prev]);
-      }
-
-      setAnalyzeMsg({ type: 'success', text: 'Analysis complete. New extraction added.' });
-
-      setDoc((prev) => (prev ? { ...prev, status: 'processed' } : prev));
-
-      const { data: freshDecisions } = await supabase
-        .from('document_decisions')
-        .select('id, decision_type, decision_value, confidence, source, created_at')
-        .eq('document_id', id)
-        .order('created_at', { ascending: true });
-      if (freshDecisions) setDecisions(freshDecisions as DecisionRow[]);
-    } finally {
-      setAnalyzing(false);
+  const handleStatusChange = (newStatus: string) => {
+    setDoc((prev) => (prev ? { ...prev, status: newStatus } : prev));
+    if (newStatus === 'processed') {
+      setRefreshKey((k) => k + 1);
     }
   };
 
@@ -335,6 +386,9 @@ export default function DocumentDetailPage({
   const displayTitle = doc.title ?? doc.name;
   const project      = resolveProject(doc.projects);
   const filename     = doc.storage_path.split('/').at(-1) ?? doc.storage_path;
+
+  const latestExtraction = extractions[0] ?? null;
+  const keyFacts = latestExtraction ? extractKeyFacts(latestExtraction.data) : [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -378,8 +432,36 @@ export default function DocumentDetailPage({
         </div>
       </section>
 
+      {/* Processing status + Reprocess button */}
+      <DocumentProcessingStatus
+        status={doc.status}
+        documentId={id}
+        onStatusChange={handleStatusChange}
+      />
+
+      {/* Key Facts from extraction */}
+      {keyFacts.length > 0 && (
+        <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+          <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Key Facts</div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {keyFacts.map((fact) => (
+              <div key={fact.label} className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] p-3">
+                <div className="mb-1 text-[10px] text-[#8B94A3]">{fact.label}</div>
+                <div className="text-[11px] font-medium text-[#F5F7FA]">
+                  {typeof fact.value === 'boolean'
+                    ? fact.value ? 'Yes' : 'No'
+                    : fact.value != null
+                      ? String(fact.value)
+                      : <span className="text-[#3a3f5a]">—</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Metadata */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details</div>
         <div className="space-y-2">
           <MetaRow label="Title">{displayTitle}</MetaRow>
@@ -410,7 +492,7 @@ export default function DocumentDetailPage({
       </section>
 
       {/* File actions */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">File</div>
         {fileError ? (
           <p className="text-[11px] text-red-400">
@@ -440,8 +522,120 @@ export default function DocumentDetailPage({
         )}
       </section>
 
+      {/* Decisions (from decisions table) */}
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decisions</div>
+        {persistentDecisionsLoading ? (
+          <p className="text-[11px] text-[#8B94A3]">Loading decisions…</p>
+        ) : persistentDecisions.length === 0 ? (
+          <p className="text-[11px] text-[#8B94A3]">
+            No decisions yet. Process the document to generate decisions.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-[11px]">
+              <thead className="text-[#8B94A3]">
+                <tr className="border-b border-[#1A1A3E]">
+                  <th className="py-2 pr-3 font-medium">Title</th>
+                  <th className="py-2 pr-3 font-medium">Severity</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium">Confidence</th>
+                  <th className="py-2 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody className="text-[#F5F7FA]">
+                {persistentDecisions.map((d) => (
+                  <tr key={d.id} className="border-b border-[#1A1A3E] last:border-b-0">
+                    <td className="py-2 pr-3">
+                      <Link
+                        href={`/platform/decisions/${d.id}`}
+                        className="text-[#8B5CFF] hover:underline"
+                      >
+                        {d.title}
+                      </Link>
+                      {d.summary && (
+                        <div className="mt-0.5 text-[10px] text-[#8B94A3]">{d.summary}</div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <SeverityBadge severity={d.severity} />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <StatusBadge status={d.status} />
+                    </td>
+                    <td className="py-2 pr-3">
+                      {typeof d.confidence === 'number'
+                        ? `${Math.round(d.confidence * 100)}%`
+                        : <span className="text-[#3a3f5a]">—</span>}
+                    </td>
+                    <td className="py-2 text-[#8B94A3]">
+                      {new Date(d.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Workflow Tasks */}
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Workflow Tasks</div>
+        {workflowTasksLoading ? (
+          <p className="text-[11px] text-[#8B94A3]">Loading tasks…</p>
+        ) : workflowTasks.length === 0 ? (
+          <p className="text-[11px] text-[#8B94A3]">
+            No workflow tasks yet. Tasks are created automatically from decisions.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-[11px]">
+              <thead className="text-[#8B94A3]">
+                <tr className="border-b border-[#1A1A3E]">
+                  <th className="py-2 pr-3 font-medium">Title</th>
+                  <th className="py-2 pr-3 font-medium">Type</th>
+                  <th className="py-2 pr-3 font-medium">Priority</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody className="text-[#F5F7FA]">
+                {workflowTasks.map((t) => (
+                  <tr key={t.id} className="border-b border-[#1A1A3E] last:border-b-0">
+                    <td className="py-2 pr-3">
+                      <Link
+                        href={`/platform/workflows/${t.id}`}
+                        className="text-[#8B5CFF] hover:underline"
+                      >
+                        {t.title}
+                      </Link>
+                      {t.description && (
+                        <div className="mt-0.5 text-[10px] text-[#8B94A3] line-clamp-1">
+                          {t.description}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3">{titleize(t.task_type)}</td>
+                    <td className="py-2 pr-3">
+                      <PriorityBadge priority={t.priority} />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <TaskStatusBadge status={t.status} />
+                    </td>
+                    <td className="py-2 text-[#8B94A3]">
+                      {new Date(t.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* Extractions */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Extractions</div>
         {extractionsLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading extractions…</p>
@@ -463,14 +657,14 @@ export default function DocumentDetailPage({
         )}
       </section>
 
-      {/* Decisions */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decisions</div>
+      {/* Document Decisions (raw engine output) */}
+      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decision Signals</div>
         {decisionsLoading ? (
-          <p className="text-[11px] text-[#8B94A3]">Loading decisions…</p>
+          <p className="text-[11px] text-[#8B94A3]">Loading…</p>
         ) : decisions.length === 0 ? (
           <p className="text-[11px] text-[#8B94A3]">
-            No decisions yet. Run analysis to generate decisions.
+            No decision signals yet. Run analysis to generate signals.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -530,27 +724,6 @@ export default function DocumentDetailPage({
               </tbody>
             </table>
           </div>
-        )}
-      </section>
-
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Analyze</div>
-        <button
-          type="button"
-          onClick={handleAnalyze}
-          disabled={analyzing}
-          className="text-[#8B94A3] text-[11px] hover:text-[#8B5CFF] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {analyzing ? 'Re-analyzing…' : 'Re-analyze document'}
-        </button>
-        {analyzeMsg && (
-          <p
-            className={`mt-2 text-[11px] ${
-              analyzeMsg.type === 'success' ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {analyzeMsg.text}
-          </p>
         )}
       </section>
     </div>

@@ -1,219 +1,172 @@
+// lib/server/workflowEngine.ts
+// Creates workflow tasks from decisions based on rule action_json.
+//
+// Production schema (public.workflow_tasks):
+//   id, organization_id, decision_id, document_id, task_type, title,
+//   description, status, priority, assigned_to, created_by, due_at,
+//   started_at, completed_at, source, source_metadata, details,
+//   created_at, updated_at, assigned_at, assigned_by
+//
+// Behaviors:
+//   - Only creates tasks when action_json.create_task === true
+//   - Deduplicates by decision_id + task_type (open/in_progress)
+//   - Sets source = 'rule_engine' and source_metadata with rule context
+//   - Only creates tasks for newly inserted decisions (is_new = true)
+
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import type { WorkflowEvent, WorkflowRule } from '@/lib/types/workflow';
+import type { ActionJson } from '@/lib/types/rules';
+import type { CreatedDecision } from '@/lib/server/decisionEngine';
 
-type DecisionInput = { decision_type: string; decision_value: string | null };
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-type ReviewsInsertColumns = {
-  document_id: boolean;
-  title: boolean;
-  review_type: boolean;
-  priority: boolean;
+export type CreateTasksResult = {
+  /** Number of new workflow_task rows inserted */
+  created: number;
+  /** Number of decisions skipped (existing task, no create_task, or re-detection) */
+  skipped: number;
 };
 
-let _reviewCols: ReviewsInsertColumns | null = null;
+// ---------------------------------------------------------------------------
+// Main Function
+// ---------------------------------------------------------------------------
 
-async function detectReviewsColumns(): Promise<ReviewsInsertColumns> {
+/**
+ * Create workflow tasks from newly created decisions.
+ *
+ * Only processes decisions where is_new = true (skips re-detections that
+ * already have tasks from their first detection).
+ *
+ * Deduplication: checks for existing open/in_progress tasks matching
+ * (decision_id, task_type) before inserting.
+ */
+export async function createTasksFromDecisions(params: {
+  organizationId: string;
+  decisions: CreatedDecision[];
+}): Promise<CreateTasksResult> {
   const admin = getSupabaseAdmin();
-  if (!admin) {
-    return { document_id: false, title: false, review_type: false, priority: false };
+  if (!admin) return { created: 0, skipped: 0 };
+
+  const { organizationId, decisions } = params;
+  if (decisions.length === 0) return { created: 0, skipped: 0 };
+
+  // ── Filter to new decisions that request task creation ──────────────
+  const needsTasks = decisions.filter(
+    (d) => d.is_new && d.action_json?.create_task === true,
+  );
+
+  if (needsTasks.length === 0) {
+    return { created: 0, skipped: 0 };
   }
 
-  const probe = async (col: keyof ReviewsInsertColumns): Promise<boolean> => {
-    // This is a lightweight runtime schema check: if PostgREST errors on unknown
-    // columns, we treat it as absent. We keep the insert minimal when in doubt.
-    const { error } = await admin.from('reviews').select(col).limit(1);
-    return !error;
+  // ── Load existing open/in_progress tasks for dedup ──────────────────
+  const decisionIds = needsTasks.map((d) => d.decision_id);
+
+  const { data: existingTasks } = await admin
+    .from('workflow_tasks')
+    .select('decision_id, task_type')
+    .in('decision_id', decisionIds)
+    .in('status', ['open', 'in_progress']);
+
+  const existingKeys = new Set(
+    (existingTasks ?? []).map((t) => {
+      const row = t as { decision_id: string; task_type: string };
+      return `${row.decision_id}::${row.task_type}`;
+    }),
+  );
+
+  // ── Build insert batch ──────────────────────────────────────────────
+  type TaskRow = {
+    organization_id: string;
+    document_id: string;
+    decision_id: string;
+    task_type: string;
+    title: string;
+    description: string | null;
+    priority: string;
+    status: string;
+    due_at: string | null;
+    source: string;
+    source_metadata: Record<string, unknown>;
   };
 
-  return {
-    document_id: await probe('document_id'),
-    title: await probe('title'),
-    review_type: await probe('review_type'),
-    priority: await probe('priority'),
-  };
-}
+  const toInsert: TaskRow[] = [];
+  let skipped = 0;
 
-async function getReviewsInsertColumns(): Promise<ReviewsInsertColumns> {
-  if (_reviewCols) return _reviewCols;
-  _reviewCols = await detectReviewsColumns();
-  return _reviewCols;
-}
+  for (const d of needsTasks) {
+    const action = d.action_json as ActionJson;
+    const taskType = action.task_type || 'general_review';
+    const dedupKey = `${d.decision_id}::${taskType}`;
 
-async function insertWorkflowEvent(params: {
-  organizationId: string;
-  documentId: string | null;
-  ruleId: string | null;
-  eventType: string;
-  status: 'pending' | 'completed' | 'failed' | 'skipped';
-  payload: Record<string, unknown> | null;
-  errorMessage: string | null;
-}): Promise<WorkflowEvent | null> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
+    if (existingKeys.has(dedupKey)) {
+      skipped++;
+      continue;
+    }
 
-  const { data, error } = await admin
-    .from('workflow_events')
-    .insert({
-      organization_id: params.organizationId,
-      document_id: params.documentId,
-      rule_id: params.ruleId,
-      event_type: params.eventType,
-      status: params.status,
-      payload: params.payload,
-      error_message: params.errorMessage,
-      created_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single();
+    // Compute due_at from due_in_hours
+    let dueAt: string | null = null;
+    if (action.due_in_hours && action.due_in_hours > 0) {
+      const due = new Date();
+      due.setHours(due.getHours() + action.due_in_hours);
+      dueAt = due.toISOString();
+    }
 
-  if (error || !data) {
-    console.error('[workflowEngine] workflow_event insert error:', error);
-    return null;
+    toInsert.push({
+      organization_id: organizationId,
+      document_id: d.document_id,
+      decision_id: d.decision_id,
+      task_type: taskType,
+      title: formatTaskTitle(taskType, d.title),
+      description: `Auto-generated from rule decision: ${d.decision_type} (${d.severity})`,
+      priority: severityToPriority(d.severity),
+      status: 'open',
+      due_at: dueAt,
+      source: 'rule_engine',
+      source_metadata: {
+        rule_id: d.rule_id,
+        decision_id: d.decision_id,
+        decision_type: d.decision_type,
+        assign_to_role: action.assign_to_role ?? null,
+      },
+    });
   }
-  return data as WorkflowEvent;
+
+  if (toInsert.length === 0) {
+    return { created: 0, skipped };
+  }
+
+  // ── Insert ──────────────────────────────────────────────────────────
+  const { error } = await admin.from('workflow_tasks').insert(toInsert);
+
+  if (error) {
+    console.error('[workflowEngine] insert error:', error);
+    return { created: 0, skipped };
+  }
+
+  return { created: toInsert.length, skipped };
 }
 
-export async function runWorkflowEngine(params: {
-  documentId: string;
-  organizationId: string;
-  decisions: DecisionInput[];
-}): Promise<WorkflowEvent[]> {
-  try {
-    const admin = getSupabaseAdmin();
-    if (!admin) return [];
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-    const { data: rules, error: rulesError } = await admin
-      .from('workflow_rules')
-      .select('*')
-      .eq('organization_id', params.organizationId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true });
-
-    if (rulesError) {
-      console.error('[workflowEngine] rules load error:', rulesError);
-      return [];
-    }
-
-    const ruleRows = (rules ?? []) as WorkflowRule[];
-    if (ruleRows.length === 0) return [];
-
-    const createdEvents: WorkflowEvent[] = [];
-
-    const hasMatch = (rule: WorkflowRule) =>
-      params.decisions.some(
-        (d) =>
-          d.decision_type === rule.condition_type &&
-          (d.decision_value ?? null) === rule.condition_value
-      );
-
-    const reviewCols = await getReviewsInsertColumns();
-
-    for (const rule of ruleRows) {
-      if (!hasMatch(rule)) continue;
-
-      const payload = rule.action_payload ?? {};
-      const action = rule.action_type;
-
-      if (action === 'create_review') {
-        let status: WorkflowEvent['status'] = 'completed';
-        let errorMessage: string | null = null;
-        let reviewId: string | null = null;
-
-        try {
-          const insertRow: Record<string, unknown> = {
-            organization_id: params.organizationId,
-            status: 'pending',
-            created_at: new Date().toISOString(),
-          };
-
-          if (reviewCols.document_id) insertRow.document_id = params.documentId;
-          if (reviewCols.title) {
-            insertRow.title =
-              (typeof payload.title === 'string' && payload.title.trim()) ||
-              'Document Review';
-          }
-          if (reviewCols.review_type) {
-            insertRow.review_type =
-              (typeof payload.review_type === 'string' && payload.review_type.trim()) ||
-              'general';
-          }
-          if (reviewCols.priority) {
-            insertRow.priority =
-              (typeof payload.priority === 'string' && payload.priority.trim()) ||
-              'normal';
-          }
-
-          const { data: reviewRow, error: reviewErr } = await admin
-            .from('reviews')
-            .insert(insertRow)
-            .select('id')
-            .single();
-
-          if (reviewErr) {
-            status = 'failed';
-            errorMessage = reviewErr.message;
-          } else {
-            reviewId = (reviewRow as { id?: string } | null)?.id ?? null;
-          }
-        } catch (e) {
-          status = 'failed';
-          errorMessage = e instanceof Error ? e.message : 'Unknown error';
-        }
-
-        const ev = await insertWorkflowEvent({
-          organizationId: params.organizationId,
-          documentId: params.documentId,
-          ruleId: rule.id,
-          eventType: 'review_created',
-          status,
-          payload: {
-            rule_name: rule.name,
-            review_id: reviewId,
-            action_payload: payload,
-          },
-          errorMessage,
-        });
-        if (ev) createdEvents.push(ev);
-        continue;
-      }
-
-      if (action === 'flag_document') {
-        const flag = typeof payload.flag === 'string' ? payload.flag : 'flagged';
-        const note = typeof payload.note === 'string' ? payload.note : null;
-        const ev = await insertWorkflowEvent({
-          organizationId: params.organizationId,
-          documentId: params.documentId,
-          ruleId: rule.id,
-          eventType: 'document_flagged',
-          status: 'completed',
-          payload: { flag, note, document_id: params.documentId },
-          errorMessage: null,
-        });
-        if (ev) createdEvents.push(ev);
-        continue;
-      }
-
-      // log_event and unimplemented actions: create an event row only
-      const ev = await insertWorkflowEvent({
-        organizationId: params.organizationId,
-        documentId: params.documentId,
-        ruleId: rule.id,
-        eventType: action === 'log_event' ? 'event_logged' : 'action_stubbed',
-        status: 'completed',
-        payload: {
-          rule_name: rule.name,
-          action_type: action,
-          action_payload: payload,
-        },
-        errorMessage: null,
-      });
-      if (ev) createdEvents.push(ev);
-    }
-
-    return createdEvents;
-  } catch (err) {
-    console.error('[workflowEngine] unhandled error:', err);
-    return [];
+/** Map rule severity to workflow task priority. */
+function severityToPriority(severity: string): string {
+  switch (severity) {
+    case 'critical':
+      return 'critical';
+    case 'high':
+      return 'high';
+    case 'low':
+      return 'low';
+    default:
+      return 'medium';
   }
 }
 
+/** Format a human-readable task title from task_type and rule name. */
+function formatTaskTitle(taskType: string, ruleName: string): string {
+  const readableType = taskType.replace(/_/g, ' ');
+  return `${readableType}: ${ruleName}`;
+}

@@ -144,17 +144,18 @@ function UploadModal({
       const { data: { session } } = await supabase.auth.getSession();
       const newDocId = (insertedDoc as DocRow).id;
 
-      const analyzePromise = fetch(`/api/documents/${newDocId}/analyze`, {
+      const processPromise = fetch('/api/documents/process', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token ?? ''}`,
         },
+        body: JSON.stringify({ documentId: newDocId }),
       });
 
       onUploaded({
         doc: insertedDoc as DocRow,
-        analyzePromise,
+        analyzePromise: processPromise,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred.';

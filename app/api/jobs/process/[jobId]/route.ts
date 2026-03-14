@@ -7,9 +7,9 @@ import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysi
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
-import { runDecisionEngine } from '@/lib/server/decisionEngine';
+import { runDecisionEngine } from '@/lib/server/heuristicDecisionEngine';
 import { persistDecisions, documentDecisionsToPersisted } from '@/lib/server/decisionPersistence';
-import { runWorkflowEngine } from '@/lib/server/workflowEngine';
+import { runWorkflowEngine } from '@/lib/server/legacyWorkflowEngine';
 import { createWorkflowTasksFromDecisions } from '@/lib/server/workflowTasks';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 

@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { formatDueDate } from '@/lib/dateUtils';
@@ -98,6 +99,7 @@ function getStatusSelectCls(status: string): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DecisionsPage() {
+  const router = useRouter();
   const { organization, userId, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
   const { members } = useOrgMembers(organizationId);
@@ -105,6 +107,7 @@ export default function DecisionsPage() {
 
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') ?? '');
   const [filterSeverity, setFilterSeverity] = useState<string>(searchParams.get('severity') ?? '');
   const [filterDecisionType, setFilterDecisionType] = useState<string>(searchParams.get('type') ?? '');
@@ -116,6 +119,7 @@ export default function DecisionsPage() {
 
   const fetchDecisions = async (orgId: string) => {
     setLoading(true);
+    setListError(null);
     let query = supabase
       .from('decisions')
       .select('id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
@@ -130,8 +134,12 @@ export default function DecisionsPage() {
     else if (filterAssigned && filterAssigned !== '__me') query = query.eq('assigned_to', filterAssigned);
 
     const { data, error } = await query;
-    if (!error && data) setDecisions(data as DecisionRow[]);
-    else setDecisions([]);
+    if (error) {
+      setListError('Failed to load decisions.');
+      setDecisions([]);
+    } else {
+      setDecisions(data as DecisionRow[]);
+    }
     setLoading(false);
   };
 
@@ -159,6 +167,7 @@ export default function DecisionsPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: newStatus }),
       });
+      if (redirectIfUnauthorized(res, router.replace)) return;
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setUpdateErrorId(decisionId);
@@ -348,6 +357,12 @@ export default function DecisionsPage() {
 
       {/* Table */}
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+
+        {listError && (
+          <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+            <p className="text-[11px] font-medium text-red-400">{listError}</p>
+          </div>
+        )}
 
         {/* Scan summary bar — instant health snapshot before reading the table */}
         {!isLoading && filteredDecisions.length > 0 && (

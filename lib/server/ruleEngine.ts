@@ -11,20 +11,21 @@
 // testing and preview purposes.
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { loadFactsFromExtractions } from '@/lib/server/documentExtractions';
+import {
+  loadFactsFromExtractions,
+  loadExtractionRows,
+} from '@/lib/server/documentExtractions';
+import { computeDerivedFacts } from '@/lib/server/derivedFacts';
+import { evaluateCondition, evaluateRule } from '@/lib/ruleEvaluation';
 import type {
   Facts,
   RuleRow,
-  Condition,
-  ConditionOperator,
-  ConditionJson,
   ConditionResult,
   RuleEvalResult,
 } from '@/lib/types/rules';
 
-// Re-export the pure evaluation functions so consumers don't need to know
-// about the internal split between I/O and pure logic.
 export type { Facts, RuleRow, RuleEvalResult, ConditionResult };
+export { evaluateCondition, evaluateRule };
 
 // ---------------------------------------------------------------------------
 // 1. Fact Loading (delegates to documentExtractions — single source of truth)
@@ -40,6 +41,46 @@ export type { Facts, RuleRow, RuleEvalResult, ConditionResult };
  */
 export async function loadFacts(documentId: string): Promise<Facts> {
   return loadFactsFromExtractions(documentId);
+}
+
+// ---------------------------------------------------------------------------
+// Facts with derived layer (for evaluation route)
+// ---------------------------------------------------------------------------
+
+export type LoadFactsWithDerivedResult = {
+  facts: Facts;
+  derived_facts: Facts;
+  extraction_row_count: number;
+};
+
+/**
+ * Load facts from document_extractions, compute derived facts, and merge.
+ * Use this for document evaluation so rules can reference derived_* keys.
+ */
+export async function loadFactsWithDerived(params: {
+  documentId: string;
+  domain: string;
+  documentType: string;
+}): Promise<LoadFactsWithDerivedResult> {
+  const [baseFacts, rows] = await Promise.all([
+    loadFactsFromExtractions(params.documentId),
+    loadExtractionRows(params.documentId),
+  ]);
+
+  const derived_facts = computeDerivedFacts({
+    rows,
+    facts: baseFacts,
+    domain: params.domain,
+    documentType: params.documentType,
+  });
+
+  const facts: Facts = { ...baseFacts, ...derived_facts };
+
+  return {
+    facts,
+    derived_facts,
+    extraction_row_count: rows.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -79,166 +120,7 @@ export async function loadRules(params: {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Condition Evaluation (pure — no I/O, no side effects)
-// ---------------------------------------------------------------------------
-
-/**
- * Evaluate a single condition against a facts map.
- */
-export function evaluateCondition(
-  condition: Condition,
-  facts: Facts,
-): ConditionResult {
-  const { field_key, operator, value: expected } = condition;
-  const actual = Object.prototype.hasOwnProperty.call(facts, field_key)
-    ? facts[field_key]
-    : null;
-
-  return {
-    field_key,
-    operator,
-    expected,
-    actual,
-    passed: applyOperator(operator, actual, expected),
-  };
-}
-
-/**
- * Core operator implementation. Every branch is null-safe.
- *
- * Operator semantics:
- *   exists       — fact key is present and value is not null
- *   not_exists   — fact key is absent or value is null
- *   equals       — coerced equality (number-aware, case-insensitive strings)
- *   not_equals   — negation of equals; returns true when fact is null
- *   greater_than — numeric comparison (dates coerced to epoch ms)
- *   less_than    — numeric comparison
- *   contains     — case-insensitive substring match
- *   not_contains — negation of contains; returns true when fact is null
- *   in           — value is in the expected array (case-insensitive)
- *   not_in       — value is not in the expected array; returns true when fact is null
- */
-function applyOperator(
-  op: ConditionOperator,
-  actual: unknown,
-  expected: unknown,
-): boolean {
-  // ── Existence operators ──────────────────────────────────────────────
-  if (op === 'exists') {
-    return actual !== null && actual !== undefined;
-  }
-  if (op === 'not_exists') {
-    return actual === null || actual === undefined;
-  }
-
-  // ── Null actual handling for comparison operators ────────────────────
-  // When the fact is missing, most comparisons fail. The exceptions are
-  // negation operators where "absent" logically means "not equal to X".
-  if (actual === null || actual === undefined) {
-    if (op === 'not_equals') return expected !== null && expected !== undefined;
-    if (op === 'not_contains') return true;
-    if (op === 'not_in') return true;
-    return false;
-  }
-
-  // ── Value comparison operators ───────────────────────────────────────
-  switch (op) {
-    case 'equals':
-      return coerceEquals(actual, expected);
-
-    case 'not_equals':
-      return !coerceEquals(actual, expected);
-
-    case 'greater_than':
-      return toNumber(actual) > toNumber(expected);
-
-    case 'greater_than_or_equal':
-      return toNumber(actual) >= toNumber(expected);
-
-    case 'less_than':
-      return toNumber(actual) < toNumber(expected);
-
-    case 'less_than_or_equal':
-      return toNumber(actual) <= toNumber(expected);
-
-    case 'contains':
-      return String(actual).toLowerCase().includes(String(expected).toLowerCase());
-
-    case 'not_contains':
-      return !String(actual).toLowerCase().includes(String(expected).toLowerCase());
-
-    case 'in': {
-      const list = Array.isArray(expected) ? expected : [];
-      const actualLower = String(actual).toLowerCase();
-      return list.some((item) => String(item).toLowerCase() === actualLower);
-    }
-
-    case 'not_in': {
-      const list = Array.isArray(expected) ? expected : [];
-      const actualLower = String(actual).toLowerCase();
-      return !list.some((item) => String(item).toLowerCase() === actualLower);
-    }
-
-    default:
-      return false;
-  }
-}
-
-/** Coerce two values to a common type for equality comparison. */
-function coerceEquals(a: unknown, b: unknown): boolean {
-  if (typeof a === 'number' || typeof b === 'number') {
-    return toNumber(a) === toNumber(b);
-  }
-  if (typeof a === 'boolean' || typeof b === 'boolean') {
-    return Boolean(a) === Boolean(b);
-  }
-  return String(a).toLowerCase() === String(b).toLowerCase();
-}
-
-/** Safely coerce any value to a number. */
-function toNumber(v: unknown): number {
-  if (typeof v === 'number') return v;
-  if (v instanceof Date) return v.getTime();
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  const n = Number(v);
-  return Number.isNaN(n) ? 0 : n;
-}
-
-// ---------------------------------------------------------------------------
-// 4. Rule Evaluation (pure — no I/O, no side effects)
-// ---------------------------------------------------------------------------
-
-/**
- * Evaluate a single rule against a facts map.
- * Uses match_type = 'all' (AND) or 'any' (OR).
- * Returns the full condition-by-condition breakdown for audit/preview.
- */
-export function evaluateRule(rule: RuleRow, facts: Facts): RuleEvalResult {
-  const cj = rule.condition_json as ConditionJson | null;
-
-  if (
-    !cj ||
-    !Array.isArray(cj.conditions) ||
-    cj.conditions.length === 0
-  ) {
-    return { rule, matched: false, condition_results: [] };
-  }
-
-  const conditionResults = cj.conditions.map((c) =>
-    evaluateCondition(c, facts),
-  );
-
-  const matchType = cj.match_type ?? 'all';
-  const matched =
-    matchType === 'all'
-      ? conditionResults.every((r) => r.passed)
-      : conditionResults.some((r) => r.passed);
-
-  return { rule, matched, condition_results: conditionResults };
-}
-
-// ---------------------------------------------------------------------------
-// 5. Full Document Evaluation (I/O: loads facts + rules, then evaluates)
+// 3. Full Document Evaluation (I/O: loads facts + rules, then evaluates)
 // ---------------------------------------------------------------------------
 
 /**

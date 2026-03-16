@@ -8,6 +8,7 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { normalizeExtraction } from '@/lib/server/extractionNormalizer';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
 import { generateAndPersistDecisions } from '@/lib/pipeline/decisionEngine';
@@ -100,6 +101,7 @@ export async function processDocument(params: {
 
     if (params.analysisMode === 'ai_enriched') {
       const aiResult = await runAiEnrichment({
+        organizationId: params.organizationId,
         documentMetadata: {
           id: metadata.id,
           title: metadata.title,
@@ -130,6 +132,12 @@ export async function processDocument(params: {
       await markFailed(job.id, params.documentId, insertError.message);
       return { success: false, error: 'Failed to persist extraction', jobId: job.id };
     }
+
+    await normalizeExtraction({
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      payload: payload as unknown as Parameters<typeof normalizeExtraction>[0]['payload'],
+    });
 
     const decisions = await generateAndPersistDecisions({
       admin,

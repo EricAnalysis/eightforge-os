@@ -173,6 +173,7 @@ export async function createDecisionsFromRules(params: {
           organization_id: organizationId,
           document_id: documentId,
           decision_rule_id: rule.id,
+          rule_id: rule.id,
           decision_type: rule.decision_type,
           severity: rule.severity,
           status: 'open',

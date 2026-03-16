@@ -311,6 +311,7 @@ export default function PlatformDashboardPage() {
   const [agingDecisions, setAgingDecisions] = useState<AgingCounts>({ '0_2': 0, '3_7': 0, '8_14': 0, '15_plus': 0 });
   const [agingTasks, setAgingTasks] = useState<AgingCounts>({ '0_2': 0, '3_7': 0, '8_14': 0, '15_plus': 0 });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
@@ -324,6 +325,7 @@ export default function PlatformDashboardPage() {
 
     const load = async () => {
       setLoading(true);
+      setLoadError(null);
 
       const nowIso = new Date().toISOString();
 
@@ -488,10 +490,17 @@ export default function PlatformDashboardPage() {
       setAgingTasks(computeAgingCounts(
         ((agingTasksRes.data ?? []) as { created_at: string }[]).map((r) => r.created_at),
       ));
+      const hasError = [openDecisionsRes, recentDecisionsRes, openTasksListRes, recentDocsRes].some(
+        (r) => r && 'error' in r && (r as { error?: unknown }).error,
+      );
+      if (hasError) setLoadError('Failed to load overview');
       setLoading(false);
     };
 
-    load();
+    load().catch((err) => {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load overview');
+      setLoading(false);
+    });
   }, [organizationId, userId, orgLoading]);
 
   const isLoading = orgLoading || loading;
@@ -507,6 +516,13 @@ export default function PlatformDashboardPage() {
           </p>
         </div>
       </section>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <p className="text-[11px] font-medium text-red-400">{loadError}</p>
+          <p className="mt-1 text-[10px] text-[#8B94A3]">Refresh the page to try again.</p>
+        </div>
+      )}
 
       {/* Critical alert bar — only shown when there is something urgent */}
       <CriticalAlertBar counts={counts} isLoading={isLoading} />

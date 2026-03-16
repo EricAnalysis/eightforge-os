@@ -14,7 +14,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { loadFacts, loadRules, evaluateRule } from '@/lib/server/ruleEngine';
+import { getActorContext } from '@/lib/server/getActorContext';
+import { loadFactsWithDerived, loadRules, evaluateRule } from '@/lib/server/ruleEngine';
 import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
@@ -33,6 +34,8 @@ export async function POST(
       { status: 503 },
     );
   }
+
+  const actorResult = await getActorContext(_request);
 
   // ── 1. Load document ────────────────────────────────────────────────
   const { data: doc, error: docError } = await admin
@@ -56,6 +59,14 @@ export async function POST(
     processing_status: string;
   };
 
+  // ── 1b. Verify actor has access to this document's organization ──────
+  if (actorResult.ok && actorResult.actor.organizationId !== document.organization_id) {
+    return NextResponse.json(
+      { error: 'Document not found' },
+      { status: 404 },
+    );
+  }
+
   // ── 2. Validate required fields ─────────────────────────────────────
   if (!document.organization_id) {
     return NextResponse.json(
@@ -78,8 +89,13 @@ export async function POST(
   }
 
   try {
-    // ── 3. Load facts ───────────────────────────────────────────────────
-    const facts = await loadFacts(documentId);
+    // ── 3. Load facts (with derived layer) ───────────────────────────────
+    const { facts, derived_facts, extraction_row_count } =
+      await loadFactsWithDerived({
+        documentId,
+        domain: document.domain,
+        documentType: document.document_type,
+      });
 
     // ── 4. Load rules ───────────────────────────────────────────────────
     const rules = await loadRules({
@@ -140,7 +156,7 @@ export async function POST(
       // Activity logging is best-effort — don't fail the request
     }
 
-    // ── 10. Return summary ──────────────────────────────────────────────
+    // ── 10. Return summary (with debug for manual testing) ───────────────
     return NextResponse.json({
       document_id: documentId,
       domain: document.domain,
@@ -154,6 +170,11 @@ export async function POST(
       tasks_created: tasksResult.created,
       tasks_skipped: tasksResult.skipped,
       processing_status: 'decisioned',
+      // Debug: derived layer and row count for manual testing
+      debug: {
+        extraction_row_count: extraction_row_count,
+        derived_facts: derived_facts,
+      },
     });
   } catch (error) {
     console.error('[evaluate] unhandled error:', error);

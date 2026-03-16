@@ -13,11 +13,15 @@ const STATUS_STYLES: Record<string, string> = {
 export function DocumentProcessingStatus({
   status,
   documentId,
+  orgId,
   onStatusChange,
+  onProcessed,
 }: {
   status: string;
   documentId: string;
+  orgId?: string;
   onStatusChange?: (newStatus: string) => void;
+  onProcessed?: () => void;
 }) {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,17 +47,20 @@ export function DocumentProcessingStatus({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ documentId }),
+        body: JSON.stringify({ documentId, orgId }),
       });
 
+      const body = await res.json().catch(() => ({}));
+      console.log('[DocumentProcessingStatus] process response', { ok: res.ok, status: res.status, body });
+
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body?.error ?? 'Processing failed');
+        setError(body?.message ?? body?.error ?? 'Processing failed');
         onStatusChange?.(status);
         return;
       }
 
       onStatusChange?.('processed');
+      onProcessed?.();
     } catch {
       setError('Processing failed');
       onStatusChange?.(status);

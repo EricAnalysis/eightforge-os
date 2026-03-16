@@ -43,6 +43,16 @@ type ExtractionRow = {
   created_by: string | null;
 };
 
+/** Row shape returned from DB for rule/derived-fact use (active, field_key not null). */
+export type ExtractionRowForFacts = {
+  field_key: string;
+  field_value_text: string | null;
+  field_value_number: number | null;
+  field_value_date: string | null;
+  field_value_boolean: boolean | null;
+  field_type: string;
+};
+
 // ---------------------------------------------------------------------------
 // Value Normalization
 // ---------------------------------------------------------------------------
@@ -230,4 +240,27 @@ export async function loadFactsFromExtractions(documentId: string): Promise<Fact
   }
 
   return facts;
+}
+
+/**
+ * Load active extraction rows for a document (raw rows, not collapsed to facts).
+ * Used by the derived-facts layer to compute duplicates, row counts, parse errors.
+ */
+export async function loadExtractionRows(
+  documentId: string,
+): Promise<ExtractionRowForFacts[]> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return [];
+
+  const { data, error } = await admin
+    .from('document_extractions')
+    .select(
+      'field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, field_type',
+    )
+    .eq('document_id', documentId)
+    .eq('status', 'active')
+    .not('field_key', 'is', null);
+
+  if (error || !data) return [];
+  return data as ExtractionRowForFacts[];
 }

@@ -25,6 +25,7 @@ const navSections = [
   },
   {
     items: [
+      { href: '/platform/rules', label: 'Rules' },
       { href: '/platform/projects', label: 'Projects' },
       { href: '/platform/settings', label: 'Settings' },
     ],
@@ -137,7 +138,11 @@ function HeaderRight() {
       <span className="rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-2.5 py-1.5 text-[#8B94A3]">
         All Operations
       </span>
-      <button className="rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-2.5 py-1.5 text-[#8B94A3] transition-colors hover:text-[#F5F7FA]">
+      <button
+        disabled
+        title="Coming soon"
+        className="rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-2.5 py-1.5 text-[#8B94A3] opacity-50 cursor-not-allowed"
+      >
         Alerts
       </button>
       <button

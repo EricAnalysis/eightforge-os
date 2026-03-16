@@ -32,6 +32,8 @@ export type ConditionJson = {
 export type ActionJson = {
   create_task?: boolean;
   task_type?: string;
+  title_template?: string;
+  description_template?: string;
   assign_to_role?: string;
   due_in_hours?: number;
 };

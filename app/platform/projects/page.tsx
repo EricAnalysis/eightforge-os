@@ -65,7 +65,9 @@ export default function ProjectsPage() {
         <div className="shrink-0">
           <button
             type="button"
-            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            disabled
+            title="Coming soon"
+            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white opacity-50 cursor-not-allowed"
           >
             New Project
           </button>

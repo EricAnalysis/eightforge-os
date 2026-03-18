@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState, useCallback } from 'react';
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -9,6 +9,14 @@ import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { DocumentProcessingStatus } from '@/components/DocumentProcessingStatus';
 import { extractKeyFacts } from '@/lib/types/extraction';
 import type { DocumentDecision } from '@/lib/types/decisions';
+import { buildDocumentIntelligence } from '@/lib/documentIntelligence';
+import type { RelatedDocInput } from '@/lib/documentIntelligence';
+import { SummaryCard } from '@/components/document-intelligence/SummaryCard';
+import { EntityChips } from '@/components/document-intelligence/EntityChips';
+import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
+import { AskDocumentSection } from '@/components/document-intelligence/AskDocumentSection';
+import { CrossDocChecks } from '@/components/document-intelligence/CrossDocChecks';
+import type { TriggeredWorkflowTask } from '@/lib/types/documentIntelligence';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,8 +35,10 @@ type DocumentDetail = {
   project_id: string | null;
   projects: { id: string; name: string } | { id: string; name: string }[] | null;
   processing_status?: string | null;
+  processing_error?: string | null;
   processed_at?: string | null;
   domain?: string | null;
+  relatedDocs?: RelatedDocInput[];
 };
 
 type EvaluateResponse = {
@@ -87,10 +97,11 @@ type WorkflowTaskRow = {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-    processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
+    uploaded:    'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    processing:  'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
+    extracted:   'bg-sky-500/20 text-sky-400 border border-sky-500/40',
+    decisioned:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    failed:      'bg-red-500/20 text-red-400 border border-red-500/40',
   };
   const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
   return (
@@ -265,6 +276,7 @@ export default function DocumentDetailPage({
   const [persistentDecisionsLoading, setPersistentDecisionsLoading] = useState(false);
   const [workflowTasks, setWorkflowTasks] = useState<WorkflowTaskRow[]>([]);
   const [workflowTasksLoading, setWorkflowTasksLoading] = useState(false);
+  const [relatedDocs, setRelatedDocs] = useState<RelatedDocInput[]>([]);
   const [feedbackMap, setFeedbackMap] = useState<
     Record<string, 'correct' | 'incorrect'>
   >({});
@@ -276,6 +288,7 @@ export default function DocumentDetailPage({
 
   const loadAllData = useCallback(async () => {
     setDoc(null);
+    setRelatedDocs([]);
     setSignedUrl(null);
     setFileExt('');
     setFileContentType('');
@@ -349,7 +362,9 @@ export default function DocumentDetailPage({
       return;
     }
 
-    setDoc(docResult.data as DocumentDetail);
+    const docData = docResult.data as DocumentDetail;
+    setDoc(docData);
+    setRelatedDocs(docData.relatedDocs ?? []);
     setLoading(false);
 
     if (!extractionsResult.error && extractionsResult.data) {
@@ -465,8 +480,9 @@ export default function DocumentDetailPage({
   };
 
   const handleStatusChange = (newStatus: string) => {
-    setDoc((prev) => (prev ? { ...prev, status: newStatus } : prev));
-    if (newStatus === 'processed') {
+    setDoc((prev) => (prev ? { ...prev, processing_status: newStatus } : prev));
+    // Refresh all data when pipeline reaches a terminal state
+    if (newStatus === 'decisioned' || newStatus === 'extracted' || newStatus === 'failed') {
       setRefreshKey((k) => k + 1);
     }
   };
@@ -567,6 +583,42 @@ export default function DocumentDetailPage({
   const latestExtraction = extractions[0] ?? null;
   const keyFacts = latestExtraction ? extractKeyFacts(latestExtraction.data) : [];
 
+  // ── Document Intelligence (client-side computation) ────────────────────────
+  const intelligence = useMemo(() => {
+    if (!doc || extractionsLoading) return null;
+    // Use the latest blob-style extraction row as the primary extraction data
+    const extractionBlob = latestExtraction?.data ?? null;
+    return buildDocumentIntelligence({
+      documentType: doc.document_type,
+      documentTitle: doc.title,
+      documentName: doc.name,
+      projectName: project?.name ?? null,
+      extractionData: extractionBlob as Record<string, unknown> | null,
+      relatedDocs,
+    });
+  }, [doc, latestExtraction, relatedDocs, extractionsLoading, project]);
+
+  // Map saved workflowTasks to TriggeredWorkflowTask shape; fall back to intelligence.tasks
+  const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
+    if (!intelligence) return [];
+    if (workflowTasks.length > 0) {
+      return workflowTasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        priority:
+          t.priority === 'P1' || t.priority === 'critical' ? 'P1' :
+          t.priority === 'P2' || t.priority === 'high' ? 'P2' : 'P3',
+        reason: t.description ?? t.task_type.replace(/_/g, ' '),
+        status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
+          t.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
+        )
+          ? (t.status as TriggeredWorkflowTask['status'])
+          : 'open',
+      }));
+    }
+    return intelligence.tasks;
+  }, [intelligence, workflowTasks]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -611,7 +663,8 @@ export default function DocumentDetailPage({
 
       {/* Processing status + Reprocess button */}
       <DocumentProcessingStatus
-        status={doc.status}
+        status={doc.processing_status ?? doc.status}
+        processingError={doc.processing_error ?? null}
         documentId={id}
         orgId={orgId ?? undefined}
         onStatusChange={handleStatusChange}
@@ -626,6 +679,59 @@ export default function DocumentDetailPage({
             Document Intelligence
           </h3>
         </div>
+
+        {/* ── Intelligence sections ─────────────────────────────────────── */}
+        {intelligence && (
+          <div className="mb-5 space-y-3">
+            {/* 1. Summary */}
+            <SummaryCard summary={intelligence.summary} />
+
+            {/* 2. Entity chips */}
+            {intelligence.entities.length > 0 && (
+              <EntityChips entities={intelligence.entities} />
+            )}
+
+            {/* 3. Decisions + Tasks (saved tasks preferred over computed) */}
+            <DecisionsSection
+              decisions={intelligence.decisions}
+              tasks={tasksToShow}
+            />
+
+            {/* 4. Ask this document */}
+            <AskDocumentSection questions={intelligence.suggestedQuestions} />
+
+            {/* 5. Cross-doc checks */}
+            {intelligence.comparisons && intelligence.comparisons.length > 0 && (
+              <CrossDocChecks comparisons={intelligence.comparisons} />
+            )}
+
+            {/* 6. Structured extracted data (collapsed) */}
+            {intelligence.extracted && Object.keys(intelligence.extracted).length > 0 && (
+              <details className="rounded-xl border border-white/10 bg-[#0F1117]">
+                <summary className="cursor-pointer select-none px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#8B94A3] hover:text-[#C5CAD4]">
+                  Structured Extracted Data
+                </summary>
+                <pre className="overflow-x-auto px-5 pb-4 pt-2 text-[10px] leading-relaxed text-[#F5F7FA]/80">
+                  {JSON.stringify(intelligence.extracted, null, 2)}
+                </pre>
+              </details>
+            )}
+
+            {/* 7. Raw JSON (collapsed by default) */}
+            {latestExtraction && (
+              <details className="rounded-xl border border-white/10 bg-[#0F1117]">
+                <summary className="cursor-pointer select-none px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#8B94A3] hover:text-[#C5CAD4]">
+                  Raw Extraction JSON
+                </summary>
+                <pre className="overflow-x-auto px-5 pb-4 pt-2 text-[10px] leading-relaxed text-[#F5F7FA]/60">
+                  {JSON.stringify(latestExtraction.data, null, 2)}
+                </pre>
+              </details>
+            )}
+          </div>
+        )}
+
+        {/* ── Existing debug sections ──────────────────────────────────── */}
 
         {/* A — Document Metadata */}
         <div className="mb-4 rounded-md border border-[#1A1A3E] bg-[#0A0A20] p-4">

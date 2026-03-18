@@ -1,6 +1,6 @@
 // app/api/documents/upload/route.ts
 // Server-side document upload: Storage upload + DB insert using service role.
-// NOTE: For production, restore strict org enforcement and auth checks (do not accept orgId from the client).
+// Org is taken only from authenticated actor context; client-supplied orgId is ignored.
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -13,7 +13,9 @@ type ErrorCode =
   | 'document_insert_failed'
   | 'unexpected_exception'
   | 'bad_request'
-  | 'server_not_configured';
+  | 'server_not_configured'
+  | 'unauthenticated'
+  | 'forbidden';
 
 function jsonError(
   code: ErrorCode,
@@ -42,7 +44,14 @@ export async function POST(req: Request) {
     }
 
     const actorResult = await getActorContext(req);
-    const actorOrgId = actorResult.ok ? actorResult.actor.organizationId : null;
+    if (!actorResult.ok) {
+      return jsonError(
+        actorResult.status === 401 ? 'unauthenticated' : 'forbidden',
+        actorResult.error,
+        actorResult.status,
+      );
+    }
+    const orgId = actorResult.actor.organizationId;
 
     const form = await req.formData().catch(() => null);
     if (!form) {
@@ -51,7 +60,7 @@ export async function POST(req: Request) {
 
     const title = form.get('title');
     const documentType = form.get('documentType');
-    const clientOrgId = form.get('orgId');
+    const domain = form.get('domain');
     const projectId = form.get('projectId');
     const file = form.get('file');
 
@@ -60,13 +69,6 @@ export async function POST(req: Request) {
     }
     if (!(file instanceof File)) {
       return jsonError('bad_request', 'file is required', 400);
-    }
-
-    const orgId = actorOrgId
-      ?? (typeof clientOrgId === 'string' && clientOrgId.trim() ? clientOrgId.trim() : null);
-
-    if (!orgId) {
-      return jsonError('bad_request', 'Unable to resolve organization', 400);
     }
 
     const ts = Date.now();
@@ -96,7 +98,9 @@ export async function POST(req: Request) {
       name: filename,
       storage_path: uploadedPath,
       document_type: typeof documentType === 'string' && documentType ? documentType : null,
+      domain: typeof domain === 'string' && domain.trim() ? domain.trim() : null,
       status: 'uploaded',
+      processing_status: 'uploaded',
     };
 
     const { data: insertedDoc, error: dbError } = await admin

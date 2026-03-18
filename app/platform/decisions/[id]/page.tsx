@@ -70,6 +70,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
     high: 'bg-red-500/20 text-red-400 border border-red-500/40',
     medium: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
     low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',

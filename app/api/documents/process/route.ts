@@ -1,11 +1,11 @@
 // app/api/documents/process/route.ts
 // Unified POST endpoint that triggers the full document processing pipeline.
+// Org is taken only from authenticated actor context; body orgId is ignored.
 
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { getActorContext } from '@/lib/server/getActorContext';
 import { processDocument } from '@/lib/pipeline/processDocument';
-
 
 function jsonError(
   message: string,
@@ -21,9 +21,17 @@ function jsonError(
 
 export async function POST(req: Request) {
   try {
+    const actorResult = await getActorContext(req);
+    if (!actorResult.ok) {
+      return NextResponse.json(
+        { success: false, code: 'UNAUTHORIZED', message: actorResult.error },
+        { status: actorResult.status },
+      );
+    }
+    const organizationId = actorResult.actor.organizationId;
+
     const body = await req.json().catch(() => null);
     const documentId = body?.documentId;
-    const bodyOrgId: string | undefined = body?.orgId;
 
     if (!documentId || typeof documentId !== 'string') {
       return jsonError('documentId is required', 'MISSING_DOCUMENT_ID', 400);
@@ -34,51 +42,9 @@ export async function POST(req: Request) {
       return jsonError('Server not configured', 'SERVER_NOT_CONFIGURED', 503);
     }
 
-    // --- Resolve the authenticated user (best-effort) ---
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-    let profileOrgId: string | null = null;
-
-    if (token) {
-      const supabaseUrl =
-        process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-      if (supabaseUrl && anonKey) {
-        const authClient = createClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        });
-        const {
-          data: { user },
-        } = await authClient.auth.getUser();
-
-        if (user) {
-          const { data: profile } = await admin
-            .from('user_profiles')
-            .select('organization_id')
-            .eq('id', user.id)
-            .single();
-          profileOrgId = (profile?.organization_id as string) ?? null;
-        }
-      }
-    }
-
-    const organizationId = bodyOrgId ?? profileOrgId;
-
-    if (!organizationId) {
-      return jsonError(
-        'Unable to resolve organization. Provide orgId or authenticate.',
-        'ORG_RESOLUTION_FAILED',
-        400,
-      );
-    }
-
     console.log('[documents/process] resolving org', {
       documentId,
-      profileOrgId,
-      bodyOrgId: bodyOrgId ?? null,
-      resolvedOrgId: organizationId,
+      organizationId,
     });
 
     // --- Verify document exists under the resolved org ---

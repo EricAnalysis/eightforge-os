@@ -13,7 +13,7 @@ type DocRow = {
   title: string | null;
   name: string;
   document_type: string | null;
-  status: string;
+  processing_status: string;
   created_at: string;
 };
 
@@ -38,10 +38,11 @@ const DOC_TYPES = [
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1A3E] text-[#8B94A3]',
-    processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
-    processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
+    uploaded:    'bg-[#1A1A3E] text-[#8B94A3]',
+    processing:  'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
+    extracted:   'bg-sky-500/20 text-sky-400 border border-sky-500/40',
+    decisioned:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    failed:      'bg-red-500/20 text-red-400 border border-red-500/40',
   };
   const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3]';
   return (
@@ -69,6 +70,7 @@ function UploadModal({
 }) {
   const [title, setTitle]               = useState('');
   const [documentType, setDocumentType] = useState('');
+  const [domain, setDomain]             = useState('');
   const [projectId, setProjectId]       = useState('');
   const [file, setFile]                 = useState<File | null>(null);
   const [projects, setProjects]         = useState<ProjectOption[]>([]);
@@ -117,6 +119,7 @@ function UploadModal({
       const form = new FormData();
       form.append('title', title.trim());
       form.append('documentType', documentType);
+      form.append('domain', domain.trim());
       form.append('orgId', orgId);
       form.append('projectId', projectId);
       form.append('file', file);
@@ -225,6 +228,21 @@ function UploadModal({
             </select>
           </div>
 
+          {/* Domain — determines which rules fire during processing */}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+              Domain{' '}
+              <span className="font-normal text-[#8B94A3]">(optional — used for rule matching)</span>
+            </label>
+            <input
+              type="text"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="e.g. debris_ops, logistics, finance"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]"
+            />
+          </div>
+
           {/* Project (only shown when projects exist) */}
           {projects.length > 0 && (
             <div>
@@ -254,9 +272,11 @@ function UploadModal({
             <input
               aria-label="File"
               type="file"
+              accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.csv,.xlsx"
               onChange={handleFileChange}
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#1A1A3E] file:px-2 file:py-1 file:text-[10px] file:text-[#F5F7FA] file:cursor-pointer"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#8B5CFF] file:px-3 file:py-1 file:text-[10px] file:font-medium file:text-white file:cursor-pointer hover:file:bg-[#7A4FE8]"
             />
+            <p className="mt-1 text-[10px] text-[#3a3f5a]">PDF, DOCX, TXT, PNG, JPG, CSV, XLSX</p>
           </div>
 
           {/* Error */}
@@ -299,15 +319,47 @@ export default function DocumentsPage() {
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const [processErrors, setProcessErrors] = useState<Record<string, string>>({});
 
   const loading = orgLoading || docsLoading;
+
+  const reprocessDoc = async (docId: string) => {
+    setProcessingIds((prev) => new Set(prev).add(docId));
+    setProcessErrors((prev) => { const n = { ...prev }; delete n[docId]; return n; });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setProcessErrors((prev) => ({ ...prev, [docId]: 'Auth required' }));
+        return;
+      }
+      const res = await fetch('/api/documents/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ documentId: docId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProcessErrors((prev) => ({ ...prev, [docId]: body?.message ?? 'Failed' }));
+        return;
+      }
+      // Update the row's processing_status optimistically, then refresh
+      const finalStatus = (body?.processing_status as string) ?? 'decisioned';
+      setDocs((prev) => prev.map((d) => d.id === docId ? { ...d, processing_status: finalStatus } : d));
+      if (orgId) fetchDocs(orgId);
+    } catch {
+      setProcessErrors((prev) => ({ ...prev, [docId]: 'Failed' }));
+    } finally {
+      setProcessingIds((prev) => { const n = new Set(prev); n.delete(docId); return n; });
+    }
+  };
 
   const fetchDocs = async (orgId: string) => {
     setDocsLoading(true);
     setDocsError(null);
     const { data, error } = await supabase
       .from('documents')
-      .select('id, title, name, document_type, status, created_at')
+      .select('id, title, name, document_type, processing_status, created_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false });
     if (error) {
@@ -358,9 +410,19 @@ export default function DocumentsPage() {
         ) : loading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
         ) : docs.length === 0 ? (
-          <p className="text-[11px] text-[#8B94A3]">
-            No documents yet. Upload a document to get started.
-          </p>
+          <div className="py-6 text-center">
+            <p className="text-[12px] font-medium text-[#F5F7FA]">No documents yet</p>
+            <p className="mt-1 text-[11px] text-[#8B94A3]">
+              Upload a document to begin extracting decisions and generating workflow tasks.
+            </p>
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="mt-4 rounded-md bg-[#8B5CFF] px-4 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            >
+              Upload your first document
+            </button>
+          </div>
         ) : (
           <table className="w-full border-collapse text-[11px] text-[#8B94A3]">
             <thead className="border-b border-[#1A1A3E] text-left">
@@ -369,7 +431,7 @@ export default function DocumentsPage() {
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Type</th>
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Status</th>
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Created</th>
-                <th className="py-2 font-medium text-[#F5F7FA]"></th>
+                <th className="py-2 font-medium text-[#F5F7FA]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -388,7 +450,7 @@ export default function DocumentsPage() {
                       : <span className="text-[#3a3f5a]">—</span>}
                   </td>
                   <td className="py-2 pr-3">
-                    <StatusBadge status={doc.status} />
+                    <StatusBadge status={doc.processing_status} />
                   </td>
                   <td className="py-2 pr-3">
                     {new Date(doc.created_at).toLocaleString()}
@@ -397,12 +459,30 @@ export default function DocumentsPage() {
                     className="py-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <a
-                      href={`/platform/documents/${doc.id}`}
-                      className="text-[#8B5CFF] hover:underline"
-                    >
-                      View
-                    </a>
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={`/platform/documents/${doc.id}`}
+                        className="text-[#8B5CFF] hover:underline"
+                      >
+                        View
+                      </a>
+                      {(doc.processing_status === 'uploaded' || doc.processing_status === 'failed' || doc.processing_status === 'extracted') && (
+                        processingIds.has(doc.id) ? (
+                          <span className="text-[11px] text-[#8B94A3]">Processing…</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => reprocessDoc(doc.id)}
+                            className="text-[11px] text-[#8B5CFF] hover:underline"
+                          >
+                            {doc.processing_status === 'uploaded' ? 'Process' : 'Reprocess'}
+                          </button>
+                        )
+                      )}
+                      {processErrors[doc.id] && (
+                        <span className="text-[10px] text-red-400" title={processErrors[doc.id]}>!</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -419,7 +499,7 @@ export default function DocumentsPage() {
           onUnauthorized={() => router.replace('/login')}
           onUploaded={({ doc, analyzePromise }) => {
             setModalOpen(false);
-            setDocs((prev) => [{ ...doc, status: 'processing' }, ...prev]);
+            setDocs((prev) => [{ ...doc, processing_status: 'processing' }, ...prev]);
             fetchDocs(orgId);
 
             analyzePromise
@@ -431,7 +511,6 @@ export default function DocumentsPage() {
                 fetchDocs(orgId);
               });
           }}
-          onUnauthorized={() => router.replace('/login')}
         />
       )}
 

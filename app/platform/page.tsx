@@ -490,10 +490,17 @@ export default function PlatformDashboardPage() {
       setAgingTasks(computeAgingCounts(
         ((agingTasksRes.data ?? []) as { created_at: string }[]).map((r) => r.created_at),
       ));
-      const hasError = [openDecisionsRes, recentDecisionsRes, openTasksListRes, recentDocsRes].some(
-        (r) => r && 'error' in r && (r as { error?: unknown }).error,
+      const allResults = [
+        openDecisionsRes, criticalOpenRes, openTasksRes, criticalOpenTasksRes,
+        recentDocsCountRes, overdueDecisionsRes, overdueTasksRes,
+        unassignedCritDecisionsRes, unassignedCritTasksRes,
+        recentDecisionsRes, openTasksListRes, recentDocsRes,
+        agingDecisionsRes, agingTasksRes,
+      ];
+      const hasError = allResults.some(
+        (r) => r && 'error' in r && (r as { error?: unknown }).error != null,
       );
-      if (hasError) setLoadError('Failed to load overview');
+      if (hasError) setLoadError('Some data failed to load — counts may be incomplete.');
       setLoading(false);
     };
 
@@ -501,7 +508,15 @@ export default function PlatformDashboardPage() {
       setLoadError(err instanceof Error ? err.message : 'Failed to load overview');
       setLoading(false);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, userId, orgLoading]);
+
+  const retryLoad = () => {
+    if (organizationId) {
+      setLoadError(null);
+      setLoading(true);
+    }
+  };
 
   const isLoading = orgLoading || loading;
 
@@ -518,11 +533,40 @@ export default function PlatformDashboardPage() {
       </section>
 
       {loadError && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <p className="text-[11px] font-medium text-red-400">{loadError}</p>
-          <p className="mt-1 text-[10px] text-[#8B94A3]">Refresh the page to try again.</p>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-medium text-red-400">{loadError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="shrink-0 rounded-md border border-red-500/30 px-3 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10"
+          >
+            Retry
+          </button>
         </div>
       )}
+
+      {/* Getting started — shown only for a fresh org with no data yet */}
+      {!isLoading &&
+        counts.recentDocumentsCount === 0 &&
+        counts.openDecisions === 0 &&
+        counts.openWorkflowTasks === 0 && (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-[#8B5CFF]/30 bg-[#8B5CFF]/[0.06] px-4 py-3">
+            <div>
+              <p className="text-[12px] font-semibold text-[#F5F7FA]">Get started</p>
+              <p className="mt-0.5 text-[11px] text-[#8B94A3]">
+                Upload a document to begin generating decisions and workflow tasks.
+              </p>
+            </div>
+            <Link
+              href="/platform/documents"
+              className="shrink-0 rounded-md bg-[#8B5CFF] px-4 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            >
+              Upload a document
+            </Link>
+          </div>
+        )}
 
       {/* Critical alert bar — only shown when there is something urgent */}
       <CriticalAlertBar counts={counts} isLoading={isLoading} />
@@ -825,7 +869,18 @@ export default function PlatformDashboardPage() {
         {isLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
         ) : recentDocs.length === 0 ? (
-          <p className="text-[11px] text-[#8B94A3]">No documents yet.</p>
+          <div className="py-5 text-center">
+            <p className="text-[12px] font-medium text-[#F5F7FA]">No documents yet</p>
+            <p className="mt-1 text-[11px] text-[#8B94A3]">
+              Upload a document to start generating decisions and workflow tasks.
+            </p>
+            <Link
+              href="/platform/documents"
+              className="mt-3 inline-block rounded-md bg-[#8B5CFF] px-4 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            >
+              Upload a document
+            </Link>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[11px]">

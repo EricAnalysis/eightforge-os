@@ -87,7 +87,7 @@ function isFallbackQualifying(d: DecisionForWorkflow): boolean {
  * matches decisions to rules and creates tasks from matched rules. When no rules exist,
  * uses hardcoded qualifying criteria and task shape (fallback). Dedupes by
  * (organization_id, decision_id, task_type) where status is not resolved/cancelled.
- * Inserts workflow_task_events for each created task. Does not throw.
+ * Does not throw.
  */
 export async function createWorkflowTasksFromDecisions(
   admin: SupabaseClient,
@@ -143,20 +143,7 @@ export async function createWorkflowTasksFromDecisions(
             continue;
           }
 
-          const taskId = (taskRow as { id: string } | null)?.id;
-          if (!taskId) continue;
-
-          const { error: eventError } = await admin.from('workflow_task_events').insert({
-            task_id: taskId,
-            event_type: 'task_created',
-            new_status: 'open',
-            metadata: { decision_id: d.id, trigger_rule_id: rule.id },
-            created_at: now,
-          });
-
-          if (eventError) {
-            console.error('[workflowTasks] insert event failed:', eventError.message);
-          } else {
+          if ((taskRow as { id: string } | null)?.id) {
             created += 1;
           }
         } catch (e) {
@@ -199,20 +186,7 @@ export async function createWorkflowTasksFromDecisions(
           continue;
         }
 
-        const taskId = (taskRow as { id: string } | null)?.id;
-        if (!taskId) continue;
-
-        const { error: eventError } = await admin.from('workflow_task_events').insert({
-          task_id: taskId,
-          event_type: 'task_created',
-          new_status: 'open',
-          metadata: { decision_id: d.id },
-          created_at: now,
-        });
-
-        if (eventError) {
-          console.error('[workflowTasks] insert event failed:', eventError.message);
-        } else {
+        if ((taskRow as { id: string } | null)?.id) {
           created += 1;
         }
       } catch (e) {

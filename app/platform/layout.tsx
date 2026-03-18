@@ -45,16 +45,27 @@ export default function PlatformLayout({ children }: { children: ReactNode }) {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
+    const validateAuth = async () => {
+      // Use getUser() to validate the session server-side (not just cached getSession).
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
         router.replace('/login');
-      } else {
-        setChecking(false);
+        return;
       }
+      setChecking(false);
     };
 
-    checkSession();
+    validateAuth();
+
+    // Proactively redirect when the session is invalidated (e.g. token revoked,
+    // sign-out from another tab, or refresh token expiry).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        router.replace('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [router]);
 
   if (checking) {

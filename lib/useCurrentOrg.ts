@@ -15,6 +15,7 @@ export function useCurrentOrg() {
 
   useEffect(() => {
     const fetchOrganization = async () => {
+      setLoading(true);
       try {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
@@ -52,6 +53,20 @@ export function useCurrentOrg() {
     };
 
     fetchOrganization();
+
+    // Re-fetch when auth state changes (sign-in from another tab, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        fetchOrganization();
+      }
+      if (event === 'SIGNED_OUT') {
+        setOrganization(null);
+        setUserId(null);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   return { organization, userId, loading };

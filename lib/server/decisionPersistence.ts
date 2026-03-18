@@ -86,7 +86,10 @@ export type PersistDecisionsParams = {
   source?: string;
 };
 
-/** Resolve decision_rule_id from public.decision_rules by organization_id and rule_key. */
+/**
+ * Resolve rule id from public.rules by organization_id and decision_type.
+ * rule_key format is "decision_type::value"; we match rules by decision_type.
+ */
 async function getRuleIdsByKey(
   admin: SupabaseClient,
   organizationId: string,
@@ -95,23 +98,38 @@ async function getRuleIdsByKey(
   const unique = [...new Set(ruleKeys)].filter(Boolean);
   if (unique.length === 0) return new Map();
 
+  const decisionTypes = [...new Set(unique.map((k) => k.split('::')[0]).filter(Boolean))];
+  if (decisionTypes.length === 0) return new Map();
+
   const { data, error } = await admin
-    .from('decision_rules')
-    .select('id, rule_key')
+    .from('rules')
+    .select('id, decision_type')
     .eq('organization_id', organizationId)
-    .in('rule_key', unique);
+    .in('decision_type', decisionTypes);
 
   if (error) return new Map();
-  const map = new Map<string, string>();
+  const byDecisionType = new Map<string, string>();
   for (const row of data ?? []) {
-    const key = (row as { rule_key?: string }).rule_key;
+    const dt = (row as { decision_type?: string }).decision_type;
     const id = (row as { id: string }).id;
-    if (key && id) map.set(key, id);
+    if (dt && id && !byDecisionType.has(dt)) byDecisionType.set(dt, id);
+  }
+  const map = new Map<string, string>();
+  for (const ruleKey of unique) {
+    const dt = ruleKey.split('::')[0];
+    const id = dt ? byDecisionType.get(dt) : undefined;
+    if (id) map.set(ruleKey, id);
   }
   return map;
 }
 
-/** Find most recent active/open decision for (org, document, decision_type). */
+/**
+ * Find most recent non-terminal decision for (org, document, decision_type).
+ * Matches 'open' and 'in_review' so that re-analysis updates the existing row
+ * instead of creating a duplicate alongside one a human is actively reviewing.
+ * Terminal statuses ('resolved', 'suppressed') are excluded intentionally —
+ * a re-detection after resolution should create a fresh decision.
+ */
 async function findExistingActive(
   admin: SupabaseClient,
   organizationId: string,
@@ -124,7 +142,7 @@ async function findExistingActive(
     .eq('organization_id', organizationId)
     .eq('document_id', documentId)
     .eq('decision_type', decisionType)
-    .eq('status', 'open')
+    .in('status', ['open', 'in_review'])
     .order('last_detected_at', { ascending: false })
     .limit(1);
 

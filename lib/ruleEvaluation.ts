@@ -39,13 +39,13 @@ function applyOperator(
     case 'not_equals':
       return !coerceEquals(actual, expected);
     case 'greater_than':
-      return toNumber(actual) > toNumber(expected);
+      return numericComparison(actual, expected, (a, b) => a > b);
     case 'greater_than_or_equal':
-      return toNumber(actual) >= toNumber(expected);
+      return numericComparison(actual, expected, (a, b) => a >= b);
     case 'less_than':
-      return toNumber(actual) < toNumber(expected);
+      return numericComparison(actual, expected, (a, b) => a < b);
     case 'less_than_or_equal':
-      return toNumber(actual) <= toNumber(expected);
+      return numericComparison(actual, expected, (a, b) => a <= b);
     case 'contains':
       return String(actual).toLowerCase().includes(String(expected).toLowerCase());
     case 'not_contains':
@@ -81,6 +81,21 @@ function toNumber(v: unknown): number {
   if (typeof v === 'boolean') return v ? 1 : 0;
   const n = Number(v);
   return Number.isNaN(n) ? 0 : n;
+}
+
+/**
+ * For numeric comparisons: if either value is not a valid number (coerces to NaN),
+ * the comparison fails (returns false) instead of treating bad data as 0.
+ */
+function numericComparison(
+  actual: unknown,
+  expected: unknown,
+  compare: (a: number, b: number) => boolean,
+): boolean {
+  const a = typeof actual === 'number' ? actual : Number(actual);
+  const b = typeof expected === 'number' ? expected : Number(expected);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return compare(a, b);
 }
 
 /**

@@ -144,22 +144,7 @@ export default function SettingsPage() {
                   {organization?.id ? truncateUuid(organization.id) : '—'}
                 </span>
               </div>
-              {organization?.slug && (
-                <div className="flex justify-between">
-                  <span className="text-[12px] text-[#8B94A3]">Slug</span>
-                  <span className="text-[11px] text-[#F5F7FA] font-medium">
-                    {organization.slug}
-                  </span>
-                </div>
-              )}
-              {organization?.created_at && (
-                <div className="flex justify-between">
-                  <span className="text-[12px] text-[#8B94A3]">Created</span>
-                  <span className="text-[11px] text-[#F5F7FA] font-medium">
-                    {formatDate(organization.created_at)}
-                  </span>
-                </div>
-              )}
+
             </>
           )}
         </div>

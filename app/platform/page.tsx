@@ -7,6 +7,7 @@ import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { formatDueDate } from '@/lib/dateUtils';
 import { isDecisionOverdue, isTaskOverdue, OverdueBadge, DECISION_OPEN_STATUSES, TASK_OPEN_STATUSES } from '@/lib/overdue';
 import { AGING_BUCKETS, computeAgingCounts, type AgingCounts } from '@/lib/aging';
+import { filterCurrentQueueRecords } from '@/lib/currentWork';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ type DecisionRow = {
   due_at: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
+  details?: Record<string, unknown> | null;
   assignee: AssigneeRef | AssigneeRef[];
 };
 
@@ -38,6 +40,8 @@ type WorkflowTaskRow = {
   due_at: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
+  details?: Record<string, unknown> | null;
+  source_metadata?: Record<string, unknown> | null;
   assignee: AssigneeRef | AssigneeRef[];
 };
 
@@ -315,7 +319,6 @@ export default function PlatformDashboardPage() {
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
-      if (!orgLoading) setLoading(false);
       return;
     }
 
@@ -327,175 +330,81 @@ export default function PlatformDashboardPage() {
       setLoading(true);
       setLoadError(null);
 
-      const nowIso = new Date().toISOString();
-
-      const myWorkQueries = userId ? [
-        supabase
-          .from('decisions')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('assigned_to', userId)
-          .in('status', [...DECISION_OPEN_STATUSES]),
-        supabase
-          .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('assigned_to', userId)
-          .in('status', [...TASK_OPEN_STATUSES]),
-        supabase
-          .from('decisions')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('assigned_to', userId)
-          .in('status', [...DECISION_OPEN_STATUSES])
-          .not('due_at', 'is', null)
-          .lt('due_at', nowIso),
-        supabase
-          .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('assigned_to', userId)
-          .in('status', [...TASK_OPEN_STATUSES])
-          .not('due_at', 'is', null)
-          .lt('due_at', nowIso),
-      ] : [];
-
       const [
         openDecisionsRes,
-        criticalOpenRes,
         openTasksRes,
-        criticalOpenTasksRes,
         recentDocsCountRes,
-        overdueDecisionsRes,
-        overdueTasksRes,
-        unassignedCritDecisionsRes,
-        unassignedCritTasksRes,
-        recentDecisionsRes,
-        openTasksListRes,
         recentDocsRes,
-        agingDecisionsRes,
-        agingTasksRes,
-        ...myWorkResults
       ] = await Promise.all([
         supabase
           .from('decisions')
-          .select('id', { count: 'exact', head: true })
+          .select('id, title, severity, status, decision_type, last_detected_at, created_at, due_at, assigned_to, assigned_at, details, assignee:user_profiles!assigned_to(id, display_name)')
           .eq('organization_id', organizationId)
-          .in('status', [...DECISION_OPEN_STATUSES]),
-        supabase
-          .from('decisions')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('severity', 'critical')
-          .in('status', [...DECISION_OPEN_STATUSES]),
+          .in('status', [...DECISION_OPEN_STATUSES])
+          .order('last_detected_at', { ascending: false }),
         supabase
           .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
+          .select('id, decision_id, document_id, task_type, title, priority, status, created_at, due_at, assigned_to, assigned_at, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name)')
           .eq('organization_id', organizationId)
-          .in('status', [...TASK_OPEN_STATUSES]),
-        supabase
-          .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('priority', 'critical')
-          .in('status', [...TASK_OPEN_STATUSES]),
+          .in('status', [...TASK_OPEN_STATUSES])
+          .order('created_at', { ascending: false }),
         supabase
           .from('documents')
           .select('id', { count: 'exact', head: true })
           .eq('organization_id', organizationId)
           .gte('created_at', sevenDaysAgoIso),
         supabase
-          .from('decisions')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .in('status', [...DECISION_OPEN_STATUSES])
-          .not('due_at', 'is', null)
-          .lt('due_at', nowIso),
-        supabase
-          .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .in('status', [...TASK_OPEN_STATUSES])
-          .not('due_at', 'is', null)
-          .lt('due_at', nowIso),
-        supabase
-          .from('decisions')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('severity', 'critical')
-          .in('status', [...DECISION_OPEN_STATUSES])
-          .is('assigned_to', null),
-        supabase
-          .from('workflow_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', organizationId)
-          .eq('priority', 'critical')
-          .in('status', [...TASK_OPEN_STATUSES])
-          .is('assigned_to', null),
-        supabase
-          .from('decisions')
-          .select('id, title, severity, status, decision_type, last_detected_at, created_at, due_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name)')
-          .eq('organization_id', organizationId)
-          .order('last_detected_at', { ascending: false })
-          .limit(10),
-        supabase
-          .from('workflow_tasks')
-          .select('id, decision_id, document_id, task_type, title, priority, status, created_at, due_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name)')
-          .eq('organization_id', organizationId)
-          .in('status', [...TASK_OPEN_STATUSES])
-          .order('created_at', { ascending: false })
-          .limit(10),
-        supabase
           .from('documents')
           .select('id, title, name, document_type, created_at')
           .eq('organization_id', organizationId)
           .order('created_at', { ascending: false })
           .limit(10),
-        supabase
-          .from('decisions')
-          .select('created_at')
-          .eq('organization_id', organizationId)
-          .in('status', [...DECISION_OPEN_STATUSES]),
-        supabase
-          .from('workflow_tasks')
-          .select('created_at')
-          .eq('organization_id', organizationId)
-          .in('status', [...TASK_OPEN_STATUSES]),
-        ...myWorkQueries,
       ]);
 
-      const [myOpenDecisionsRes, myOpenTasksRes, myOverdueDecisionsRes, myOverdueTasksRes] = myWorkResults;
+      const openDecisionRows = filterCurrentQueueRecords(
+        ((openDecisionsRes.data ?? []) as DecisionRow[]),
+      );
+      const openTaskRows = filterCurrentQueueRecords(
+        ((openTasksRes.data ?? []) as WorkflowTaskRow[]),
+      );
 
       setCounts({
-        openDecisions: openDecisionsRes.count ?? 0,
-        criticalOpenDecisions: criticalOpenRes.count ?? 0,
-        openWorkflowTasks: openTasksRes.count ?? 0,
-        criticalOpenTasks: criticalOpenTasksRes.count ?? 0,
+        openDecisions: openDecisionRows.length,
+        criticalOpenDecisions: openDecisionRows.filter((row) => row.severity === 'critical').length,
+        openWorkflowTasks: openTaskRows.length,
+        criticalOpenTasks: openTaskRows.filter((row) => row.priority === 'critical').length,
         recentDocumentsCount: recentDocsCountRes.count ?? 0,
-        overdueDecisions: overdueDecisionsRes.count ?? 0,
-        overdueWorkflowTasks: overdueTasksRes.count ?? 0,
-        myOpenDecisions: myOpenDecisionsRes?.count ?? 0,
-        myOpenWorkflowTasks: myOpenTasksRes?.count ?? 0,
-        myOverdueDecisions: myOverdueDecisionsRes?.count ?? 0,
-        myOverdueWorkflowTasks: myOverdueTasksRes?.count ?? 0,
-        unassignedCriticalDecisions: unassignedCritDecisionsRes.count ?? 0,
-        unassignedCriticalTasks: unassignedCritTasksRes.count ?? 0,
+        overdueDecisions: openDecisionRows.filter((row) => isDecisionOverdue(row.due_at, row.status)).length,
+        overdueWorkflowTasks: openTaskRows.filter((row) => isTaskOverdue(row.due_at, row.status)).length,
+        myOpenDecisions: userId ? openDecisionRows.filter((row) => row.assigned_to === userId).length : 0,
+        myOpenWorkflowTasks: userId ? openTaskRows.filter((row) => row.assigned_to === userId).length : 0,
+        myOverdueDecisions: userId
+          ? openDecisionRows.filter((row) => row.assigned_to === userId && isDecisionOverdue(row.due_at, row.status)).length
+          : 0,
+        myOverdueWorkflowTasks: userId
+          ? openTaskRows.filter((row) => row.assigned_to === userId && isTaskOverdue(row.due_at, row.status)).length
+          : 0,
+        unassignedCriticalDecisions: openDecisionRows.filter(
+          (row) => row.severity === 'critical' && row.assigned_to == null,
+        ).length,
+        unassignedCriticalTasks: openTaskRows.filter(
+          (row) => row.priority === 'critical' && row.assigned_to == null,
+        ).length,
       });
-      setRecentDecisions((recentDecisionsRes.data ?? []) as DecisionRow[]);
-      setOpenTasks((openTasksListRes.data ?? []) as WorkflowTaskRow[]);
+      setRecentDecisions(openDecisionRows.slice(0, 10));
+      setOpenTasks(openTaskRows.slice(0, 10));
       setRecentDocs((recentDocsRes.data ?? []) as DocRow[]);
       setAgingDecisions(computeAgingCounts(
-        ((agingDecisionsRes.data ?? []) as { created_at: string }[]).map((r) => r.created_at),
+        openDecisionRows.map((row) => row.created_at),
       ));
       setAgingTasks(computeAgingCounts(
-        ((agingTasksRes.data ?? []) as { created_at: string }[]).map((r) => r.created_at),
+        openTaskRows.map((row) => row.created_at),
       ));
       const allResults = [
-        openDecisionsRes, criticalOpenRes, openTasksRes, criticalOpenTasksRes,
-        recentDocsCountRes, overdueDecisionsRes, overdueTasksRes,
-        unassignedCritDecisionsRes, unassignedCritTasksRes,
-        recentDecisionsRes, openTasksListRes, recentDocsRes,
-        agingDecisionsRes, agingTasksRes,
+        openDecisionsRes,
+        openTasksRes,
+        recentDocsCountRes,
+        recentDocsRes,
       ];
       const hasError = allResults.some(
         (r) => r && 'error' in r && (r as { error?: unknown }).error != null,
@@ -508,7 +417,6 @@ export default function PlatformDashboardPage() {
       setLoadError(err instanceof Error ? err.message : 'Failed to load overview');
       setLoading(false);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, userId, orgLoading]);
 
   const retryLoad = () => {
@@ -518,7 +426,7 @@ export default function PlatformDashboardPage() {
     }
   };
 
-  const isLoading = orgLoading || loading;
+  const isLoading = orgLoading || (organizationId ? loading : false);
 
   return (
     <div className="space-y-6">

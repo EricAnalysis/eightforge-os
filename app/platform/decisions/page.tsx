@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -10,6 +10,7 @@ import { useOrgMembers } from '@/lib/useOrgMembers';
 import { formatDueDate } from '@/lib/dateUtils';
 import { isDecisionOverdue, OverdueBadge, DECISION_OPEN_STATUSES } from '@/lib/overdue';
 import { AGING_BUCKETS, ageBucketKey, type AgingBucketKey } from '@/lib/aging';
+import { filterCurrentQueueRecords, isHistoryStatusFilter } from '@/lib/currentWork';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ type DecisionRow = {
   due_at: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
+  details?: Record<string, unknown> | null;
   assignee: AssigneeRef | AssigneeRef[];
   documents?: DocumentRef | DocumentRef[];
 };
@@ -38,23 +40,6 @@ type DecisionRow = {
 
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'] as const;
-
-// ─── Badges ───────────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    open: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    in_review: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
-    resolved: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    suppressed: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-  };
-  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
-  return (
-    <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
-      {status.replace(/_/g, ' ')}
-    </span>
-  );
-}
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
@@ -116,17 +101,21 @@ export default function DecisionsPage() {
   const [filterAge, setFilterAge] = useState<string>(searchParams.get('age') ?? '');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateErrorId, setUpdateErrorId] = useState<string | null>(null);
+  const includeHistory =
+    searchParams.get('history') === '1' ||
+    isHistoryStatusFilter(filterStatus, DECISION_OPEN_STATUSES);
 
-  const fetchDecisions = async (orgId: string) => {
+  const fetchDecisions = useCallback(async (orgId: string) => {
     setLoading(true);
     setListError(null);
     let query = supabase
       .from('decisions')
-      .select('id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
+      .select('id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, assigned_at, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
       .eq('organization_id', orgId)
       .order('last_detected_at', { ascending: false });
 
     if (filterStatus) query = query.eq('status', filterStatus);
+    else query = query.in('status', [...DECISION_OPEN_STATUSES]);
     if (filterSeverity) query = query.eq('severity', filterSeverity);
     if (filterDecisionType) query = query.eq('decision_type', filterDecisionType);
     if (filterAssigned === '__unassigned') query = query.is('assigned_to', null);
@@ -138,10 +127,18 @@ export default function DecisionsPage() {
       setListError('Failed to load decisions.');
       setDecisions([]);
     } else {
-      setDecisions(data as DecisionRow[]);
+      const rows = (data as DecisionRow[]) ?? [];
+      setDecisions(includeHistory ? rows : filterCurrentQueueRecords(rows));
     }
     setLoading(false);
-  };
+  }, [
+    filterAssigned,
+    filterDecisionType,
+    filterSeverity,
+    filterStatus,
+    includeHistory,
+    userId,
+  ]);
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
@@ -149,7 +146,7 @@ export default function DecisionsPage() {
       return;
     }
     fetchDecisions(organizationId);
-  }, [organizationId, orgLoading, filterStatus, filterSeverity, filterDecisionType, filterAssigned]);
+  }, [fetchDecisions, organizationId, orgLoading]);
 
   const updateStatus = async (decisionId: string, newStatus: string) => {
     if (!organizationId) return;
@@ -264,7 +261,7 @@ export default function DecisionsPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
-            <option value="">All</option>
+            <option value="">Current</option>
             {STATUS_OPTIONS.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}

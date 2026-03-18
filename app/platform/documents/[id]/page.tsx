@@ -11,6 +11,7 @@ import { extractKeyFacts } from '@/lib/types/extraction';
 import type { DocumentDecision } from '@/lib/types/decisions';
 import { buildDocumentIntelligence } from '@/lib/documentIntelligence';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
+import { supportsCanonicalIntelligencePersistence } from '@/lib/canonicalIntelligenceFamilies';
 import { SummaryCard } from '@/components/document-intelligence/SummaryCard';
 import { EntityChips } from '@/components/document-intelligence/EntityChips';
 import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
@@ -83,6 +84,7 @@ type PersistentDecisionRow = {
   severity: string;
   status: string;
   confidence: number | null;
+  details?: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -94,6 +96,9 @@ type WorkflowTaskRow = {
   priority: string;
   status: string;
   decision_id: string | null;
+  source: string | null;
+  source_metadata?: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -143,6 +148,7 @@ function PriorityBadge({ priority }: { priority: string }) {
   const map: Record<string, string> = {
     critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
     high:     'bg-orange-500/20 text-orange-400 border border-orange-500/40',
+    medium:   'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
     normal:   'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
     low:      'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
   };
@@ -209,6 +215,35 @@ const ENTITY_KEYS = new Set([
   'location', 'date', 'amount', 'material', 'vendor', 'customer',
   'site', 'hauler', 'disposal_site',
 ]);
+
+function isCurrentV2GeneratedRecord(record: {
+  details?: Record<string, unknown> | null;
+  source_metadata?: Record<string, unknown> | null;
+}): boolean {
+  const detailsVersion = record.details?.intelligence_version;
+  const metaVersion = record.source_metadata?.intelligence_version;
+  const supersededAt = record.details?.superseded_at ?? record.source_metadata?.superseded_at;
+  return (detailsVersion === 'v2' || metaVersion === 'v2') && supersededAt == null;
+}
+
+function getTaskReason(task: WorkflowTaskRow): string {
+  const detailReason = task.details?.reason;
+  if (typeof detailReason === 'string' && detailReason.trim().length > 0) {
+    return detailReason;
+  }
+  return task.description ?? task.task_type.replace(/_/g, ' ');
+}
+
+function getSuggestedOwner(task: WorkflowTaskRow): string | undefined {
+  const metaOwner = task.source_metadata?.suggested_owner;
+  if (typeof metaOwner === 'string' && metaOwner.trim().length > 0) {
+    return metaOwner;
+  }
+  const detailOwner = task.details?.suggested_owner;
+  return typeof detailOwner === 'string' && detailOwner.trim().length > 0
+    ? detailOwner
+    : undefined;
+}
 
 function flatScanEntities(
   obj: unknown,
@@ -346,12 +381,12 @@ export default function DocumentDetailPage({
           .order('created_at', { ascending: true }),
         supabase
           .from('decisions')
-          .select('id, decision_type, title, summary, severity, status, confidence, created_at')
+          .select('id, decision_type, title, summary, severity, status, confidence, details, created_at')
           .eq('document_id', id)
           .order('created_at', { ascending: true }),
         supabase
           .from('workflow_tasks')
-          .select('id, task_type, title, description, priority, status, decision_id, created_at')
+          .select('id, task_type, title, description, priority, status, decision_id, source, source_metadata, details, created_at')
           .eq('document_id', id)
           .order('created_at', { ascending: true }),
       ]);
@@ -442,7 +477,7 @@ export default function DocumentDetailPage({
       setPersistentDecisionsLoading(false);
       setWorkflowTasksLoading(false);
     }
-  }, [id, orgId]);
+  }, [id, orgId, router.replace]);
 
   useEffect(() => {
     if (orgLoading) return;
@@ -548,16 +583,64 @@ export default function DocumentDetailPage({
     });
   }, [doc, extractions, relatedDocs, extractionsLoading]);
 
+  const canonicalPersistenceSupported = intelligence
+    ? supportsCanonicalIntelligencePersistence(intelligence.classification.family)
+    : false;
+
+  const currentV2PersistedDecisions = useMemo(() => {
+    return persistentDecisions.filter((decision) => isCurrentV2GeneratedRecord(decision));
+  }, [persistentDecisions]);
+
+  const currentV2PersistedTasks = useMemo(() => {
+    return workflowTasks.filter((task) => isCurrentV2GeneratedRecord(task));
+  }, [workflowTasks]);
+
+  const canonicalPersistedBundleReady = useMemo(() => {
+    if (!canonicalPersistenceSupported || !intelligence) return false;
+    const actionableDecisionCount = intelligence.decisions.filter((decision) => decision.status !== 'passed').length;
+    return currentV2PersistedDecisions.length === actionableDecisionCount &&
+      currentV2PersistedTasks.length === intelligence.tasks.length;
+  }, [
+    canonicalPersistenceSupported,
+    currentV2PersistedDecisions,
+    currentV2PersistedTasks,
+    intelligence,
+  ]);
+
+  const persistedDecisionsToShow = useMemo(() => {
+    if (!canonicalPersistenceSupported) return persistentDecisions;
+    return canonicalPersistedBundleReady ? currentV2PersistedDecisions : [];
+  }, [
+    canonicalPersistedBundleReady,
+    canonicalPersistenceSupported,
+    currentV2PersistedDecisions,
+    persistentDecisions,
+  ]);
+
+  const persistedTasksToShow = useMemo(() => {
+    if (!canonicalPersistenceSupported) return workflowTasks;
+    return canonicalPersistedBundleReady ? currentV2PersistedTasks : [];
+  }, [
+    canonicalPersistedBundleReady,
+    canonicalPersistenceSupported,
+    currentV2PersistedTasks,
+    workflowTasks,
+  ]);
+
   const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
     if (!intelligence) return [];
-    if (workflowTasks.length > 0) {
-      return workflowTasks.map((t) => ({
+    if (canonicalPersistenceSupported && !canonicalPersistedBundleReady) {
+      return intelligence.tasks;
+    }
+    if (persistedTasksToShow.length > 0) {
+      return persistedTasksToShow.map((t) => ({
         id: t.id,
         title: t.title,
         priority:
           t.priority === 'P1' || t.priority === 'critical' ? 'P1' :
           t.priority === 'P2' || t.priority === 'high' ? 'P2' : 'P3',
-        reason: t.description ?? t.task_type.replace(/_/g, ' '),
+        reason: getTaskReason(t),
+        suggestedOwner: getSuggestedOwner(t),
         status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
           t.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
         )
@@ -566,7 +649,12 @@ export default function DocumentDetailPage({
       }));
     }
     return intelligence.tasks;
-  }, [intelligence, workflowTasks]);
+  }, [
+    canonicalPersistedBundleReady,
+    canonicalPersistenceSupported,
+    intelligence,
+    persistedTasksToShow,
+  ]);
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
@@ -621,7 +709,10 @@ export default function DocumentDetailPage({
   const filename     = doc.storage_path.split('/').at(-1) ?? doc.storage_path;
 
   const latestExtraction = extractions[0] ?? null;
-  const keyFacts = latestExtraction ? extractKeyFacts(latestExtraction.data) : [];
+  // Prefer operator-grade intelligence key facts; fall back to raw extraction key facts.
+  const keyFacts = intelligence?.keyFacts?.length
+    ? intelligence.keyFacts
+    : (latestExtraction ? extractKeyFacts(latestExtraction.data) : []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -719,8 +810,8 @@ export default function DocumentDetailPage({
             <AuditSection
               uploadedAt={doc.created_at}
               processedAt={doc.processed_at}
-              decisionsGeneratedAt={persistentDecisions[0]?.created_at ?? null}
-              tasksCreatedAt={workflowTasks[0]?.created_at ?? null}
+              decisionsGeneratedAt={persistedDecisionsToShow[0]?.created_at ?? null}
+              tasksCreatedAt={persistedTasksToShow[0]?.created_at ?? null}
               currentStatus={doc.processing_status}
             />
 
@@ -843,11 +934,11 @@ export default function DocumentDetailPage({
           </div>
           {persistentDecisionsLoading ? (
             <p className="text-[11px] text-[#8B94A3]">Loading…</p>
-          ) : persistentDecisions.length === 0 ? (
+          ) : persistedDecisionsToShow.length === 0 ? (
             <p className="text-[11px] italic text-[#8B94A3]">No decisions generated yet</p>
           ) : (
             <div className="space-y-2">
-              {persistentDecisions.map((d) => (
+              {persistedDecisionsToShow.map((d) => (
                 <div key={d.id} className="flex flex-wrap items-center gap-3 rounded border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2 text-[11px]">
                   <Link href={`/platform/decisions/${d.id}`} className="font-medium text-[#8B5CFF] hover:underline">
                     {d.title}
@@ -872,11 +963,11 @@ export default function DocumentDetailPage({
           </div>
           {workflowTasksLoading ? (
             <p className="text-[11px] text-[#8B94A3]">Loading…</p>
-          ) : workflowTasks.length === 0 ? (
+          ) : persistedTasksToShow.length === 0 ? (
             <p className="text-[11px] italic text-[#8B94A3]">No workflow tasks triggered yet</p>
           ) : (
             <div className="space-y-2">
-              {workflowTasks.map((t) => (
+              {persistedTasksToShow.map((t) => (
                 <div key={t.id} className="flex flex-wrap items-center gap-3 rounded border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2 text-[11px]">
                   <Link href={`/platform/workflows/${t.id}`} className="font-medium text-[#8B5CFF] hover:underline">
                     {t.title || titleize(t.task_type)}
@@ -1097,7 +1188,7 @@ export default function DocumentDetailPage({
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decisions</div>
         {persistentDecisionsLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading decisions…</p>
-        ) : persistentDecisions.length === 0 ? (
+        ) : persistedDecisionsToShow.length === 0 ? (
           <p className="text-[11px] text-[#8B94A3]">
             No decisions yet. Process the document to generate decisions.
           </p>
@@ -1114,7 +1205,7 @@ export default function DocumentDetailPage({
                 </tr>
               </thead>
               <tbody className="text-[#F5F7FA]">
-                {persistentDecisions.map((d) => (
+                {persistedDecisionsToShow.map((d) => (
                   <tr key={d.id} className="border-b border-[#1A1A3E] last:border-b-0">
                     <td className="py-2 pr-3">
                       <Link
@@ -1154,7 +1245,7 @@ export default function DocumentDetailPage({
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Workflow Tasks</div>
         {workflowTasksLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading tasks…</p>
-        ) : workflowTasks.length === 0 ? (
+        ) : persistedTasksToShow.length === 0 ? (
           <p className="text-[11px] text-[#8B94A3]">
             No workflow tasks yet. Tasks are created automatically from decisions.
           </p>
@@ -1171,7 +1262,7 @@ export default function DocumentDetailPage({
                 </tr>
               </thead>
               <tbody className="text-[#F5F7FA]">
-                {workflowTasks.map((t) => (
+                {persistedTasksToShow.map((t) => (
                   <tr key={t.id} className="border-b border-[#1A1A3E] last:border-b-0">
                     <td className="py-2 pr-3">
                       <Link

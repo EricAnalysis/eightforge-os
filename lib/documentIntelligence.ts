@@ -22,8 +22,11 @@
 import type {
   DocumentIntelligenceOutput,
   DocumentSummary,
+  DocumentFamily,
   DetectedEntity,
   GeneratedDecision,
+  IntelligenceIssue,
+  IntelligenceKeyFact,
   TriggeredWorkflowTask,
   ComparisonResult,
   SuggestedQuestion,
@@ -40,6 +43,11 @@ import type {
   IntelligenceStatus,
   TaskPriority,
 } from './types/documentIntelligence';
+
+type DocumentIntelligenceCore = Omit<
+  DocumentIntelligenceOutput,
+  'classification' | 'keyFacts' | 'issues'
+>;
 
 // ─── Input types ──────────────────────────────────────────────────────────────
 
@@ -259,34 +267,34 @@ function makeQuestions(questions: string[]): SuggestedQuestion[] {
 
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   contract: [
-    'What are the main rates in this contract?',
-    'Does this contract include a tip fee?',
-    'What is the contractor responsible for?',
-    'What fields are missing from this contract?',
+    'Extract the contract NTE amount shown here; if missing, say "not found".',
+    'Extract whether Exhibit A / the rate schedule is present in this contract; if missing, say "not found".',
+    'Detect any tip fee amount in this document; if none detected, say "none found".',
+    'List any contract fields required for an operator decision that are missing (NTE, Exhibit A, contractor name); for each, say "missing" or "present".',
   ],
   invoice: [
-    'Does this invoice match the recommendation?',
-    'What amount is due?',
-    'Is there a contract ceiling issue?',
-    'What fields are missing from this package?',
+    'What is the invoice current due amount? If missing, say "not found".',
+    'Using the invoice current due and the linked payment recommendation approved amount, is there an amount variance? If either amount is missing, say "not found".',
+    'Using contract NTE and the G702 original contract sum from linked docs, does the ceiling check pass? If values are missing, say "not found".',
+    'List the next required operator action based on missing/failed items in this invoice package.',
   ],
   payment_rec: [
-    'Does this recommendation match the invoice?',
-    'What amount is recommended for payment?',
-    'Who authorized this recommendation?',
-    'What fields are missing from this package?',
+    'What amount is recommended for payment? If missing, say "not found".',
+    'Compare the recommendation amount to the linked invoice current due: match or mismatch (include variance if available). If values are missing, say "not found".',
+    'Extract the authorization name and authorization date from this recommendation; if missing, say "not found".',
+    'List what is missing to validate this recommendation (linked invoice, amount, invoice date) and the operator next action.',
   ],
   ticket: [
-    'What site did this ticket go to?',
-    'What material is on this ticket?',
-    'Does the quantity look valid?',
-    'What fields are missing from this ticket?',
+    'Extract the ticket number, dumpsite name, and material type; if missing, say "not found".',
+    'Compare ticket load quantity (CY) to truck capacity (CY): pass or overload (include delta). If values are missing, say "not found".',
+    'If a TDEC permit is linked, state whether the dumpsite and material are covered; if not linked or values missing, say "not found".',
+    'List missing fields required to submit this ticket for payment and the specific next action.',
   ],
   spreadsheet: [
-    'What columns were detected?',
-    'Was this file parsed successfully?',
-    'What is missing for validation?',
-    'What line items are in this spreadsheet?',
+    'State whether this spreadsheet requires manual CLIN reconciliation (yes/no).',
+    'If available, list detected row count and key columns; if missing, say "not found".',
+    'What prevents automated CLIN reconciliation here (e.g., manual_review_required)?',
+    'List the next operator action to reconcile this spreadsheet against G703 CLIN totals.',
   ],
   disposal_checklist: [
     'Is this site linked to an active TDEC permit?',
@@ -309,7 +317,13 @@ const SUGGESTED_QUESTIONS: Record<string, string[]> = {
 };
 
 function getDefaultQuestions(docType: string | null): SuggestedQuestion[] {
-  if (!docType) return makeQuestions(['What is in this document?', 'What fields were extracted?', 'What is missing?']);
+  if (!docType) {
+    return makeQuestions([
+      'Classify this document family using only filename/type signals (contract, invoice, payment recommendation, ticket, spreadsheet). If unclear, say "unknown".',
+      'List the most decision-relevant extracted values you can see; if a value is not present, say "not found".',
+      'List what is missing to produce an operator decision for this document.',
+    ]);
+  }
   const qs = SUGGESTED_QUESTIONS[docType.toLowerCase()];
   if (qs) return makeQuestions(qs);
   // Fallback
@@ -346,10 +360,9 @@ function detectTandM(text: string): boolean {
 
 // ─── Invoice output builder ───────────────────────────────────────────────────
 
-function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, projectName, documentTitle } = params;
   const typed = getTypedFields(extractionData);
-  const ai = getAiEnrichment(extractionData);
   const text = getTextPreview(extractionData);
 
   // Extract key fields
@@ -394,122 +407,197 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
   const decisions: GeneratedDecision[] = [];
   const tasks: TriggeredWorkflowTask[] = [];
 
-  // 1. Amount match
-  const hasAmountMatch = recommendedAmount !== null && currentDue !== null &&
-    Math.abs(recommendedAmount - currentDue) < 0.02;
-  const hasAmountMismatch = recommendedAmount !== null && currentDue !== null && !hasAmountMatch;
-
-  if (paymentRecDoc && hasAmountMatch) {
-    decisions.push({
-      id: nextId(), type: 'amount_matches_payment_recommendation', status: 'passed',
-      title: 'Payment matches recommendation',
-      explanation: `Invoice current due ${formatMoney(currentDue)} matches payment recommendation ${formatMoney(recommendedAmount)} with no variance.`,
-      confidence: 0.99,
-    });
-  } else if (paymentRecDoc && hasAmountMismatch) {
-    const delta = Math.abs((currentDue ?? 0) - (recommendedAmount ?? 0));
-    decisions.push({
-      id: nextId(), type: 'amount_matches_payment_recommendation', status: 'mismatch',
-      title: 'Amount mismatch with recommendation',
-      explanation: `Invoice current due ${formatMoney(currentDue)} does not match recommended ${formatMoney(recommendedAmount)}. Variance: ${formatMoney(delta)}.`,
-      confidence: 0.99,
-    });
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
     const taskId = nextId();
     tasks.push({
-      id: taskId, title: 'Reconcile invoice amount vs payment recommendation',
-      priority: 'P1', reason: `${formatMoney(delta)} variance between invoice and recommendation.`,
-      suggestedOwner: 'Finance reviewer', status: 'open', autoCreated: true,
+      id: taskId,
+      status: 'open',
+      autoCreated: true,
+      ...t,
     });
-  } else if (!paymentRecDoc) {
+    return taskId;
+  };
+
+  // 1) Amount match (invoice current due vs payment recommendation)
+  const hasAmountMatch =
+    recommendedAmount !== null && currentDue !== null && Math.abs(recommendedAmount - currentDue) < 0.02;
+  const hasAmountMismatch =
+    recommendedAmount !== null && currentDue !== null && !hasAmountMatch;
+
+  if (!paymentRecDoc) {
+    const taskId = createTask({
+      title: 'Request missing payment recommendation',
+      priority: 'P1',
+      reason: 'No payment recommendation document found for this invoice package; upload it to enable amount validation.',
+      suggestedOwner: 'Finance reviewer',
+    });
     decisions.push({
-      id: nextId(), type: 'amount_matches_payment_recommendation', status: 'missing',
-      title: 'Payment recommendation not found',
-      explanation: 'No payment recommendation document found in this project. Upload to enable cross-document validation.',
+      id: nextId(),
+      type: 'amount_matches_payment_recommendation',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing payment recommendation',
+      explanation: 'Payment recommendation is not attached, so the approved payment amount cannot be validated against invoice current due.',
+      action: 'Upload the payment recommendation document for this invoice package.',
       confidence: 1,
+      relatedTaskIds: [taskId],
+    });
+  } else if (hasAmountMismatch) {
+    const delta = Math.abs((currentDue ?? 0) - (recommendedAmount ?? 0));
+    const taskId = createTask({
+      title: 'Verify invoice due matches approved recommendation',
+      priority: 'P1',
+      reason: `Invoice current due (${formatMoney(currentDue)}) differs from approved recommendation (${formatMoney(recommendedAmount)}) by ${formatMoney(delta)}.`,
+      suggestedOwner: 'Finance reviewer',
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'amount_matches_payment_recommendation',
+      status: 'mismatch',
+      severity: 'critical',
+      title: 'Invoice amount variance vs recommendation',
+      explanation: `Variance: ${formatMoney(delta)} between invoice current due and the approved recommendation.`,
+      action: 'Reconcile the variance (confirm correct approved amount or correct data) before approval.',
+      confidence: 0.99,
+      relatedTaskIds: [taskId],
     });
   }
 
-  // 2. Contract ceiling risk (NTE vs G702 contract sum)
-  if (contractDoc && nteAmount !== null && g702Sum !== null) {
+  // 2) Contract ceiling risk (NTE vs G702 original contract sum)
+  if (!contractDoc) {
+    const taskId = createTask({
+      title: 'Attach linked contract for ceiling validation',
+      priority: 'P1',
+      reason: 'No contract was found for this project, so NTE ceiling validation against G702 cannot run.',
+      suggestedOwner: 'Project manager',
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'contract_ceiling_risk',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing linked contract',
+      explanation: 'Contract not found, so NTE ceiling check cannot be validated for this invoice.',
+      action: 'Upload/attach the linked contract (with NTE and Exhibit A if applicable).',
+      confidence: 1,
+      relatedTaskIds: [taskId],
+    });
+  } else if (nteAmount === null || g702Sum === null) {
+    const taskId = createTask({
+      title: 'Manually verify contract ceiling inputs',
+      priority: 'P2',
+      reason: 'Contract is attached, but NTE and/or G702 original contract sum could not be extracted.',
+      suggestedOwner: 'Project manager',
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'contract_ceiling_risk',
+      status: 'missing',
+      severity: 'high',
+      title: 'Contract ceiling check incomplete',
+      explanation: 'NTE or G702 original contract sum is missing from extracted fields; ceiling validation requires manual lookup.',
+      action: 'Record the NTE and G702 original contract sum used for ceiling validation.',
+      confidence: 0.75,
+      relatedTaskIds: [taskId],
+    });
+  } else {
     const delta = Math.abs(nteAmount - g702Sum);
     if (delta > 100) {
-      decisions.push({
-        id: nextId(), type: 'contract_ceiling_risk', status: 'risky',
-        title: 'Contract ceiling discrepancy',
-        explanation: `Contract NTE is ${formatMoney(nteAmount)}, but G702 shows original contract sum of ${formatMoney(g702Sum)}. Difference: ${formatMoney(delta)}. Verify amendment or data entry before approving payment.`,
-        confidence: 0.97,
-      });
-      const taskId = nextId();
-      tasks.push({
-        id: taskId, title: 'Review contract ceiling vs G702 contract sum',
+      const taskId = createTask({
+        title: 'Verify contract ceiling basis (NTE vs G702)',
         priority: 'P1',
-        reason: `NTE ${formatMoney(nteAmount)} vs G702 sum ${formatMoney(g702Sum)} — ${formatMoney(delta)} discrepancy.`,
-        suggestedOwner: 'Finance reviewer', status: 'open', autoCreated: true,
+        reason: `NTE (${formatMoney(nteAmount)}) differs from G702 original contract sum (${formatMoney(g702Sum)}) by ${formatMoney(delta)}.`,
+        suggestedOwner: 'Finance reviewer',
       });
-    } else {
       decisions.push({
-        id: nextId(), type: 'contract_ceiling_risk', status: 'passed',
-        title: 'Contract ceiling consistent',
-        explanation: `G702 contract sum ${formatMoney(g702Sum)} is consistent with contract NTE ${formatMoney(nteAmount)}.`,
+        id: nextId(),
+        type: 'contract_ceiling_risk',
+        status: 'mismatch',
+        severity: 'critical',
+        title: 'Contract ceiling mismatch (NTE vs G702)',
+        explanation: `Difference: ${formatMoney(delta)}. Verify amendment/data entry before payment approval.`,
+        action: 'Confirm the correct ceiling basis (contract NTE vs G702 line 1 sum) before approving payment.',
         confidence: 0.97,
+        relatedTaskIds: [taskId],
       });
     }
-  } else if (contractDoc && (nteAmount === null || g702Sum === null)) {
-    decisions.push({
-      id: nextId(), type: 'contract_ceiling_risk', status: 'info',
-      title: 'Contract ceiling check incomplete',
-      explanation: 'Contract found but NTE or G702 contract sum could not be extracted. Manual check recommended.',
-      confidence: 0.7,
-    });
-    tasks.push({
-      id: nextId(), title: 'Manually verify contract NTE vs invoice contract sum',
-      priority: 'P2', reason: 'Automated extraction could not confirm NTE amount.',
-      suggestedOwner: 'Project manager', status: 'open', autoCreated: true,
-    });
-  } else if (!contractDoc) {
-    decisions.push({
-      id: nextId(), type: 'contract_ceiling_risk', status: 'missing',
-      title: 'Contract not found — ceiling check skipped',
-      explanation: 'No contract document found in this project. Upload to enable NTE ceiling validation.',
-      confidence: 1,
-    });
   }
 
-  // 5. Invoice date / recommendation date consistency
-  if (paymentRecDoc && invoiceDate && payRecDate && invoiceDate !== payRecDate) {
-    decisions.push({
-      id: nextId(), type: 'invoice_date_consistency', status: 'risky',
-      title: 'Invoice date inconsistency',
-      explanation: `Invoice date on G702 (${formatDate(invoiceDate)}) differs from the date recorded on the payment recommendation (${formatDate(payRecDate)}). Verify which date is authoritative for the audit trail.`,
-      confidence: 0.92,
-    });
-    tasks.push({
-      id: nextId(), title: 'Resolve invoice date discrepancy',
-      priority: 'P2',
-      reason: `G702 date: ${formatDate(invoiceDate)} · Payment rec date: ${formatDate(payRecDate)}.`,
-      suggestedOwner: 'Project manager', status: 'open', autoCreated: true,
-    });
-  } else if (paymentRecDoc && invoiceDate && payRecDate && invoiceDate === payRecDate) {
-    decisions.push({
-      id: nextId(), type: 'invoice_date_consistency', status: 'passed',
-      title: 'Invoice date consistent',
-      explanation: `Invoice date (${formatDate(invoiceDate)}) matches the payment recommendation date.`,
-      confidence: 0.95,
-    });
+  // 3) Invoice date / recommendation date consistency (audit trail)
+  if (paymentRecDoc) {
+    if (invoiceDate && payRecDate) {
+      if (invoiceDate !== payRecDate) {
+        const taskId = createTask({
+          title: 'Confirm authoritative invoice date',
+          priority: 'P2',
+          reason: `G702 invoice date (${formatDate(invoiceDate)}) differs from payment recommendation invoice date (${formatDate(payRecDate)}).`,
+          suggestedOwner: 'Project manager',
+        });
+        decisions.push({
+          id: nextId(),
+          type: 'invoice_date_consistency',
+          status: 'risky',
+          severity: 'high',
+          title: 'Invoice date mismatch (G702 vs payment rec)',
+          explanation: `Date mismatch for audit trail: ${formatDate(invoiceDate)} vs ${formatDate(payRecDate)}.`,
+          action: 'Choose the authoritative date and align the audit trail.',
+          confidence: 0.92,
+          relatedTaskIds: [taskId],
+        });
+      }
+    } else {
+      const taskId = createTask({
+        title: 'Manually verify invoice dates for audit trail',
+        priority: 'P2',
+        reason: 'Invoice date and/or payment recommendation invoice date could not be extracted reliably.',
+        suggestedOwner: 'Project manager',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'invoice_date_consistency',
+        status: 'missing',
+        severity: 'medium',
+        title: 'Invoice date extraction incomplete',
+        explanation: 'Invoice date consistency cannot be confirmed because one or both dates are missing from extracted fields.',
+        action: 'Record the authoritative invoice date from G702 and the payment recommendation.',
+        confidence: 0.7,
+        relatedTaskIds: [taskId],
+      });
+    }
   }
 
-  // 5. Spreadsheet backup — only flag when one is present (absence is not a signal by default)
+  // 4) Spreadsheet backup — present means manual reconciliation is required (not optional)
   if (spreadsheetDoc) {
-    decisions.push({
-      id: nextId(), type: 'supporting_backup_missing_or_manual_review', status: 'info',
-      title: 'Spreadsheet support requires manual review',
-      explanation: 'Backup spreadsheet found but structured parsing is not yet available. Manual reconciliation against G703 CLIN amounts required.',
-      confidence: 1,
+    const taskId = createTask({
+      title: 'Cross-check spreadsheet CLIN reconciliation',
+      priority: 'P2',
+      reason: 'Spreadsheet support is present but automated CLIN reconciliation is not available; reconcile against G703 CLIN amounts.',
+      suggestedOwner: 'Thompson Consulting / Field reviewer',
     });
-    tasks.push({
-      id: nextId(), title: 'Review spreadsheet support before final approval',
-      priority: 'P2', reason: 'Automated CLIN reconciliation not available for spreadsheet backups.',
-      suggestedOwner: 'Thompson Consulting / Field reviewer', status: 'open', autoCreated: true,
+    decisions.push({
+      id: nextId(),
+      type: 'supporting_backup_missing_or_manual_review',
+      status: 'risky',
+      severity: 'medium',
+      title: 'Spreadsheet backup requires manual CLIN reconciliation',
+      explanation: 'Structured parsing is not available for this spreadsheet support; manual CLIN reconciliation is required.',
+      action: 'Reconcile spreadsheet line items to G703 CLIN amounts before final approval.',
+      confidence: 1,
+      relatedTaskIds: [taskId],
+    });
+  }
+
+  // If we got here without any flagged issues, mark readiness explicitly.
+  if (decisions.length === 0) {
+    decisions.push({
+      id: nextId(),
+      type: 'invoice_readiness',
+      status: 'passed',
+      severity: 'low',
+      title: 'Ready for payment approval',
+      explanation: 'Linked docs support amount validation, contract ceiling check, and audit-trail dates with no flagged issues.',
+      action: 'Approve for payment processing.',
+      confidence: 0.93,
     });
   }
 
@@ -520,7 +608,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     entities.push({
       key: 'amount', label: 'Amount',
       value: formatMoney(currentDue),
-      status: hasAmountMatch ? 'ok' : hasAmountMismatch ? 'critical' : 'neutral',
+      status: hasAmountMatch ? 'ok' : hasAmountMismatch ? 'critical' : paymentRecDoc ? 'neutral' : 'warning',
     });
   }
 
@@ -562,35 +650,37 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     });
   }
 
-  if (paymentRecDoc) {
-    entities.push({
-      key: 'recommendation', label: 'Recommendation',
-      value: hasAmountMatch ? 'Matched' : hasAmountMismatch ? 'Mismatch' : 'Found',
-      status: hasAmountMatch ? 'ok' : hasAmountMismatch ? 'critical' : 'neutral',
-    });
-  }
+  entities.push({
+    key: 'recommendation',
+    label: 'Recommendation',
+    value: paymentRecDoc
+      ? (hasAmountMatch ? 'Matched' : hasAmountMismatch ? 'Mismatch' : 'Found')
+      : 'Missing',
+    status: paymentRecDoc
+      ? (hasAmountMatch ? 'ok' : hasAmountMismatch ? 'critical' : 'neutral')
+      : 'critical',
+  });
 
   // Clamp to 6 chips max
   const cappedEntities = entities.slice(0, 6);
 
-  // ── Summary ────────────────────────────────────────────────────────────────
-  const aiSummary = ai.summary_sentence as string | null;
-  let headline: string;
-  let nextAction: string;
+  // ── Summary (operator-grade, issue-first) ────────────────────────────────
+  const anyFlaggedIssue = decisions.some((d) => d.status !== 'passed');
+  const topIssue =
+    decisions.find((d) => d.status === 'mismatch') ??
+    decisions.find((d) => d.status === 'risky') ??
+    decisions.find((d) => d.status === 'missing') ??
+    decisions.find((d) => d.status === 'info');
 
-  if (aiSummary) {
-    headline = aiSummary;
-    nextAction = 'Review decisions below and approve or route for further review.';
-  } else if (projectCode && currentDue !== null && hasAmountMatch) {
-    headline = `${projectCode} invoice package for ${formatMoney(currentDue)} matched the payment recommendation with no amount variance detected.`;
-    nextAction = 'Review contract ceiling discrepancy and confirm date consistency before approval.';
-  } else if (projectCode && currentDue !== null) {
-    headline = `${projectCode} invoice for ${formatMoney(currentDue)} has been processed. Review decisions below before approving payment.`;
-    nextAction = 'Resolve open decisions before routing for payment.';
-  } else {
-    headline = `Invoice document processed. Review decisions below.`;
-    nextAction = 'Verify required fields and cross-document checks before approving.';
-  }
+  const headline = !anyFlaggedIssue
+    ? 'Ready for payment approval'
+    : topIssue
+      ? `Invoice package needs review: ${topIssue.title}.`
+      : 'Invoice package needs review.';
+
+  const nextAction = decisions.length > 0 && tasks.length > 0
+    ? 'Resolve the flagged items below, then approve for payment.'
+    : 'Approve for payment processing.';
 
   // ── Cross-doc comparisons ──────────────────────────────────────────────────
   const comparisons: ComparisonResult[] = [];
@@ -711,10 +801,9 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
 
 // ─── Contract output builder ──────────────────────────────────────────────────
 
-function buildContractOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildContractOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, projectName, documentTitle } = params;
   const typed = getTypedFields(extractionData);
-  const ai = getAiEnrichment(extractionData);
   const text = getTextPreview(extractionData);
 
   const vendorName = (typed.vendor_name as string | null) ?? null;
@@ -745,18 +834,30 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     const g702Sum = extractG702ContractSum(invTyped, invText);
     if (nteAmount !== null && g702Sum !== null && Math.abs(nteAmount - g702Sum) > 100) {
       const delta = Math.abs(nteAmount - g702Sum);
-      decisions.push({
-        id: nextId(), type: 'contract_ceiling_risk', status: 'risky',
-        title: 'G702 contract sum exceeds NTE',
-        explanation: `Invoice G702 shows ${formatMoney(g702Sum)} as original contract sum. This contract NTE is ${formatMoney(nteAmount)}. Difference: ${formatMoney(delta)}.`,
-        confidence: 0.97,
-      });
-      tasks.push({
-        id: nextId(), title: 'Reconcile NTE vs G702 contract sum',
-        priority: 'P1',
-        reason: `${formatMoney(delta)} discrepancy between contract NTE and G702 line 1.`,
-        suggestedOwner: 'Finance reviewer', status: 'open', autoCreated: true,
-      });
+      // Avoid generating multiple near-identical ceiling issues across multiple invoices.
+      if (!decisions.some((d) => d.type === 'contract_ceiling_risk' && d.status !== 'passed')) {
+        const taskId = nextId();
+        tasks.push({
+          id: taskId,
+          title: 'Verify contract ceiling basis (NTE vs G702)',
+          priority: 'P1',
+          reason: `NTE ${formatMoney(nteAmount)} vs G702 original sum ${formatMoney(g702Sum)} — ${formatMoney(delta)} difference.`,
+          suggestedOwner: 'Finance reviewer',
+          status: 'open',
+          autoCreated: true,
+        });
+        decisions.push({
+          id: nextId(),
+          type: 'contract_ceiling_risk',
+          status: 'mismatch',
+          severity: 'critical',
+          title: 'Contract ceiling mismatch (NTE vs G702)',
+          explanation: `Ceiling mismatch: ${formatMoney(delta)} difference between contract NTE and G702 original sum.`,
+          action: 'Confirm the correct ceiling basis (amendment vs data entry) before approving payment.',
+          confidence: 0.97,
+          relatedTaskIds: [taskId],
+        });
+      }
       comparisons.push({
         id: nextId(), check: 'Contract NTE vs invoice G702 sum',
         status: 'mismatch',
@@ -767,41 +868,100 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     }
   }
 
-  if (vendorName) {
+  if (!vendorName) {
+    const taskId = nextId();
+    tasks.push({
+      id: taskId,
+      title: 'Record contractor name from contract',
+      priority: 'P2',
+      reason: 'Contractor/vendor name is missing from extracted fields; record it from the contract cover page.',
+      suggestedOwner: 'Project manager',
+      status: 'open',
+      autoCreated: true,
+    });
     decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'passed',
-      title: 'Contractor identified', explanation: `Contractor "${vendorName}" identified.`,
-      confidence: 0.9,
+      id: nextId(),
+      type: 'contractor_identified',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing contractor name',
+      explanation: 'Contractor/vendor name could not be extracted; the operator needs the authorized counterparty for approvals.',
+      action: 'Record the contractor/vendor name used on the contract.',
+      confidence: 0.8,
+      relatedTaskIds: [taskId],
     });
   }
-  if (nteAmount !== null) {
-    decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'passed',
-      title: 'NTE amount extracted',
-      explanation: `Contract NTE of ${formatMoney(nteAmount)} successfully extracted.`,
-      confidence: 0.88,
+
+  if (nteAmount === null) {
+    const taskId = nextId();
+    tasks.push({
+      id: taskId,
+      title: 'Record contract NTE (Not-to-Exceed)',
+      priority: 'P1',
+      reason: 'Contract NTE could not be extracted; record the Not-to-Exceed amount from the contract.',
+      suggestedOwner: 'Finance reviewer',
+      status: 'open',
+      autoCreated: true,
     });
-  } else {
     decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'missing',
-      title: 'NTE amount not extracted',
-      explanation: 'Could not extract Not-to-Exceed amount from contract. Manual review required.',
-      confidence: 0.8,
+      id: nextId(),
+      type: 'contract_ceiling_inputs',
+      status: 'missing',
+      severity: 'critical',
+      title: 'Missing contract NTE',
+      explanation: 'NTE is required for ceiling validation; it was not extracted from this contract.',
+      action: 'Record the contract Not-to-Exceed (NTE) amount.',
+      confidence: 0.75,
+      relatedTaskIds: [taskId],
     });
   }
 
   if (!rateSchedulePresent) {
-    decisions.push({
-      id: nextId(), type: 'rate_schedule_missing', status: 'risky',
-      title: 'Rate schedule not detected',
-      explanation: 'No rate schedule or Exhibit A found in this document. Verify it is attached before executing.',
-      confidence: 0.85,
-    });
+    const taskId = nextId();
     tasks.push({
-      id: nextId(), title: 'Confirm Exhibit A / rate schedule is attached',
+      id: taskId,
+      title: 'Attach Exhibit A / rate schedule',
       priority: 'P2',
-      reason: 'Rate schedule was not detected in the uploaded contract document.',
-      suggestedOwner: 'Project manager', status: 'open', autoCreated: true,
+      reason: 'Rate schedule (Exhibit A / unit rates) is missing from this contract extraction; attach it before executing payment.',
+      suggestedOwner: 'Project manager',
+      status: 'open',
+      autoCreated: true,
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'rate_schedule_missing',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing rate schedule (Exhibit A)',
+      explanation: 'Exhibit A / unit rates were not detected, so billing rate validation cannot be completed.',
+      action: 'Attach the rate schedule so rate/rate-line checks can be performed.',
+      confidence: 0.85,
+      relatedTaskIds: [taskId],
+    });
+  }
+
+  // Tip fees are often approval-sensitive; surface them as an operator issue.
+  if (tipFee !== null && tipFee > 0) {
+    const taskId = nextId();
+    tasks.push({
+      id: taskId,
+      title: 'Confirm tip fee is allowable',
+      priority: 'P2',
+      reason: `Tip fee detected in contract text (${formatMoney(tipFee)}). Verify it is permitted and documented for reimbursement.`,
+      suggestedOwner: 'Finance reviewer',
+      status: 'open',
+      autoCreated: true,
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'tip_fee_allowability',
+      status: 'risky',
+      severity: 'medium',
+      title: 'Tip fee detected',
+      explanation: `Contract includes a tip fee of ${formatMoney(tipFee)}; confirm it is allowable under the governing rate/cost rules.`,
+      action: 'Confirm tip fee allowability and required documentation before approving payment.',
+      confidence: 0.9,
+      relatedTaskIds: [taskId],
     });
   }
 
@@ -813,23 +973,43 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
   if (femaDisaster) entities.push({ key: 'fema_disaster', label: 'FEMA Disaster', value: femaDisaster, status: 'neutral' });
   if (projectName ?? contractNumber) entities.push({ key: 'project', label: 'Project', value: projectName ?? contractNumber ?? '—', status: 'neutral' });
 
-  const aiSummary = ai.summary_sentence as string | null;
-  const headline = aiSummary
-    ?? (contractNumber && nteAmount !== null
-      ? `Contract ${contractNumber} sets a ${formatMoney(nteAmount)} NTE for ${vendorName ?? 'the contractor'}.${rateSchedulePresent ? ' Rate schedule present.' : ''}`
-      : 'Contract document processed. Key terms extracted.');
-  const nextAction = decisions.some(d => d.type === 'contract_ceiling_risk')
-    ? 'Review NTE discrepancy flagged against linked invoice G702 data.'
-    : !rateSchedulePresent
-      ? 'Rate schedule not detected — verify Exhibit A is attached before executing.'
-      : 'Review contract details and upload linked invoices to enable cross-document validation.';
+  // ── Summary (operator-grade, issue-first) ────────────────────────────────
+  if (decisions.length === 0) {
+    decisions.push({
+      id: nextId(),
+      type: 'contract_readiness',
+      status: 'passed',
+      severity: 'low',
+      title: 'Contract ready for validation',
+      explanation: 'Contract NTE, contractor, and rate schedule are present, with no ceiling issues flagged against linked G702 data.',
+      action: 'Approve the contract for execution and ensure linked invoices are uploaded.',
+      confidence: 0.93,
+    });
+  }
+
+  const anyFlaggedIssue = decisions.some((d) => d.status !== 'passed');
+  const topIssue =
+    decisions.find((d) => d.status === 'mismatch') ??
+    decisions.find((d) => d.status === 'risky') ??
+    decisions.find((d) => d.status === 'missing') ??
+    decisions.find((d) => d.status === 'info');
+
+  const headline = !anyFlaggedIssue
+    ? 'Contract ready for validation'
+    : topIssue
+      ? `Contract needs review: ${topIssue.title}.`
+      : 'Contract needs review.';
+
+  const nextAction = tasks.length > 0
+    ? 'Resolve the flagged items below, then approve for execution.'
+    : 'Approve and upload linked invoices for cross-document validation.';
 
   const extracted: ContractExtraction = {
     contractNumber: contractNumber ?? undefined,
     contractorName: vendorName ?? undefined,
     notToExceedAmount: nteAmount ?? undefined,
     executedDate: contractDate ?? undefined,
-    projectCode: contractNumber ?? undefined,
+    projectCode: projectName ?? contractNumber ?? undefined,
     rateSchedulePresent,
     timeAndMaterialsPresent,
     tipFee: tipFee ?? undefined,
@@ -849,10 +1029,9 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
 
 // ─── Payment rec output builder ───────────────────────────────────────────────
 
-function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle } = params;
   const typed = getTypedFields(extractionData);
-  const ai = getAiEnrichment(extractionData);
   const text = getTextPreview(extractionData);
 
   const recAmount = extractRecommendedAmount(typed, text);
@@ -876,53 +1055,156 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
 
   const hasAmountMatch = invoiceCurrentDue !== null && recAmount !== null &&
     Math.abs(invoiceCurrentDue - recAmount) < 0.02;
+  const hasAmountMissing = invoiceCurrentDue === null || recAmount === null;
+  const hasAmountMismatch = !hasAmountMissing && !hasAmountMatch;
 
   const decisions: GeneratedDecision[] = [];
   const tasks: TriggeredWorkflowTask[] = [];
   const comparisons: ComparisonResult[] = [];
 
-  if (invoiceDoc && hasAmountMatch) {
-    decisions.push({
-      id: nextId(), type: 'amount_matches_payment_recommendation', status: 'passed',
-      title: 'Matches linked invoice',
-      explanation: `Recommended amount ${formatMoney(recAmount)} matches invoice current due ${formatMoney(invoiceCurrentDue)} with no variance.`,
-      confidence: 0.99,
-    });
-  } else if (invoiceDoc && !hasAmountMatch) {
-    decisions.push({
-      id: nextId(), type: 'amount_matches_payment_recommendation', status: 'mismatch',
-      title: 'Amount mismatch with invoice',
-      explanation: `Recommended ${formatMoney(recAmount)} does not match invoice current due ${formatMoney(invoiceCurrentDue)}.`,
-      confidence: 0.99,
-    });
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
+    const taskId = nextId();
     tasks.push({
-      id: nextId(), title: 'Reconcile payment rec vs invoice amount',
-      priority: 'P1', reason: 'Amount mismatch requires resolution before payment.',
-      suggestedOwner: 'Finance reviewer', status: 'open', autoCreated: true,
+      id: taskId,
+      status: 'open',
+      autoCreated: true,
+      ...t,
     });
+    return taskId;
+  };
+
+  if (!invoiceDoc) {
+    const taskId = createTask({
+      title: 'Attach linked invoice for validation',
+      priority: 'P1',
+      reason: 'No linked invoice document found in this project; cannot validate payment recommendation amount or dates.',
+      suggestedOwner: 'Project manager',
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'amount_matches_payment_recommendation',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing linked invoice',
+      explanation: 'Payment recommendation is not cross-validated because the linked invoice document is missing.',
+      action: 'Upload/attach the linked invoice for this payment recommendation.',
+      confidence: 1,
+      relatedTaskIds: [taskId],
+    });
+  } else {
+    // Amount validation
+    if (hasAmountMissing) {
+      const taskId = createTask({
+        title: 'Manually verify invoice amount and recommendation amount',
+        priority: 'P1',
+        reason: 'Invoice current due and/or payment recommendation amount could not be extracted reliably.',
+        suggestedOwner: 'Finance reviewer',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'amount_matches_payment_recommendation',
+        status: 'missing',
+        severity: 'high',
+        title: 'Amount validation cannot be completed',
+        explanation: 'One or both amounts required for cross-document validation are missing from extracted fields.',
+        action: 'Record the invoice current due and the recommended approved payment amount.',
+        confidence: 0.75,
+        relatedTaskIds: [taskId],
+      });
+    } else if (hasAmountMismatch) {
+      const delta = Math.abs((invoiceCurrentDue ?? 0) - (recAmount ?? 0));
+      const taskId = createTask({
+        title: 'Verify recommendation amount matches invoice due',
+        priority: 'P1',
+        reason: `Invoice current due (${formatMoney(invoiceCurrentDue)}) differs from recommended approved amount (${formatMoney(recAmount)}) by ${formatMoney(delta)}.`,
+        suggestedOwner: 'Finance reviewer',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'amount_matches_payment_recommendation',
+        status: 'mismatch',
+        severity: 'critical',
+        title: 'Recommendation amount variance vs invoice',
+        explanation: `Variance: ${formatMoney(delta)} between recommendation amount and invoice current due.`,
+        action: 'Reconcile the variance before approving payment.',
+        confidence: 0.99,
+        relatedTaskIds: [taskId],
+      });
+    }
+
+    // Date validation (invoice date)
+    if (invoiceDate && payRecInvoiceDate) {
+      if (invoiceDate !== payRecInvoiceDate) {
+        const taskId = createTask({
+          title: 'Confirm authoritative invoice date',
+          priority: 'P2',
+          reason: `G702 invoice date (${formatDate(invoiceDate)}) differs from payment recommendation invoice date (${formatDate(payRecInvoiceDate)}).`,
+          suggestedOwner: 'Project manager',
+        });
+        decisions.push({
+          id: nextId(),
+          type: 'invoice_date_consistency',
+          status: 'risky',
+          severity: 'high',
+          title: 'Invoice date mismatch (G702 vs payment rec)',
+          explanation: `Date mismatch for audit trail: ${formatDate(invoiceDate)} vs ${formatDate(payRecInvoiceDate)}.`,
+          action: 'Choose the authoritative date and align the audit trail.',
+          confidence: 0.92,
+          relatedTaskIds: [taskId],
+        });
+      }
+    } else {
+      const taskId = createTask({
+        title: 'Manually verify invoice dates for audit trail',
+        priority: 'P2',
+        reason: 'Invoice date and/or payment recommendation invoice date could not be extracted reliably.',
+        suggestedOwner: 'Project manager',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'invoice_date_consistency',
+        status: 'missing',
+        severity: 'medium',
+        title: 'Invoice date extraction incomplete',
+        explanation: 'Invoice date consistency cannot be confirmed because one or both dates are missing from extracted fields.',
+        action: 'Record the authoritative invoice date from G702 and payment recommendation.',
+        confidence: 0.7,
+        relatedTaskIds: [taskId],
+      });
+    }
   }
 
-  if (invoiceDoc && invoiceDate && payRecInvoiceDate && invoiceDate !== payRecInvoiceDate) {
+  // If nothing was flagged, mark readiness explicitly.
+  if (decisions.length === 0) {
     decisions.push({
-      id: nextId(), type: 'invoice_date_consistency', status: 'risky',
-      title: 'Invoice date discrepancy',
-      explanation: `Payment rec records invoice date as ${formatDate(payRecInvoiceDate)}, but G702 shows ${formatDate(invoiceDate)}. Verify which date is authoritative.`,
-      confidence: 0.92,
-    });
-    tasks.push({
-      id: nextId(), title: 'Resolve invoice date discrepancy',
-      priority: 'P2', reason: `Rec date: ${payRecInvoiceDate} · G702 date: ${invoiceDate}`,
-      suggestedOwner: 'Project manager', status: 'open', autoCreated: true,
+      id: nextId(),
+      type: 'payment_rec_readiness',
+      status: 'passed',
+      severity: 'low',
+      title: 'Ready for payment processing',
+      explanation: 'Recommendation amount and dates are consistent with the linked invoice; no flagged issues.',
+      action: 'Approve for payment processing.',
+      confidence: 0.93,
     });
   }
 
   if (invoiceDoc) {
+    const comparisonStatus: ComparisonResult['status'] = hasAmountMissing
+      ? 'missing'
+      : hasAmountMatch
+        ? 'match'
+        : 'mismatch';
     comparisons.push({
       id: nextId(), check: 'Recommendation amount vs invoice',
-      status: hasAmountMatch ? 'match' : 'mismatch',
+      status: comparisonStatus,
       leftLabel: 'Recommended for payment', leftValue: recAmount !== null ? formatMoney(recAmount) : null,
       rightLabel: 'Invoice current due', rightValue: invoiceCurrentDue !== null ? formatMoney(invoiceCurrentDue) : null,
-      explanation: hasAmountMatch ? 'Amounts match.' : 'Amounts do not match.',
+      explanation:
+        comparisonStatus === 'match'
+          ? 'Amounts match within tolerance.'
+          : comparisonStatus === 'mismatch'
+            ? 'Amounts differ. Reconcile before approving payment.'
+            : 'One or both amounts are missing from extracted fields.',
     });
   }
 
@@ -933,14 +1215,22 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
   if (authorizedBy) entities.push({ key: 'authorized_by', label: 'Authorized By', value: authorizedBy, status: 'neutral' });
   if (payRecDate) entities.push({ key: 'auth_date', label: 'Auth Date', value: formatDate(payRecDate), status: 'neutral' });
 
-  const aiSummary = ai.summary_sentence as string | null;
-  const headline = aiSummary
-    ?? (recAmount !== null && hasAmountMatch
-      ? `Payment recommendation for ${formatMoney(recAmount)} authorized${authorizedBy ? ` by ${authorizedBy}` : ''}. Matches linked invoice.`
-      : `Payment recommendation for ${formatMoney(recAmount)} has been processed. Review decisions below.`);
+  const anyFlaggedIssue = decisions.some((d) => d.status !== 'passed');
+  const topIssue =
+    decisions.find((d) => d.status === 'mismatch') ??
+    decisions.find((d) => d.status === 'risky') ??
+    decisions.find((d) => d.status === 'missing') ??
+    decisions.find((d) => d.status === 'info');
+
+  const headline = !anyFlaggedIssue
+    ? 'Ready for payment processing'
+    : topIssue
+      ? `Payment recommendation needs review: ${topIssue.title}.`
+      : 'Payment recommendation needs review.';
+
   const nextAction = tasks.length > 0
-    ? 'Resolve open decisions before approving for payment.'
-    : 'Document is consistent. Approve for payment processing.';
+    ? 'Resolve the flagged items below, then approve for payment.'
+    : 'Approve for payment processing.';
 
   const extracted: PaymentRecommendationExtraction = {
     invoiceNumber: invoiceRef ?? undefined,
@@ -968,19 +1258,37 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
 
 // ─── Spreadsheet output builder ───────────────────────────────────────────────
 
-function buildSpreadsheetOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
-  const { documentName, projectName } = params;
+function buildSpreadsheetOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
+  const { documentName, projectName, extractionData } = params;
+
+  const typed = getTypedFields(extractionData);
+  const rowCountRaw = typed.row_count ?? typed.rowCount ?? typed.detected_row_count ?? typed.rows;
+  const rowCount = (() => {
+    if (rowCountRaw == null) return null;
+    const n = parseInt(String(rowCountRaw), 10);
+    return isNaN(n) ? null : n;
+  })();
+
+  const keyColumnsRaw =
+    typed.key_columns ?? typed.keyColumns ?? typed.detected_columns ?? typed.columns;
+  const keyColumns = Array.isArray(keyColumnsRaw)
+    ? keyColumnsRaw.filter((v) => typeof v === 'string')
+    : undefined;
 
   const extracted: SpreadsheetSupportExtraction = {
     fileName: documentName,
     projectCode: projectName ?? undefined,
     parseStatus: 'manual_review_required',
+    rowCount: rowCount ?? undefined,
+    keyColumns,
   };
+
+  const taskId = nextId();
 
   return {
     summary: {
-      headline: `Spreadsheet "${documentName}" found. Structured parsing is not yet available — manual reconciliation required.`,
-      nextAction: 'Review this spreadsheet manually against G703 CLIN line items before approving payment.',
+      headline: `Spreadsheet requires manual CLIN reconciliation`,
+      nextAction: 'Cross-check spreadsheet CLIN line items against G703 CLIN amounts before approving payment.',
     },
     entities: [
       { key: 'file', label: 'File', value: documentName, status: 'neutral' },
@@ -989,17 +1297,26 @@ function buildSpreadsheetOutput(params: BuildIntelligenceParams): DocumentIntell
     ],
     decisions: [
       {
-        id: nextId(), type: 'supporting_backup_missing_or_manual_review', status: 'info',
-        title: 'Spreadsheet support requires manual review',
-        explanation: 'This file type does not yet support automated CLIN reconciliation. A manual review is required before final approval.',
+        id: nextId(),
+        type: 'spreadsheet_manual_clin_reconciliation',
+        status: 'risky',
+        severity: 'high',
+        title: 'Manual CLIN reconciliation required',
+        explanation: 'Automated CLIN reconciliation is not available for this spreadsheet extraction; the operator must reconcile line items manually.',
+        action: 'Reconcile spreadsheet CLIN line items to G703 amounts before approval.',
         confidence: 1,
+        relatedTaskIds: [taskId],
       },
     ],
     tasks: [
       {
-        id: nextId(), title: 'Review spreadsheet support before final approval',
-        priority: 'P2', reason: 'Automated CLIN reconciliation not available for spreadsheet backups.',
-        suggestedOwner: 'Field reviewer', status: 'open', autoCreated: true,
+        id: taskId,
+        title: 'Cross-check spreadsheet CLINs to G703',
+        priority: 'P2',
+        reason: 'Verify each CLIN amount in the spreadsheet matches the G703 CLIN totals before submitting for payment approval.',
+        suggestedOwner: 'Field reviewer',
+        status: 'open',
+        autoCreated: true,
       },
     ],
     suggestedQuestions: getDefaultQuestions('spreadsheet'),
@@ -1009,7 +1326,7 @@ function buildSpreadsheetOutput(params: BuildIntelligenceParams): DocumentIntell
 
 // ─── Fallback output builder ──────────────────────────────────────────────────
 
-function buildGenericOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildGenericOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { documentType, documentTitle, documentName, extractionData } = params;
   const ai = getAiEnrichment(extractionData);
   const aiSummary = ai.summary_sentence as string | null;
@@ -1083,7 +1400,7 @@ function parseGPS(raw: unknown): { lat: number; lng: number } | null {
 
 // ─── Williamson: Disposal Checklist builder ───────────────────────────────────
 
-function buildDisposalChecklistOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildDisposalChecklistOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
@@ -1289,7 +1606,7 @@ function buildDisposalChecklistOutput(params: BuildIntelligenceParams): Document
 
 // ─── Williamson: TDEC Permit builder ─────────────────────────────────────────
 
-function buildPermitOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildPermitOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
@@ -1470,7 +1787,7 @@ function buildPermitOutput(params: BuildIntelligenceParams): DocumentIntelligenc
 
 // ─── Williamson: Project Contract builder ────────────────────────────────────
 
-function buildWilliamsonContractOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildWilliamsonContractOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
@@ -1637,10 +1954,9 @@ function buildWilliamsonContractOutput(params: BuildIntelligenceParams): Documen
 
 // ─── Williamson: Debris Ticket builder ───────────────────────────────────────
 
-function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
-  const ai = getAiEnrichment(extractionData);
   const text = getTextPreview(extractionData);
 
   // Grounded in real tickets: #500016-2661-32294 (truck 500016, 102 CY cap, 56 CY load,
@@ -1684,112 +2000,201 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
   const tasks: TriggeredWorkflowTask[] = [];
   const comparisons: ComparisonResult[] = [];
 
-  // 1. Dumpsite approval
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
+    const taskId = nextId();
+    tasks.push({
+      id: taskId,
+      status: 'open',
+      autoCreated: true,
+      ...t,
+    });
+    return taskId;
+  };
+
+  // 1) Dumpsite approval (TDEC permit)
   if (permitDoc) {
     const permitTyped = getTypedFields(permitDoc.extraction);
     const permitSite = (permitTyped.site_name as string | null);
     const permitMaterials = (permitTyped.approved_materials as string | null);
-    const permitExpiry = (permitTyped.expiration_date as string | null);
     const siteApproved = siteNamesMatch(dumpsite, permitSite);
     const matApproved = materialsCompatible(materialType, permitMaterials);
 
-    if (siteApproved && matApproved) {
-      decisions.push({
-        id: nextId(), type: 'dumpsite_approved', status: 'passed',
-        title: 'Dumpsite approved under TDEC permit',
-        explanation: `Dumpsite "${dumpsite ?? '—'}" matches permitted site "${permitSite ?? '—'}". Material "${materialType ?? '—'}" is compatible with permit approval.${permitExpiry ? ` Permit expires ${permitExpiry}.` : ''}`,
-        confidence: 0.95,
-      });
-    } else if (!siteApproved) {
-      decisions.push({
-        id: nextId(), type: 'dumpsite_approved', status: 'risky',
-        title: 'Dumpsite not confirmed against permit',
-        explanation: `Ticket dumpsite "${dumpsite ?? '—'}" could not be confirmed as approved under the permit for "${permitSite ?? '—'}". Verify disposal site is TDEC-permitted.`,
-        confidence: 0.85,
-      });
-      tasks.push({
-        id: nextId(), title: 'Verify ticket dumpsite matches TDEC permit',
+    comparisons.push({
+      id: nextId(),
+      check: 'Ticket dumpsite vs TDEC permit',
+      status: siteApproved ? 'match' : !permitSite ? 'missing' : 'warning',
+      leftLabel: 'Ticket dumpsite',
+      leftValue: dumpsite ?? null,
+      rightLabel: 'Permit site',
+      rightValue: permitSite ?? null,
+      explanation: siteApproved
+        ? 'Dumpsite matches the permit site.'
+        : 'Dumpsite does not clearly match the permit site; verify the approved disposal location.',
+    });
+
+    if (!siteApproved) {
+      const taskId = createTask({
+        title: 'Verify ticket dumpsite matches TDEC permit',
         priority: 'P1',
         reason: `Ticket dumpsite: "${dumpsite ?? '—'}" · Permit site: "${permitSite ?? '—'}".`,
-        suggestedOwner: 'Environmental monitor', status: 'open', autoCreated: true,
+        suggestedOwner: 'Environmental monitor',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'dumpsite_approved',
+        status: 'risky',
+        severity: 'high',
+        title: 'Dumpsite not confirmed against permit',
+        explanation: 'Dumpsite could not be confirmed as approved under the attached TDEC permit.',
+        action: 'Confirm the approved dumpsite used for this ticket.',
+        confidence: 0.85,
+        relatedTaskIds: [taskId],
       });
     } else if (!matApproved) {
-      decisions.push({
-        id: nextId(), type: 'dumpsite_approved', status: 'risky',
-        title: 'Material may not be permitted at dumpsite',
-        explanation: `Ticket material "${materialType ?? '—'}" may not be covered by the permit approval for "${permitMaterials ?? '—'}".`,
-        confidence: 0.82,
-      });
-      tasks.push({
-        id: nextId(), title: 'Verify material type is permitted at dumpsite',
+      const taskId = createTask({
+        title: 'Verify ticket material is permitted at dumpsite',
         priority: 'P1',
         reason: `Permit approves "${permitMaterials ?? '—'}"; ticket shows "${materialType ?? '—'}".`,
-        suggestedOwner: 'Environmental monitor', status: 'open', autoCreated: true,
+        suggestedOwner: 'Environmental monitor',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'dumpsite_approved',
+        status: 'risky',
+        severity: 'high',
+        title: 'Material may not be permitted at dumpsite',
+        explanation: 'Ticket material may fall outside the approved material categories for the permit.',
+        action: 'Confirm the ticket material category is covered by the TDEC permit.',
+        confidence: 0.82,
+        relatedTaskIds: [taskId],
       });
     }
-
-    comparisons.push({
-      id: nextId(), check: 'Ticket dumpsite vs TDEC permit',
-      status: siteApproved ? 'match' : !permitSite ? 'missing' : 'warning',
-      leftLabel: 'Ticket dumpsite', leftValue: dumpsite ?? null,
-      rightLabel: 'Permit site', rightValue: permitSite ?? null,
-      explanation: siteApproved
-        ? 'Dumpsite is consistent with the TDEC-permitted site.'
-        : 'Dumpsite name does not clearly match permit site. Manual verification required.',
-    });
   } else {
+    const taskId = createTask({
+      title: 'Upload TDEC permit for dumpsite validation',
+      priority: 'P1',
+      reason: 'No TDEC permit is available in this project, so dumpsite/material validation cannot run.',
+      suggestedOwner: 'Project manager',
+    });
     decisions.push({
-      id: nextId(), type: 'dumpsite_approved', status: 'missing',
-      title: 'No TDEC permit found to validate dumpsite',
-      explanation: 'Upload the TDEC permit to verify this ticket\'s dumpsite is approved for debris disposal.',
+      id: nextId(),
+      type: 'dumpsite_approved',
+      status: 'missing',
+      severity: 'high',
+      title: 'Missing TDEC permit for dumpsite validation',
+      explanation: 'A permit is required to validate this ticket’s dumpsite and approved materials.',
+      action: 'Attach the relevant TDEC permit for this disposal site.',
       confidence: 1,
+      relatedTaskIds: [taskId],
     });
   }
 
-  // 2. Load vs truck capacity
+  // 2) Load vs truck capacity (quantity support)
   if (loadCY !== null && truckCapacity !== null) {
     const overload = loadCY > truckCapacity * 1.05; // 5% tolerance
-    decisions.push({
-      id: nextId(), type: 'load_capacity_check', status: overload ? 'risky' : 'passed',
-      title: overload ? 'Load exceeds truck capacity' : 'Load within truck capacity',
-      explanation: overload
-        ? `Recorded load of ${loadCY} CY exceeds truck capacity of ${truckCapacity} CY. Verify measurement.`
-        : `Load of ${loadCY} CY is within the truck's ${truckCapacity} CY capacity.`,
-      confidence: 0.95,
-    });
-    if (overload) {
-      tasks.push({
-        id: nextId(), title: 'Review overload on ticket',
-        priority: 'P2',
-        reason: `Load ${loadCY} CY > capacity ${truckCapacity} CY. Ticket: ${ticketNumber ?? '—'}.`,
-        suggestedOwner: 'Field monitor', status: 'open', autoCreated: true,
-      });
-    }
     comparisons.push({
-      id: nextId(), check: 'Load CY vs truck capacity',
+      id: nextId(),
+      check: 'Load CY vs truck capacity',
       status: overload ? 'warning' : 'match',
-      leftLabel: 'Load (CY)', leftValue: loadCY,
-      rightLabel: 'Truck capacity (CY)', rightValue: truckCapacity,
+      leftLabel: 'Load (CY)',
+      leftValue: loadCY,
+      rightLabel: 'Truck capacity (CY)',
+      rightValue: truckCapacity,
       explanation: overload
         ? `Load exceeds capacity by ${Math.round(loadCY - truckCapacity)} CY.`
         : 'Load is within approved truck capacity.',
     });
+
+    if (overload) {
+      const taskId = createTask({
+        title: 'Confirm ticket quantity support (overload check)',
+        priority: 'P2',
+        reason: `Load ${loadCY} CY > capacity ${truckCapacity} CY (ticket ${ticketNumber ?? '—'}).`,
+        suggestedOwner: 'Field monitor',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'load_capacity_check',
+        status: 'risky',
+        severity: 'high',
+        title: 'Load exceeds truck capacity',
+        explanation: `Recorded load exceeds truck capacity by ${Math.round(loadCY - truckCapacity)} CY.`,
+        action: 'Verify measurement and correct/justify the recorded quantity before payment submission.',
+        confidence: 0.95,
+        relatedTaskIds: [taskId],
+      });
+    }
+  } else if (loadCY !== null || truckCapacity !== null) {
+    const taskId = createTask({
+      title: 'Manually verify ticket quantity and truck capacity',
+      priority: 'P2',
+      reason: 'Load quantity and/or truck capacity could not be extracted; confirm the values used for quantity support.',
+      suggestedOwner: 'Project manager',
+    });
+    decisions.push({
+      id: nextId(),
+      type: 'load_capacity_check',
+      status: 'missing',
+      severity: 'medium',
+      title: 'Capacity/quantity validation cannot be completed',
+      explanation: 'Ticket quantity support cannot be validated because load and/or truck capacity are missing from extracted fields.',
+      action: 'Record the load quantity and the corresponding truck capacity used for support.',
+      confidence: 0.75,
+      relatedTaskIds: [taskId],
+    });
   }
 
-  // 3. Contractor vs contract
+  // 3) Contractor consistency (ticket vs linked contract)
   if (contractDoc) {
     const contractTyped = getTypedFields(contractDoc.extraction);
     const contractContractor = (contractTyped.vendor_name as string | null) ??
       (contractTyped.contractor as string | null);
     const match = contractorsMatch(contractorName, contractContractor);
     comparisons.push({
-      id: nextId(), check: 'Ticket contractor vs project contract',
+      id: nextId(),
+      check: 'Ticket contractor vs project contract',
       status: match ? 'match' : !contractContractor ? 'missing' : 'warning',
-      leftLabel: 'Ticket contractor', leftValue: contractorName ?? null,
-      rightLabel: 'Contract contractor', rightValue: contractContractor ?? null,
+      leftLabel: 'Ticket contractor',
+      leftValue: contractorName ?? null,
+      rightLabel: 'Contract contractor',
+      rightValue: contractContractor ?? null,
       explanation: match
-        ? 'Contractor is consistent between ticket and project contract.'
-        : 'Contractor names differ. Verify subcontractor or assignment arrangement.',
+        ? 'Contractor matches across ticket and contract.'
+        : 'Contractor names differ; verify the authorized party for billing.',
+    });
+
+    if (!match && (contractorName || contractContractor)) {
+      const taskId = createTask({
+        title: 'Confirm ticket contractor assignment',
+        priority: 'P2',
+        reason: `Ticket contractor: "${contractorName ?? '—'}" · Contract contractor: "${contractContractor ?? '—'}".`,
+        suggestedOwner: 'Project manager',
+      });
+      decisions.push({
+        id: nextId(),
+        type: 'ticket_contractor_consistency',
+        status: 'risky',
+        severity: 'medium',
+        title: 'Ticket contractor differs from contract',
+        explanation: 'The contractor on this ticket does not match the contractor on the linked contract.',
+        action: 'Confirm subcontractor/assignment and correct billing authorization as needed.',
+        confidence: 0.82,
+        relatedTaskIds: [taskId],
+      });
+    }
+  }
+
+  // If nothing is flagged, mark readiness explicitly.
+  if (decisions.length === 0) {
+    decisions.push({
+      id: nextId(),
+      type: 'ticket_readiness',
+      status: 'passed',
+      severity: 'low',
+      title: 'Ticket ready for payment approval',
+      explanation: 'TDEC dumpsite/material and quantity support checks are consistent; no flagged contractor issues.',
+      action: 'Submit the ticket for payment processing.',
+      confidence: 0.93,
     });
   }
 
@@ -1802,14 +2207,23 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
   if (materialType) entities.push({ key: 'material', label: 'Material', value: materialType, status: 'neutral' });
   if (mileage !== null) entities.push({ key: 'mileage', label: 'Mileage', value: `${mileage} mi`, status: 'neutral' });
 
-  const aiSummary = ai.summary_sentence as string | null;
-  const headline = aiSummary
-    ?? (ticketNumber
-      ? `Debris load ticket ${ticketNumber}. Truck ${truckId ?? '—'}, ${loadCY != null ? `${loadCY} CY` : '— CY'} to ${dumpsite ?? '—'}.`
-      : 'Debris load ticket processed. Review dumpsite approval below.');
-  const nextAction = decisions.some(d => d.status === 'risky')
-    ? 'Resolve dumpsite or capacity issues before submitting this ticket for payment.'
-    : 'Ticket looks valid. Ensure dumpsite permit is on file before final approval.';
+  // ── Summary (operator-grade, issue-first) ────────────────────────────────
+  const anyFlaggedIssue = decisions.some((d) => d.status !== 'passed');
+  const topIssue =
+    decisions.find((d) => d.status === 'mismatch') ??
+    decisions.find((d) => d.status === 'risky') ??
+    decisions.find((d) => d.status === 'missing') ??
+    decisions.find((d) => d.status === 'info');
+
+  const headline = !anyFlaggedIssue
+    ? 'Ticket ready for payment approval'
+    : topIssue
+      ? `Ticket needs review: ${topIssue.title}.`
+      : 'Ticket needs review.';
+
+  const nextAction = tasks.length > 0
+    ? 'Resolve the flagged items below, then submit the ticket for payment.'
+    : 'Submit the ticket for payment processing.';
 
   const extracted: TicketExtraction = {
     ticketId: ticketNumber ?? undefined,
@@ -1837,7 +2251,7 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
 
 // ─── Williamson: Daily Ops builder ───────────────────────────────────────────
 
-function buildDailyOpsOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildDailyOpsOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
@@ -2019,7 +2433,7 @@ function buildDailyOpsOutput(params: BuildIntelligenceParams): DocumentIntellige
 
 // ─── Williamson: Kickoff Checklist builder ────────────────────────────────────
 
-function buildKickoffOutput(params: BuildIntelligenceParams): DocumentIntelligenceOutput {
+function buildKickoffOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
   const { extractionData, relatedDocs, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
@@ -2173,6 +2587,182 @@ function yesNoField(v: unknown): 'yes' | 'no' | 'unknown' {
   return 'unknown';
 }
 
+function limitSentences(text: string, maxSentences = 2): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return cleaned;
+  const sentences = cleaned.split(/(?<=[.!?])\s+/g);
+  return sentences.slice(0, maxSentences).join(' ').trim();
+}
+
+function statusToIssueSeverity(status: IntelligenceStatus): IntelligenceIssue['severity'] {
+  if (status === 'mismatch') return 'critical';
+  if (status === 'risky') return 'high';
+  if (status === 'missing') return 'high';
+  if (status === 'info') return 'medium';
+  return 'low';
+}
+
+function deriveKeyFacts(
+  family: DocumentFamily,
+  core: DocumentIntelligenceCore,
+): IntelligenceKeyFact[] {
+  const allowedKeysByFamily: Partial<Record<DocumentFamily, Set<string>>> = {
+    contract: new Set(['contract_number', 'contractor', 'nte', 'executed_date', 'fema_disaster', 'project']),
+    invoice: new Set(['amount', 'recommendation', 'project', 'contractor', 'invoice_number', 'invoice_date', 'billing_period']),
+    ticket: new Set(['ticket', 'truck', 'load', 'dumpsite', 'material', 'mileage']),
+    payment_recommendation: new Set(['amount', 'invoice_ref', 'contractor', 'authorized_by', 'auth_date']),
+    spreadsheet: new Set(['file', 'project', 'parse_status']),
+  };
+
+  const allowed = allowedKeysByFamily[family];
+  const baseFacts = allowed
+    ? core.entities
+        .filter((e) => allowed.has(e.key))
+        .slice(0, 5)
+        .map((e) => ({
+          id: `kf_${e.key}`,
+          label: e.label,
+          value: String(e.value),
+        }))
+    : [];
+
+  const comparisons = core.comparisons ?? [];
+
+  if (family === 'invoice') {
+    const amountCmp = comparisons.find((c) => c.check === 'Invoice amount vs recommendation');
+    if (amountCmp && amountCmp.status === 'mismatch') {
+      const left = typeof amountCmp.leftValue === 'number' ? amountCmp.leftValue : null;
+      const right = typeof amountCmp.rightValue === 'number' ? amountCmp.rightValue : null;
+      if (left != null && right != null) {
+        const delta = Math.abs(left - right);
+        baseFacts.unshift({
+          id: 'kf_amount_variance',
+          label: 'Amount variance',
+          value: formatMoney(delta),
+        });
+      }
+    }
+
+    const ceilingCmp = comparisons.find((c) => c.check === 'Contract NTE vs G702 contract sum');
+    if (ceilingCmp && ceilingCmp.status === 'mismatch') {
+      const left = typeof ceilingCmp.leftValue === 'number' ? ceilingCmp.leftValue : null;
+      const right = typeof ceilingCmp.rightValue === 'number' ? ceilingCmp.rightValue : null;
+      if (left != null && right != null) {
+        const delta = Math.abs(left - right);
+        baseFacts.unshift({
+          id: 'kf_ceiling_variance',
+          label: 'Ceiling variance',
+          value: formatMoney(delta),
+        });
+      }
+    }
+  }
+
+  if (family === 'payment_recommendation') {
+    const recCmp = comparisons.find((c) => c.check === 'Recommendation amount vs invoice');
+    if (recCmp && recCmp.status === 'mismatch') {
+      const left = typeof recCmp.leftValue === 'number' ? recCmp.leftValue : null;
+      const right = typeof recCmp.rightValue === 'number' ? recCmp.rightValue : null;
+      if (left != null && right != null) {
+        const delta = Math.abs(left - right);
+        baseFacts.unshift({
+          id: 'kf_amount_variance',
+          label: 'Amount variance',
+          value: formatMoney(delta),
+        });
+      }
+    }
+  }
+
+  if (family === 'ticket') {
+    const te = core.extracted as TicketExtraction | undefined;
+    if (te && te.quantityCY != null && te.truckCapacity != null) {
+      const delta = te.quantityCY - te.truckCapacity;
+      baseFacts.unshift({
+        id: 'kf_load_vs_capacity',
+        label: 'Load vs capacity',
+        value: `${te.quantityCY} CY vs ${te.truckCapacity} CY (${delta > 0 ? '+' : ''}${Math.round(delta * 100) / 100} CY)`,
+      });
+    }
+  }
+
+  if (family === 'contract') {
+    const ce = core.extracted as ContractExtraction | undefined;
+    if (ce?.rateSchedulePresent !== undefined) {
+      baseFacts.unshift({
+        id: 'kf_rate_schedule',
+        label: 'Rate schedule',
+        value: ce.rateSchedulePresent ? 'Present' : 'Missing',
+      });
+    }
+    if (ce?.tipFee != null) {
+      baseFacts.unshift({
+        id: 'kf_tip_fee',
+        label: 'Tip fee',
+        value: formatMoney(ce.tipFee),
+      });
+    }
+  }
+
+  if (family === 'spreadsheet') {
+    const se = core.extracted as SpreadsheetSupportExtraction | undefined;
+    if (se?.rowCount != null) {
+      baseFacts.unshift({
+        id: 'kf_row_count',
+        label: 'Row count',
+        value: String(se.rowCount),
+      });
+    }
+  }
+
+  return baseFacts.slice(0, 6);
+}
+
+function deriveIssues(
+  _family: DocumentFamily,
+  core: DocumentIntelligenceCore,
+): IntelligenceIssue[] {
+  const tasksById = new Map(core.tasks.map((t) => [t.id, t]));
+  return core.decisions
+    .filter((d) => d.status !== 'passed')
+    .map((d) => {
+      const relatedTasks = (d.relatedTaskIds ?? [])
+        .map((tid) => tasksById.get(tid))
+        .filter(Boolean);
+      const action = d.action ?? relatedTasks[0]?.title ?? `Resolve: ${d.title}`;
+      return {
+        id: d.id,
+        title: d.title,
+        severity: d.severity ?? statusToIssueSeverity(d.status),
+        summary: d.explanation,
+        action,
+      };
+    });
+}
+
+function finalizeDocumentIntelligence(
+  family: DocumentFamily,
+  classification: DocumentIntelligenceOutput['classification'],
+  core: DocumentIntelligenceCore,
+): DocumentIntelligenceOutput {
+  const keyFacts = deriveKeyFacts(family, core);
+  const issues = deriveIssues(family, core);
+
+  const headline = limitSentences(core.summary.headline, 1);
+  const nextAction = core.summary.nextAction ? limitSentences(core.summary.nextAction, 1) : '';
+
+  return {
+    ...core,
+    classification,
+    keyFacts,
+    issues,
+    summary: {
+      headline,
+      nextAction,
+    },
+  };
+}
+
 // ─── Main exported function ───────────────────────────────────────────────────
 
 export function buildDocumentIntelligence(
@@ -2183,7 +2773,13 @@ export function buildDocumentIntelligence(
   const titleLower = (params.documentTitle ?? '').toLowerCase();
 
   // ── EMERG03 finance family ──────────────────────────────────────────────────
-  if (dt === 'invoice') return buildInvoiceOutput(params);
+  if (dt === 'invoice') {
+    return finalizeDocumentIntelligence(
+      'invoice',
+      { family: 'invoice', label: 'Invoice', confidence: 0.95 },
+      buildInvoiceOutput(params),
+    );
+  }
   if (dt === 'contract') {
     // Disambiguate: Williamson project contract vs EMERG03 finance contract
     // Williamson contract mentions Aftermath / Williamson County
@@ -2191,10 +2787,26 @@ export function buildDocumentIntelligence(
     const isWilliamson = text.toLowerCase().includes('aftermath') ||
       text.toLowerCase().includes('williamson county') ||
       nameLower.includes('williamson');
-    if (isWilliamson) return buildWilliamsonContractOutput(params);
-    return buildContractOutput(params);
+    if (isWilliamson) {
+      return finalizeDocumentIntelligence(
+        'operational',
+        { family: 'operational', label: 'Operational contract', confidence: 0.6 },
+        buildWilliamsonContractOutput(params),
+      );
+    }
+    return finalizeDocumentIntelligence(
+      'contract',
+      { family: 'contract', label: 'Contract / Rate doc', confidence: 0.95 },
+      buildContractOutput(params),
+    );
   }
-  if (dt === 'payment_rec') return buildPaymentRecOutput(params);
+  if (dt === 'payment_rec') {
+    return finalizeDocumentIntelligence(
+      'payment_recommendation',
+      { family: 'payment_recommendation', label: 'Payment recommendation', confidence: 0.95 },
+      buildPaymentRecOutput(params),
+    );
+  }
 
   // Name/title-based detection for finance family
   if (
@@ -2202,49 +2814,85 @@ export function buildDocumentIntelligence(
     nameLower.includes('pay rec') || titleLower.includes('payment rec') ||
     nameLower.includes('_rec') || nameLower.startsWith('rec ')
   ) {
-    return buildPaymentRecOutput(params);
+    return finalizeDocumentIntelligence(
+      'payment_recommendation',
+      { family: 'payment_recommendation', label: 'Payment recommendation', confidence: 0.7 },
+      buildPaymentRecOutput(params),
+    );
   }
   if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || dt === 'spreadsheet') {
-    return buildSpreadsheetOutput(params);
+    return finalizeDocumentIntelligence(
+      'spreadsheet',
+      { family: 'spreadsheet', label: 'Spreadsheet (manual review)', confidence: 0.9 },
+      buildSpreadsheetOutput(params),
+    );
   }
 
   // ── Williamson ops family ──────────────────────────────────────────────────
   if (dt === 'permit' || nameLower.includes('tdec') || nameLower.includes('permit')) {
-    return buildPermitOutput(params);
+    return finalizeDocumentIntelligence(
+      'operational',
+      { family: 'operational', label: 'Permit / compliance doc', confidence: 0.6 },
+      buildPermitOutput(params),
+    );
   }
   if (
     dt === 'disposal_checklist' || dt === 'dms_checklist' ||
     nameLower.includes('checklist') || nameLower.includes('dms') ||
     nameLower.includes('disposal') || titleLower.includes('disposal')
   ) {
-    return buildDisposalChecklistOutput(params);
+    return finalizeDocumentIntelligence(
+      'operational',
+      { family: 'operational', label: 'Disposal checklist', confidence: 0.6 },
+      buildDisposalChecklistOutput(params),
+    );
   }
   if (
     dt === 'kickoff' || dt === 'kickoff_checklist' ||
     nameLower.includes('kickoff') || nameLower.includes('kick off') ||
     titleLower.includes('kickoff')
   ) {
-    return buildKickoffOutput(params);
+    return finalizeDocumentIntelligence(
+      'operational',
+      { family: 'operational', label: 'Kickoff checklist', confidence: 0.6 },
+      buildKickoffOutput(params),
+    );
   }
   if (
     dt === 'ticket' || dt === 'debris_ticket' ||
     nameLower.includes('ticket') || titleLower.includes('ticket')
   ) {
-    return buildTicketOutput(params);
+    return finalizeDocumentIntelligence(
+      'ticket',
+      { family: 'ticket', label: 'Ticket / export', confidence: 0.85 },
+      buildTicketOutput(params),
+    );
   }
   if (
     dt === 'daily_ops' || dt === 'ops_report' ||
     nameLower.includes('daily ops') || nameLower.includes('daily_ops') ||
     titleLower.includes('daily ops') || nameLower.includes('operations report')
   ) {
-    return buildDailyOpsOutput(params);
+    return finalizeDocumentIntelligence(
+      'operational',
+      { family: 'operational', label: 'Daily ops report', confidence: 0.6 },
+      buildDailyOpsOutput(params),
+    );
   }
   if (
     dt === 'williamson_contract' ||
     nameLower.includes('aftermath') || nameLower.includes('williamson')
   ) {
-    return buildWilliamsonContractOutput(params);
+    return finalizeDocumentIntelligence(
+      'operational',
+      { family: 'operational', label: 'Operational contract', confidence: 0.6 },
+      buildWilliamsonContractOutput(params),
+    );
   }
 
-  return buildGenericOutput(params);
+  return finalizeDocumentIntelligence(
+    'generic',
+    { family: 'generic', label: 'Document', confidence: 0.5 },
+    buildGenericOutput(params),
+  );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -10,6 +10,7 @@ import { useOrgMembers } from '@/lib/useOrgMembers';
 import { formatDueDate } from '@/lib/dateUtils';
 import { isTaskOverdue, OverdueBadge, TASK_OPEN_STATUSES } from '@/lib/overdue';
 import { AGING_BUCKETS, ageBucketKey, type AgingBucketKey } from '@/lib/aging';
+import { filterCurrentQueueRecords, isHistoryStatusFilter } from '@/lib/currentWork';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ type WorkflowTaskRow = {
   completed_at: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
+  source_metadata?: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
   assignee: AssigneeRef | AssigneeRef[];
   documents?: DocumentRef | DocumentRef[];
 };
@@ -40,24 +43,6 @@ type WorkflowTaskRow = {
 
 const STATUS_OPTIONS = ['open', 'in_progress', 'blocked', 'resolved', 'cancelled'] as const;
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'critical'] as const;
-
-// ─── Badges ───────────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    open: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    in_progress: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
-    blocked: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    resolved: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    cancelled: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-  };
-  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
-  return (
-    <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
-      {status.replace(/_/g, ' ')}
-    </span>
-  );
-}
 
 function PriorityBadge({ priority }: { priority: string }) {
   const map: Record<string, string> = {
@@ -125,24 +110,31 @@ export default function WorkflowsPage() {
   const [filterAge, setFilterAge] = useState<string>(searchParams.get('age') ?? '');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateErrorId, setUpdateErrorId] = useState<string | null>(null);
+  const includeHistory =
+    searchParams.get('history') === '1' ||
+    isHistoryStatusFilter(filterStatus, TASK_OPEN_STATUSES);
 
-  const fetchTasks = async (orgId: string) => {
+  const fetchTasks = useCallback(async (orgId: string) => {
     setLoading(true);
     setListError(null);
-    const { data, error } = await supabase
+    let query = supabase
       .from('workflow_tasks')
-      .select('id, decision_id, document_id, task_type, title, description, priority, status, source, created_at, updated_at, due_at, completed_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
+      .select('id, decision_id, document_id, task_type, title, description, priority, status, source, source_metadata, details, created_at, updated_at, due_at, completed_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
       .eq('organization_id', orgId)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false });
+    if (filterStatus) query = query.eq('status', filterStatus);
+    else query = query.in('status', [...TASK_OPEN_STATUSES]);
+    const { data, error } = await query;
     if (error) {
       setListError('Failed to load workflow tasks.');
       setTasks([]);
     } else {
-      setTasks(data as WorkflowTaskRow[]);
+      const rows = (data as WorkflowTaskRow[]) ?? [];
+      setTasks(includeHistory ? rows : filterCurrentQueueRecords(rows));
     }
     setLoading(false);
-  };
+  }, [filterStatus, includeHistory]);
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
@@ -150,7 +142,7 @@ export default function WorkflowsPage() {
       return;
     }
     fetchTasks(organizationId);
-  }, [organizationId, orgLoading]);
+  }, [fetchTasks, organizationId, orgLoading]);
 
   const filteredTasks = useMemo(() => {
     let list = tasks;
@@ -238,7 +230,7 @@ export default function WorkflowsPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
-            <option value="">All</option>
+            <option value="">Current</option>
             {STATUS_OPTIONS.map((s) => (
               <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
             ))}

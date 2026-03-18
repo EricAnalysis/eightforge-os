@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { filterCurrentQueueRecords } from '@/lib/currentWork';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ type ReviewQueueItem = {
   decision_type: string;
   created_at: string;
   document_id: string | null;
+  details?: Record<string, unknown> | null;
 };
 
 type FeedbackRow = {
@@ -103,7 +105,7 @@ export default function ReviewsPage() {
     setReviewQueueError(null);
     const { data, error } = await supabase
       .from('decisions')
-      .select('id, title, severity, decision_type, created_at, document_id')
+      .select('id, title, severity, decision_type, created_at, document_id, details')
       .eq('organization_id', orgId)
       .eq('status', 'in_review')
       .order('created_at', { ascending: false });
@@ -112,7 +114,7 @@ export default function ReviewsPage() {
       setReviewQueueError('Failed to load review queue.');
       setReviewQueue([]);
     } else {
-      setReviewQueue(data as ReviewQueueItem[]);
+      setReviewQueue(filterCurrentQueueRecords((data as ReviewQueueItem[]) ?? []));
     }
     setReviewQueueLoading(false);
   };

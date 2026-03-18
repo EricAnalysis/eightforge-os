@@ -21,6 +21,7 @@ import { evaluateDocument } from '@/lib/server/ruleEngine';
 import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -106,7 +107,7 @@ export async function processDocument(params: {
     };
 
     // ── 4. Extract text and fields ───────────────────────────────────────────
-    let payload = (await extractDocument(
+    const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
@@ -161,6 +162,52 @@ export async function processDocument(params: {
 
     // ── 7. Mark extracted — extraction is complete, decisioning starts next ──
     await setDocumentStatus({ documentId: params.documentId, status: 'extracted' });
+
+    const canonicalResult = await generateAndPersistCanonicalIntelligence({
+      admin,
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
+    });
+
+    if (canonicalResult.handled) {
+      try {
+        await logActivityEvent({
+          organization_id: params.organizationId,
+          entity_type: 'decision',
+          entity_id: params.documentId,
+          event_type: 'created',
+          changed_by: null,
+          new_value: {
+            action: 'pipeline_processing_canonical_intelligence',
+            family: canonicalResult.family,
+            decisions_created: canonicalResult.decisions_created,
+            decisions_updated: canonicalResult.decisions_updated,
+            decisions_preserved: canonicalResult.decisions_preserved,
+            tasks_created: canonicalResult.tasks_created,
+            tasks_updated: canonicalResult.tasks_updated,
+            tasks_preserved: canonicalResult.tasks_preserved,
+          },
+        });
+      } catch {
+        // Activity logging is best-effort â€” never fail the pipeline
+      }
+
+      await updateJobStatus({
+        jobId: job.id,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        resultExtractionId: inserted?.id ?? null,
+      });
+      await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+
+      return {
+        success: true,
+        extraction: inserted,
+        jobId: job.id,
+        processing_status: 'decisioned',
+      };
+    }
 
     // ── 8. Run deterministic rule engine (if domain + document_type are set) ─
     const domain = (docRow.domain as string | null) ?? null;

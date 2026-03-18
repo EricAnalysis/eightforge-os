@@ -1,13 +1,9 @@
 'use client';
 
 // components/document-intelligence/ReviewSection.tsx
-// Human validation chip.
-//
-// TODO (persistence): Add `review_status varchar` and `reviewed_by uuid` and `reviewed_at timestamptz`
-// columns to the `documents` table (migration), then replace the local state below with a
-// Supabase PATCH to /api/documents/[id] or a direct upsert. The UI shape is final.
+// Human validation chip (persisted per document + org).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 type ReviewStatus = 'not_reviewed' | 'in_review' | 'approved' | 'needs_correction';
@@ -29,26 +25,47 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
   const [updatedAt, setUpdatedAt]   = useState<Date | null>(null);
   const [saving, setSaving]         = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        const res = await fetch(`/api/documents/${documentId}/review`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+
+        const body = await res.json().catch(() => null) as
+          | { status?: ReviewStatus; reviewed_at?: string | null }
+          | null;
+        if (!body || cancelled) return;
+
+        if (body.status) setStatus(body.status);
+        if (body.reviewed_at) setUpdatedAt(new Date(body.reviewed_at));
+      } catch {
+        // Non-fatal: keep default UI state.
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, orgId]);
+
   const update = async (next: ReviewStatus) => {
     setSaving(true);
     try {
-      // Attempt to persist via decision_feedback as a document-level marker.
-      // This is a lightweight bridge until a dedicated review_status column is added.
-      // A `is_correct: true` feedback row with feedback_type = 'document_review' acts as the record.
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
-        await fetch(`/api/decisions/${documentId}/feedback`, {
+        await fetch(`/api/documents/${documentId}/review`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({
-            is_correct: next === 'approved',
-            feedback_type: 'document_review',
-            notes: next,
-            disposition: next,
-          }),
+          body: JSON.stringify({ status: next }),
         }).catch(() => {
           // Non-fatal — state is still updated locally
         });

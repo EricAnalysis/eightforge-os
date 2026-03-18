@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { formatDueDate } from '@/lib/dateUtils';
@@ -108,6 +109,7 @@ function getStatusSelectCls(status: string): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WorkflowsPage() {
+  const router = useRouter();
   const { organization, userId, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
   const { members } = useOrgMembers(organizationId);
@@ -115,6 +117,7 @@ export default function WorkflowsPage() {
 
   const [tasks, setTasks] = useState<WorkflowTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') ?? '');
   const [filterPriority, setFilterPriority] = useState<string>(searchParams.get('priority') ?? '');
   const [filterAssigned, setFilterAssigned] = useState<string>(searchParams.get('assigned') ?? '');
@@ -125,14 +128,19 @@ export default function WorkflowsPage() {
 
   const fetchTasks = async (orgId: string) => {
     setLoading(true);
+    setListError(null);
     const { data, error } = await supabase
       .from('workflow_tasks')
       .select('id, decision_id, document_id, task_type, title, description, priority, status, source, created_at, updated_at, due_at, completed_at, assigned_to, assigned_at, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
       .eq('organization_id', orgId)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false });
-    if (!error && data) setTasks(data as WorkflowTaskRow[]);
-    else setTasks([]);
+    if (error) {
+      setListError('Failed to load workflow tasks.');
+      setTasks([]);
+    } else {
+      setTasks(data as WorkflowTaskRow[]);
+    }
     setLoading(false);
   };
 
@@ -189,6 +197,7 @@ export default function WorkflowsPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: newStatus }),
       });
+      if (redirectIfUnauthorized(res, router.replace)) return;
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setUpdateErrorId(taskId);
@@ -308,6 +317,12 @@ export default function WorkflowsPage() {
 
       {/* Table */}
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+
+        {listError && (
+          <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+            <p className="text-[11px] font-medium text-red-400">{listError}</p>
+          </div>
+        )}
 
         {/* Scan summary bar — instant health snapshot before reading the table */}
         {!isLoading && filteredTasks.length > 0 && (

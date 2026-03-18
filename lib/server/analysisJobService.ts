@@ -68,7 +68,13 @@ export async function updateJobStatus(params: UpdateJobStatusParams): Promise<vo
   await admin.from('document_analysis_jobs').update(updates).eq('id', params.jobId);
 }
 
-type DocumentStatus = 'uploaded' | 'processing' | 'processed' | 'failed';
+/** Allowed values for documents.processing_status (DB check constraint). */
+export type DocumentStatus =
+  | 'uploaded'
+  | 'processing'
+  | 'extracted'
+  | 'decisioned'
+  | 'failed';
 
 export async function setDocumentStatus(params: {
   documentId: string;
@@ -79,7 +85,7 @@ export async function setDocumentStatus(params: {
 
   await admin
     .from('documents')
-    .update({ status: params.status })
+    .update({ processing_status: params.status })
     .eq('id', params.documentId);
 }
 

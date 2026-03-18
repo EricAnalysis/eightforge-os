@@ -1,8 +1,10 @@
 // app/api/jobs/process/[jobId]/route.ts
 // Processes a single document analysis job: download, extract, optional AI enrich, persist.
+// Auth required: only the organization that owns the job can trigger processing.
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { getActorContext } from '@/lib/server/getActorContext';
 import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
@@ -29,9 +31,15 @@ async function markJobFailed(jobId: string, documentId: string, errorMessage: st
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
+  const actorResult = await getActorContext(req);
+  if (!actorResult.ok) {
+    return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
+  }
+  const { organizationId: actorOrgId } = actorResult.actor;
+
   let jobId: string | null = null;
   let job: Awaited<ReturnType<typeof getJob>> = null;
   try {
@@ -50,6 +58,10 @@ export async function POST(
         { error: 'Job is not in queued state' },
         { status: 409 }
       );
+    }
+
+    if (job.organization_id !== actorOrgId) {
+      return jsonError('Forbidden', 403);
     }
 
     const admin = getSupabaseAdmin();
@@ -138,7 +150,11 @@ export async function POST(
 
     const { data: inserted, error: insertError } = await admin
       .from('document_extractions')
-      .insert({ document_id: job.document_id, data: payload })
+      .insert({
+        document_id: job.document_id,
+        organization_id: job.organization_id,
+        data: payload,
+      })
       .select('id, data, created_at')
       .single();
 
@@ -211,7 +227,7 @@ export async function POST(
       completedAt: new Date().toISOString(),
       resultExtractionId: inserted?.id ?? null,
     });
-    await setDocumentStatus({ documentId: job.document_id, status: 'processed' });
+    await setDocumentStatus({ documentId: job.document_id, status: 'decisioned' });
 
     return NextResponse.json({
       success: true,

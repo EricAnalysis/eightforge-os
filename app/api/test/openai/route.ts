@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getActorContext } from "@/lib/server/getActorContext";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,10 @@ function getKeyDiagnostics(key: string) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const ctx = await getActorContext(req);
+  if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+
   const key = process.env.OPENAI_API_KEY;
 
   // Stage 1: env check

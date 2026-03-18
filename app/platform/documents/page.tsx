@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,7 +13,7 @@ type DocRow = {
   title: string | null;
   name: string;
   document_type: string | null;
-  status: string;
+  processing_status: string;
   created_at: string;
 };
 
@@ -22,8 +23,6 @@ type ProjectOption = {
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const BUCKET = 'documents';
 
 const DOC_TYPES = [
   'contract',
@@ -39,10 +38,11 @@ const DOC_TYPES = [
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded:   'bg-[#1A1A3E] text-[#8B94A3]',
-    processing: 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
-    processed:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    failed:     'bg-red-500/20 text-red-400 border border-red-500/40',
+    uploaded:    'bg-[#1A1A3E] text-[#8B94A3]',
+    processing:  'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
+    extracted:   'bg-sky-500/20 text-sky-400 border border-sky-500/40',
+    decisioned:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    failed:      'bg-red-500/20 text-red-400 border border-red-500/40',
   };
   const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3]';
   return (
@@ -55,19 +55,22 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Upload modal ─────────────────────────────────────────────────────────────
 
 function UploadModal({
-  organizationId,
+  orgId,
   onClose,
   onUploaded,
+  onUnauthorized,
 }: {
-  organizationId: string;
+  orgId: string;
   onClose: () => void;
   onUploaded: (params: {
     doc: DocRow;
     analyzePromise: Promise<Response>;
   }) => void;
+  onUnauthorized?: () => void;
 }) {
   const [title, setTitle]               = useState('');
   const [documentType, setDocumentType] = useState('');
+  const [domain, setDomain]             = useState('');
   const [projectId, setProjectId]       = useState('');
   const [file, setFile]                 = useState<File | null>(null);
   const [projects, setProjects]         = useState<ProjectOption[]>([]);
@@ -79,13 +82,13 @@ function UploadModal({
     supabase
       .from('projects')
       .select('id, name')
-      .eq('organization_id', organizationId)
+      .eq('organization_id', orgId)
       .eq('status', 'active')
       .order('name')
       .then(({ data }) => {
         if (data) setProjects(data as ProjectOption[]);
       });
-  }, [organizationId]);
+  }, [orgId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = e.target.files?.[0] ?? null;
@@ -111,38 +114,42 @@ function UploadModal({
 
     setUploading(true);
     try {
-      const filePath = `${organizationId}/${Date.now()}-${file.name}`;
+      const { data: { session: uploadSession } } = await supabase.auth.getSession();
 
-      const { error: storageError } = await supabase.storage
-        .from(BUCKET)
-        .upload(filePath, file);
+      const form = new FormData();
+      form.append('title', title.trim());
+      form.append('documentType', documentType);
+      form.append('domain', domain.trim());
+      form.append('orgId', orgId);
+      form.append('projectId', projectId);
+      form.append('file', file);
 
-      if (storageError) {
-        setError(`Storage upload failed: ${storageError.message}`);
+      const uploadRes = await fetch('/api/documents/upload', {
+        method: 'POST',
+        headers: uploadSession?.access_token
+          ? { Authorization: `Bearer ${uploadSession.access_token}` }
+          : {},
+        body: form,
+      });
+      if (uploadRes.status === 401) {
+        onUnauthorized?.();
         return;
       }
 
-      const { data: insertedDoc, error: dbError } = await supabase
-        .from('documents')
-        .insert({
-          organization_id: organizationId,
-          project_id:      projectId || null,
-          title:           title.trim(),
-          name:            file.name,
-          storage_path:    filePath,
-          document_type:   documentType || null,
-          status:          'uploaded',
-        })
-        .select('id, title, name, document_type, status, created_at')
-        .single();
-
-      if (dbError || !insertedDoc) {
-        setError(dbError?.message ?? 'Failed to create document record. Please try again.');
+      const uploadJson = await uploadRes.json().catch(() => null);
+      if (!uploadRes.ok || !uploadJson?.ok || !uploadJson?.doc) {
+        const msg =
+          uploadJson?.error?.message ||
+          (typeof uploadJson?.error === 'string' ? uploadJson.error : null) ||
+          `Upload failed (${uploadRes.status})`;
+        setError(msg);
         return;
       }
+
+      const insertedDoc = uploadJson.doc as DocRow;
 
       const { data: { session } } = await supabase.auth.getSession();
-      const newDocId = (insertedDoc as DocRow).id;
+      const newDocId = insertedDoc.id;
 
       const processPromise = fetch('/api/documents/process', {
         method: 'POST',
@@ -153,8 +160,8 @@ function UploadModal({
         body: JSON.stringify({ documentId: newDocId }),
       });
 
-      onUploaded({
-        doc: insertedDoc as DocRow,
+          onUploaded({
+        doc: insertedDoc,
         analyzePromise: processPromise,
       });
     } catch (err) {
@@ -207,6 +214,7 @@ function UploadModal({
               Document Type
             </label>
             <select
+              aria-label="Document Type"
               value={documentType}
               onChange={(e) => setDocumentType(e.target.value)}
               className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
@@ -220,6 +228,21 @@ function UploadModal({
             </select>
           </div>
 
+          {/* Domain — determines which rules fire during processing */}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+              Domain{' '}
+              <span className="font-normal text-[#8B94A3]">(optional — used for rule matching)</span>
+            </label>
+            <input
+              type="text"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="e.g. debris_ops, logistics, finance"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]"
+            />
+          </div>
+
           {/* Project (only shown when projects exist) */}
           {projects.length > 0 && (
             <div>
@@ -228,6 +251,7 @@ function UploadModal({
                 <span className="font-normal text-[#8B94A3]">(optional)</span>
               </label>
               <select
+                aria-label="Project"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
                 className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
@@ -246,10 +270,13 @@ function UploadModal({
               File <span className="text-red-400">*</span>
             </label>
             <input
+              aria-label="File"
               type="file"
+              accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.csv,.xlsx"
               onChange={handleFileChange}
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#1A1A3E] file:px-2 file:py-1 file:text-[10px] file:text-[#F5F7FA] file:cursor-pointer"
+              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:rounded file:border-0 file:bg-[#8B5CFF] file:px-3 file:py-1 file:text-[10px] file:font-medium file:text-white file:cursor-pointer hover:file:bg-[#7A4FE8]"
             />
+            <p className="mt-1 text-[10px] text-[#3a3f5a]">PDF, DOCX, TXT, PNG, JPG, CSV, XLSX</p>
           </div>
 
           {/* Error */}
@@ -286,28 +313,68 @@ export default function DocumentsPage() {
   const router = useRouter();
   const { organization, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
+  const orgId = organizationId;
 
   const [docs, setDocs]           = useState<DocRow[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const [processErrors, setProcessErrors] = useState<Record<string, string>>({});
 
   const loading = orgLoading || docsLoading;
 
+  const reprocessDoc = async (docId: string) => {
+    setProcessingIds((prev) => new Set(prev).add(docId));
+    setProcessErrors((prev) => { const n = { ...prev }; delete n[docId]; return n; });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setProcessErrors((prev) => ({ ...prev, [docId]: 'Auth required' }));
+        return;
+      }
+      const res = await fetch('/api/documents/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ documentId: docId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProcessErrors((prev) => ({ ...prev, [docId]: body?.message ?? 'Failed' }));
+        return;
+      }
+      // Update the row's processing_status optimistically, then refresh
+      const finalStatus = (body?.processing_status as string) ?? 'decisioned';
+      setDocs((prev) => prev.map((d) => d.id === docId ? { ...d, processing_status: finalStatus } : d));
+      if (orgId) fetchDocs(orgId);
+    } catch {
+      setProcessErrors((prev) => ({ ...prev, [docId]: 'Failed' }));
+    } finally {
+      setProcessingIds((prev) => { const n = new Set(prev); n.delete(docId); return n; });
+    }
+  };
+
   const fetchDocs = async (orgId: string) => {
     setDocsLoading(true);
+    setDocsError(null);
     const { data, error } = await supabase
       .from('documents')
-      .select('id, title, name, document_type, status, created_at')
+      .select('id, title, name, document_type, processing_status, created_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false });
-    if (!error && data) setDocs(data as DocRow[]);
+    if (error) {
+      setDocsError('Failed to load documents.');
+      setDocs([]);
+    } else {
+      setDocs(data as DocRow[]);
+    }
     setDocsLoading(false);
   };
 
   useEffect(() => {
-    if (orgLoading || !organizationId) return;
-    fetchDocs(organizationId);
-  }, [organizationId, orgLoading]);
+    if (orgLoading || !orgId) return;
+    fetchDocs(orgId);
+  }, [orgId, orgLoading]);
 
   return (
     <div className="space-y-4">
@@ -336,12 +403,26 @@ export default function DocumentsPage() {
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-3">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Document list</div>
 
-        {loading ? (
+        {docsError ? (
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+            <p className="text-[11px] font-medium text-red-400">{docsError}</p>
+          </div>
+        ) : loading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
         ) : docs.length === 0 ? (
-          <p className="text-[11px] text-[#8B94A3]">
-            No documents yet. Upload a document to get started.
-          </p>
+          <div className="py-6 text-center">
+            <p className="text-[12px] font-medium text-[#F5F7FA]">No documents yet</p>
+            <p className="mt-1 text-[11px] text-[#8B94A3]">
+              Upload a document to begin extracting decisions and generating workflow tasks.
+            </p>
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="mt-4 rounded-md bg-[#8B5CFF] px-4 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+            >
+              Upload your first document
+            </button>
+          </div>
         ) : (
           <table className="w-full border-collapse text-[11px] text-[#8B94A3]">
             <thead className="border-b border-[#1A1A3E] text-left">
@@ -350,7 +431,7 @@ export default function DocumentsPage() {
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Type</th>
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Status</th>
                 <th className="py-2 pr-3 font-medium text-[#F5F7FA]">Created</th>
-                <th className="py-2 font-medium text-[#F5F7FA]"></th>
+                <th className="py-2 font-medium text-[#F5F7FA]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -369,7 +450,7 @@ export default function DocumentsPage() {
                       : <span className="text-[#3a3f5a]">—</span>}
                   </td>
                   <td className="py-2 pr-3">
-                    <StatusBadge status={doc.status} />
+                    <StatusBadge status={doc.processing_status} />
                   </td>
                   <td className="py-2 pr-3">
                     {new Date(doc.created_at).toLocaleString()}
@@ -378,12 +459,30 @@ export default function DocumentsPage() {
                     className="py-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <a
-                      href={`/platform/documents/${doc.id}`}
-                      className="text-[#8B5CFF] hover:underline"
-                    >
-                      View
-                    </a>
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={`/platform/documents/${doc.id}`}
+                        className="text-[#8B5CFF] hover:underline"
+                      >
+                        View
+                      </a>
+                      {(doc.processing_status === 'uploaded' || doc.processing_status === 'failed' || doc.processing_status === 'extracted') && (
+                        processingIds.has(doc.id) ? (
+                          <span className="text-[11px] text-[#8B94A3]">Processing…</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => reprocessDoc(doc.id)}
+                            className="text-[11px] text-[#8B5CFF] hover:underline"
+                          >
+                            {doc.processing_status === 'uploaded' ? 'Process' : 'Reprocess'}
+                          </button>
+                        )
+                      )}
+                      {processErrors[doc.id] && (
+                        <span className="text-[10px] text-red-400" title={processErrors[doc.id]}>!</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -393,21 +492,23 @@ export default function DocumentsPage() {
       </section>
 
       {/* Upload modal */}
-      {modalOpen && organizationId && (
+      {modalOpen && orgId && (
         <UploadModal
-          organizationId={organizationId}
+          orgId={orgId}
           onClose={() => setModalOpen(false)}
+          onUnauthorized={() => router.replace('/login')}
           onUploaded={({ doc, analyzePromise }) => {
             setModalOpen(false);
-            setDocs((prev) => [{ ...doc, status: 'processing' }, ...prev]);
-            if (organizationId) fetchDocs(organizationId);
+            setDocs((prev) => [{ ...doc, processing_status: 'processing' }, ...prev]);
+            fetchDocs(orgId);
 
             analyzePromise
-              .then(() => {
-                if (organizationId) fetchDocs(organizationId);
+              .then((res) => {
+                if (redirectIfUnauthorized(res, router.replace)) return;
+                fetchDocs(orgId);
               })
               .catch(() => {
-                if (organizationId) fetchDocs(organizationId);
+                fetchDocs(orgId);
               });
           }}
         />
@@ -432,26 +533,6 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {/* No-org feedback when user clicks Upload Document but has no organization */}
-      {modalOpen && !organizationId && !orgLoading && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
-        >
-          <div className="w-full max-w-md rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
-            <p className="mb-4 text-sm text-[#F5F7FA]">
-              No organization selected. Please refresh the page or contact your administrator to be assigned to an organization.
-            </p>
-            <button
-              type="button"
-              onClick={() => setModalOpen(false)}
-              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

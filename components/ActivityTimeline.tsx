@@ -61,19 +61,22 @@ export function ActivityTimeline({
   const [events, setEvents] = useState<ActivityEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!organizationId || !entityId) {
       setEvents([]);
       setLoading(false);
+      setError(null);
       return;
     }
     let cancelled = false;
     const isRefresh = events.length > 0;
     if (isRefresh) setRefreshing(true); else setLoading(true);
+    setError(null);
 
     const load = async () => {
-      const { data } = await supabase
+      const { data, error: fetchError } = await supabase
         .from('activity_events')
         .select('id, entity_type, entity_id, event_type, old_value, new_value, changed_by, created_at')
         .eq('organization_id', organizationId)
@@ -81,7 +84,12 @@ export function ActivityTimeline({
         .eq('entity_id', entityId)
         .order('created_at', { ascending: false });
       if (!cancelled) {
-        setEvents((data ?? []) as ActivityEventRow[]);
+        if (fetchError) {
+          setError('Failed to load activity.');
+          setEvents([]);
+        } else {
+          setEvents((data ?? []) as ActivityEventRow[]);
+        }
         setLoading(false);
         setRefreshing(false);
       }
@@ -96,6 +104,15 @@ export function ActivityTimeline({
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">Activity</div>
         <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">Activity</div>
+        <p className="text-[11px] font-medium text-red-400">{error}</p>
       </section>
     );
   }

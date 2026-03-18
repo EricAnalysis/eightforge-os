@@ -2,8 +2,10 @@
 
 import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { useOrgMembers, memberDisplayName } from '@/lib/useOrgMembers';
 import { formatDueDate, dueDateInputValue, dueDateToISO } from '@/lib/dateUtils';
 import { isDecisionOverdue, OverdueBadge } from '@/lib/overdue';
@@ -68,6 +70,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
     high: 'bg-red-500/20 text-red-400 border border-red-500/40',
     medium: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
     low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
@@ -118,6 +121,7 @@ export default function DecisionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { organization, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
 
@@ -207,6 +211,7 @@ export default function DecisionDetailPage({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: newStatus }),
       });
+      if (redirectIfUnauthorized(res, router.replace)) return;
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setUpdateError(true); return; }
 
@@ -245,6 +250,7 @@ export default function DecisionDetailPage({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ assigned_to: assignedTo }),
       });
+      if (redirectIfUnauthorized(res, router.replace)) return;
       if (!res.ok) { setAssignError(true); return; }
 
       const data = await res.json().catch(() => ({}));
@@ -276,6 +282,7 @@ export default function DecisionDetailPage({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ due_at: dueAt }),
       });
+      if (redirectIfUnauthorized(res, router.replace)) return;
       if (!res.ok) { setDueDateError(true); return; }
 
       const data = await res.json().catch(() => ({}));

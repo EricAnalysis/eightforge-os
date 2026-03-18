@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabaseClient';
 type Organization = {
   id: string;
   name: string;
+  slug?: string;
+  created_at?: string;
 };
 
 export function useCurrentOrg() {
@@ -28,7 +30,7 @@ export function useCurrentOrg() {
 
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('organization_id, organizations(id, name)')
+          .select('organization_id, organizations(id, name, slug, created_at)')
           .eq('id', user.id)
           .single();
 

@@ -132,7 +132,7 @@ export default function ReviewsPage() {
       setFeedbackError('Failed to load feedback.');
       setFeedbackList([]);
     } else {
-      setFeedbackList(data as FeedbackRow[]);
+      setFeedbackList(data as unknown as FeedbackRow[]);
     }
     setFeedbackLoading(false);
   };

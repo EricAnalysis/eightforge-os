@@ -1,17 +1,11 @@
 'use client';
 
 // components/document-intelligence/DecisionsSection.tsx
-// Renders the list of generated decisions (status icons + explanation) and
-// workflow tasks triggered from those decisions.
+// Groups decisions by status, sorts by confidence, shows icon + title + explanation + confidence + task count.
 
-import type {
-  GeneratedDecision,
-  TriggeredWorkflowTask,
-  IntelligenceStatus,
-  TaskPriority,
-} from '@/lib/types/documentIntelligence';
+import type { GeneratedDecision, IntelligenceStatus } from '@/lib/types/documentIntelligence';
 
-// ─── Status icon / badge helpers ─────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const STATUS_ICON: Record<IntelligenceStatus, string> = {
   passed:   '✓',
@@ -29,17 +23,23 @@ const STATUS_COLORS: Record<IntelligenceStatus, string> = {
   info:     'text-sky-400 bg-sky-500/10 border-sky-500/20',
 };
 
-const PRIORITY_BADGE: Record<TaskPriority, string> = {
-  P1: 'bg-red-500/20 text-red-400 border-red-500/30',
-  P2: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  P3: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+const STATUS_LABEL: Record<IntelligenceStatus, string> = {
+  mismatch: 'Mismatch',
+  risky:    'Risky',
+  missing:  'Missing',
+  info:     'Info',
+  passed:   'Passed',
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// Show in this order: most severe first, passed last
+const GROUP_ORDER: IntelligenceStatus[] = ['mismatch', 'risky', 'missing', 'info', 'passed'];
+
+// ─── Decision row ─────────────────────────────────────────────────────────────
 
 function DecisionRow({ decision }: { decision: GeneratedDecision }) {
   const colors = STATUS_COLORS[decision.status];
-  const icon = STATUS_ICON[decision.status];
+  const icon   = STATUS_ICON[decision.status];
+  const taskCount = decision.relatedTaskIds?.length ?? 0;
 
   return (
     <div className="flex items-start gap-3 py-3 border-b border-white/5 last:border-0">
@@ -50,7 +50,19 @@ function DecisionRow({ decision }: { decision: GeneratedDecision }) {
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-white">{decision.title}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium text-white">{decision.title}</p>
+          {typeof decision.confidence === 'number' && (
+            <span className="text-[10px] text-[#5B6578]">
+              {Math.round(decision.confidence * 100)}%
+            </span>
+          )}
+          {taskCount > 0 && (
+            <span className="inline-flex items-center rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">
+              {taskCount} task{taskCount > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
         <p className="mt-0.5 text-xs text-[#8B94A3] leading-relaxed">
           {decision.explanation}
         </p>
@@ -59,25 +71,16 @@ function DecisionRow({ decision }: { decision: GeneratedDecision }) {
   );
 }
 
-function TaskRow({ task }: { task: TriggeredWorkflowTask }) {
-  const badgeCls = PRIORITY_BADGE[task.priority];
+// ─── Group header ─────────────────────────────────────────────────────────────
 
+function GroupHeader({ status, count }: { status: IntelligenceStatus; count: number }) {
+  const textColor = STATUS_COLORS[status].split(' ')[0]; // just the text-* class
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-white/5 last:border-0">
-      <span
-        className={`mt-0.5 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold ${badgeCls}`}
-      >
-        {task.priority}
+    <div className="px-5 pt-3 pb-0.5 flex items-center gap-1.5">
+      <span className={`text-[10px] font-semibold uppercase tracking-wider ${textColor}`}>
+        {STATUS_ICON[status]} {STATUS_LABEL[status]}
       </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-white">{task.title}</p>
-        <p className="mt-0.5 text-xs text-[#8B94A3]">
-          {task.reason}
-          {task.suggestedOwner && (
-            <span className="ml-1 text-[#5B6578]">· {task.suggestedOwner}</span>
-          )}
-        </p>
-      </div>
+      <span className="text-[10px] text-[#5B6578]">({count})</span>
     </div>
   );
 }
@@ -86,46 +89,57 @@ function TaskRow({ task }: { task: TriggeredWorkflowTask }) {
 
 interface DecisionsSectionProps {
   decisions: GeneratedDecision[];
-  tasks: TriggeredWorkflowTask[];
 }
 
-export function DecisionsSection({ decisions, tasks }: DecisionsSectionProps) {
-  if (decisions.length === 0 && tasks.length === 0) return null;
+export function DecisionsSection({ decisions }: DecisionsSectionProps) {
+  // Empty state
+  if (decisions.length === 0) {
+    return (
+      <div className="rounded-xl bg-[#0F1117] border border-white/10">
+        <div className="border-b border-white/8 px-5 py-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+            Decisions
+          </h3>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-sm text-[#8B94A3] italic">
+            No issues detected. Document looks complete.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Group and sort: within each group, sort by confidence descending
+  const groups = GROUP_ORDER
+    .map((status) => ({
+      status,
+      items: decisions
+        .filter((d) => d.status === status)
+        .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)),
+    }))
+    .filter(({ items }) => items.length > 0);
 
   return (
-    <div className="space-y-3">
-      {decisions.length > 0 && (
-        <div className="rounded-xl bg-[#0F1117] border border-white/10">
-          <div className="border-b border-white/8 px-5 py-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
-              Decisions
-            </h3>
+    <div className="rounded-xl bg-[#0F1117] border border-white/10">
+      <div className="border-b border-white/8 px-5 py-3 flex items-center gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+          Decisions
+        </h3>
+        <span className="ml-auto text-[10px] text-[#5B6578]">{decisions.length} total</span>
+      </div>
+      <div className="divide-y divide-white/5">
+        {groups.map(({ status, items }) => (
+          <div key={status}>
+            <GroupHeader status={status} count={items.length} />
+            <div className="px-5">
+              {items.map((d) => (
+                <DecisionRow key={d.id} decision={d} />
+              ))}
+            </div>
           </div>
-          <div className="px-5">
-            {decisions.map(d => (
-              <DecisionRow key={d.id} decision={d} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tasks.length > 0 && (
-        <div className="rounded-xl bg-[#0F1117] border border-white/10">
-          <div className="border-b border-white/8 px-5 py-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
-              Action Items
-              <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-400">
-                {tasks.length}
-              </span>
-            </h3>
-          </div>
-          <div className="px-5">
-            {tasks.map(t => (
-              <TaskRow key={t.id} task={t} />
-            ))}
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }

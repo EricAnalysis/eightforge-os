@@ -11,8 +11,17 @@
 // ─── Shared status enums ─────────────────────────────────────────────────────
 
 export type IntelligenceStatus = 'passed' | 'missing' | 'risky' | 'mismatch' | 'info';
+export type DecisionSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type TaskPriority = 'P1' | 'P2' | 'P3';
 export type TaskStatus = 'open' | 'in_progress' | 'resolved' | 'auto_completed';
+export type DocumentFamily =
+  | 'contract'
+  | 'invoice'
+  | 'payment_recommendation'
+  | 'ticket'
+  | 'spreadsheet'
+  | 'operational'
+  | 'generic';
 
 // ─── Core output shapes ───────────────────────────────────────────────────────
 
@@ -20,6 +29,26 @@ export interface DocumentSummary {
   headline: string;
   nextAction: string;
   confidence?: number;
+}
+
+export interface DocumentClassification {
+  family: DocumentFamily;
+  label: string;
+  confidence?: number;
+}
+
+export interface IntelligenceKeyFact {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export interface IntelligenceIssue {
+  id: string;
+  title: string;
+  severity: DecisionSeverity;
+  summary: string;
+  action: string;
 }
 
 export interface DetectedEntity {
@@ -36,6 +65,9 @@ export interface GeneratedDecision {
   status: IntelligenceStatus;
   title: string;
   explanation: string;
+  severity?: DecisionSeverity;
+  action?: string;
+  evidence?: string[];
   confidence?: number;
   relatedTaskIds?: string[];
 }
@@ -65,6 +97,13 @@ export interface ComparisonResult {
 export interface SuggestedQuestion {
   id: string;
   question: string;
+  intent?: 'classification' | 'risk' | 'action' | 'facts' | 'comparison';
+}
+
+export interface GroundedAnswer {
+  status: 'answered' | 'unsupported';
+  answer: string;
+  support: string[];
 }
 
 /** @deprecated use ComparisonResult */
@@ -241,7 +280,10 @@ export interface CorrectionLogExtraction {
 // ─── Top-level output ─────────────────────────────────────────────────────────
 
 export interface DocumentIntelligenceOutput {
+  classification: DocumentClassification;
   summary: DocumentSummary;
+  keyFacts: IntelligenceKeyFact[];
+  issues: IntelligenceIssue[];
   entities: DetectedEntity[];
   decisions: GeneratedDecision[];
   tasks: TriggeredWorkflowTask[];

@@ -14,6 +14,10 @@ import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import { SummaryCard } from '@/components/document-intelligence/SummaryCard';
 import { EntityChips } from '@/components/document-intelligence/EntityChips';
 import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
+import { FlowSection } from '@/components/document-intelligence/FlowSection';
+import { ReviewSection } from '@/components/document-intelligence/ReviewSection';
+import { SignalsSection } from '@/components/document-intelligence/SignalsSection';
+import { AuditSection } from '@/components/document-intelligence/AuditSection';
 import { AskDocumentSection } from '@/components/document-intelligence/AskDocumentSection';
 import { CrossDocChecks } from '@/components/document-intelligence/CrossDocChecks';
 import type { TriggeredWorkflowTask } from '@/lib/types/documentIntelligence';
@@ -528,6 +532,42 @@ export default function DocumentDetailPage({
     }
   };
 
+  // ── Document Intelligence (client-side computation) ────────────────────────
+  // Must be before early returns to satisfy Rules of Hooks.
+
+  const intelligence = useMemo(() => {
+    if (!doc || extractionsLoading) return null;
+    const extractionBlob = (extractions[0] ?? null)?.data ?? null;
+    return buildDocumentIntelligence({
+      documentType: doc.document_type,
+      documentTitle: doc.title,
+      documentName: doc.name,
+      projectName: resolveProject(doc.projects)?.name ?? null,
+      extractionData: extractionBlob as Record<string, unknown> | null,
+      relatedDocs,
+    });
+  }, [doc, extractions, relatedDocs, extractionsLoading]);
+
+  const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
+    if (!intelligence) return [];
+    if (workflowTasks.length > 0) {
+      return workflowTasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        priority:
+          t.priority === 'P1' || t.priority === 'critical' ? 'P1' :
+          t.priority === 'P2' || t.priority === 'high' ? 'P2' : 'P3',
+        reason: t.description ?? t.task_type.replace(/_/g, ' '),
+        status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
+          t.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
+        )
+          ? (t.status as TriggeredWorkflowTask['status'])
+          : 'open',
+      }));
+    }
+    return intelligence.tasks;
+  }, [intelligence, workflowTasks]);
+
   // ── Loading ────────────────────────────────────────────────────────────────
 
   if (loading || orgLoading) {
@@ -582,42 +622,6 @@ export default function DocumentDetailPage({
 
   const latestExtraction = extractions[0] ?? null;
   const keyFacts = latestExtraction ? extractKeyFacts(latestExtraction.data) : [];
-
-  // ── Document Intelligence (client-side computation) ────────────────────────
-  const intelligence = useMemo(() => {
-    if (!doc || extractionsLoading) return null;
-    // Use the latest blob-style extraction row as the primary extraction data
-    const extractionBlob = latestExtraction?.data ?? null;
-    return buildDocumentIntelligence({
-      documentType: doc.document_type,
-      documentTitle: doc.title,
-      documentName: doc.name,
-      projectName: project?.name ?? null,
-      extractionData: extractionBlob as Record<string, unknown> | null,
-      relatedDocs,
-    });
-  }, [doc, latestExtraction, relatedDocs, extractionsLoading, project]);
-
-  // Map saved workflowTasks to TriggeredWorkflowTask shape; fall back to intelligence.tasks
-  const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
-    if (!intelligence) return [];
-    if (workflowTasks.length > 0) {
-      return workflowTasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        priority:
-          t.priority === 'P1' || t.priority === 'critical' ? 'P1' :
-          t.priority === 'P2' || t.priority === 'high' ? 'P2' : 'P3',
-        reason: t.description ?? t.task_type.replace(/_/g, ' '),
-        status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
-          t.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
-        )
-          ? (t.status as TriggeredWorkflowTask['status'])
-          : 'open',
-      }));
-    }
-    return intelligence.tasks;
-  }, [intelligence, workflowTasks]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -691,19 +695,34 @@ export default function DocumentDetailPage({
               <EntityChips entities={intelligence.entities} />
             )}
 
-            {/* 3. Decisions + Tasks (saved tasks preferred over computed) */}
-            <DecisionsSection
-              decisions={intelligence.decisions}
-              tasks={tasksToShow}
-            />
+            {/* 3. Decisions — grouped by status */}
+            <DecisionsSection decisions={intelligence.decisions} />
 
-            {/* 4. Ask this document */}
+            {/* 4. Flow — next actions (DB tasks preferred over computed) */}
+            <FlowSection tasks={tasksToShow} />
+
+            {/* 5. Review — human validation */}
+            <ReviewSection documentId={id} orgId={orgId ?? undefined} />
+
+            {/* 6. Signals — attention flags derived from decisions */}
+            <SignalsSection decisions={intelligence.decisions} />
+
+            {/* 7. Ask this document */}
             <AskDocumentSection questions={intelligence.suggestedQuestions} />
 
-            {/* 5. Cross-doc checks */}
+            {/* 8. Cross-doc checks */}
             {intelligence.comparisons && intelligence.comparisons.length > 0 && (
               <CrossDocChecks comparisons={intelligence.comparisons} />
             )}
+
+            {/* 9. Audit — timeline */}
+            <AuditSection
+              uploadedAt={doc.created_at}
+              processedAt={doc.processed_at}
+              decisionsGeneratedAt={persistentDecisions[0]?.created_at ?? null}
+              tasksCreatedAt={workflowTasks[0]?.created_at ?? null}
+              currentStatus={doc.processing_status}
+            />
 
             {/* 6. Structured extracted data (collapsed) */}
             {intelligence.extracted && Object.keys(intelligence.extracted).length > 0 && (

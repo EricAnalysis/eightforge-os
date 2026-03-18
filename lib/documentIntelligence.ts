@@ -429,41 +429,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     });
   }
 
-  // 2. Project code identified
-  if (projectCode) {
-    decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'passed',
-      title: 'Project code identified',
-      explanation: `Project code "${projectCode}" identified in invoice.`,
-      confidence: 0.9,
-    });
-  } else {
-    decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'missing',
-      title: 'Project code not found',
-      explanation: 'Could not extract a project or contract code from this invoice.',
-      confidence: 0.8,
-    });
-  }
-
-  // 3. Contractor identified
-  if (contractorName) {
-    decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'passed',
-      title: 'Contractor identified',
-      explanation: `Contractor "${contractorName}" identified.`,
-      confidence: 0.9,
-    });
-  } else {
-    decisions.push({
-      id: nextId(), type: 'required_fields_present', status: 'missing',
-      title: 'Contractor not identified',
-      explanation: 'Could not extract contractor name from this invoice.',
-      confidence: 0.8,
-    });
-  }
-
-  // 4. Contract ceiling risk (NTE vs G702 contract sum)
+  // 2. Contract ceiling risk (NTE vs G702 contract sum)
   if (contractDoc && nteAmount !== null && g702Sum !== null) {
     const delta = Math.abs(nteAmount - g702Sum);
     if (delta > 100) {
@@ -532,7 +498,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     });
   }
 
-  // 6. Spreadsheet backup
+  // 5. Spreadsheet backup — only flag when one is present (absence is not a signal by default)
   if (spreadsheetDoc) {
     decisions.push({
       id: nextId(), type: 'supporting_backup_missing_or_manual_review', status: 'info',
@@ -544,13 +510,6 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
       id: nextId(), title: 'Review spreadsheet support before final approval',
       priority: 'P2', reason: 'Automated CLIN reconciliation not available for spreadsheet backups.',
       suggestedOwner: 'Thompson Consulting / Field reviewer', status: 'open', autoCreated: true,
-    });
-  } else {
-    decisions.push({
-      id: nextId(), type: 'supporting_backup_missing_or_manual_review', status: 'missing',
-      title: 'No spreadsheet backup found',
-      explanation: 'No ROW ticket export or backup spreadsheet found in this project.',
-      confidence: 1,
     });
   }
 
@@ -768,6 +727,10 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     ? (text.match(/DR-\d{4}-[A-Z]{2}/i)?.[0] ?? 'DR-4652-NM')
     : null;
 
+  const rateSchedulePresent = detectRateSchedule(text);
+  const timeAndMaterialsPresent = detectTandM(text);
+  const tipFee = detectTipFee(text);
+
   // Related invoices
   const invoiceDocs = relatedDocs.filter(d => d.document_type === 'invoice');
 
@@ -827,6 +790,21 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     });
   }
 
+  if (!rateSchedulePresent) {
+    decisions.push({
+      id: nextId(), type: 'rate_schedule_missing', status: 'risky',
+      title: 'Rate schedule not detected',
+      explanation: 'No rate schedule or Exhibit A found in this document. Verify it is attached before executing.',
+      confidence: 0.85,
+    });
+    tasks.push({
+      id: nextId(), title: 'Confirm Exhibit A / rate schedule is attached',
+      priority: 'P2',
+      reason: 'Rate schedule was not detected in the uploaded contract document.',
+      suggestedOwner: 'Project manager', status: 'open', autoCreated: true,
+    });
+  }
+
   const entities: DetectedEntity[] = [];
   if (contractNumber) entities.push({ key: 'contract_number', label: 'Contract #', value: contractNumber, status: 'neutral' });
   if (vendorName) entities.push({ key: 'contractor', label: 'Contractor', value: vendorName, status: 'neutral' });
@@ -834,10 +812,6 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
   if (contractDate) entities.push({ key: 'executed_date', label: 'Executed', value: formatDate(contractDate), status: 'neutral' });
   if (femaDisaster) entities.push({ key: 'fema_disaster', label: 'FEMA Disaster', value: femaDisaster, status: 'neutral' });
   if (projectName ?? contractNumber) entities.push({ key: 'project', label: 'Project', value: projectName ?? contractNumber ?? '—', status: 'neutral' });
-
-  const rateSchedulePresent = detectRateSchedule(text);
-  const timeAndMaterialsPresent = detectTandM(text);
-  const tipFee = detectTipFee(text);
 
   const aiSummary = ai.summary_sentence as string | null;
   const headline = aiSummary

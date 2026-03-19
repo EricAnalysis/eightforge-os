@@ -1,6 +1,7 @@
 // lib/server/documentExtraction.ts
 // Server-side document extraction: text decoding, PDF text extraction, and fallbacks.
 
+import { join as joinPath } from 'node:path';
 import type {
   TypedExtraction,
   ContractExtraction,
@@ -10,6 +11,11 @@ import type {
   LineItem,
   Finding,
 } from '@/lib/types/extractionSchemas';
+import {
+  buildEvidenceV1,
+  type PageTextEvidence,
+  type EvidenceSourceMethod,
+} from '@/lib/server/documentEvidencePipelineV1';
 
 const TEXT_EXTENSIONS = new Set([
   'txt',
@@ -30,7 +36,7 @@ const TEXT_MIMES = new Set([
   'text/xml',
 ]);
 
-const MAX_PREVIEW_CHARS = 4000;
+const MAX_PREVIEW_CHARS = 12000;
 const MAX_MENTIONS = 15;
 
 // Keyword lists for heuristic field extraction (case-insensitive match)
@@ -55,6 +61,16 @@ const COMPLIANCE_KEYWORDS = [
 
 // Contract patterns
 const VENDOR_NAME_RE = /(?:contractor|vendor|company|firm|consultant)\s*[:=]\s*([A-Z][A-Za-z0-9 &.,'-]{2,60})/gi;
+// Contract party language varies a lot across PDF generators.
+// Keep these deterministic + keyword-scoped (no OCR; no broad “named entity” logic).
+const CONTRACT_PARTY_CAPTURE = `([A-Z][A-Za-z0-9 &.,'-]{2,120})`;
+const CONTRACT_PARTY_PATTERNS = [
+  new RegExp(`entered\\s+into\\s+by\\s+and\\s+between[\\s\\S]{0,250}?and[\\s|,:;()"'\\-]*${CONTRACT_PARTY_CAPTURE}`, 'i'),
+  new RegExp(`by\\s+and\\s+between[\\s\\S]{0,250}?and[\\s|,:;()"'\\-]*${CONTRACT_PARTY_CAPTURE}`, 'i'),
+  new RegExp(`agreement\\s+between[\\s\\S]{0,250}?and[\\s|,:;()"'\\-]*${CONTRACT_PARTY_CAPTURE}`, 'i'),
+  new RegExp(`contract\\s+between[\\s\\S]{0,250}?and[\\s|,:;()"'\\-]*${CONTRACT_PARTY_CAPTURE}`, 'i'),
+];
+const CONTRACTOR_LABEL_RE = /(?:contractor)\s*[:=\-]?\s*([A-Z][A-Za-z0-9 &.,'-]{2,80})/gi;
 const DATE_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/gi;
 const RATE_AMOUNT_RE = /\$\s?([\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|cubic yard|cy|mile|hour|load|each)/gi;
 const INSURANCE_KEYWORDS = ['insurance', 'liability', 'coverage', 'indemnification', 'general liability', 'workers compensation'];
@@ -102,6 +118,7 @@ export type ExtractionPayload = {
     mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'binary_fallback';
     text_preview: string | null;
     detected_document_type: string | null;
+    evidence_v1?: ReturnType<typeof buildEvidenceV1>;
   };
   fields: {
     detected_document_type: string | null;
@@ -115,6 +132,8 @@ export type ExtractionPayload = {
     typed_fields?: TypedExtraction | null;
   };
 };
+
+const MAX_EVIDENCE_PAGES = 200;
 
 function getExtension(fileName: string): string {
   const last = fileName.split('.').pop();
@@ -149,6 +168,38 @@ function decodeTextPreview(bytes: ArrayBuffer): string | null {
 
 function normalizeWhitespace(s: string): string {
   return s.trim().replace(/\s+/g, ' ').trim();
+}
+
+function cloneArrayBuffer(bytes: ArrayBuffer): ArrayBuffer {
+  return bytes.slice(0);
+}
+
+function getLocalTesseractLangPath(): string {
+  return joinPath(
+    process.cwd(),
+    'node_modules',
+    '@tesseract.js-data',
+    'eng',
+    '4.0.0',
+  );
+}
+
+function isMostlyWhitespace(s: string): boolean {
+  // Assumes `s` is already a string; treat empty as weak/whitespace.
+  const trimmed = s.trim();
+  if (!trimmed) return true;
+  // If fewer than ~10% of characters are non-whitespace after trimming, treat as weak.
+  const nonWs = trimmed.replace(/\s/g, '').length;
+  return nonWs / Math.max(1, trimmed.length) < 0.1;
+}
+
+function isWeakExtractedText(text: string | null): boolean {
+  if (text == null) return true;
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (trimmed.length < 500) return true;
+  if (isMostlyWhitespace(trimmed)) return true;
+  return false;
 }
 
 /**
@@ -243,6 +294,36 @@ function firstMatch(text: string, re: RegExp, group = 1): string | null {
   return m?.[group]?.trim() ?? null;
 }
 
+function cleanContractPartyName(value: string | null): string | null {
+  if (!value) return null;
+
+  let cleaned = normalizeWhitespace(value)
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  cleaned = cleaned.replace(/^[,;:()"'`\-]+/, '').trim();
+  cleaned = cleaned
+    .replace(/\s*\(?hereinafter\b[\s\S]*$/i, '')
+    .replace(/\s+THIS\s+CONTRACT\b[\s\S]*$/i, '')
+    .replace(/\s+on\s+this\b[\s\S]*$/i, '')
+    .trim();
+  cleaned = cleaned.replace(/[|,;:()\-"'\s]+$/g, '').trim();
+
+  return cleaned.length >= 3 ? cleaned : null;
+}
+
+function extractContractPartyName(text: string): string | null {
+  for (const pattern of CONTRACT_PARTY_PATTERNS) {
+    const candidate = cleanContractPartyName(firstMatch(text, pattern));
+    if (candidate) return candidate;
+  }
+
+  return cleanContractPartyName(
+    firstMatch(text, CONTRACTOR_LABEL_RE) ?? firstMatch(text, VENDOR_NAME_RE),
+  );
+}
+
 function allMatches(text: string, re: RegExp, group = 1, max = 15): string[] {
   const copy = new RegExp(re.source, re.flags);
   const out: string[] = [];
@@ -275,7 +356,7 @@ function extractContractFields(text: string): ContractExtraction {
   const lower = text.toLowerCase();
 
   // Vendor name
-  const vendor_name = firstMatch(text, VENDOR_NAME_RE);
+  const vendor_name = extractContractPartyName(text);
 
   // Dates
   const dates = allMatches(text, DATE_RE, 1, 10);
@@ -486,7 +567,9 @@ function applyDerivedFields(
  */
 async function extractPdfText(bytes: ArrayBuffer): Promise<string | null> {
   try {
-    const pdf = (await import('pdf-parse')).default as
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const pdf = require('pdf-parse') as
       | ((buffer: Buffer) => Promise<{ text?: string }>)
       | undefined;
     if (typeof pdf !== 'function') return null;
@@ -497,6 +580,200 @@ async function extractPdfText(bytes: ArrayBuffer): Promise<string | null> {
     const text = normalizeWhitespace(raw);
     return text.length > 0 ? text : null;
   } catch {
+    return null;
+  }
+}
+
+async function extractPdfPageTextNative(bytes: ArrayBuffer): Promise<string[] | null> {
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const data = new Uint8Array(bytes);
+    const pdfDoc = await pdfjs.getDocument({ data }).promise;
+    const numPages = Math.min(pdfDoc.numPages, MAX_EVIDENCE_PAGES);
+    const pages: string[] = [];
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const tc = await page.getTextContent();
+      const items = (tc.items ?? []) as Array<{ str?: string; transform?: number[] }>;
+      // Best-effort “line” reconstruction using y-coordinates from transforms.
+      // This keeps the layer deterministic + lightweight without requiring layout OCR.
+      const rows = items
+        .map((it) => ({
+          str: (it.str ?? '').trim(),
+          x: Array.isArray(it.transform) ? (it.transform[4] ?? 0) : 0,
+          y: Array.isArray(it.transform) ? (it.transform[5] ?? 0) : 0,
+        }))
+        .filter((it) => it.str.length > 0);
+
+      rows.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+
+      const lineBuckets: Array<{ y: number; parts: Array<{ x: number; str: string }> }> = [];
+      const Y_TOL = 2; // points
+      for (const r of rows) {
+        const bucket = lineBuckets.find((b) => Math.abs(b.y - r.y) <= Y_TOL);
+        if (bucket) {
+          bucket.parts.push({ x: r.x, str: r.str });
+        } else {
+          lineBuckets.push({ y: r.y, parts: [{ x: r.x, str: r.str }] });
+        }
+      }
+
+      // Re-sort buckets by y (top to bottom), then x inside.
+      lineBuckets.sort((a, b) => b.y - a.y);
+      const lines = lineBuckets.map((b) => {
+        b.parts.sort((p1, p2) => p1.x - p2.x);
+        return b.parts.map((p) => p.str).join(' ').trim();
+      });
+
+      const text = lines.join('\n').trim();
+      pages.push(text);
+    }
+
+    // If everything is empty, treat as null.
+    const totalLen = pages.reduce((sum, t) => sum + (t?.length ?? 0), 0);
+    return totalLen > 0 ? pages : null;
+  } catch (error) {
+    if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
+      console.error('[extractContractTextViaOcr] failed', error);
+    }
+    return null;
+  }
+}
+
+async function extractPdfTextWithOptions(
+  bytes: ArrayBuffer,
+  opts: { maxPages?: number },
+): Promise<string | null> {
+  try {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const pdf = require('pdf-parse') as
+      | ((buffer: Buffer, options?: Record<string, unknown>) => Promise<{ text?: string }>)
+      | undefined;
+    if (typeof pdf !== 'function') return null;
+    const buffer = Buffer.from(bytes);
+    const pdfOpts: Record<string, unknown> = {};
+    if (typeof opts.maxPages === 'number' && opts.maxPages > 0) {
+      // pdf-parse supports `max` (max number of pages).
+      pdfOpts.max = opts.maxPages;
+    }
+    const result = await pdf(buffer, pdfOpts);
+    const raw = result?.text;
+    if (typeof raw !== 'string') return null;
+    const text = normalizeWhitespace(raw);
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Very narrow OCR fallback for contract PDFs:
+ * - Only triggers when PDF text extraction returns effectively empty.
+ * - OCRs a small set of pages (page 1 + pages 8–11) to recover key contract signals.
+ *
+ * This avoids building a general OCR platform while unblocking scanned PDFs
+ * that have no extractable text layer.
+ */
+async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const { createCanvas } = await import('@napi-rs/canvas');
+    const { createWorker } = await import('tesseract.js');
+
+    const data = new Uint8Array(bytes);
+    const pdfDoc = await pdfjs.getDocument({ data }).promise;
+
+    const requestedPages = [1, 8, 9, 10, 11];
+    const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
+    if (pagesToRender.length === 0) return null;
+
+    // Provide local language data to avoid runtime downloads.
+    // Use a runtime filesystem path so Next does not try to bundle-resolve it.
+    const langPath = getLocalTesseractLangPath();
+
+    const worker = await createWorker('eng', undefined, { langPath });
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: 6 });
+
+      const parts: string[] = [];
+      for (const pageNum of pagesToRender) {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+        const ctx = canvas.getContext('2d');
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const pngBuffer = canvas.toBuffer('image/png');
+
+        const result = await worker.recognize(pngBuffer);
+        const text = result?.data?.text;
+        if (typeof text === 'string' && text.trim().length > 0) {
+          parts.push(text);
+        }
+      }
+
+      const combined = normalizeWhitespace(parts.join('\n'));
+      return combined.length > 0 ? combined : null;
+    } finally {
+      await worker.terminate();
+    }
+  } catch (error) {
+    if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
+      console.error('[extractContractTextViaOcr] failed', error);
+    }
+    return null;
+  }
+}
+
+async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTextEvidence[] | null> {
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const { createCanvas } = await import('@napi-rs/canvas');
+    const { createWorker } = await import('tesseract.js');
+
+    const data = new Uint8Array(bytes);
+    const pdfDoc = await pdfjs.getDocument({ data }).promise;
+
+    const requestedPages = [1, 8, 9, 10, 11];
+    const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
+    if (pagesToRender.length === 0) return null;
+
+    const langPath = getLocalTesseractLangPath();
+
+    const worker = await createWorker('eng', undefined, { langPath });
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: 6 });
+      const out: PageTextEvidence[] = [];
+
+      for (const pageNum of pagesToRender) {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+        const ctx = canvas.getContext('2d');
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const pngBuffer = canvas.toBuffer('image/png');
+        const result = await worker.recognize(pngBuffer);
+        const text = result?.data?.text;
+        if (typeof text === 'string' && text.trim().length > 0) {
+          out.push({
+            page_number: pageNum,
+            text: normalizeWhitespace(text),
+            source_method: 'ocr' as EvidenceSourceMethod,
+          });
+        }
+      }
+
+      return out.length > 0 ? out : null;
+    } finally {
+      await worker.terminate();
+    }
+  } catch (error) {
+    if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
+      console.error('[extractContractPageTextViaOcr] failed', error);
+    }
     return null;
   }
 }
@@ -558,23 +835,150 @@ export async function extractDocument(
     if (fullDecoded && fullDecoded.length > 0) {
       applyDerivedFields(payload, fullDecoded);
     }
+
+    const pageText: PageTextEvidence[] = fullDecoded
+      ? [{ page_number: 1, text: fullDecoded, source_method: 'text' as EvidenceSourceMethod }]
+      : [];
+    payload.extraction.evidence_v1 = buildEvidenceV1({
+      pageText,
+      documentTypeHint: payload.fields.detected_document_type ?? null,
+    });
     return payload;
   }
 
   if (isPdf(fileName, mimeType)) {
-    const extractedText = await extractPdfText(fileBytes);
-    const textPreview =
-      extractedText != null && extractedText.length > 0
+    const ocrDebug = process.env.EIGHTFORGE_OCR_DEBUG === '1';
+    const [extractedTextFull, nativePageTexts] = await Promise.all([
+      extractPdfText(cloneArrayBuffer(fileBytes)),
+      extractPdfPageTextNative(cloneArrayBuffer(fileBytes)),
+    ]);
+
+    const contractLike =
+      (metadata.document_type ?? '').toLowerCase().includes('contract') ||
+      fileName.toLowerCase().includes('contract');
+
+    if (ocrDebug) {
+      console.log('[extractDocument][pdf] pdf-parse full', {
+        fileName,
+        contractLike,
+        textLength: extractedTextFull?.length ?? null,
+      });
+    }
+
+    // Always evaluate text quality. If it is too short/weak, run fallback OCR.
+    const fullWeak = isWeakExtractedText(extractedTextFull);
+
+    let extractedText: string | null = null;
+    let extractionMode: 'pdf_text' | 'pdf_fallback' = 'pdf_text';
+    let didAttemptOcr = false;
+    let evidencePageText: PageTextEvidence[] = [];
+
+    if (nativePageTexts && nativePageTexts.length > 0) {
+      evidencePageText = nativePageTexts.map((t, idx) => ({
+        page_number: idx + 1,
+        text: t,
+        source_method: 'pdf_text' as EvidenceSourceMethod,
+      }));
+    }
+
+    if (!fullWeak) {
+      extractedText = extractedTextFull;
+      extractionMode = 'pdf_text';
+    } else if (contractLike) {
+      // First try contract-scoped “partial pages” extraction to reduce OCR load.
+      const extractedTextPartial = await extractPdfTextWithOptions(cloneArrayBuffer(fileBytes), { maxPages: 15 });
+      if (ocrDebug) {
+        console.log('[extractDocument][pdf] pdf-parse partial', {
+          fileName,
+          textLength: extractedTextPartial?.length ?? null,
+        });
+      }
+
+      const partialWeak = isWeakExtractedText(extractedTextPartial);
+      if (!partialWeak && extractedTextPartial != null) {
+        extractedText = extractedTextPartial;
+        // Keep `pdf_fallback` when we only extracted a shallow/limited slice.
+        extractionMode = 'pdf_fallback';
+      } else {
+        // OCR MUST RUN when parsed extraction is null/weak (<500 or whitespace).
+        didAttemptOcr = true;
+        const textLengthForLog = extractedTextPartial?.length ?? extractedTextFull?.length ?? null;
+        if (ocrDebug) {
+          console.log('OCR fallback triggered for contract', { textLength: textLengthForLog });
+        }
+        const extractedTextOcr = await extractContractTextViaOcr(cloneArrayBuffer(fileBytes));
+        const ocrLen = extractedTextOcr?.length ?? 0;
+        if (ocrDebug) {
+          console.log('OCR result length', ocrLen);
+        }
+
+        // Guarantee text_preview is populated when OCR runs.
+        extractedText = extractedTextOcr ?? '';
+        extractionMode = 'pdf_fallback';
+
+        // OCR is page-scoped; persist minimal page evidence (requested pages only).
+        // Note: we don't know which pages had text reliably, so store as “ocr” on page 1.
+        const ocrText = extractedTextOcr ?? '';
+        if (ocrText.trim().length > 0) {
+          evidencePageText = [
+            { page_number: 1, text: ocrText, source_method: 'ocr' as EvidenceSourceMethod },
+          ];
+        }
+      }
+    }
+
+    // If this is contract-like, we may have strong body text but image-only rate pages.
+    // Deterministic targeted OCR: if evidence_v1 does NOT detect a rate section and
+    // the likely attachment pages are nearly empty, OCR only those pages.
+    if (contractLike && !didAttemptOcr) {
+      const preliminary = buildEvidenceV1({
+        pageText: evidencePageText,
+        documentTypeHint: metadata.document_type ?? null,
+      });
+      const signals = (preliminary.section_signals ?? {}) as Record<string, unknown>;
+      const ratePresent = signals.rate_section_present === true || signals.unit_price_structure_present === true;
+
+      const weakAttachmentPages = evidencePageText.filter((p) => p.page_number >= 8 && p.page_number <= 11)
+        .every((p) => (p.text ?? '').trim().length < 40);
+
+      if (!ratePresent && weakAttachmentPages) {
+        didAttemptOcr = true;
+        const ocrPages = await extractContractPageTextViaOcr(cloneArrayBuffer(fileBytes));
+        if (ocrPages && ocrPages.length > 0) {
+          const byPage = new Map<number, PageTextEvidence>();
+          for (const p of evidencePageText) byPage.set(p.page_number, p);
+          for (const p of ocrPages) byPage.set(p.page_number, p);
+          evidencePageText = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
+
+          // Do not change extractionMode; we still have pdf text, but now have OCR evidence for weak pages.
+        }
+      }
+    }
+
+    const textPreview: string | null =
+      extractedText != null
         ? extractedText.length > MAX_PREVIEW_CHARS
           ? extractedText.slice(0, MAX_PREVIEW_CHARS)
           : extractedText
         : null;
 
-    if (textPreview != null && textPreview.length > 0) {
-      const payload = buildBase(metadata, 'pdf_text', textPreview);
+    // If OCR ran, we must not return `text_preview: null` even if OCR was imperfect.
+    if (textPreview != null && (textPreview.length > 0 || didAttemptOcr)) {
+      const payload = buildBase(metadata, extractionMode, textPreview);
       payload.file.mime_type = mimeType ?? 'application/pdf';
       payload.file.size_bytes = size;
       applyDerivedFields(payload, extractedText ?? '');
+      payload.extraction.evidence_v1 = buildEvidenceV1({
+        pageText: evidencePageText.length > 0
+          ? evidencePageText
+          : (textPreview
+            ? [{ page_number: 1, text: textPreview, source_method: extractionMode === 'pdf_text' ? 'pdf_text' : 'ocr' } as PageTextEvidence]
+            : []),
+        documentTypeHint: payload.fields.detected_document_type ?? null,
+      });
+      if (extractionMode === 'pdf_fallback') {
+        payload.summary = 'File received; PDF extraction is not yet deeply parsed server-side.';
+      }
       return payload;
     }
 
@@ -583,6 +987,10 @@ export async function extractDocument(
     payload.file.size_bytes = size;
     payload.summary =
       'File received; PDF extraction is not yet deeply parsed server-side.';
+    payload.extraction.evidence_v1 = buildEvidenceV1({
+      pageText: evidencePageText,
+      documentTypeHint: payload.fields.detected_document_type ?? null,
+    });
     return payload;
   }
 

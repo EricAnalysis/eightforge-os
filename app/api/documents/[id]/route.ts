@@ -126,7 +126,7 @@ export async function GET(
       const relatedIds = deduplicated.map(s => s.id);
       const { data: extractions } = await admin
         .from('document_extractions')
-        .select('document_id, extraction')
+        .select('document_id, data, created_at')
         .in('document_id', relatedIds)
         .is('field_key', null)  // blob rows only
         .order('created_at', { ascending: false });
@@ -137,7 +137,7 @@ export async function GET(
         if (!extractionMap.has(ex.document_id)) {
           extractionMap.set(
             ex.document_id,
-            (ex.extraction as Record<string, unknown>) ?? {},
+            ((ex as { data?: Record<string, unknown> | null }).data ?? {}) as Record<string, unknown>,
           );
         }
       }

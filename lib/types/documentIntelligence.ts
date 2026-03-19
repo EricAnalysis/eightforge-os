@@ -80,6 +80,8 @@ export interface TriggeredWorkflowTask {
   suggestedOwner?: string;
   status: TaskStatus;
   autoCreated?: boolean;
+  /** Stable machine key for dedupe — never use title for identity checks. */
+  dedupeKey?: string;
 }
 
 export interface ComparisonResult {

@@ -373,6 +373,8 @@ export default function DocumentDetailPage({
           .from('document_extractions')
           .select('id, data, created_at')
           .eq('document_id', id)
+          // IMPORTANT: only blob extraction rows; normalized fact rows share the same table.
+          .is('field_key', null)
           .order('created_at', { ascending: false }),
         supabase
           .from('document_decisions')
@@ -573,6 +575,23 @@ export default function DocumentDetailPage({
   const intelligence = useMemo(() => {
     if (!doc || extractionsLoading) return null;
     const extractionBlob = (extractions[0] ?? null)?.data ?? null;
+    if (process.env.NEXT_PUBLIC_EIGHTFORGE_EVIDENCE_DEBUG === '1') {
+      const extraction = (extractionBlob as Record<string, unknown> | null)?.extraction as Record<string, unknown> | null;
+      const hasEvidence = !!(extraction && (extraction as Record<string, unknown>).evidence_v1);
+      const ev = (extraction?.evidence_v1 as Record<string, unknown> | null) ?? null;
+      const signals = (ev?.section_signals as Record<string, unknown> | null) ?? null;
+      // eslint-disable-next-line no-console
+      console.log('[DocumentDetailPage] latest extraction selected', {
+        documentId: id,
+        extractionRowId: (extractions[0] ?? null)?.id ?? null,
+        createdAt: (extractions[0] ?? null)?.created_at ?? null,
+        hasEvidenceV1: hasEvidence,
+        extractionMode: extraction?.mode ?? null,
+        rate_section_present: signals?.rate_section_present ?? null,
+        unit_price_structure_present: signals?.unit_price_structure_present ?? null,
+        rate_section_pages: signals?.rate_section_pages ?? null,
+      });
+    }
     return buildDocumentIntelligence({
       documentType: doc.document_type,
       documentTitle: doc.title,
@@ -629,9 +648,11 @@ export default function DocumentDetailPage({
 
   const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
     if (!intelligence) return [];
-    if (canonicalPersistenceSupported && !canonicalPersistedBundleReady) {
-      return intelligence.tasks;
-    }
+    // Non-canonical families (operational, generic): always use computed tasks.
+    // Persisted tasks from legacy pipeline runs are unreliable for these families.
+    if (!canonicalPersistenceSupported) return intelligence.tasks;
+    // Canonical families: use computed tasks when the persisted bundle is not ready.
+    if (!canonicalPersistedBundleReady) return intelligence.tasks;
     if (persistedTasksToShow.length > 0) {
       return persistedTasksToShow.map((t) => ({
         id: t.id,

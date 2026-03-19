@@ -326,7 +326,13 @@ async function suppressLegacyGeneratedDecisions(
       .eq('id', row.id);
 
     if (updateError) {
-      throw new Error(`Failed to suppress legacy decision ${row.id}: ${updateError.message}`);
+      console.error('[generateAndPersistCanonicalIntelligence] suppress legacy decision failed', {
+        documentId,
+        organizationId,
+        decisionId: row.id,
+        error: updateError.message,
+      });
+      continue;
     }
 
     suppressed += 1;
@@ -370,7 +376,13 @@ async function cancelLegacyGeneratedTasks(
       .eq('id', row.id);
 
     if (updateError) {
-      throw new Error(`Failed to cancel legacy workflow task ${row.id}: ${updateError.message}`);
+      console.error('[generateAndPersistCanonicalIntelligence] cancel legacy workflow task failed', {
+        documentId,
+        organizationId,
+        taskId: row.id,
+        error: updateError.message,
+      });
+      continue;
     }
 
     cancelled += 1;

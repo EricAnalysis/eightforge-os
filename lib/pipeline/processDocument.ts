@@ -22,6 +22,7 @@ import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
+import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -65,7 +66,7 @@ export async function processDocument(params: {
     // ── 1. Load document row (include domain for deterministic engine) ───────
     const { data: docRow, error: docError } = await admin
       .from('documents')
-      .select('id, title, name, document_type, domain, status, storage_path, organization_id')
+      .select('id, title, name, document_type, domain, status, storage_path, organization_id, project_id')
       .eq('id', params.documentId)
       .eq('organization_id', params.organizationId)
       .single();
@@ -163,14 +164,73 @@ export async function processDocument(params: {
     // ── 7. Mark extracted — extraction is complete, decisioning starts next ──
     await setDocumentStatus({ documentId: params.documentId, status: 'extracted' });
 
-    const canonicalResult = await generateAndPersistCanonicalIntelligence({
-      admin,
+    let canonicalResult: Awaited<ReturnType<typeof generateAndPersistCanonicalIntelligence>> | null = null;
+
+    console.log('[processDocument] canonical persistence start', {
       documentId: params.documentId,
       organizationId: params.organizationId,
-      extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
     });
 
-    if (canonicalResult.handled) {
+    try {
+      canonicalResult = await generateAndPersistCanonicalIntelligence({
+        admin,
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
+      });
+
+      console.log('[processDocument] canonical persistence complete', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        handled: canonicalResult.handled,
+        family: canonicalResult.family,
+      });
+    } catch (canonicalErr) {
+      console.error('[processDocument] canonical intelligence persistence failed, continuing', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        error: canonicalErr instanceof Error ? canonicalErr.message : canonicalErr,
+      });
+    }
+
+    if (canonicalResult?.handled) {
+      // ── 7b. Project-context rerun targeting (supported families only) ───────
+      // MVP: rerun only when we have a project_id and a recognized document_type.
+      // This is synchronous, deterministic, and reuses the canonical persistence path.
+      const changedDocType = (docRow.document_type as string | null) ?? null;
+      const projectId = (docRow.project_id as string | null) ?? null;
+      if (changedDocType && projectId) {
+        try {
+          // Current pipeline only has coarse triggers (upload/manual/system). For MVP, treat
+          // successful processing as an "uploaded/updated" context-change event.
+          const targetTypes = getProjectRerunStoredDocTypes({
+            changedDocumentType: changedDocType,
+            trigger: 'document_uploaded',
+          });
+
+          if (targetTypes.length > 0) {
+            const { data: siblings } = await admin
+              .from('documents')
+              .select('id, document_type')
+              .eq('organization_id', params.organizationId)
+              .eq('project_id', projectId)
+              .in('document_type', targetTypes)
+              .neq('id', params.documentId);
+
+            for (const s of siblings ?? []) {
+              const siblingId = (s as { id: string }).id;
+              await generateAndPersistCanonicalIntelligence({
+                admin,
+                documentId: siblingId,
+                organizationId: params.organizationId,
+              });
+            }
+          }
+        } catch {
+          // Best-effort: never fail the main document pipeline on rerun issues.
+        }
+      }
+
       try {
         await logActivityEvent({
           organization_id: params.organizationId,
@@ -210,6 +270,12 @@ export async function processDocument(params: {
     }
 
     // ── 8. Run deterministic rule engine (if domain + document_type are set) ─
+    console.log('[processDocument] continuing after canonical persistence', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      handled: canonicalResult?.handled ?? false,
+    });
+
     const domain = (docRow.domain as string | null) ?? null;
     const documentType = (docRow.document_type as string | null) ?? null;
 

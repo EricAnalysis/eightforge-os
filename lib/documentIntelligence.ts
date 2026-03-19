@@ -43,6 +43,13 @@ import type {
   IntelligenceStatus,
   TaskPriority,
 } from './types/documentIntelligence';
+import {
+  evaluateDocument as evaluateRulePack,
+  mapRuleOutputs,
+  buildRuleSummary,
+  buildRuleChips,
+  type RuleEvaluationResult,
+} from './rules/index.ts';
 
 type DocumentIntelligenceCore = Omit<
   DocumentIntelligenceOutput,
@@ -113,6 +120,22 @@ function getTextPreview(data: Record<string, unknown> | null): string {
   return (extraction?.text_preview as string) ?? '';
 }
 
+function getEvidenceV1(data: Record<string, unknown> | null): {
+  structured_fields?: Record<string, unknown>;
+  section_signals?: Record<string, unknown>;
+  page_text?: Array<{ page_number: number; text: string; source_method: string }>;
+} | null {
+  if (!data) return null;
+  const extraction = data.extraction as Record<string, unknown> | null;
+  const ev = extraction?.evidence_v1 as Record<string, unknown> | null;
+  if (!ev) return null;
+  return {
+    structured_fields: (ev.structured_fields as Record<string, unknown> | undefined) ?? undefined,
+    section_signals: (ev.section_signals as Record<string, unknown> | undefined) ?? undefined,
+    page_text: (ev.page_text as Array<{ page_number: number; text: string; source_method: string }> | undefined) ?? undefined,
+  };
+}
+
 /** Regex scan of text for dollar amounts near a keyword */
 function scanForAmount(text: string, ...patterns: RegExp[]): number | null {
   for (const re of patterns) {
@@ -181,9 +204,13 @@ function extractNTE(typed: Record<string, unknown>, text: string): number | null
   return scanForAmount(
     text,
     /not\s+to\s+exceed[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /not\s+to\s+exceed[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
     /NTE[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /NTE[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
     /maximum\s+contract[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /maximum\s+contract[^0-9]{0,120}([\d,]+(?:\.\d{1,2})?)/i,
     /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:not\s+to\s+exceed|NTE)/i,
+    /([\d,]+(?:\.\d{1,2})?)\s*(?:not\s+to\s+exceed|NTE)/i,
   );
 }
 
@@ -407,7 +434,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
   const decisions: GeneratedDecision[] = [];
   const tasks: TriggeredWorkflowTask[] = [];
 
-  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'> & { dedupeKey: string }): string => {
     const taskId = nextId();
     tasks.push({
       id: taskId,
@@ -426,6 +453,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
 
   if (!paymentRecDoc) {
     const taskId = createTask({
+      dedupeKey: 'taskType:upload_payment_rec',
       title: 'Request missing payment recommendation',
       priority: 'P1',
       reason: 'No payment recommendation document found for this invoice package; upload it to enable amount validation.',
@@ -445,6 +473,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
   } else if (hasAmountMismatch) {
     const delta = Math.abs((currentDue ?? 0) - (recommendedAmount ?? 0));
     const taskId = createTask({
+      dedupeKey: 'taskType:verify_invoice_amount',
       title: 'Verify invoice due matches approved recommendation',
       priority: 'P1',
       reason: `Invoice current due (${formatMoney(currentDue)}) differs from approved recommendation (${formatMoney(recommendedAmount)}) by ${formatMoney(delta)}.`,
@@ -466,6 +495,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
   // 2) Contract ceiling risk (NTE vs G702 original contract sum)
   if (!contractDoc) {
     const taskId = createTask({
+      dedupeKey: 'taskType:upload_contract',
       title: 'Attach linked contract for ceiling validation',
       priority: 'P1',
       reason: 'No contract was found for this project, so NTE ceiling validation against G702 cannot run.',
@@ -484,6 +514,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     });
   } else if (nteAmount === null || g702Sum === null) {
     const taskId = createTask({
+      dedupeKey: 'builder:invoice:verify_contract_ceiling_inputs',
       title: 'Manually verify contract ceiling inputs',
       priority: 'P2',
       reason: 'Contract is attached, but NTE and/or G702 original contract sum could not be extracted.',
@@ -805,19 +836,59 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
   const { extractionData, relatedDocs, projectName, documentTitle } = params;
   const typed = getTypedFields(extractionData);
   const text = getTextPreview(extractionData);
+  const evidence = getEvidenceV1(extractionData);
+  const evFields = evidence?.structured_fields ?? {};
+  const evSignals = evidence?.section_signals ?? {};
 
-  const vendorName = (typed.vendor_name as string | null) ?? null;
+  const vendorName =
+    (typed.vendor_name as string | null) ??
+    (typed.contractor_name as string | null) ??
+    (typed.contractorName as string | null) ??
+    (evFields.contractor_name as string | null) ??
+    (evFields.contractorName as string | null) ??
+    (evFields.contractor as string | null) ??
+    extractContractPartyFromText(text) ??
+    null;
   const contractNumber = inferProjectCode(typed, documentTitle, text);
-  const nteAmount = extractNTE(typed, text);
-  const contractDate = (typed.contract_date as string | null) ??
+  const nteAmount =
+    parseMoney(evFields.nte_amount) ??
+    parseMoney(evFields.notToExceedAmount) ??
+    extractNTE(typed, text);
+  const contractDate =
+    (evFields.executed_date as string | null) ??
+    (evFields.executedDate as string | null) ??
+    (typed.contract_date as string | null) ??
     (typed.executedDate as string | null);
-  const femaRef = typed.fema_reference === true || text.toLowerCase().includes('dr-4652');
+  const femaRef =
+    (evSignals.fema_reference_present === true) ||
+    typed.fema_reference === true ||
+    text.toLowerCase().includes('fema') ||
+    /\bdr-\d{4}/i.test(text);
   const femaDisaster = femaRef
-    ? (text.match(/DR-\d{4}-[A-Z]{2}/i)?.[0] ?? 'DR-4652-NM')
+    ? (text.match(/DR-\d{4}-[A-Z]{2}/i)?.[0] ?? null)
     : null;
+  const tdecPermitsRef =
+    (evSignals.permit_or_tdec_reference_present === true) ||
+    text.toLowerCase().includes('tdec') ||
+    text.toLowerCase().includes('permit');
+  const termDaysRaw =
+    (typed.term_days as string | null) ??
+    scanTextForField(text, /term\s+of\s+(\d+)\s+days?/i) ??
+    scanTextForField(text, /(\d+)\s*[-\u2013]\s*day\s+term/i);
+  const termDays = termDaysRaw ? parseInt(termDaysRaw, 10) : null;
+  const ownerName =
+    (evFields.owner_name as string | null) ??
+    (typed.owner as string | null) ??
+    (typed.county as string | null) ??
+    null;
 
-  const rateSchedulePresent = detectRateSchedule(text);
-  const timeAndMaterialsPresent = detectTandM(text);
+  const rateSchedulePresent =
+    (evSignals.rate_section_present === true) ||
+    (evSignals.unit_price_structure_present === true) ||
+    detectRateSchedule(text);
+  const timeAndMaterialsPresent =
+    (evSignals.time_and_materials_present === true) ||
+    detectTandM(text);
   const tipFee = detectTipFee(text);
 
   // Related invoices
@@ -965,9 +1036,49 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     });
   }
 
+  // FEMA compliance signal — relevant for all FEMA-eligible disaster contracts
+  if (femaRef) {
+    decisions.push({
+      id: nextId(),
+      type: 'fema_compliance',
+      status: 'passed',
+      severity: 'low',
+      title: 'FEMA disaster reference found',
+      explanation: `Contract references FEMA disaster response requirements${femaDisaster ? ` (${femaDisaster})` : ''}, which is required for eligible debris removal reimbursement.`,
+      confidence: 0.9,
+    });
+  }
+
+  // TDEC / permit compliance signal
+  if (tdecPermitsRef) {
+    decisions.push({
+      id: nextId(),
+      type: 'permit_reference',
+      status: 'passed',
+      severity: 'low',
+      title: 'Permit/TDEC reference in contract',
+      explanation: 'Contract references permitted disposal sites or TDEC compliance, satisfying environmental requirements.',
+      confidence: 0.9,
+    });
+  }
+
+  // Contract term signal
+  if (termDays !== null && !isNaN(termDays)) {
+    decisions.push({
+      id: nextId(),
+      type: 'required_fields_present',
+      status: 'passed',
+      severity: 'low',
+      title: `Contract term: ${termDays} days`,
+      explanation: `Contract has a ${termDays}-day term from the executed date${contractDate ? ` (${formatDate(contractDate)})` : ''}. Monitor for term expiration.`,
+      confidence: 0.88,
+    });
+  }
+
   const entities: DetectedEntity[] = [];
   if (contractNumber) entities.push({ key: 'contract_number', label: 'Contract #', value: contractNumber, status: 'neutral' });
   if (vendorName) entities.push({ key: 'contractor', label: 'Contractor', value: vendorName, status: 'neutral' });
+  if (ownerName) entities.push({ key: 'owner', label: 'Owner', value: ownerName, status: 'neutral' });
   if (nteAmount !== null) entities.push({ key: 'nte', label: 'NTE', value: formatMoney(nteAmount), status: decisions.some(d => d.type === 'contract_ceiling_risk') ? 'warning' : 'neutral' });
   if (contractDate) entities.push({ key: 'executed_date', label: 'Executed', value: formatDate(contractDate), status: 'neutral' });
   if (femaDisaster) entities.push({ key: 'fema_disaster', label: 'FEMA Disaster', value: femaDisaster, status: 'neutral' });
@@ -1062,7 +1173,7 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
   const tasks: TriggeredWorkflowTask[] = [];
   const comparisons: ComparisonResult[] = [];
 
-  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'> & { dedupeKey: string }): string => {
     const taskId = nextId();
     tasks.push({
       id: taskId,
@@ -1075,6 +1186,7 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
 
   if (!invoiceDoc) {
     const taskId = createTask({
+      dedupeKey: 'builder:payment_rec:upload_invoice',
       title: 'Attach linked invoice for validation',
       priority: 'P1',
       reason: 'No linked invoice document found in this project; cannot validate payment recommendation amount or dates.',
@@ -1095,6 +1207,7 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
     // Amount validation
     if (hasAmountMissing) {
       const taskId = createTask({
+        dedupeKey: 'builder:payment_rec:verify_amounts_missing',
         title: 'Manually verify invoice amount and recommendation amount',
         priority: 'P1',
         reason: 'Invoice current due and/or payment recommendation amount could not be extracted reliably.',
@@ -1114,6 +1227,7 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
     } else if (hasAmountMismatch) {
       const delta = Math.abs((invoiceCurrentDue ?? 0) - (recAmount ?? 0));
       const taskId = createTask({
+        dedupeKey: 'taskType:verify_payment_rec_amount',
         title: 'Verify recommendation amount matches invoice due',
         priority: 'P1',
         reason: `Invoice current due (${formatMoney(invoiceCurrentDue)}) differs from recommended approved amount (${formatMoney(recAmount)}) by ${formatMoney(delta)}.`,
@@ -1136,6 +1250,7 @@ function buildPaymentRecOutput(params: BuildIntelligenceParams): DocumentIntelli
     if (invoiceDate && payRecInvoiceDate) {
       if (invoiceDate !== payRecInvoiceDate) {
         const taskId = createTask({
+          dedupeKey: 'taskType:verify_invoice_dates',
           title: 'Confirm authoritative invoice date',
           priority: 'P2',
           reason: `G702 invoice date (${formatDate(invoiceDate)}) differs from payment recommendation invoice date (${formatDate(payRecInvoiceDate)}).`,
@@ -1792,26 +1907,43 @@ function buildWilliamsonContractOutput(params: BuildIntelligenceParams): Documen
   const typed = getTypedFields(extractionData);
   const ai = getAiEnrichment(extractionData);
   const text = getTextPreview(extractionData);
+  const evidence = getEvidenceV1(extractionData);
+  const evFields = evidence?.structured_fields ?? {};
+  const evSignals = evidence?.section_signals ?? {};
 
   // Grounded in real contract: Aftermath Disaster Recovery Inc / Williamson County TN,
   // executed 2/19/2026, 90-day term, FEMA-compliant, TDEC-permitted DMS sites
-  const contractorName = (typed.vendor_name as string | null) ??
+  const contractorName =
+    (typed.vendor_name as string | null) ??
+    (evFields.contractor_name as string | null) ??
     (typed.contractor as string | null) ??
     scanTextForField(text, /contractor\s*:?\s*(.+)/i);
-  const ownerName = (typed.owner as string | null) ??
+  const ownerName =
+    (typed.owner as string | null) ??
+    (evFields.owner_name as string | null) ??
     (typed.county as string | null) ??
     scanTextForField(text, /(?:owner|county|client)\s*:?\s*(.+)/i);
-  const executedDate = (typed.executed_date as string | null) ??
+  const executedDate =
+    (evFields.executed_date as string | null) ??
+    (typed.executed_date as string | null) ??
     (typed.executedDate as string | null) ??
     scanTextForField(text, /executed\s*(?:on|date)?\s*:?\s*(.+)/i);
   const termDaysRaw = (typed.term_days as string | null) ??
     scanTextForField(text, /term\s+of\s+(\d+)\s+days?/i) ??
     scanTextForField(text, /(\d+)\s*[-–]\s*day\s+term/i);
   const termDays = termDaysRaw ? parseInt(termDaysRaw, 10) : null;
-  const femaCompliant = text.toLowerCase().includes('fema') || text.toLowerCase().includes('dr-');
-  const tdecPermitsRef = text.toLowerCase().includes('tdec') ||
+  const femaCompliant =
+    (evSignals.fema_reference_present === true) ||
+    text.toLowerCase().includes('fema') ||
+    text.toLowerCase().includes('dr-');
+  const tdecPermitsRef =
+    (evSignals.permit_or_tdec_reference_present === true) ||
+    text.toLowerCase().includes('tdec') ||
     text.toLowerCase().includes('permit');
-  const rateScheduleRef = text.toLowerCase().includes('exhibit a') ||
+  const rateScheduleRef =
+    (evSignals.rate_section_present === true) ||
+    (evSignals.unit_price_structure_present === true) ||
+    text.toLowerCase().includes('exhibit a') ||
     text.toLowerCase().includes('unit price') ||
     text.toLowerCase().includes('rate schedule');
 
@@ -2000,7 +2132,7 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
   const tasks: TriggeredWorkflowTask[] = [];
   const comparisons: ComparisonResult[] = [];
 
-  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'>): string => {
+  const createTask = (t: Omit<TriggeredWorkflowTask, 'id' | 'status'> & { dedupeKey: string }): string => {
     const taskId = nextId();
     tasks.push({
       id: taskId,
@@ -2034,6 +2166,7 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
 
     if (!siteApproved) {
       const taskId = createTask({
+        dedupeKey: 'taskType:verify_dumpsite_permit',
         title: 'Verify ticket dumpsite matches TDEC permit',
         priority: 'P1',
         reason: `Ticket dumpsite: "${dumpsite ?? '—'}" · Permit site: "${permitSite ?? '—'}".`,
@@ -2052,6 +2185,7 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
       });
     } else if (!matApproved) {
       const taskId = createTask({
+        dedupeKey: 'taskType:verify_material_permit',
         title: 'Verify ticket material is permitted at dumpsite',
         priority: 'P1',
         reason: `Permit approves "${permitMaterials ?? '—'}"; ticket shows "${materialType ?? '—'}".`,
@@ -2071,6 +2205,7 @@ function buildTicketOutput(params: BuildIntelligenceParams): DocumentIntelligenc
     }
   } else {
     const taskId = createTask({
+      dedupeKey: 'taskType:upload_permit',
       title: 'Upload TDEC permit for dumpsite validation',
       priority: 'P1',
       reason: 'No TDEC permit is available in this project, so dumpsite/material validation cannot run.',
@@ -2594,6 +2729,68 @@ function limitSentences(text: string, maxSentences = 2): string {
   return sentences.slice(0, maxSentences).join(' ').trim();
 }
 
+const CONTRACT_PARTY_PATTERNS = [
+  /entered\s+into\s+by\s+and\s+between[\s\S]{0,250}?and[\s|,:;()"'`-]*([A-Z][A-Za-z0-9 &.,'-]{2,120})/i,
+  /by\s+and\s+between[\s\S]{0,250}?and[\s|,:;()"'`-]*([A-Z][A-Za-z0-9 &.,'-]{2,120})/i,
+  /agreement\s+between[\s\S]{0,250}?and[\s|,:;()"'`-]*([A-Z][A-Za-z0-9 &.,'-]{2,120})/i,
+  /contract\s+between[\s\S]{0,250}?and[\s|,:;()"'`-]*([A-Z][A-Za-z0-9 &.,'-]{2,120})/i,
+];
+
+function cleanContractPartyName(value: string | null): string | null {
+  if (!value) return null;
+
+  let cleaned = value
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  cleaned = cleaned.replace(/^[,;:()"'`\-]+/, '').trim();
+  cleaned = cleaned
+    .replace(/\s*\(?hereinafter\b[\s\S]*$/i, '')
+    .replace(/\s+THIS\s+CONTRACT\b[\s\S]*$/i, '')
+    .replace(/\s+on\s+this\b[\s\S]*$/i, '')
+    .trim();
+  cleaned = cleaned.replace(/[|,;:()\-"'\s]+$/g, '').trim();
+
+  return cleaned.length >= 3 ? cleaned : null;
+}
+
+function extractContractPartyFromText(text: string): string | null {
+  for (const pattern of CONTRACT_PARTY_PATTERNS) {
+    const candidate = cleanContractPartyName(scanTextForField(text, pattern));
+    if (candidate) return candidate;
+  }
+
+  return cleanContractPartyName(
+    scanTextForField(text, /(?:contractor|vendor)\s*[:=\-]?\s*(.+)/i),
+  );
+}
+
+function buildOverallStatusChip(decisions: GeneratedDecision[]): DetectedEntity {
+  const topIssue =
+    decisions.find((d) => d.status === 'mismatch') ??
+    decisions.find((d) => d.status === 'risky') ??
+    decisions.find((d) => d.status === 'missing') ??
+    decisions.find((d) => d.status === 'info');
+
+  if (!topIssue) {
+    return {
+      key: 'status',
+      label: 'Status',
+      value: 'All checks passed',
+      status: 'ok',
+    };
+  }
+
+  return {
+    key: 'status',
+    label: 'Status',
+    value: topIssue.status === 'mismatch' ? 'Blocked' : 'Needs review',
+    status: topIssue.status === 'mismatch' ? 'critical' : 'warning',
+    tooltip: topIssue.title,
+  };
+}
+
 function statusToIssueSeverity(status: IntelligenceStatus): IntelligenceIssue['severity'] {
   if (status === 'mismatch') return 'critical';
   if (status === 'risky') return 'high';
@@ -2763,6 +2960,123 @@ function finalizeDocumentIntelligence(
   };
 }
 
+// ─── Rule engine integration ──────────────────────────────────────────────────
+
+const RULE_SUPPORTED_DOC_TYPES = new Set([
+  'ticket', 'debris_ticket', 'invoice', 'contract', 'payment_rec',
+  'permit', 'disposal_checklist',
+]);
+
+function applyRuleEngine(
+  output: DocumentIntelligenceOutput,
+  params: BuildIntelligenceParams,
+): DocumentIntelligenceOutput {
+  const dt = (params.documentType ?? '').toLowerCase();
+  if (!RULE_SUPPORTED_DOC_TYPES.has(dt)) return output;
+
+  let ruleResult: RuleEvaluationResult;
+  try {
+    ruleResult = evaluateRulePack({
+      documentType: dt,
+      documentName: params.documentName,
+      documentTitle: params.documentTitle,
+      projectName: params.projectName,
+      extractionData: params.extractionData,
+      relatedDocs: params.relatedDocs,
+    });
+  } catch {
+    return output;
+  }
+
+  if (ruleResult.outputs.length === 0) return output;
+
+  // Guardrail: PDF fallback extraction can be very shallow (sometimes only
+  // metadata). When that happens, do not imply hard “missing” findings.
+  // This keeps canonical intelligence deterministic while reducing false negatives.
+  const weakPdfFallbackExtraction = (() => {
+    const extractionData = params.extractionData;
+    if (!extractionData) return false;
+
+    const extraction = extractionData.extraction as Record<string, unknown> | null;
+    const mode = extraction?.mode;
+    if (mode !== 'pdf_fallback') return false;
+
+    const textPreview = getTextPreview(extractionData);
+    const textLen = textPreview.trim().length;
+
+    const typed = getTypedFields(extractionData) as Record<string, unknown>;
+    const typedHasSignal = Object.values(typed).some((v) => {
+      if (v === null || v === undefined) return false;
+      if (typeof v === 'string') return v.trim().length > 0;
+      if (Array.isArray(v)) return v.length > 0;
+      return true;
+    });
+
+    return textLen < 100 && !typedHasSignal;
+  })();
+
+  const downgradedDecisionTypes = new Set<string>();
+  if (weakPdfFallbackExtraction) {
+    ruleResult = {
+      ...ruleResult,
+      outputs: ruleResult.outputs.map((o) => {
+        if (o.decision === 'MISSING' || o.decision === 'WARN') {
+          downgradedDecisionTypes.add(o.ruleId.toLowerCase().replace(/-/g, '_'));
+          return {
+            ...o,
+            decision: 'INFO',
+            severity: 'MEDIUM',
+          };
+        }
+        return o;
+      }),
+    };
+  }
+
+  const mapped = mapRuleOutputs(ruleResult.outputs);
+
+  if (weakPdfFallbackExtraction && downgradedDecisionTypes.size > 0) {
+    for (const d of mapped.decisions) {
+      if (downgradedDecisionTypes.has(d.type)) {
+        d.confidence = 0.35;
+      }
+    }
+  }
+  const existingDecisionTypes = new Set(output.decisions.map(d => d.type));
+  const existingTaskKeys = new Set(
+    output.tasks.map(t => t.dedupeKey).filter(Boolean),
+  );
+
+  const newDecisions = mapped.decisions.filter(d => !existingDecisionTypes.has(d.type));
+  const newTasks = mapped.tasks.filter(t =>
+    t.dedupeKey ? !existingTaskKeys.has(t.dedupeKey) : true,
+  );
+
+  const mergedDecisions = [...output.decisions, ...newDecisions];
+  const mergedTasks = [...output.tasks, ...newTasks];
+
+  const statusChip = buildOverallStatusChip(mergedDecisions);
+  const baseEntities = output.entities.filter((entity) => entity.key !== 'status').slice(0, 7);
+  const existingChipKeys = new Set(baseEntities.map((entity) => entity.key));
+  const ruleChips = buildRuleChips(ruleResult, mapped)
+    .filter((chip) => chip.key !== 'status')
+    .filter((chip) => !existingChipKeys.has(chip.key));
+  const mergedEntities = [...baseEntities, statusChip, ...ruleChips].slice(0, 8);
+
+  const hasBlocker = mapped.blockers.length > 0;
+  const mergedSummary: DocumentSummary = hasBlocker
+    ? buildRuleSummary(ruleResult, mapped)
+    : output.summary;
+
+  return {
+    ...output,
+    decisions: mergedDecisions,
+    tasks: mergedTasks,
+    entities: mergedEntities,
+    summary: mergedSummary,
+  };
+}
+
 // ─── Main exported function ───────────────────────────────────────────────────
 
 export function buildDocumentIntelligence(
@@ -2772,127 +3086,107 @@ export function buildDocumentIntelligence(
   const nameLower = params.documentName.toLowerCase();
   const titleLower = (params.documentTitle ?? '').toLowerCase();
 
+  let result: DocumentIntelligenceOutput;
+
   // ── EMERG03 finance family ──────────────────────────────────────────────────
   if (dt === 'invoice') {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'invoice',
       { family: 'invoice', label: 'Invoice', confidence: 0.95 },
       buildInvoiceOutput(params),
     );
-  }
-  if (dt === 'contract') {
-    // Disambiguate: Williamson project contract vs EMERG03 finance contract
-    // Williamson contract mentions Aftermath / Williamson County
-    const text = getTextPreview(params.extractionData);
-    const isWilliamson = text.toLowerCase().includes('aftermath') ||
-      text.toLowerCase().includes('williamson county') ||
-      nameLower.includes('williamson');
-    if (isWilliamson) {
-      return finalizeDocumentIntelligence(
-        'operational',
-        { family: 'operational', label: 'Operational contract', confidence: 0.6 },
-        buildWilliamsonContractOutput(params),
-      );
-    }
-    return finalizeDocumentIntelligence(
+  } else if (dt === 'contract') {
+    result = finalizeDocumentIntelligence(
       'contract',
       { family: 'contract', label: 'Contract / Rate doc', confidence: 0.95 },
       buildContractOutput(params),
     );
-  }
-  if (dt === 'payment_rec') {
-    return finalizeDocumentIntelligence(
+  } else if (dt === 'payment_rec') {
+    result = finalizeDocumentIntelligence(
       'payment_recommendation',
       { family: 'payment_recommendation', label: 'Payment recommendation', confidence: 0.95 },
       buildPaymentRecOutput(params),
     );
-  }
-
-  // Name/title-based detection for finance family
-  if (
+  } else if (
     nameLower.includes('payment rec') || nameLower.includes('payment_rec') ||
     nameLower.includes('pay rec') || titleLower.includes('payment rec') ||
     nameLower.includes('_rec') || nameLower.startsWith('rec ')
   ) {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'payment_recommendation',
       { family: 'payment_recommendation', label: 'Payment recommendation', confidence: 0.7 },
       buildPaymentRecOutput(params),
     );
-  }
-  if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || dt === 'spreadsheet') {
-    return finalizeDocumentIntelligence(
+  } else if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || dt === 'spreadsheet') {
+    result = finalizeDocumentIntelligence(
       'spreadsheet',
       { family: 'spreadsheet', label: 'Spreadsheet (manual review)', confidence: 0.9 },
       buildSpreadsheetOutput(params),
     );
-  }
-
-  // ── Williamson ops family ──────────────────────────────────────────────────
-  if (dt === 'permit' || nameLower.includes('tdec') || nameLower.includes('permit')) {
-    return finalizeDocumentIntelligence(
+  } else if (dt === 'permit' || nameLower.includes('tdec') || nameLower.includes('permit')) {
+    result = finalizeDocumentIntelligence(
       'operational',
       { family: 'operational', label: 'Permit / compliance doc', confidence: 0.6 },
       buildPermitOutput(params),
     );
-  }
-  if (
+  } else if (
     dt === 'disposal_checklist' || dt === 'dms_checklist' ||
     nameLower.includes('checklist') || nameLower.includes('dms') ||
     nameLower.includes('disposal') || titleLower.includes('disposal')
   ) {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'operational',
       { family: 'operational', label: 'Disposal checklist', confidence: 0.6 },
       buildDisposalChecklistOutput(params),
     );
-  }
-  if (
+  } else if (
     dt === 'kickoff' || dt === 'kickoff_checklist' ||
     nameLower.includes('kickoff') || nameLower.includes('kick off') ||
     titleLower.includes('kickoff')
   ) {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'operational',
       { family: 'operational', label: 'Kickoff checklist', confidence: 0.6 },
       buildKickoffOutput(params),
     );
-  }
-  if (
+  } else if (
     dt === 'ticket' || dt === 'debris_ticket' ||
     nameLower.includes('ticket') || titleLower.includes('ticket')
   ) {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'ticket',
       { family: 'ticket', label: 'Ticket / export', confidence: 0.85 },
       buildTicketOutput(params),
     );
-  }
-  if (
+  } else if (
     dt === 'daily_ops' || dt === 'ops_report' ||
     nameLower.includes('daily ops') || nameLower.includes('daily_ops') ||
     titleLower.includes('daily ops') || nameLower.includes('operations report')
   ) {
-    return finalizeDocumentIntelligence(
+    result = finalizeDocumentIntelligence(
       'operational',
       { family: 'operational', label: 'Daily ops report', confidence: 0.6 },
       buildDailyOpsOutput(params),
     );
-  }
-  if (
+  } else if (
     dt === 'williamson_contract' ||
     nameLower.includes('aftermath') || nameLower.includes('williamson')
   ) {
-    return finalizeDocumentIntelligence(
-      'operational',
-      { family: 'operational', label: 'Operational contract', confidence: 0.6 },
-      buildWilliamsonContractOutput(params),
+    // Route to the canonical contract builder so FEMA/TDEC/NTE/rate-schedule
+    // decisions are generated and canonical persistence is supported.
+    result = finalizeDocumentIntelligence(
+      'contract',
+      { family: 'contract', label: 'Contract / Rate doc', confidence: 0.9 },
+      buildContractOutput(params),
+    );
+  } else {
+    result = finalizeDocumentIntelligence(
+      'generic',
+      { family: 'generic', label: 'Document', confidence: 0.5 },
+      buildGenericOutput(params),
     );
   }
 
-  return finalizeDocumentIntelligence(
-    'generic',
-    { family: 'generic', label: 'Document', confidence: 0.5 },
-    buildGenericOutput(params),
-  );
+  // ── Apply v1 rule engine (merge additional findings) ────────────────────────
+  return applyRuleEngine(result, params);
 }

@@ -15,6 +15,16 @@ const openingClauseText = [
   '(hereinafter "Contractor"), on this 19 day of February, 2026.',
 ].join(' ');
 
+const williamsonRateAgreementText = [
+  openingClauseText,
+  'Compensation shall be based on the unit prices and time-and-materials rates set forth in Exhibit A.',
+  'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
+  'Nothing in this Contract or Exhibit A shall be construed to guarantee any minimum amount of work or compensation.',
+  'EXHIBIT A EMERGENCY DEBRIS REMOVAL UNIT RATES AND TIME-AND-MATERIALS RATES.',
+  'Tipping Fee - Vegetative | Cubic Yard | Passthrough.',
+  'Hazardous Trees 25"-36" trunk diameter | Tree | $316.00.',
+].join(' ');
+
 test('contract extraction captures contractor from opening party language', async () => {
   const { extractDocument } = await extractionModulePromise;
   const payload = await extractDocument(
@@ -84,4 +94,39 @@ test('contract status chip does not report all clear when missing issues exist',
   assert.ok(intelligence.summary.headline.includes('Contract needs review'));
   assert.equal(statusChip?.value, 'Needs review');
   assert.notEqual(statusChip?.value, 'All checks passed');
+});
+
+test('unit-rate Williamson contract does not invent an overall NTE or numeric tip fee', async () => {
+  const { buildDocumentIntelligence } = await intelligenceModulePromise;
+  const intelligence = buildDocumentIntelligence({
+    documentType: 'contract',
+    documentTitle: 'Williamson County Contract',
+    documentName: 'williamson-contract.pdf',
+    projectName: 'Williamson Co',
+    extractionData: {
+      fields: {
+        typed_fields: {
+          vendor_name: 'Aftermath Disaster Recovery, Inc.',
+        },
+      },
+      extraction: { text_preview: williamsonRateAgreementText },
+    },
+    relatedDocs: [],
+  });
+
+  const extracted = intelligence.extracted as {
+    contractorName?: string;
+    notToExceedAmount?: number;
+    rateSchedulePresent?: boolean;
+    tipFee?: number;
+  };
+
+  assert.equal(extracted.contractorName, 'Aftermath Disaster Recovery, Inc.');
+  assert.equal(extracted.rateSchedulePresent, true);
+  assert.equal(extracted.notToExceedAmount, undefined);
+  assert.equal(extracted.tipFee, undefined);
+  assert.equal(intelligence.entities.some((entity) => entity.key === 'nte'), false);
+  assert.equal(intelligence.decisions.some((d) => d.title === 'Missing rate schedule (Exhibit A)'), false);
+  assert.equal(intelligence.decisions.some((d) => d.title === 'Tip fee detected'), false);
+  assert.equal(intelligence.decisions.some((d) => d.title === 'No overall contract ceiling detected'), true);
 });

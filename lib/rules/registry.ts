@@ -76,6 +76,26 @@ function scanAmount(text: string, ...patterns: RegExp[]): number | null {
 
 // ─── Rule definitions ────────────────────────────────────────────────────────
 
+const OVERALL_CONTRACT_NTE_PATTERNS = [
+  /not[-\s]+to[-\s]+exceed(?!\s+rates?\b)[^$]{0,40}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /not[-\s]+to[-\s]+exceed(?!\s+rates?\b)[^0-9]{0,24}([\d,]+(?:\.\d{1,2})?)/i,
+  /\bNTE\b[^$]{0,40}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /\bNTE\b[^0-9]{0,24}([\d,]+(?:\.\d{1,2})?)/i,
+  /maximum\s+contract[^$]{0,120}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /maximum\s+contract[^0-9]{0,40}([\d,]+(?:\.\d{1,2})?)/i,
+  /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:overall\s+)?(?:contract\s+)?(?:not[-\s]+to[-\s]+exceed|\bNTE\b)/i,
+  /([\d,]+(?:\.\d{1,2})?)\s*(?:overall\s+)?(?:contract\s+)?(?:not[-\s]+to[-\s]+exceed|\bNTE\b)/i,
+];
+
+function scanOverallContractNte(text: string): number | null {
+  return scanAmount(text, ...OVERALL_CONTRACT_NTE_PATTERNS);
+}
+
+function hasRateBasedNotToExceedLanguage(text: string): boolean {
+  return /\b(?:unit prices?|rates?)\b[\s\S]{0,80}\bnot[-\s]+to[-\s]+exceed\s+rates?\b/i.test(text)
+    || /\bnot[-\s]+to[-\s]+exceed\s+rates?\b/i.test(text);
+}
+
 const rules: RuleDefinition[] = [];
 
 function defineRule(rule: RuleDefinition): void {
@@ -580,10 +600,10 @@ defineRule({
       };
     }
     const nte = num(fact(contract.facts, 'nte_amount', 'notToExceedAmount'))
-      ?? scanAmount(contract.textPreview,
-        /not\s+to\s+exceed[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-        /NTE[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-      );
+      ?? scanOverallContractNte(contract.textPreview);
+    if (nte === null && hasRateBasedNotToExceedLanguage(contract.textPreview)) {
+      return null;
+    }
     const g702 = num(fact(ctx.facts, 'g702_contract_sum', 'g702ContractSum'))
       ?? scanAmount(ctx.textPreview,
         /original\s+contract\s+sum[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
@@ -736,27 +756,20 @@ defineRule({
   appliesTo: ['contract'],
   evaluate(ctx): RuleOutput | null {
     const nte = num(fact(ctx.facts, 'nte_amount', 'notToExceedAmount'));
-    const scanned = nte ?? scanAmount(ctx.textPreview,
-      /not\s+to\s+exceed[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-      /not\s+to\s+exceed[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
-      /NTE[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-      /NTE[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
-      /maximum\s+contract[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-      /maximum\s+contract[^0-9]{0,120}([\d,]+(?:\.\d{1,2})?)/i,
-    );
+    const scanned = nte ?? scanOverallContractNte(ctx.textPreview);
     if (scanned === null) {
+      if (hasRateBasedNotToExceedLanguage(ctx.textPreview)) {
+        return null;
+      }
       return {
         ruleId: 'CTR-001',
         ruleFamily: 'extraction',
         scope: 'single_document',
-        finding: 'Contract NTE (not-to-exceed) amount is not present.',
-        decision: 'MISSING',
-        severity: 'HIGH',
-        taskType: 'verify_nte_amount',
-        priority: 'P1',
-        ownerSuggestion: 'Project manager',
-        reason: 'NTE is required for ceiling validation on linked invoices.',
-        reference: 'Contract must contain a not-to-exceed amount.',
+        finding: 'No overall contract ceiling detected.',
+        decision: 'INFO',
+        severity: 'LOW',
+        reason: 'Confirm whether this agreement relies on unit rates only or includes a separate ceiling before downstream invoice ceiling checks.',
+        reference: 'Unit-rate contracts may not include a single global not-to-exceed amount.',
         evidenceFields: ['nte_amount'],
       };
     }

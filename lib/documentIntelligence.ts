@@ -195,23 +195,29 @@ function inferProjectCode(
 }
 
 /** Extract NTE from contract extraction or text */
+const OVERALL_CONTRACT_NTE_PATTERNS = [
+  /not[-\s]+to[-\s]+exceed(?!\s+rates?\b)[^$]{0,40}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /not[-\s]+to[-\s]+exceed(?!\s+rates?\b)[^0-9]{0,24}([\d,]+(?:\.\d{1,2})?)/i,
+  /\bNTE\b[^$]{0,40}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /\bNTE\b[^0-9]{0,24}([\d,]+(?:\.\d{1,2})?)/i,
+  /maximum\s+contract[^$]{0,120}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /maximum\s+contract[^0-9]{0,40}([\d,]+(?:\.\d{1,2})?)/i,
+  /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:overall\s+)?(?:contract\s+)?(?:not[-\s]+to[-\s]+exceed|\bNTE\b)/i,
+  /([\d,]+(?:\.\d{1,2})?)\s*(?:overall\s+)?(?:contract\s+)?(?:not[-\s]+to[-\s]+exceed|\bNTE\b)/i,
+];
+
+function scanOverallContractNte(text: string): number | null {
+  return scanForAmount(text, ...OVERALL_CONTRACT_NTE_PATTERNS);
+}
+
 function extractNTE(typed: Record<string, unknown>, text: string): number | null {
   // Direct field
   const direct = parseMoney(typed.nte_amount ?? typed.notToExceedAmount);
   if (direct !== null) return direct;
 
-  // Scan text for "not to exceed" patterns
-  return scanForAmount(
-    text,
-    /not\s+to\s+exceed[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /not\s+to\s+exceed[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
-    /NTE[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /NTE[^0-9]{0,80}([\d,]+(?:\.\d{1,2})?)/i,
-    /maximum\s+contract[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /maximum\s+contract[^0-9]{0,120}([\d,]+(?:\.\d{1,2})?)/i,
-    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:not\s+to\s+exceed|NTE)/i,
-    /([\d,]+(?:\.\d{1,2})?)\s*(?:not\s+to\s+exceed|NTE)/i,
-  );
+  // Scan only for explicit overall ceiling language; do not treat unit-rate
+  // Exhibit A pricing as a single contract-wide NTE amount.
+  return scanOverallContractNte(text);
 }
 
 /** Extract current payment due from invoice typed fields or text */
@@ -294,10 +300,10 @@ function makeQuestions(questions: string[]): SuggestedQuestion[] {
 
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   contract: [
-    'Extract the contract NTE amount shown here; if missing, say "not found".',
+    'Does this contract contain a single not-to-exceed ceiling, or is it a unit-rate Exhibit A agreement? If unclear, say "not found".',
     'Extract whether Exhibit A / the rate schedule is present in this contract; if missing, say "not found".',
     'Detect any tip fee amount in this document; if none detected, say "none found".',
-    'List any contract fields required for an operator decision that are missing (NTE, Exhibit A, contractor name); for each, say "missing" or "present".',
+    'List any contract fields required for an operator decision that are missing (contractor name, Exhibit A, overall ceiling if one exists); for each, say "missing", "present", or "not applicable".',
   ],
   invoice: [
     'What is the invoice current due amount? If missing, say "not found".',
@@ -364,12 +370,16 @@ function getDefaultQuestions(docType: string | null): SuggestedQuestion[] {
 // ─── Contract text-scan helpers ───────────────────────────────────────────────
 
 function detectTipFee(text: string): number | null {
+  if (/\b(?:tip|tipping)\s+fee\b[\s|:;-]{0,24}passthrough\b/i.test(text)) {
+    return null;
+  }
+
   return scanForAmount(
     text,
-    /tip\s+fee[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /tipping\s+fee[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /disposal\s+fee[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
-    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+ton)?\s*tip\s+fee/i,
+    /\btip\s+fee\b[\s|:;-]{0,16}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\btipping\s+fee\b[\s|:;-]{0,16}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\b(?:disposal|landfill)\s+fee\b[\s|:;-]{0,16}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+\w+\s+)?\b(?:tip|tipping)\s+fee\b/i,
   );
 }
 
@@ -833,7 +843,7 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
 // ─── Contract output builder ──────────────────────────────────────────────────
 
 function buildContractOutput(params: BuildIntelligenceParams): DocumentIntelligenceCore {
-  const { extractionData, relatedDocs, projectName, documentTitle } = params;
+  const { extractionData, relatedDocs, projectName, documentTitle, documentName } = params;
   const typed = getTypedFields(extractionData);
   const text = getTextPreview(extractionData);
   const evidence = getEvidenceV1(extractionData);
@@ -848,6 +858,7 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
     (evFields.contractorName as string | null) ??
     (evFields.contractor as string | null) ??
     extractContractPartyFromText(text) ??
+    extractContractPartyFromDocumentLabel(documentTitle, documentName) ??
     null;
   const contractNumber = inferProjectCode(typed, documentTitle, text);
   const nteAmount =
@@ -964,26 +975,15 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
   }
 
   if (nteAmount === null) {
-    const taskId = nextId();
-    tasks.push({
-      id: taskId,
-      title: 'Record contract NTE (Not-to-Exceed)',
-      priority: 'P1',
-      reason: 'Contract NTE could not be extracted; record the Not-to-Exceed amount from the contract.',
-      suggestedOwner: 'Finance reviewer',
-      status: 'open',
-      autoCreated: true,
-    });
     decisions.push({
       id: nextId(),
       type: 'contract_ceiling_inputs',
-      status: 'missing',
-      severity: 'critical',
-      title: 'Missing contract NTE',
-      explanation: 'NTE is required for ceiling validation; it was not extracted from this contract.',
-      action: 'Record the contract Not-to-Exceed (NTE) amount.',
-      confidence: 0.75,
-      relatedTaskIds: [taskId],
+      status: 'info',
+      severity: 'low',
+      title: 'No overall contract ceiling detected',
+      explanation: 'No overall contract ceiling detected. Confirm whether this agreement relies on unit rates only.',
+      action: 'Confirm whether this contract is unit-rate only or includes a separate ceiling.',
+      confidence: 0.72,
     });
   }
 
@@ -2766,6 +2766,31 @@ function extractContractPartyFromText(text: string): string | null {
   );
 }
 
+function extractContractPartyFromDocumentLabel(
+  ...labels: Array<string | null | undefined>
+): string | null {
+  for (const label of labels) {
+    if (!label) continue;
+
+    const normalized = label
+      .replace(/\.(pdf|docx?|xlsx?|csv)$/i, '')
+      .replace(/[–—]/g, '-');
+    const candidate =
+      normalized.match(
+        /\d{4}[._-]\d{2}[._-]\d{2}[_\s-]+([^_]+?)(?=[_\s-]+(?:debris|emergency|services?|scope|rate|pricing|exhibit|cont\b|contract\b))/i,
+      )?.[1] ?? null;
+
+    const cleaned = cleanContractPartyName(
+      candidate
+        ? candidate.replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim()
+        : null,
+    );
+    if (cleaned) return cleaned;
+  }
+
+  return null;
+}
+
 function buildOverallStatusChip(decisions: GeneratedDecision[]): DetectedEntity {
   const topIssue =
     decisions.find((d) => d.status === 'mismatch') ??
@@ -3046,6 +3071,33 @@ function applyRuleEngine(
   const existingTaskKeys = new Set(
     output.tasks.map(t => t.dedupeKey).filter(Boolean),
   );
+
+  if (dt === 'contract') {
+    const contractorAlreadyResolved = output.entities.some((entity) => entity.key === 'contractor');
+    const coveredRuleIds = new Set<string>();
+
+    if (output.decisions.some((d) => d.type === 'contract_ceiling_inputs')) {
+      coveredRuleIds.add('ctr_001');
+    }
+    if (output.decisions.some((d) => d.type === 'rate_schedule_missing')) {
+      coveredRuleIds.add('ctr_002');
+    }
+    if (contractorAlreadyResolved || output.decisions.some((d) => d.type === 'contractor_identified')) {
+      coveredRuleIds.add('ctr_003');
+    }
+
+    if (coveredRuleIds.size > 0) {
+      mapped.decisions = mapped.decisions.filter((d) => !coveredRuleIds.has(d.type));
+      mapped.tasks = mapped.tasks.filter((t) => {
+        const key = t.dedupeKey ?? '';
+        return !(
+          (coveredRuleIds.has('ctr_001') && key === 'taskType:verify_nte_amount') ||
+          (coveredRuleIds.has('ctr_002') && key === 'taskType:verify_rate_schedule') ||
+          (coveredRuleIds.has('ctr_003') && key === 'taskType:review_document')
+        );
+      });
+    }
+  }
 
   const newDecisions = mapped.decisions.filter(d => !existingDecisionTypes.has(d.type));
   const newTasks = mapped.tasks.filter(t =>

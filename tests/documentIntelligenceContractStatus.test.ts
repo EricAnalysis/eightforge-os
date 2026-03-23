@@ -89,7 +89,7 @@ test('contract status chip does not report all clear when missing issues exist',
     relatedDocs: [],
   });
 
-  const statusChip = intelligence.entities.find((entity) => entity.key === 'status');
+  const statusChip = intelligence.entities.find((entity: { key: string; value: string }) => entity.key === 'status');
 
   assert.ok(intelligence.summary.headline.includes('Contract needs review'));
   assert.equal(statusChip?.value, 'Needs review');
@@ -125,8 +125,8 @@ test('unit-rate Williamson contract does not invent an overall NTE or numeric ti
   assert.equal(extracted.rateSchedulePresent, true);
   assert.equal(extracted.notToExceedAmount, undefined);
   assert.equal(extracted.tipFee, undefined);
-  assert.equal(intelligence.entities.some((entity) => entity.key === 'nte'), false);
-  assert.equal(intelligence.decisions.some((d) => d.title === 'Missing rate schedule (Exhibit A)'), false);
-  assert.equal(intelligence.decisions.some((d) => d.title === 'Tip fee detected'), false);
-  assert.equal(intelligence.decisions.some((d) => d.title === 'No overall contract ceiling detected'), true);
+  assert.equal(intelligence.entities.some((entity: { key: string }) => entity.key === 'nte'), false);
+  assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'Missing rate schedule (Exhibit A)'), false);
+  assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'Tip fee detected'), false);
+  assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'No overall contract ceiling detected'), true);
 });

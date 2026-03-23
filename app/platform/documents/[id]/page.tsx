@@ -6,12 +6,13 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
+import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
 import { DocumentProcessingStatus } from '@/components/DocumentProcessingStatus';
 import { extractKeyFacts } from '@/lib/types/extraction';
 import type { DocumentDecision } from '@/lib/types/decisions';
 import { buildDocumentIntelligence } from '@/lib/documentIntelligence';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
-import { supportsCanonicalIntelligencePersistence } from '@/lib/canonicalIntelligenceFamilies';
+import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { SummaryCard } from '@/components/document-intelligence/SummaryCard';
 import { EntityChips } from '@/components/document-intelligence/EntityChips';
 import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
@@ -19,9 +20,17 @@ import { FlowSection } from '@/components/document-intelligence/FlowSection';
 import { ReviewSection } from '@/components/document-intelligence/ReviewSection';
 import { SignalsSection } from '@/components/document-intelligence/SignalsSection';
 import { AuditSection } from '@/components/document-intelligence/AuditSection';
+import { EvidenceSection } from '@/components/document-intelligence/EvidenceSection';
 import { AskDocumentSection } from '@/components/document-intelligence/AskDocumentSection';
 import { CrossDocChecks } from '@/components/document-intelligence/CrossDocChecks';
-import type { TriggeredWorkflowTask } from '@/lib/types/documentIntelligence';
+import type {
+  DetectedEntity,
+  DocumentExecutionTrace,
+  DocumentSummary,
+  GeneratedDecision,
+  ReviewErrorType,
+  TriggeredWorkflowTask,
+} from '@/lib/types/documentIntelligence';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -43,6 +52,7 @@ type DocumentDetail = {
   processing_error?: string | null;
   processed_at?: string | null;
   domain?: string | null;
+  intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
   relatedDocs?: RelatedDocInput[];
 };
 
@@ -100,6 +110,11 @@ type WorkflowTaskRow = {
   source_metadata?: Record<string, unknown> | null;
   details?: Record<string, unknown> | null;
   created_at: string;
+};
+
+type FeedbackState = {
+  status: 'correct' | 'incorrect';
+  reviewErrorType?: ReviewErrorType | null;
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -245,6 +260,314 @@ function getSuggestedOwner(task: WorkflowTaskRow): string | undefined {
     : undefined;
 }
 
+function parseDocumentExecutionTrace(
+  trace: DocumentExecutionTrace | Record<string, unknown> | null | undefined,
+): DocumentExecutionTrace | null {
+  if (!trace || typeof trace !== 'object') return null;
+  const candidate = trace as Partial<DocumentExecutionTrace>;
+  if (!candidate.facts || typeof candidate.facts !== 'object') return null;
+  if (!Array.isArray(candidate.decisions) || !Array.isArray(candidate.flow_tasks)) return null;
+
+  return {
+    extraction_snapshot_id:
+      typeof candidate.extraction_snapshot_id === 'string'
+        ? candidate.extraction_snapshot_id
+        : undefined,
+    facts: candidate.facts as Record<string, unknown>,
+    decisions: candidate.decisions,
+    flow_tasks: candidate.flow_tasks,
+    generated_at:
+      typeof candidate.generated_at === 'string' ? candidate.generated_at : '',
+    engine_version:
+      typeof candidate.engine_version === 'string' ? candidate.engine_version : '',
+    classification: candidate.classification,
+    summary: candidate.summary,
+    entities: candidate.entities,
+    key_facts: candidate.key_facts,
+    suggested_questions: candidate.suggested_questions,
+    extracted:
+      candidate.extracted && typeof candidate.extracted === 'object'
+        ? candidate.extracted as Record<string, unknown>
+        : undefined,
+    evidence: Array.isArray(candidate.evidence) ? candidate.evidence : undefined,
+    extraction_gaps: Array.isArray(candidate.extraction_gaps) ? candidate.extraction_gaps : undefined,
+    audit_notes: Array.isArray(candidate.audit_notes) ? candidate.audit_notes : undefined,
+    node_traces: Array.isArray(candidate.node_traces) ? candidate.node_traces : undefined,
+  };
+}
+
+function decisionStatusFromCanonical(
+  decision: DocumentExecutionTrace['decisions'][number],
+): GeneratedDecision['status'] {
+  if (decision.family === 'missing') {
+    return decision.severity === 'info' ? 'info' : 'missing';
+  }
+  if (decision.family === 'mismatch') return 'mismatch';
+  if (decision.family === 'risk') return 'risky';
+  return decision.severity === 'info' ? 'passed' : 'info';
+}
+
+function decisionSeverityFromCanonical(
+  decision: DocumentExecutionTrace['decisions'][number],
+): NonNullable<GeneratedDecision['severity']> {
+  if (decision.severity === 'critical') return 'critical';
+  if (decision.severity === 'warning') return 'high';
+  return 'low';
+}
+
+function taskPriorityFromCanonical(
+  priority: DocumentExecutionTrace['flow_tasks'][number]['priority'],
+): TriggeredWorkflowTask['priority'] {
+  if (priority === 'high') return 'P1';
+  if (priority === 'medium') return 'P2';
+  return 'P3';
+}
+
+function mapCanonicalFlowTaskToTriggeredTask(
+  task: DocumentExecutionTrace['flow_tasks'][number],
+): TriggeredWorkflowTask {
+  return {
+    id: task.id,
+    title: task.title,
+    priority: taskPriorityFromCanonical(task.priority),
+    reason: task.expected_outcome,
+    status: 'open',
+    autoCreated: true,
+    flow_type: task.flow_type,
+  };
+}
+
+type PersistedCanonicalDecisionDetails = {
+  intelligence_status?: GeneratedDecision['status'] | null;
+  action?: string | null;
+  reason?: string | null;
+  primary_action?: GeneratedDecision['primary_action'];
+  suggested_actions?: GeneratedDecision['suggested_actions'];
+  family?: GeneratedDecision['family'];
+  normalized_severity?: GeneratedDecision['normalized_severity'];
+  detail?: string | null;
+  field_key?: string | null;
+  expected_location?: string | null;
+  observed_value?: string | number | null;
+  expected_value?: string | number | null;
+  impact?: string | null;
+  fact_refs?: string[];
+  source_refs?: string[];
+  evidence_objects?: GeneratedDecision['evidence_objects'];
+  missing_source_context?: string[];
+  rule_id?: string | null;
+};
+
+function asPersistedDecisionDetails(
+  details: Record<string, unknown> | null | undefined,
+): PersistedCanonicalDecisionDetails {
+  return (details ?? {}) as PersistedCanonicalDecisionDetails;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+function generatedStatusFromPersisted(
+  row: PersistentDecisionRow,
+  traceDecision: DocumentExecutionTrace['decisions'][number] | null,
+): GeneratedDecision['status'] {
+  const details = asPersistedDecisionDetails(row.details);
+  const status = details.intelligence_status;
+  if (
+    status === 'passed' ||
+    status === 'missing' ||
+    status === 'risky' ||
+    status === 'mismatch' ||
+    status === 'info'
+  ) {
+    return status;
+  }
+  if (traceDecision) {
+    return decisionStatusFromCanonical(traceDecision);
+  }
+  return row.status === 'resolved' ? 'passed' : 'info';
+}
+
+function generatedSeverityFromPersisted(
+  row: PersistentDecisionRow,
+  traceDecision: DocumentExecutionTrace['decisions'][number] | null,
+): NonNullable<GeneratedDecision['severity']> {
+  if (traceDecision) {
+    return decisionSeverityFromCanonical(traceDecision);
+  }
+  if (row.severity === 'critical') return 'critical';
+  if (row.severity === 'high' || row.severity === 'medium') return 'high';
+  return 'low';
+}
+
+function mapPersistedDecisionRowToGeneratedDecision(params: {
+  row: PersistentDecisionRow;
+  traceDecision: DocumentExecutionTrace['decisions'][number] | null;
+  relatedTaskIds: string[];
+}): GeneratedDecision {
+  const { row, traceDecision, relatedTaskIds } = params;
+  const details = asPersistedDecisionDetails(row.details);
+  const primaryAction = details.primary_action ?? traceDecision?.primary_action;
+  const detail =
+    details.detail ??
+    traceDecision?.detail ??
+    details.reason ??
+    row.summary ??
+    row.title;
+  const reason =
+    details.reason ??
+    traceDecision?.reason ??
+    detail;
+
+  return {
+    id: row.id,
+    type: row.decision_type,
+    status: generatedStatusFromPersisted(row, traceDecision),
+    title: row.title,
+    explanation: detail,
+    reason,
+    severity: generatedSeverityFromPersisted(row, traceDecision),
+    action: primaryAction?.description ?? details.action ?? undefined,
+    primary_action: primaryAction,
+    suggested_actions: details.suggested_actions ?? traceDecision?.suggested_actions,
+    confidence: row.confidence ?? traceDecision?.confidence,
+    relatedTaskIds: relatedTaskIds.length > 0 ? relatedTaskIds : undefined,
+    family: details.family ?? traceDecision?.family,
+    detail,
+    field_key: details.field_key ?? traceDecision?.field_key,
+    expected_location: details.expected_location ?? traceDecision?.expected_location,
+    observed_value: details.observed_value ?? traceDecision?.observed_value,
+    expected_value: details.expected_value ?? traceDecision?.expected_value,
+    impact: details.impact ?? traceDecision?.impact ?? undefined,
+    fact_refs: asStringArray(details.fact_refs ?? traceDecision?.fact_refs),
+    source_refs: asStringArray(details.source_refs ?? traceDecision?.source_refs),
+    rule_id: details.rule_id ?? traceDecision?.rule_id ?? undefined,
+    normalized_severity: details.normalized_severity ?? traceDecision?.severity,
+    normalization_mode: 'structured',
+    evidence_objects: details.evidence_objects ?? traceDecision?.evidence_objects,
+    missing_source_context:
+      details.missing_source_context ??
+      traceDecision?.missing_source_context ??
+      [],
+  };
+}
+
+function mapPersistedTaskRowToTriggeredTask(task: WorkflowTaskRow): TriggeredWorkflowTask {
+  return {
+    id: task.id,
+    title: task.title,
+    priority:
+      task.priority === 'P1' || task.priority === 'critical' ? 'P1' :
+      task.priority === 'P2' || task.priority === 'high' ? 'P2' : 'P3',
+    reason: getTaskReason(task),
+    suggestedOwner: getSuggestedOwner(task),
+    status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
+      task.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
+    )
+      ? (task.status as TriggeredWorkflowTask['status'])
+      : 'open',
+    flow_type:
+      task.details?.flow_type === 'validation' ||
+      task.details?.flow_type === 'correction' ||
+      task.details?.flow_type === 'documentation' ||
+      task.details?.flow_type === 'escalation'
+        ? (task.details.flow_type as TriggeredWorkflowTask['flow_type'])
+        : task.source_metadata?.flow_type === 'validation' ||
+          task.source_metadata?.flow_type === 'correction' ||
+          task.source_metadata?.flow_type === 'documentation' ||
+          task.source_metadata?.flow_type === 'escalation'
+          ? (task.source_metadata.flow_type as TriggeredWorkflowTask['flow_type'])
+          : undefined,
+  };
+}
+
+function contractInvoiceLabel(documentType: string | null | undefined): 'Contract' | 'Invoice' {
+  return (documentType ?? '').toLowerCase() === 'invoice' ? 'Invoice' : 'Contract';
+}
+
+function buildContractInvoiceUnavailableSummary(
+  documentType: string | null | undefined,
+  message: string,
+): DocumentSummary {
+  const label = contractInvoiceLabel(documentType);
+  return {
+    headline: `${label} canonical review is unavailable.`,
+    nextAction: message,
+    traceHint: 'Canonical persisted rows required',
+  };
+}
+
+function buildContractInvoicePrimarySummary(params: {
+  documentType: string | null | undefined;
+  decisions: GeneratedDecision[];
+  tasks: TriggeredWorkflowTask[];
+}): DocumentSummary {
+  const { documentType, decisions, tasks } = params;
+  const label = contractInvoiceLabel(documentType);
+  const topDecision = decisions[0] ?? null;
+  const nextTask = tasks[0] ?? null;
+
+  if (topDecision) {
+    return {
+      headline: `${label} needs review: ${topDecision.title}.`,
+      nextAction: nextTask?.title ?? topDecision.primary_action?.description ?? topDecision.reason ?? 'Resolve the persisted findings below.',
+      traceHint: `Persisted decisions ${decisions.length}`,
+    };
+  }
+
+  if (nextTask) {
+    return {
+      headline: `${label} has persisted next actions ready.`,
+      nextAction: nextTask.title,
+      traceHint: `Persisted actions ${tasks.length}`,
+    };
+  }
+
+  return {
+    headline: `${label} has no open canonical review items.`,
+    nextAction: 'No action required.',
+    traceHint: 'No persisted findings',
+  };
+}
+
+function buildContractInvoicePrimaryEntities(params: {
+  decisions: GeneratedDecision[];
+  available: boolean;
+  unavailableMessage?: string;
+}): DetectedEntity[] {
+  const { decisions, available, unavailableMessage } = params;
+  if (!available) {
+    return [{
+      key: 'status',
+      label: 'Status',
+      value: 'Unavailable',
+      status: 'warning',
+      tooltip: unavailableMessage,
+    }];
+  }
+
+  const topDecision = decisions[0] ?? null;
+  if (!topDecision) {
+    return [{
+      key: 'status',
+      label: 'Status',
+      value: 'No open findings',
+      status: 'ok',
+    }];
+  }
+
+  return [{
+    key: 'status',
+    label: 'Status',
+    value: topDecision.status === 'mismatch' ? 'Blocked' : 'Needs review',
+    status: topDecision.status === 'mismatch' ? 'critical' : 'warning',
+    tooltip: topDecision.title,
+  }];
+}
+
 function flatScanEntities(
   obj: unknown,
   found: Map<string, string>,
@@ -316,9 +639,7 @@ export default function DocumentDetailPage({
   const [workflowTasks, setWorkflowTasks] = useState<WorkflowTaskRow[]>([]);
   const [workflowTasksLoading, setWorkflowTasksLoading] = useState(false);
   const [relatedDocs, setRelatedDocs] = useState<RelatedDocInput[]>([]);
-  const [feedbackMap, setFeedbackMap] = useState<
-    Record<string, 'correct' | 'incorrect'>
-  >({});
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackState>>({});
   const [feedbackErrorById, setFeedbackErrorById] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   const [evaluating, setEvaluating] = useState(false);
@@ -429,16 +750,31 @@ export default function DocumentDetailPage({
     setWorkflowTasksLoading(false);
 
     const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
-    if (loadedDecisions.length > 0) {
+    const loadedPersistentDecisions = (persistentResult.data ?? []) as PersistentDecisionRow[];
+    const generatedPersistentDecisionIds = loadedPersistentDecisions
+      .filter((decision) => isCurrentV2GeneratedRecord(decision))
+      .map((decision) => decision.id);
+    const feedbackDecisionIds = isContractInvoicePrimaryDocumentType(docData.document_type)
+      ? generatedPersistentDecisionIds
+      : loadedDecisions.map((decision) => decision.id);
+
+    if (feedbackDecisionIds.length > 0) {
       const { data: feedbackRows } = await supabase
         .from('decision_feedback')
-        .select('decision_id, is_correct')
-        .in('decision_id', loadedDecisions.map((d) => d.id));
+        .select('decision_id, is_correct, review_error_type')
+        .in('decision_id', feedbackDecisionIds);
 
       if (feedbackRows) {
-        const next: Record<string, 'correct' | 'incorrect'> = {};
-        for (const row of feedbackRows as Array<{ decision_id: string; is_correct: boolean }>) {
-          next[row.decision_id] = row.is_correct ? 'correct' : 'incorrect';
+        const next: Record<string, FeedbackState> = {};
+        for (const row of feedbackRows as Array<{
+          decision_id: string;
+          is_correct: boolean;
+          review_error_type?: ReviewErrorType | null;
+        }>) {
+          next[row.decision_id] = {
+            status: row.is_correct ? 'correct' : 'incorrect',
+            reviewErrorType: row.is_correct ? null : (row.review_error_type ?? 'edge_case'),
+          };
         }
         setFeedbackMap(next);
       }
@@ -488,12 +824,16 @@ export default function DocumentDetailPage({
 
   const handleDecisionFeedback = async (
     decisionId: string,
-    isCorrect: boolean,
+    input: {
+      isCorrect: boolean;
+      reviewErrorType?: ReviewErrorType | null;
+    },
   ) => {
     setFeedbackErrorById((prev) => ({ ...prev, [decisionId]: '' }));
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
+      const reviewErrorType = input.isCorrect ? null : (input.reviewErrorType ?? 'edge_case');
 
       const res = await fetch(`/api/decisions/${decisionId}/feedback`, {
         method: 'POST',
@@ -501,14 +841,20 @@ export default function DocumentDetailPage({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ is_correct: isCorrect }),
+        body: JSON.stringify({
+          is_correct: input.isCorrect,
+          review_error_type: reviewErrorType,
+        }),
       });
       if (redirectIfUnauthorized(res, router.replace)) return;
 
       if (res.ok) {
         setFeedbackMap((prev) => ({
           ...prev,
-          [decisionId]: isCorrect ? 'correct' : 'incorrect',
+          [decisionId]: {
+            status: input.isCorrect ? 'correct' : 'incorrect',
+            reviewErrorType,
+          },
         }));
       } else {
         const body = await res.json().catch(() => ({}));
@@ -572,19 +918,24 @@ export default function DocumentDetailPage({
   // ── Document Intelligence (client-side computation) ────────────────────────
   // Must be before early returns to satisfy Rules of Hooks.
 
+  const preferredExtraction = useMemo(
+    () => pickPreferredExtractionBlob(extractions),
+    [extractions],
+  );
+
   const intelligence = useMemo(() => {
     if (!doc || extractionsLoading) return null;
-    const extractionBlob = (extractions[0] ?? null)?.data ?? null;
+    const extractionBlob = preferredExtraction?.data ?? null;
     if (process.env.NEXT_PUBLIC_EIGHTFORGE_EVIDENCE_DEBUG === '1') {
       const extraction = (extractionBlob as Record<string, unknown> | null)?.extraction as Record<string, unknown> | null;
       const hasEvidence = !!(extraction && (extraction as Record<string, unknown>).evidence_v1);
       const ev = (extraction?.evidence_v1 as Record<string, unknown> | null) ?? null;
       const signals = (ev?.section_signals as Record<string, unknown> | null) ?? null;
-      // eslint-disable-next-line no-console
-      console.log('[DocumentDetailPage] latest extraction selected', {
+      console.log('[DocumentDetailPage] preferred extraction selected', {
         documentId: id,
-        extractionRowId: (extractions[0] ?? null)?.id ?? null,
-        createdAt: (extractions[0] ?? null)?.created_at ?? null,
+        latestExtractionRowId: (extractions[0] ?? null)?.id ?? null,
+        preferredExtractionRowId: preferredExtraction?.id ?? null,
+        createdAt: preferredExtraction?.created_at ?? null,
         hasEvidenceV1: hasEvidence,
         extractionMode: extraction?.mode ?? null,
         rate_section_present: signals?.rate_section_present ?? null,
@@ -600,11 +951,13 @@ export default function DocumentDetailPage({
       extractionData: extractionBlob as Record<string, unknown> | null,
       relatedDocs,
     });
-  }, [doc, extractions, relatedDocs, extractionsLoading]);
+  }, [doc, extractions, extractionsLoading, id, preferredExtraction, relatedDocs]);
 
-  const canonicalPersistenceSupported = intelligence
-    ? supportsCanonicalIntelligencePersistence(intelligence.classification.family)
-    : false;
+  const contractInvoicePrimaryMode = isContractInvoicePrimaryDocumentType(doc?.document_type);
+  const canonicalTrace = useMemo(
+    () => parseDocumentExecutionTrace(doc?.intelligence_trace ?? null),
+    [doc?.intelligence_trace],
+  );
 
   const currentV2PersistedDecisions = useMemo(() => {
     return persistentDecisions.filter((decision) => isCurrentV2GeneratedRecord(decision));
@@ -614,68 +967,220 @@ export default function DocumentDetailPage({
     return workflowTasks.filter((task) => isCurrentV2GeneratedRecord(task));
   }, [workflowTasks]);
 
-  const canonicalPersistedBundleReady = useMemo(() => {
-    if (!canonicalPersistenceSupported || !intelligence) return false;
-    const actionableDecisionCount = intelligence.decisions.filter((decision) => decision.status !== 'passed').length;
-    return currentV2PersistedDecisions.length === actionableDecisionCount &&
-      currentV2PersistedTasks.length === intelligence.tasks.length;
+  const persistedCanonicalTaskIdsByDecisionId = useMemo(() => {
+    const next = new Map<string, string[]>();
+    for (const task of currentV2PersistedTasks) {
+      if (!task.decision_id) continue;
+      const current = next.get(task.decision_id) ?? [];
+      current.push(task.id);
+      next.set(task.decision_id, current);
+    }
+    return next;
+  }, [currentV2PersistedTasks]);
+
+  const traceDecisionById = useMemo(() => {
+    return new Map(
+      (canonicalTrace?.decisions ?? []).map((decision) => [decision.id, decision] as const),
+    );
+  }, [canonicalTrace]);
+
+  const contractInvoiceRenderedDecisions = useMemo((): GeneratedDecision[] => {
+    if (!contractInvoicePrimaryMode) return [];
+
+    return currentV2PersistedDecisions.map((row) =>
+      mapPersistedDecisionRowToGeneratedDecision({
+        row,
+        traceDecision: traceDecisionById.get(row.id) ?? null,
+        relatedTaskIds: persistedCanonicalTaskIdsByDecisionId.get(row.id) ?? [],
+      }),
+    );
   }, [
-    canonicalPersistenceSupported,
+    contractInvoicePrimaryMode,
+    currentV2PersistedDecisions,
+    persistedCanonicalTaskIdsByDecisionId,
+    traceDecisionById,
+  ]);
+
+  const contractInvoiceRenderedTasks = useMemo((): TriggeredWorkflowTask[] => {
+    if (!contractInvoicePrimaryMode) return [];
+    return currentV2PersistedTasks.map(mapPersistedTaskRowToTriggeredTask);
+  }, [contractInvoicePrimaryMode, currentV2PersistedTasks]);
+
+  const actionableTraceDecisionIds = useMemo(() => {
+    if (!contractInvoicePrimaryMode || !canonicalTrace) return [];
+    return canonicalTrace.decisions
+      .filter((decision) => decision.family !== 'confirmed')
+      .map((decision) => decision.id);
+  }, [canonicalTrace, contractInvoicePrimaryMode]);
+
+  const traceTaskIds = useMemo(() => {
+    if (!contractInvoicePrimaryMode || !canonicalTrace) return [];
+    return canonicalTrace.flow_tasks.map((task) => task.id);
+  }, [canonicalTrace, contractInvoicePrimaryMode]);
+
+  const contractInvoicePrimaryUnavailableMessage = useMemo(() => {
+    if (!contractInvoicePrimaryMode) return null;
+
+    const persistedDecisionIds = new Set(currentV2PersistedDecisions.map((decision) => decision.id));
+    const persistedTaskIds = new Set(currentV2PersistedTasks.map((task) => task.id));
+    const missingPersistedActionableDecisionIds = actionableTraceDecisionIds.filter(
+      (decisionId) => !persistedDecisionIds.has(decisionId),
+    );
+    const missingPersistedTaskIds = traceTaskIds.filter(
+      (taskId) => !persistedTaskIds.has(taskId),
+    );
+
+    if (missingPersistedActionableDecisionIds.length > 0 || missingPersistedTaskIds.length > 0) {
+      return 'Canonical persisted decisions or tasks are stale relative to the document trace. Reprocess this document before reviewing findings.';
+    }
+
+    if (canonicalTrace == null && currentV2PersistedDecisions.length === 0 && currentV2PersistedTasks.length === 0) {
+      return doc?.processing_status === 'decisioned'
+        ? 'Canonical persisted contract/invoice artifacts are unavailable. Reprocess this document to rebuild the primary review state.'
+        : 'Canonical contract/invoice review is not ready yet. Wait for processing to complete or reprocess the document.';
+    }
+
+    return null;
+  }, [
+    actionableTraceDecisionIds,
+    canonicalTrace,
+    contractInvoicePrimaryMode,
     currentV2PersistedDecisions,
     currentV2PersistedTasks,
-    intelligence,
+    doc?.processing_status,
+    traceTaskIds,
   ]);
+
+  const contractInvoicePrimaryAvailable = contractInvoicePrimaryMode && contractInvoicePrimaryUnavailableMessage == null;
 
   const persistedDecisionsToShow = useMemo(() => {
-    if (!canonicalPersistenceSupported) return persistentDecisions;
-    return canonicalPersistedBundleReady ? currentV2PersistedDecisions : [];
-  }, [
-    canonicalPersistedBundleReady,
-    canonicalPersistenceSupported,
-    currentV2PersistedDecisions,
-    persistentDecisions,
-  ]);
+    if (contractInvoicePrimaryMode) return currentV2PersistedDecisions;
+    return persistentDecisions;
+  }, [contractInvoicePrimaryMode, currentV2PersistedDecisions, persistentDecisions]);
 
   const persistedTasksToShow = useMemo(() => {
-    if (!canonicalPersistenceSupported) return workflowTasks;
-    return canonicalPersistedBundleReady ? currentV2PersistedTasks : [];
+    if (contractInvoicePrimaryMode) return currentV2PersistedTasks;
+    return workflowTasks;
+  }, [contractInvoicePrimaryMode, currentV2PersistedTasks, workflowTasks]);
+
+  const displayDecisions = useMemo((): GeneratedDecision[] => {
+    if (contractInvoicePrimaryMode) {
+      return contractInvoicePrimaryAvailable ? contractInvoiceRenderedDecisions : [];
+    }
+    return intelligence?.decisions ?? [];
   }, [
-    canonicalPersistedBundleReady,
-    canonicalPersistenceSupported,
-    currentV2PersistedTasks,
-    workflowTasks,
+    contractInvoicePrimaryAvailable,
+    contractInvoicePrimaryMode,
+    contractInvoiceRenderedDecisions,
+    intelligence,
   ]);
 
-  const tasksToShow = useMemo((): TriggeredWorkflowTask[] => {
-    if (!intelligence) return [];
-    // Non-canonical families (operational, generic): always use computed tasks.
-    // Persisted tasks from legacy pipeline runs are unreliable for these families.
-    if (!canonicalPersistenceSupported) return intelligence.tasks;
-    // Canonical families: use computed tasks when the persisted bundle is not ready.
-    if (!canonicalPersistedBundleReady) return intelligence.tasks;
-    if (persistedTasksToShow.length > 0) {
-      return persistedTasksToShow.map((t) => ({
-        id: t.id,
-        title: t.title,
-        priority:
-          t.priority === 'P1' || t.priority === 'critical' ? 'P1' :
-          t.priority === 'P2' || t.priority === 'high' ? 'P2' : 'P3',
-        reason: getTaskReason(t),
-        suggestedOwner: getSuggestedOwner(t),
-        status: (['open', 'in_progress', 'resolved', 'auto_completed'] as const).includes(
-          t.status as 'open' | 'in_progress' | 'resolved' | 'auto_completed',
-        )
-          ? (t.status as TriggeredWorkflowTask['status'])
-          : 'open',
-      }));
+  const displayTasks = useMemo((): TriggeredWorkflowTask[] => {
+    if (contractInvoicePrimaryMode) {
+      return contractInvoicePrimaryAvailable ? contractInvoiceRenderedTasks : [];
     }
-    return intelligence.tasks;
+    return intelligence?.tasks ?? [];
   }, [
-    canonicalPersistedBundleReady,
-    canonicalPersistenceSupported,
+    contractInvoicePrimaryAvailable,
+    contractInvoicePrimaryMode,
+    contractInvoiceRenderedTasks,
     intelligence,
-    persistedTasksToShow,
   ]);
+
+  const displaySummary = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      if (contractInvoicePrimaryUnavailableMessage) {
+        return buildContractInvoiceUnavailableSummary(
+          doc?.document_type,
+          contractInvoicePrimaryUnavailableMessage,
+        );
+      }
+      if (canonicalTrace?.summary) return canonicalTrace.summary;
+      return buildContractInvoicePrimarySummary({
+        documentType: doc?.document_type,
+        decisions: contractInvoiceRenderedDecisions,
+        tasks: contractInvoiceRenderedTasks,
+      });
+    }
+    return intelligence?.summary ?? null;
+  }, [
+    canonicalTrace,
+    contractInvoicePrimaryMode,
+    contractInvoicePrimaryUnavailableMessage,
+    contractInvoiceRenderedDecisions,
+    contractInvoiceRenderedTasks,
+    doc?.document_type,
+    intelligence,
+  ]);
+
+  const displayEntities = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      if (canonicalTrace?.entities) return canonicalTrace.entities;
+      return buildContractInvoicePrimaryEntities({
+        decisions: contractInvoiceRenderedDecisions,
+        available: contractInvoicePrimaryAvailable,
+        unavailableMessage: contractInvoicePrimaryUnavailableMessage ?? undefined,
+      });
+    }
+    return intelligence?.entities ?? [];
+  }, [
+    canonicalTrace,
+    contractInvoicePrimaryAvailable,
+    contractInvoicePrimaryMode,
+    contractInvoicePrimaryUnavailableMessage,
+    contractInvoiceRenderedDecisions,
+    intelligence,
+  ]);
+
+  const displayEvidence = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.evidence ?? [];
+    }
+    return intelligence?.evidence ?? [];
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const displayExtractionGaps = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.extraction_gaps ?? [];
+    }
+    return intelligence?.extractionGaps ?? [];
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const displayAuditNotes = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.audit_notes ?? [];
+    }
+    return intelligence?.auditNotes ?? [];
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const displayNodeTraces = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.node_traces ?? [];
+    }
+    return intelligence?.nodeTraces ?? [];
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const displaySuggestedQuestions = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.suggested_questions ?? [];
+    }
+    return intelligence?.suggestedQuestions ?? [];
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const displayExtracted = useMemo(() => {
+    if (contractInvoicePrimaryMode) {
+      return canonicalTrace?.extracted ?? null;
+    }
+    return intelligence?.extracted ?? null;
+  }, [canonicalTrace, contractInvoicePrimaryMode, intelligence]);
+
+  const reviewableDecisionIds = useMemo(
+    () =>
+      contractInvoicePrimaryMode
+        ? contractInvoiceRenderedDecisions.map((decision) => decision.id)
+        : [],
+    [contractInvoicePrimaryMode, contractInvoiceRenderedDecisions],
+  );
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
@@ -729,11 +1234,14 @@ export default function DocumentDetailPage({
   const project      = resolveProject(doc.projects);
   const filename     = doc.storage_path.split('/').at(-1) ?? doc.storage_path;
 
-  const latestExtraction = extractions[0] ?? null;
+  const latestExtraction = preferredExtraction;
   // Prefer operator-grade intelligence key facts; fall back to raw extraction key facts.
   const keyFacts = intelligence?.keyFacts?.length
     ? intelligence.keyFacts
     : (latestExtraction ? extractKeyFacts(latestExtraction.data) : []);
+  const shouldRenderPrimaryIntelligence = contractInvoicePrimaryMode
+    ? displaySummary != null
+    : intelligence != null && displaySummary != null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -797,33 +1305,61 @@ export default function DocumentDetailPage({
         </div>
 
         {/* ── Intelligence sections ─────────────────────────────────────── */}
-        {intelligence && (
+        {shouldRenderPrimaryIntelligence && displaySummary && (
           <div className="mb-5 space-y-3">
             {/* 1. Summary */}
-            <SummaryCard summary={intelligence.summary} />
+            <SummaryCard summary={displaySummary} />
 
             {/* 2. Entity chips */}
-            {intelligence.entities.length > 0 && (
-              <EntityChips entities={intelligence.entities} />
+            {displayEntities.length > 0 && (
+              <EntityChips entities={displayEntities} />
             )}
 
             {/* 3. Decisions — grouped by status */}
-            <DecisionsSection decisions={intelligence.decisions} />
+            <DecisionsSection
+              decisions={displayDecisions}
+              projectContextLabel={project?.name ?? undefined}
+              reviewableDecisionIds={reviewableDecisionIds}
+              unavailableMessage={
+                contractInvoicePrimaryMode
+                  ? contractInvoicePrimaryUnavailableMessage ?? undefined
+                  : undefined
+              }
+              feedbackById={contractInvoicePrimaryMode ? feedbackMap : undefined}
+              feedbackErrorById={contractInvoicePrimaryMode ? feedbackErrorById : undefined}
+              onReviewDecision={contractInvoicePrimaryMode ? handleDecisionFeedback : undefined}
+            />
 
-            {/* 4. Flow — next actions (DB tasks preferred over computed) */}
-            <FlowSection tasks={tasksToShow} />
+            {/* 4. Flow — next actions */}
+            <FlowSection
+              tasks={displayTasks}
+              unavailableMessage={
+                contractInvoicePrimaryMode
+                  ? contractInvoicePrimaryUnavailableMessage ?? undefined
+                  : undefined
+              }
+            />
 
             {/* 5. Review — human validation */}
             <ReviewSection documentId={id} orgId={orgId ?? undefined} />
 
             {/* 6. Signals — attention flags derived from decisions */}
-            <SignalsSection decisions={intelligence.decisions} />
+            <SignalsSection decisions={displayDecisions} />
+
+            {/* 7. Evidence and extraction gaps */}
+            <EvidenceSection
+              evidence={displayEvidence}
+              gaps={displayExtractionGaps}
+            />
 
             {/* 7. Ask this document */}
-            <AskDocumentSection questions={intelligence.suggestedQuestions} />
+            <AskDocumentSection
+              questions={displaySuggestedQuestions}
+              documentId={id}
+            />
 
             {/* 8. Cross-doc checks */}
-            {intelligence.comparisons && intelligence.comparisons.length > 0 && (
+            {intelligence?.comparisons && intelligence.comparisons.length > 0 && (
               <CrossDocChecks comparisons={intelligence.comparisons} />
             )}
 
@@ -834,16 +1370,18 @@ export default function DocumentDetailPage({
               decisionsGeneratedAt={persistedDecisionsToShow[0]?.created_at ?? null}
               tasksCreatedAt={persistedTasksToShow[0]?.created_at ?? null}
               currentStatus={doc.processing_status}
+              auditNotes={displayAuditNotes}
+              nodeTraces={displayNodeTraces}
             />
 
             {/* 6. Structured extracted data (collapsed) */}
-            {intelligence.extracted && Object.keys(intelligence.extracted).length > 0 && (
+            {displayExtracted && Object.keys(displayExtracted).length > 0 && (
               <details className="rounded-xl border border-white/10 bg-[#0F1117]">
                 <summary className="cursor-pointer select-none px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#8B94A3] hover:text-[#C5CAD4]">
                   Structured Extracted Data
                 </summary>
                 <pre className="overflow-x-auto px-5 pb-4 pt-2 text-[10px] leading-relaxed text-[#F5F7FA]/80">
-                  {JSON.stringify(intelligence.extracted, null, 2)}
+                  {JSON.stringify(displayExtracted, null, 2)}
                 </pre>
               </details>
             )}
@@ -856,6 +1394,17 @@ export default function DocumentDetailPage({
                 </summary>
                 <pre className="overflow-x-auto px-5 pb-4 pt-2 text-[10px] leading-relaxed text-[#F5F7FA]/60">
                   {JSON.stringify(latestExtraction.data, null, 2)}
+                </pre>
+              </details>
+            )}
+
+            {doc.intelligence_trace && Object.keys(doc.intelligence_trace).length > 0 && (
+              <details className="rounded-xl border border-white/10 bg-[#0F1117]">
+                <summary className="cursor-pointer select-none px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#8B94A3] hover:text-[#C5CAD4]">
+                  Persisted Execution Trace
+                </summary>
+                <pre className="overflow-x-auto px-5 pb-4 pt-2 text-[10px] leading-relaxed text-[#F5F7FA]/60">
+                  {JSON.stringify(doc.intelligence_trace, null, 2)}
                 </pre>
               </details>
             )}
@@ -948,6 +1497,8 @@ export default function DocumentDetailPage({
           })()}
         </div>
 
+        {!contractInvoicePrimaryMode && (
+          <>
         {/* D — Decisions Generated */}
         <div className="mb-4 rounded-md border border-[#1A1A3E] bg-[#0A0A20] p-4">
           <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#8B94A3]">
@@ -1002,6 +1553,8 @@ export default function DocumentDetailPage({
             </div>
           )}
         </div>
+          </>
+        )}
       </section>
 
       {/* Evaluation summary + Evaluate button */}
@@ -1204,6 +1757,8 @@ export default function DocumentDetailPage({
         ) : null}
       </section>
 
+      {!contractInvoicePrimaryMode && (
+        <>
       {/* Decisions (from decisions table) */}
       <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decisions</div>
@@ -1315,6 +1870,8 @@ export default function DocumentDetailPage({
           </div>
         )}
       </section>
+        </>
+      )}
 
       {/* Extractions */}
       <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
@@ -1339,8 +1896,8 @@ export default function DocumentDetailPage({
         )}
       </section>
 
-      {/* Document Decisions (raw engine output) */}
-      <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+      {!contractInvoicePrimaryMode && (
+        <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
         <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Decision Signals</div>
         {decisionsLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
@@ -1376,16 +1933,16 @@ export default function DocumentDetailPage({
                       <DecisionSourceBadge source={d.source} />
                     </td>
                     <td className="py-2 text-right">
-                      {feedbackMap[d.id] === 'correct' ? (
+                      {feedbackMap[d.id]?.status === 'correct' ? (
                         <span className="text-[11px] text-emerald-400">✓</span>
-                      ) : feedbackMap[d.id] === 'incorrect' ? (
+                      ) : feedbackMap[d.id]?.status === 'incorrect' ? (
                         <span className="text-[11px] text-red-400">✗</span>
                       ) : (
                         <span className="inline-flex flex-col items-end gap-1">
                           <span className="inline-flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => handleDecisionFeedback(d.id, true)}
+                              onClick={() => handleDecisionFeedback(d.id, { isCorrect: true })}
                               className="text-[11px] text-[#8B94A3] hover:text-emerald-400"
                               aria-label="Mark decision correct"
                             >
@@ -1393,7 +1950,7 @@ export default function DocumentDetailPage({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDecisionFeedback(d.id, false)}
+                              onClick={() => handleDecisionFeedback(d.id, { isCorrect: false, reviewErrorType: 'edge_case' })}
                               className="text-[11px] text-[#8B94A3] hover:text-red-400"
                               aria-label="Mark decision incorrect"
                             >
@@ -1413,6 +1970,7 @@ export default function DocumentDetailPage({
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

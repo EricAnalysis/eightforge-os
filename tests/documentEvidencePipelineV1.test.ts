@@ -32,7 +32,7 @@ test('rate-bearing section detection works without literal “Exhibit A”', () 
   assert.ok((result.section_signals.rate_section_label ?? '').toLowerCase().includes('schedule'));
   assert.ok(result.section_signals.rate_items_detected >= 3);
   assert.ok(result.section_signals.rate_units_detected.includes('ton'));
-  assert.ok(result.section_signals.rate_units_detected.some((u) => u.includes('cubic') || u === 'cy'));
+  assert.ok(result.section_signals.rate_units_detected.some((u: string) => u.includes('cubic') || u === 'cy'));
 });
 
 test('contractor and owner extraction from first-page party language', () => {

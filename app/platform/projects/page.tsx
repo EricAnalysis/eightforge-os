@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState, FormEvent } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
@@ -180,8 +181,21 @@ export default function ProjectsPage() {
             <tbody>
               {projects.map((project) => (
                 <tr key={project.id} className="border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]">
-                  <td className="px-4 py-3 font-mono text-[#8B94A3]">{project.code}</td>
-                  <td className="px-4 py-3 font-medium text-[#F5F7FA]">{project.name}</td>
+                  <td className="px-4 py-3 font-mono text-[#8B94A3]">
+                    <Link href={`/platform/projects/${project.id}`} className="hover:text-[#F5F7FA] hover:underline">
+                      {project.code}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link href={`/platform/projects/${project.id}`} className="block">
+                      <span className="font-medium text-[#F5F7FA] hover:text-[#8B5CFF]">
+                        {project.name}
+                      </span>
+                      <span className="mt-1 block text-[10px] uppercase tracking-[0.14em] text-[#8B94A3]">
+                        Open project overview
+                      </span>
+                    </Link>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium capitalize ${STATUS_STYLES[project.status] ?? STATUS_STYLES['archived']}`}>
                       {project.status}

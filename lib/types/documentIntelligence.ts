@@ -1,6 +1,8 @@
 // lib/types/documentIntelligence.ts
 // Client-safe types for the document intelligence output model.
 // Used by buildDocumentIntelligence() and all document-intelligence UI components.
+
+import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 //
 // Primary document families (first-class):
 //   contract/rate docs · ticket exports/PDFs · invoices/payment recs · spreadsheet support
@@ -14,6 +16,8 @@ export type IntelligenceStatus = 'passed' | 'missing' | 'risky' | 'mismatch' | '
 export type DecisionSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type TaskPriority = 'P1' | 'P2' | 'P3';
 export type TaskStatus = 'open' | 'in_progress' | 'resolved' | 'auto_completed';
+export type DecisionFamily = 'missing' | 'mismatch' | 'risk' | 'confirmed';
+export type ReviewErrorType = 'extraction_error' | 'rule_error' | 'edge_case';
 export type DocumentFamily =
   | 'contract'
   | 'invoice'
@@ -29,6 +33,8 @@ export interface DocumentSummary {
   headline: string;
   nextAction: string;
   confidence?: number;
+  /** Short, non-narrative trace line (e.g. citation counts for the audit header). */
+  traceHint?: string;
 }
 
 export interface DocumentClassification {
@@ -51,6 +57,45 @@ export interface IntelligenceIssue {
   action: string;
 }
 
+export type DecisionActionType =
+  | 'verify'
+  | 'confirm'
+  | 'attach'
+  | 'recalculate'
+  | 'map'
+  | 'approve'
+  | 'use'
+  | 'escalate'
+  | 'document';
+
+export type DecisionActionTargetType =
+  | 'contract'
+  | 'invoice'
+  | 'payment_recommendation'
+  | 'rate_schedule'
+  | 'ticket'
+  | 'spreadsheet'
+  | 'field'
+  | 'review'
+  | 'document';
+
+export interface DecisionAction {
+  id: string;
+  type: DecisionActionType;
+  target_object_type: DecisionActionTargetType;
+  target_object_id?: string | null;
+  target_label: string;
+  description: string;
+  expected_outcome: string;
+  resolvable: boolean;
+}
+
+export interface DecisionProjectContext {
+  label: string;
+  project_id?: string | null;
+  project_code?: string | null;
+}
+
 export interface DetectedEntity {
   key: string;
   label: string;
@@ -59,17 +104,82 @@ export interface DetectedEntity {
   tooltip?: string;
 }
 
+export interface AuditNote {
+  id: string;
+  stage: 'extract' | 'normalize' | 'decision' | 'action' | 'audit';
+  status: 'info' | 'warning' | 'critical';
+  message: string;
+  evidence_refs?: string[];
+  fact_refs?: string[];
+}
+
+export interface PipelineTraceNode {
+  node: 'extract' | 'normalize' | 'decision' | 'action' | 'audit';
+  status: 'completed' | 'failed';
+  summary: string;
+  gap_count: number;
+  evidence_count?: number;
+  fact_count?: number;
+  decision_count?: number;
+  action_count?: number;
+  evidence_citation_count?: number;
+}
+
+export type ReconciliationScope = 'single_document' | 'cross_document';
+
+export interface NormalizedDecision {
+  id: string;
+  family: DecisionFamily;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+  confidence?: number;
+  reason?: string;
+  field_key?: string;
+  expected_location?: string;
+  observed_value?: string | number | null;
+  expected_value?: string | number | null;
+  impact?: string;
+  fact_refs?: string[];
+  source_refs?: string[];
+  rule_id?: string;
+  primary_action?: DecisionAction;
+  suggested_actions?: DecisionAction[];
+  evidence_objects?: EvidenceObject[];
+  missing_source_context?: string[];
+  /** Whether this finding compares or depends on linked documents vs the primary file only. */
+  reconciliation_scope?: ReconciliationScope;
+}
+
 export interface GeneratedDecision {
   id: string;
   type: string;
   status: IntelligenceStatus;
   title: string;
   explanation: string;
+  reason?: string;
   severity?: DecisionSeverity;
   action?: string;
+  primary_action?: DecisionAction;
+  suggested_actions?: DecisionAction[];
   evidence?: string[];
   confidence?: number;
   relatedTaskIds?: string[];
+  family?: DecisionFamily;
+  detail?: string;
+  field_key?: string;
+  expected_location?: string;
+  observed_value?: string | number | null;
+  expected_value?: string | number | null;
+  impact?: string;
+  fact_refs?: string[];
+  source_refs?: string[];
+  rule_id?: string;
+  normalized_severity?: NormalizedDecision['severity'];
+  normalization_mode?: 'structured' | 'legacy';
+  evidence_objects?: EvidenceObject[];
+  missing_source_context?: string[];
+  reconciliation_scope?: ReconciliationScope;
 }
 
 export interface TriggeredWorkflowTask {
@@ -80,8 +190,47 @@ export interface TriggeredWorkflowTask {
   suggestedOwner?: string;
   status: TaskStatus;
   autoCreated?: boolean;
+  flow_type?: FlowTask['flow_type'];
   /** Stable machine key for dedupe — never use title for identity checks. */
   dedupeKey?: string;
+}
+
+export interface FlowTask {
+  id: string;
+  title: string;
+  verb: 'verify' | 'confirm' | 'attach' | 'recalculate' | 'escalate' | 'correct' | 'match' | 'map';
+  entity_type: 'contract' | 'rate_schedule' | 'invoice' | 'payment_recommendation' | 'ticket' | 'spreadsheet' | 'review';
+  scope?: string;
+  expected_outcome: string;
+  priority: 'low' | 'medium' | 'high';
+  auto_safe: boolean;
+  source_decision_ids: string[];
+  flow_type: 'validation' | 'correction' | 'documentation' | 'escalation';
+  /**
+   * When set, used as TriggeredWorkflowTask.dedupeKey (e.g. taskType:upload_payment_rec)
+   * so canonical invoice output matches rule-pack machine keys and rerun dedupe.
+   */
+  dedupe_key?: string;
+  suggested_owner?: string;
+}
+
+export interface DocumentExecutionTrace {
+  extraction_snapshot_id?: string;
+  facts: Record<string, unknown>;
+  decisions: NormalizedDecision[];
+  flow_tasks: FlowTask[];
+  generated_at: string;
+  engine_version: string;
+  classification?: DocumentClassification;
+  summary?: DocumentSummary;
+  entities?: DetectedEntity[];
+  key_facts?: IntelligenceKeyFact[];
+  suggested_questions?: SuggestedQuestion[];
+  extracted?: Record<string, unknown>;
+  evidence?: EvidenceObject[];
+  extraction_gaps?: ExtractionGap[];
+  audit_notes?: AuditNote[];
+  node_traces?: PipelineTraceNode[];
 }
 
 export interface ComparisonResult {
@@ -93,6 +242,11 @@ export interface ComparisonResult {
   rightLabel: string;
   rightValue: string | number | null;
   explanation: string;
+  reconciliation_scope?: ReconciliationScope;
+  /** Citation ids for the left-hand side (usually primary document facts). */
+  source_refs_left?: string[];
+  /** Citation ids for the right-hand side (linked document or second source). */
+  source_refs_right?: string[];
 }
 
 /** A suggested question the operator can ask about this document */
@@ -289,8 +443,15 @@ export interface DocumentIntelligenceOutput {
   entities: DetectedEntity[];
   decisions: GeneratedDecision[];
   tasks: TriggeredWorkflowTask[];
+  normalizedDecisions?: NormalizedDecision[];
+  flowTasks?: FlowTask[];
+  facts?: Record<string, unknown>;
   suggestedQuestions: SuggestedQuestion[];
   comparisons?: ComparisonResult[];
+  evidence?: EvidenceObject[];
+  extractionGaps?: ExtractionGap[];
+  auditNotes?: AuditNote[];
+  nodeTraces?: PipelineTraceNode[];
   extracted:
     | ContractExtraction
     | InvoiceExtraction

@@ -16,6 +16,14 @@ import {
   type PageTextEvidence,
   type EvidenceSourceMethod,
 } from '@/lib/server/documentEvidencePipelineV1';
+import { loadPdfLayout, buildPdfTextExtraction } from '@/lib/extraction/pdf/extractText';
+import { buildPdfTableExtraction } from '@/lib/extraction/pdf/extractTables';
+import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
+import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
+import { parseWorkbook } from '@/lib/extraction/xlsx/parseWorkbook';
+import { detectSheets } from '@/lib/extraction/xlsx/detectSheets';
+import { normalizeTicketExport } from '@/lib/extraction/xlsx/normalizeTicketExport';
+import { buildSpreadsheetEvidence } from '@/lib/extraction/xlsx/buildSpreadsheetEvidence';
 
 const TEXT_EXTENSIONS = new Set([
   'txt',
@@ -34,6 +42,12 @@ const TEXT_MIMES = new Set([
   'text/html',
   'application/xml',
   'text/xml',
+]);
+const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xlsm', 'xls']);
+const SPREADSHEET_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
 ]);
 
 const MAX_PREVIEW_CHARS = 12000;
@@ -115,10 +129,11 @@ export type ExtractionPayload = {
     size_bytes: number | null;
   };
   extraction: {
-    mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'binary_fallback';
+    mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'spreadsheet' | 'binary_fallback';
     text_preview: string | null;
     detected_document_type: string | null;
     evidence_v1?: ReturnType<typeof buildEvidenceV1>;
+    content_layers_v1?: Record<string, unknown>;
   };
   fields: {
     detected_document_type: string | null;
@@ -151,6 +166,13 @@ function isPdf(fileName: string, mimeType: string | null): boolean {
   const ext = getExtension(fileName);
   if (ext === 'pdf') return true;
   if (mimeType && mimeType.toLowerCase() === 'application/pdf') return true;
+  return false;
+}
+
+function isSpreadsheet(fileName: string, mimeType: string | null): boolean {
+  const ext = getExtension(fileName);
+  if (SPREADSHEET_EXTENSIONS.has(ext)) return true;
+  if (mimeType && SPREADSHEET_MIMES.has(mimeType.toLowerCase())) return true;
   return false;
 }
 
@@ -695,16 +717,16 @@ async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | n
 
     const worker = await createWorker('eng', undefined, { langPath });
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: 6 });
+      await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
 
       const parts: string[] = [];
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
         const viewport = page.getViewport({ scale: 2 });
         const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
 
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: ctx, viewport } as any).promise;
         const pngBuffer = canvas.toBuffer('image/png');
 
         const result = await worker.recognize(pngBuffer);
@@ -744,16 +766,16 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
 
     const worker = await createWorker('eng', undefined, { langPath });
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: 6 });
+      await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
       const out: PageTextEvidence[] = [];
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
         const viewport = page.getViewport({ scale: 2 });
         const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
 
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: ctx, viewport } as any).promise;
         const pngBuffer = canvas.toBuffer('image/png');
         const result = await worker.recognize(pngBuffer);
         const text = result?.data?.text;
@@ -780,7 +802,7 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
 
 function buildBase(
   metadata: DocumentMetadata,
-  mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'binary_fallback',
+  mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'spreadsheet' | 'binary_fallback',
   textPreview: string | null
 ): ExtractionPayload {
   const title = metadata.title ?? metadata.name;
@@ -962,6 +984,26 @@ export async function extractDocument(
           : extractedText
         : null;
 
+    const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
+      maxPages: MAX_EVIDENCE_PAGES,
+    });
+    const pdfTextLayer = buildPdfTextExtraction({
+      layout: pdfLayout,
+      fallbackText: extractedText ?? textPreview ?? null,
+    });
+    const pdfTableLayer = buildPdfTableExtraction({
+      layout: pdfLayout,
+    });
+    const pdfFormLayer = buildPdfFormExtraction({
+      layout: pdfLayout,
+    });
+    const pdfEvidenceLayer = buildPdfEvidenceMap({
+      sourceDocumentId: metadata.id,
+      text: pdfTextLayer,
+      tables: pdfTableLayer,
+      forms: pdfFormLayer,
+    });
+
     // If OCR ran, we must not return `text_preview: null` even if OCR was imperfect.
     if (textPreview != null && (textPreview.length > 0 || didAttemptOcr)) {
       const payload = buildBase(metadata, extractionMode, textPreview);
@@ -976,6 +1018,18 @@ export async function extractDocument(
             : []),
         documentTypeHint: payload.fields.detected_document_type ?? null,
       });
+      payload.extraction.content_layers_v1 = {
+        parser_version: 'content_layers_v1',
+        source_kind: 'pdf',
+        pdf: {
+          text: pdfTextLayer,
+          tables: pdfTableLayer,
+          forms: pdfFormLayer,
+          evidence: pdfEvidenceLayer.evidence,
+          confidence: pdfEvidenceLayer.confidence,
+          gaps: pdfEvidenceLayer.gaps,
+        },
+      };
       if (extractionMode === 'pdf_fallback') {
         payload.summary = 'File received; PDF extraction is not yet deeply parsed server-side.';
       }
@@ -991,6 +1045,59 @@ export async function extractDocument(
       pageText: evidencePageText,
       documentTypeHint: payload.fields.detected_document_type ?? null,
     });
+    payload.extraction.content_layers_v1 = {
+      parser_version: 'content_layers_v1',
+      source_kind: 'pdf',
+      pdf: {
+        text: pdfTextLayer,
+        tables: pdfTableLayer,
+        forms: pdfFormLayer,
+        evidence: pdfEvidenceLayer.evidence,
+        confidence: pdfEvidenceLayer.confidence,
+        gaps: pdfEvidenceLayer.gaps,
+      },
+    };
+    return payload;
+  }
+
+  if (isSpreadsheet(fileName, mimeType)) {
+    const workbook = await parseWorkbook(cloneArrayBuffer(fileBytes));
+    const detectedSheets = detectSheets(workbook);
+    const ticketExport = normalizeTicketExport({
+      workbook,
+      detectedSheets,
+    });
+    const spreadsheetEvidence = buildSpreadsheetEvidence({
+      sourceDocumentId: metadata.id,
+      workbook,
+      detectedSheets,
+      ticketExport,
+    });
+    const textPreview = workbook.workbook_text_preview || null;
+    const payload = buildBase(metadata, 'spreadsheet', textPreview);
+    payload.file.mime_type = mimeType;
+    payload.file.size_bytes = size;
+    if (!payload.fields.detected_document_type && ticketExport) {
+      payload.fields.detected_document_type = 'ticket';
+    }
+    if (textPreview) {
+      applyDerivedFields(payload, textPreview);
+    }
+    payload.extraction.content_layers_v1 = {
+      parser_version: 'content_layers_v1',
+      source_kind: 'xlsx',
+      spreadsheet: {
+        workbook,
+        detected_sheets: detectedSheets,
+        normalized_ticket_export: ticketExport,
+        evidence: spreadsheetEvidence.evidence,
+        confidence: spreadsheetEvidence.confidence,
+        gaps: spreadsheetEvidence.gaps,
+      },
+    };
+    payload.summary = ticketExport
+      ? 'Workbook parsed with ticket-export normalization.'
+      : 'Workbook parsed into structured sheet evidence.';
     return payload;
   }
 

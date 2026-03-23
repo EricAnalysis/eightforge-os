@@ -5,6 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
+import {
+  hasUsableExtractionBlobData,
+  pickPreferredExtractionBlob,
+} from '@/lib/blobExtractionSelection';
 
 export async function GET(
   request: NextRequest,
@@ -43,16 +47,25 @@ export async function GET(
 
   const full = request.nextUrl.searchParams.get('full') === '1';
 
-  const { data: extractionRow } = await admin
+  const { data: extractionRows } = await admin
     .from('document_extractions')
     .select('id, created_at, data')
     .eq('document_id', documentId)
     .is('field_key', null)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
-  const blob = ((extractionRow as { data?: Record<string, unknown> | null } | null)?.data ?? null) as Record<string, unknown> | null;
+  const latestExtractionRow = (extractionRows?.[0] ?? null) as
+    | { id?: string; created_at?: string; data?: Record<string, unknown> | null }
+    | null;
+  const preferredExtractionRow = pickPreferredExtractionBlob(
+    (extractionRows ?? []) as Array<{
+      id?: string | null;
+      created_at?: string | null;
+      data?: Record<string, unknown> | null;
+    }>,
+  );
+  const blob = (preferredExtractionRow?.data ?? null) as Record<string, unknown> | null;
   const extraction = (blob?.extraction as Record<string, unknown> | null) ?? null;
   const ev = (extraction?.evidence_v1 as Record<string, unknown> | null) ?? null;
   const pageText = (ev?.page_text as Array<{ page_number: number; text: string; source_method: string }> | null) ?? null;
@@ -69,8 +82,11 @@ export async function GET(
 
   return NextResponse.json({
     document_id: documentId,
-    latest_extraction_id: (extractionRow as { id?: string } | null)?.id ?? null,
-    created_at: (extractionRow as { created_at?: string } | null)?.created_at ?? null,
+    latest_extraction_id: latestExtractionRow?.id ?? null,
+    latest_created_at: latestExtractionRow?.created_at ?? null,
+    latest_usable: hasUsableExtractionBlobData(latestExtractionRow?.data ?? null),
+    preferred_extraction_id: preferredExtractionRow?.id ?? null,
+    preferred_created_at: preferredExtractionRow?.created_at ?? null,
     extraction_mode: extraction?.mode ?? null,
     has_evidence_v1: !!ev,
     section_signals: signals,

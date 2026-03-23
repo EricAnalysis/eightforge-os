@@ -1,23 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useState, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
-import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
-import { useCurrentOrg } from '@/lib/useCurrentOrg';
-import { useOrgMembers } from '@/lib/useOrgMembers';
-import { formatDueDate } from '@/lib/dateUtils';
-import { isDecisionOverdue, OverdueBadge, DECISION_OPEN_STATUSES } from '@/lib/overdue';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AGING_BUCKETS, ageBucketKey, type AgingBucketKey } from '@/lib/aging';
-import { filterCurrentQueueRecords, isHistoryStatusFilter } from '@/lib/currentWork';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { formatDueDate } from '@/lib/dateUtils';
+import {
+  resolveDecisionPrimaryAction,
+  resolveDecisionProjectContext,
+  resolveDecisionReason,
+} from '@/lib/decisionActions';
+import { isHistoryStatusFilter } from '@/lib/currentWork';
+import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
+import { supabase } from '@/lib/supabaseClient';
+import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { useOperationalModel } from '@/lib/useOperationalModel';
+import { useOrgMembers } from '@/lib/useOrgMembers';
+import { DECISION_OPEN_STATUSES, OverdueBadge, isDecisionOverdue } from '@/lib/overdue';
+import type { OperationalDecisionQueueItem } from '@/lib/server/operationalQueue';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 type AssigneeRef = { id: string; display_name: string | null } | null;
 
-type DecisionRow = {
+type HistoryDecisionRow = {
   id: string;
   document_id: string | null;
   decision_type: string;
@@ -30,13 +35,40 @@ type DecisionRow = {
   created_at: string;
   due_at: string | null;
   assigned_to: string | null;
-  assigned_at: string | null;
   details?: Record<string, unknown> | null;
   assignee: AssigneeRef | AssigneeRef[];
   documents?: DocumentRef | DocumentRef[];
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+type DecisionListItem = {
+  id: string;
+  decisionId: string | null;
+  documentId: string | null;
+  decisionType: string;
+  title: string;
+  summary: string;
+  severity: string;
+  status: string;
+  confidence: number | null;
+  createdAt: string;
+  detectedAt: string | null;
+  dueAt: string | null;
+  assignedTo: string | null;
+  assignedName: string | null;
+  projectLabel: string | null;
+  primaryActionLabel: string | null;
+  expectedOutcome: string | null;
+  missingAction: boolean;
+  vagueAction: boolean;
+  reviewStatus: string;
+  sourceDocumentTitle: string | null;
+  sourceDocumentType: string | null;
+  sourceDocumentTarget: string | null;
+  evidenceSummary: string | null;
+  deepLinkTarget: string;
+  actionMode: 'decision' | 'document_review' | 'history';
+  kind: 'history' | OperationalDecisionQueueItem['kind'];
+};
 
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'] as const;
@@ -56,12 +88,42 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-function titleize(s: string): string {
-  return s
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    open: 'border-amber-500/40 text-amber-400',
+    in_review: 'border-blue-500/40 text-blue-400',
+    resolved: 'border-emerald-500/40 text-emerald-400',
+    suppressed: 'border-[#1A1A3E] text-[#8B94A3]',
+  };
+  const cls = map[status] ?? 'border-[#1A1A3E] text-[#8B94A3]';
+  return (
+    <span className={`inline-flex rounded border bg-[#0A0A20] px-2 py-1 text-[11px] ${cls}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function ReviewBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    approved: 'border-emerald-500/40 text-emerald-400',
+    in_review: 'border-blue-500/40 text-blue-400',
+    needs_correction: 'border-red-500/40 text-red-400',
+    not_reviewed: 'border-[#1A1A3E] text-[#8B94A3]',
+  };
+  const cls = map[status] ?? 'border-[#1A1A3E] text-[#8B94A3]';
+  return (
+    <span className={`inline-flex rounded border bg-[#0A0A20] px-2 py-1 text-[10px] uppercase tracking-wide ${cls}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function titleize(value: string): string {
+  return value
     .replace(/_/g, ' ')
     .split(' ')
     .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
 
@@ -69,30 +131,88 @@ function resolveAssignee(ref: AssigneeRef | AssigneeRef[]): AssigneeRef {
   return Array.isArray(ref) ? ref[0] ?? null : ref;
 }
 
-// ─── Status select color — makes the inline-edit control reflect current state ─
-
-function getStatusSelectCls(status: string): string {
-  const map: Record<string, string> = {
-    open: 'border-amber-500/40 text-amber-400',
-    in_review: 'border-blue-500/40 text-blue-400',
-    resolved: 'border-emerald-500/40 text-emerald-400',
-    suppressed: 'border-[#1A1A3E] text-[#8B94A3]',
-  };
-  return map[status] ?? 'border-[#1A1A3E] text-[#8B94A3]';
+function isVagueDescription(description: string | null | undefined): boolean {
+  const normalized = description?.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized.length <= 18) return true;
+  return normalized.includes('manual review') || normalized.includes('follow up as needed');
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+function mapHistoryDecision(row: HistoryDecisionRow): DecisionListItem {
+  const documentRef = Array.isArray(row.documents) ? row.documents[0] ?? null : row.documents ?? null;
+  const primaryAction = resolveDecisionPrimaryAction(row.details ?? null);
+  const projectContext = resolveDecisionProjectContext(row.details ?? null);
+  const summary = resolveDecisionReason(row.details ?? null, row.summary ?? row.title);
+
+  return {
+    id: row.id,
+    decisionId: row.id,
+    documentId: row.document_id,
+    decisionType: row.decision_type,
+    title: row.title,
+    summary,
+    severity: row.severity,
+    status: row.status,
+    confidence: row.confidence,
+    createdAt: row.created_at,
+    detectedAt: row.last_detected_at ?? row.created_at,
+    dueAt: row.due_at,
+    assignedTo: row.assigned_to,
+    assignedName: resolveAssignee(row.assignee)?.display_name ?? null,
+    projectLabel: projectContext?.label ?? null,
+    primaryActionLabel: primaryAction?.description ?? null,
+    expectedOutcome: primaryAction?.expected_outcome ?? null,
+    missingAction: primaryAction == null,
+    vagueAction: primaryAction ? isVagueDescription(primaryAction.description) : false,
+    reviewStatus: 'not_reviewed',
+    sourceDocumentTitle: documentRef?.title ?? documentRef?.name ?? null,
+    sourceDocumentType: null,
+    sourceDocumentTarget: row.document_id ? `/platform/documents/${row.document_id}` : null,
+    evidenceSummary: summary || null,
+    deepLinkTarget: `/platform/decisions/${row.id}`,
+    actionMode: 'history',
+    kind: 'history',
+  };
+}
+
+function mapOperationalDecision(item: OperationalDecisionQueueItem): DecisionListItem {
+  return {
+    id: item.id,
+    decisionId: item.decision_id,
+    documentId: item.document_id,
+    decisionType: item.decision_type,
+    title: item.title,
+    summary: item.summary,
+    severity: item.severity,
+    status: item.status,
+    confidence: item.confidence,
+    createdAt: item.created_at,
+    detectedAt: item.detected_at,
+    dueAt: item.due_at,
+    assignedTo: item.assigned_to,
+    assignedName: item.assigned_to_name,
+    projectLabel: item.project_label,
+    primaryActionLabel: item.missing_action ? null : item.title,
+    expectedOutcome: null,
+    missingAction: item.missing_action,
+    vagueAction: item.vague_action,
+    reviewStatus: item.review_status,
+    sourceDocumentTitle: item.source_document_title,
+    sourceDocumentType: item.source_document_type,
+    sourceDocumentTarget: item.source_document_target,
+    evidenceSummary: item.evidence_summary,
+    deepLinkTarget: item.deep_link_target,
+    actionMode: item.action_mode,
+    kind: item.kind,
+  };
+}
 
 export default function DecisionsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { organization, userId, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
   const { members } = useOrgMembers(organizationId);
-  const searchParams = useSearchParams();
-
-  const [decisions, setDecisions] = useState<DecisionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') ?? '');
   const [filterSeverity, setFilterSeverity] = useState<string>(searchParams.get('severity') ?? '');
   const [filterDecisionType, setFilterDecisionType] = useState<string>(searchParams.get('type') ?? '');
@@ -104,18 +224,24 @@ export default function DecisionsPage() {
   const includeHistory =
     searchParams.get('history') === '1' ||
     isHistoryStatusFilter(filterStatus, DECISION_OPEN_STATUSES);
+  const { data: operationalModel, loading: operationalLoading, error: operationalError, reload } =
+    useOperationalModel(!orgLoading && !!organizationId && !includeHistory);
 
-  const fetchDecisions = useCallback(async (orgId: string) => {
-    setLoading(true);
-    setListError(null);
+  const [historyDecisions, setHistoryDecisions] = useState<HistoryDecisionRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const fetchHistoryDecisions = useCallback(async (orgId: string) => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+
     let query = supabase
       .from('decisions')
-      .select('id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, assigned_at, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
+      .select('id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, title, name)')
       .eq('organization_id', orgId)
       .order('last_detected_at', { ascending: false });
 
     if (filterStatus) query = query.eq('status', filterStatus);
-    else query = query.in('status', [...DECISION_OPEN_STATUSES]);
     if (filterSeverity) query = query.eq('severity', filterSeverity);
     if (filterDecisionType) query = query.eq('decision_type', filterDecisionType);
     if (filterAssigned === '__unassigned') query = query.is('assigned_to', null);
@@ -124,146 +250,198 @@ export default function DecisionsPage() {
 
     const { data, error } = await query;
     if (error) {
-      setListError('Failed to load decisions.');
-      setDecisions([]);
+      setHistoryError('Failed to load decisions.');
+      setHistoryDecisions([]);
     } else {
-      const rows = (data as DecisionRow[]) ?? [];
-      setDecisions(includeHistory ? rows : filterCurrentQueueRecords(rows));
+      setHistoryDecisions((data as HistoryDecisionRow[]) ?? []);
     }
-    setLoading(false);
+    setHistoryLoading(false);
+  }, [filterAssigned, filterDecisionType, filterSeverity, filterStatus, userId]);
+
+  useEffect(() => {
+    if (!includeHistory || orgLoading || !organizationId) {
+      if (!includeHistory) {
+        setHistoryDecisions([]);
+        setHistoryLoading(false);
+        setHistoryError(null);
+      }
+      return;
+    }
+
+    fetchHistoryDecisions(organizationId);
+  }, [fetchHistoryDecisions, includeHistory, organizationId, orgLoading]);
+
+  const runAuthorizedRequest = useCallback(async (url: string, init: RequestInit) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      throw new Error('Authentication required.');
+    }
+
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(init.headers ?? {}),
+      },
+    });
+
+    if (redirectIfUnauthorized(response, router.replace)) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? 'Request failed.');
+    }
+
+    return response;
+  }, [router]);
+
+  const handleApprove = useCallback(async (item: DecisionListItem) => {
+    if (item.actionMode === 'history') return;
+    setUpdatingId(item.id);
+    setUpdateErrorId(null);
+
+    try {
+      if (item.actionMode === 'decision' && item.decisionId) {
+        await runAuthorizedRequest(`/api/decisions/${item.decisionId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'resolved' }),
+        });
+      } else if (item.actionMode === 'document_review' && item.documentId) {
+        await runAuthorizedRequest(`/api/documents/${item.documentId}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ status: 'approved' }),
+        });
+      }
+      await reload();
+    } catch {
+      setUpdateErrorId(item.id);
+    } finally {
+      setUpdatingId(null);
+    }
+  }, [reload, runAuthorizedRequest]);
+
+  const handleCorrection = useCallback(async (item: DecisionListItem) => {
+    if (item.actionMode === 'history') return;
+    setUpdatingId(item.id);
+    setUpdateErrorId(null);
+
+    try {
+      if (item.actionMode === 'decision' && item.decisionId) {
+        await runAuthorizedRequest(`/api/decisions/${item.decisionId}/feedback`, {
+          method: 'POST',
+          body: JSON.stringify({
+            is_correct: false,
+            review_error_type: 'edge_case',
+          }),
+        });
+
+        if (item.documentId) {
+          await runAuthorizedRequest(`/api/documents/${item.documentId}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ status: 'needs_correction' }),
+          });
+        }
+      } else if (item.actionMode === 'document_review' && item.documentId) {
+        await runAuthorizedRequest(`/api/documents/${item.documentId}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ status: 'needs_correction' }),
+        });
+      }
+      await reload();
+    } catch {
+      setUpdateErrorId(item.id);
+    } finally {
+      setUpdatingId(null);
+    }
+  }, [reload, runAuthorizedRequest]);
+
+  const decisionItems = useMemo(() => {
+    if (includeHistory) {
+      return historyDecisions.map(mapHistoryDecision);
+    }
+    return (operationalModel?.decisions ?? []).map(mapOperationalDecision);
+  }, [historyDecisions, includeHistory, operationalModel?.decisions]);
+
+  const filteredDecisions = useMemo(() => {
+    let list = decisionItems;
+
+    if (!includeHistory && filterStatus) {
+      list = list.filter((item) => item.status === filterStatus);
+    }
+    if (filterSeverity) list = list.filter((item) => item.severity === filterSeverity);
+    if (filterDecisionType) list = list.filter((item) => item.decisionType === filterDecisionType);
+    if (filterAssigned === '__unassigned') list = list.filter((item) => !item.assignedTo);
+    else if (filterAssigned === '__me' && userId) list = list.filter((item) => item.assignedTo === userId);
+    else if (filterAssigned && filterAssigned !== '__me') list = list.filter((item) => item.assignedTo === filterAssigned);
+    if (filterDue === '__overdue') list = list.filter((item) => isDecisionOverdue(item.dueAt, item.status));
+    else if (filterDue === '__my_overdue') list = list.filter((item) => item.assignedTo === userId && isDecisionOverdue(item.dueAt, item.status));
+    else if (filterDue === '__no_due') list = list.filter((item) => !item.dueAt);
+    if (filterAge && AGING_BUCKETS.some((bucket) => bucket.key === filterAge)) {
+      list = list.filter((item) =>
+        DECISION_OPEN_STATUSES.includes(item.status) &&
+        ageBucketKey(item.createdAt) === (filterAge as AgingBucketKey),
+      );
+    }
+
+    return list;
   }, [
+    decisionItems,
+    filterAge,
     filterAssigned,
     filterDecisionType,
+    filterDue,
     filterSeverity,
     filterStatus,
     includeHistory,
     userId,
   ]);
 
-  useEffect(() => {
-    if (orgLoading || !organizationId) {
-      if (!orgLoading) setLoading(false);
-      return;
-    }
-    fetchDecisions(organizationId);
-  }, [fetchDecisions, organizationId, orgLoading]);
-
-  const updateStatus = async (decisionId: string, newStatus: string) => {
-    if (!organizationId) return;
-    setUpdateErrorId(null);
-    setUpdatingId(decisionId);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setUpdateErrorId(decisionId);
-        return;
-      }
-      const res = await fetch(`/api/decisions/${decisionId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (redirectIfUnauthorized(res, router.replace)) return;
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setUpdateErrorId(decisionId);
-        return;
-      }
-      setDecisions((prev) =>
-        prev.map((d) => (d.id === decisionId ? { ...d, status: (data.status ?? newStatus) as string } : d))
-      );
-      setUpdateErrorId(null);
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const filteredDecisions = useMemo(() => {
-    let list = decisions;
-    if (filterDue === '__overdue') list = list.filter((d) => isDecisionOverdue(d.due_at, d.status));
-    else if (filterDue === '__my_overdue') list = list.filter((d) => d.assigned_to === userId && isDecisionOverdue(d.due_at, d.status));
-    else if (filterDue === '__no_due') list = list.filter((d) => !d.due_at);
-    if (filterAge && AGING_BUCKETS.some((b) => b.key === filterAge)) {
-      list = list.filter((d) =>
-        DECISION_OPEN_STATUSES.includes(d.status) && ageBucketKey(d.created_at) === filterAge as AgingBucketKey,
-      );
-    }
-    return list;
-  }, [decisions, filterDue, filterAge, userId]);
-
   const decisionTypeOptions = useMemo(() => {
-    const set = new Set(decisions.map((d) => d.decision_type).filter(Boolean));
-    return Array.from(set).sort();
-  }, [decisions]);
+    const values = new Set(decisionItems.map((item) => item.decisionType).filter(Boolean));
+    return Array.from(values).sort();
+  }, [decisionItems]);
 
-  // Scan summary counts computed from current filter results
   const scanSummary = useMemo(() => {
-    const criticalHigh = filteredDecisions.filter((d) => d.severity === 'critical' || d.severity === 'high').length;
-    const overdue = filteredDecisions.filter((d) => isDecisionOverdue(d.due_at, d.status)).length;
+    const criticalHigh = filteredDecisions.filter((item) => item.severity === 'critical' || item.severity === 'high').length;
+    const overdue = filteredDecisions.filter((item) => isDecisionOverdue(item.dueAt, item.status)).length;
     const unassignedCrit = filteredDecisions.filter(
-      (d) => !d.assigned_to && (d.severity === 'critical' || d.severity === 'high'),
+      (item) => !item.assignedTo && (item.severity === 'critical' || item.severity === 'high'),
     ).length;
     return { criticalHigh, overdue, unassignedCrit };
   }, [filteredDecisions]);
 
-  const displayDate = (row: DecisionRow) => {
-    const at = row.last_detected_at ?? row.created_at;
-    return at ? new Date(at).toLocaleString() : '—';
-  };
-
-  const displayConfidence = (confidence: number | null) => {
-    if (confidence == null) return '—';
-    return `${Math.round(confidence * 100)}%`;
-  };
-
-  const displaySummary = (summary: string | null) => {
-    if (summary == null || summary.trim() === '') return '—';
-    return summary.length > 120 ? `${summary.slice(0, 120)}…` : summary;
-  };
-
-  const documentDisplay = (row: DecisionRow) => {
-    if (!row.document_id) return null;
-    const doc = row.documents;
-    const single = Array.isArray(doc) ? doc[0] : doc;
-    const label = single?.title ?? single?.name ?? 'View document';
-    const text = typeof label === 'string' && label.length > 40 ? `${label.slice(0, 40)}…` : label;
-    return (
-      <Link
-        href={`/platform/documents/${row.document_id}`}
-        className="text-[#8B5CFF] hover:underline"
-      >
-        {text}
-      </Link>
-    );
-  };
-
-  const isLoading = orgLoading || loading;
+  const isLoading = orgLoading || (includeHistory ? historyLoading : operationalLoading);
+  const listError = includeHistory ? historyError : operationalError;
   const hasActiveFilter = !!(filterStatus || filterSeverity || filterDecisionType || filterAssigned || filterDue || filterAge);
 
   return (
     <div className="space-y-4">
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Decisions</h2>
+          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Decision Queue</h2>
           <p className="text-xs text-[#8B94A3]">
-            Persisted findings from the decision engine. Review by status, severity, and type.
+            Shared operational decisions from persisted rows and unresolved document intelligence.
           </p>
         </div>
       </section>
 
-      {/* Filters */}
       <section className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
           <span className="font-medium text-[#F5F7FA]">Status</span>
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            onChange={(event) => setFilterStatus(event.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
-            <option value="">Current</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+            <option value="">{includeHistory ? 'History' : 'Current'}</option>
+            {STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>{status}</option>
             ))}
           </select>
         </label>
@@ -271,12 +449,12 @@ export default function DecisionsPage() {
           <span className="font-medium text-[#F5F7FA]">Severity</span>
           <select
             value={filterSeverity}
-            onChange={(e) => setFilterSeverity(e.target.value)}
+            onChange={(event) => setFilterSeverity(event.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
             <option value="">All</option>
-            {SEVERITY_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+            {SEVERITY_OPTIONS.map((severity) => (
+              <option key={severity} value={severity}>{severity}</option>
             ))}
           </select>
         </label>
@@ -284,12 +462,12 @@ export default function DecisionsPage() {
           <span className="font-medium text-[#F5F7FA]">Type</span>
           <select
             value={filterDecisionType}
-            onChange={(e) => setFilterDecisionType(e.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] min-w-[140px]"
+            onChange={(event) => setFilterDecisionType(event.target.value)}
+            className="min-w-[140px] rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
             <option value="">All</option>
-            {decisionTypeOptions.map((t) => (
-              <option key={t} value={t}>{titleize(t)}</option>
+            {decisionTypeOptions.map((type) => (
+              <option key={type} value={type}>{titleize(type)}</option>
             ))}
           </select>
         </label>
@@ -297,14 +475,14 @@ export default function DecisionsPage() {
           <span className="font-medium text-[#F5F7FA]">Assigned</span>
           <select
             value={filterAssigned}
-            onChange={(e) => setFilterAssigned(e.target.value)}
+            onChange={(event) => setFilterAssigned(event.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
             <option value="">All</option>
             <option value="__me">Assigned to me</option>
             <option value="__unassigned">Unassigned</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>{m.display_name ?? m.id.slice(0, 8)}</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>{member.display_name ?? member.id.slice(0, 8)}</option>
             ))}
           </select>
         </label>
@@ -312,7 +490,7 @@ export default function DecisionsPage() {
           <span className="font-medium text-[#F5F7FA]">Due date</span>
           <select
             value={filterDue}
-            onChange={(e) => setFilterDue(e.target.value)}
+            onChange={(event) => setFilterDue(event.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
             <option value="">All</option>
@@ -325,16 +503,16 @@ export default function DecisionsPage() {
           <span className="font-medium text-[#F5F7FA]">Age</span>
           <select
             value={filterAge}
-            onChange={(e) => setFilterAge(e.target.value)}
+            onChange={(event) => setFilterAge(event.target.value)}
             className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
           >
             <option value="">All</option>
-            {AGING_BUCKETS.map((b) => (
-              <option key={b.key} value={b.key}>{b.label}</option>
+            {AGING_BUCKETS.map((bucket) => (
+              <option key={bucket.key} value={bucket.key}>{bucket.label}</option>
             ))}
           </select>
         </label>
-        {hasActiveFilter && (
+        {hasActiveFilter ? (
           <button
             type="button"
             onClick={() => {
@@ -349,161 +527,159 @@ export default function DecisionsPage() {
           >
             Clear filters
           </button>
-        )}
+        ) : null}
       </section>
 
-      {/* Table */}
       <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-
-        {listError && (
+        {listError ? (
           <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
             <p className="text-[11px] font-medium text-red-400">{listError}</p>
           </div>
-        )}
+        ) : null}
 
-        {/* Scan summary bar — instant health snapshot before reading the table */}
-        {!isLoading && filteredDecisions.length > 0 && (
-          <div className="mb-3 flex items-center gap-4 border-b border-[#1A1A3E] pb-3 flex-wrap">
+        {!isLoading && filteredDecisions.length > 0 ? (
+          <div className="mb-3 flex flex-wrap items-center gap-4 border-b border-[#1A1A3E] pb-3">
             <span className="text-[11px] font-semibold text-[#F5F7FA]">
               {filteredDecisions.length} decision{filteredDecisions.length !== 1 ? 's' : ''}
             </span>
-            {scanSummary.criticalHigh > 0 && (
+            {scanSummary.criticalHigh > 0 ? (
               <span className="text-[11px] font-medium text-red-400">
                 {scanSummary.criticalHigh} critical / high
               </span>
-            )}
-            {scanSummary.overdue > 0 && (
+            ) : null}
+            {scanSummary.overdue > 0 ? (
               <span className="text-[11px] font-medium text-red-400">
                 {scanSummary.overdue} overdue
               </span>
-            )}
-            {scanSummary.unassignedCrit > 0 && (
+            ) : null}
+            {scanSummary.unassignedCrit > 0 ? (
               <span className="text-[11px] font-medium text-amber-400">
                 {scanSummary.unassignedCrit} unassigned critical
               </span>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
 
         {isLoading ? (
           <p className="text-[11px] text-[#8B94A3]">Loading…</p>
         ) : filteredDecisions.length === 0 ? (
           <p className="text-[11px] text-[#8B94A3]">
-            No decisions yet. Run document analysis to generate and persist findings.
+            {includeHistory
+              ? 'No decisions matched this history view.'
+              : 'No unresolved decisions are currently waiting in the shared operational queue.'}
           </p>
         ) : (
           <div className="overflow-x-auto">
-            {/* Column order: signal → state → identity → urgency → owner → context → metadata */}
             <table className="w-full border-collapse text-[11px]">
               <thead className="border-b border-[#1A1A3E] text-left">
                 <tr>
                   <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Severity</th>
                   <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Status</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Title</th>
+                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Decision</th>
                   <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Due</th>
                   <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Assigned</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Type</th>
                   <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Last detected</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Document</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Confidence</th>
-                  <th className="pb-2 font-medium text-[#8B94A3]">Summary</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredDecisions.map((row) => {
-                  const isCritHigh = row.severity === 'critical' || row.severity === 'high';
-                  const assignee = resolveAssignee(row.assignee);
-                  const overdue = isDecisionOverdue(row.due_at, row.status);
-                  const rowBg = isCritHigh ? 'bg-red-500/[0.04]' : '';
+                {filteredDecisions.map((item) => {
+                  const isHighRisk = item.severity === 'critical' || item.severity === 'high';
+                  const overdue = isDecisionOverdue(item.dueAt, item.status);
                   return (
                     <tr
-                      key={row.id}
-                      className={`border-b border-[#1A1A3E] last:border-0 transition-colors hover:bg-[#12122E] ${rowBg}`}
+                      key={item.id}
+                      className={`border-b border-[#1A1A3E] last:border-0 transition-colors hover:bg-[#12122E] ${isHighRisk ? 'bg-red-500/[0.04]' : ''}`}
                     >
-                      {/* Severity — leftmost, immediate visual signal */}
                       <td className="py-2.5 pr-3">
-                        <SeverityBadge severity={row.severity} />
+                        <SeverityBadge severity={item.severity} />
                       </td>
-
-                      {/* Status — inline editable, styled to reflect current state */}
                       <td className="py-2.5 pr-3">
                         <div className="flex flex-col gap-1">
-                          <select
-                            aria-label={`Update status for ${row.title || 'decision'}`}
-                            value={STATUS_OPTIONS.includes(row.status as (typeof STATUS_OPTIONS)[number]) ? row.status : STATUS_OPTIONS[0]}
-                            onChange={(e) => updateStatus(row.id, e.target.value)}
-                            disabled={updatingId === row.id}
-                            className={`rounded border bg-[#0A0A20] px-2 py-1 text-[11px] outline-none focus:border-[#8B5CFF] disabled:opacity-60 ${getStatusSelectCls(row.status)}`}
-                          >
-                            {STATUS_OPTIONS.map((s) => (
-                              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                            ))}
-                          </select>
-                          {updatingId === row.id && (
-                            <span className="text-[10px] text-[#8B94A3]">Updating…</span>
-                          )}
-                          {updateErrorId === row.id && (
-                            <span className="text-[10px] text-red-400">Update failed</span>
-                          )}
+                          <StatusBadge status={item.status} />
+                          {!includeHistory ? <ReviewBadge status={item.reviewStatus} /> : null}
                         </div>
                       </td>
-
-                      {/* Title — identity */}
-                      <td className="py-2.5 pr-3 max-w-[220px] truncate" title={row.title}>
-                        <Link
-                          href={`/platform/decisions/${row.id}`}
-                          className="font-medium text-[#8B5CFF] hover:underline"
-                        >
-                          {row.title || '—'}
-                        </Link>
+                      <td className="min-w-[380px] max-w-[560px] py-2.5 pr-3">
+                        <div className="flex flex-col gap-1.5">
+                          {item.projectLabel ? (
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5B6578]">
+                              {item.projectLabel}
+                            </span>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link href={item.deepLinkTarget} className="font-medium text-[#8B5CFF] hover:underline" title={item.title}>
+                              {item.title}
+                            </Link>
+                            <span className="text-[10px] text-[#5B6578]">{titleize(item.decisionType)}</span>
+                            {item.kind === 'trace_decision' ? (
+                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
+                                Derived from document intelligence
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-[11px] text-[#8B94A3]">
+                            {item.summary}
+                          </p>
+                          {item.evidenceSummary ? (
+                            <p className="text-[10px] uppercase tracking-wide text-[#5B6578]">
+                              Evidence: {item.evidenceSummary}
+                            </p>
+                          ) : null}
+                          {item.sourceDocumentTarget ? (
+                            <div className="text-[11px] text-[#8B94A3]">
+                              Source:{' '}
+                              <Link href={item.sourceDocumentTarget} className="text-[#8B5CFF] hover:underline">
+                                {item.sourceDocumentTitle ?? 'View document'}
+                              </Link>
+                              {item.sourceDocumentType ? ` / ${item.sourceDocumentType}` : ''}
+                            </div>
+                          ) : null}
+                          {!includeHistory ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleApprove(item)}
+                                disabled={updatingId === item.id}
+                                className="rounded px-2 py-1 text-[11px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50"
+                              >
+                                {updatingId === item.id ? 'Saving…' : 'Approve'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCorrection(item)}
+                                disabled={updatingId === item.id}
+                                className="rounded px-2 py-1 text-[11px] font-medium bg-amber-500/20 text-amber-400 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-50"
+                              >
+                                {updatingId === item.id ? 'Saving…' : 'Request correction'}
+                              </button>
+                              {updateErrorId === item.id ? (
+                                <span className="text-[10px] text-red-400">Update failed</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
                       </td>
-
-                      {/* Due — urgency with red color when overdue */}
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
-                        {row.due_at ? (
+                      <td className="whitespace-nowrap py-2.5 pr-3">
+                        {item.dueAt ? (
                           <span className={`flex items-center gap-1.5 ${overdue ? 'font-medium text-red-400' : 'text-[#8B94A3]'}`}>
-                            <span>{formatDueDate(row.due_at)}</span>
-                            {overdue && <OverdueBadge />}
+                            <span>{formatDueDate(item.dueAt)}</span>
+                            {overdue ? <OverdueBadge /> : null}
                           </span>
                         ) : (
                           <span className="text-[#3a3f5a]">—</span>
                         )}
                       </td>
-
-                      {/* Assigned — amber if critical/high and unassigned */}
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
-                        {assignee ? (
-                          <span className="text-[#F5F7FA]">{assignee.display_name ?? row.assigned_to?.slice(0, 8)}</span>
+                      <td className="whitespace-nowrap py-2.5 pr-3">
+                        {item.assignedName ? (
+                          <span className="text-[#F5F7FA]">{item.assignedName}</span>
                         ) : (
-                          <span className={isCritHigh ? 'font-medium text-amber-400' : 'text-[#8B94A3]'}>
+                          <span className={isHighRisk ? 'font-medium text-amber-400' : 'text-[#8B94A3]'}>
                             Unassigned
                           </span>
                         )}
                       </td>
-
-                      {/* Type — context */}
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-[#8B94A3]">
-                        {titleize(row.decision_type)}
-                      </td>
-
-                      {/* Last detected — recency */}
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-[#8B94A3]">
-                        {displayDate(row)}
-                      </td>
-
-                      {/* Document — source context */}
-                      <td className="py-2.5 pr-3 max-w-[180px] truncate">
-                        {row.document_id ? documentDisplay(row) : <span className="text-[#3a3f5a]">—</span>}
-                      </td>
-
-                      {/* Confidence — analysis metadata */}
-                      <td className="py-2.5 pr-3 text-[#8B94A3]">
-                        {displayConfidence(row.confidence)}
-                      </td>
-
-                      {/* Summary — detail text */}
-                      <td className="py-2.5 max-w-[240px] text-[#8B94A3]" title={row.summary ?? undefined}>
-                        {displaySummary(row.summary)}
+                      <td className="whitespace-nowrap py-2.5 pr-3 text-[#8B94A3]">
+                        {new Date(item.detectedAt ?? item.createdAt).toLocaleString()}
                       </td>
                     </tr>
                   );

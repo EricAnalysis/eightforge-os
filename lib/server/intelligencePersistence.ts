@@ -4,7 +4,20 @@ import {
   type BuildIntelligenceParams,
   type RelatedDocInput,
 } from '@/lib/documentIntelligence';
+import {
+  pipelineResultToIntelligence,
+  runDocumentPipeline,
+} from '@/lib/pipeline/documentPipeline';
+import {
+  isContractInvoicePrimaryDocumentType,
+  isContractInvoicePrimaryFamily,
+} from '@/lib/contractInvoicePrimary';
+import {
+  hasUsableExtractionBlobData,
+  pickPreferredExtractionBlob,
+} from '@/lib/blobExtractionSelection';
 import type {
+  DocumentExecutionTrace,
   DocumentFamily,
   DocumentIntelligenceOutput,
 } from '@/lib/types/documentIntelligence';
@@ -12,27 +25,12 @@ import { supportsCanonicalIntelligencePersistence } from '@/lib/canonicalIntelli
 import {
   INTELLIGENCE_PERSISTENCE_GENERATOR,
   INTELLIGENCE_PERSISTENCE_VERSION,
+  materializePersistedExecutionTrace,
   mapIntelligenceToPersistenceRows,
   type IntelligenceDecisionInsert,
   type IntelligenceTaskInsert,
 } from '@/lib/server/intelligenceAdapter';
-
-const RELATED_DOC_TYPES = [
-  'contract',
-  'invoice',
-  'payment_rec',
-  'spreadsheet',
-  'permit',
-  'disposal_checklist',
-  'dms_checklist',
-  'kickoff',
-  'kickoff_checklist',
-  'ticket',
-  'debris_ticket',
-  'daily_ops',
-  'ops_report',
-  'williamson_contract',
-];
+import { loadPrecedenceAwareRelatedDocs } from '@/lib/server/documentPrecedence';
 
 type DocumentRow = {
   id: string;
@@ -69,6 +67,16 @@ type ExistingGeneratedDecisionRow = ExistingDecisionRow & {
 
 type ExistingGeneratedTaskRow = ExistingTaskRow & {
   source: string | null;
+};
+
+type PreferredBlobExtraction = {
+  id: string;
+  data: Record<string, unknown> | null;
+};
+
+type ResolvedBuildContext = {
+  buildParams: BuildIntelligenceParams;
+  extractionSnapshotId?: string;
 };
 
 export type PersistCanonicalIntelligenceResult = {
@@ -118,6 +126,11 @@ function hasSupersededMarker(details: Record<string, unknown> | null | undefined
   return typeof details?.superseded_at === 'string' && details.superseded_at.length > 0;
 }
 
+function getIdentityKey(details: Record<string, unknown> | null | undefined): string | null {
+  const identityKey = details?.identity_key;
+  return typeof identityKey === 'string' && identityKey.length > 0 ? identityKey : null;
+}
+
 function isReusableDecisionRow(row: ExistingDecisionRow): boolean {
   return !hasSupersededMarker(row.details) && ['open', 'in_review'].includes(row.status);
 }
@@ -154,21 +167,26 @@ async function loadDocumentRow(
   return data as DocumentRow;
 }
 
-async function loadLatestBlobExtraction(
+async function loadPreferredBlobExtraction(
   admin: SupabaseClient,
   documentId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<PreferredBlobExtraction | null> {
   const { data, error } = await admin
     .from('document_extractions')
-    .select('data')
+    .select('id, data')
     .eq('document_id', documentId)
     .is('field_key', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('created_at', { ascending: false });
 
-  if (error || !data) return null;
-  return ((data as { data?: Record<string, unknown> | null }).data ?? null) as Record<string, unknown> | null;
+  if (error || !data || data.length === 0) return null;
+  const preferred = pickPreferredExtractionBlob(
+    data as Array<{ id: string; data?: Record<string, unknown> | null }>,
+  );
+  if (!preferred) return null;
+  return {
+    id: preferred.id as string,
+    data: preferred.data ?? null,
+  };
 }
 
 async function loadRelatedDocs(
@@ -177,52 +195,11 @@ async function loadRelatedDocs(
   organizationId: string,
 ): Promise<RelatedDocInput[]> {
   if (!document.project_id) return [];
-
-  const { data: siblings, error: siblingsError } = await admin
-    .from('documents')
-    .select('id, name, title, document_type, created_at')
-    .eq('organization_id', organizationId)
-    .eq('project_id', document.project_id)
-    .neq('id', document.id)
-    .in('document_type', RELATED_DOC_TYPES)
-    .order('created_at', { ascending: false });
-
-  if (siblingsError || !siblings || siblings.length === 0) return [];
-
-  const seenTypes = new Set<string>();
-  const deduplicated = siblings.filter((s) => {
-    const typeKey = (s.document_type as string | null) ?? '__unknown';
-    if (seenTypes.has(typeKey)) return false;
-    seenTypes.add(typeKey);
-    return true;
+  return loadPrecedenceAwareRelatedDocs(admin, {
+    organizationId,
+    projectId: document.project_id,
+    currentDocumentId: document.id,
   });
-
-  const siblingIds = deduplicated.map((s) => s.id as string);
-  const { data: extractionRows } = await admin
-    .from('document_extractions')
-    .select('document_id, data, created_at')
-    .in('document_id', siblingIds)
-    .is('field_key', null)
-    .order('created_at', { ascending: false });
-
-  const extractionByDocumentId = new Map<string, Record<string, unknown> | null>();
-  for (const row of extractionRows ?? []) {
-    const docId = row.document_id as string;
-    if (!extractionByDocumentId.has(docId)) {
-      extractionByDocumentId.set(
-        docId,
-        ((row as { data?: Record<string, unknown> | null }).data ?? null) as Record<string, unknown> | null,
-      );
-    }
-  }
-
-  return deduplicated.map((s) => ({
-    id: s.id as string,
-    document_type: (s.document_type as string | null) ?? null,
-    name: s.name as string,
-    title: (s.title as string | null) ?? null,
-    extraction: extractionByDocumentId.get(s.id as string) ?? null,
-  }));
 }
 
 async function loadBuildParams(
@@ -232,25 +209,60 @@ async function loadBuildParams(
     organizationId: string;
     extractionData?: Record<string, unknown> | null;
   },
-): Promise<BuildIntelligenceParams | null> {
+): Promise<ResolvedBuildContext | null> {
   const document = await loadDocumentRow(admin, params.documentId, params.organizationId);
   if (!document) return null;
 
-  const extractionData =
-    params.extractionData !== undefined
-      ? params.extractionData
-      : await loadLatestBlobExtraction(admin, params.documentId);
+  const extractionRecord = (() => {
+    if (params.extractionData !== undefined && hasUsableExtractionBlobData(params.extractionData)) {
+      return Promise.resolve<PreferredBlobExtraction | null>({
+        id: '',
+        data: params.extractionData,
+      });
+    }
+    return loadPreferredBlobExtraction(admin, params.documentId);
+  })();
 
   const relatedDocs = await loadRelatedDocs(admin, document, params.organizationId);
 
+  const resolvedExtractionRecord = await extractionRecord;
+
   return {
-    documentType: document.document_type,
-    documentTitle: document.title,
-    documentName: document.name,
-    projectName: resolveProjectName(document.projects),
-    extractionData,
-    relatedDocs,
+    buildParams: {
+      documentType: document.document_type,
+      documentTitle: document.title,
+      documentName: document.name,
+      projectName: resolveProjectName(document.projects),
+      extractionData: resolvedExtractionRecord?.data ?? null,
+      relatedDocs,
+    },
+    extractionSnapshotId: resolvedExtractionRecord?.id || undefined,
   };
+}
+
+async function persistDocumentExecutionTrace(
+  admin: SupabaseClient,
+  params: {
+    documentId: string;
+    organizationId: string;
+    executionTrace: DocumentExecutionTrace;
+  },
+): Promise<void> {
+  const { error } = await admin
+    .from('documents')
+    .update({
+      intelligence_trace: params.executionTrace,
+    })
+    .eq('id', params.documentId)
+    .eq('organization_id', params.organizationId);
+
+  if (error) {
+    console.error('[generateAndPersistCanonicalIntelligence] persist execution trace failed', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      error: error.message,
+    });
+  }
 }
 
 async function loadExistingV2Decisions(
@@ -397,6 +409,7 @@ async function upsertV2Decisions(
     documentId: string;
     organizationId: string;
     decisions: IntelligenceDecisionInsert[];
+    allowLegacyTypeFallback: boolean;
   },
 ): Promise<{
   decisionIdsByLocalId: Map<string, string>;
@@ -405,23 +418,44 @@ async function upsertV2Decisions(
   deleted: number;
   preserved: number;
 }> {
-  const { documentId, organizationId, decisions } = params;
+  const { documentId, organizationId, decisions, allowLegacyTypeFallback } = params;
   const now = new Date().toISOString();
   const existing = await loadExistingV2Decisions(admin, documentId, organizationId);
-  const existingByType = new Map(
-    existing
-      .filter((row) => isReusableDecisionRow(row))
-      .map((row) => [row.decision_type, row]),
+  const reusableExisting = existing.filter((row) => isReusableDecisionRow(row));
+  const existingByIdentityKey = new Map(
+    reusableExisting
+      .map((row) => [getIdentityKey(row.details), row] as const)
+      .filter((entry): entry is [string, ExistingDecisionRow] => entry[0] != null),
   );
-  const matchedDecisionTypes = new Set<string>();
+  const fallbackRowsByType = new Map<string, ExistingDecisionRow[]>();
+  for (const row of reusableExisting) {
+    if (getIdentityKey(row.details)) continue;
+    const rows = fallbackRowsByType.get(row.decision_type) ?? [];
+    rows.push(row);
+    fallbackRowsByType.set(row.decision_type, rows);
+  }
+  const incomingCountByType = new Map<string, number>();
+  for (const decision of decisions) {
+    incomingCountByType.set(
+      decision.decision_type,
+      (incomingCountByType.get(decision.decision_type) ?? 0) + 1,
+    );
+  }
+  const matchedExistingIds = new Set<string>();
   const decisionIdsByLocalId = new Map<string, string>();
 
   let created = 0;
   let updated = 0;
 
   for (const decision of decisions) {
-    const existingRow = existingByType.get(decision.decision_type);
-    matchedDecisionTypes.add(decision.decision_type);
+    const fallbackRows = allowLegacyTypeFallback
+      ? (fallbackRowsByType.get(decision.decision_type) ?? [])
+      : [];
+    const existingRow =
+      existingByIdentityKey.get(decision.identity_key) ??
+      (fallbackRows.length === 1 && (incomingCountByType.get(decision.decision_type) ?? 0) === 1
+        ? fallbackRows[0]
+        : undefined);
 
     if (existingRow) {
       const { error } = await admin
@@ -442,6 +476,7 @@ async function upsertV2Decisions(
         throw new Error(`Failed to update v2 decision ${existingRow.id}: ${error.message}`);
       }
 
+      matchedExistingIds.add(existingRow.id);
       decisionIdsByLocalId.set(decision.local_id, existingRow.id);
       updated += 1;
       continue;
@@ -472,7 +507,9 @@ async function upsertV2Decisions(
       throw new Error(`Failed to insert v2 decision ${decision.decision_type}: ${error?.message ?? 'unknown error'}`);
     }
 
-    decisionIdsByLocalId.set(decision.local_id, (inserted as { id: string }).id);
+    const insertedId = (inserted as { id: string }).id;
+    matchedExistingIds.add(insertedId);
+    decisionIdsByLocalId.set(decision.local_id, insertedId);
     created += 1;
   }
 
@@ -480,7 +517,7 @@ async function upsertV2Decisions(
   let preserved = 0;
 
   for (const existingRow of existing) {
-    if (matchedDecisionTypes.has(existingRow.decision_type)) continue;
+    if (matchedExistingIds.has(existingRow.id)) continue;
 
     if (hasSupersededMarker(existingRow.details)) {
       preserved += 1;
@@ -526,29 +563,53 @@ async function upsertV2Tasks(
     organizationId: string;
     tasks: IntelligenceTaskInsert[];
     decisionIdsByLocalId: Map<string, string>;
+    allowLegacyTypeFallback: boolean;
   },
 ): Promise<{
+  taskIdsByLocalId: Map<string, string>;
   created: number;
   updated: number;
   deleted: number;
   preserved: number;
 }> {
-  const { documentId, organizationId, tasks, decisionIdsByLocalId } = params;
+  const { documentId, organizationId, tasks, decisionIdsByLocalId, allowLegacyTypeFallback } = params;
   const now = new Date().toISOString();
   const existing = await loadExistingV2Tasks(admin, documentId, organizationId);
-  const existingByType = new Map(
-    existing
-      .filter((row) => isReusableTaskRow(row))
-      .map((row) => [row.task_type, row]),
+  const reusableExisting = existing.filter((row) => isReusableTaskRow(row));
+  const existingByIdentityKey = new Map(
+    reusableExisting
+      .map((row) => [getIdentityKey(row.details), row] as const)
+      .filter((entry): entry is [string, ExistingTaskRow] => entry[0] != null),
   );
-  const matchedTaskTypes = new Set<string>();
+  const fallbackRowsByType = new Map<string, ExistingTaskRow[]>();
+  for (const row of reusableExisting) {
+    if (getIdentityKey(row.details)) continue;
+    const rows = fallbackRowsByType.get(row.task_type) ?? [];
+    rows.push(row);
+    fallbackRowsByType.set(row.task_type, rows);
+  }
+  const incomingCountByType = new Map<string, number>();
+  for (const task of tasks) {
+    incomingCountByType.set(
+      task.task_type,
+      (incomingCountByType.get(task.task_type) ?? 0) + 1,
+    );
+  }
+  const matchedExistingIds = new Set<string>();
+  const taskIdsByLocalId = new Map<string, string>();
 
   let created = 0;
   let updated = 0;
 
   for (const task of tasks) {
-    const existingRow = existingByType.get(task.task_type);
-    matchedTaskTypes.add(task.task_type);
+    const fallbackRows = allowLegacyTypeFallback
+      ? (fallbackRowsByType.get(task.task_type) ?? [])
+      : [];
+    const existingRow =
+      existingByIdentityKey.get(task.identity_key) ??
+      (fallbackRows.length === 1 && (incomingCountByType.get(task.task_type) ?? 0) === 1
+        ? fallbackRows[0]
+        : undefined);
     const decisionId = task.related_decision_local_id
       ? decisionIdsByLocalId.get(task.related_decision_local_id) ?? null
       : null;
@@ -572,11 +633,13 @@ async function upsertV2Tasks(
         throw new Error(`Failed to update v2 workflow task ${existingRow.id}: ${error.message}`);
       }
 
+      matchedExistingIds.add(existingRow.id);
+      taskIdsByLocalId.set(task.local_id, existingRow.id);
       updated += 1;
       continue;
     }
 
-    const { error } = await admin
+    const { data: inserted, error } = await admin
       .from('workflow_tasks')
       .insert({
         organization_id: organizationId,
@@ -592,12 +655,16 @@ async function upsertV2Tasks(
         details: task.details,
         created_at: now,
         updated_at: now,
-      });
+      })
+      .select('id')
+      .single();
 
-    if (error) {
-      throw new Error(`Failed to insert v2 workflow task ${task.task_type}: ${error.message}`);
+    if (error || !inserted) {
+      throw new Error(`Failed to insert v2 workflow task ${task.task_type}: ${error?.message ?? 'unknown error'}`);
     }
 
+    const insertedId = (inserted as { id: string }).id;
+    taskIdsByLocalId.set(task.local_id, insertedId);
     created += 1;
   }
 
@@ -605,7 +672,7 @@ async function upsertV2Tasks(
   let preserved = 0;
 
   for (const existingRow of existing) {
-    if (matchedTaskTypes.has(existingRow.task_type)) continue;
+    if (matchedExistingIds.has(existingRow.id)) continue;
 
     if (hasSupersededMarker(existingRow.details)) {
       preserved += 1;
@@ -641,7 +708,7 @@ async function upsertV2Tasks(
     deleted += 1;
   }
 
-  return { created, updated, deleted, preserved };
+  return { taskIdsByLocalId, created, updated, deleted, preserved };
 }
 
 export async function generateAndPersistCanonicalIntelligence(params: {
@@ -650,13 +717,13 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   organizationId: string;
   extractionData?: Record<string, unknown> | null;
 }): Promise<PersistCanonicalIntelligenceResult> {
-  const buildParams = await loadBuildParams(params.admin, {
+  const buildContext = await loadBuildParams(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
     extractionData: params.extractionData,
   });
 
-  if (!buildParams) {
+  if (!buildContext) {
     return {
       handled: false,
       family: null,
@@ -674,10 +741,43 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     };
   }
 
-  const intelligence = buildDocumentIntelligence(buildParams);
+  const pipelineResult = runDocumentPipeline({
+    documentId: params.documentId,
+    documentType: buildContext.buildParams.documentType,
+    documentName: buildContext.buildParams.documentName,
+    documentTitle: buildContext.buildParams.documentTitle,
+    projectName: buildContext.buildParams.projectName,
+    extractionData: buildContext.buildParams.extractionData,
+    relatedDocs: buildContext.buildParams.relatedDocs,
+  });
+  const contractInvoicePrimaryMode = isContractInvoicePrimaryDocumentType(
+    buildContext.buildParams.documentType,
+  );
+
+  if (contractInvoicePrimaryMode && !pipelineResult.handled) {
+    throw new Error(
+      `Contract/invoice canonical pipeline did not handle document ${params.documentId}.`,
+    );
+  }
+
+  const intelligence = pipelineResult.handled
+    ? pipelineResultToIntelligence(pipelineResult)
+    : buildDocumentIntelligence(buildContext.buildParams);
   const family = intelligence.classification.family;
+  const mapped = mapIntelligenceToPersistenceRows({
+    documentId: params.documentId,
+    organizationId: params.organizationId,
+    intelligence,
+    extractionSnapshotId: buildContext.extractionSnapshotId,
+    relatedDocs: buildContext.buildParams.relatedDocs,
+  });
 
   if (!supportsCanonicalIntelligencePersistence(family)) {
+    await persistDocumentExecutionTrace(params.admin, {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      executionTrace: mapped.executionTrace,
+    });
     return {
       handled: false,
       family,
@@ -695,16 +795,11 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     };
   }
 
-  const mapped = mapIntelligenceToPersistenceRows({
-    documentId: params.documentId,
-    organizationId: params.organizationId,
-    intelligence,
-  });
-
   const decisionResult = await upsertV2Decisions(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
     decisions: mapped.decisions,
+    allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
   });
 
   const taskResult = await upsertV2Tasks(params.admin, {
@@ -712,6 +807,17 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     organizationId: params.organizationId,
     tasks: mapped.tasks,
     decisionIdsByLocalId: decisionResult.decisionIdsByLocalId,
+    allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
+  });
+
+  await persistDocumentExecutionTrace(params.admin, {
+    documentId: params.documentId,
+    organizationId: params.organizationId,
+    executionTrace: materializePersistedExecutionTrace({
+      executionTrace: mapped.executionTrace,
+      decisionIdsByLocalId: decisionResult.decisionIdsByLocalId,
+      taskIdsByLocalId: taskResult.taskIdsByLocalId,
+    }),
   });
 
   const legacyTasksCancelled = await cancelLegacyGeneratedTasks(

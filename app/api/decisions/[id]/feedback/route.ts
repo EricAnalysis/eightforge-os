@@ -1,14 +1,16 @@
 // app/api/decisions/[id]/feedback/route.ts
 // POST: submit human feedback on a decision.
-// Accepts { is_correct, feedback_type?, notes?, disposition?, corrected_value? }.
+// Accepts { is_correct, review_error_type?, feedback_type?, notes?, disposition?, corrected_value? }.
 // Upserts on (decision_id, reviewer_id) — one feedback record per reviewer per decision.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
+import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
 
 const VALID_FEEDBACK_TYPES = ['correct', 'incorrect', 'needs_review', 'override'] as const;
 const VALID_DISPOSITIONS = ['accept', 'reject', 'escalate', 'suppress'] as const;
+const VALID_REVIEW_ERROR_TYPES = ['extraction_error', 'rule_error', 'edge_case'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -52,6 +54,17 @@ export async function POST(
     body.corrected_value && typeof body.corrected_value === 'object'
       ? (body.corrected_value as Record<string, unknown>)
       : null;
+  const reviewErrorType: ReviewErrorType | null = !body.is_correct
+    ? (
+        typeof body.review_error_type === 'string' &&
+        VALID_REVIEW_ERROR_TYPES.includes(body.review_error_type as ReviewErrorType)
+          ? (body.review_error_type as ReviewErrorType)
+          : 'edge_case'
+      )
+    : null;
+  const metadata: Record<string, unknown> = {
+    review_error_type: reviewErrorType,
+  };
 
   // Verify decision exists and belongs to caller's org
   const { data: decision, error: fetchError } = await admin
@@ -81,6 +94,8 @@ export async function POST(
         disposition,
         notes,
         corrected_value: correctedValue,
+        review_error_type: reviewErrorType,
+        metadata,
         reviewer_id: actorId,
         created_by: actorId,
         created_at: now,
@@ -99,5 +114,5 @@ export async function POST(
       .eq('organization_id', organizationId);
   }
 
-  return NextResponse.json({ ok: true, feedback_type: feedbackType });
+  return NextResponse.json({ ok: true, feedback_type: feedbackType, review_error_type: reviewErrorType });
 }

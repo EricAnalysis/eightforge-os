@@ -3,6 +3,8 @@
 // components/document-intelligence/AuditSection.tsx
 // Timeline of what has happened to this document, derived from available timestamps.
 
+import type { AuditNote, PipelineTraceNode } from '@/lib/types/documentIntelligence';
+
 interface AuditEvent {
   label: string;
   timestamp: string;
@@ -24,6 +26,20 @@ interface AuditSectionProps {
   decisionsGeneratedAt?: string | null;
   tasksCreatedAt?: string | null;
   currentStatus?: string | null;
+  auditNotes?: AuditNote[];
+  nodeTraces?: PipelineTraceNode[];
+}
+
+function nodeToneClass(status: PipelineTraceNode['status']): string {
+  return status === 'failed'
+    ? 'border-red-500/30 bg-red-500/10 text-red-300'
+    : 'border-[#2F3B52] bg-[#111827] text-[#C5CAD4]';
+}
+
+function noteToneClass(status: AuditNote['status']): string {
+  if (status === 'critical') return 'border-red-500/25 bg-red-500/10 text-red-300';
+  if (status === 'warning') return 'border-amber-500/25 bg-amber-500/10 text-amber-200';
+  return 'border-[#2F3B52] bg-[#111827] text-[#C5CAD4]';
 }
 
 export function AuditSection({
@@ -32,6 +48,8 @@ export function AuditSection({
   decisionsGeneratedAt,
   tasksCreatedAt,
   currentStatus,
+  auditNotes,
+  nodeTraces,
 }: AuditSectionProps) {
   const events: AuditEvent[] = [];
 
@@ -55,6 +73,68 @@ export function AuditSection({
           Audit
         </h3>
       </div>
+      {nodeTraces && nodeTraces.length > 0 && (
+        <div className="border-b border-white/5 px-5 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+            Pipeline Trace
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+            {nodeTraces.map((node) => (
+              <div
+                key={node.node}
+                className={`rounded-lg border px-3 py-2 text-[11px] ${nodeToneClass(node.status)}`}
+              >
+                <p className="font-semibold uppercase tracking-wider">
+                  {node.node}
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  {node.summary}
+                </p>
+                <p className="mt-1 text-[10px] text-[#5B6578]">
+                  gaps {node.gap_count}
+                  {typeof node.decision_count === 'number' ? ` · decisions ${node.decision_count}` : ''}
+                  {typeof node.evidence_citation_count === 'number' && node.node === 'decision'
+                    ? ` · citations ${node.evidence_citation_count}`
+                    : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {auditNotes && auditNotes.length > 0 && (
+        <div className="border-b border-white/5 px-5 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+            Decision Trace
+          </p>
+          <div className="mt-2 space-y-2">
+            {auditNotes.map((note) => (
+              <div
+                key={note.id}
+                className={`rounded-lg border px-3 py-2 text-[11px] ${noteToneClass(note.status)}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold uppercase tracking-wider">
+                    {note.stage}
+                  </span>
+                  <span className="text-[10px] text-[#5B6578]">
+                    {note.status}
+                  </span>
+                </div>
+                <p className="mt-1 leading-relaxed">
+                  {note.message}
+                </p>
+                {note.evidence_refs && note.evidence_refs.length > 0 && (
+                  <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-[#5B6578]">
+                    {note.evidence_refs.slice(0, 10).join(' · ')}
+                    {note.evidence_refs.length > 10 ? ' · …' : ''}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="px-5 py-2">
         {events.length === 0 ? (
           <p className="py-2 text-sm text-[#8B94A3] italic">No activity recorded.</p>

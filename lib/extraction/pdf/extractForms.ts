@@ -1,5 +1,6 @@
 import type { ExtractionGap } from '@/lib/extraction/types';
 import type { PdfLayout } from '@/lib/extraction/pdf/extractText';
+import { stripUnsafeTextControls } from '@/lib/extraction/textSanitization';
 
 export interface PdfFormField {
   id: string;
@@ -30,7 +31,7 @@ function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
 }
 
 function parseField(text: string): { label: string; value: string } | null {
-  const candidate = text.trim();
+  const candidate = stripUnsafeTextControls(text).trim();
   if (candidate.length < 4 || candidate.length > 160) return null;
 
   for (const pattern of FIELD_PATTERNS) {
@@ -61,7 +62,10 @@ export function buildPdfFormExtraction(params: {
         page_number: page.page_number,
         label: parsed.label,
         value: parsed.value,
-        nearby_text: page.lines[index + 1]?.text?.trim() || page.lines[index - 1]?.text?.trim() || undefined,
+        nearby_text:
+          stripUnsafeTextControls(page.lines[index + 1]?.text ?? '').trim() ||
+          stripUnsafeTextControls(page.lines[index - 1]?.text ?? '').trim() ||
+          undefined,
         confidence: 0.86,
       });
     });

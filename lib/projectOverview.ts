@@ -4,6 +4,7 @@ import {
   resolveDecisionProjectContext,
   resolveDecisionReason,
 } from '@/lib/decisionActions';
+import { buildProjectDocumentHref } from '@/lib/documentNavigation';
 import { formatDueDate } from '@/lib/dateUtils';
 import { DECISION_OPEN_STATUSES, TASK_OPEN_STATUSES } from '@/lib/overdue';
 import type {
@@ -778,7 +779,7 @@ export function buildProjectOperationalRollup(params: {
         .filter(isBlockedTraceDecision)
         .map((decision) => decision.id),
     );
-    const documentHref = `/platform/documents/${document.id}`;
+    const documentHref = buildProjectDocumentHref(document.id, project.id);
     const documentTitleLabel = documentTitle(document);
     const documentType = documentTypeLabel(document.document_type);
 
@@ -1320,6 +1321,7 @@ function documentStatusTone(status: string): OverviewTone {
 }
 
 export function resolveProjectProcessedDocs(
+  project: ProjectRecord,
   documents: ProjectDocumentRow[],
   rollup: ProjectOperationalRollup,
 ): ProjectOverviewDocumentItem[] {
@@ -1333,7 +1335,7 @@ export function resolveProjectProcessedDocs(
 
   return processedDocuments.slice(0, 6).map((document) => ({
     id: document.id,
-    href: `/platform/documents/${document.id}`,
+    href: buildProjectDocumentHref(document.id, project.id),
     title: documentTitle(document),
     detail: [titleize(document.document_type), document.domain ? titleize(document.domain) : null]
       .filter(Boolean)
@@ -1358,6 +1360,7 @@ function extractStatus(value: Record<string, unknown> | null | undefined): strin
 }
 
 export function resolveProjectAuditEvents(
+  project: ProjectRecord,
   documents: ProjectDocumentRow[],
   decisions: ProjectDecisionRow[],
   tasks: ProjectTaskRow[],
@@ -1375,7 +1378,7 @@ export function resolveProjectAuditEvents(
         detail: document.title ?? document.name,
         timestamp_label: relativeTime(document.created_at),
         tone: 'muted',
-        href: `/platform/documents/${document.id}`,
+        href: buildProjectDocumentHref(document.id, project.id),
         sort_at: document.created_at,
       },
     ];
@@ -1386,7 +1389,7 @@ export function resolveProjectAuditEvents(
         detail: document.title ?? document.name,
         timestamp_label: relativeTime(document.processed_at),
         tone: auditToneForStatus(document.processing_status),
-        href: `/platform/documents/${document.id}`,
+        href: buildProjectDocumentHref(document.id, project.id),
         sort_at: document.processed_at,
       });
     }
@@ -1480,8 +1483,8 @@ export function buildProjectOverviewModel(params: {
   const exposure = resolveProjectExposure(project, documents);
   const decisionCards = resolveProjectDecisionSummary(decisions, tasks, members);
   const actionItems = resolveProjectPendingActions(rollup);
-  const processedDocuments = resolveProjectProcessedDocs(documents, rollup);
-  const auditItems = resolveProjectAuditEvents(documents, decisions, tasks, activityEvents, members);
+  const processedDocuments = resolveProjectProcessedDocs(project, documents, rollup);
+  const auditItems = resolveProjectAuditEvents(project, documents, decisions, tasks, activityEvents, members);
 
   return {
     project,

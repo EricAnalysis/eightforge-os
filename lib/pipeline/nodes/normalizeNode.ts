@@ -1,3 +1,7 @@
+import {
+  findEvidenceByValueMatch,
+  hasInspectableValue,
+} from '@/lib/extraction/evidenceValueMatch';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
   ExtractNodeOutput,
@@ -27,6 +31,238 @@ function parseNumber(value: unknown): number | null {
   if (trimmed.length === 0) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function denseText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function stringValues(value: unknown): string[] {
+  return asArray<unknown>(value)
+    .map((entry) => typeof entry === 'string' ? entry.trim() : '')
+    .filter((entry) => entry.length > 0);
+}
+
+function tableCellTexts(row: Record<string, unknown>): string[] {
+  return asArray<Record<string, unknown>>(row.cells)
+    .map((cell) => String(cell.text ?? '').trim())
+    .filter((text) => text.length > 0);
+}
+
+const RATE_SCHEDULE_TITLE_PATTERNS = [
+  'unitprices',
+  'unitprice',
+  'scheduleofrates',
+  'compensationschedule',
+  'pricesheet',
+  'timeandmaterialsrates',
+  'emergencydebrisremovalunitrates',
+] as const;
+
+const RATE_CONTEXT_HINT_PATTERNS = [
+  'attachment',
+  'exhibit',
+  'schedule',
+  'rate',
+  'rates',
+  'price',
+  'prices',
+  'compensation',
+  'timeandmaterials',
+] as const;
+
+const RATE_DESCRIPTION_HEADERS = [
+  'description',
+  'service',
+  'rate description',
+  'labor class',
+  'classification',
+  'item',
+] as const;
+
+const RATE_PRICE_HEADERS = [
+  'rate',
+  'price',
+  'unit price',
+  'unit cost',
+  'cost',
+] as const;
+
+const RATE_UNIT_HEADERS = [
+  'unit',
+  'uom',
+] as const;
+
+const RATE_SUPPORT_HEADERS = [
+  'quantity',
+  'qty',
+  'extension',
+  'total',
+] as const;
+
+const RATE_UNIT_TOKENS = new Set([
+  'cy',
+  'cubic yard',
+  'tn',
+  'ton',
+  'tons',
+  'ea',
+  'each',
+  'hr',
+  'hrs',
+  'hour',
+  'hours',
+  'day',
+  'days',
+  'ls',
+  'lump sum',
+  'ac',
+  'acre',
+  'acres',
+  'lf',
+  'linear foot',
+  'linear feet',
+  'sy',
+  'square yard',
+  'square yards',
+].map(denseText));
+
+function hasDensePattern(values: string[], patterns: readonly string[]): boolean {
+  return values.some((value) => patterns.some((pattern) => value.includes(denseText(pattern))));
+}
+
+function bestHeaderIndex(headers: string[], patterns: readonly string[]): number | null {
+  let bestIndex: number | null = null;
+  let bestScore = 0;
+
+  headers.forEach((header, index) => {
+    const dense = denseText(header);
+    for (const pattern of patterns) {
+      const densePattern = denseText(pattern);
+      if (!dense.includes(densePattern)) continue;
+      const score = densePattern.length;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+  });
+
+  return bestIndex;
+}
+
+function isRateValueText(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return false;
+  return (
+    /^\$?\s*[\d,]+(?:\.\d+)?$/i.test(trimmed) ||
+    /^\$?\s*[\d,]+(?:\.\d+)?\s*(?:per|\/)\s*[A-Za-z][A-Za-z .-]*$/i.test(trimmed)
+  );
+}
+
+function isUnitTokenText(value: string): boolean {
+  return RATE_UNIT_TOKENS.has(denseText(value));
+}
+
+function looksDescriptionText(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return false;
+  if (isRateValueText(trimmed) || isUnitTokenText(trimmed)) return false;
+  const letters = (trimmed.match(/[A-Za-z]/g) ?? []).length;
+  const digits = (trimmed.match(/\d/g) ?? []).length;
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  return letters >= 4 && (words >= 2 || letters > digits + 4);
+}
+
+function consistentRowShape(rows: string[][]): boolean {
+  if (rows.length === 0) return false;
+  const widths = rows.map((row) => row.length).filter((width) => width > 0);
+  if (widths.length === 0) return false;
+  return Math.max(...widths) - Math.min(...widths) <= 1;
+}
+
+function columnValues(rows: string[][], index: number): string[] {
+  return rows
+    .map((row) => row[index] ?? null)
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+}
+
+function findColumnIndex(
+  rows: string[][],
+  predicate: (value: string) => boolean,
+  preferredIndex: number | null,
+): number | null {
+  const rowCount = rows.length;
+  const minimumMatches = Math.max(2, Math.min(rowCount, Math.ceil(rowCount * 0.5)));
+  const columnCount = Math.max(0, ...rows.map((row) => row.length));
+
+  if (preferredIndex != null) {
+    const preferredValues = columnValues(rows, preferredIndex);
+    const preferredMatches = preferredValues.filter(predicate).length;
+    if (preferredMatches >= minimumMatches) return preferredIndex;
+  }
+
+  let bestIndex: number | null = null;
+  let bestMatches = 0;
+  for (let index = 0; index < columnCount; index += 1) {
+    const values = columnValues(rows, index);
+    const matches = values.filter(predicate).length;
+    if (matches >= minimumMatches && matches > bestMatches) {
+      bestIndex = index;
+      bestMatches = matches;
+    }
+  }
+  return bestIndex;
+}
+
+function hasDescriptionSupport(rows: string[][], preferredIndex: number | null): number | null {
+  return findColumnIndex(rows, looksDescriptionText, preferredIndex);
+}
+
+function isRateScheduleTable(table: Record<string, unknown>): boolean {
+  const headers = stringValues(table.headers);
+  const headerContext = stringValues(table.header_context);
+  const denseHeaders = [...headers, ...headerContext].map(denseText);
+  const rows = asArray<Record<string, unknown>>(table.rows)
+    .map(tableCellTexts)
+    .filter((row) => row.length > 0);
+  if (rows.length < 2) return false;
+
+  const strongTitleHit = hasDensePattern(denseHeaders, RATE_SCHEDULE_TITLE_PATTERNS);
+  const contextHintHit = hasDensePattern(denseHeaders, RATE_CONTEXT_HINT_PATTERNS);
+  const descriptionHeaderIndex = bestHeaderIndex(headers, RATE_DESCRIPTION_HEADERS);
+  const priceHeaderIndex = bestHeaderIndex(headers, RATE_PRICE_HEADERS);
+  const unitHeaderIndex = bestHeaderIndex(headers, RATE_UNIT_HEADERS);
+  const supportHeaderHit = bestHeaderIndex(headers, RATE_SUPPORT_HEADERS) != null;
+  const priceColumn = findColumnIndex(rows, isRateValueText, priceHeaderIndex);
+  const unitColumn = findColumnIndex(rows, isUnitTokenText, unitHeaderIndex);
+  const descriptionColumn = hasDescriptionSupport(rows, descriptionHeaderIndex);
+  let score = 0;
+
+  if (strongTitleHit) score += 3;
+  else if (contextHintHit) score += 1;
+
+  if (descriptionHeaderIndex != null) score += 2;
+  if (priceHeaderIndex != null) score += 2;
+  if (unitHeaderIndex != null) score += 2;
+  if (supportHeaderHit) score += 1;
+  if (priceColumn != null) score += 2;
+  if (unitColumn != null) score += 2;
+  if (descriptionColumn != null) score += 1;
+  if (consistentRowShape(rows)) score += 1;
+  if (rows.length >= 3) score += 1;
+
+  return (
+    score >= 6 &&
+    priceColumn != null &&
+    (unitColumn != null || strongTitleHit) &&
+    (descriptionColumn != null || descriptionHeaderIndex != null || strongTitleHit)
+  );
+}
+
+function formatPageList(pages: number[]): string | null {
+  if (pages.length === 0) return null;
+  return pages.length === 1 ? `page ${pages[0]}` : `pages ${pages.join(', ')}`;
 }
 
 function toDisplayValue(value: unknown): string {
@@ -75,6 +311,15 @@ function findEvidenceByRegex(
   return null;
 }
 
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
 /** Facts whose missing PDF/XLSX citations should surface as extraction gaps (not derived-only metrics). */
 const FACT_KEYS_REQUIRING_CITATION = new Set([
   'contractor_name',
@@ -82,6 +327,9 @@ const FACT_KEYS_REQUIRING_CITATION = new Set([
   'contract_ceiling',
   'rate_schedule_present',
   'executed_date',
+  'term_start_date',
+  'term_end_date',
+  'expiration_date',
   'invoice_number',
   'billed_amount',
   'contractor_name',
@@ -143,6 +391,16 @@ function ticketRowFieldGaps(document: ExtractedNodeDocument): ExtractionGap[] {
   return gaps;
 }
 
+function missingAnchorReason(document: ExtractedNodeDocument, value: unknown): string {
+  if (document.evidence.length === 0) {
+    return 'No evidence objects were produced for this document (empty parser output).';
+  }
+  if (!hasInspectableValue(value)) {
+    return 'This field has no inspectable value to match against evidence spans.';
+  }
+  return 'No evidence span matched field labels, regex patterns, or literal field value in the extracted evidence set.';
+}
+
 function addFact(
   document: ExtractedNodeDocument,
   facts: PipelineFact[],
@@ -152,6 +410,18 @@ function addFact(
   evidenceRefs: string[],
   confidence: number,
 ): void {
+  let refs = [...new Set(evidenceRefs)];
+  let resolution: NonNullable<PipelineFact['evidence_resolution']> =
+    refs.length > 0 ? 'primary' : 'none';
+
+  if (refs.length === 0 && hasInspectableValue(value)) {
+    const fallback = findEvidenceByValueMatch(document.evidence, value);
+    refs = fallback.map((evidence) => evidence.id);
+    if (refs.length > 0) resolution = 'value_fallback';
+  }
+
+  const missingSourceContext = refs.length > 0 ? [] : [missingAnchorReason(document, value)];
+
   facts.push({
     id: `${document.document_id}:${key}`,
     key,
@@ -159,11 +429,12 @@ function addFact(
     value,
     display_value: toDisplayValue(value),
     confidence,
-    evidence_refs: evidenceRefs,
+    evidence_refs: refs,
     gap_refs: [],
-    missing_source_context: evidenceRefs.length > 0 ? [] : ['No direct source location was captured for this fact.'],
+    missing_source_context: missingSourceContext,
     source_document_id: document.document_id,
     document_family: document.family,
+    evidence_resolution: resolution,
   });
 }
 
@@ -173,55 +444,98 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const pdfTables = asArray<Record<string, unknown>>(asRecord(pdf?.tables)?.tables);
   const contractorEvidence = findEvidenceByLabel(document, ['contractor', 'vendor', 'company']);
   const ownerEvidence = findEvidenceByLabel(document, ['owner', 'county', 'client']);
-  const ceilingEvidence = findEvidenceByRegex(document, [
-    /(?:not\s+to\s+exceed|nte|maximum\s+contract)[^$0-9]{0,20}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+  const explicitCeilingEvidence = findEvidenceByRegex(document, [
+    /(?:\bnot\s+to\s+exceed\b|\bnte\b|\bmaximum\s+amount\b|\bmaximum\s+contract\s+amount\b|\bcontractual\s+limit\b|\bceiling\s+amount\b|\baggregate\s+cap\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+  ]);
+  const labeledCeilingEvidence = findEvidenceByRegex(document, [
+    /(?:\bcontract\s+ceiling\b|\bcontract\s+limit\b|\bcontract\s+cap\b|\bceiling\s+for\s+this\s+contract\b|\bmaximum\s+payable\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+  ]);
+  const totalBidEvidence = findEvidenceByRegex(document, [
+    /(?:total\s+amount\s+of\s+bid(?:\s+for\s+entire\s+project)?)[^$0-9]{0,20}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
   ]);
   const executedDateEvidence = findEvidenceByRegex(document, [
-    /(?:executed|effective)[^0-9A-Za-z]{0,24}(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /(?:contract\s+execution|executed|effective)[^0-9A-Za-z]{0,24}([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+  ]);
+  const termStartDateEvidence = findEvidenceByRegex(document, [
+    /(?:date\s+of\s+availability(?:\s+for\s+this\s+contract)?\s+is)[^0-9A-Za-z]{0,8}([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+  ]);
+  const termEndDateEvidence = findEvidenceByRegex(document, [
+    /(?:completion\s+date(?:\s+for\s+this\s+contract)?\s+is)[^0-9A-Za-z]{0,8}([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
   ]);
 
-  const contractor = String(
-    document.typed_fields.vendor_name ??
-    document.structured_fields.contractor_name ??
-    contractorEvidence[0]?.value ??
-    contractorEvidence[0]?.text ??
-    '',
-  ).trim() || null;
-  const owner = String(
-    document.structured_fields.owner_name ??
-    ownerEvidence[0]?.value ??
-    ownerEvidence[0]?.text ??
-    '',
-  ).trim() || null;
-  const executedDate = String(
-    document.typed_fields.contract_date ??
-    document.structured_fields.executed_date ??
-    executedDateEvidence?.value ??
-    '',
-  ).trim() || null;
+  const contractorExplicit =
+    document.structured_fields.contractor_name_source === 'explicit_definition';
+  const contractorFromStructured = typeof document.structured_fields.contractor_name === 'string'
+    && document.structured_fields.contractor_name.trim().length > 0;
+  const contractor = firstNonEmptyString(
+    document.structured_fields.contractor_name,
+    document.typed_fields.vendor_name,
+    contractorEvidence[0]?.value,
+    contractorEvidence[0]?.text,
+  );
+  const owner = firstNonEmptyString(
+    document.structured_fields.owner_name,
+    ownerEvidence[0]?.value,
+    ownerEvidence[0]?.text,
+  );
+  const executedDate = firstNonEmptyString(
+    document.structured_fields.executed_date,
+    executedDateEvidence?.value,
+    document.typed_fields.effective_date,
+    document.typed_fields.contract_date,
+  );
+  const termStartDate = firstNonEmptyString(
+    termStartDateEvidence?.value,
+    document.structured_fields.term_start_date,
+  );
+  const termEndDate = firstNonEmptyString(
+    termEndDateEvidence?.value,
+    document.structured_fields.term_end_date,
+  );
+  const expirationDate = firstNonEmptyString(
+    termEndDate,
+    document.structured_fields.expiration_date,
+  );
+  const selectedCeilingEvidence =
+    explicitCeilingEvidence ??
+    labeledCeilingEvidence ??
+    totalBidEvidence;
   const ceiling = parseNumber(
+    selectedCeilingEvidence?.value ??
     document.typed_fields.nte_amount ??
     document.typed_fields.notToExceedAmount ??
     document.structured_fields.nte_amount ??
-    ceilingEvidence?.value ??
     null,
   );
+  const rateTables = pdfTables.filter(isRateScheduleTable);
   const rateFromSignals =
     document.section_signals.rate_section_present === true ||
     document.section_signals.unit_price_structure_present === true;
-  const rateRowCountFromTables = pdfTables.reduce(
+  const fallbackTableRowCount = pdfTables.reduce(
     (sum, table) => sum + asArray<unknown>(table.rows).length,
     0,
   );
-  const rateFromTables = rateRowCountFromTables > 0;
+  const rateRowCountFromTables = rateTables.reduce(
+    (sum, table) => sum + asArray<unknown>(table.rows).length,
+    0,
+  );
   /** Do not infer rates from text_preview alone — Exhibit A / signals / extracted tables only. */
-  const rateSchedulePresent = rateFromSignals || rateFromTables;
-  const rateRowCount =
-    Number(document.section_signals.rate_items_detected ?? 0) || rateRowCountFromTables;
-  const ratePagesArray = asArray<number>(document.section_signals.rate_section_pages);
-  const ratePages = ratePagesArray.length > 0 ? `pages ${ratePagesArray.join(', ')}` : null;
+  const rateSchedulePresent = rateTables.length > 0 ? true : rateFromSignals || fallbackTableRowCount > 0;
+  const rateRowCount = rateTables.length > 0
+    ? rateRowCountFromTables
+    : Number(document.section_signals.rate_items_detected ?? 0) || fallbackTableRowCount;
+  const ratePagesArray = rateTables.length > 0
+    ? [...new Set(
+        rateTables
+          .map((table) => typeof table.page_number === 'number' ? table.page_number : null)
+          .filter((page): page is number => page != null)
+          .sort((left, right) => left - right),
+      )]
+    : asArray<number>(document.section_signals.rate_section_pages);
+  const ratePages = formatPageList(ratePagesArray);
   const rateTableEvidenceRefs: string[] = [];
-  for (const table of pdfTables) {
+  const tablesForEvidence = rateTables.length > 0 ? rateTables : pdfTables;
+  for (const table of tablesForEvidence) {
     const rows = asArray<{ id?: string }>(table.rows);
     if (rows.length === 0) continue;
     if (typeof table.id === 'string') rateTableEvidenceRefs.push(table.id);
@@ -242,10 +556,18 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     document.section_signals.time_and_materials_present === true ||
     /time\s*(?:and|&)\s*materials|t&m/i.test(document.text_preview);
 
-  addFact(document, facts, 'contractor_name', 'Contractor', contractor, contractorEvidence.map((evidence) => evidence.id), contractor ? 0.84 : 0.42);
+  // When contractor comes from structured extraction, prefer value-based grounding so we anchor to
+  // the exact legal name rather than a generic "contractor" mention later in the document.
+  const contractorEvidenceRefs = contractorExplicit || contractorFromStructured
+    ? []
+    : contractorEvidence.map((evidence) => evidence.id);
+  addFact(document, facts, 'contractor_name', 'Contractor', contractor, contractorEvidenceRefs, contractor ? 0.84 : 0.42);
   addFact(document, facts, 'owner_name', 'Owner', owner, ownerEvidence.map((evidence) => evidence.id), owner ? 0.8 : 0.38);
   addFact(document, facts, 'executed_date', 'Executed Date', executedDate, executedDateEvidence?.evidence.map((evidence) => evidence.id) ?? [], executedDate ? 0.78 : 0.36);
-  addFact(document, facts, 'contract_ceiling', 'Contract Ceiling', ceiling, ceilingEvidence?.evidence.map((evidence) => evidence.id) ?? [], ceiling != null ? 0.86 : 0.44);
+  addFact(document, facts, 'term_start_date', 'Term Start', termStartDate, termStartDateEvidence?.evidence.map((evidence) => evidence.id) ?? [], termStartDate ? 0.76 : 0.42);
+  addFact(document, facts, 'term_end_date', 'Term End', termEndDate, termEndDateEvidence?.evidence.map((evidence) => evidence.id) ?? [], termEndDate ? 0.76 : 0.42);
+  addFact(document, facts, 'expiration_date', 'Expiration Date', expirationDate, [], expirationDate ? 0.78 : 0.44);
+  addFact(document, facts, 'contract_ceiling', 'Contract Ceiling', ceiling, selectedCeilingEvidence?.evidence.map((evidence) => evidence.id) ?? [], ceiling != null ? 0.86 : 0.44);
   addFact(
     document,
     facts,
@@ -261,7 +583,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     'rate_row_count',
     'Rate Rows',
     rateRowCount,
-    rateTableEvidenceRefs.slice(0, 48),
+    (rateTableEvidenceRefs.length > 0 ? rateTableEvidenceRefs : rateEvidenceRefs).slice(0, 48),
     rateRowCount > 0 ? 0.76 : 0.5,
   );
   addFact(

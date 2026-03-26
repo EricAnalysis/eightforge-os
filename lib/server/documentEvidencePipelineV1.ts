@@ -15,7 +15,10 @@ export type ContractStructuredFieldsV1 = {
   owner_name: string | null;
   executed_date: string | null;
   expiration_date: string | null;
+  term_start_date?: string | null;
+  term_end_date?: string | null;
   nte_amount: number | null;
+  contractor_name_source?: 'explicit_definition' | 'heuristic' | null;
 };
 
 export type ContractSectionSignalsV1 = {
@@ -101,10 +104,148 @@ function collectHeadings(pageText: string): string[] {
 
 const PARTY_OWNER_RE = /\b(?:owner|client|county|city|town|authority|agency)\b\s*[:=\-]?\s*([A-Z][A-Za-z0-9 &.,'()-]{2,120})/mi;
 const PARTY_CONTRACTOR_RE = /\b(?:contractor|vendor|consultant|company|firm)\b\s*[:=\-]?\s*([A-Z][A-Za-z0-9 &.,'()-]{2,120})/mi;
+// Matches the common government contract pattern: "[NAME] ("Contractor")" anywhere in the intro/signature text.
+// This is more reliable than "between ..." because owner clauses often include "by and through" which confuses simple BETWEEN patterns.
+const QUOTE = `["'“”‘’]`;
+const DEFINED_CONTRACTOR_RE = new RegExp(
+  `\\b([A-Z][A-Za-z0-9 &.,'\\-]{2,160}?)\\s*,?\\s*\\(\\s*${QUOTE}?[Cc]ontractor${QUOTE}?\\s*\\)`,
+);
+// Matches "between ... and [NAME] ("Contractor")" (contractor appears after the conjunction).
+const AND_DEFINED_CONTRACTOR_RE = new RegExp(
+  `\\bbetween\\b[\\s\\S]{0,260}?\\band\\b\\s+([A-Z][A-Za-z0-9 &.,'\\-]{2,160}?)\\s*,?\\s*\\(\\s*${QUOTE}?[Cc]ontractor${QUOTE}?\\s*\\)`,
+  'i',
+);
 const BETWEEN_RE = /\b(?:by\s+and\s+between|contract\s+between)\b[\s\S]{0,200}?\band\b\s+([A-Z][A-Za-z0-9 &.,'()-]{2,120})/i;
 const EXECUTED_DATE_RE = /\b(?:executed\s+(?:on|this)?|dated\s+this|effective\s+as\s+of|effective\s+date)\b[^0-9A-Za-z]{0,30}(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/i;
+// Matches "this 28th day of August, 2025" — common government contract date format.
+// \s+ intentionally matches newlines so it works when "of" and the month are on adjacent lines.
+const ORDINAL_EXECUTED_DATE_RE = /\bthis\s+(\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s+\d{4})/i;
 const EXPIRATION_DATE_RE = /\b(?:expires?\s+on|expiration\s+date|term\s+ends?\s+on)\b[^0-9A-Za-z]{0,30}(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/i;
-const NTE_RE = /\b(?:not\s+to\s+exceed|nte|maximum\s+(?:amount|contract|price))\b[\s\S]{0,80}?\$?\s*([\d,]+(?:\.\d{1,2})?)/i;
+// Allow hyphens in "not-to-exceed" (government contracts use the hyphenated form).
+const NTE_RE = /\b(?:not[\s\-]+to[\s\-]+exceed|nte|maximum\s+(?:amount|contract|price))\b[\s\S]{0,80}?\$?\s*([\d,]+(?:\.\d{1,2})?)/i;
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+const MONTH_MAP: Record<string, number> = Object.fromEntries(
+  MONTHS.map((name, idx) => [name.toLowerCase(), idx + 1]),
+) as Record<string, number>;
+
+function monthDayYearToIso(value: string): string | null {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const m = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})$/i.exec(normalized);
+  if (!m) return null;
+  const month = MONTH_MAP[m[1].toLowerCase()] ?? 0;
+  const day = Number(m[2]);
+  const year = Number(m[3]);
+  if (!month || day < 1 || day > 31 || year < 1900 || year > 2100) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function numericDateToIso(value: string): string | null {
+  const normalized = value.trim();
+  const m = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/.exec(normalized);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const yearRaw = Number(m[3]);
+  const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2100) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function anyDateToIso(value: string): string | null {
+  const cleaned = value
+    .replace(/\b(?:the\s+date\s+of|date\s+of)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (
+    ordinalDayMonthYearToIso(cleaned) ??
+    monthDayYearToIso(cleaned) ??
+    numericDateToIso(cleaned) ??
+    null
+  );
+}
+
+const TERM_RANGE_RE = new RegExp(
+  `\\b(?:from|beginning|effective\\s+from)\\s+` +
+    `(?:the\\s+date\\s+of\\s+(?:the\\s+)?|date\\s+of\\s+(?:the\\s+)?)?(` +
+    `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+    `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `)\\s*,?\\s*(?:to|through|thru|until)\\s+(` +
+    `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+    `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `)\\b`,
+  'i',
+);
+const BETWEEN_RANGE_RE = new RegExp(
+  `\\bbetween\\s+(` +
+    `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+    `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `)\\s+and\\s+(` +
+    `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+    `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `)\\b`,
+  'i',
+);
+const THROUGH_UNTIL_RE = new RegExp(
+  `\\b(?:through|thru|until)\\s+(` +
+    `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+    `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `)\\b`,
+  'i',
+);
+
+type TermRangePatternId = 'TERM_RANGE' | 'BETWEEN';
+
+function findTermRangeInHaystacks(
+  haystacks: Array<{ label: string; text: string }>,
+): { match: RegExpExecArray; pattern: TermRangePatternId; haystackLabel: string; sourceText: string } | null {
+  for (const { label, text } of haystacks) {
+    const t = text.trim();
+    if (!t) continue;
+    let m = TERM_RANGE_RE.exec(t);
+    if (m) return { match: m, pattern: 'TERM_RANGE', haystackLabel: label, sourceText: t };
+    m = BETWEEN_RANGE_RE.exec(t);
+    if (m) return { match: m, pattern: 'BETWEEN', haystackLabel: label, sourceText: t };
+  }
+  return null;
+}
+
+function termClauseDebugWindow(sourceText: string, rawMatch: string | null | undefined): string {
+  if (rawMatch && sourceText.includes(rawMatch)) {
+    const i = sourceText.indexOf(rawMatch);
+    return sourceText.slice(Math.max(0, i - 50), Math.min(sourceText.length, i + rawMatch.length + 140));
+  }
+  return (
+    sourceText.match(/\bterm of this agreement\b[\s\S]{0,220}/i)?.[0] ??
+    sourceText.match(/\bfrom the date of\b[\s\S]{0,160}/i)?.[0] ??
+    sourceText.slice(0, 320)
+  );
+}
+
+function ordinalDayMonthYearToIso(value: string): string | null {
+  // Input shape (from ORDINAL_EXECUTED_DATE_RE capture):
+  // "28th day of August, 2025"
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const m = /^(\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+(January|February|March|April|May|June|July|August|September|October|November|December),?\s+(\d{4})$/i.exec(normalized);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const year = Number(m[3]);
+  if (!Number.isFinite(day) || day < 1 || day > 31) return null;
+  if (!Number.isFinite(year) || year < 1900 || year > 2100) return null;
+  const monthName = m[2].toLowerCase();
+  const monthMap: Record<string, number> = {
+    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+    july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  };
+  const month = monthMap[monthName];
+  if (!month) return null;
+  const mm = String(month).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
 
 const RATE_HEADING_KEYWORDS = [
   'exhibit',
@@ -216,6 +357,8 @@ function detectFederalSignals(textLower: string): string[] {
 export function buildEvidenceV1(params: {
   pageText: PageTextEvidence[];
   documentTypeHint: string | null;
+  /** Pdf.js / layout combined text (may differ from native per-page strings). Used only for term-range search. */
+  layoutCombinedText?: string | null;
 }): DocumentEvidenceV1 {
   const docType = (params.documentTypeHint ?? '').toLowerCase();
   const isContractLike = docType.includes('contract');
@@ -224,7 +367,10 @@ export function buildEvidenceV1(params: {
   const section_signals: Record<string, unknown> = {};
 
   if (isContractLike) {
-    const contract = parseContractEvidenceV1({ pages: params.pageText });
+    const contract = parseContractEvidenceV1({
+      pages: params.pageText,
+      layoutCombinedText: params.layoutCombinedText ?? null,
+    });
     Object.assign(structured_fields, contract.structured_fields);
     Object.assign(section_signals, contract.section_signals);
   }
@@ -239,11 +385,12 @@ export function buildEvidenceV1(params: {
 
 export function parseContractEvidenceV1(params: {
   pages: PageTextEvidence[];
+  layoutCombinedText?: string | null;
 }): {
   structured_fields: ContractStructuredFieldsV1;
   section_signals: ContractSectionSignalsV1;
 } {
-  const pages = params.pages ?? [];
+  const pages = [...(params.pages ?? [])].sort((a, b) => a.page_number - b.page_number);
   const combined = normalizeWhitespace(pages.map((p) => p.text).join('\n\n'));
   const lower = safeLower(combined);
 
@@ -252,7 +399,14 @@ export function parseContractEvidenceV1(params: {
   const firstNormalized = normalizeWhitespace(firstPages);
   const firstLower = safeLower(firstNormalized);
 
+  const explicitContractorRaw =
+    firstGroup(firstNormalized, AND_DEFINED_CONTRACTOR_RE) ??
+    firstGroup(firstNormalized, DEFINED_CONTRACTOR_RE) ??
+    firstGroup(combined, AND_DEFINED_CONTRACTOR_RE) ??
+    firstGroup(combined, DEFINED_CONTRACTOR_RE);
   const contractor =
+    // Highest precision: explicit ("Contractor") definition, preferring the "and [Name]" side.
+    takeBestNameCandidate(explicitContractorRaw) ??
     takeBestNameCandidate(firstGroup(firstNormalized, PARTY_CONTRACTOR_RE)) ??
     takeBestNameCandidate(firstGroup(firstNormalized, BETWEEN_RE)) ??
     takeBestNameCandidate(firstGroup(combined, PARTY_CONTRACTOR_RE));
@@ -261,12 +415,57 @@ export function parseContractEvidenceV1(params: {
     takeBestNameCandidate(firstGroup(firstNormalized, PARTY_OWNER_RE)) ??
     takeBestNameCandidate(firstGroup(combined, PARTY_OWNER_RE));
 
-  const executed_date =
-    firstGroup(firstNormalized, EXECUTED_DATE_RE) ??
-    firstGroup(combined, EXECUTED_DATE_RE);
+  // Term range extraction (explicit ranges win; do not allow unrelated later dates to override once found).
+  // Haystacks: native page text first, then optional pdf.js layout combined (often closer to on-screen reading order).
+  const layoutNorm = params.layoutCombinedText ? normalizeWhitespace(params.layoutCombinedText) : '';
+  const termHaystacks: Array<{ label: string; text: string }> = [
+    { label: 'first_pages', text: firstNormalized },
+    { label: 'all_pages', text: combined },
+  ];
+  if (layoutNorm.trim().length > 0 && !termHaystacks.some((h) => h.text === layoutNorm)) {
+    termHaystacks.push({ label: 'layout_combined', text: layoutNorm });
+  }
+  const termRangeHit = findTermRangeInHaystacks(termHaystacks);
+  const termRange = termRangeHit?.match ?? null;
+  const term_start_date = termRange?.[1] ? (anyDateToIso(termRange[1]) ?? termRange[1].replace(/\s+/g, ' ').trim()) : null;
+  const term_end_date = termRange?.[2] ? (anyDateToIso(termRange[2]) ?? termRange[2].replace(/\s+/g, ' ').trim()) : null;
+  const termDebug = process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1' || process.env.EIGHTFORGE_OCR_DEBUG === '1';
+  if (termDebug) {
+    const dbgSource =
+      termRangeHit?.sourceText ??
+      (layoutNorm.trim().length > 0 ? layoutNorm : firstNormalized || combined);
+    console.log('[pdf-extract][term-range]', {
+      matched: Boolean(termRange),
+      pattern: termRangeHit?.pattern ?? null,
+      haystack: termRangeHit?.haystackLabel ?? null,
+      raw_match: termRange?.[0] ?? null,
+      raw_start: termRange?.[1] ?? null,
+      raw_end: termRange?.[2] ?? null,
+      normalized_start: term_start_date,
+      normalized_end: term_end_date,
+      text_window: termClauseDebugWindow(dbgSource, termRange?.[0]),
+    });
+  }
 
-  const expiration_date =
-    firstGroup(combined, EXPIRATION_DATE_RE);
+  // Normalize captured date value to collapse any mid-value newlines (e.g. "28th day of\nAugust").
+  const rawExecutedDate =
+    firstGroup(firstNormalized, EXECUTED_DATE_RE) ??
+    firstGroup(firstNormalized, ORDINAL_EXECUTED_DATE_RE) ??
+    firstGroup(combined, EXECUTED_DATE_RE) ??
+    firstGroup(combined, ORDINAL_EXECUTED_DATE_RE);
+  const executed_date = rawExecutedDate
+    ? (ordinalDayMonthYearToIso(rawExecutedDate) ?? rawExecutedDate.replace(/\s+/g, ' ').trim())
+    : null;
+
+  // Expiration: prefer explicit term end when present; otherwise fall back to explicit expiry language.
+  const expirationRaw =
+    term_end_date ??
+    firstGroup(combined, EXPIRATION_DATE_RE) ??
+    (termRange == null ? firstGroup(firstNormalized, THROUGH_UNTIL_RE) : null) ??
+    null;
+  const expiration_date = expirationRaw
+    ? (anyDateToIso(expirationRaw) ?? expirationRaw.replace(/\s+/g, ' ').trim())
+    : null;
 
   const nteRaw = firstGroup(combined, NTE_RE);
   const nte_amount = nteRaw ? parseMoney(nteRaw) : null;
@@ -330,8 +529,11 @@ export function parseContractEvidenceV1(params: {
     contractor_name: contractor,
     owner_name: owner,
     executed_date: executed_date ?? null,
-    expiration_date: expiration_date ?? null,
+    expiration_date: (term_end_date ?? expiration_date) ?? null,
+    term_start_date: term_start_date ?? null,
+    term_end_date: term_end_date ?? null,
     nte_amount,
+    contractor_name_source: explicitContractorRaw ? 'explicit_definition' : (contractor ? 'heuristic' : null),
   };
 
   const section_signals: ContractSectionSignalsV1 = {

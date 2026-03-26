@@ -173,6 +173,26 @@ function getTextPreview(data: Record<string, unknown> | null): string {
   return (extraction?.text_preview as string) ?? '';
 }
 
+function getDetectedDocumentType(data: Record<string, unknown> | null): string | null {
+  if (!data) return null;
+  const fields = data.fields as Record<string, unknown> | null;
+  const fromFields = fields?.detected_document_type;
+  if (typeof fromFields === 'string' && fromFields.trim().length > 0) {
+    return fromFields.trim();
+  }
+
+  const extraction = data.extraction as Record<string, unknown> | null;
+  const fromExtraction = extraction?.detected_document_type;
+  if (typeof fromExtraction === 'string' && fromExtraction.trim().length > 0) {
+    return fromExtraction.trim();
+  }
+
+  const aiAssist = extraction?.ai_assist_v1 as Record<string, unknown> | null;
+  const classification = aiAssist?.classification as Record<string, unknown> | null;
+  const assisted = classification?.detected_document_type;
+  return typeof assisted === 'string' && assisted.trim().length > 0 ? assisted.trim() : null;
+}
+
 function getEvidenceV1(data: Record<string, unknown> | null): {
   structured_fields?: Record<string, unknown>;
   section_signals?: Record<string, unknown>;
@@ -6546,7 +6566,7 @@ function applyRuleEngine(
 export function buildDocumentIntelligence(
   params: BuildIntelligenceParams,
 ): DocumentIntelligenceOutput {
-  const dt = (params.documentType ?? '').toLowerCase();
+  const dt = (getDetectedDocumentType(params.extractionData) ?? params.documentType ?? '').toLowerCase();
   const nameLower = params.documentName.toLowerCase();
   const titleLower = (params.documentTitle ?? '').toLowerCase();
 
@@ -6565,7 +6585,7 @@ export function buildDocumentIntelligence(
       { family: 'contract', label: 'Contract / Rate doc', confidence: 0.95 },
       buildContractOutput(params),
     );
-  } else if (dt === 'payment_rec') {
+  } else if (dt === 'payment_rec' || dt === 'payment_recommendation') {
     result = finalizeDocumentIntelligence(
       'payment_recommendation',
       { family: 'payment_recommendation', label: 'Payment recommendation', confidence: 0.95 },

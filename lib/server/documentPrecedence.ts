@@ -24,6 +24,15 @@ const DOCUMENT_PRECEDENCE_SELECT = [
   'operator_override_precedence',
 ].join(', ');
 
+const LEGACY_DOCUMENT_PRECEDENCE_SELECT = [
+  'id',
+  'project_id',
+  'title',
+  'name',
+  'document_type',
+  'created_at',
+].join(', ');
+
 const LEGACY_SUPPORT_DOCUMENT_TYPES = new Set([
   'payment rec',
   'disposal checklist',
@@ -50,6 +59,19 @@ function normalizeText(value: string | null | undefined): string {
 
 function isMissingRelationshipTable(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
   return error?.code === '42P01' || (error?.message ?? '').toLowerCase().includes('document_relationships');
+}
+
+function isMissingDocumentPrecedenceColumn(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (error?.code !== '42703') return false;
+
+  const message = (error?.message ?? '').toLowerCase();
+  return [
+    'document_role',
+    'authority_status',
+    'effective_date',
+    'precedence_rank',
+    'operator_override_precedence',
+  ].some((column) => message.includes(column));
 }
 
 function shouldIncludeLegacySupportDocument(document: DocumentPrecedenceRecord): boolean {
@@ -96,14 +118,27 @@ export async function loadProjectDocumentPrecedenceSnapshot(
 ): Promise<ProjectDocumentPrecedenceSnapshot> {
   const { organizationId, projectId } = params;
 
-  const { data: documents, error: documentsError } = await admin
+  const { data: documentsWithPrecedence, error: documentsError } = await admin
     .from('documents')
     .select(DOCUMENT_PRECEDENCE_SELECT)
     .eq('organization_id', organizationId)
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
 
-  if (documentsError) {
+  let documents = documentsWithPrecedence;
+  if (documentsError && isMissingDocumentPrecedenceColumn(documentsError)) {
+    const legacyDocumentsResult = await admin
+      .from('documents')
+      .select(LEGACY_DOCUMENT_PRECEDENCE_SELECT)
+      .eq('organization_id', organizationId)
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false });
+
+    documents = legacyDocumentsResult.data;
+    if (legacyDocumentsResult.error) {
+      throw new Error(legacyDocumentsResult.error.message);
+    }
+  } else if (documentsError) {
     throw new Error(documentsError.message);
   }
 

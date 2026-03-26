@@ -17,14 +17,56 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
-function inferFamily(documentType: string | null, contentLayers: Record<string, unknown> | null): DocumentFamily {
-  const normalizedType = (documentType ?? '').toLowerCase();
+function detectedDocumentTypeFromExtraction(extractionData: Record<string, unknown> | null): string | null {
+  const fields = asRecord(extractionData?.fields);
+  const direct = fields?.detected_document_type;
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim();
+
+  const extraction = asRecord(extractionData?.extraction);
+  const aiAssist = asRecord(extraction?.ai_assist_v1);
+  const classification = asRecord(aiAssist?.classification);
+  const assisted = classification?.detected_document_type;
+  return typeof assisted === 'string' && assisted.trim().length > 0 ? assisted.trim() : null;
+}
+
+function assistedFamilyFromExtraction(extractionData: Record<string, unknown> | null): DocumentFamily | null {
+  const extraction = asRecord(extractionData?.extraction);
+  const aiAssist = asRecord(extraction?.ai_assist_v1);
+  const classification = asRecord(aiAssist?.classification);
+  const family = classification?.family;
+  switch (family) {
+    case 'contract':
+    case 'invoice':
+    case 'payment_recommendation':
+    case 'ticket':
+    case 'spreadsheet':
+    case 'operational':
+    case 'generic':
+      return family;
+    default:
+      return null;
+  }
+}
+
+function inferFamily(
+  documentType: string | null,
+  contentLayers: Record<string, unknown> | null,
+  extractionData: Record<string, unknown> | null,
+): DocumentFamily {
+  const normalizedType = (
+    detectedDocumentTypeFromExtraction(extractionData)
+    ?? documentType
+    ?? ''
+  ).toLowerCase();
   const spreadsheet = asRecord(contentLayers?.spreadsheet);
   const detectedSheets = asRecord(spreadsheet?.detected_sheets);
   const sheets = asArray<Record<string, unknown>>(detectedSheets?.sheets);
   if (sheets.some((sheet) => sheet.classification === 'ticket_export')) {
     return 'ticket';
   }
+
+  const assistedFamily = assistedFamilyFromExtraction(extractionData);
+  if (assistedFamily) return assistedFamily;
 
   if (normalizedType.includes('payment_rec') || normalizedType.includes('payment_recommendation')) {
     return 'payment_recommendation';
@@ -145,7 +187,7 @@ function buildDocument(params: {
   const evidence = parseEvidence(params.extractionData, contentLayers, params.id);
   const gaps = parseGaps(contentLayers);
   const textPreview = typeof extraction?.text_preview === 'string' ? extraction.text_preview : '';
-  const family = inferFamily(params.documentType, contentLayers);
+  const family = inferFamily(params.documentType, contentLayers, params.extractionData);
 
   return {
     document_id: params.id,

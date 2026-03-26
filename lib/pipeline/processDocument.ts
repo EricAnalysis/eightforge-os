@@ -138,6 +138,34 @@ export async function processDocument(params: {
       });
     }
 
+    const extractionDebug =
+      process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1' ||
+      process.env.EIGHTFORGE_OCR_DEBUG === '1' ||
+      process.env.EIGHTFORGE_EVIDENCE_DEBUG === '1';
+    if (extractionDebug) {
+      const extraction = (payload.extraction ?? {}) as Record<string, unknown>;
+      const evidence = (extraction.evidence_v1 ?? {}) as Record<string, unknown>;
+      const contentLayers = (extraction.content_layers_v1 ?? {}) as Record<string, unknown>;
+      const pdfLayers = (contentLayers.pdf ?? {}) as Record<string, unknown>;
+      const pageText =
+        Array.isArray(evidence.page_text) ? evidence.page_text as Array<Record<string, unknown>> : [];
+      const pdfText = (pdfLayers.text ?? {}) as Record<string, unknown>;
+      const pdfTables = (pdfLayers.tables ?? {}) as Record<string, unknown>;
+      const pdfForms = (pdfLayers.forms ?? {}) as Record<string, unknown>;
+      console.log('[processDocument][extraction-ready]', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId: (docRow.project_id as string | null) ?? null,
+        extraction_mode: extraction.mode ?? null,
+        text_preview_length:
+          typeof extraction.text_preview === 'string' ? extraction.text_preview.length : 0,
+        evidence_page_count: pageText.length,
+        pdf_text_page_count: Array.isArray(pdfText.pages) ? pdfText.pages.length : 0,
+        pdf_table_count: Array.isArray(pdfTables.tables) ? pdfTables.tables.length : 0,
+        pdf_form_count: Array.isArray(pdfForms.fields) ? pdfForms.fields.length : 0,
+      });
+    }
+
     // ── 5. Persist raw extraction row ────────────────────────────────────────
     const { data: inserted, error: insertError } = await admin
       .from('document_extractions')
@@ -150,6 +178,17 @@ export async function processDocument(params: {
       .single();
 
     if (insertError) {
+      if (extractionDebug) {
+        console.error('[processDocument][extraction-persist-failed]', {
+          documentId: params.documentId,
+          organizationId: params.organizationId,
+          projectId: (docRow.project_id as string | null) ?? null,
+          code: insertError.code ?? null,
+          message: insertError.message,
+          details: insertError.details ?? null,
+          hint: insertError.hint ?? null,
+        });
+      }
       await markFailed(job.id, params.documentId, insertError.message);
       return { success: false, error: 'Failed to persist extraction', jobId: job.id };
     }

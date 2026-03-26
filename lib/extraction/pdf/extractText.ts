@@ -1,4 +1,8 @@
 import type { ExtractionGap } from '@/lib/extraction/types';
+import {
+  countUnsafeTextControls,
+  stripUnsafeTextControls,
+} from '@/lib/extraction/textSanitization';
 
 export interface PdfToken {
   text: string;
@@ -52,7 +56,11 @@ export interface PdfTextExtractionResult {
 }
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return stripUnsafeTextControls(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function round(value: number): number {
@@ -159,6 +167,8 @@ export async function loadPdfLayout(
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
       const page = await pdfDocument.getPage(pageNumber);
       const textContent = await page.getTextContent();
+      let strippedControlCount = 0;
+      let sanitizedTokenCount = 0;
       const items = (textContent.items ?? []) as Array<{
         str?: string;
         width?: number;
@@ -167,14 +177,33 @@ export async function loadPdfLayout(
       }>;
 
       const tokens = items
-        .map((item) => ({
-          text: (item.str ?? '').trim(),
-          x: Array.isArray(item.transform) ? round(item.transform[4] ?? 0) : 0,
-          y: Array.isArray(item.transform) ? round(item.transform[5] ?? 0) : 0,
-          width: typeof item.width === 'number' ? round(item.width) : 0,
-          height: typeof item.height === 'number' ? round(item.height) : 0,
-        }))
+        .map((item) => {
+          const rawText = item.str ?? '';
+          const removedControls = countUnsafeTextControls(rawText);
+          if (removedControls > 0) {
+            strippedControlCount += removedControls;
+            sanitizedTokenCount += 1;
+          }
+          return {
+            text: stripUnsafeTextControls(rawText).trim(),
+            x: Array.isArray(item.transform) ? round(item.transform[4] ?? 0) : 0,
+            y: Array.isArray(item.transform) ? round(item.transform[5] ?? 0) : 0,
+            width: typeof item.width === 'number' ? round(item.width) : 0,
+            height: typeof item.height === 'number' ? round(item.height) : 0,
+          };
+        })
         .filter((token) => token.text.length > 0);
+
+      if (
+        strippedControlCount > 0 &&
+        (process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1' || process.env.EIGHTFORGE_OCR_DEBUG === '1')
+      ) {
+        console.log('[pdf-extract][sanitize-layout]', {
+          pageNumber,
+          sanitized_token_count: sanitizedTokenCount,
+          stripped_control_count: strippedControlCount,
+        });
+      }
 
       tokens.sort((left, right) => (right.y - left.y) || (left.x - right.x));
 

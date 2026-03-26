@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
+import {
+  processedDocsEmptyState,
+  processedDocsSubtitle,
+} from '@/lib/projectOverviewCopy';
 import type {
   OverviewTone,
   ProjectOverviewActionItem,
@@ -495,11 +499,11 @@ export function ProjectOverview({ model, loadIssue }: ProjectOverviewProps) {
             <section id="project-documents" className="space-y-4">
               <SectionHeading
                 title="Processed Docs"
-                subtitle={`${model.document_total} linked document${model.document_total === 1 ? '' : 's'} in the project record`}
+                subtitle={processedDocsSubtitle(model)}
               />
               {model.documents.length === 0 ? (
                 <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
-                  {model.document_empty_state}
+                  {processedDocsEmptyState(model)}
                 </div>
               ) : (
                 <div className="space-y-2 rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-2">

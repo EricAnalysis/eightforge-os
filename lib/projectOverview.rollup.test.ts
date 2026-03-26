@@ -89,7 +89,10 @@ describe('project operational rollup', () => {
     assert.equal(rollup.needs_review_document_count, 1);
     assert.equal(rollup.unresolved_finding_count, 1);
     assert.equal(rollup.open_document_action_count, 1);
-    assert.equal(rollup.pending_actions[0]?.href, '/platform/documents/doc-1');
+    assert.equal(
+      rollup.pending_actions[0]?.href,
+      '/platform/documents/doc-1?source=project&projectId=project-1',
+    );
 
     const model = buildProjectOverviewModel({
       project: baseProject,
@@ -103,7 +106,10 @@ describe('project operational rollup', () => {
 
     assert.equal(model.status.label, 'Needs Review');
     assert.equal(model.action_total, 1);
-    assert.equal(model.actions[0]?.href, '/platform/documents/doc-1');
+    assert.equal(
+      model.actions[0]?.href,
+      '/platform/documents/doc-1?source=project&projectId=project-1',
+    );
     assert.equal(model.documents[0]?.status_label, 'Needs review');
   });
 

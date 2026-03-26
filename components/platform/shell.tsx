@@ -26,7 +26,7 @@ type IconName =
   | 'search'
   | 'upload';
 
-type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'archive';
+type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'documents';
 
 const TOP_NAV_ITEMS = [
   { href: '/platform', label: 'Workspace', key: 'workspace' },
@@ -44,7 +44,7 @@ const SIDE_NAV_ITEMS: Array<{
   { href: '/platform/decisions', label: 'Decision Queue', icon: 'gavel', key: 'decisions' },
   { href: '/platform/workflows', label: 'My Actions', icon: 'checklist', key: 'actions' },
   { href: '/platform/reviews', label: 'Intelligence', icon: 'spark', key: 'intelligence' },
-  { href: '/platform/documents', label: 'Archive', icon: 'archive', key: 'archive' },
+  { href: '/platform/documents', label: 'Documents', icon: 'archive', key: 'documents' },
 ] as const;
 
 function normalizeWorkspaceName(workspaceName: string): string {
@@ -65,17 +65,24 @@ function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['k
   return pathname.startsWith('/platform');
 }
 
-function isSideNavActive(pathname: string, key: NavKey): boolean {
-  if (key === 'command') return pathname === '/platform';
-  if (key === 'decisions') return pathname.startsWith('/platform/decisions');
-  if (key === 'actions') return pathname.startsWith('/platform/workflows');
-  if (key === 'archive') return pathname.startsWith('/platform/documents');
-  return (
+export function getActiveSideNavKey(pathname: string): NavKey | null {
+  if (pathname === '/platform') return 'command';
+  if (pathname.startsWith('/platform/decisions')) return 'decisions';
+  if (pathname.startsWith('/platform/workflows')) return 'actions';
+  if (pathname.startsWith('/platform/documents')) return 'documents';
+  if (
     pathname.startsWith('/platform/reviews') ||
     pathname.startsWith('/platform/issues') ||
     pathname.startsWith('/platform/agents') ||
     pathname.startsWith('/platform/rules')
-  );
+  ) {
+    return 'intelligence';
+  }
+  return null;
+}
+
+function isSideNavActive(pathname: string, key: NavKey): boolean {
+  return getActiveSideNavKey(pathname) === key;
 }
 
 function initialsFromWorkspace(workspaceName: string): string {

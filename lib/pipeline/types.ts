@@ -22,6 +22,8 @@ export interface PipelineFact {
   missing_source_context: string[];
   source_document_id: string;
   document_family: DocumentFamily;
+  /** How evidence_refs were attached: primary grounding vs value-in-text fallback. */
+  evidence_resolution?: 'primary' | 'value_fallback' | 'none';
 }
 
 export interface PipelineAuditNote {

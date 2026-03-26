@@ -86,7 +86,12 @@
       "Bash(powershell.exe -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like ''*next*'' } | Stop-Process -Force; Write-Host ''Done''\")",
       "Bash(powershell.exe -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host ''Killed node processes''\")",
       "Bash(node_modules/.bin/tsc --noEmit --project tsconfig.json)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Read(//c/Users/ADMS Thompson/Downloads/**)",
+      "Bash(unzip -l '/c/Users/ADMS Thompson/Downloads/stitch_operational_home.zip')",
+      "Bash(mkdir -p /tmp/stitch_ref)",
+      "Bash(unzip -o \"/c/Users/ADMS Thompson/Downloads/stitch_operational_home.zip\" -d /tmp/stitch_ref)",
+      "Bash(head -150 app/platform/documents/[id]/page.tsx)"
     ]
   }
 }

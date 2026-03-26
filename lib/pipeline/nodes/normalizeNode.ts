@@ -445,7 +445,9 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const contractorEvidence = findEvidenceByLabel(document, ['contractor', 'vendor', 'company']);
   const ownerEvidence = findEvidenceByLabel(document, ['owner', 'county', 'client']);
   const explicitCeilingEvidence = findEvidenceByRegex(document, [
-    /(?:\bnot\s+to\s+exceed\b|\bnte\b|\bmaximum\s+amount\b|\bmaximum\s+contract\s+amount\b|\bcontractual\s+limit\b|\bceiling\s+amount\b|\baggregate\s+cap\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:\bnot\s+to\s+exceed\b|\bnte\b)[^$0-9]{0,12}\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:\bnot\s+to\s+exceed\b|\bnte\b)[^A-Za-z0-9]{0,12}(?:amount|sum|price|value|fee|compensation|contract\s+amount)[^$0-9]{0,20}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:\bmaximum\s+amount\b|\bmaximum\s+contract\s+amount\b|\bcontractual\s+limit\b|\bceiling\s+amount\b|\baggregate\s+cap\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
   ]);
   const labeledCeilingEvidence = findEvidenceByRegex(document, [
     /(?:\bcontract\s+ceiling\b|\bcontract\s+limit\b|\bcontract\s+cap\b|\bceiling\s+for\s+this\s+contract\b|\bmaximum\s+payable\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,

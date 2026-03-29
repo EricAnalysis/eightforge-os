@@ -83,6 +83,7 @@ export type PersistCanonicalIntelligenceResult = {
   handled: boolean;
   family: DocumentFamily | null;
   intelligence: DocumentIntelligenceOutput | null;
+  execution_trace_persisted: boolean;
   decisions_created: number;
   decisions_updated: number;
   decisions_deleted: number;
@@ -247,7 +248,7 @@ async function persistDocumentExecutionTrace(
     organizationId: string;
     executionTrace: DocumentExecutionTrace;
   },
-): Promise<void> {
+): Promise<boolean> {
   const { error } = await admin
     .from('documents')
     .update({
@@ -262,7 +263,10 @@ async function persistDocumentExecutionTrace(
       organizationId: params.organizationId,
       error: error.message,
     });
+    return false;
   }
+
+  return true;
 }
 
 async function loadExistingV2Decisions(
@@ -733,6 +737,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       handled: false,
       family: null,
       intelligence: null,
+      execution_trace_persisted: false,
       decisions_created: 0,
       decisions_updated: 0,
       decisions_deleted: 0,
@@ -778,7 +783,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   });
 
   if (!supportsCanonicalIntelligencePersistence(family)) {
-    await persistDocumentExecutionTrace(params.admin, {
+    const executionTracePersisted = await persistDocumentExecutionTrace(params.admin, {
       documentId: params.documentId,
       organizationId: params.organizationId,
       executionTrace: mapped.executionTrace,
@@ -787,6 +792,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       handled: false,
       family,
       intelligence,
+      execution_trace_persisted: executionTracePersisted,
       decisions_created: 0,
       decisions_updated: 0,
       decisions_deleted: 0,
@@ -817,7 +823,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
   });
 
-  await persistDocumentExecutionTrace(params.admin, {
+  const executionTracePersisted = await persistDocumentExecutionTrace(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
     executionTrace: materializePersistedExecutionTrace({
@@ -842,6 +848,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     handled: true,
     family,
     intelligence,
+    execution_trace_persisted: executionTracePersisted,
     decisions_created: decisionResult.created,
     decisions_updated: decisionResult.updated,
     decisions_deleted: decisionResult.deleted,

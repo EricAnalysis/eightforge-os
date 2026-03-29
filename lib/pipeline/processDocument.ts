@@ -23,6 +23,7 @@ import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
 import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
+import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -43,6 +44,22 @@ async function markFailed(
 ): Promise<void> {
   await updateJobStatus({ jobId, status: 'failed', errorMessage });
   await setDocumentStatus({ documentId, status: 'failed' });
+}
+
+async function markExtractedFailure(
+  jobId: string,
+  documentId: string,
+  errorMessage: string,
+  resultExtractionId?: string | null,
+): Promise<void> {
+  await updateJobStatus({
+    jobId,
+    status: 'failed',
+    completedAt: new Date().toISOString(),
+    errorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+  });
+  await setDocumentStatus({ documentId, status: 'extracted' });
 }
 
 export async function processDocument(params: {
@@ -77,7 +94,9 @@ export async function processDocument(params: {
     }
 
     const storagePath = docRow.storage_path as string | null;
+    const documentType = (docRow.document_type as string | null) ?? null;
     const projectId = (docRow.project_id as string | null) ?? null;
+    const canonicalPersistenceRequired = isContractInvoicePrimaryDocumentType(documentType);
     if (!storagePath) {
       await markFailed(job.id, params.documentId, 'storage_path missing');
       return { success: false, error: 'Storage path missing', jobId: job.id };
@@ -205,10 +224,14 @@ export async function processDocument(params: {
     await setDocumentStatus({ documentId: params.documentId, status: 'extracted' });
 
     let canonicalResult: Awaited<ReturnType<typeof generateAndPersistCanonicalIntelligence>> | null = null;
+    let canonicalPersistenceError: string | null = null;
 
     console.log('[processDocument] canonical persistence start', {
       documentId: params.documentId,
       organizationId: params.organizationId,
+      projectId,
+      documentType,
+      extractionMode: payload.extraction?.mode ?? null,
     });
 
     try {
@@ -223,23 +246,69 @@ export async function processDocument(params: {
       console.log('[processDocument] canonical persistence complete', {
         documentId: params.documentId,
         organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
         handled: canonicalResult.handled,
         family: canonicalResult.family,
+        executionTracePersisted: canonicalResult.execution_trace_persisted,
       });
     } catch (canonicalErr) {
-      console.error('[processDocument] canonical intelligence persistence failed, continuing', {
+      canonicalPersistenceError =
+        canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
+      console.error('[processDocument] canonical intelligence persistence failed', {
         documentId: params.documentId,
         organizationId: params.organizationId,
-        error: canonicalErr instanceof Error ? canonicalErr.message : canonicalErr,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        error: canonicalPersistenceError,
       });
+    }
+
+    const canonicalPersistenceHealthy =
+      canonicalResult?.handled === true &&
+      canonicalResult.execution_trace_persisted === true;
+
+    if (canonicalPersistenceRequired && !canonicalPersistenceHealthy) {
+      const errorMessage =
+        canonicalPersistenceError ??
+        (canonicalResult?.handled !== true
+          ? `Canonical intelligence did not complete for ${documentType ?? 'document'} ${params.documentId}.`
+          : `Canonical intelligence trace did not persist for ${documentType ?? 'document'} ${params.documentId}.`);
+
+      console.error('[processDocument] blocking decisioned status after canonical persistence failure', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        handled: canonicalResult?.handled ?? false,
+        family: canonicalResult?.family ?? null,
+        executionTracePersisted: canonicalResult?.execution_trace_persisted ?? false,
+      });
+
+      await markExtractedFailure(
+        job.id,
+        params.documentId,
+        errorMessage,
+        inserted?.id ?? null,
+      );
+
+      return {
+        success: false,
+        extraction: inserted,
+        jobId: job.id,
+        processing_status: 'extracted',
+        error: errorMessage,
+      };
     }
 
     if (canonicalResult?.handled) {
       // ── 7b. Project-context rerun targeting (supported families only) ───────
       // MVP: rerun only when we have a project_id and a recognized document_type.
       // This is synchronous, deterministic, and reuses the canonical persistence path.
-      const changedDocType = (docRow.document_type as string | null) ?? null;
-      const projectId = (docRow.project_id as string | null) ?? null;
+      const changedDocType = documentType;
       if (changedDocType && projectId) {
         try {
           // Current pipeline only has coarse triggers (upload/manual/system). For MVP, treat
@@ -319,7 +388,6 @@ export async function processDocument(params: {
     });
 
     const domain = (docRow.domain as string | null) ?? null;
-    const documentType = (docRow.document_type as string | null) ?? null;
 
     if (domain && documentType) {
       try {

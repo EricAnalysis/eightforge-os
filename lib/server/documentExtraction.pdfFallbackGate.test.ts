@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const MOCKED_MODULES = [
@@ -14,11 +12,96 @@ const MOCKED_MODULES = [
   '@napi-rs/canvas',
   'pdfjs-dist/legacy/build/pdf.mjs',
   'tesseract.js',
-];
+] as const;
+
+type BuildPdfTextArgs = {
+  layout: { page_count: number };
+  fallbackText?: string | null;
+  fallbackPages?: Array<{ page_number: number; text: string }> | null;
+};
 
 async function loadExtractDocument() {
   const module = await import('@/lib/server/documentExtraction');
   return module.extractDocument;
+}
+
+function mockCommonPdfPipeline(pageCount: number) {
+  const buildPdfTextExtraction = vi.fn((
+    { layout, fallbackText, fallbackPages }: BuildPdfTextArgs,
+  ) => ({
+    page_count: layout.page_count,
+    combined_text: typeof fallbackText === 'string' ? fallbackText : '',
+    confidence: 0.76,
+    gaps:
+      typeof fallbackText === 'string' && fallbackText.length > 0
+        ? [{
+            id: 'gap:fallback-text-only',
+            category: 'fallback_text_only',
+            severity: 'info',
+            message: 'fallback text used',
+            source: 'pdf',
+          }]
+        : [],
+    pages: Array.from({ length: layout.page_count }, (_, index) => ({
+      page_number: index + 1,
+      plain_text_blocks:
+        Array.isArray(fallbackPages)
+          ? fallbackPages
+              .filter((page) => page.page_number === index + 1)
+              .map((page) => ({ text: page.text }))
+          : [],
+    })),
+  }));
+
+  vi.doMock('@/lib/extraction/pdf/extractText', () => ({
+    loadPdfLayout: vi.fn(async () => ({
+      page_count: pageCount,
+      pages: Array.from({ length: pageCount }, (_, index) => ({
+        page_number: index + 1,
+        lines: [],
+      })),
+      gaps: [],
+    })),
+    buildPdfTextExtraction,
+    computeLayoutPlainCombinedText: vi.fn(() => ''),
+  }));
+  vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
+    buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
+  }));
+  vi.doMock('@/lib/extraction/pdf/extractForms', () => ({
+    buildPdfFormExtraction: vi.fn(() => ({ fields: [] })),
+  }));
+  vi.doMock('@/lib/extraction/pdf/buildEvidenceMap', () => ({
+    buildEvidenceMap: vi.fn(() => ({ evidence: [], gaps: [], confidence: 0.71 })),
+  }));
+  vi.doMock('@/lib/extraction/pdf/partitionWithUnstructured', () => ({
+    partitionWithUnstructured: vi.fn(async () => null),
+  }));
+  vi.doMock('@/lib/extraction/pdf/mapUnstructuredElements', () => ({
+    mapUnstructuredElements: vi.fn(() => null),
+  }));
+  vi.doMock('@/lib/ai/instructor/classifyDocumentFamily', () => ({
+    classifyDocumentFamily: vi.fn(async () => ({
+      parser_version: 'instructor_classification_v1',
+      status: 'classified',
+      source: 'test',
+      family: 'contract',
+      detected_document_type: 'contract',
+      confidence: 0.99,
+      reasons: [],
+      warnings: [],
+      attempts: 1,
+      model: null,
+    })),
+  }));
+  vi.doMock('@/lib/ai/instructor/extractionAssist', () => ({
+    maybeAssistTypedExtraction: vi.fn(async () => ({
+      snapshot: null,
+      mergedTypedFields: null,
+    })),
+  }));
+
+  return { buildPdfTextExtraction };
 }
 
 afterEach(() => {
@@ -29,126 +112,77 @@ afterEach(() => {
   }
 });
 
-/**
- * Integration check: contract-like PDF with native text must not be labeled pdf_fallback
- * solely because pdf-parse output is short.
- */
 describe('documentExtraction pdf fallback gate', () => {
-  it('uses pdf_text when repo sample PDF has meaningful native/layout text (contract-like name)', async () => {
-    const extractDocument = await loadExtractDocument();
-    const pdfPath = join(
-      process.cwd(),
-      'output',
-      'rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
-    );
-    const buf = readFileSync(pdfPath);
-    const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  it('uses pdf_text when meaningful native page text blocks the weak fallback gate', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
 
+    const nativePageTexts = [
+      'Williamson County emergency debris removal agreement page one with enough native text to be meaningful.',
+      'Additional unit rate schedule body text on page two keeps the document in the native pdf_text path.',
+    ];
+    const pdfDoc = {
+      numPages: 2,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({
+          items: [{
+            str: nativePageTexts[pageNumber - 1],
+            transform: [0, 0, 0, 0, 0, 100 - pageNumber],
+          }],
+        })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+
+    const createWorker = vi.fn(async () => ({
+      setParameters: vi.fn(async () => undefined),
+      recognize: vi.fn(async () => ({ data: { text: '', confidence: 0 } })),
+      terminate: vi.fn(async () => undefined),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+    vi.doMock('tesseract.js', () => ({
+      createWorker,
+    }));
+
+    const extractDocument = await loadExtractDocument();
     const payload = await extractDocument(
       {
         id: 'test-doc-gate',
-        title: 'Rollout sample',
-        name: 'rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
+        title: 'Meaningful Native PDF',
+        name: 'meaningful-native-contract.pdf',
         document_type: 'contract',
-        storage_path: 'test/rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
+        storage_path: 'test/meaningful-native-contract.pdf',
       },
-      bytes,
+      new TextEncoder().encode('not-a-real-pdf').buffer,
       'application/pdf',
-      'service-contract-rollout.pdf',
+      'meaningful-native-contract.pdf',
     );
 
     expect(payload.extraction.mode).toBe('pdf_text');
-    const preview = payload.extraction.text_preview ?? '';
-    expect(preview.trim().length).toBeGreaterThan(0);
-  }, 20_000);
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(buildPdfTextExtraction).toHaveBeenCalled();
+    expect(payload.extraction.text_preview).toContain('Williamson County emergency debris removal');
+    expect(payload.extraction.metadata).toMatchObject({
+      extraction_mode: 'pdf_text',
+      ocr_pages_attempted: 0,
+      canonical_persisted: false,
+    });
+  });
 
   it('runs full-page OCR recovery only after the weak contract PDF gate fires', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const buildPdfTextExtraction = vi.fn((
-      {
-        layout,
-        fallbackText,
-        fallbackPages,
-      }: {
-        layout: { page_count: number };
-        fallbackText?: string | null;
-        fallbackPages?: Array<{ page_number: number; text: string }> | null;
-      },
-    ) => ({
-      page_count: layout.page_count,
-      combined_text: typeof fallbackText === 'string' ? fallbackText : '',
-      confidence: 0.72,
-      gaps:
-        typeof fallbackText === 'string' && fallbackText.length > 0
-          ? [{
-              id: 'gap:fallback-text-only',
-              category: 'fallback_text_only',
-              severity: 'info',
-              message: 'fallback text used',
-              source: 'pdf',
-            }]
-          : [],
-      pages: Array.from({ length: layout.page_count }, (_, index) => ({
-        page_number: index + 1,
-        plain_text_blocks:
-          Array.isArray(fallbackPages)
-            ? fallbackPages
-                .filter((page) => page.page_number === index + 1)
-                .map((page) => ({ text: page.text }))
-            : [],
-      })),
-    }));
-
-    vi.doMock('@/lib/extraction/pdf/extractText', () => ({
-      loadPdfLayout: vi.fn(async () => ({
-        page_count: 3,
-        pages: [
-          { page_number: 1, lines: [] },
-          { page_number: 2, lines: [] },
-          { page_number: 3, lines: [] },
-        ],
-        gaps: [],
-      })),
-      buildPdfTextExtraction,
-      computeLayoutPlainCombinedText: vi.fn(() => ''),
-    }));
-    vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
-      buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
-    }));
-    vi.doMock('@/lib/extraction/pdf/extractForms', () => ({
-      buildPdfFormExtraction: vi.fn(() => ({ fields: [] })),
-    }));
-    vi.doMock('@/lib/extraction/pdf/buildEvidenceMap', () => ({
-      buildEvidenceMap: vi.fn(() => ({ evidence: [], gaps: [], confidence: 0.68 })),
-    }));
-    vi.doMock('@/lib/extraction/pdf/partitionWithUnstructured', () => ({
-      partitionWithUnstructured: vi.fn(async () => null),
-    }));
-    vi.doMock('@/lib/extraction/pdf/mapUnstructuredElements', () => ({
-      mapUnstructuredElements: vi.fn(() => null),
-    }));
-    vi.doMock('@/lib/ai/instructor/classifyDocumentFamily', () => ({
-      classifyDocumentFamily: vi.fn(async () => ({
-        parser_version: 'instructor_classification_v1',
-        status: 'classified',
-        source: 'test',
-        family: 'contract',
-        detected_document_type: 'contract',
-        confidence: 0.99,
-        reasons: [],
-        warnings: [],
-        attempts: 1,
-        model: null,
-      })),
-    }));
-    vi.doMock('@/lib/ai/instructor/extractionAssist', () => ({
-      maybeAssistTypedExtraction: vi.fn(async () => ({
-        snapshot: null,
-        mergedTypedFields: null,
-      })),
-    }));
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(3);
 
     const pdfDoc = {
       numPages: 3,

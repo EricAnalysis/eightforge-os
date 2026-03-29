@@ -1472,16 +1472,14 @@ export async function extractDocument(
       : null;
     // If pdfjs layout produced strong text, do not label this run as "pdf_fallback" just because pdf-parse was weak.
     const layoutTextStrong = pdfTextLayer.combined_text.trim().length >= 500 && !isMostlyWhitespace(pdfTextLayer.combined_text);
-    if (extractionMode === 'pdf_fallback' && layoutTextStrong) {
+    if (fallbackAllowed && extractionMode === 'pdf_text' && layoutTextStrong) {
       logPdf('overriding pdf_fallback due to strong layout text', {
         prior_fallback_reason: fallbackReason,
         combined_text_length: pdfTextLayer.combined_text.length,
       });
-      extractionMode = 'pdf_text';
       fallbackReason = 'layout_text_strong_overrode_fallback';
     }
-    const fallbackPathUsed =
-      extractionMode === 'pdf_fallback' || extractionMode === 'ocr_recovery';
+    const fallbackPathUsed = extractionMode === 'ocr_recovery';
     const combinedPdfGaps = dedupeGaps([
       ...pdfEvidenceLayer.gaps,
       ...(parsedElementsLayer?.gaps ?? []),

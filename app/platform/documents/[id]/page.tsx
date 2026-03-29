@@ -3,6 +3,17 @@
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import type {
+  DocumentFactAnchorRecord,
+} from '@/lib/documentFactAnchors';
+import type {
+  DocumentFactReviewRecord,
+  DocumentFactReviewStatus,
+} from '@/lib/documentFactReviews';
+import type {
+  DocumentFactOverrideActionType,
+  DocumentFactOverrideRecord,
+} from '@/lib/documentFactOverrides';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
@@ -49,6 +60,9 @@ type DocumentDetail = {
   domain?: string | null;
   intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
   relatedDocs?: RelatedDocInput[];
+  factOverrides?: DocumentFactOverrideRecord[];
+  factAnchors?: DocumentFactAnchorRecord[];
+  factReviews?: DocumentFactReviewRecord[];
 };
 
 type EvaluateResponse = {
@@ -527,6 +541,9 @@ export default function DocumentDetailPage({
   const [workflowTasks, setWorkflowTasks] = useState<WorkflowTaskRow[]>([]);
   const [, setWorkflowTasksLoading] = useState(false);
   const [relatedDocs, setRelatedDocs] = useState<RelatedDocInput[]>([]);
+  const [factOverrides, setFactOverrides] = useState<DocumentFactOverrideRecord[]>([]);
+  const [factAnchors, setFactAnchors] = useState<DocumentFactAnchorRecord[]>([]);
+  const [factReviews, setFactReviews] = useState<DocumentFactReviewRecord[]>([]);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackState>>({});
   const [feedbackErrorById, setFeedbackErrorById] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
@@ -560,6 +577,9 @@ export default function DocumentDetailPage({
     setWorkflowTasks([]);
     setFeedbackMap({});
     setFeedbackErrorById({});
+    setFactOverrides([]);
+    setFactAnchors([]);
+    setFactReviews([]);
     setNotFound(false);
     setError(null);
     setLoading(true);
@@ -634,6 +654,9 @@ export default function DocumentDetailPage({
     const docData = docResult.data as DocumentDetail;
     setDoc(docData);
     setRelatedDocs(docData.relatedDocs ?? []);
+    setFactOverrides(docData.factOverrides ?? []);
+    setFactAnchors(docData.factAnchors ?? []);
+    setFactReviews(docData.factReviews ?? []);
     setLoading(false);
 
     if (!extractionsResult.error && extractionsResult.data) {
@@ -770,6 +793,259 @@ export default function DocumentDetailPage({
       }
     } catch {
       setFeedbackErrorById((prev) => ({ ...prev, [decisionId]: 'Failed to save feedback' }));
+    }
+  };
+
+  const handleFactOverride = async (input: {
+    fieldKey: string;
+    valueJson: unknown;
+    rawValue?: string | null;
+    actionType: DocumentFactOverrideActionType;
+    reason?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const res = await fetch(`/api/documents/${id}/facts/override`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (redirectIfUnauthorized(res, router.replace)) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: (body as { error?: string })?.error ?? 'Failed to save fact override',
+        };
+      }
+
+      const created = (body as { override?: DocumentFactOverrideRecord }).override;
+      if (!created) {
+        return { ok: false, error: 'Override response was incomplete' };
+      }
+
+      setFactOverrides((prev) => {
+        const next = prev
+          .filter((override) => override.id !== created.id)
+          .map((override) =>
+            override.fieldKey === created.fieldKey
+              ? { ...override, isActive: false }
+              : override,
+          );
+        return [created, ...next];
+      });
+
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Failed to save fact override' };
+    }
+  };
+
+  const handleFactReview = async (input: {
+    fieldKey: string;
+    reviewStatus: DocumentFactReviewStatus;
+    reviewedValueJson?: unknown;
+    notes?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const res = await fetch(`/api/documents/${id}/facts/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (redirectIfUnauthorized(res, router.replace)) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: (body as { error?: string })?.error ?? 'Failed to save fact review',
+        };
+      }
+
+      const created = (body as { review?: DocumentFactReviewRecord }).review;
+      if (!created) {
+        return { ok: false, error: 'Review response was incomplete' };
+      }
+
+      setFactReviews((prev) => [created, ...prev.filter((review) => review.id !== created.id)]);
+
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Failed to save fact review' };
+    }
+  };
+
+  const handleFactAnchor = async (input: {
+    fieldKey: string;
+    overrideId?: string | null;
+    anchorType: 'text' | 'region';
+    pageNumber: number;
+    snippet?: string | null;
+    quoteText?: string | null;
+    rectJson?: Record<string, unknown> | null;
+    anchorJson?: Record<string, unknown> | null;
+  }): Promise<
+    | { ok: true; anchor: DocumentFactAnchorRecord }
+    | { ok: false; error: string }
+  > => {
+    const applyCreatedAnchor = (created: DocumentFactAnchorRecord) => {
+      setFactAnchors((prev) => {
+        const next = prev
+          .filter((anchor) => anchor.id !== created.id)
+          .map((anchor) =>
+            anchor.fieldKey === created.fieldKey &&
+            anchor.overrideId === created.overrideId &&
+            (
+              created.anchorType === 'page_range' ||
+              created.anchorType === 'table_region'
+                ? anchor.anchorType === 'page_range' || anchor.anchorType === 'table_region'
+                : true
+            )
+              ? { ...anchor, isPrimary: false }
+              : anchor,
+          );
+        return [created, ...next];
+      });
+    };
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const anchorPayload: Record<string, unknown> = {
+        fieldKey: input.fieldKey,
+        anchorType: input.anchorType,
+        pageNumber: input.pageNumber,
+        snippet: input.snippet ?? null,
+        quoteText: input.quoteText ?? null,
+        rectJson: input.rectJson ?? null,
+        anchorJson: input.anchorJson ?? null,
+      };
+      const rawOverride = input.overrideId;
+      if (
+        typeof rawOverride === 'string' &&
+        rawOverride.trim().length > 0 &&
+        rawOverride.trim().toLowerCase() !== 'null' &&
+        rawOverride.trim().toLowerCase() !== 'undefined'
+      ) {
+        anchorPayload.overrideId = rawOverride.trim();
+      }
+
+      const res = await fetch(`/api/documents/${id}/facts/anchor`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(anchorPayload),
+      });
+
+      if (redirectIfUnauthorized(res, router.replace)) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: (body as { error?: string })?.error ?? 'Failed to save fact anchor',
+        };
+      }
+
+      const created = (body as { anchor?: DocumentFactAnchorRecord }).anchor;
+      if (!created) {
+        return { ok: false, error: 'Anchor response was incomplete' };
+      }
+
+      applyCreatedAnchor(created);
+
+      return { ok: true, anchor: created };
+    } catch {
+      return { ok: false, error: 'Failed to save fact anchor' };
+    }
+  };
+
+  const handleRateScheduleAnchor = async (input: {
+    startPage: number;
+    endPage: number;
+    rectJson?: Record<string, unknown> | null;
+  }): Promise<
+    | { ok: true; anchor: DocumentFactAnchorRecord }
+    | { ok: false; error: string }
+  > => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const res = await fetch(`/api/documents/${id}/rate-schedule/anchor`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (redirectIfUnauthorized(res, router.replace)) {
+        return { ok: false, error: 'Authentication required' };
+      }
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: (body as { error?: string })?.error ?? 'Failed to save rate schedule anchor',
+        };
+      }
+
+      const created = (body as { anchor?: DocumentFactAnchorRecord }).anchor;
+      if (!created) {
+        return { ok: false, error: 'Rate schedule anchor response was incomplete' };
+      }
+
+      setFactAnchors((prev) => {
+        const next = prev
+          .filter((anchor) => anchor.id !== created.id)
+          .map((anchor) =>
+            anchor.fieldKey === created.fieldKey &&
+            anchor.overrideId === created.overrideId &&
+            (anchor.anchorType === 'page_range' || anchor.anchorType === 'table_region')
+              ? { ...anchor, isPrimary: false }
+              : anchor,
+          );
+        return [created, ...next];
+      });
+
+      return { ok: true, anchor: created };
+    } catch {
+      return { ok: false, error: 'Failed to save rate schedule anchor' };
     }
   };
 
@@ -1095,6 +1371,9 @@ export default function DocumentDetailPage({
       nodeTraces: displayNodeTraces,
       executionTrace: canonicalTrace,
       extractionHistory: extractions,
+      factOverrides,
+      factAnchors,
+      factReviews,
       reviewedDecisionIds,
     });
   }, [
@@ -1106,6 +1385,9 @@ export default function DocumentDetailPage({
     doc,
     extractions,
     extractionsLoading,
+    factAnchors,
+    factOverrides,
+    factReviews,
     preferredExtraction,
     relatedDocs,
     reviewedDecisionIds,
@@ -1334,6 +1616,10 @@ export default function DocumentDetailPage({
         tasksCreatedAt={persistedTasksToShow[0]?.created_at ?? null}
         auditNotes={displayAuditNotes}
         nodeTraces={displayNodeTraces}
+        onSaveFactOverride={handleFactOverride}
+        onSaveFactReview={handleFactReview}
+        onSaveFactAnchor={handleFactAnchor}
+        onSaveRateScheduleAnchor={handleRateScheduleAnchor}
         evaluationNode={evaluationSection}
       />
     </div>

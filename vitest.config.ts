@@ -8,6 +8,8 @@ export default defineConfig({
       'lib/**/*.test.ts',
       'tests/projectRerunAndDedupe.test.ts',
       'tests/pipelineCrossDocumentGrounding.test.ts',
+      'tests/contractValidation.test.ts',
+      'tests/blobExtractionSelection.test.ts',
     ],
     exclude: ['node_modules', '.next', 'e2e'],
   },

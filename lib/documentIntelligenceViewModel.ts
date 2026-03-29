@@ -2,6 +2,21 @@ import {
   findEvidenceByValueMatch,
   hasInspectableValue,
 } from '@/lib/extraction/evidenceValueMatch';
+import {
+  type DocumentFactAnchorType,
+  type DocumentFactAnchorRecord,
+  type DocumentFactAnchorRect,
+} from '@/lib/documentFactAnchors';
+import {
+  type DocumentFactReviewRecord,
+  type DocumentFactReviewStatus,
+} from '@/lib/documentFactReviews';
+import {
+  displaySourceFromActionType,
+  type DocumentFactDisplaySource,
+  type DocumentFactOverrideActionType,
+  type DocumentFactOverrideRecord,
+} from '@/lib/documentFactOverrides';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import type { PipelineFact } from '@/lib/pipeline/types';
@@ -52,7 +67,13 @@ export type DocumentEvidenceAnchor = {
   factId: string;
   evidenceId: string;
   sourceDocumentId: string;
+  anchorSource: 'machine' | 'human';
+  anchorType: DocumentFactAnchorType;
+  overrideId?: string | null;
+  isPrimary?: boolean;
   pageNumber: number | null;
+  startPage: number | null;
+  endPage: number | null;
   snippet: string | null;
   quoteText: string | null;
   parserSource: string;
@@ -67,6 +88,28 @@ export type DocumentEvidenceAnchor = {
   geometry: EvidenceGeometry | null;
   /** How coordinates were resolved for this anchor (diagnostics / coverage). */
   geometryResolution?: 'evidence_id' | 'source_element_id' | 'text_overlap' | 'none';
+};
+
+export type DocumentFactOverrideHistoryItem = {
+  id: string;
+  fieldKey: string;
+  valueJson: unknown;
+  valueDisplay: string;
+  rawValue: string | null;
+  actionType: DocumentFactOverrideActionType;
+  displaySource: Exclude<DocumentFactDisplaySource, 'auto'>;
+  reason: string | null;
+  createdBy: string;
+  createdAt: string;
+  isActive: boolean;
+  supersedesOverrideId: string | null;
+};
+
+export type DocumentFactReviewSummary = {
+  reviewStatus: DocumentFactReviewStatus;
+  reviewedBy: string;
+  reviewedAt: string;
+  notes: string | null;
 };
 
 export type DocumentFact = {
@@ -91,15 +134,34 @@ export type DocumentFact = {
   reviewState: DocumentFactState;
   statusLabel: string;
   evidenceCount: number;
+  anchorCount: number;
   primaryPage: number | null;
+  primaryAnchor: DocumentEvidenceAnchor | null;
   anchors: DocumentEvidenceAnchor[];
   normalizationNotes: string[];
   missingSourceContext: string[];
   derivationKind: string | null;
+  displaySource: DocumentFactDisplaySource;
+  displayValue: string;
+  machineValue: unknown;
+  machineDisplay: string;
+  humanValue: unknown;
+  humanDisplay: string | null;
+  reviewStatus: DocumentFactReviewStatus | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNotes: string | null;
+  humanDefinedSchedule: boolean;
+  overrideHistory: DocumentFactOverrideHistoryItem[];
   /** Pipeline normalizeNode resolution path (undefined for adapter-only facts). */
   pipelineEvidenceResolution?: 'primary' | 'value_fallback' | 'none';
   relatedDecisionIds: string[];
   relatedDecisionTitles: string[];
+  /**
+   * Pipeline normalizeNode tag for special presentation (not a separate ledger fact).
+   * Example: `rate_price_no_ceiling` on contract_ceiling.
+   */
+  machineClassification?: string | null;
 };
 
 export type DocumentFactGroup = {
@@ -145,6 +207,10 @@ export type DocumentIntelligenceViewModel = {
   parserStatus: string;
   schemaMappingStatus: string;
   sourceModeLabel: string;
+  rateScheduleSource: 'auto' | 'human';
+  rateSchedulePages: string | null;
+  rateScheduleAnchor: DocumentEvidenceAnchor | null;
+  humanDefinedSchedule: boolean;
   pageMarkerCounts: Record<number, number>;
   counts: {
     totalFacts: number;
@@ -206,6 +272,9 @@ type BuildParams = {
     created_at: string;
     data: Record<string, unknown>;
   }>;
+  factOverrides?: DocumentFactOverrideRecord[];
+  factAnchors?: DocumentFactAnchorRecord[];
+  factReviews?: DocumentFactReviewRecord[];
   reviewedDecisionIds?: Iterable<string>;
 };
 
@@ -216,6 +285,27 @@ type DecisionMeta = {
   severity: Set<NormalizedDecision['severity']>;
   details: string[];
 };
+
+type BaseDocumentFact = Omit<
+  DocumentFact,
+  | 'displaySource'
+  | 'displayValue'
+  | 'machineValue'
+  | 'machineDisplay'
+  | 'humanValue'
+  | 'humanDisplay'
+  | 'reviewStatus'
+  | 'reviewedBy'
+  | 'reviewedAt'
+  | 'reviewNotes'
+  | 'humanDefinedSchedule'
+  | 'overrideHistory'
+  | 'anchorCount'
+  | 'primaryAnchor'
+>;
+
+const CONTRACT_CEILING_RATE_PRICE_LEDGER_NOTE =
+  'Rate- or price-based agreement: no explicit overall contract ceiling cited. Supporting anchors reflect the rate schedule context.';
 
 const ADDITIONAL_FACT_SOURCE_PRIORITY: Record<FlattenedField['source'], number> = {
   structured_fields: 0,
@@ -331,6 +421,31 @@ const RAW_VALUE_ALIASES: Record<string, string[]> = {
   line_item_support_present: ['line_items'],
   line_item_count: ['line_items'],
 };
+
+const DISPLAYABLE_METADATA_KEY_EXCEPTIONS = new Set([
+  'rate_section_pages',
+  'rate_schedule_pages',
+]);
+
+const INTERNAL_METADATA_KEY_SEGMENTS = new Set([
+  'anchor',
+  'confidence',
+  'context',
+  'evidence',
+  'heuristic',
+  'location',
+  'match',
+  'matches',
+  'matching',
+  'method',
+  'page',
+  'pages',
+  'parser',
+  'reason',
+  'region',
+  'score',
+  'source',
+]);
 
 const GROUP_DEFINITIONS: Record<
   DocumentFamily | 'fallback',
@@ -633,6 +748,32 @@ function canonicalFieldKey(fieldKey: string, family: DocumentFamily): string {
   );
 }
 
+function isInternalMetadataFieldKey(fieldKey: string): boolean {
+  const normalized = toSnakeCase(fieldKey);
+  if (DISPLAYABLE_METADATA_KEY_EXCEPTIONS.has(normalized)) return false;
+
+  const segments = normalized.split('_').filter(Boolean);
+  const lastSegment = segments.at(-1) ?? normalized;
+
+  return INTERNAL_METADATA_KEY_SEGMENTS.has(lastSegment);
+}
+
+/**
+ * Missing-evidence signal: any fact with zero anchors (machine or human) may need PDF grounding.
+ * Override / review display precedence is unchanged; this only drives badges and strip counts.
+ */
+export function shouldShowMissingEvidenceBadge(fact: DocumentFact): boolean {
+  return fact.anchors.length === 0;
+}
+
+function shouldCountLowConfidence(fact: DocumentFact): boolean {
+  return (
+    fact.reviewState !== 'reviewed' &&
+    fact.reviewState !== 'overridden' &&
+    fact.confidenceLabel === 'low'
+  );
+}
+
 function fieldPriorityRank(family: DocumentFamily, fieldKey: string): number {
   const canonical = canonicalFieldKey(fieldKey, family);
   const priorities = [...(FIELD_PRIORITY[family] ?? []), ...FIELD_PRIORITY.generic];
@@ -666,7 +807,13 @@ function inferValueType(fieldKey: string, value: unknown): DocumentFactValueType
     return 'number';
   }
   if (typeof value === 'string') {
-    if ((/^\d{4}-\d{2}-\d{2}/.test(value) || !Number.isNaN(Date.parse(value))) && /date|period|term|renewal|expiration|effective/i.test(fieldKey)) {
+    const normalized = value.trim().toLowerCase();
+    const isDateRange = /\b(to|through|until)\b/.test(normalized);
+    if (
+      !isDateRange &&
+      (/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value))) &&
+      /date|period|term|renewal|expiration|effective/i.test(fieldKey)
+    ) {
       return 'date';
     }
     return 'text';
@@ -704,6 +851,610 @@ function formatFactValue(value: unknown, valueType: DocumentFactValueType): stri
     return value.map((item) => scalarToString(item) ?? String(item)).join(', ');
   }
   return String(value);
+}
+
+function withDisplayMetadata(fact: BaseDocumentFact): DocumentFact {
+  return {
+    ...fact,
+    machineClassification: fact.machineClassification ?? null,
+    anchorCount: fact.anchors.length,
+    primaryAnchor: fact.anchors[0] ?? null,
+    displaySource: 'auto',
+    displayValue: fact.normalizedDisplay,
+    machineValue: fact.normalizedValue,
+    machineDisplay: fact.normalizedDisplay,
+    humanValue: null,
+    humanDisplay: null,
+    reviewStatus: null,
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNotes: null,
+    humanDefinedSchedule: false,
+    overrideHistory: [],
+  };
+}
+
+function resolvedValueTypeForDisplay(
+  fieldKey: string,
+  valueType: DocumentFactValueType,
+  value: unknown,
+): DocumentFactValueType {
+  const inferred = inferValueType(fieldKey, value);
+  if (valueType === 'unknown') return inferred;
+  if (valueType === 'text' && inferred !== 'text' && inferred !== 'unknown') return inferred;
+  return valueType;
+}
+
+function compareOverrideHistory(
+  left: DocumentFactOverrideRecord,
+  right: DocumentFactOverrideRecord,
+): number {
+  if (left.isActive !== right.isActive) return left.isActive ? -1 : 1;
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function groupFactOverrides(
+  overrides: DocumentFactOverrideRecord[],
+  family: DocumentFamily,
+): Map<string, DocumentFactOverrideRecord[]> {
+  return overrides.reduce((map, override) => {
+    const key = canonicalFieldKey(override.fieldKey, family);
+    const current = map.get(key) ?? [];
+    current.push({
+      ...override,
+      fieldKey: key,
+    });
+    current.sort(compareOverrideHistory);
+    map.set(key, current);
+    return map;
+  }, new Map<string, DocumentFactOverrideRecord[]>());
+}
+
+function compareFactReviews(
+  left: DocumentFactReviewRecord,
+  right: DocumentFactReviewRecord,
+): number {
+  const leftTime = Date.parse(left.reviewedAt);
+  const rightTime = Date.parse(right.reviewedAt);
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+  return right.reviewedAt.localeCompare(left.reviewedAt);
+}
+
+function groupFactReviews(
+  reviews: DocumentFactReviewRecord[],
+  family: DocumentFamily,
+): Map<string, DocumentFactReviewRecord[]> {
+  return reviews.reduce((map, review) => {
+    const key = canonicalFieldKey(review.fieldKey, family);
+    const current = map.get(key) ?? [];
+    current.push({
+      ...review,
+      fieldKey: key,
+    });
+    current.sort(compareFactReviews);
+    map.set(key, current);
+    return map;
+  }, new Map<string, DocumentFactReviewRecord[]>());
+}
+
+function reviewStatusLabel(status: DocumentFactReviewStatus): string {
+  switch (status) {
+    case 'confirmed':
+      return 'confirmed';
+    case 'corrected':
+      return 'reviewed correction';
+    case 'missing_confirmed':
+      return 'missing confirmed';
+    default:
+      return 'needs followup';
+  }
+}
+
+function applyFactReviews(
+  fact: DocumentFact,
+  reviews: DocumentFactReviewRecord[],
+): DocumentFact {
+  if (reviews.length === 0) return fact;
+
+  const latest = reviews[0];
+  const note = latest.notes && latest.notes.trim().length > 0
+    ? `Fact review: ${latest.notes.trim()}`
+    : `Fact review status: ${reviewStatusLabel(latest.reviewStatus)}.`;
+  const reviewedBase: DocumentFact = {
+    ...fact,
+    reviewStatus: latest.reviewStatus,
+    reviewedBy: latest.reviewedBy,
+    reviewedAt: latest.reviewedAt,
+    reviewNotes: latest.notes,
+    normalizationNotes: fact.normalizationNotes.includes(note)
+      ? fact.normalizationNotes
+      : [note, ...fact.normalizationNotes],
+  };
+
+  if (latest.reviewStatus === 'needs_followup') {
+    return {
+      ...reviewedBase,
+      statusLabel: reviewStatusLabel(latest.reviewStatus),
+    };
+  }
+
+  if (latest.reviewStatus === 'confirmed') {
+    return {
+      ...reviewedBase,
+      reviewState: 'reviewed',
+      statusLabel: reviewStatusLabel(latest.reviewStatus),
+    };
+  }
+
+  if (latest.reviewStatus === 'missing_confirmed') {
+    return {
+      ...reviewedBase,
+      reviewState: 'reviewed',
+      statusLabel: reviewStatusLabel(latest.reviewStatus),
+    };
+  }
+
+  if (latest.reviewStatus === 'corrected' && latest.reviewedValueJson != null) {
+    const resolvedValueType = resolvedValueTypeForDisplay(
+      fact.fieldKey,
+      fact.valueType,
+      latest.reviewedValueJson,
+    );
+    const reviewedDisplay = formatFactValue(latest.reviewedValueJson, resolvedValueType);
+    return {
+      ...reviewedBase,
+      valueType: resolvedValueType,
+      reviewState: 'reviewed',
+      statusLabel: reviewStatusLabel(latest.reviewStatus),
+      displaySource: 'human_corrected',
+      displayValue: reviewedDisplay,
+      humanValue: latest.reviewedValueJson,
+      humanDisplay: reviewedDisplay,
+    };
+  }
+
+  return reviewedBase;
+}
+
+function toOverrideHistoryItem(
+  fieldKey: string,
+  valueType: DocumentFactValueType,
+  override: DocumentFactOverrideRecord,
+): DocumentFactOverrideHistoryItem {
+  const resolvedValueType = resolvedValueTypeForDisplay(fieldKey, valueType, override.valueJson);
+  return {
+    id: override.id,
+    fieldKey,
+    valueJson: override.valueJson,
+    valueDisplay: formatFactValue(override.valueJson, resolvedValueType),
+    rawValue: override.rawValue,
+    actionType: override.actionType,
+    displaySource: displaySourceFromActionType(override.actionType),
+    reason: override.reason,
+    createdBy: override.createdBy,
+    createdAt: override.createdAt,
+    isActive: override.isActive,
+    supersedesOverrideId: override.supersedesOverrideId,
+  };
+}
+
+function applyFactOverrides(
+  fact: DocumentFact,
+  overrides: DocumentFactOverrideRecord[],
+): DocumentFact {
+  if (overrides.length === 0) return fact;
+
+  const activeOverride = overrides.find((override) => override.isActive) ?? null;
+  const overrideHistory = overrides.map((override) =>
+    toOverrideHistoryItem(fact.fieldKey, fact.valueType, override),
+  );
+
+  if (!activeOverride) {
+    return {
+      ...fact,
+      overrideHistory,
+    };
+  }
+
+  const resolvedValueType = resolvedValueTypeForDisplay(
+    fact.fieldKey,
+    fact.valueType,
+    activeOverride.valueJson,
+  );
+  const humanDisplay = formatFactValue(activeOverride.valueJson, resolvedValueType);
+  const note =
+    activeOverride.reason && activeOverride.reason.trim().length > 0
+      ? `Human override reason: ${activeOverride.reason}`
+      : `Human ${activeOverride.actionType === 'add' ? 'addition' : 'correction'} is active.`;
+
+  return {
+    ...fact,
+    valueType: resolvedValueType,
+    reviewState: 'overridden',
+    statusLabel: factStatusLabel('overridden'),
+    displaySource: displaySourceFromActionType(activeOverride.actionType),
+    displayValue: humanDisplay,
+    humanValue: activeOverride.valueJson,
+    humanDisplay,
+    overrideHistory,
+    normalizationNotes: fact.normalizationNotes.includes(note)
+      ? fact.normalizationNotes
+      : [note, ...fact.normalizationNotes],
+  };
+}
+
+function normalizeDocumentFactAnchorRect(
+  value: unknown,
+): DocumentFactAnchorRect | null {
+  const rect = asRecord(value);
+  if (!rect) return null;
+
+  const x = typeof rect.x === 'number' ? rect.x : null;
+  const y = typeof rect.y === 'number' ? rect.y : null;
+  const width = typeof rect.width === 'number' ? rect.width : null;
+  const height = typeof rect.height === 'number' ? rect.height : null;
+  if (x == null || y == null || width == null || height == null) return null;
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    layoutWidth: typeof rect.layoutWidth === 'number' ? rect.layoutWidth : null,
+    layoutHeight: typeof rect.layoutHeight === 'number' ? rect.layoutHeight : null,
+  };
+}
+
+function compareFactAnchorRecords(
+  left: DocumentFactAnchorRecord,
+  right: DocumentFactAnchorRecord,
+): number {
+  if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function groupFactAnchors(
+  anchors: DocumentFactAnchorRecord[],
+  family: DocumentFamily,
+): Map<string, DocumentFactAnchorRecord[]> {
+  return anchors.reduce((map, anchor) => {
+    const key = canonicalFieldKey(anchor.fieldKey, family);
+    const current = map.get(key) ?? [];
+    current.push({
+      ...anchor,
+      fieldKey: key,
+    });
+    current.sort(compareFactAnchorRecords);
+    map.set(key, current);
+    return map;
+  }, new Map<string, DocumentFactAnchorRecord[]>());
+}
+
+function compareDocumentEvidenceAnchors(
+  left: DocumentEvidenceAnchor,
+  right: DocumentEvidenceAnchor,
+): number {
+  if ((left.isPrimary ?? false) !== (right.isPrimary ?? false)) {
+    return left.isPrimary ? -1 : 1;
+  }
+  if (left.anchorSource !== right.anchorSource) {
+    return left.anchorSource === 'human' ? -1 : 1;
+  }
+  const leftPage = left.startPage ?? left.pageNumber ?? Number.MAX_SAFE_INTEGER;
+  const rightPage = right.startPage ?? right.pageNumber ?? Number.MAX_SAFE_INTEGER;
+  if (leftPage !== rightPage) return leftPage - rightPage;
+  return left.id.localeCompare(right.id);
+}
+
+function mergeDocumentEvidenceAnchors(anchors: DocumentEvidenceAnchor[]): DocumentEvidenceAnchor[] {
+  const byId = new Map<string, DocumentEvidenceAnchor>();
+  for (const anchor of anchors) {
+    if (!byId.has(anchor.id)) {
+      byId.set(anchor.id, anchor);
+    }
+  }
+  return [...byId.values()].sort(compareDocumentEvidenceAnchors);
+}
+
+function buildHumanAnchor(params: {
+  factId: string;
+  documentId: string;
+  anchor: DocumentFactAnchorRecord;
+}): DocumentEvidenceAnchor {
+  const rect = normalizeDocumentFactAnchorRect(params.anchor.rectJson);
+  const geometry = rect
+    ? {
+        polygon: [
+          [rect.x, rect.y],
+          [rect.x + rect.width, rect.y],
+          [rect.x + rect.width, rect.y + rect.height],
+          [rect.x, rect.y + rect.height],
+        ] as Array<[number, number]>,
+        boundingBox: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        layoutWidth: rect.layoutWidth ?? undefined,
+        layoutHeight: rect.layoutHeight ?? undefined,
+      }
+    : null;
+
+  return {
+    id: `manual:${params.anchor.id}`,
+    factId: params.factId,
+    evidenceId: params.anchor.id,
+    sourceDocumentId: params.documentId,
+    anchorSource: 'human',
+    anchorType: params.anchor.anchorType,
+    overrideId: params.anchor.overrideId,
+    isPrimary: params.anchor.isPrimary,
+    pageNumber: params.anchor.pageNumber,
+    startPage: params.anchor.startPage,
+    endPage: params.anchor.endPage,
+    snippet: params.anchor.snippet,
+    quoteText: params.anchor.quoteText,
+    parserSource: 'human_anchor',
+    sourceLayer:
+      params.anchor.anchorType === 'table_region'
+        ? 'Human table region'
+        : params.anchor.anchorType === 'page_range'
+          ? 'Human page range'
+          : params.anchor.anchorType === 'region'
+            ? 'Human region'
+            : 'Human text',
+    sourceRegionId: params.anchor.id,
+    matchType:
+      params.anchor.anchorType === 'table_region'
+        ? 'human table region anchor'
+        : params.anchor.anchorType === 'page_range'
+          ? 'human page range anchor'
+          : params.anchor.anchorType === 'region'
+            ? 'human region anchor'
+            : 'human text anchor',
+    extractionVersion: null,
+    startOffset: null,
+    endOffset: null,
+    confidence: null,
+    weak: false,
+    geometry,
+    geometryResolution: geometry ? 'none' : 'none',
+  };
+}
+
+function applyPersistedFactAnchors(
+  fact: DocumentFact,
+  factAnchors: DocumentFactAnchorRecord[],
+): DocumentFact {
+  if (factAnchors.length === 0) {
+    return {
+      ...fact,
+      anchorCount: fact.anchors.length,
+      primaryAnchor: fact.anchors[0] ?? null,
+    };
+  }
+
+  const activeOverrideId = fact.overrideHistory.find((item) => item.isActive)?.id ?? null;
+  const relevantAnchors = factAnchors.filter(
+    (anchor) => anchor.overrideId == null || anchor.overrideId === activeOverrideId,
+  );
+
+  if (relevantAnchors.length === 0) {
+    return {
+      ...fact,
+      anchorCount: fact.anchors.length,
+      primaryAnchor: fact.anchors[0] ?? null,
+    };
+  }
+
+  const manualAnchors = relevantAnchors.map((anchor) =>
+    buildHumanAnchor({
+      factId: fact.id,
+      documentId: fact.documentId,
+      anchor,
+    }),
+  );
+
+  const anchors = mergeDocumentEvidenceAnchors([...manualAnchors, ...fact.anchors]);
+  const primaryAnchor = anchors[0] ?? null;
+
+  return {
+    ...fact,
+    anchors,
+    evidenceCount: anchors.length,
+    anchorCount: anchors.length,
+    primaryAnchor,
+    primaryPage: primaryAnchor?.pageNumber ?? null,
+  };
+}
+
+const RATE_SCHEDULE_CONTROL_FIELD_KEY = 'rate_schedule_pages';
+const RATE_SCHEDULE_FACT_FIELDS = ['rate_schedule_present', 'rate_schedule_pages'] as const;
+
+function isRateScheduleControlAnchorRecord(anchor: DocumentFactAnchorRecord): boolean {
+  return anchor.anchorType === 'page_range' || anchor.anchorType === 'table_region';
+}
+
+function formatRateSchedulePagesValue(startPage: number, endPage: number): string {
+  return startPage === endPage ? `page ${startPage}` : `pages ${startPage}-${endPage}`;
+}
+
+function manualDisplaySourceForFact(fact: DocumentFact): Exclude<DocumentFactDisplaySource, 'auto'> {
+  return fact.machineValue == null || fact.machineDisplay === 'Missing'
+    ? 'human_added'
+    : 'human_corrected';
+}
+
+function ensureRateScheduleFact(
+  facts: DocumentFact[],
+  family: DocumentFamily,
+  documentId: string,
+  fieldKey: (typeof RATE_SCHEDULE_FACT_FIELDS)[number],
+): DocumentFact {
+  const existing = facts.find(
+    (fact) => canonicalFieldKey(fact.fieldKey, family) === fieldKey,
+  );
+  if (existing) return existing;
+
+  const group = resolveSchemaGroup(family, fieldKey);
+  return withDisplayMetadata({
+    id: `${documentId}:${fieldKey}:rate-schedule`,
+    documentId,
+    fieldKey,
+    fieldLabel: titleize(fieldKey),
+    schemaGroup: group.key,
+    schemaGroupLabel: group.label,
+    valueType: fieldKey === 'rate_schedule_present' ? 'boolean' : 'text',
+    valueText: null,
+    valueNumber: null,
+    valueDate: null,
+    valueBoolean: null,
+    normalizedValue: null,
+    normalizedDisplay: 'Missing',
+    rawValue: null,
+    rawDisplay: null,
+    confidence: null,
+    confidenceLabel: 'none',
+    confidenceReason: 'No machine-defined rate schedule location is available.',
+    reviewState: 'missing',
+    statusLabel: factStatusLabel('missing'),
+    evidenceCount: 0,
+    primaryPage: null,
+    anchors: [],
+    normalizationNotes: [],
+    missingSourceContext: [],
+    derivationKind: 'human_schedule_control',
+    relatedDecisionIds: [],
+    relatedDecisionTitles: [],
+  });
+}
+
+function applyHumanRateScheduleToFact(params: {
+  fact: DocumentFact;
+  humanAnchor: DocumentEvidenceAnchor;
+  fieldKey: (typeof RATE_SCHEDULE_FACT_FIELDS)[number];
+  pagesDisplay: string;
+}): DocumentFact {
+  const humanValue = params.fieldKey === 'rate_schedule_present' ? true : params.pagesDisplay;
+  const humanDisplay = params.fieldKey === 'rate_schedule_present' ? 'true' : params.pagesDisplay;
+  const anchors = mergeDocumentEvidenceAnchors([
+    {
+      ...params.humanAnchor,
+      factId: params.fact.id,
+    },
+    ...params.fact.anchors,
+  ]);
+  const primaryAnchor = anchors[0] ?? null;
+  const note = `Human-defined rate schedule ${params.pagesDisplay} is active.`;
+
+  return {
+    ...params.fact,
+    reviewState: 'overridden',
+    statusLabel: factStatusLabel('overridden'),
+    displaySource: manualDisplaySourceForFact(params.fact),
+    displayValue: humanDisplay,
+    humanValue,
+    humanDisplay,
+    humanDefinedSchedule: true,
+    derivationKind: 'human_schedule_control',
+    anchors,
+    evidenceCount: anchors.length,
+    anchorCount: anchors.length,
+    primaryAnchor,
+    primaryPage: primaryAnchor?.pageNumber ?? null,
+    normalizationNotes: params.fact.normalizationNotes.includes(note)
+      ? params.fact.normalizationNotes
+      : [note, ...params.fact.normalizationNotes],
+  };
+}
+
+function applyHumanRateScheduleDefinition(params: {
+  facts: DocumentFact[];
+  family: DocumentFamily;
+  documentId: string;
+  anchorRecord: DocumentFactAnchorRecord | null;
+}): {
+  facts: DocumentFact[];
+  rateScheduleSource: 'auto' | 'human';
+  rateSchedulePages: string | null;
+  rateScheduleAnchor: DocumentEvidenceAnchor | null;
+  humanDefinedSchedule: boolean;
+} {
+  if (!params.anchorRecord || !isRateScheduleControlAnchorRecord(params.anchorRecord)) {
+    const rateSchedulePagesFact =
+      params.facts.find(
+        (fact) => canonicalFieldKey(fact.fieldKey, params.family) === RATE_SCHEDULE_CONTROL_FIELD_KEY,
+      ) ?? null;
+    const rateSchedulePresentFact =
+      params.facts.find(
+        (fact) => canonicalFieldKey(fact.fieldKey, params.family) === 'rate_schedule_present',
+      ) ?? null;
+    const effectiveAnchor = rateSchedulePagesFact?.primaryAnchor ?? rateSchedulePresentFact?.primaryAnchor ?? null;
+    const effectivePages =
+      rateSchedulePagesFact && rateSchedulePagesFact.displayValue !== 'Missing'
+        ? rateSchedulePagesFact.displayValue
+        : null;
+
+    return {
+      facts: params.facts,
+      rateScheduleSource: 'auto',
+      rateSchedulePages: effectivePages,
+      rateScheduleAnchor: effectiveAnchor,
+      humanDefinedSchedule: false,
+    };
+  }
+
+  const pagesDisplay = formatRateSchedulePagesValue(
+    params.anchorRecord.startPage,
+    params.anchorRecord.endPage,
+  );
+  const controlAnchor = buildHumanAnchor({
+    factId: `${params.documentId}:rate_schedule_pages:control`,
+    documentId: params.documentId,
+    anchor: params.anchorRecord,
+  });
+  const workingFacts = [...params.facts];
+
+  for (const fieldKey of RATE_SCHEDULE_FACT_FIELDS) {
+    const nextFact = applyHumanRateScheduleToFact({
+      fact: ensureRateScheduleFact(workingFacts, params.family, params.documentId, fieldKey),
+      humanAnchor: controlAnchor,
+      fieldKey,
+      pagesDisplay,
+    });
+    const existingIndex = workingFacts.findIndex(
+      (fact) => canonicalFieldKey(fact.fieldKey, params.family) === fieldKey,
+    );
+    if (existingIndex === -1) {
+      workingFacts.push(nextFact);
+    } else {
+      workingFacts[existingIndex] = nextFact;
+    }
+  }
+
+  return {
+    facts: workingFacts,
+    rateScheduleSource: 'human',
+    rateSchedulePages: pagesDisplay,
+    rateScheduleAnchor: {
+      ...controlAnchor,
+      factId: `${params.documentId}:rate_schedule_pages:control`,
+    },
+    humanDefinedSchedule: true,
+  };
 }
 
 function confidenceLabel(confidence: number | null): 'high' | 'medium' | 'low' | 'none' {
@@ -862,10 +1613,10 @@ function buildRawSourceMap(params: {
   ];
 
   for (const entry of flattened) {
+    if (isInternalMetadataFieldKey(entry.key)) continue;
     map.set(entry.key, entry.value);
     map.set(toCamelCase(entry.key), entry.value);
     map.set(toSnakeCase(entry.key), entry.value);
-    map.set(entry.key.split('_').at(-1) ?? entry.key, entry.value);
   }
 
   return map;
@@ -873,28 +1624,17 @@ function buildRawSourceMap(params: {
 
 function resolveRawValue(fieldKey: string, rawValueMap: Map<string, unknown>): string | null {
   const candidates = [fieldKey, toCamelCase(fieldKey), ...(RAW_VALUE_ALIASES[fieldKey] ?? [])];
-  let bestValue: string | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
+  let fallbackValue: string | null = null;
 
   for (const candidate of candidates) {
     const rawValue = rawValueMap.get(candidate);
     const stringValue = scalarToString(rawValue);
     if (!stringValue) continue;
-
-    let score = 0;
-    if (typeof rawValue === 'string') score += 3;
-    if (/[A-Za-z]/.test(stringValue)) score += 2;
-    if (/[$,%/:-]/.test(stringValue)) score += 2;
-    if (/^\d+(\.\d+)?$/.test(stringValue)) score -= 1;
-    score += stringValue.length / 100;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestValue = stringValue;
-    }
+    if (typeof rawValue === 'string') return stringValue;
+    if (fallbackValue == null) fallbackValue = stringValue;
   }
 
-  return bestValue;
+  return fallbackValue;
 }
 
 function tokenOverlapScore(left: string, right: string): number {
@@ -1083,6 +1823,10 @@ function buildDecisionMeta(
   return meta;
 }
 
+function isContractCeilingRatePriceNoOverallCap(fact: PipelineFact | null): boolean {
+  return fact?.key === 'contract_ceiling' && fact.machine_classification === 'rate_price_no_ceiling';
+}
+
 function factState(params: {
   fact: PipelineFact | null;
   decisionMeta: DecisionMeta | undefined;
@@ -1091,6 +1835,9 @@ function factState(params: {
   value: unknown;
 }): DocumentFactState {
   const { fact, decisionMeta, reviewedDecisionIds, anchors, value } = params;
+  if (isContractCeilingRatePriceNoOverallCap(fact)) {
+    return anchors.length > 0 ? 'auto' : 'derived';
+  }
   if (value == null || comparableValue(value).length === 0) return 'missing';
   const reviewed = decisionMeta?.ids.some((id) => reviewedDecisionIds.has(id)) ?? false;
   if (decisionMeta?.families.has('mismatch')) return reviewed ? 'overridden' : 'conflicted';
@@ -1166,7 +1913,11 @@ function buildAnchorFromEvidence(params: {
     factId,
     evidenceId: evidence.id,
     sourceDocumentId: evidence.source_document_id,
+    anchorSource: 'machine',
+    anchorType: evidence.kind === 'table' ? 'region' : 'text',
     pageNumber: typeof evidence.location.page === 'number' ? evidence.location.page : null,
+    startPage: typeof evidence.location.page === 'number' ? evidence.location.page : null,
+    endPage: typeof evidence.location.page === 'number' ? evidence.location.page : null,
     snippet: snippetFromEvidence(evidence),
     quoteText: typeof evidence.text === 'string' && evidence.text.trim().length > 0
       ? evidence.text.trim()
@@ -1229,7 +1980,9 @@ function buildAdditionalFacts(params: {
   const unique = new Map<string, FlattenedField>();
   for (const entry of flattened) {
     if (!entry.key) continue;
+    if (isInternalMetadataFieldKey(entry.key)) continue;
     const fieldKey = canonicalFieldKey(entry.key, params.family);
+    if (isInternalMetadataFieldKey(fieldKey)) continue;
     if (params.existingKeys.has(fieldKey)) continue;
     const current = unique.get(fieldKey);
     if (
@@ -1248,14 +2001,16 @@ function buildAdditionalFacts(params: {
     const fieldValue = entry.value;
     const valueType = inferValueType(entry.key, fieldValue);
     const fieldText = scalarToString(fieldValue);
+    const prefersValueGrounding = Boolean(fieldText) && hasInspectableValue(fieldValue);
     let candidateEvidence = params.evidence
       .map((evidence) => {
         const snippet = snippetFromEvidence(evidence);
         if (!snippet) return null;
-        const score = Math.max(
-          tokenOverlapScore(`${entry.label} ${fieldText ?? ''}`, snippet),
-          fieldText ? tokenOverlapScore(fieldText, snippet) : 0,
-        );
+        const valueScore = fieldText ? tokenOverlapScore(fieldText, snippet) : 0;
+        const labelScore = tokenOverlapScore(entry.label, snippet);
+        const score = prefersValueGrounding
+          ? valueScore
+          : Math.max(tokenOverlapScore(`${entry.label} ${fieldText ?? ''}`, snippet), labelScore);
         return score > 0.42 ? { evidence, score } : null;
       })
       .filter((item): item is { evidence: EvidenceObject; score: number } => item != null)
@@ -1306,7 +2061,7 @@ function buildAdditionalFacts(params: {
           ]
         : [];
 
-    return {
+    return withDisplayMetadata({
       id: factId,
       documentId: params.documentId,
       fieldKey: entry.key,
@@ -1335,7 +2090,7 @@ function buildAdditionalFacts(params: {
       derivationKind: adapterValueFallback ? 'adapter_value_fallback' : entry.source,
       relatedDecisionIds: decision?.ids ?? [],
       relatedDecisionTitles: decision?.titles ?? [],
-    } satisfies DocumentFact;
+    });
   });
 }
 
@@ -1369,7 +2124,7 @@ function buildSyntheticMissingFacts(params: {
       );
       const state: DocumentFactState = decision.family === 'mismatch' ? 'conflicted' : 'missing';
 
-      return {
+      return withDisplayMetadata({
         id: factId,
         documentId: params.documentId,
         fieldKey,
@@ -1395,11 +2150,64 @@ function buildSyntheticMissingFacts(params: {
         anchors,
       normalizationNotes: decision.expected_value != null ? [`Expected value: ${String(decision.expected_value)}`] : [],
       missingSourceContext: decision.missing_source_context ?? ['No direct evidence was captured for this expected field.'],
-      derivationKind: 'decision_signal',
-      relatedDecisionIds: [decision.id],
+        derivationKind: 'decision_signal',
+        relatedDecisionIds: [decision.id],
         relatedDecisionTitles: [decision.title],
-      } satisfies DocumentFact;
+      });
     });
+}
+
+function buildOverrideOnlyFacts(params: {
+  overridesByField: Map<string, DocumentFactOverrideRecord[]>;
+  existingKeys: Set<string>;
+  documentId: string;
+  family: DocumentFamily;
+}): DocumentFact[] {
+  const facts: DocumentFact[] = [];
+
+  for (const [fieldKey, overrides] of params.overridesByField.entries()) {
+    if (params.existingKeys.has(fieldKey)) continue;
+    const activeOverride = overrides.find((override) => override.isActive) ?? overrides[0] ?? null;
+    if (!activeOverride) continue;
+
+    const group = resolveSchemaGroup(params.family, fieldKey);
+    const valueType = resolvedValueTypeForDisplay(fieldKey, 'unknown', activeOverride.valueJson);
+
+    facts.push(
+      withDisplayMetadata({
+        id: `${params.documentId}:${fieldKey}:override`,
+        documentId: params.documentId,
+        fieldKey,
+        fieldLabel: titleize(fieldKey),
+        schemaGroup: group.key,
+        schemaGroupLabel: group.label,
+        valueType,
+        valueText: null,
+        valueNumber: null,
+        valueDate: null,
+        valueBoolean: null,
+        normalizedValue: null,
+        normalizedDisplay: 'Missing',
+        rawValue: null,
+        rawDisplay: null,
+        confidence: null,
+        confidenceLabel: 'none',
+        confidenceReason: 'No machine-extracted value is available for this field.',
+        reviewState: 'missing',
+        statusLabel: factStatusLabel('missing'),
+        evidenceCount: 0,
+        primaryPage: null,
+        anchors: [],
+        normalizationNotes: [],
+        missingSourceContext: [],
+        derivationKind: 'human_override',
+        relatedDecisionIds: [],
+        relatedDecisionTitles: [],
+      }),
+    );
+  }
+
+  return facts;
 }
 
 function buildStrip(params: {
@@ -1498,7 +2306,15 @@ function parserStatus(params: {
 
 function schemaStatus(facts: DocumentFact[]): string {
   if (facts.length === 0) return 'Unmapped';
-  if (facts.some((fact) => fact.reviewState === 'missing' || fact.evidenceCount === 0)) return 'Partial';
+  if (
+    facts.some(
+      (fact) =>
+        fact.displaySource === 'auto' &&
+        (fact.reviewState === 'missing' || fact.evidenceCount === 0),
+    )
+  ) {
+    return 'Partial';
+  }
   return 'Mapped';
 }
 
@@ -1531,7 +2347,14 @@ function buildDiagnostics(params: {
           facts: group.facts.map((fact) => ({
             field_key: fact.fieldKey,
             field_label: fact.fieldLabel,
+            display_source: fact.displaySource,
+            display_value: fact.displayValue,
             normalized_value: fact.normalizedValue,
+            machine_value: fact.machineValue,
+            human_value: fact.humanValue,
+            review_status: fact.reviewStatus,
+            reviewed_by: fact.reviewedBy,
+            reviewed_at: fact.reviewedAt,
             raw_value: fact.rawValue,
             confidence: fact.confidence,
             review_state: fact.reviewState,
@@ -1605,6 +2428,7 @@ function computeAnchorCoverage(facts: DocumentFact[]): DocumentIntelligenceViewM
   let anchorsTotal = 0;
   let anchorsWithGeometry = 0;
   let anchorsPageOnly = 0;
+  const seenAnchorIds = new Set<string>();
 
   for (const fact of facts) {
     if (fact.evidenceCount > 0) factsWithAtLeastOneAnchor += 1;
@@ -1620,6 +2444,8 @@ function computeAnchorCoverage(facts: DocumentFact[]): DocumentIntelligenceViewM
     if (fact.derivationKind === 'adapter_value_fallback') adapterFactsValueFallback += 1;
 
     for (const anchor of fact.anchors) {
+      if (seenAnchorIds.has(anchor.id)) continue;
+      seenAnchorIds.add(anchor.id);
       anchorsTotal += 1;
       if (anchor.geometry != null) {
         anchorsWithGeometry += 1;
@@ -1677,6 +2503,13 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   });
   const { byId: geometryById, byPage: geometryByPage } = buildGeometryCandidates(extractionData);
   const decisionMeta = buildDecisionMeta(family, params.normalizedDecisions);
+  const reviewsByField = groupFactReviews(params.factReviews ?? [], family);
+  const overridesByField = groupFactOverrides(params.factOverrides ?? [], family);
+  const persistedAnchorsByField = groupFactAnchors(params.factAnchors ?? [], family);
+  const humanRateScheduleAnchorRecord =
+    (persistedAnchorsByField.get(RATE_SCHEDULE_CONTROL_FIELD_KEY) ?? []).find(
+      isRateScheduleControlAnchorRecord,
+    ) ?? null;
   const evidenceById = new Map(normalizedNode.evidence.map((evidence) => [evidence.id, evidence] as const));
 
   const pipelineFacts = normalizedNode.primaryDocument.facts.map((fact) => {
@@ -1697,10 +2530,17 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     const decision = decisionMeta.get(canonicalFieldKey(fact.key, family));
     const rawValue = resolveRawValue(fact.key, rawValueMap);
     const valueType = inferValueType(fact.key, fact.value);
-    const normalizedDisplay = formatFactValue(fact.value, valueType);
+    const ratePriceNoOverallCeiling = isContractCeilingRatePriceNoOverallCap(fact);
+    let normalizedDisplay = formatFactValue(fact.value, valueType);
+    if (ratePriceNoOverallCeiling) {
+      normalizedDisplay = 'No explicit ceiling';
+    }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
     if (fact.missing_source_context.length > 0) notes.push(...fact.missing_source_context);
+    if (ratePriceNoOverallCeiling) {
+      notes.push(CONTRACT_CEILING_RATE_PRICE_LEDGER_NOTE);
+    }
     const group = resolveSchemaGroup(family, fact.key);
     const state = factState({
       fact,
@@ -1709,8 +2549,10 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       anchors,
       value: fact.value,
     });
+    const statusLabel =
+      ratePriceNoOverallCeiling ? 'rate/price (no overall cap)' : factStatusLabel(state);
 
-    return {
+    return withDisplayMetadata({
       id: fact.id,
       documentId: params.documentId,
       fieldKey: fact.key,
@@ -1730,7 +2572,8 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       confidenceLabel: confidenceLabel(fact.confidence),
       confidenceReason: confidenceReason({ fact, anchors, decisionMeta: decision }),
       reviewState: state,
-      statusLabel: factStatusLabel(state),
+      statusLabel,
+      machineClassification: fact.machine_classification ?? null,
       evidenceCount: anchors.length,
       primaryPage: anchors[0]?.pageNumber ?? null,
       anchors,
@@ -1745,7 +2588,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       pipelineEvidenceResolution: fact.evidence_resolution ?? 'none',
       relatedDecisionIds: decision?.ids ?? [],
       relatedDecisionTitles: decision?.titles ?? [],
-    } satisfies DocumentFact;
+    });
   });
 
   const existingKeys = new Set(pipelineFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)));
@@ -1777,7 +2620,45 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     family,
   });
 
-  const facts = [...pipelineFacts, ...additionalFacts, ...syntheticFacts].sort((left, right) => {
+  const overrideOnlyFacts = buildOverrideOnlyFacts({
+    overridesByField,
+    existingKeys: new Set([
+      ...existingKeys,
+      ...additionalFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)),
+      ...syntheticFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)),
+    ]),
+    documentId: params.documentId,
+    family,
+  });
+
+  const factsWithAnchors = [...pipelineFacts, ...additionalFacts, ...syntheticFacts, ...overrideOnlyFacts]
+    .map((fact) =>
+      applyFactReviews(
+        fact,
+        reviewsByField.get(canonicalFieldKey(fact.fieldKey, family)) ?? [],
+      ),
+    )
+    .map((fact) =>
+      applyFactOverrides(
+        fact,
+        overridesByField.get(canonicalFieldKey(fact.fieldKey, family)) ?? [],
+      ),
+    )
+    .map((fact) =>
+      applyPersistedFactAnchors(
+        fact,
+        persistedAnchorsByField.get(canonicalFieldKey(fact.fieldKey, family)) ?? [],
+      ),
+    );
+
+  const rateScheduleOverlay = applyHumanRateScheduleDefinition({
+    facts: factsWithAnchors,
+    family,
+    documentId: params.documentId,
+    anchorRecord: humanRateScheduleAnchorRecord,
+  });
+
+  const facts = rateScheduleOverlay.facts.sort((left, right) => {
     const leftGroup = resolveSchemaGroup(family, left.fieldKey);
     const rightGroup = resolveSchemaGroup(family, right.fieldKey);
     if (leftGroup.order !== rightGroup.order) return leftGroup.order - rightGroup.order;
@@ -1786,8 +2667,8 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     if (leftRank[0] !== rightRank[0]) return leftRank[0] - rightRank[0];
     if (leftRank[1] !== rightRank[1]) return leftRank[1] - rightRank[1];
     if (leftRank[2] !== rightRank[2]) return leftRank[2] - rightRank[2];
-    return left.fieldLabel.localeCompare(right.fieldLabel);
-  });
+      return left.fieldLabel.localeCompare(right.fieldLabel);
+    });
 
   const groups = Array.from(
     facts.reduce((map, fact) => {
@@ -1813,17 +2694,24 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
 
   const counts = {
     totalFacts: facts.length,
-    lowConfidenceFacts: facts.filter((fact) => fact.confidenceLabel === 'low').length,
-    missingEvidenceFacts: facts.filter((fact) => fact.reviewState !== 'missing' && fact.evidenceCount === 0).length,
+    lowConfidenceFacts: facts.filter((fact) => shouldCountLowConfidence(fact)).length,
+    missingEvidenceFacts: facts.filter((fact) => shouldShowMissingEvidenceBadge(fact)).length,
     conflictingFacts: facts.filter((fact) => fact.reviewState === 'conflicted').length,
     missingFacts: facts.filter((fact) => fact.reviewState === 'missing').length,
   };
 
   const pageMarkerCounts: Record<number, number> = {};
+  const seenMarkerAnchors = new Set<string>();
   for (const fact of facts) {
     for (const anchor of fact.anchors) {
-      if (anchor.pageNumber == null) continue;
-      pageMarkerCounts[anchor.pageNumber] = (pageMarkerCounts[anchor.pageNumber] ?? 0) + 1;
+      if (seenMarkerAnchors.has(anchor.id)) continue;
+      seenMarkerAnchors.add(anchor.id);
+      const startPage = anchor.startPage ?? anchor.pageNumber;
+      const endPage = anchor.endPage ?? anchor.pageNumber;
+      if (startPage == null || endPage == null) continue;
+      for (let page = startPage; page <= endPage; page += 1) {
+        pageMarkerCounts[page] = (pageMarkerCounts[page] ?? 0) + 1;
+      }
     }
   }
 
@@ -1866,6 +2754,10 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     parserStatus: parser,
     schemaMappingStatus: schema,
     sourceModeLabel: sourceMode,
+    rateScheduleSource: rateScheduleOverlay.rateScheduleSource,
+    rateSchedulePages: rateScheduleOverlay.rateSchedulePages,
+    rateScheduleAnchor: rateScheduleOverlay.rateScheduleAnchor,
+    humanDefinedSchedule: rateScheduleOverlay.humanDefinedSchedule,
     pageMarkerCounts,
     counts,
     anchorCoverage,

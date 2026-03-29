@@ -36,6 +36,43 @@ function hasMeaningfulFieldValue(
   return false;
 }
 
+/**
+ * True when the blob carries PDF body text or evidence under content_layers_v1 (parser-native path).
+ * Without this, {@link pickPreferredExtractionBlob} skips newer rows that only populate layers and
+ * falls back to an older OCR blob — the live document page then never sees page-level clauses.
+ */
+function hasPdfContentLayersBody(extraction: Record<string, unknown> | null): boolean {
+  if (!extraction) return false;
+  const layers = extraction.content_layers_v1 as Record<string, unknown> | null | undefined;
+  if (layers == null || typeof layers !== 'object') return false;
+  const pdf = layers.pdf as Record<string, unknown> | null | undefined;
+  if (pdf == null || typeof pdf !== 'object') return false;
+
+  const text = pdf.text as Record<string, unknown> | null | undefined;
+  const pages = text?.pages;
+  if (Array.isArray(pages)) {
+    for (const page of pages) {
+      if (page == null || typeof page !== 'object') continue;
+      const p = page as Record<string, unknown>;
+      const blocks = p.plain_text_blocks;
+      if (
+        Array.isArray(blocks)
+        && blocks.some((b) => {
+          const t = (b as { text?: unknown }).text;
+          return typeof t === 'string' && t.trim().length > 0;
+        })
+      ) {
+        return true;
+      }
+      const pageText = p.text;
+      if (typeof pageText === 'string' && pageText.trim().length > 0) return true;
+    }
+  }
+
+  const pdfEvidence = pdf.evidence;
+  return Array.isArray(pdfEvidence) && pdfEvidence.length > 0;
+}
+
 export function hasUsableExtractionBlobData(
   data: Record<string, unknown> | null | undefined,
 ): boolean {
@@ -44,6 +81,8 @@ export function hasUsableExtractionBlobData(
   const extraction = (data.extraction as Record<string, unknown> | null) ?? null;
   const fields = (data.fields as Record<string, unknown> | null) ?? null;
   const evidence = (extraction?.evidence_v1 as Record<string, unknown> | null) ?? null;
+
+  if (hasPdfContentLayersBody(extraction)) return true;
 
   const textPreview = typeof extraction?.text_preview === 'string'
     ? extraction.text_preview.trim()

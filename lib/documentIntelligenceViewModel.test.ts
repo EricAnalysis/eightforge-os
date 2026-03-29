@@ -5,6 +5,9 @@ import {
   buildDocumentIntelligenceViewModel,
   compareDocumentFactsForLedger,
 } from './documentIntelligenceViewModel';
+import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
+import type { DocumentFactReviewRecord } from '@/lib/documentFactReviews';
+import type { DocumentFactOverrideRecord } from '@/lib/documentFactOverrides';
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type { NormalizedDecision } from '@/lib/types/documentIntelligence';
 
@@ -89,9 +92,9 @@ function makeGenericTableRow(params: {
 function buildRateScheduleModel(params: {
   documentId: string;
   page: number;
-  headers: string[];
-  headerContext: string[];
-  rows: Record<string, unknown>[];
+  headers: readonly string[];
+  headerContext: readonly string[];
+  rows: readonly Record<string, unknown>[];
   noisyPages?: number[];
 }) {
   const tableId = `pdf:table:p${params.page}:t1`;
@@ -129,7 +132,7 @@ function buildRateScheduleModel(params: {
                 text: params.rows.map((row) => String(row.raw_text ?? '')).join('\n'),
                 location: {
                   page: params.page,
-                  header_context: params.headerContext,
+                  header_context: [...params.headerContext],
                 },
                 confidence: 0.92,
                 weak: false,
@@ -141,9 +144,9 @@ function buildRateScheduleModel(params: {
                 {
                   id: tableId,
                   page_number: params.page,
-                  headers: params.headers,
-                  header_context: params.headerContext,
-                  rows: params.rows,
+                  headers: [...params.headers],
+                  header_context: [...params.headerContext],
+                  rows: [...params.rows],
                   confidence: 0.92,
                 },
               ],
@@ -182,6 +185,9 @@ function buildModel(params: {
   preferredExtraction: Record<string, unknown>;
   normalizedDecisions?: NormalizedDecision[];
   executionTrace?: Record<string, unknown> | null;
+  factOverrides?: DocumentFactOverrideRecord[];
+  factAnchors?: DocumentFactAnchorRecord[];
+  factReviews?: DocumentFactReviewRecord[];
   reviewedDecisionIds?: string[];
 }) {
   return buildDocumentIntelligenceViewModel({
@@ -209,8 +215,100 @@ function buildModel(params: {
       extracted: {},
     }) as never,
     extractionHistory: [],
+    factOverrides: params.factOverrides ?? [],
+    factAnchors: params.factAnchors ?? [],
+    factReviews: params.factReviews ?? [],
     reviewedDecisionIds: params.reviewedDecisionIds ?? [],
   });
+}
+
+function makeFactOverride(params: {
+  id: string;
+  documentId: string;
+  fieldKey: string;
+  valueJson: unknown;
+  actionType: 'add' | 'correct';
+  createdAt: string;
+  isActive?: boolean;
+  rawValue?: string | null;
+  reason?: string | null;
+  supersedesOverrideId?: string | null;
+}): DocumentFactOverrideRecord {
+  return {
+    id: params.id,
+    organizationId: 'org-1',
+    documentId: params.documentId,
+    fieldKey: params.fieldKey,
+    valueJson: params.valueJson,
+    rawValue: params.rawValue ?? null,
+    actionType: params.actionType,
+    reason: params.reason ?? null,
+    createdBy: 'user-1',
+    createdAt: params.createdAt,
+    isActive: params.isActive ?? true,
+    supersedesOverrideId: params.supersedesOverrideId ?? null,
+  };
+}
+
+function makeFactAnchor(params: {
+  id: string;
+  documentId: string;
+  fieldKey: string;
+  pageNumber: number;
+  anchorType: 'text' | 'region' | 'page_range' | 'table_region';
+  createdAt: string;
+  overrideId?: string | null;
+  startPage?: number;
+  endPage?: number;
+  snippet?: string | null;
+  quoteText?: string | null;
+  rectJson?: Record<string, unknown> | null;
+  anchorJson?: Record<string, unknown> | null;
+  isPrimary?: boolean;
+}): DocumentFactAnchorRecord {
+  return {
+    id: params.id,
+    organizationId: 'org-1',
+    documentId: params.documentId,
+    fieldKey: params.fieldKey,
+    overrideId: params.overrideId ?? null,
+    anchorType: params.anchorType,
+    pageNumber: params.pageNumber,
+    startPage: params.startPage ?? params.pageNumber,
+    endPage: params.endPage ?? params.pageNumber,
+    snippet: params.snippet ?? null,
+    quoteText: params.quoteText ?? null,
+    rectJson: params.rectJson ?? null,
+    anchorJson: params.anchorJson ?? null,
+    createdBy: 'user-1',
+    createdAt: params.createdAt,
+    isPrimary: params.isPrimary ?? true,
+  };
+}
+
+function makeFactReview(params: {
+  id: string;
+  documentId: string;
+  fieldKey: string;
+  reviewStatus: 'confirmed' | 'corrected' | 'needs_followup' | 'missing_confirmed';
+  reviewedAt: string;
+  reviewedValueJson?: unknown;
+  notes?: string | null;
+}): DocumentFactReviewRecord {
+  return {
+    id: params.id,
+    organizationId: 'org-1',
+    documentId: params.documentId,
+    fieldKey: params.fieldKey,
+    reviewStatus: params.reviewStatus,
+    reviewedValueJson:
+      Object.prototype.hasOwnProperty.call(params, 'reviewedValueJson')
+        ? params.reviewedValueJson
+        : null,
+    reviewedBy: 'user-1',
+    reviewedAt: params.reviewedAt,
+    notes: params.notes ?? null,
+  };
 }
 
 function getFact(model: ReturnType<typeof buildModel>, fieldKey: string) {
@@ -234,7 +332,7 @@ describe('document intelligence view model', () => {
         id: 'ev-ceiling',
         documentId,
         page: 2,
-        text: 'Not to exceed $2,500,000.00',
+        text: 'Maximum contract amount: Not to exceed $2,500,000.00',
         sourceElementId: 'el-ceiling',
       }),
       makeEvidence({
@@ -306,7 +404,7 @@ describe('document intelligence view model', () => {
               {
                 id: 'el-ceiling',
                 page_number: 2,
-                text: 'Not to exceed $2,500,000.00',
+                text: 'Maximum contract amount: Not to exceed $2,500,000.00',
                 coordinates: {
                   points: [[40, 88], [288, 88], [288, 122], [40, 122]],
                   layout_width: 612,
@@ -430,6 +528,179 @@ describe('document intelligence view model', () => {
     assert.equal(customEnum.rawDisplay, 'PENDING_REVIEW');
 
     assert.ok(model.counts.missingEvidenceFacts >= 1);
+  });
+
+  it('keeps EMERG03 contract facts grounded and filters metadata-only extraction fields', () => {
+    const documentId = 'emerg03-contract-view-model-doc';
+    const page1Text = [
+      'CONTRACT NO. EMERG03',
+      'THIS AGREEMENT is made and entered into by and between the New Mexico Department of Transportation and Stampede Ventures, Inc.',
+      'Agreement Date: 8/12/2024',
+    ].join('\n');
+    const page2Text = [
+      'TERM 1.B',
+      'The effective date of this Agreement is 8/12/2024.',
+      'The total amount payable to the Contractor under this Agreement, inclusive of gross receipts tax and all authorized work, shall not exceed $30,000,000.00.',
+    ].join('\n');
+
+    const model = buildModel({
+      documentId,
+      documentType: 'contract',
+      documentName: 'EMERG03_FE.pdf',
+      documentTitle: 'EMERG03 Contract',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Stampede Ventures, Inc.',
+            nte_amount: 30000000,
+            contract_date: '2024-08-12',
+          },
+        },
+        extraction: {
+          text_preview: `${page1Text}\n\n${page2Text}`,
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makeEvidence({
+                  id: 'ev-emerg03-contractor',
+                  documentId,
+                  page: 1,
+                  text: page1Text,
+                  sourceElementId: 'el-emerg03-contractor',
+                }),
+                makeEvidence({
+                  id: 'ev-emerg03-ceiling',
+                  documentId,
+                  page: 2,
+                  text: page2Text,
+                  sourceElementId: 'el-emerg03-ceiling',
+                }),
+              ],
+            },
+          },
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'Stampede Ventures, Inc.',
+              contractor_name_source: 'heuristic',
+              contractor_name_context: page2Text,
+              nte_amount_source: 'page_text',
+            },
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [32, 33],
+              rate_items_detected: 5,
+              unit_price_structure_present: true,
+            },
+            page_text: [
+              {
+                page_number: 1,
+                source_method: 'pdf_text',
+                text: page1Text,
+              },
+              {
+                page_number: 2,
+                source_method: 'pdf_text',
+                text: page2Text,
+              },
+            ],
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          contractor_name: 'Stampede Ventures, Inc.',
+          contract_ceiling: 30000000,
+          executed_date: '2024-08-12',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-28T18:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          vendor_name: 'Stampede Ventures, Inc.',
+          contractor:
+            'The total amount payable to the Contractor under this Agreement, inclusive of gross receipts tax and all authorized work, shall not exceed $30,000,000.00.',
+          notToExceedAmount: '$30,000,000.00',
+          contractor_name_source: 'heuristic',
+        },
+      },
+    });
+
+    const contractor = getFact(model, 'contractor_name');
+    assert.equal(contractor.displayValue, 'Stampede Ventures, Inc.');
+    assert.equal(contractor.rawDisplay, 'Stampede Ventures, Inc.');
+    assert.equal(contractor.primaryPage, 1);
+    assert.equal(contractor.primaryAnchor?.pageNumber, 1);
+
+    const contractCeiling = getFact(model, 'contract_ceiling');
+    assert.equal(contractCeiling.displayValue, '$30,000,000');
+    assert.equal(contractCeiling.rawDisplay, '$30,000,000.00');
+    assert.equal(contractCeiling.primaryPage, 2);
+
+    assert.ok(!model.facts.some((fact) => /(_source|_context)$/.test(fact.fieldKey)));
+    assert.ok(!model.facts.some((fact) => fact.displayValue === 'heuristic'));
+  });
+
+  it('prefers curated contractor raw aliases over generic contractor clause text', () => {
+    const documentId = 'contractor-raw-alias-priority-doc';
+    const contractorClause =
+      'The total amount payable to the Contractor under this Agreement, inclusive of gross receipts tax and all authorized work, shall not exceed $30,000,000.00.';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'contract',
+      documentName: 'contractor-raw-alias-priority.pdf',
+      documentTitle: 'Contractor Raw Alias Priority',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Stampede Ventures, Inc.',
+          },
+        },
+        extraction: {
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makeEvidence({
+                  id: 'ev-contractor-raw-alias-name',
+                  documentId,
+                  page: 1,
+                  text: 'Contractor: Stampede Ventures, Inc.',
+                  sourceElementId: 'el-contractor-raw-alias-name',
+                }),
+                makeEvidence({
+                  id: 'ev-contractor-raw-alias-clause',
+                  documentId,
+                  page: 2,
+                  text: contractorClause,
+                  sourceElementId: 'el-contractor-raw-alias-clause',
+                }),
+              ],
+            },
+          },
+          evidence_v1: {
+            structured_fields: {},
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          contractor_name: 'Stampede Ventures, Inc.',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-28T18:20:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          vendor_name: 'Stampede Ventures, Inc.',
+          contractor: contractorClause,
+        },
+      },
+    });
+
+    const contractor = getFact(model, 'contractor_name');
+    assert.equal(contractor.displayValue, 'Stampede Ventures, Inc.');
+    assert.equal(contractor.rawDisplay, 'Stampede Ventures, Inc.');
   });
 
   it('normalizes invoice conflicts, overrides, and missing facts without duplicating aliases', () => {
@@ -654,6 +925,550 @@ describe('document intelligence view model', () => {
     assert.equal(billingPeriod.reviewState, 'missing');
 
     assert.equal(model.counts.conflictingFacts, 1);
+  });
+
+  it('uses active human corrections for display while preserving machine values and history', () => {
+    const documentId = 'invoice-override-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-override.pdf',
+      documentTitle: 'Invoice Override',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            current_amount_due: 9800,
+          },
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {
+              current_amount_due: 9800,
+            },
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          billed_amount: 9800,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T16:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          currentPaymentDue: '$9,800.00',
+        },
+      },
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-old',
+          documentId,
+          fieldKey: 'billed_amount',
+          valueJson: 9950,
+          actionType: 'correct',
+          createdAt: '2026-03-24T10:00:00Z',
+          isActive: false,
+        }),
+        makeFactOverride({
+          id: 'override-active',
+          documentId,
+          fieldKey: 'billed_amount',
+          valueJson: 10100,
+          actionType: 'correct',
+          createdAt: '2026-03-24T12:00:00Z',
+          rawValue: '$10,100.00',
+          reason: 'Confirmed against operator review.',
+        }),
+      ],
+      factReviews: [
+        makeFactReview({
+          id: 'review-billed-amount',
+          documentId,
+          fieldKey: 'billed_amount',
+          reviewStatus: 'corrected',
+          reviewedValueJson: 10050,
+          reviewedAt: '2026-03-24T11:00:00Z',
+          notes: 'Operator first corrected the amount before saving the final override.',
+        }),
+      ],
+    });
+
+    const billedAmount = getFact(model, 'billed_amount');
+    assert.equal(billedAmount.displaySource, 'human_corrected');
+    assert.equal(billedAmount.displayValue, '$10,100');
+    assert.equal(billedAmount.machineDisplay, '$9,800');
+    assert.equal(billedAmount.normalizedDisplay, '$9,800');
+    assert.equal(billedAmount.humanDisplay, '$10,100');
+    assert.equal(billedAmount.reviewState, 'overridden');
+    assert.equal(billedAmount.overrideHistory.length, 2);
+    assert.equal(billedAmount.overrideHistory[0]?.isActive, true);
+    assert.equal(billedAmount.overrideHistory[0]?.valueDisplay, '$10,100');
+    assert.equal(billedAmount.reviewStatus, 'corrected');
+    assert.equal(billedAmount.reviewedAt, '2026-03-24T11:00:00Z');
+  });
+
+  it('marks facts confirmed without replacing the extracted value', () => {
+    const documentId = 'invoice-review-confirmed-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-review-confirmed.pdf',
+      documentTitle: 'Invoice Review Confirmed',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            current_amount_due: 9800,
+          },
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {
+              current_amount_due: 9800,
+            },
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          billed_amount: 9800,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-25T08:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          currentPaymentDue: '$9,800.00',
+        },
+      },
+      factReviews: [
+        makeFactReview({
+          id: 'review-confirmed-billed-amount',
+          documentId,
+          fieldKey: 'billed_amount',
+          reviewStatus: 'confirmed',
+          reviewedAt: '2026-03-25T08:15:00Z',
+          notes: 'Confirmed against the signed invoice total.',
+        }),
+      ],
+    });
+
+    const billedAmount = getFact(model, 'billed_amount');
+    assert.equal(billedAmount.displaySource, 'auto');
+    assert.equal(billedAmount.displayValue, '$9,800');
+    assert.equal(billedAmount.machineDisplay, '$9,800');
+    assert.equal(billedAmount.humanDisplay, null);
+    assert.equal(billedAmount.reviewState, 'reviewed');
+    assert.equal(billedAmount.reviewStatus, 'confirmed');
+    assert.equal(billedAmount.reviewedBy, 'user-1');
+    assert.equal(billedAmount.reviewedAt, '2026-03-25T08:15:00Z');
+    assert.equal(billedAmount.reviewNotes, 'Confirmed against the signed invoice total.');
+    assert.equal(billedAmount.statusLabel, 'confirmed');
+  });
+
+  it('uses reviewed corrections when no active override exists', () => {
+    const documentId = 'invoice-review-corrected-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-review-corrected.pdf',
+      documentTitle: 'Invoice Review Corrected',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            current_amount_due: 9800,
+          },
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {
+              current_amount_due: 9800,
+            },
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          billed_amount: 9800,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-25T09:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          currentPaymentDue: '$9,800.00',
+        },
+      },
+      factReviews: [
+        makeFactReview({
+          id: 'review-corrected-billed-amount',
+          documentId,
+          fieldKey: 'billed_amount',
+          reviewStatus: 'corrected',
+          reviewedValueJson: 10100,
+          reviewedAt: '2026-03-25T09:10:00Z',
+          notes: 'Corrected after remittance review.',
+        }),
+      ],
+    });
+
+    const billedAmount = getFact(model, 'billed_amount');
+    assert.equal(billedAmount.displaySource, 'human_corrected');
+    assert.equal(billedAmount.displayValue, '$10,100');
+    assert.equal(billedAmount.machineDisplay, '$9,800');
+    assert.equal(billedAmount.humanDisplay, '$10,100');
+    assert.equal(billedAmount.reviewState, 'reviewed');
+    assert.equal(billedAmount.reviewStatus, 'corrected');
+    assert.equal(billedAmount.reviewedAt, '2026-03-25T09:10:00Z');
+    assert.equal(billedAmount.reviewNotes, 'Corrected after remittance review.');
+    assert.equal(billedAmount.statusLabel, 'reviewed correction');
+  });
+
+  it('creates a persisted fact row for human-added values with no machine extraction', () => {
+    const documentId = 'invoice-added-fact-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-added.pdf',
+      documentTitle: 'Invoice Added Fact',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-333',
+          },
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {
+              invoice_number: 'INV-333',
+            },
+          },
+        },
+      },
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-add-billing-period',
+          documentId,
+          fieldKey: 'billing_period',
+          valueJson: '2026-03-01 to 2026-03-31',
+          actionType: 'add',
+          createdAt: '2026-03-25T09:30:00Z',
+          reason: 'Provided by operator from cover sheet.',
+        }),
+      ],
+    });
+
+    const billingPeriod = getFact(model, 'billing_period');
+    assert.equal(billingPeriod.displaySource, 'human_added');
+    assert.equal(billingPeriod.displayValue, '2026-03-01 to 2026-03-31');
+    assert.equal(billingPeriod.machineDisplay, 'Missing');
+    assert.equal(billingPeriod.reviewState, 'overridden');
+    assert.equal(billingPeriod.overrideHistory.length, 1);
+  });
+
+  it('counts missing evidence for human-added facts until an anchor is attached', () => {
+    const documentId = 'invoice-human-evidence-gap-doc';
+
+    const withoutAnchor = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-human-evidence-gap.pdf',
+      documentTitle: 'Invoice Human Evidence Gap',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {},
+          },
+        },
+      },
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-add-billing-period-gap',
+          documentId,
+          fieldKey: 'billing_period',
+          valueJson: '2026-03-01 to 2026-03-31',
+          actionType: 'add',
+          createdAt: '2026-03-25T09:30:00Z',
+        }),
+      ],
+    });
+
+    const billingPeriodWithoutAnchor = getFact(withoutAnchor, 'billing_period');
+    assert.equal(billingPeriodWithoutAnchor.displaySource, 'human_added');
+    assert.equal(billingPeriodWithoutAnchor.anchorCount, 0);
+    assert.ok(withoutAnchor.counts.missingEvidenceFacts >= 1);
+
+    const withAnchor = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-human-evidence-gap.pdf',
+      documentTitle: 'Invoice Human Evidence Gap',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          evidence_v1: {
+            structured_fields: {},
+          },
+        },
+      },
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-add-billing-period-gap',
+          documentId,
+          fieldKey: 'billing_period',
+          valueJson: '2026-03-01 to 2026-03-31',
+          actionType: 'add',
+          createdAt: '2026-03-25T09:30:00Z',
+        }),
+      ],
+      factAnchors: [
+        makeFactAnchor({
+          id: 'anchor-billing-period-gap',
+          documentId,
+          fieldKey: 'billing_period',
+          anchorType: 'text',
+          pageNumber: 2,
+          snippet: 'Billing period 03/01/2026 through 03/31/2026',
+          createdAt: '2026-03-25T09:35:00Z',
+        }),
+      ],
+    });
+
+    const billingPeriodWithAnchor = getFact(withAnchor, 'billing_period');
+    assert.equal(billingPeriodWithAnchor.anchorCount, 1);
+    assert.equal(billingPeriodWithAnchor.primaryAnchor?.id, 'manual:anchor-billing-period-gap');
+    assert.equal(withAnchor.counts.missingEvidenceFacts, withoutAnchor.counts.missingEvidenceFacts - 1);
+  });
+
+  it('applies display precedence: active override beats reviewed correction and machine value', () => {
+    const documentId = 'precedence-override-doc';
+    const model = buildModel({
+      documentId,
+      documentType: 'contract',
+      documentName: 'precedence.pdf',
+      documentTitle: 'Precedence',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            contractor_name: 'Machine Vendor LLC',
+          },
+        },
+        extraction: {
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makeEvidence({
+                  id: 'ev-vendor',
+                  documentId,
+                  page: 1,
+                  text: 'Contractor: Machine Vendor LLC',
+                  sourceElementId: 'el-vendor',
+                }),
+              ],
+            },
+          },
+        },
+      },
+      factReviews: [
+        makeFactReview({
+          id: 'rev-vendor-1',
+          documentId,
+          fieldKey: 'contractor_name',
+          reviewStatus: 'corrected',
+          reviewedValueJson: 'Reviewed Vendor Inc',
+          reviewedAt: '2026-03-28T10:00:00Z',
+        }),
+      ],
+      factOverrides: [
+        makeFactOverride({
+          id: 'ov-vendor-1',
+          documentId,
+          fieldKey: 'contractor_name',
+          valueJson: 'Override Vendor Corp',
+          actionType: 'correct',
+          createdAt: '2026-03-28T11:00:00Z',
+        }),
+      ],
+    });
+
+    const vendor = getFact(model, 'contractor_name');
+    assert.equal(vendor.displayValue, 'Override Vendor Corp');
+    assert.equal(vendor.humanDisplay, 'Override Vendor Corp');
+    assert.equal(vendor.reviewState, 'overridden');
+    assert.equal(vendor.reviewStatus, 'corrected');
+  });
+
+  it('merges persisted human anchors into facts and promotes the primary anchor', () => {
+    const documentId = 'invoice-anchor-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'invoice-anchor.pdf',
+      documentTitle: 'Invoice Anchor',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-204',
+            current_amount_due: 9800,
+          },
+        },
+        extraction: {
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makeEvidence({
+                  id: 'ev-billed-amount',
+                  documentId,
+                  page: 1,
+                  text: 'Current amount due $9,800.00',
+                  sourceElementId: 'el-billed-amount',
+                }),
+              ],
+            },
+          },
+          evidence_v1: {
+            structured_fields: {
+              invoice_number: 'INV-204',
+              current_amount_due: 9800,
+            },
+          },
+          parsed_elements_v1: {
+            elements: [
+              {
+                id: 'el-billed-amount',
+                page_number: 1,
+                text: 'Current amount due $9,800.00',
+                coordinates: {
+                  points: [[40, 120], [280, 120], [280, 156], [40, 156]],
+                  layout_width: 612,
+                  layout_height: 792,
+                },
+              },
+            ],
+          },
+        },
+      },
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-billed-amount',
+          documentId,
+          fieldKey: 'billed_amount',
+          valueJson: 10100,
+          actionType: 'correct',
+          createdAt: '2026-03-25T10:00:00Z',
+        }),
+      ],
+      factAnchors: [
+        makeFactAnchor({
+          id: 'anchor-billed-amount',
+          documentId,
+          fieldKey: 'billed_amount',
+          overrideId: 'override-billed-amount',
+          anchorType: 'region',
+          pageNumber: 2,
+          snippet: 'Operator selected corrected total on page 2.',
+          rectJson: {
+            x: 88,
+            y: 140,
+            width: 190,
+            height: 28,
+            layoutWidth: 612,
+            layoutHeight: 792,
+          },
+          createdAt: '2026-03-25T10:05:00Z',
+          isPrimary: true,
+        }),
+      ],
+    });
+
+    const billedAmount = getFact(model, 'billed_amount');
+    assert.equal(billedAmount.anchorCount, 2);
+    assert.equal(billedAmount.primaryPage, 2);
+    assert.equal(billedAmount.primaryAnchor?.id, 'manual:anchor-billed-amount');
+    assert.equal(billedAmount.primaryAnchor?.anchorSource, 'human');
+    assert.equal(billedAmount.primaryAnchor?.anchorType, 'region');
+    assert.equal(billedAmount.anchors[1]?.anchorSource, 'machine');
+  });
+
+  it('respects a human-defined rate schedule over machine schedule detection', () => {
+    const documentId = 'contract-human-schedule-doc';
+
+    const model = buildModel({
+      documentId,
+      documentType: 'contract',
+      documentName: 'contract-human-schedule.pdf',
+      documentTitle: 'Contract Human Schedule',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Acme Debris LLC',
+          },
+        },
+        extraction: {
+          content_layers_v1: {
+            pdf: {
+              evidence: [],
+            },
+          },
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'Acme Debris LLC',
+            },
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [4],
+              rate_items_detected: 6,
+              unit_price_structure_present: true,
+            },
+          },
+        },
+      },
+      factAnchors: [
+        makeFactAnchor({
+          id: 'anchor-rate-schedule',
+          documentId,
+          fieldKey: 'rate_schedule_pages',
+          anchorType: 'page_range',
+          pageNumber: 10,
+          startPage: 10,
+          endPage: 12,
+          snippet: 'Operator marked the contract rate schedule on pages 10 through 12.',
+          createdAt: '2026-03-28T15:00:00Z',
+        }),
+      ],
+    });
+
+    const rateSchedulePresent = getFact(model, 'rate_schedule_present');
+    const rateSchedulePages = getFact(model, 'rate_schedule_pages');
+
+    assert.equal(rateSchedulePresent.displaySource, 'human_corrected');
+    assert.equal(rateSchedulePresent.displayValue, 'true');
+    assert.equal(rateSchedulePresent.machineDisplay, 'true');
+    assert.equal(rateSchedulePresent.humanDefinedSchedule, true);
+
+    assert.equal(rateSchedulePages.displaySource, 'human_corrected');
+    assert.equal(rateSchedulePages.displayValue, 'pages 10-12');
+    assert.equal(rateSchedulePages.machineDisplay, 'page 4');
+    assert.equal(rateSchedulePages.humanDisplay, 'pages 10-12');
+    assert.equal(rateSchedulePages.primaryAnchor?.anchorType, 'page_range');
+    assert.equal(rateSchedulePages.primaryAnchor?.startPage, 10);
+    assert.equal(rateSchedulePages.primaryAnchor?.endPage, 12);
+
+    assert.equal(model.rateScheduleSource, 'human');
+    assert.equal(model.rateSchedulePages, 'pages 10-12');
+    assert.equal(model.rateScheduleAnchor?.anchorType, 'page_range');
+    assert.equal(model.pageMarkerCounts[10], 1);
+    assert.equal(model.pageMarkerCounts[12], 1);
   });
 
   it('prefers extracted rate tables over noisy section signals and keeps rate row count numeric', () => {

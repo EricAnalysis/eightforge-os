@@ -24,6 +24,11 @@ export interface PipelineFact {
   document_family: DocumentFamily;
   /** How evidence_refs were attached: primary grounding vs value-in-text fallback. */
   evidence_resolution?: 'primary' | 'value_fallback' | 'none';
+  /**
+   * Machine-only classification (not a separate ledger fact). Example: rate/price agreement with no overall cap.
+   * Surfaced on the parent fact in the document intelligence view model for operators and retained for debug/evals.
+   */
+  machine_classification?: string | null;
 }
 
 export interface PipelineAuditNote {

@@ -20,6 +20,7 @@ function makeLine(params: {
   kind: PdfLayoutLine['kind'];
   entries?: Array<[string, number]>;
   text?: string;
+  pageNumber?: number;
 }): PdfLayoutLine {
   const entries = params.entries ?? [[params.text ?? '', 0]];
   const tokens = makeTokens(entries, params.y);
@@ -28,7 +29,7 @@ function makeLine(params: {
   const last = tokens.at(-1);
   return {
     id: params.id,
-    page_number: 18,
+    page_number: params.pageNumber ?? 18,
     text,
     tokens,
     kind: params.kind,
@@ -48,6 +49,17 @@ function makeLayout(lines: PdfLayoutLine[]): PdfLayout {
         lines,
       },
     ],
+  };
+}
+
+function makePagedLayout(pages: Array<{ pageNumber: number; lines: PdfLayoutLine[] }>): PdfLayout {
+  return {
+    page_count: pages.length,
+    gaps: [],
+    pages: pages.map((page) => ({
+      page_number: page.pageNumber,
+      lines: page.lines,
+    })),
   };
 }
 
@@ -423,5 +435,231 @@ describe('buildPdfTableExtraction', () => {
     assert.equal(table.rows[0]?.cells[1]?.text, 'HR');
     assert.equal(table.rows[0]?.cells[2]?.text, '$98.50');
     assert.equal(table.rows[1]?.cells[2]?.text, '$110.00');
+  });
+
+  it('keeps dense repeated-category rows distinct while still merging wrapped descriptions', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:d1', y: 10, kind: 'text', text: 'EXHIBIT A' }),
+      makeLine({
+        id: 'p18:d2',
+        y: 22,
+        kind: 'text',
+        entries: [
+          ['Category', 0],
+          ['Description', 140],
+          ['Unit', 360],
+          ['Rate', 440],
+        ],
+      }),
+      makeLine({
+        id: 'p18:d3',
+        y: 34,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative', 0],
+          ['Collect, Remove & Haul', 140],
+          ['Cubic Yard', 360],
+          ['$6.90', 440],
+        ],
+      }),
+      makeLine({ id: 'p18:d4', y: 46, kind: 'text', text: 'from unincorporated neighborhoods' }),
+      makeLine({
+        id: 'p18:d5',
+        y: 58,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative', 0],
+          ['16-30 Miles from ROW to DMS', 140],
+          ['Cubic Yard', 360],
+          ['$7.90', 440],
+        ],
+      }),
+      makeLine({
+        id: 'p18:d6',
+        y: 70,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative', 0],
+          ['31-60 Miles from ROW to DMS', 140],
+          ['Cubic Yard', 360],
+          ['$8.90', 440],
+        ],
+      }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    const table = result.tables[0];
+    assert.deepEqual(table.headers, ['Category', 'Description', 'Unit', 'Rate']);
+    assert.equal(table.rows.length, 3);
+    assert.equal(
+      table.rows[0]?.cells[1]?.text,
+      'Collect, Remove & Haul from unincorporated neighborhoods',
+    );
+    assert.equal(table.rows[1]?.cells[0]?.text, 'Vegetative');
+    assert.equal(table.rows[1]?.cells[1]?.text, '16-30 Miles from ROW to DMS');
+    assert.equal(table.rows[2]?.cells[1]?.text, '31-60 Miles from ROW to DMS');
+  });
+
+  it('captures continuation schedule rows across repeated headers on later pages', () => {
+    const layout = makePagedLayout([
+      {
+        pageNumber: 18,
+        lines: [
+          makeLine({ id: 'p18:m1', pageNumber: 18, y: 10, kind: 'text', text: 'ATTACHMENT B' }),
+          makeLine({ id: 'p18:m2', pageNumber: 18, y: 22, kind: 'text', text: 'UNIT RATE PRICE FORM' }),
+          makeLine({
+            id: 'p18:m3',
+            pageNumber: 18,
+            y: 34,
+            kind: 'text',
+            entries: [
+              ['Description', 0],
+              ['County A', 320],
+              ['County B', 420],
+            ],
+          }),
+          makeLine({
+            id: 'p18:m4',
+            pageNumber: 18,
+            y: 46,
+            kind: 'table_candidate',
+            entries: [
+              ['1. Vegetative Debris Removal', 0],
+              ['6.90', 320],
+              ['7.10', 420],
+            ],
+          }),
+          makeLine({
+            id: 'p18:m5',
+            pageNumber: 18,
+            y: 58,
+            kind: 'table_candidate',
+            entries: [
+              ['2. Mixed C&D Debris', 0],
+              ['8.90', 320],
+              ['9.10', 420],
+            ],
+          }),
+        ],
+      },
+      {
+        pageNumber: 19,
+        lines: [
+          makeLine({ id: 'p19:m1', pageNumber: 19, y: 10, kind: 'text', text: 'ATTACHMENT B' }),
+          makeLine({ id: 'p19:m2', pageNumber: 19, y: 22, kind: 'text', text: 'UNIT RATE PRICE FORM' }),
+          makeLine({
+            id: 'p19:m3',
+            pageNumber: 19,
+            y: 34,
+            kind: 'text',
+            entries: [
+              ['Description', 0],
+              ['County A', 320],
+              ['County B', 420],
+            ],
+          }),
+          makeLine({
+            id: 'p19:m4',
+            pageNumber: 19,
+            y: 46,
+            kind: 'table_candidate',
+            entries: [
+              ['3. White Goods Removal', 0],
+              ['12.50', 320],
+              ['12.80', 420],
+            ],
+          }),
+          makeLine({
+            id: 'p19:m5',
+            pageNumber: 19,
+            y: 58,
+            kind: 'table_candidate',
+            entries: [
+              ['4. Hazardous Limb Removal', 0],
+              ['85.00', 320],
+              ['88.00', 420],
+            ],
+          }),
+        ],
+      },
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 2);
+    assert.equal(result.tables[0]?.page_number, 18);
+    assert.equal(result.tables[1]?.page_number, 19);
+    assert.equal(result.tables[0]?.rows.length, 2);
+    assert.equal(result.tables[1]?.rows.length, 2);
+  });
+
+  it('captures headerless EMERG03-style wrapped rate rows', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:e1', y: 10, kind: 'text', text: 'Attachment B' }),
+      makeLine({ id: 'p18:e2', y: 22, kind: 'text', text: 'UNIT RATE PRICE FORM DOT (EMERG03)' }),
+      makeLine({ id: 'p18:e3', y: 34, kind: 'text', text: 'Item and Place Pricing' }),
+      makeLine({
+        id: 'p18:e4',
+        y: 46,
+        kind: 'table_candidate',
+        entries: [
+          ['1.', 0],
+          ['Removal of Eligible Hazardous Trees', 40],
+          ['$ Per Tree', 290],
+          ['483.31', 390],
+          ['313.27', 470],
+        ],
+      }),
+      makeLine({
+        id: 'p18:e5',
+        y: 58,
+        kind: 'text',
+        text: 'Work consists of all labor, equipment, fuel, and associated costs',
+      }),
+      makeLine({
+        id: 'p18:e6',
+        y: 70,
+        kind: 'text',
+        text: 'necessary for the removal of eligible hazardous trees and placement on the ROW.',
+      }),
+      makeLine({
+        id: 'p18:e7',
+        y: 82,
+        kind: 'table_candidate',
+        entries: [
+          ['A.', 0],
+          ['Single Slope Operation Plan', 40],
+          ['$ Per Tree', 290],
+          ['483.31', 390],
+          ['313.27', 470],
+        ],
+      }),
+      makeLine({
+        id: 'p18:e8',
+        y: 94,
+        kind: 'text',
+        text: 'for trees on the ROW slated for chipping and broadcasting.',
+      }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    const table = result.tables[0];
+    assert.deepEqual(table.header_context, ['UNIT RATE PRICE FORM DOT (EMERG03)', 'Item and Place Pricing']);
+    assert.equal(table.headers.length, 0);
+    assert.equal(table.rows.length, 2);
+    assert.equal(
+      table.rows[0]?.cells[1]?.text,
+      'Removal of Eligible Hazardous Trees Work consists of all labor, equipment, fuel, and associated costs necessary for the removal of eligible hazardous trees and placement on the ROW.',
+    );
+    assert.equal(
+      table.rows[1]?.cells[1]?.text,
+      'Single Slope Operation Plan for trees on the ROW slated for chipping and broadcasting.',
+    );
+    assert.equal(table.rows[0]?.cells[2]?.text, '$ Per Tree');
+    assert.equal(table.rows[1]?.cells[3]?.text, '483.31');
   });
 });

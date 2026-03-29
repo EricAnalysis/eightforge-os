@@ -27,7 +27,11 @@ import type {
   InstructorAssistSnapshot,
   InstructorClassificationSnapshot,
 } from '@/lib/ai/instructor/types';
-import { loadPdfLayout, buildPdfTextExtraction } from '@/lib/extraction/pdf/extractText';
+import {
+  loadPdfLayout,
+  buildPdfTextExtraction,
+  computeLayoutPlainCombinedText,
+} from '@/lib/extraction/pdf/extractText';
 import { buildPdfTableExtraction } from '@/lib/extraction/pdf/extractTables';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
@@ -213,6 +217,14 @@ function normalizeWhitespace(s: string): string {
   return stripUnsafeTextControls(s).trim().replace(/\s+/g, ' ').trim();
 }
 
+function normalizePageLikeText(s: string): string {
+  return stripUnsafeTextControls(s)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function cloneArrayBuffer(bytes: ArrayBuffer): ArrayBuffer {
   return bytes.slice(0);
 }
@@ -243,6 +255,18 @@ function isWeakExtractedText(text: string | null): boolean {
   if (trimmed.length < 500) return true;
   if (isMostlyWhitespace(trimmed)) return true;
   return false;
+}
+
+function countPdfLayoutLinesByKind(
+  layout: Awaited<ReturnType<typeof loadPdfLayout>>,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const page of layout.pages) {
+    for (const line of page.lines) {
+      counts[line.kind] = (counts[line.kind] ?? 0) + 1;
+    }
+  }
+  return counts;
 }
 
 /**
@@ -773,6 +797,19 @@ async function extractPdfTextWithOptions(
   }
 }
 
+function combinePageTextEvidence(
+  pages: PageTextEvidence[] | null,
+): string | null {
+  if (!pages || pages.length === 0) return null;
+  const combined = normalizeWhitespace(
+    pages
+      .map((page) => page.text)
+      .filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
+      .join('\n\n'),
+  );
+  return combined.length > 0 ? combined : null;
+}
+
 /**
  * Very narrow OCR fallback for contract PDFs:
  * - Only triggers when PDF text extraction returns effectively empty.
@@ -782,59 +819,8 @@ async function extractPdfTextWithOptions(
  * that have no extractable text layer.
  */
 async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
-  try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const { createCanvas } = await import('@napi-rs/canvas');
-    const { createWorker } = await import('tesseract.js');
-
-    const data = new Uint8Array(bytes);
-    const pdfDoc = await pdfjs.getDocument({ data }).promise;
-
-    const requestedPages = [1, 8, 9, 10, 11];
-    const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
-    if (pagesToRender.length === 0) return null;
-
-    // Provide local language data to avoid runtime downloads.
-    // Use a runtime filesystem path so Next does not try to bundle-resolve it.
-    const langPath = getLocalTesseractLangPath();
-
-    const worker = await createWorker('eng', undefined, { langPath });
-    try {
-      await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
-
-      const parts: string[] = [];
-      for (const pageNum of pagesToRender) {
-        const page = await pdfDoc.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 2 });
-        const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-        const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
-
-        const renderContext: Parameters<typeof page.render>[0] = {
-          canvas: canvas as unknown as HTMLCanvasElement,
-          canvasContext: ctx,
-          viewport,
-        };
-        await page.render(renderContext).promise;
-        const pngBuffer = canvas.toBuffer('image/png');
-
-        const result = await worker.recognize(pngBuffer);
-        const text = result?.data?.text;
-        if (typeof text === 'string' && text.trim().length > 0) {
-          parts.push(text);
-        }
-      }
-
-      const combined = normalizeWhitespace(parts.join('\n'));
-      return combined.length > 0 ? combined : null;
-    } finally {
-      await worker.terminate();
-    }
-  } catch (error) {
-    if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
-      console.error('[extractContractTextViaOcr] failed', error);
-    }
-    return null;
-  }
+  const pages = await extractContractPageTextViaOcr(bytes);
+  return combinePageTextEvidence(pages);
 }
 
 async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTextEvidence[] | null> {
@@ -846,7 +832,7 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
     const data = new Uint8Array(bytes);
     const pdfDoc = await pdfjs.getDocument({ data }).promise;
 
-    const requestedPages = [1, 8, 9, 10, 11];
+    const requestedPages = [1, 2, 8, 9, 10, 11];
     const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
     if (pagesToRender.length === 0) return null;
 
@@ -875,7 +861,7 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({
             page_number: pageNum,
-            text: normalizeWhitespace(text),
+            text: normalizePageLikeText(text),
             source_method: 'ocr' as EvidenceSourceMethod,
           });
         }
@@ -1108,6 +1094,7 @@ export async function extractDocument(
   fileName: string
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
+  const contractDebugEnabled = process.env.EIGHTFORGE_DEBUG_CONTRACT === '1';
 
   if (isTextLike(fileName, mimeType)) {
     const fullDecoded = decodeTextPreview(fileBytes);
@@ -1181,10 +1168,16 @@ export async function extractDocument(
 
     // Always evaluate text quality. If it is too short/weak, run fallback OCR.
     const fullWeak = isWeakExtractedText(extractedTextFull);
+    let partialWeak: boolean | null = null;
 
     let extractedText: string | null = null;
     let extractionMode: 'pdf_text' | 'pdf_fallback' = 'pdf_text';
     let didAttemptOcr = false;
+    let didAttemptOcrPrimary = false;
+    let didAttemptOcrTargeted = false;
+    let ocrCombinedTextLength = 0;
+    let ocrEvidencePageCount = 0;
+    let pdfParsePartialLength: number | null = null;
     let fallbackReason: string | null = null;
     let evidencePageText: PageTextEvidence[] = [];
 
@@ -1204,13 +1197,14 @@ export async function extractDocument(
       fallbackReason = 'pdf_parse_full_weak_contract_like';
       // First try contract-scoped “partial pages” extraction to reduce OCR load.
       const extractedTextPartial = await extractPdfTextWithOptions(cloneArrayBuffer(fileBytes), { maxPages: 15 });
+      pdfParsePartialLength = extractedTextPartial?.length ?? 0;
       logPdf('pdf-parse partial complete', {
         fileName,
         did_pdf_parse_partial: true,
-        extracted_text_length: extractedTextPartial?.length ?? 0,
+        extracted_text_length: pdfParsePartialLength,
       });
 
-      const partialWeak = isWeakExtractedText(extractedTextPartial);
+      partialWeak = isWeakExtractedText(extractedTextPartial);
       if (!partialWeak && extractedTextPartial != null) {
         extractedText = extractedTextPartial;
         // Keep `pdf_fallback` when we only extracted a shallow/limited slice.
@@ -1219,10 +1213,14 @@ export async function extractDocument(
       } else {
         // OCR MUST RUN when parsed extraction is null/weak (<500 or whitespace).
         didAttemptOcr = true;
+        didAttemptOcrPrimary = true;
         const textLengthForLog = extractedTextPartial?.length ?? extractedTextFull?.length ?? null;
         logPdf('ocr fallback triggered for contract', { textLength: textLengthForLog });
-        const extractedTextOcr = await extractContractTextViaOcr(cloneArrayBuffer(fileBytes));
+        const ocrPages = await extractContractPageTextViaOcr(cloneArrayBuffer(fileBytes));
+        const extractedTextOcr = combinePageTextEvidence(ocrPages);
         const ocrLen = extractedTextOcr?.length ?? 0;
+        ocrCombinedTextLength = ocrLen;
+        ocrEvidencePageCount = ocrPages?.length ?? 0;
         logPdf('ocr complete', { ocr_text_length: ocrLen });
 
         // Guarantee text_preview is populated when OCR runs.
@@ -1232,13 +1230,9 @@ export async function extractDocument(
           ? 'ocr_used_contract_pages'
           : 'ocr_attempted_but_empty';
 
-        // OCR is page-scoped; persist minimal page evidence (requested pages only).
-        // Note: we don't know which pages had text reliably, so store as “ocr” on page 1.
-        const ocrText = extractedTextOcr ?? '';
-        if (ocrText.trim().length > 0) {
-          evidencePageText = [
-            { page_number: 1, text: ocrText, source_method: 'ocr' as EvidenceSourceMethod },
-          ];
+        // Preserve OCR page boundaries so downstream evidence can still map schedule pages.
+        if (ocrPages && ocrPages.length > 0) {
+          evidencePageText = ocrPages;
         }
       }
     }
@@ -1259,7 +1253,13 @@ export async function extractDocument(
 
       if (!ratePresent && weakAttachmentPages) {
         didAttemptOcr = true;
+        didAttemptOcrTargeted = true;
         const ocrPages = await extractContractPageTextViaOcr(cloneArrayBuffer(fileBytes));
+        const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
+        if (targetedOcrLen > ocrCombinedTextLength) {
+          ocrCombinedTextLength = targetedOcrLen;
+        }
+        ocrEvidencePageCount = Math.max(ocrEvidencePageCount, ocrPages?.length ?? 0);
         if (ocrPages && ocrPages.length > 0) {
           const byPage = new Map<number, PageTextEvidence>();
           for (const p of evidencePageText) byPage.set(p.page_number, p);
@@ -1295,16 +1295,27 @@ export async function extractDocument(
     const pdfTextLayer = buildPdfTextExtraction({
       layout: pdfLayout,
       fallbackText: extractedText ?? textPreview ?? null,
+      fallbackPages: evidencePageText,
+    });
+    const layoutLineKindCounts = countPdfLayoutLinesByKind(pdfLayout);
+    const layoutPlainCombinedLength = computeLayoutPlainCombinedText(pdfLayout).length;
+    const textLayerUsedFallbackTextOnlyGap = pdfTextLayer.gaps.some(
+      (g) => g.category === 'fallback_text_only',
+    );
+    const pdfTableLayer = buildPdfTableExtraction({
+      layout: pdfLayout,
     });
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,
       pdf_text_page_count: pdfTextLayer.page_count,
       pdf_text_combined_length: pdfTextLayer.combined_text.length,
+      layout_plain_combined_length: layoutPlainCombinedLength,
+      layout_line_kind_counts: layoutLineKindCounts,
+      layout_table_candidate_lines: layoutLineKindCounts.table_candidate ?? 0,
+      text_layer_fallback_text_only_gap: textLayerUsedFallbackTextOnlyGap,
+      pdf_table_count: pdfTableLayer.tables.length,
       pdf_text_gaps: pdfTextLayer.gaps.map((g) => ({ id: g.id, category: g.category, severity: g.severity })),
-    });
-    const pdfTableLayer = buildPdfTableExtraction({
-      layout: pdfLayout,
     });
     const pdfFormLayer = buildPdfFormExtraction({
       layout: pdfLayout,
@@ -1337,12 +1348,86 @@ export async function extractDocument(
       ...(parsedElementsLayer?.gaps ?? []),
     ]);
 
+    const nativeTextTotalLength = (nativePageTexts ?? []).reduce(
+      (sum, t) => sum + (t?.length ?? 0),
+      0,
+    );
+    const layoutTotalLineCount = pdfLayout.pages.reduce((n, p) => n + p.lines.length, 0);
+    const syntheticEvidencePageCollapsed =
+      evidencePageText.length === 0
+      && textPreview != null
+      && textPreview.trim().length > 0;
+
+    let upstreamDiagnosticNote: string | null = null;
+    if (layoutTotalLineCount > 0 && layoutPlainCombinedLength === 0) {
+      upstreamDiagnosticNote =
+        'layout_has_lines_but_plain_text_blocks_empty_fell_back_to_pdf_parse_or_ocr_string';
+    }
+    if (
+      pdfTableLayer.tables.length === 0
+      && (layoutLineKindCounts.table_candidate ?? 0) >= 4
+    ) {
+      upstreamDiagnosticNote = upstreamDiagnosticNote
+        ? `${upstreamDiagnosticNote};table_candidate_lines_but_no_extracted_tables`
+        : 'table_candidate_lines_present_but_zero_extracted_tables';
+    }
+
+    const upstreamExtractionDebug: Record<string, unknown> | null = contractDebugEnabled
+      ? {
+          source_mode: extractionMode,
+          contract_like: contractLike,
+          pdf_parse_full_length: extractedTextFull?.length ?? 0,
+          pdf_parse_full_weak: fullWeak,
+          pdf_parse_partial_length: pdfParsePartialLength,
+          pdf_parse_partial_weak: partialWeak,
+          pdf_text_length: extractedText?.length ?? 0,
+          pdf_text_preview_length: textPreview?.length ?? 0,
+          native_page_text_page_count: nativePageTexts?.length ?? 0,
+          native_text_total_length: nativeTextTotalLength,
+          native_page_text_available: Boolean(nativePageTexts && nativePageTexts.length > 0),
+          ocr_text_length: ocrCombinedTextLength,
+          ocr_evidence_page_count: ocrEvidencePageCount,
+          did_attempt_ocr: didAttemptOcr,
+          did_attempt_ocr_primary: didAttemptOcrPrimary,
+          did_attempt_ocr_targeted: didAttemptOcrTargeted,
+          pdfjs_page_count: pdfLayout.page_count,
+          layout_pages_parsed: pdfLayout.pages.length,
+          layout_total_line_count: layoutTotalLineCount,
+          layout_line_kind_counts: layoutLineKindCounts,
+          layout_plain_combined_length: layoutPlainCombinedLength,
+          pdf_text_layer_combined_length: pdfTextLayer.combined_text.length,
+          text_layer_fallback_text_only_gap: textLayerUsedFallbackTextOnlyGap,
+          parsed_elements_present: Boolean(parsedElementsLayer),
+          parsed_elements_count: parsedElementsLayer?.element_count ?? 0,
+          parsed_elements_status: parsedElementsLayer?.status ?? null,
+          table_count: pdfTableLayer.tables.length,
+          table_candidate_line_count: layoutLineKindCounts.table_candidate ?? 0,
+          synthetic_evidence_page_collapsed: syntheticEvidencePageCollapsed,
+          fallback_path_used: extractionMode === 'pdf_fallback',
+          fallback_reason: extractionMode === 'pdf_fallback' ? fallbackReason : null,
+          upstream_diagnostic_note: upstreamDiagnosticNote,
+          table_candidates: pdfTableLayer.tables.map((t) => ({
+            id: t.id,
+            page: t.page_number,
+            headers: t.headers,
+            row_count: t.rows.length,
+          })),
+          native_page_text_lengths: nativePageTexts
+            ? nativePageTexts.slice(0, 25).map((t, idx) => ({
+                page_number: idx + 1,
+                text_length: t?.length ?? 0,
+              }))
+            : null,
+        }
+      : null;
+
     // If OCR ran, we must not return `text_preview: null` even if OCR was imperfect.
     if (textPreview != null && (textPreview.length > 0 || didAttemptOcr)) {
       logPdf('building extraction payload (primary pdf path)', {
         extraction_mode: extractionMode,
         fallback_reason: extractionMode === 'pdf_fallback' ? fallbackReason : null,
         evidence_page_text_count: evidencePageText.length,
+        synthetic_evidence_page_collapsed: syntheticEvidencePageCollapsed,
         will_persist_parsed_elements_v1: Boolean(parsedElementsLayer),
         will_persist_content_layers_v1: true,
         pdf_evidence_object_count: pdfEvidenceLayer.evidence.length,
@@ -1350,6 +1435,9 @@ export async function extractDocument(
       const payload = buildBase(metadata, extractionMode, textPreview);
       payload.file.mime_type = mimeType ?? 'application/pdf';
       payload.file.size_bytes = size;
+      if (upstreamExtractionDebug) {
+        (payload.extraction as Record<string, unknown>).debug_contract = upstreamExtractionDebug;
+      }
       const classification = await classifyDocumentFamily({
         documentType: metadata.document_type ?? null,
         fileName,
@@ -1434,6 +1522,13 @@ export async function extractDocument(
     const payload = buildBase(metadata, 'pdf_fallback', null);
     payload.file.mime_type = mimeType ?? 'application/pdf';
     payload.file.size_bytes = size;
+    if (upstreamExtractionDebug) {
+      (payload.extraction as Record<string, unknown>).debug_contract = {
+        ...upstreamExtractionDebug,
+        null_text_preview_path: true,
+        synthetic_evidence_page_collapsed: false,
+      };
+    }
     payload.summary =
       'File received; PDF extraction is not yet deeply parsed server-side.';
     const classification = await classifyDocumentFamily({

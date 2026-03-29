@@ -55,6 +55,11 @@ export interface PdfTextExtractionResult {
   gaps: ExtractionGap[];
 }
 
+export interface PdfFallbackPageText {
+  page_number: number;
+  text: string;
+}
+
 function normalizeWhitespace(value: string): string {
   return stripUnsafeTextControls(value)
     .replace(/\r\n/g, '\n')
@@ -306,9 +311,74 @@ function buildFallbackTextExtraction(fallbackText: string): PdfTextExtractionRes
   };
 }
 
+function buildFallbackPageTextExtraction(
+  fallbackPages: PdfFallbackPageText[],
+  layoutPageCount: number,
+): PdfTextExtractionResult {
+  const pages = fallbackPages
+    .map((page) => {
+      const normalized = normalizeWhitespace(page.text);
+      if (!normalized) return null;
+      return {
+        page_number: page.page_number,
+        line_count: 1,
+        plain_text_blocks: [{
+          id: `pdf:text:fallback:${page.page_number}`,
+          page_number: page.page_number,
+          text: normalized,
+          line_start: 0,
+          line_end: 0,
+        }],
+      };
+    })
+    .filter((page): page is PdfTextExtractionResult['pages'][number] => page != null);
+
+  const combinedText = normalizeWhitespace(
+    pages.flatMap((page) => page.plain_text_blocks.map((block) => block.text)).join('\n\n'),
+  );
+
+  return {
+    page_count: layoutPageCount > 0 ? layoutPageCount : pages.length,
+    pages,
+    combined_text: combinedText,
+    confidence: combinedText ? 0.35 : 0,
+    gaps: combinedText
+      ? [
+          buildGap({
+            category: 'fallback_text_only',
+            severity: 'warning',
+            message: 'Only fallback text was available; location metadata is limited.',
+          }),
+        ]
+      : [
+          buildGap({
+            category: 'missing_text',
+            severity: 'critical',
+            message: 'No PDF text could be extracted.',
+          }),
+        ],
+  };
+}
+
+/**
+ * Plain text that would be emitted from layout lines with `kind === 'text'` only
+ * (excludes `table_candidate` / `form_candidate`). Used for diagnostics when
+ * `buildPdfTextExtraction` falls back to full-string or page evidence text.
+ */
+export function computeLayoutPlainCombinedText(layout: PdfLayout): string {
+  const chunks: string[] = [];
+  for (const page of layout.pages) {
+    for (const block of buildTextBlocks(page)) {
+      if (block.text) chunks.push(block.text);
+    }
+  }
+  return normalizeWhitespace(chunks.join('\n\n'));
+}
+
 export function buildPdfTextExtraction(params: {
   layout: PdfLayout;
   fallbackText?: string | null;
+  fallbackPages?: PdfFallbackPageText[] | null;
 }): PdfTextExtractionResult {
   const blocksByPage = params.layout.pages.map((page) => {
     const blocks = buildTextBlocks(page);
@@ -324,6 +394,14 @@ export function buildPdfTextExtraction(params: {
       .flatMap((page) => page.plain_text_blocks.map((block) => block.text))
       .join('\n\n'),
   );
+
+  if (!combinedText && params.fallbackPages && params.fallbackPages.length > 0) {
+    const fallback = buildFallbackPageTextExtraction(params.fallbackPages, params.layout.page_count);
+    return {
+      ...fallback,
+      gaps: [...params.layout.gaps, ...fallback.gaps],
+    };
+  }
 
   if (!combinedText && params.fallbackText) {
     const fallback = buildFallbackTextExtraction(params.fallbackText);
@@ -358,11 +436,12 @@ export function buildPdfTextExtraction(params: {
 
 export async function extractText(
   bytes: ArrayBuffer,
-  options?: { maxPages?: number; fallbackText?: string | null },
+  options?: { maxPages?: number; fallbackText?: string | null; fallbackPages?: PdfFallbackPageText[] | null },
 ): Promise<PdfTextExtractionResult> {
   const layout = await loadPdfLayout(bytes, options);
   return buildPdfTextExtraction({
     layout,
     fallbackText: options?.fallbackText ?? null,
+    fallbackPages: options?.fallbackPages ?? null,
   });
 }

@@ -4,6 +4,7 @@ import { describe, it } from 'vitest';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import type { EvidenceObject } from '@/lib/extraction/types';
+import { parseContractEvidenceV1 } from '@/lib/server/documentEvidencePipelineV1';
 
 function makePdfEvidence(params: {
   id: string;
@@ -11,6 +12,7 @@ function makePdfEvidence(params: {
   page: number;
   text: string;
   label?: string;
+  value?: string | null;
 }): EvidenceObject {
   return {
     id: params.id,
@@ -19,12 +21,56 @@ function makePdfEvidence(params: {
     source_document_id: params.documentId,
     description: params.text,
     text: params.text,
+    ...(typeof params.value === 'string' ? { value: params.value } : {}),
     location: {
       page: params.page,
       label: params.label ?? params.text,
     },
     confidence: 0.9,
     weak: false,
+  };
+}
+
+function makeRateTable(params: {
+  id: string;
+  page: number;
+  rowStart: number;
+  unitContext: string;
+  descriptionA: string;
+  descriptionB: string;
+}): Record<string, unknown> {
+  return {
+    id: params.id,
+    page_number: params.page,
+    headers: ['County A', 'County B'],
+    header_context: [
+      'UNIT RATE PRICE FORM: DOT (EMERG03)',
+      params.unitContext,
+    ],
+    rows: [
+      {
+        id: `${params.id}:r1`,
+        page_number: params.page,
+        row_index: 1,
+        cells: [
+          { column_index: 0, text: `${params.rowStart}. ${params.descriptionA}` },
+          { column_index: 1, text: '6.90' },
+          { column_index: 2, text: '7.10' },
+        ],
+        raw_text: `${params.rowStart}. ${params.descriptionA} 6.90 7.10`,
+      },
+      {
+        id: `${params.id}:r2`,
+        page_number: params.page,
+        row_index: 2,
+        cells: [
+          { column_index: 0, text: `${params.rowStart + 1}. ${params.descriptionB}` },
+          { column_index: 1, text: '8.90' },
+          { column_index: 2, text: '9.10' },
+        ],
+        raw_text: `${params.rowStart + 1}. ${params.descriptionB} 8.90 9.10`,
+      },
+    ],
   };
 }
 
@@ -244,5 +290,659 @@ describe('normalizeNode anchor resolution', () => {
 
     assert.equal(contractCeiling?.value, 2500000);
     assert.deepEqual(contractCeiling?.evidence_refs, ['ev-contract-nte']);
+  });
+
+  it('normalizes EMERG03 front-matter facts from pages 1 and 2 without later-page fallback noise', () => {
+    const documentId = 'emerg03-front-matter-test';
+    const pages = [
+      {
+        page_number: 1,
+        text: [
+          'CONTRACT NO. EMERG03',
+          'VENDOR NO. NM-00123',
+          'THIS AGREEMENT is made and entered into by and between the New Mexico Department of Transportation and Stampede Ventures, Inc.',
+          'Agreement Date: 8/12/2024',
+          'ACKNOWLEDGMENT',
+          'STATE OF NEW MEXICO',
+          'COUNTY OF SANTA FE',
+          'Subscribed and sworn before me this 15th day of August, 2024.',
+        ].join('\n'),
+        source_method: 'pdf_text' as const,
+      },
+      {
+        page_number: 2,
+        text: [
+          'TERM 1.B',
+          'The effective date of this Agreement is 8/12/2024.',
+          'This Agreement shall remain in effect for a period not to exceed 6 months from the effective date.',
+          'The total amount payable to the Contractor under this Agreement, inclusive of gross receipts tax and all authorized work, shall not exceed $30,000,000.00.',
+        ].join('\n'),
+        source_method: 'pdf_text' as const,
+      },
+    ];
+    const parsed = parseContractEvidenceV1({ pages });
+    const evidence = pages.map((page) =>
+      makePdfEvidence({
+        id: `ev-emerg03-front-${page.page_number}`,
+        documentId,
+        page: page.page_number,
+        text: page.text,
+        label: `Page ${page.page_number}`,
+      }),
+    );
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'emerg03-front-matter.pdf',
+      documentTitle: 'EMERG03 Front Matter',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          text_preview: pages.map((page) => page.text).join('\n\n'),
+          evidence_v1: {
+            structured_fields: parsed.structured_fields,
+            section_signals: parsed.section_signals,
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence,
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.match(String(facts.contractor_name?.value ?? ''), /^Stampede Ventures, Inc\.?$/);
+    assert.equal(facts.owner_name?.value, 'New Mexico Department of Transportation');
+    assert.equal(facts.executed_date?.value, '8/12/2024');
+    assert.equal(facts.term_start_date?.value, '2024-08-12');
+    assert.equal(facts.term_end_date?.value, '2025-02-12');
+    assert.equal(facts.expiration_date?.value, '2025-02-12');
+    assert.equal(facts.contract_ceiling?.value, 30000000);
+  });
+
+  it('ignores structured_fields contractor_name when it is NTE / sum prose so typed or evidence wins', () => {
+    const documentId = 'contractor-prose-skip';
+    const page1Text = [
+      'CONTRACT NO. EMERG03',
+      'THIS AGREEMENT is made and entered into by and between the New Mexico Department of Transportation and Stampede Ventures, Inc.',
+    ].join('\n');
+    const evidence = makePdfEvidence({
+      id: 'ev-contractor-block',
+      documentId,
+      page: 1,
+      text: page1Text,
+      label: 'Page 1',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'contractor-prose.pdf',
+      documentTitle: 'Contractor prose skip',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Stampede Ventures, Inc.',
+          },
+        },
+        extraction: {
+          text_preview: page1Text,
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'in sum of Thirty Million Dollars',
+              contractor_name_source: 'heuristic',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [evidence],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const contractor = normalized.primaryDocument.fact_map.contractor_name;
+    assert.match(String(contractor?.value ?? ''), /^Stampede Ventures, Inc\.?$/);
+  });
+
+  it('ranks legal-entity contractor over insurance certificate-holder noise when label order favors early pages', () => {
+    const documentId = 'emerg03-cert-noise';
+    const certNoise = makePdfEvidence({
+      id: 'ev-p1-cert-holder',
+      documentId,
+      page: 1,
+      text: 'ACORD CERTIFICATE OF LIABILITY INSURANCE',
+      label: 'Contractor',
+      value: 'THE CERTIFICATE HOLDER. OTHER',
+    });
+    const contractBlock = makePdfEvidence({
+      id: 'ev-p11-stampede',
+      documentId,
+      page: 11,
+      text:
+        'THIS AGREEMENT is made and entered into by and between the New Mexico Department of Transportation and Stampede Ventures, Inc.',
+      label: 'Contractor',
+      value: 'Stampede Ventures, Inc.',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'emerg03.pdf',
+      documentTitle: 'EMERG03',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          text_preview: 'EMERG03',
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'THE CERTIFICATE HOLDER. OTHER',
+              contractor_name_source: 'heuristic',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [certNoise, contractBlock],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const contractor = normalized.primaryDocument.fact_map.contractor_name;
+    assert.match(String(contractor?.value ?? ''), /^Stampede Ventures, Inc\.?$/);
+    assert.ok(contractor?.evidence_refs.includes('ev-p11-stampede'));
+  });
+
+  it('strips Contractor: prefix from evidence lines so the fact value is the legal name only', () => {
+    const documentId = 'contractor-prefix-strip';
+    const ev = makePdfEvidence({
+      id: 'ev-contractor-colon-line',
+      documentId,
+      page: 1,
+      text: 'Contractor: Acme Works LLC',
+      label: 'Contractor: Acme Works LLC',
+    });
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'prefix.pdf',
+      documentTitle: 'Prefix',
+      projectName: null,
+      extractionData: {
+        fields: { typed_fields: {} },
+        extraction: {
+          text_preview: 'x',
+          evidence_v1: { structured_fields: {} },
+          content_layers_v1: { pdf: { evidence: [ev] } },
+        },
+      },
+      relatedDocs: [],
+    });
+    const normalized = normalizeNode(extracted);
+    assert.equal(normalized.primaryDocument.fact_map.contractor_name?.value, 'Acme Works LLC');
+  });
+
+  it('derives term_end_date and expiration from N days from fully executed when no explicit end date exists', () => {
+    const documentId = 'williamson-duration-term';
+    const page2 = [
+      'This agreement defines the work scope.',
+      'The contract is effective for a period of ninety (90) days from the date it is fully executed.',
+    ].join(' ');
+    const ev = makePdfEvidence({
+      id: 'ev-will-term-p2',
+      documentId,
+      page: 2,
+      text: page2,
+      label: 'Page 2',
+    });
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'williamson.pdf',
+      documentTitle: 'Williamson',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            contract_date: '3/15/2025',
+          },
+        },
+        extraction: {
+          text_preview: page2,
+          evidence_v1: { structured_fields: {} },
+          content_layers_v1: { pdf: { evidence: [ev] } },
+        },
+      },
+      relatedDocs: [],
+    });
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+    assert.equal(facts.executed_date?.value, '3/15/2025');
+    assert.equal(facts.term_end_date?.value, '2025-06-13');
+    assert.equal(facts.expiration_date?.value, '2025-06-13');
+    assert.ok(facts.term_end_date?.evidence_refs.includes('ev-will-term-p2'));
+  });
+
+  it('derives term end from duration + execution anchor when clause and executed_date are on different pages', () => {
+    const documentId = 'cross-page-executed-duration';
+    const page1 = makePdfEvidence({
+      id: 'ev-exec-only-p1',
+      documentId,
+      page: 1,
+      text: 'Contract Execution Date: 9/15/2025',
+      label: 'Page 1',
+    });
+    const page2 = makePdfEvidence({
+      id: 'ev-duration-only-p2',
+      documentId,
+      page: 2,
+      text: 'This provision runs ninety (90) days from the date it is fully executed.',
+      label: 'Page 2',
+    });
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'cross-page.pdf',
+      documentTitle: 'Cross page',
+      projectName: null,
+      extractionData: {
+        fields: { typed_fields: {} },
+        extraction: {
+          text_preview: '',
+          evidence_v1: { structured_fields: { executed_date: '2025-09-15' } },
+          content_layers_v1: { pdf: { evidence: [page1, page2] } },
+        },
+      },
+      relatedDocs: [],
+    });
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+    assert.equal(facts.executed_date?.value, '2025-09-15');
+    assert.equal(facts.term_end_date?.value, '2025-12-14');
+    assert.equal(facts.expiration_date?.value, '2025-12-14');
+  });
+
+  it('uses pdf.text.pages plain_text_blocks for executed-relative duration when evidence blobs omit the clause', () => {
+    const documentId = 'haystack-from-pdf-layer';
+    const ev = makePdfEvidence({
+      id: 'ev-unrelated',
+      documentId,
+      page: 1,
+      text: 'DocuSign certificate metadata and routing.',
+      label: 'Page 1',
+    });
+    const clause =
+      'Effective for a period of ninety (90) days from the date it is fully executed.';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'layer.pdf',
+      documentTitle: 'Layer',
+      projectName: null,
+      extractionData: {
+        fields: { typed_fields: {} },
+        extraction: {
+          text_preview: '',
+          evidence_v1: {
+            structured_fields: { executed_date: '2025-09-15' },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [ev],
+              text: {
+                pages: [
+                  {
+                    page_number: 2,
+                    plain_text_blocks: [{ text: clause }],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+    assert.equal(facts.term_end_date?.value, '2025-12-14');
+    assert.equal(facts.term_start_date?.value, '2025-09-15');
+  });
+
+  it('prefers extracted multi-page rate tables over weaker fallback schedule signals', () => {
+    const documentId = 'contract-rate-table-precedence-test';
+    const page32Evidence = makePdfEvidence({
+      id: 'ev-rate-page-32',
+      documentId,
+      page: 32,
+      text: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)',
+      label: 'Page 32',
+    });
+    const page33Evidence = makePdfEvidence({
+      id: 'ev-rate-page-33',
+      documentId,
+      page: 33,
+      text: 'Continuation of Attachment B unit rates',
+      label: 'Page 33',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'emerg03-contract.pdf',
+      documentTitle: 'EMERG03 Contract',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          text_preview: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)',
+          evidence_v1: {
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [1],
+              rate_items_detected: 2,
+              unit_price_structure_present: true,
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [page32Evidence, page33Evidence],
+              tables: {
+                tables: [
+                  {
+                    id: 'pdf:table:p32:t1',
+                    page_number: 32,
+                    headers: ['County A', 'County B'],
+                    header_context: [
+                      'UNIT RATE PRICE FORM: DOT (EMERG03)',
+                      'Work consists of all labor and equipment $ Per Cubic Yard',
+                    ],
+                    rows: [
+                      {
+                        id: 'pdf:table:p32:t1:r1',
+                        page_number: 32,
+                        row_index: 1,
+                        cells: [
+                          { column_index: 0, text: '1. Vegetative Debris Removal' },
+                          { column_index: 1, text: '6.90' },
+                          { column_index: 2, text: '7.10' },
+                        ],
+                        raw_text: '1. Vegetative Debris Removal 6.90 7.10',
+                      },
+                      {
+                        id: 'pdf:table:p32:t1:r2',
+                        page_number: 32,
+                        row_index: 2,
+                        cells: [
+                          { column_index: 0, text: '2. Mixed C&D Debris' },
+                          { column_index: 1, text: '8.90' },
+                          { column_index: 2, text: '9.10' },
+                        ],
+                        raw_text: '2. Mixed C&D Debris 8.90 9.10',
+                      },
+                    ],
+                  },
+                  {
+                    id: 'pdf:table:p33:t2',
+                    page_number: 33,
+                    headers: ['County A', 'County B'],
+                    header_context: [
+                      'UNIT RATE PRICE FORM: DOT (EMERG03)',
+                      'Work consists of all labor and equipment $ Per Ton',
+                    ],
+                    rows: [
+                      {
+                        id: 'pdf:table:p33:t2:r1',
+                        page_number: 33,
+                        row_index: 1,
+                        cells: [
+                          { column_index: 0, text: '3. White Goods Removal' },
+                          { column_index: 1, text: '12.50' },
+                          { column_index: 2, text: '12.80' },
+                        ],
+                        raw_text: '3. White Goods Removal 12.50 12.80',
+                      },
+                      {
+                        id: 'pdf:table:p33:t2:r2',
+                        page_number: 33,
+                        row_index: 2,
+                        cells: [
+                          { column_index: 0, text: '4. Hazardous Limb Removal' },
+                          { column_index: 1, text: '85.00' },
+                          { column_index: 2, text: '88.00' },
+                        ],
+                        raw_text: '4. Hazardous Limb Removal 85.00 88.00',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.rate_schedule_present?.value, true);
+    assert.equal(facts.rate_row_count?.value, 4);
+    assert.equal(facts.rate_schedule_pages?.value, 'pages 32, 33');
+  });
+
+  it('fills repeated weak continuation gaps inside an extracted rate schedule span', () => {
+    const documentId = 'contract-rate-gap-fill-test';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'emerg03-gap-fill.pdf',
+      documentTitle: 'EMERG03 Gap Fill',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          text_preview: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)',
+          evidence_v1: {
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [1],
+              rate_items_detected: 2,
+              unit_price_structure_present: true,
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makePdfEvidence({
+                  id: 'ev-gap-rate-page-32',
+                  documentId,
+                  page: 32,
+                  text: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)',
+                }),
+              ],
+              text: {
+                pages: [
+                  {
+                    page_number: 32,
+                    line_count: 80,
+                    plain_text_blocks: [{ text: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)' }],
+                  },
+                  {
+                    page_number: 33,
+                    line_count: 78,
+                    plain_text_blocks: [{ text: 'Continuation of Attachment B unit rates' }],
+                  },
+                  {
+                    page_number: 34,
+                    line_count: 10,
+                    plain_text_blocks: [{ text: 'Docusign Envelope ID: weak raster continuation page' }],
+                  },
+                  {
+                    page_number: 35,
+                    line_count: 82,
+                    plain_text_blocks: [{ text: 'Attachment B continued rates and units' }],
+                  },
+                  {
+                    page_number: 36,
+                    line_count: 9,
+                    plain_text_blocks: [{ text: 'Docusign Envelope ID: weak raster continuation page' }],
+                  },
+                  {
+                    page_number: 37,
+                    line_count: 79,
+                    plain_text_blocks: [{ text: 'Attachment B continued rates and units' }],
+                  },
+                ],
+              },
+              tables: {
+                tables: [
+                  makeRateTable({
+                    id: 'pdf:table:p32:t1',
+                    page: 32,
+                    rowStart: 1,
+                    unitContext: 'Work consists of all labor and equipment $ Per Cubic Yard',
+                    descriptionA: 'Vegetative Debris Removal',
+                    descriptionB: 'Mixed C&D Debris',
+                  }),
+                  makeRateTable({
+                    id: 'pdf:table:p33:t1',
+                    page: 33,
+                    rowStart: 3,
+                    unitContext: 'Work consists of all labor and equipment $ Per Ton',
+                    descriptionA: 'White Goods Removal',
+                    descriptionB: 'Hazardous Limb Removal',
+                  }),
+                  makeRateTable({
+                    id: 'pdf:table:p35:t1',
+                    page: 35,
+                    rowStart: 5,
+                    unitContext: 'Work consists of all labor and equipment $ Per Day',
+                    descriptionA: 'Roadway Clearance',
+                    descriptionB: 'Traffic Control',
+                  }),
+                  makeRateTable({
+                    id: 'pdf:table:p37:t1',
+                    page: 37,
+                    rowStart: 7,
+                    unitContext: 'Work consists of all labor and equipment $ Per Linear Foot',
+                    descriptionA: 'Ditch Reestablishment',
+                    descriptionB: 'Pipe Cleaning',
+                  }),
+                ],
+              },
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.rate_row_count?.value, 8);
+    assert.equal(facts.rate_schedule_pages?.value, 'pages 32, 33, 34, 35, 36, 37');
+  });
+
+  it('does not fill an isolated weak page when the continuation pattern is not repeated', () => {
+    const documentId = 'contract-rate-gap-guardrail-test';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'isolated-gap.pdf',
+      documentTitle: 'Isolated Gap Contract',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {},
+        },
+        extraction: {
+          text_preview: 'Attachment B UNIT RATE PRICE FORM: DOT (EMERG03)',
+          evidence_v1: {
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [1],
+              rate_items_detected: 2,
+              unit_price_structure_present: true,
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [],
+              text: {
+                pages: [
+                  {
+                    page_number: 20,
+                    line_count: 72,
+                    plain_text_blocks: [{ text: 'Attachment B rate schedule page 20' }],
+                  },
+                  {
+                    page_number: 21,
+                    line_count: 10,
+                    plain_text_blocks: [{ text: 'Docusign Envelope ID: weak page' }],
+                  },
+                  {
+                    page_number: 22,
+                    line_count: 74,
+                    plain_text_blocks: [{ text: 'Attachment B rate schedule page 22' }],
+                  },
+                ],
+              },
+              tables: {
+                tables: [
+                  makeRateTable({
+                    id: 'pdf:table:p20:t1',
+                    page: 20,
+                    rowStart: 1,
+                    unitContext: 'Work consists of all labor and equipment $ Per Cubic Yard',
+                    descriptionA: 'Vegetative Debris Removal',
+                    descriptionB: 'Mixed C&D Debris',
+                  }),
+                  makeRateTable({
+                    id: 'pdf:table:p22:t1',
+                    page: 22,
+                    rowStart: 3,
+                    unitContext: 'Work consists of all labor and equipment $ Per Ton',
+                    descriptionA: 'White Goods Removal',
+                    descriptionB: 'Hazardous Limb Removal',
+                  }),
+                ],
+              },
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.rate_schedule_pages?.value, 'pages 20, 22');
   });
 });

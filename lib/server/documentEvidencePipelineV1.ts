@@ -2,6 +2,8 @@
 // Deterministic, inspectable evidence layer for contracts (v1).
 // No AI. Pure functions. Designed to be persisted inside extraction blobs.
 
+import { CONTRACT_FAILURE_MODES } from '@/lib/extraction/failureModes/contractFailureModes';
+
 export type EvidenceSourceMethod = 'pdf_text' | 'ocr' | 'text';
 
 export type PageTextEvidence = {
@@ -80,8 +82,38 @@ function takeBestNameCandidate(raw: string | null): string | null {
     .replace(/[“”"]/g, '')
     .trim();
   if (cleaned.length < 3) return null;
+  if (
+    /\b(?:contract|vendor)\s+no\.?\b/i.test(cleaned) ||
+    /^no\.?\s*[A-Za-z0-9-]+$/i.test(cleaned) ||
+    /\b(?:acknowledg(?:ment)?|notary|subscribed and sworn|my commission expires|docusign envelope id)\b/i.test(cleaned)
+  ) {
+    return null;
+  }
   // Avoid capturing long clause text; cap to a reasonable org name length.
   return cleaned.length > 120 ? cleaned.slice(0, 120).trim() : cleaned;
+}
+
+function partySearchText(text: string): string {
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  let insideAcknowledgment = false;
+  const kept: string[] = [];
+
+  for (const line of lines) {
+    if (/\b(?:acknowledg(?:ment)?|notary)\b/i.test(line)) {
+      insideAcknowledgment = true;
+      continue;
+    }
+    if (/\b(?:contract|vendor)\s+no\.?\b/i.test(line)) continue;
+    if (
+      insideAcknowledgment &&
+      /^(?:state of\b(?!.*\bdepartment\b)|county of\b|subscribed and sworn\b|before me\b|my commission expires\b|\)\s*ss\b)/i.test(line)
+    ) {
+      continue;
+    }
+    kept.push(line);
+  }
+
+  return normalizeWhitespace(kept.join('\n'));
 }
 
 function firstGroup(text: string, re: RegExp): string | null {
@@ -100,6 +132,23 @@ function collectHeadings(pageText: string): string[] {
     const upper = letters.replace(/[^A-Z]/g, '').length;
     return upper / Math.max(1, letters.length) >= 0.6 || /^[0-9]+\./.test(l);
   });
+}
+
+function testRegex(value: string, pattern: RegExp): boolean {
+  const flags = pattern.flags.replace(/g/g, '');
+  return new RegExp(pattern.source, flags).test(value);
+}
+
+function matchesAnyRegex(value: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((pattern) => testRegex(value, pattern));
+}
+
+function matchesRateScheduleTitleAlias(value: string): boolean {
+  return matchesAnyRegex(value, CONTRACT_FAILURE_MODES.rateSchedules.titleAliases);
+}
+
+function matchesRateScheduleHeaderSignal(value: string): boolean {
+  return matchesAnyRegex(value, CONTRACT_FAILURE_MODES.rateSchedules.headerSignals);
 }
 
 const PARTY_OWNER_RE = /\b(?:owner|client|county|city|town|authority|agency)\b\s*[:=\-]?\s*([A-Z][A-Za-z0-9 &.,'()-]{2,120})/mi;
@@ -122,7 +171,7 @@ const EXECUTED_DATE_RE = /\b(?:executed\s+(?:on|this)?|dated\s+this|effective\s+
 const ORDINAL_EXECUTED_DATE_RE = /\bthis\s+(\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s+\d{4})/i;
 const EXPIRATION_DATE_RE = /\b(?:expires?\s+on|expiration\s+date|term\s+ends?\s+on)\b[^0-9A-Za-z]{0,30}(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/i;
 // Allow hyphens in "not-to-exceed" (government contracts use the hyphenated form).
-const NTE_RE = /\b(?:not[\s\-]+to[\s\-]+exceed|nte|maximum\s+(?:amount|contract|price))\b[\s\S]{0,80}?\$?\s*([\d,]+(?:\.\d{1,2})?)/i;
+const NTE_RE = /\b(?:not[\s\-]+(?:to[\s\-]+)?exceed|nte|maximum\s+(?:amount|contract|price))\b[\s\S]{0,120}?\$\s*([\d,]+(?:\.\d{1,2})?)/i;
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -131,6 +180,38 @@ const MONTHS = [
 const MONTH_MAP: Record<string, number> = Object.fromEntries(
   MONTHS.map((name, idx) => [name.toLowerCase(), idx + 1]),
 ) as Record<string, number>;
+
+const DATE_CAPTURE = `(` +
+  `\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}` +
+  `|(?:${MONTHS.join('|')})\\s+\\d{1,2},?\\s+\\d{4}` +
+  `|\\d{1,2}(?:st|nd|rd|th)\\s+day\\s+of\\s+(?:${MONTHS.join('|')}),?\\s+\\d{4}` +
+`)`;
+
+const OPENING_PARTY_PAIR_RE = new RegExp(
+  `\\bbetween\\b[\\s\\S]{0,40}?(?:the\\s+)?([A-Z][A-Za-z0-9 &.,'()-]{2,160}?)\\s+\\band\\b\\s+([A-Z][A-Za-z0-9 &.,'()-]{2,160}?)(?=[.;]|\\s+(?:agreement\\s+date|effective\\s+date|hereinafter\\b|for\\b)|$)`,
+  'i',
+);
+const AGREEMENT_DATE_RE = new RegExp(`\\bagreement\\s+date\\b[^0-9A-Za-z]{0,24}${DATE_CAPTURE}`, 'i');
+const MADE_ENTERED_DATE_RE = new RegExp(`\\b(?:made\\s+and\\s+entered\\s+into|entered\\s+into)\\b[^0-9A-Za-z]{0,24}(?:this\\s+)?${DATE_CAPTURE}`, 'i');
+const EFFECTIVE_DATE_ONLY_RE = new RegExp(
+  `\\beffective\\s+date(?:\\s+of\\s+(?:this|the)\\s+(?:agreement|contract))?(?:\\s+is|\\s*:|\\s+shall\\s+be)?[^0-9A-Za-z]{0,24}${DATE_CAPTURE}`,
+  'i',
+);
+const RELATIVE_TERM_FROM_EFFECTIVE_RE = /\bnot\s+to\s+exceed\s+(?:(\d+)|([A-Za-z]+))\s+(day|month|year)s?\s+from\s+(?:the\s+)?effective\s+date\b/i;
+const SMALL_NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
 
 function monthDayYearToIso(value: string): string | null {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -166,6 +247,42 @@ function anyDateToIso(value: string): string | null {
     numericDateToIso(cleaned) ??
     null
   );
+}
+
+function extractOpeningPartyPair(text: string): { owner: string | null; contractor: string | null } | null {
+  const match = OPENING_PARTY_PAIR_RE.exec(text);
+  if (!match) return null;
+  return {
+    owner: takeBestNameCandidate(match[1] ?? null),
+    contractor: takeBestNameCandidate(match[2] ?? null),
+  };
+}
+
+function parseSmallInt(rawDigits: string | undefined, rawWord: string | undefined): number | null {
+  if (rawDigits) {
+    const value = Number(rawDigits);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (!rawWord) return null;
+  return SMALL_NUMBER_WORDS[rawWord.toLowerCase()] ?? null;
+}
+
+function addRelativeDurationToIsoDate(
+  isoDate: string,
+  amount: number,
+  unit: 'day' | 'month' | 'year',
+): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (unit === 'day') {
+    date.setUTCDate(date.getUTCDate() + amount);
+  } else if (unit === 'month') {
+    date.setUTCMonth(date.getUTCMonth() + amount);
+  } else {
+    date.setUTCFullYear(date.getUTCFullYear() + amount);
+  }
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 const TERM_RANGE_RE = new RegExp(
@@ -284,6 +401,10 @@ const RATE_PHRASES = [
   'pass-through',
 ];
 
+const RATE_PRICE_STRUCTURE_HEADER_SIGNAL_REGEXES = CONTRACT_FAILURE_MODES.rateSchedules.headerSignals.filter((pattern) =>
+  /unit price|unit rate|unit cost|rate per|price per|scheduled value/i.test(pattern.source),
+);
+
 const UNIT_TOKENS = [
   'cubic yard', 'cy', 'ton', 'tons', 'hour', 'hours', 'hr', 'hrs',
   'mile', 'miles', 'each', 'ea', 'load', 'loads', 'day', 'days',
@@ -291,6 +412,19 @@ const UNIT_TOKENS = [
 ];
 
 const RATE_ROW_RE = /(\$?\s*[\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|tons|cubic\s+yard|cy|hour|hr|hrs|mile|each|ea|load|day|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot)/gi;
+
+function unitMatchesForLine(line: string): string[] {
+  const lower = safeLower(line);
+  return UNIT_TOKENS.filter((unit) => lower.includes(unit));
+}
+
+function looksLikeColumnRateRow(line: string): boolean {
+  const normalized = line.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!/\$\s*\d[\d,]*(?:\.\d{1,2})?/.test(normalized)) return false;
+  if (unitMatchesForLine(normalized).length === 0) return false;
+  const letters = (normalized.match(/[A-Za-z]/g) ?? []).length;
+  return letters >= 8;
+}
 
 function scoreRateBearingPage(pageText: string): {
   score: number;
@@ -305,7 +439,12 @@ function scoreRateBearingPage(pageText: string): {
   let labelCandidate: string | null = null;
 
   const headings = collectHeadings(pageText);
-  const headingHit = headings.find((h) => RATE_HEADING_KEYWORDS.some((kw) => safeLower(h).includes(kw)));
+  const titleHeadingHit = headings.find((h) => matchesRateScheduleTitleAlias(h));
+  const headerSignalHeadingHit = headings.find((h) => matchesRateScheduleHeaderSignal(h));
+  const headingHit =
+    titleHeadingHit ??
+    headerSignalHeadingHit ??
+    headings.find((h) => RATE_HEADING_KEYWORDS.some((kw) => safeLower(h).includes(kw)));
   if (headingHit) {
     score += 6;
     labelCandidate = headingHit;
@@ -336,6 +475,18 @@ function scoreRateBearingPage(pageText: string): {
     rateRows += 1;
     if (m[2]) units.push(m[2].toLowerCase());
   }
+
+  // OCR table pages often separate Unit and Rate into columns instead of inline "$x per unit" phrases.
+  if (rateRows === 0) {
+    const columnRateLines = lines.filter((line) => looksLikeColumnRateRow(line));
+    if (columnRateLines.length >= 3) {
+      rateRows = columnRateLines.length;
+      for (const line of columnRateLines) {
+        units.push(...unitMatchesForLine(line));
+      }
+    }
+  }
+
   if (rateRows >= 3) score += 6;
   else if (rateRows >= 1) score += 2;
 
@@ -397,9 +548,15 @@ export function parseContractEvidenceV1(params: {
   // Parties: bias toward first 2 pages (cover page / signature / intro).
   const firstPages = pages.filter((p) => p.page_number <= 2).map((p) => p.text).join('\n\n');
   const firstNormalized = normalizeWhitespace(firstPages);
+  const firstPartySearch = partySearchText(firstPages);
   const firstLower = safeLower(firstNormalized);
+  const openingPartyPair =
+    extractOpeningPartyPair(firstPartySearch) ??
+    extractOpeningPartyPair(firstNormalized);
 
   const explicitContractorRaw =
+    firstGroup(firstPartySearch, AND_DEFINED_CONTRACTOR_RE) ??
+    firstGroup(firstPartySearch, DEFINED_CONTRACTOR_RE) ??
     firstGroup(firstNormalized, AND_DEFINED_CONTRACTOR_RE) ??
     firstGroup(firstNormalized, DEFINED_CONTRACTOR_RE) ??
     firstGroup(combined, AND_DEFINED_CONTRACTOR_RE) ??
@@ -407,11 +564,16 @@ export function parseContractEvidenceV1(params: {
   const contractor =
     // Highest precision: explicit ("Contractor") definition, preferring the "and [Name]" side.
     takeBestNameCandidate(explicitContractorRaw) ??
+    openingPartyPair?.contractor ??
+    takeBestNameCandidate(firstGroup(firstPartySearch, PARTY_CONTRACTOR_RE)) ??
+    takeBestNameCandidate(firstGroup(firstPartySearch, BETWEEN_RE)) ??
     takeBestNameCandidate(firstGroup(firstNormalized, PARTY_CONTRACTOR_RE)) ??
     takeBestNameCandidate(firstGroup(firstNormalized, BETWEEN_RE)) ??
     takeBestNameCandidate(firstGroup(combined, PARTY_CONTRACTOR_RE));
 
   const owner =
+    openingPartyPair?.owner ??
+    takeBestNameCandidate(firstGroup(firstPartySearch, PARTY_OWNER_RE)) ??
     takeBestNameCandidate(firstGroup(firstNormalized, PARTY_OWNER_RE)) ??
     takeBestNameCandidate(firstGroup(combined, PARTY_OWNER_RE));
 
@@ -427,8 +589,8 @@ export function parseContractEvidenceV1(params: {
   }
   const termRangeHit = findTermRangeInHaystacks(termHaystacks);
   const termRange = termRangeHit?.match ?? null;
-  const term_start_date = termRange?.[1] ? (anyDateToIso(termRange[1]) ?? termRange[1].replace(/\s+/g, ' ').trim()) : null;
-  const term_end_date = termRange?.[2] ? (anyDateToIso(termRange[2]) ?? termRange[2].replace(/\s+/g, ' ').trim()) : null;
+  const explicitTermStartDate = termRange?.[1] ? (anyDateToIso(termRange[1]) ?? termRange[1].replace(/\s+/g, ' ').trim()) : null;
+  const explicitTermEndDate = termRange?.[2] ? (anyDateToIso(termRange[2]) ?? termRange[2].replace(/\s+/g, ' ').trim()) : null;
   const termDebug = process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1' || process.env.EIGHTFORGE_OCR_DEBUG === '1';
   if (termDebug) {
     const dbgSource =
@@ -441,21 +603,48 @@ export function parseContractEvidenceV1(params: {
       raw_match: termRange?.[0] ?? null,
       raw_start: termRange?.[1] ?? null,
       raw_end: termRange?.[2] ?? null,
-      normalized_start: term_start_date,
-      normalized_end: term_end_date,
+      normalized_start: explicitTermStartDate,
+      normalized_end: explicitTermEndDate,
       text_window: termClauseDebugWindow(dbgSource, termRange?.[0]),
     });
   }
 
   // Normalize captured date value to collapse any mid-value newlines (e.g. "28th day of\nAugust").
   const rawExecutedDate =
+    firstGroup(firstPartySearch, AGREEMENT_DATE_RE) ??
+    firstGroup(firstPartySearch, MADE_ENTERED_DATE_RE) ??
     firstGroup(firstNormalized, EXECUTED_DATE_RE) ??
     firstGroup(firstNormalized, ORDINAL_EXECUTED_DATE_RE) ??
+    firstGroup(firstNormalized, AGREEMENT_DATE_RE) ??
+    firstGroup(firstNormalized, MADE_ENTERED_DATE_RE) ??
     firstGroup(combined, EXECUTED_DATE_RE) ??
     firstGroup(combined, ORDINAL_EXECUTED_DATE_RE);
   const executed_date = rawExecutedDate
     ? (ordinalDayMonthYearToIso(rawExecutedDate) ?? rawExecutedDate.replace(/\s+/g, ' ').trim())
     : null;
+
+  const effectiveDateRaw =
+    firstGroup(firstNormalized, EFFECTIVE_DATE_ONLY_RE) ??
+    firstGroup(combined, EFFECTIVE_DATE_ONLY_RE);
+  const effective_date = effectiveDateRaw
+    ? (anyDateToIso(effectiveDateRaw) ?? effectiveDateRaw.replace(/\s+/g, ' ').trim())
+    : null;
+  const relativeTermMatch = effective_date && termRange == null
+    ? (
+        RELATIVE_TERM_FROM_EFFECTIVE_RE.exec(firstNormalized) ??
+        RELATIVE_TERM_FROM_EFFECTIVE_RE.exec(combined)
+      )
+    : null;
+  const derivedTermEndDate =
+    effective_date && relativeTermMatch
+      ? addRelativeDurationToIsoDate(
+          effective_date,
+          parseSmallInt(relativeTermMatch[1], relativeTermMatch[2]) ?? 0,
+          (relativeTermMatch[3]?.toLowerCase() as 'day' | 'month' | 'year') ?? 'day',
+        )
+      : null;
+  const term_start_date = explicitTermStartDate ?? effective_date;
+  const term_end_date = explicitTermEndDate ?? derivedTermEndDate;
 
   // Expiration: prefer explicit term end when present; otherwise fall back to explicit expiry language.
   const expirationRaw =
@@ -467,7 +656,9 @@ export function parseContractEvidenceV1(params: {
     ? (anyDateToIso(expirationRaw) ?? expirationRaw.replace(/\s+/g, ' ').trim())
     : null;
 
-  const nteRaw = firstGroup(combined, NTE_RE);
+  const nteRaw =
+    firstGroup(firstNormalized, NTE_RE) ??
+    firstGroup(combined, NTE_RE);
   const nte_amount = nteRaw ? parseMoney(nteRaw) : null;
 
   // Pricing / rate-bearing section detection (operational meaning, not literal label).
@@ -505,8 +696,7 @@ export function parseContractEvidenceV1(params: {
 
   const unit_price_structure_present =
     rate_section_pages.length > 0 ||
-    lower.includes('unit price') ||
-    lower.includes('unit prices');
+    matchesAnyRegex(combined, RATE_PRICE_STRUCTURE_HEADER_SIGNAL_REGEXES);
 
   const fema_reference_present =
     /\bfema\b/.test(lower) ||

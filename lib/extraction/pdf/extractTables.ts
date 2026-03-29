@@ -43,6 +43,12 @@ type PdfTableDraftRow = {
   raw_text: string;
 };
 
+const EXPLICIT_ROW_START_PATTERN =
+  /^(?:\d+(?:\.\d+)*[A-Z]?|[A-Z](?:\d+)?|[A-Z]{1,4}-\d+)(?:[.)])?(?=\s|$)/i;
+
+const CONTINUATION_LEAD_PATTERN =
+  /^(?:\(|\[|[-*•]|[:;.=]+|work\b|including\b|hauling\b|loading\b|removal\b|transport(?:ation|ing)?\b|collection\b|collect(?:ion|ed)?\b|placed\b|placement\b|from\b|to\b|the\b|and\b|or\b|for\b|of\b|on\b|in\b|at\b|with(?:out)?\b|by\b|through\b|all\b|labor\b|equipment\b|fuel\b|materials?\b|necessary\b|construction\b|management\b|operation(?:s)?\b|eligible\b|debris\b|drainage\b|retention\b|detention\b|ponds?\b|acequias?\b|arroyos?\b|culverts?\b|roadside\b|ditches?\b)/i;
+
 const DESCRIPTION_HEADER_PATTERNS = [
   'description',
   'service',
@@ -50,6 +56,10 @@ const DESCRIPTION_HEADER_PATTERNS = [
   'labor class',
   'classification',
   'item',
+  'pay item',
+  'work',
+  'work activity',
+  'activity',
 ] as const;
 
 function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
@@ -69,7 +79,7 @@ function splitIntoCells(line: PdfLayoutLine): PdfTableCell[] {
     const previous = line.tokens[index - 1];
     const token = line.tokens[index];
     const gap = token.x - (previous.x + previous.width);
-    if (gap > Math.max(18, previous.width * 1.6)) {
+    if (gap > Math.max(18, Math.min(48, previous.width * 1.6))) {
       cells.push({
         column_index: cells.length,
         text: stripUnsafeTextControls(currentTokens.map((candidate) => candidate.text).join(' ')).trim(),
@@ -129,8 +139,12 @@ function headerAliasScore(value: string): number {
   if (dense.includes('description')) return 6;
   if (dense.includes('service')) return 5;
   if (dense.includes('ratedescription')) return 5;
+  if (dense.includes('workactivity')) return 5;
+  if (dense.includes('payitem')) return 4;
   if (dense.includes('laborclass')) return 4;
   if (dense.includes('classification')) return 4;
+  if (dense === 'work' || dense.startsWith('work')) return 4;
+  if (dense.includes('activity')) return 3;
   if (dense === 'item' || dense.startsWith('item')) return 2;
   return 0;
 }
@@ -184,18 +198,26 @@ function resolveDescriptionColumnIndex(
 }
 
 function cellsForTableLine(line: PdfLayoutLine): PdfTableCell[] {
-  if (line.kind === 'table_candidate') {
-    return tokenCells(line);
-  }
-  return splitIntoCells(line);
+  const split = splitIntoCells(line);
+  if (split.length >= 2) return split;
+  const tokenized = tokenCells(line);
+  return tokenized.length > 0 ? tokenized : split;
 }
 
 function cellsForHeaderLine(line: PdfLayoutLine): PdfTableCell[] {
-  const tokenized = tokenCells(line);
-  if (tokenized.length >= 3) {
-    return normalizeHeaderCells(tokenized);
+  const split = normalizeHeaderCells(splitIntoCells(line));
+  const tokenized = normalizeHeaderCells(tokenCells(line));
+  if (
+    tokenized.length >= 3 &&
+    tokenized.length > split.length &&
+    tokenized.length <= Math.max(8, split.length + 3)
+  ) {
+    return tokenized;
   }
-  return normalizeHeaderCells(splitIntoCells(line));
+  if (split.length >= 3) {
+    return split;
+  }
+  return tokenized.length > 0 ? tokenized : split;
 }
 
 function isMostlyNonNumeric(cells: PdfTableCell[]): boolean {
@@ -214,6 +236,40 @@ function headerContext(lines: PdfLayoutLine[], startIndex: number): string[] {
 function rowNearbyText(lines: PdfLayoutLine[], index: number): string | undefined {
   const nextText = stripUnsafeTextControls(lines[index + 1]?.text ?? '').trim();
   return nextText || undefined;
+}
+
+function leadingRowText(line: PdfLayoutLine, cells: PdfTableCell[]): string {
+  return cells[0]?.text?.trim() || stripUnsafeTextControls(line.text).trim();
+}
+
+function looksLikeExplicitRowStart(text: string): boolean {
+  return EXPLICIT_ROW_START_PATTERN.test(text.trim());
+}
+
+function looksLikeWrappedContinuation(params: {
+  line: PdfLayoutLine;
+  cells: PdfTableCell[];
+  lastRow: PdfTableDraftRow;
+  headerCells: PdfTableCell[] | null;
+}): boolean {
+  const lineText = stripUnsafeTextControls(params.line.text).trim();
+  if (lineText.length === 0) return false;
+
+  const leadText = leadingRowText(params.line, params.cells);
+  if (looksLikeExplicitRowStart(leadText)) return false;
+
+  const numericCells = params.cells.filter((cell) => /[$]?\d/.test(cell.text)).length;
+  const referenceWidth = Math.max(
+    params.lastRow.cells.length,
+    params.headerCells?.length ?? 0,
+  );
+  const compactShape =
+    params.cells.length <= Math.max(3, Math.ceil(referenceWidth / 2));
+  const continuationLead =
+    /^[a-z]/.test(leadText) ||
+    CONTINUATION_LEAD_PATTERN.test(leadText);
+
+  return continuationLead && (compactShape || numericCells <= 1);
 }
 
 export function buildPdfTableExtraction(params: {
@@ -310,9 +366,16 @@ export function buildPdfTableExtraction(params: {
     page.lines.forEach((line, index) => {
       const cells = cellsForTableLine(line);
       const numericCells = cells.filter((cell) => /[$]?\d/.test(cell.text)).length;
+      const leadText = leadingRowText(line, cells);
+      const explicitRowStart = looksLikeExplicitRowStart(leadText);
+      const tableContextActive =
+        currentRows.length > 0 ||
+        currentHeader != null ||
+        pendingHeader != null;
       const candidate =
         line.kind === 'table_candidate' ||
-        (cells.length >= 3 && numericCells >= 1);
+        (cells.length >= 3 && numericCells >= 1) ||
+        (tableContextActive && explicitRowStart);
       const headerCells = cellsForHeaderLine(line);
       const headerLike =
         line.kind === 'text' &&
@@ -324,11 +387,28 @@ export function buildPdfTableExtraction(params: {
         : 0;
       const continuation =
         Boolean(lastRow) &&
-        currentHeader != null &&
-        line.kind === 'text' &&
-        cells.length === 1 &&
-        lastRow!.cells.length >= minimumContinuationColumns &&
-        line.text.trim().length > 0;
+        (
+          (
+            line.kind === 'text' &&
+            cells.length === 1 &&
+            lastRow!.cells.length >= minimumContinuationColumns &&
+            line.text.trim().length > 0
+          ) ||
+          (
+            line.kind === 'text' &&
+            looksLikeWrappedContinuation({
+              line,
+              cells,
+              lastRow: lastRow!,
+              headerCells: currentHeader?.cells ?? null,
+            })
+          )
+        );
+
+      if (continuation && !explicitRowStart) {
+        appendContinuation(line);
+        return;
+      }
 
       if (candidate) {
         if (currentRows.length === 0) {
@@ -344,11 +424,6 @@ export function buildPdfTableExtraction(params: {
           cells: renumberCells(cells),
           raw_text: stripUnsafeTextControls(line.text),
         });
-        return;
-      }
-
-      if (continuation) {
-        appendContinuation(line);
         return;
       }
 

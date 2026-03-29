@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   compareDocumentFactsForLedger,
+  shouldShowMissingEvidenceBadge,
   type DocumentFact,
   type DocumentFactGroup,
 } from '@/lib/documentIntelligenceViewModel';
@@ -38,10 +39,68 @@ function confidenceClass(label: DocumentFact['confidenceLabel']): string {
   }
 }
 
+function sourceClass(source: DocumentFact['displaySource']): string {
+  switch (source) {
+    case 'human_added':
+      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+    case 'human_corrected':
+      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+    default:
+      return 'border-white/10 bg-white/[0.03] text-[#D9E3F3]';
+  }
+}
+
+function sourceLabel(source: DocumentFact['displaySource']): string {
+  switch (source) {
+    case 'human_added':
+      return 'human added';
+    case 'human_corrected':
+      return 'human corrected';
+    default:
+      return 'auto';
+  }
+}
+
+function reviewClass(status: NonNullable<DocumentFact['reviewStatus']>): string {
+  switch (status) {
+    case 'confirmed':
+      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+    case 'corrected':
+      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+    case 'missing_confirmed':
+      return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+    default:
+      return 'border-rose-400/25 bg-rose-400/10 text-rose-100';
+  }
+}
+
+function reviewLabel(status: NonNullable<DocumentFact['reviewStatus']>): string {
+  switch (status) {
+    case 'confirmed':
+      return 'confirmed';
+    case 'corrected':
+      return 'corrected';
+    case 'missing_confirmed':
+      return 'missing confirmed';
+    default:
+      return 'needs followup';
+  }
+}
+
+function shouldShowLowConfidence(fact: DocumentFact): boolean {
+  return (
+    fact.reviewState !== 'reviewed' &&
+    fact.reviewState !== 'overridden' &&
+    (fact.confidenceLabel === 'low' || fact.confidenceLabel === 'none')
+  );
+}
+
 function needsReview(fact: DocumentFact): boolean {
+  if (fact.reviewStatus && fact.reviewStatus !== 'needs_followup') return false;
+  if (fact.reviewStatus === 'needs_followup') return true;
   return (
     fact.reviewState === 'derived' ||
-    fact.evidenceCount === 0 ||
+    shouldShowMissingEvidenceBadge(fact) ||
     fact.confidenceLabel === 'low' ||
     fact.confidenceLabel === 'none'
   );
@@ -80,8 +139,8 @@ function FactRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const missingEvidence = fact.reviewState !== 'missing' && fact.evidenceCount === 0;
-  const lowConfidence = fact.confidenceLabel === 'low' || fact.confidenceLabel === 'none';
+  const missingEvidence = shouldShowMissingEvidenceBadge(fact);
+  const lowConfidence = shouldShowLowConfidence(fact);
 
   return (
     <button
@@ -107,6 +166,19 @@ function FactRow({
           <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${stateClass(fact.reviewState)}`}>
             {fact.reviewState}
           </span>
+          <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${sourceClass(fact.displaySource)}`}>
+            {sourceLabel(fact.displaySource)}
+          </span>
+          {fact.reviewStatus ? (
+            <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${reviewClass(fact.reviewStatus)}`}>
+              {reviewLabel(fact.reviewStatus)}
+            </span>
+          ) : null}
+          {fact.humanDefinedSchedule ? (
+            <span className="rounded border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+              Schedule
+            </span>
+          ) : null}
           <span className={`text-[11px] font-medium uppercase tracking-[0.16em] ${confidenceClass(fact.confidenceLabel)}`}>
             {fact.confidenceLabel}
           </span>
@@ -120,14 +192,24 @@ function FactRow({
               {fact.confidenceLabel === 'none' ? 'No confidence' : 'Low confidence'}
             </span>
           ) : null}
+          {fact.machineClassification === 'rate_price_no_ceiling' ? (
+            <span className="rounded border border-sky-400/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+              Rate/price terms
+            </span>
+          ) : null}
         </div>
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className={`text-sm ${fact.normalizedDisplay === 'Missing' ? 'text-[#7F90AA]' : 'text-[#EAF1FB]'}`}>
-            {fact.normalizedDisplay}
+          <p className={`text-sm ${fact.displayValue === 'Missing' ? 'text-[#7F90AA]' : 'text-[#EAF1FB]'}`}>
+            {fact.displayValue}
           </p>
+          {fact.displaySource !== 'auto' ? (
+            <p className="mt-1 text-[11px] text-[#7F90AA]">
+              Machine: {fact.machineDisplay}
+            </p>
+          ) : null}
           <p className="mt-1 text-[11px] text-[#7F90AA]">{fact.statusLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#9FB0CA]">
@@ -190,7 +272,7 @@ export function FactLedger({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 shrink-0 flex-col">
       <div className="border-b border-white/8 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -246,7 +328,7 @@ export function FactLedger({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 max-h-[min(52vh,36rem)] flex-1 overflow-y-auto">
         {filteredGroups.length === 0 ? (
           <div className="px-5 py-6 text-sm text-[#8FA1BC]">
             No facts match the current filter selection.

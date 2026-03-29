@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { describe, it } from 'vitest';
 
-const selectionModulePromise = import(
-  new URL('../lib/blobExtractionSelection.ts', import.meta.url).href,
-).then((module) => module.default ?? module);
+import {
+  hasUsableExtractionBlobData,
+  pickPreferredExtractionBlob,
+} from '@/lib/blobExtractionSelection';
 
 const williamsonBadFallbackRow = {
   id: '36b13915-502a-4e34-b867-7d213dddc8f0',
@@ -114,6 +115,73 @@ const williamsonGoodOcrRow = {
   },
 } as const;
 
+/**
+ * Newer reprocess: same “unusable” legacy surface as {@link williamsonBadFallbackRow} but real body
+ * text only under content_layers_v1. Without treating layers as usable, the UI keeps an older row.
+ */
+const williamsonNewestContentLayersOnly = {
+  id: 'newest-pdf-layers',
+  created_at: '2026-03-20T12:00:00.000000+00:00',
+  data: {
+    extraction: {
+      mode: 'pdf_text',
+      text_preview: '',
+      evidence_v1: {
+        page_text: [],
+        structured_fields: {
+          contractor_name: null,
+          owner_name: null,
+          executed_date: null,
+          expiration_date: null,
+          nte_amount: null,
+        },
+        section_signals: {
+          rate_section_present: false,
+          rate_section_label: null,
+          rate_section_pages: [],
+          rate_items_detected: 0,
+          rate_units_detected: [],
+          time_and_materials_present: false,
+          unit_price_structure_present: false,
+          fema_reference_present: false,
+          federal_clause_signals: [],
+          insurance_requirements_present: false,
+          permit_or_tdec_reference_present: false,
+        },
+      },
+      content_layers_v1: {
+        pdf: {
+          text: {
+            pages: [
+              {
+                page_number: 2,
+                plain_text_blocks: [
+                  {
+                    text:
+                      'This Agreement shall be effective for a period of ninety (90) days from the date it is fully executed.',
+                  },
+                ],
+              },
+            ],
+          },
+          evidence: [],
+        },
+      },
+    },
+    fields: {
+      detected_document_type: 'contract',
+      file_name: 'williamson-contract.pdf',
+      title: 'Williamson Contract',
+      typed_fields: null,
+      rate_mentions: [],
+      material_mentions: [],
+      scope_mentions: [],
+      compliance_mentions: [],
+      detected_keywords: [],
+    },
+  },
+} as const;
+
 const normalSuccessfulTextPdfRow = {
   id: 'text-pdf-row',
   created_at: '2026-03-19T22:00:00.000000+00:00',
@@ -133,23 +201,34 @@ const normalSuccessfulTextPdfRow = {
   },
 } as const;
 
-test('Williamson bad fallback row is unusable', async () => {
-  const { hasUsableExtractionBlobData } = await selectionModulePromise;
-  assert.equal(hasUsableExtractionBlobData(williamsonBadFallbackRow.data), false);
-});
+describe('blobExtractionSelection', () => {
+  it('Williamson bad fallback row is unusable', () => {
+    assert.equal(hasUsableExtractionBlobData(williamsonBadFallbackRow.data), false);
+  });
 
-test('Williamson OCR-good row and normal text PDF row are usable', async () => {
-  const { hasUsableExtractionBlobData } = await selectionModulePromise;
-  assert.equal(hasUsableExtractionBlobData(williamsonGoodOcrRow.data), true);
-  assert.equal(hasUsableExtractionBlobData(normalSuccessfulTextPdfRow.data), true);
-});
+  it('Williamson OCR-good row and normal text PDF row are usable', () => {
+    assert.equal(hasUsableExtractionBlobData(williamsonGoodOcrRow.data), true);
+    assert.equal(hasUsableExtractionBlobData(normalSuccessfulTextPdfRow.data), true);
+  });
 
-test('empty newest blob does not override older substantive blob', async () => {
-  const { pickPreferredExtractionBlob } = await selectionModulePromise;
-  const selected = pickPreferredExtractionBlob([
-    williamsonBadFallbackRow,
-    williamsonGoodOcrRow,
-  ]);
+  it('empty newest blob does not override older substantive blob', () => {
+    const selected = pickPreferredExtractionBlob([
+      williamsonBadFallbackRow,
+      williamsonGoodOcrRow,
+    ]);
 
-  assert.equal(selected?.id, williamsonGoodOcrRow.id);
+    assert.equal(selected?.id, williamsonGoodOcrRow.id);
+  });
+
+  it('content_layers_v1 pdf text pages make a blob usable (Williamson reprocess path)', () => {
+    assert.equal(hasUsableExtractionBlobData(williamsonNewestContentLayersOnly.data), true);
+  });
+
+  it('newest row with pdf content_layers wins over older OCR-only row', () => {
+    const selected = pickPreferredExtractionBlob([
+      williamsonNewestContentLayersOnly,
+      williamsonGoodOcrRow,
+    ]);
+    assert.equal(selected?.id, williamsonNewestContentLayersOnly.id);
+  });
 });

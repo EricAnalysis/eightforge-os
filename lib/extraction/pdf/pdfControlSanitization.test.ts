@@ -106,8 +106,7 @@ describe('pdf control-character sanitization', () => {
 
     expect(tables.tables[0]?.headers).toEqual(['Item', 'Unit', 'Rate', 'Note']);
     expect(tables.tables[0]?.rows[0]?.cells.map((cell) => cell.text)).toEqual([
-      'Vegetative',
-      'Debris',
+      'Vegetative Debris',
       'CY',
       '$18.00',
       'A',

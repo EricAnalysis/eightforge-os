@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
+import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
+import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
 import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { DocumentIntelligenceStrip } from '@/components/document-intelligence/DocumentIntelligenceStrip';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
@@ -102,6 +105,10 @@ export function DocumentDetailExperience({
   auditNotes,
   nodeTraces,
   evaluationNode,
+  onSaveFactOverride,
+  onSaveFactReview,
+  onSaveFactAnchor,
+  onSaveRateScheduleAnchor,
 }: {
   breadcrumbs: BreadcrumbItem[];
   contextLabel: string;
@@ -150,6 +157,40 @@ export function DocumentDetailExperience({
   auditNotes: AuditNote[];
   nodeTraces: PipelineTraceNode[];
   evaluationNode?: ReactNode;
+  onSaveFactOverride: (input: {
+    fieldKey: string;
+    valueJson: unknown;
+    rawValue?: string | null;
+    actionType: DocumentFactOverrideActionType;
+    reason?: string | null;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  onSaveFactReview: (input: {
+    fieldKey: string;
+    reviewStatus: DocumentFactReviewStatus;
+    reviewedValueJson?: unknown;
+    notes?: string | null;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  onSaveFactAnchor: (input: {
+    fieldKey: string;
+    overrideId?: string | null;
+    anchorType: 'text' | 'region';
+    pageNumber: number;
+    snippet?: string | null;
+    quoteText?: string | null;
+    rectJson?: Record<string, unknown> | null;
+    anchorJson?: Record<string, unknown> | null;
+  }) => Promise<
+    | { ok: true; anchor: DocumentFactAnchorRecord }
+    | { ok: false; error: string }
+  >;
+  onSaveRateScheduleAnchor: (input: {
+    startPage: number;
+    endPage: number;
+    rectJson?: Record<string, unknown> | null;
+  }) => Promise<
+    | { ok: true; anchor: DocumentFactAnchorRecord }
+    | { ok: false; error: string }
+  >;
 }) {
   const headerEntities = entities.slice(0, 6);
   const hasAuditData =
@@ -365,6 +406,10 @@ export function DocumentDetailExperience({
             signedUrl={signedUrl}
             fileExt={fileExt}
             filename={filename}
+            onSaveFactOverride={onSaveFactOverride}
+            onSaveFactReview={onSaveFactReview}
+            onSaveFactAnchor={onSaveFactAnchor}
+            onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
           />
         </>
       ) : (

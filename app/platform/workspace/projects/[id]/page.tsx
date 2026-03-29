@@ -99,7 +99,7 @@ export default function WorkspaceProjectForgePage({
         </div>
       ) : null}
       <ProjectOverviewBand model={model} stageCounts={stageCounts} />
-      <ForgeWorkspace model={model} documents={data.documents} decisions={data.decisions} tasks={data.tasks} activityEvents={data.activityEvents} />
+      <ForgeWorkspace model={model} documents={data.documents} decisions={data.decisions} tasks={data.tasks} />
     </ProjectPageShell>
   );
 }

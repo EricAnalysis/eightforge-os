@@ -3,12 +3,15 @@
 // user's organization. Used by WorkspacePageContent to render pressure signals
 // on project cards without loading full project data per card.
 //
-// Counts are derived from direct project_id columns on decisions and workflow_tasks
-// (added in migration 20260329). Documents still use their own project_id column.
+// Prefers decisions.project_id and workflow_tasks.project_id when present
+// (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
+// Falls back to mapping open rows through documents.document_id → project_id
+// when those columns are not migrated yet.
 //
 // Runs with the service role client to skip per-table RLS on aggregation reads.
 
 import { NextResponse } from 'next/server';
+import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 
@@ -35,18 +38,12 @@ export async function GET(req: Request) {
     const admin = getSupabaseAdmin();
     if (!admin) return jsonError('Server not configured', 503);
 
-    // Run all reads in parallel. Documents are fetched in full to cover all
-    // processing_status values. Decisions and tasks fetch only open rows to keep
-    // payload small — closed rows don't contribute to pressure counts.
     const [projectsResult, docsResult, decisionsResult, tasksResult] = await Promise.all([
-      admin
-        .from('projects')
-        .select('id')
-        .eq('organization_id', organizationId),
+      admin.from('projects').select('id').eq('organization_id', organizationId),
 
       admin
         .from('documents')
-        .select('project_id, processing_status')
+        .select('id, project_id, processing_status')
         .eq('organization_id', organizationId)
         .not('project_id', 'is', null),
 
@@ -65,7 +62,9 @@ export async function GET(req: Request) {
         .not('project_id', 'is', null),
     ]);
 
-    // Seed a count record for every project in the org.
+    if (projectsResult.error) return jsonError(projectsResult.error.message, 500);
+    if (docsResult.error) return jsonError(docsResult.error.message, 500);
+
     const counts: Record<string, WorkspaceProjectCounts> = {};
     for (const p of projectsResult.data ?? []) {
       counts[p.id] = {
@@ -79,7 +78,15 @@ export async function GET(req: Request) {
       };
     }
 
-    // Map documents to stages by processing_status.
+    const docIdToProjectId = new Map<string, string>();
+    for (const doc of docsResult.data ?? []) {
+      const pid = doc.project_id as string;
+      const did = doc.id as string;
+      if (did && pid && counts[pid]) {
+        docIdToProjectId.set(did, pid);
+      }
+    }
+
     for (const doc of docsResult.data ?? []) {
       const pid = doc.project_id as string;
       if (!counts[pid]) continue;
@@ -94,25 +101,84 @@ export async function GET(req: Request) {
         case 'extracted':
           counts[pid].structure++;
           break;
+        default:
+          break;
       }
     }
 
-    // Map open decisions directly — project_id is now a first-class column.
-    for (const dec of decisionsResult.data ?? []) {
-      const pid = dec.project_id as string;
-      if (!pid || !counts[pid]) continue;
-      counts[pid].decide++;
+    const decisionsMissing = isMissingProjectIdColumnError(decisionsResult.error);
+    const tasksMissing = isMissingProjectIdColumnError(tasksResult.error);
+
+    if (!decisionsResult.error && !decisionsMissing) {
+      for (const dec of decisionsResult.data ?? []) {
+        const pid = dec.project_id as string;
+        if (!pid || !counts[pid]) continue;
+        counts[pid].decide++;
+      }
+    } else if (decisionsMissing) {
+      const leg = await admin
+        .from('decisions')
+        .select('document_id')
+        .eq('organization_id', organizationId)
+        .in('status', ['open', 'in_review'])
+        .not('document_id', 'is', null);
+      if (leg.error) return jsonError(leg.error.message, 500);
+      for (const row of leg.data ?? []) {
+        const did = row.document_id as string;
+        const pid = docIdToProjectId.get(did);
+        if (pid && counts[pid]) counts[pid].decide++;
+      }
+    } else {
+      return jsonError(decisionsResult.error?.message ?? 'Decisions query failed', 500);
     }
 
-    // Map open tasks directly and compute overdue count.
     const now = new Date();
-    for (const task of tasksResult.data ?? []) {
-      const pid = task.project_id as string;
-      if (!pid || !counts[pid]) continue;
-      counts[pid].act++;
-      if (task.due_at && new Date(task.due_at as string) < now) {
-        counts[pid].overdue++;
+
+    if (!tasksResult.error && !tasksMissing) {
+      for (const task of tasksResult.data ?? []) {
+        const pid = task.project_id as string;
+        if (!pid || !counts[pid]) continue;
+        counts[pid].act++;
+        if (task.due_at && new Date(task.due_at as string) < now) {
+          counts[pid].overdue++;
+        }
       }
+    } else if (tasksMissing) {
+      const leg = await admin
+        .from('workflow_tasks')
+        .select('document_id, decision_id, due_at')
+        .eq('organization_id', organizationId)
+        .in('status', ['open', 'in_progress', 'blocked']);
+      if (leg.error) return jsonError(leg.error.message, 500);
+
+      const decMap = await admin
+        .from('decisions')
+        .select('id, document_id')
+        .eq('organization_id', organizationId)
+        .in('status', ['open', 'in_review']);
+      if (decMap.error) return jsonError(decMap.error.message, 500);
+      const decisionToDoc = new Map<string, string>();
+      for (const d of decMap.data ?? []) {
+        const docId = d.document_id as string | null;
+        if (d.id && docId) decisionToDoc.set(d.id as string, docId);
+      }
+
+      for (const task of leg.data ?? []) {
+        let pid: string | undefined;
+        const docId = task.document_id as string | null;
+        if (docId) pid = docIdToProjectId.get(docId);
+        if (!pid && task.decision_id) {
+          const linkedDoc = decisionToDoc.get(task.decision_id as string);
+          if (linkedDoc) pid = docIdToProjectId.get(linkedDoc);
+        }
+        if (!pid || !counts[pid]) continue;
+        counts[pid].act++;
+        if (task.due_at && new Date(task.due_at as string) < now) {
+          counts[pid].overdue++;
+        }
+      }
+    } else {
+      return jsonError(tasksResult.error?.message ?? 'Tasks query failed', 500);
     }
 
     return NextResponse.json({ counts: Object.values(counts) });

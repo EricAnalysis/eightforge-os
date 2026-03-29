@@ -1519,3 +1519,44 @@ export function buildProjectOverviewModel(params: {
       : 'Recent audit activity is not available yet for this project.',
   };
 }
+
+// --- Forge inspector: reuse persistence rules without duplicating operational signals ---
+
+export function forgeInspectorDocumentLabel(
+  document:
+    | Pick<ProjectDocumentRow, 'title' | 'name'>
+    | Pick<ProjectDocumentRelation, 'title' | 'name'>
+    | null,
+): string {
+  return documentTitle(document);
+}
+
+export function forgeInspectorDecisionOperationalState(decision: ProjectDecisionRow): {
+  blocked: boolean;
+  missingSupport: boolean;
+} {
+  return {
+    blocked: isBlockedPersistedDecision(decision),
+    missingSupport: isMissingSupportPersistedDecision(decision),
+  };
+}
+
+export function forgeInspectorDecisionLinkedDocument(decision: ProjectDecisionRow): ProjectDocumentRelation | null {
+  return decisionDocument(decision);
+}
+
+export function forgeInspectorDecisionSourceDocumentId(decision: ProjectDecisionRow): string | null {
+  return resolveDecisionSourceDocumentId(decision);
+}
+
+export function forgeInspectorTaskLinkedDocument(task: ProjectTaskRow): ProjectDocumentRelation | null {
+  return taskDocument(task);
+}
+
+export function forgeInspectorTaskSourceDocumentId(
+  task: ProjectTaskRow,
+  decisions: ProjectDecisionRow[],
+): string | null {
+  const decisionById = new Map(decisions.map((d) => [d.id, d]));
+  return resolveTaskSourceDocumentId(task, decisionById);
+}

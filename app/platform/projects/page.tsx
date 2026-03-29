@@ -110,6 +110,7 @@ export default function ProjectsPage() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     if (orgLoading || !organizationId) return;
@@ -126,6 +127,9 @@ export default function ProjectsPage() {
   }, [organizationId, orgLoading]);
 
   const loading = orgLoading || projectsLoading;
+  const visibleProjects = showArchived
+    ? projects
+    : projects.filter((project) => project.status !== 'archived');
 
   return (
     <div className="space-y-4">
@@ -137,10 +141,19 @@ export default function ProjectsPage() {
           </p>
         </div>
         <div className="shrink-0">
-          <button type="button" onClick={() => setModalOpen(true)}
-            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
-            New Project
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowArchived((value) => !value)}
+              className="rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2 text-[11px] font-medium text-[#F5F7FA] hover:border-[#8B5CFF]/40"
+            >
+              {showArchived ? 'Hide Archived' : 'Show Archived'}
+            </button>
+            <button type="button" onClick={() => setModalOpen(true)}
+              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
+              New Project
+            </button>
+          </div>
         </div>
       </section>
 
@@ -156,18 +169,26 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {!loading && !error && projects.length === 0 && (
+      {!loading && !error && visibleProjects.length === 0 && (
         <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-6 text-center">
-          <p className="text-[11px] font-medium text-[#F5F7FA]">No projects yet</p>
-          <p className="mt-1 text-[11px] text-[#8B94A3]">Create a project to group documents, decisions, and tasks together.</p>
-          <button type="button" onClick={() => setModalOpen(true)}
-            className="mt-3 rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
-            Create your first project
-          </button>
+          <p className="text-[11px] font-medium text-[#F5F7FA]">
+            {projects.length > 0 ? 'No active projects in the default list' : 'No projects yet'}
+          </p>
+          <p className="mt-1 text-[11px] text-[#8B94A3]">
+            {projects.length > 0
+              ? 'Archived projects stay hidden until you intentionally include them.'
+              : 'Create a project to group documents, decisions, and tasks together.'}
+          </p>
+          {projects.length === 0 ? (
+            <button type="button" onClick={() => setModalOpen(true)}
+              className="mt-3 rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
+              Create your first project
+            </button>
+          ) : null}
         </div>
       )}
 
-      {!loading && !error && projects.length > 0 && (
+      {!loading && !error && visibleProjects.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-[#1A1A3E] bg-[#0E0E2A]">
           <table className="w-full text-[11px]">
             <thead>
@@ -179,7 +200,7 @@ export default function ProjectsPage() {
               </tr>
             </thead>
             <tbody>
-              {projects.map((project) => (
+              {visibleProjects.map((project) => (
                 <tr key={project.id} className="border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]">
                   <td className="px-4 py-3 font-mono text-[#8B94A3]">
                     <Link href={`/platform/projects/${project.id}`} className="hover:text-[#F5F7FA] hover:underline">

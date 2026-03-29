@@ -77,6 +77,7 @@ export async function processDocument(params: {
     }
 
     const storagePath = docRow.storage_path as string | null;
+    const projectId = (docRow.project_id as string | null) ?? null;
     if (!storagePath) {
       await markFailed(job.id, params.documentId, 'storage_path missing');
       return { success: false, error: 'Storage path missing', jobId: job.id };
@@ -215,6 +216,7 @@ export async function processDocument(params: {
         admin,
         documentId: params.documentId,
         organizationId: params.organizationId,
+        projectId,
         extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
       });
 
@@ -262,6 +264,7 @@ export async function processDocument(params: {
                 admin,
                 documentId: siblingId,
                 organizationId: params.organizationId,
+                projectId,
               });
             }
           }
@@ -331,6 +334,7 @@ export async function processDocument(params: {
           const deterministicResult = await createDecisionsFromRules({
             documentId: params.documentId,
             organizationId: params.organizationId,
+            projectId,
             matchedResults: matched,
             facts,
           });
@@ -340,6 +344,7 @@ export async function processDocument(params: {
           if (deterministicResult.decisions.length > 0) {
             const taskResult = await createTasksFromDecisions({
               organizationId: params.organizationId,
+              projectId,
               decisions: deterministicResult.decisions,
             });
             tasksCreated = taskResult?.created ?? 0;
@@ -385,6 +390,7 @@ export async function processDocument(params: {
       admin,
       documentId: params.documentId,
       organizationId: params.organizationId,
+      projectId,
       documentType,
       extraction: payload as unknown as {
         fields: Record<string, unknown>;
@@ -398,6 +404,7 @@ export async function processDocument(params: {
       admin,
       documentId: params.documentId,
       organizationId: params.organizationId,
+      projectId,
       decisions: heuristicDecisions,
     });
 

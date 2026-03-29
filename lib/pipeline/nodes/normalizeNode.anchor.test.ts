@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { describe, it, vi } from 'vitest';
 
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
@@ -418,6 +418,41 @@ describe('normalizeNode anchor resolution', () => {
     assert.match(String(contractor?.value ?? ''), /^Stampede Ventures, Inc\.?$/);
   });
 
+  it('does not use contract/vendor codes as contractor_name when typed vendor has the legal entity', () => {
+    const documentId = 'contractor-code-vs-typed-vendor';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'code-vs-vendor.pdf',
+      documentTitle: 'Code vs vendor',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Stampede Ventures, Inc.',
+          },
+        },
+        extraction: {
+          text_preview: 'CONTRACT NO. EMERG03',
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'EMERG03',
+              contractor_name_source: 'heuristic',
+            },
+          },
+          content_layers_v1: {
+            pdf: { evidence: [] },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const contractor = normalized.primaryDocument.fact_map.contractor_name;
+    assert.match(String(contractor?.value ?? ''), /^Stampede Ventures, Inc\.?$/);
+  });
+
   it('ranks legal-entity contractor over insurance certificate-holder noise when label order favors early pages', () => {
     const documentId = 'emerg03-cert-noise';
     const certNoise = makePdfEvidence({
@@ -539,7 +574,113 @@ describe('normalizeNode anchor resolution', () => {
     assert.equal(facts.executed_date?.value, '3/15/2025');
     assert.equal(facts.term_end_date?.value, '2025-06-13');
     assert.equal(facts.expiration_date?.value, '2025-06-13');
+    assert.equal(facts.term_end_date?.derivation_status, 'calculated');
     assert.ok(facts.term_end_date?.evidence_refs.includes('ev-will-term-p2'));
+  });
+
+
+
+  it('marks term dates upstream_missing when executed-relative clause exists but executed_date was not extracted', () => {
+    const documentId = 'missing-executed-upstream-missing';
+    const page2 =
+      'The contract is effective for a period of ninety (90) days from the date it is fully executed.';
+    const ev = makePdfEvidence({
+      id: 'ev-term-no-exec',
+      documentId,
+      page: 2,
+      text: page2,
+      label: 'Page 2',
+    });
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'noexec.pdf',
+      documentTitle: 'NoExec',
+      projectName: null,
+      extractionData: {
+        fields: { typed_fields: {} },
+        extraction: {
+          text_preview: page2,
+          evidence_v1: { structured_fields: {} },
+          content_layers_v1: { pdf: { evidence: [ev] } },
+        },
+      },
+      relatedDocs: [],
+    });
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+    assert.equal(facts.executed_date?.value, null);
+    assert.equal(facts.executed_date?.derivation_status, 'upstream_missing');
+    assert.equal(facts.term_end_date?.value, null);
+    assert.equal(facts.term_end_date?.derivation_status, 'upstream_missing');
+    assert.equal(facts.term_end_date?.derivation_dependency?.source_field, 'executed_date');
+    assert.equal(facts.term_start_date?.derivation_status, 'upstream_missing');
+    assert.equal(facts.expiration_date?.derivation_status, 'upstream_missing');
+    assert.ok(
+      (facts.term_end_date?.missing_source_context?.[0] ?? '').toLowerCase().includes('executed'),
+    );
+  });
+
+  it('emits a hard warning when completed contract extraction still has no canonical facts', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const documentId = 'williamson-null-canonical-warning';
+
+    try {
+      const extracted = extractNode({
+        documentId,
+        documentType: 'contract',
+        documentName: 'williamson-null.pdf',
+        documentTitle: 'Williamson Null Canonical',
+        projectName: null,
+        extractionData: {
+          status: 'completed',
+          extraction: {
+            mode: 'ocr_recovery',
+            text_preview: '',
+            metadata: {
+              extraction_mode: 'ocr_recovery',
+              ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+              ocr_pages_attempted: 4,
+              ocr_confidence_avg: 87.5,
+              canonical_persisted: false,
+              gate_context: {
+                contract_like: true,
+                full_weak: true,
+                meaningful_pdf_text: false,
+                fallback_allowed: true,
+                fallback_reason: 'ocr_recovery_attempted_but_empty',
+              },
+            },
+            evidence_v1: {
+              structured_fields: {},
+              section_signals: {
+                rate_section_present: false,
+                rate_section_pages: [],
+                rate_items_detected: 0,
+                unit_price_structure_present: false,
+              },
+            },
+          },
+          fields: {
+            typed_fields: {},
+          },
+        },
+        relatedDocs: [],
+      });
+
+      const normalized = normalizeNode(extracted);
+      const metadata = normalized.extracted.canonical_persistence as Record<string, unknown>;
+
+      assert.equal(metadata.canonical_persisted, false);
+      assert.deepEqual(metadata.present_canonical_facts, []);
+      assert.equal(metadata.extraction_mode, 'ocr_recovery');
+      assert.equal(metadata.ocr_pages_attempted, 4);
+      assert.equal(warn.mock.calls.length, 1);
+      assert.equal(warn.mock.calls[0]?.[0], '[normalizeNode] canonical persistence missing');
+      assert.deepEqual(warn.mock.calls[0]?.[1], metadata);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('derives term end from duration + execution anchor when clause and executed_date are on different pages', () => {

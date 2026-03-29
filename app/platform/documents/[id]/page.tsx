@@ -28,6 +28,7 @@ import { buildDocumentIntelligence } from '@/lib/documentIntelligence';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { buildDocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
+import { DocumentProjectControls } from '@/components/documents/DocumentProjectControls';
 import { DocumentDetailExperience } from '@/components/document-intelligence/DocumentDetailExperience';
 import type {
   DetectedEntity,
@@ -1621,6 +1622,15 @@ export default function DocumentDetailPage({
         onSaveFactAnchor={handleFactAnchor}
         onSaveRateScheduleAnchor={handleRateScheduleAnchor}
         evaluationNode={evaluationSection}
+        managementNode={(
+          <DocumentProjectControls
+            documentId={id}
+            documentLabel={displayTitle}
+            currentProjectId={project?.id ?? doc.project_id ?? null}
+            currentProjectName={project?.name ?? null}
+            onDocumentProjectChanged={loadAllData}
+          />
+        )}
       />
     </div>
   );

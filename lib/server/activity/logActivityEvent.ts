@@ -6,18 +6,35 @@
 // event_type, old_value, new_value, changed_by, created_at.
 //
 // CHECK constraints enforced by the database:
-//   entity_type IN ('decision', 'workflow_task')
-//   event_type  IN ('created', 'status_changed', 'assignment_changed', 'due_date_changed')
+//   entity_type IN ('decision', 'workflow_task', 'document', 'project')
+//   event_type  IN (
+//     'created',
+//     'status_changed',
+//     'assignment_changed',
+//     'due_date_changed',
+//     'document_removed_from_project',
+//     'document_moved_to_project',
+//     'project_archived',
+//     'project_deleted'
+//   )
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
-export type ActivityEntityType = 'decision' | 'workflow_task';
+export type ActivityEntityType =
+  | 'decision'
+  | 'workflow_task'
+  | 'document'
+  | 'project';
 
 export type ActivityEventType =
   | 'created'
   | 'status_changed'
   | 'assignment_changed'
-  | 'due_date_changed';
+  | 'due_date_changed'
+  | 'document_removed_from_project'
+  | 'document_moved_to_project'
+  | 'project_archived'
+  | 'project_deleted';
 
 export type ActivityInput = {
   organization_id: string;

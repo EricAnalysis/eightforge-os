@@ -1,0 +1,224 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const MOCKED_MODULES = [
+  '@/lib/ai/instructor/classifyDocumentFamily',
+  '@/lib/ai/instructor/extractionAssist',
+  '@/lib/extraction/pdf/buildEvidenceMap',
+  '@/lib/extraction/pdf/extractForms',
+  '@/lib/extraction/pdf/extractTables',
+  '@/lib/extraction/pdf/extractText',
+  '@/lib/extraction/pdf/mapUnstructuredElements',
+  '@/lib/extraction/pdf/partitionWithUnstructured',
+  '@napi-rs/canvas',
+  'pdfjs-dist/legacy/build/pdf.mjs',
+  'tesseract.js',
+];
+
+async function loadExtractDocument() {
+  const module = await import('@/lib/server/documentExtraction');
+  return module.extractDocument;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  for (const moduleId of MOCKED_MODULES) {
+    vi.doUnmock(moduleId);
+  }
+});
+
+/**
+ * Integration check: contract-like PDF with native text must not be labeled pdf_fallback
+ * solely because pdf-parse output is short.
+ */
+describe('documentExtraction pdf fallback gate', () => {
+  it('uses pdf_text when repo sample PDF has meaningful native/layout text (contract-like name)', async () => {
+    const extractDocument = await loadExtractDocument();
+    const pdfPath = join(
+      process.cwd(),
+      'output',
+      'rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
+    );
+    const buf = readFileSync(pdfPath);
+    const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+
+    const payload = await extractDocument(
+      {
+        id: 'test-doc-gate',
+        title: 'Rollout sample',
+        name: 'rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
+        document_type: 'contract',
+        storage_path: 'test/rollout-ceiling-2026-03-26T19-43-54-373Z.pdf',
+      },
+      bytes,
+      'application/pdf',
+      'service-contract-rollout.pdf',
+    );
+
+    expect(payload.extraction.mode).toBe('pdf_text');
+    const preview = payload.extraction.text_preview ?? '';
+    expect(preview.trim().length).toBeGreaterThan(0);
+  }, 20_000);
+
+  it('runs full-page OCR recovery only after the weak contract PDF gate fires', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const buildPdfTextExtraction = vi.fn((
+      {
+        layout,
+        fallbackText,
+        fallbackPages,
+      }: {
+        layout: { page_count: number };
+        fallbackText?: string | null;
+        fallbackPages?: Array<{ page_number: number; text: string }> | null;
+      },
+    ) => ({
+      page_count: layout.page_count,
+      combined_text: typeof fallbackText === 'string' ? fallbackText : '',
+      confidence: 0.72,
+      gaps:
+        typeof fallbackText === 'string' && fallbackText.length > 0
+          ? [{
+              id: 'gap:fallback-text-only',
+              category: 'fallback_text_only',
+              severity: 'info',
+              message: 'fallback text used',
+              source: 'pdf',
+            }]
+          : [],
+      pages: Array.from({ length: layout.page_count }, (_, index) => ({
+        page_number: index + 1,
+        plain_text_blocks:
+          Array.isArray(fallbackPages)
+            ? fallbackPages
+                .filter((page) => page.page_number === index + 1)
+                .map((page) => ({ text: page.text }))
+            : [],
+      })),
+    }));
+
+    vi.doMock('@/lib/extraction/pdf/extractText', () => ({
+      loadPdfLayout: vi.fn(async () => ({
+        page_count: 3,
+        pages: [
+          { page_number: 1, lines: [] },
+          { page_number: 2, lines: [] },
+          { page_number: 3, lines: [] },
+        ],
+        gaps: [],
+      })),
+      buildPdfTextExtraction,
+      computeLayoutPlainCombinedText: vi.fn(() => ''),
+    }));
+    vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
+      buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
+    }));
+    vi.doMock('@/lib/extraction/pdf/extractForms', () => ({
+      buildPdfFormExtraction: vi.fn(() => ({ fields: [] })),
+    }));
+    vi.doMock('@/lib/extraction/pdf/buildEvidenceMap', () => ({
+      buildEvidenceMap: vi.fn(() => ({ evidence: [], gaps: [], confidence: 0.68 })),
+    }));
+    vi.doMock('@/lib/extraction/pdf/partitionWithUnstructured', () => ({
+      partitionWithUnstructured: vi.fn(async () => null),
+    }));
+    vi.doMock('@/lib/extraction/pdf/mapUnstructuredElements', () => ({
+      mapUnstructuredElements: vi.fn(() => null),
+    }));
+    vi.doMock('@/lib/ai/instructor/classifyDocumentFamily', () => ({
+      classifyDocumentFamily: vi.fn(async () => ({
+        parser_version: 'instructor_classification_v1',
+        status: 'classified',
+        source: 'test',
+        family: 'contract',
+        detected_document_type: 'contract',
+        confidence: 0.99,
+        reasons: [],
+        warnings: [],
+        attempts: 1,
+        model: null,
+      })),
+    }));
+    vi.doMock('@/lib/ai/instructor/extractionAssist', () => ({
+      maybeAssistTypedExtraction: vi.fn(async () => ({
+        snapshot: null,
+        mergedTypedFields: null,
+      })),
+    }));
+
+    const pdfDoc = {
+      numPages: 3,
+      getPage: vi.fn(async () => ({
+        getTextContent: vi.fn(async () => ({ items: [] })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+
+    const recognize = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { text: 'Recovered contract page 1', confidence: 88 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered contract page 2', confidence: 86 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered contract page 3', confidence: 90 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'weak-contract-ocr-recovery',
+        title: 'Weak Contract OCR Recovery',
+        name: 'weak-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/weak-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'weak-contract.pdf',
+    );
+
+    expect(payload.extraction.mode).toBe('ocr_recovery');
+    const recoveryCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
+      typeof args?.fallbackText === 'string'
+      && args.fallbackText.includes('Recovered contract page 1')
+      && Array.isArray(args.fallbackPages)
+      && args.fallbackPages.length === 3,
+    );
+    expect(recoveryCall).toBeTruthy();
+    expect(recoveryCall?.[0]).toEqual(expect.objectContaining({
+      fallbackText: expect.stringContaining('Recovered contract page 1'),
+      fallbackPages: expect.arrayContaining([
+        expect.objectContaining({ page_number: 1, source_method: 'ocr' }),
+        expect.objectContaining({ page_number: 2, source_method: 'ocr' }),
+        expect.objectContaining({ page_number: 3, source_method: 'ocr' }),
+      ]),
+    }));
+
+    const metadata = (payload.extraction.metadata ?? {}) as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      extraction_mode: 'ocr_recovery',
+      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_pages_attempted: 3,
+      canonical_persisted: false,
+    });
+    expect(metadata.ocr_confidence_avg).toBe(88);
+  });
+});

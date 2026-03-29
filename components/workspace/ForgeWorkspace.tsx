@@ -1,13 +1,19 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { StageRail } from '@/components/workspace/StageRail';
 import { buildForgeStageCounts, type ForgeStageCounts, type ForgeStageKey } from '@/lib/forgeStageCounts';
 import { resolveDecisionReason } from '@/lib/decisionActions';
 import { TASK_OPEN_STATUSES, isTaskOverdue } from '@/lib/overdue';
 import { formatDueDate } from '@/lib/dateUtils';
+import type { ForgeGeneratedDecision } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
+import { useForgeDocumentDetail } from '@/lib/useForgeDocumentDetail';
+import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
+import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
+import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import {
   forgeInspectorDecisionLinkedDocument,
   forgeInspectorDecisionOperationalState,
@@ -22,6 +28,44 @@ import {
   type ProjectOverviewModel,
   type ProjectTaskRow,
 } from '@/lib/projectOverview';
+
+/** Same pipeline as the classic document surface (`DocumentProcessingStatus`). Project scope is enforced client-side before calling. */
+async function postProjectDocumentProcess(
+  documentId: string,
+  projectDocuments: ProjectDocumentRow[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!projectDocuments.some((d) => d.id === documentId)) {
+    return { ok: false, error: 'Document is not in this project.' };
+  }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    return { ok: false, error: 'Sign in required.' };
+  }
+  const res = await fetch('/api/documents/process', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ documentId }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof body.message === 'string'
+        ? body.message
+        : typeof body.error === 'string'
+          ? body.error
+          : `Request failed (${res.status})`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
 
 type ForgeSelection =
   | { kind: 'decision'; id: string }
@@ -68,10 +112,21 @@ function InspectorRow({ label, children }: { label: string; children: ReactNode 
 }
 
 type ForgeWorkspaceProps = {
-  model: ProjectOverviewModel;
+  model: ForgeWorkspaceModel;
   documents: ProjectDocumentRow[];
   decisions: ProjectDecisionRow[];
   tasks: ProjectTaskRow[];
+  /** Refetch project workspace rows after process/reprocess (stage counts, document status). */
+  onProjectDataRefresh: () => void;
+};
+
+export type ForgeWorkspaceModel = Omit<
+  ProjectOverviewModel,
+  'decisions' | 'decision_total' | 'decision_empty_state'
+> & {
+  decisions: ForgeGeneratedDecision[];
+  decision_total: number;
+  decision_empty_state: string;
 };
 
 function LeftPanel({
@@ -100,24 +155,27 @@ function LeftPanel({
 
 function decisionSeverityClass(severity: string): string {
   if (severity === 'critical') return 'text-[#F87171]';
-  if (severity === 'high') return 'text-[#FBBF24]';
+  if (severity === 'review' || severity === 'high') return 'text-[#FBBF24]';
   return 'text-[#94A3B8]';
+}
+
+function decisionSeverityLabel(severity: string): string {
+  if (severity === 'critical') return 'Critical';
+  if (severity === 'review') return 'Review';
+  return 'Check';
 }
 
 function CenterPanelDecide({
   model,
-  decisions,
   selection,
-  onSelectDecision,
   onSelectTask,
 }: {
-  model: ProjectOverviewModel;
-  decisions: ProjectDecisionRow[];
+  model: ForgeWorkspaceModel;
   selection: ForgeSelection;
-  onSelectDecision: (id: string) => void;
   onSelectTask: (id: string) => void;
 }) {
   const actionItems: ProjectOverviewActionItem[] = model.actions;
+  const decisions = model.decisions;
 
   const relatedActionStatusRollup = useMemo(() => {
     const tallies = new Map<string, number>();
@@ -138,40 +196,60 @@ function CenterPanelDecide({
           {decisions.length === 0 ? (
             <li className="px-4 py-6 text-[12px] text-[#94A3B8]">{model.decision_empty_state}</li>
           ) : (
-            decisions.map((d) => {
-              const active = selection?.kind === 'decision' && selection.id === d.id;
-              const op = forgeInspectorDecisionOperationalState(d);
-              const dueLabel = d.due_at ? formatDueDate(d.due_at) : null;
+            decisions.map((decision) => {
               return (
-                <li key={d.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectDecision(d.id)}
-                    className={`flex w-full flex-col items-start gap-1.5 px-4 py-3.5 text-left transition ${
-                      active ? 'bg-[#1A2333]' : 'hover:bg-[#1A2333]/60'
-                    }`}
-                  >
-                    <span className="text-[14px] font-semibold leading-snug text-[#E5EDF7]">{d.title}</span>
-                    <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={`text-[11px] font-semibold ${decisionSeverityClass(d.severity)}`}>
-                        {d.severity}
+                <li key={decision.id} className="px-4 py-3.5">
+                  <article className="rounded-lg border border-[#2F3B52]/60 bg-[#0B1020]/85 p-3.5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14px] font-semibold leading-snug text-[#E5EDF7]">{decision.prompt}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em] text-[#64748B]">
+                          <span>{decision.document_title}</span>
+                          <span>{humanizeStatus(decision.field)}</span>
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] ring-1 ${
+                          decision.severity === 'critical'
+                            ? 'text-[#F87171] ring-[#EF4444]/40'
+                            : decision.severity === 'review'
+                              ? 'text-[#FBBF24] ring-[#F59E0B]/35'
+                              : 'text-[#94A3B8] ring-[#475569]/40'
+                        }`}
+                      >
+                        {decisionSeverityLabel(decision.severity)}
                       </span>
-                      {op.blocked ? (
-                        <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#F87171] ring-1 ring-[#EF4444]/40">
-                          Blocked
-                        </span>
-                      ) : null}
-                      {op.missingSupport ? (
-                        <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#FBBF24] ring-1 ring-[#F59E0B]/35">
-                          Needs support
-                        </span>
-                      ) : null}
-                      {dueLabel ? (
-                        <span className="text-[11px] tabular-nums text-[#64748B]">Due {dueLabel}</span>
-                      ) : null}
-                      <span className="text-[11px] text-[#94A3B8]">{humanizeStatus(d.status)}</span>
                     </div>
-                  </button>
+
+                    <p className="mt-2 text-[11px] leading-relaxed text-[#94A3B8]">{decision.reason}</p>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#64748B]">
+                      <span className={`font-semibold ${decisionSeverityClass(decision.severity)}`}>
+                        {decision.severity}
+                      </span>
+                      <span>Answer type: {decision.answer_type}</span>
+                    </div>
+
+                    <div className="mt-3">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#64748B]">Anchors</p>
+                      {decision.anchors.length === 0 ? (
+                        <p className="mt-1 text-[11px] text-[#64748B]">No linked evidence</p>
+                      ) : (
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {decision.anchors.map((anchor) => (
+                            <span
+                              key={anchor.id}
+                              className="max-w-full rounded border border-[#2F3B52]/70 bg-[#111827]/80 px-2 py-1 text-[10px] text-[#C7D2E3]"
+                              title={anchor.snippet ?? undefined}
+                            >
+                              {anchor.page != null ? `p.${anchor.page}` : 'page ?'} · {anchor.id}
+                              {anchor.snippet ? ` · ${anchor.snippet}` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </article>
                 </li>
               );
             })
@@ -309,28 +387,35 @@ function CenterPanelAct({
   );
 }
 
-function CenterPanelIntake({ documents }: { documents: ProjectDocumentRow[] }) {
+function CenterPanelIntake({
+  documents,
+  onProjectDataRefresh,
+}: {
+  documents: ProjectDocumentRow[];
+  onProjectDataRefresh: () => void;
+}) {
   const uploadedDocs = documents.filter((d) => d.processing_status === 'uploaded');
-  const [triggerState, setTriggerState] = useState<Record<string, 'idle' | 'triggering' | 'done' | 'error'>>({});
+  const [triggerState, setTriggerState] = useState<Record<string, 'idle' | 'triggering'>>({});
+  const [errorByDoc, setErrorByDoc] = useState<Record<string, string | null>>({});
 
   const handleTrigger = async (docId: string) => {
+    setErrorByDoc((prev) => ({ ...prev, [docId]: null }));
     setTriggerState((prev) => ({ ...prev, [docId]: 'triggering' }));
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setTriggerState((prev) => ({ ...prev, [docId]: 'error' }));
+      const result = await postProjectDocumentProcess(docId, documents);
+      if (!result.ok) {
+        setErrorByDoc((prev) => ({ ...prev, [docId]: result.error }));
+        setTriggerState((prev) => ({ ...prev, [docId]: 'idle' }));
         return;
       }
-      const res = await fetch(`/api/documents/${docId}/analyze`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setTriggerState((prev) => ({ ...prev, [docId]: res.ok ? 'done' : 'error' }));
-    } catch {
-      setTriggerState((prev) => ({ ...prev, [docId]: 'error' }));
+      onProjectDataRefresh();
+      setTriggerState((prev) => ({ ...prev, [docId]: 'idle' }));
+    } catch (err) {
+      setErrorByDoc((prev) => ({
+        ...prev,
+        [docId]: err instanceof Error ? err.message : 'Processing failed.',
+      }));
+      setTriggerState((prev) => ({ ...prev, [docId]: 'idle' }));
     }
   };
 
@@ -347,13 +432,17 @@ function CenterPanelIntake({ documents }: { documents: ProjectDocumentRow[] }) {
         </div>
         <ul className="max-h-[min(40rem,60vh)] divide-y divide-[#2F3B52]/50 overflow-y-auto">
           {uploadedDocs.length === 0 ? (
-            <li className="px-4 py-6 text-[12px] text-[#94A3B8]">No documents waiting for processing.</li>
+            <li className="px-4 py-6 text-[12px] leading-relaxed text-[#94A3B8]">
+              No uploaded documents in Intake. Existing project documents may be in Extraction (processing/failed) or
+              Structure (extracted/decisioned).
+            </li>
           ) : (
             uploadedDocs.map((doc) => {
               const state = triggerState[doc.id] ?? 'idle';
               const displayName = doc.title || doc.name;
+              const inlineError = errorByDoc[doc.id];
               return (
-                <li key={doc.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <li key={doc.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0">
                     <Link
                       href={`/platform/documents/${doc.id}`}
@@ -366,28 +455,21 @@ function CenterPanelIntake({ documents }: { documents: ProjectDocumentRow[] }) {
                       {'uploaded '}
                       {new Date(doc.created_at).toLocaleDateString(undefined, { timeZone: 'UTC' })}
                     </p>
+                    {inlineError ? (
+                      <p className="mt-1 text-[11px] leading-snug text-[#F87171]" role="alert">
+                        {inlineError}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="shrink-0">
-                    {state === 'done' ? (
-                      <span className="text-[11px] font-medium text-[#22C55E]">Processing…</span>
-                    ) : state === 'error' ? (
-                      <button
-                        type="button"
-                        onClick={() => handleTrigger(doc.id)}
-                        className="text-[11px] font-medium text-[#F87171] hover:text-[#FCA5A5]"
-                      >
-                        Retry
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={state === 'triggering'}
-                        onClick={() => handleTrigger(doc.id)}
-                        className="rounded border border-[#3B82F6]/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD] transition hover:bg-[#3B82F6]/15 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {state === 'triggering' ? 'Starting…' : 'Process'}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      disabled={state === 'triggering'}
+                      onClick={() => handleTrigger(doc.id)}
+                      className="rounded border border-[#3B82F6]/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD] transition hover:bg-[#3B82F6]/15 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {state === 'triggering' ? 'Processing…' : 'Process'}
+                    </button>
                   </div>
                 </li>
               );
@@ -459,54 +541,239 @@ function CenterPanelExtract({ documents }: { documents: ProjectDocumentRow[] }) 
   );
 }
 
-function CenterPanelStructure({ documents }: { documents: ProjectDocumentRow[] }) {
-  const extractedDocs = documents.filter((d) => d.processing_status === 'extracted');
+// No-op callbacks for DocumentIntelligenceWorkspace in the Forge read-only context.
+// Fact edits stay on the full document page; process/reprocess uses /api/documents/process above.
+const noopFactOverride = async (_input: {
+  fieldKey: string;
+  valueJson: unknown;
+  rawValue?: string | null;
+  actionType: DocumentFactOverrideActionType;
+  reason?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> =>
+  ({ ok: false, error: 'Open the full document to edit facts.' });
+
+const noopFactReview = async (_input: {
+  fieldKey: string;
+  reviewStatus: DocumentFactReviewStatus;
+  reviewedValueJson?: unknown;
+  notes?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> =>
+  ({ ok: false, error: 'Open the full document to review facts.' });
+
+const noopFactAnchor = async (_input: {
+  fieldKey: string;
+  overrideId?: string | null;
+  anchorType: 'text' | 'region';
+  pageNumber: number;
+  snippet?: string | null;
+  quoteText?: string | null;
+  rectJson?: Record<string, unknown> | null;
+  anchorJson?: Record<string, unknown> | null;
+}) => ({ ok: false as const, error: 'Open the full document to add anchors.' });
+
+const noopRateScheduleAnchor = async (_input: {
+  startPage: number;
+  endPage: number;
+  rectJson?: Record<string, unknown> | null;
+}) => ({ ok: false as const, error: 'Open the full document to set rate schedule anchor.' });
+
+function StructureDocumentWorkspace({
+  documentId,
+  orgId,
+  reloadNonce,
+}: {
+  documentId: string;
+  orgId: string | null;
+  reloadNonce: number;
+}) {
+  const detail = useForgeDocumentDetail(documentId, orgId, reloadNonce);
+
+  if (detail.loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center py-10">
+        <p className="text-[12px] text-[#64748B]">Loading fact workspace…</p>
+      </div>
+    );
+  }
+
+  if (detail.error) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10">
+        <p className="text-[12px] text-[#F87171]">{detail.error}</p>
+        <Link
+          href={`/platform/documents/${documentId}`}
+          className="text-[11px] text-[#60A5FA] hover:underline"
+        >
+          Open full document →
+        </Link>
+      </div>
+    );
+  }
+
+  if (!detail.model) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10">
+        <p className="text-[12px] text-[#94A3B8]">No extraction data available for this document.</p>
+        <Link
+          href={`/platform/documents/${documentId}`}
+          className="text-[11px] text-[#60A5FA] hover:underline"
+        >
+          Open full document →
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4">
-      <section className="min-w-0 rounded-lg border border-[#2F3B52]/70 bg-[#111827]/60">
-        <div className="flex items-center gap-2 border-b border-[#2F3B52]/70 px-4 py-2">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#94A3B8]">Structure</h2>
-          {extractedDocs.length > 0 && (
-            <span className="rounded bg-[#243044] px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-[#C7D2E3]">
-              {extractedDocs.length}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <DocumentIntelligenceWorkspace
+        model={detail.model}
+        signedUrl={detail.signedUrl}
+        fileExt={detail.fileExt}
+        filename={detail.filename}
+        onSaveFactOverride={noopFactOverride}
+        onSaveFactReview={noopFactReview}
+        onSaveFactAnchor={noopFactAnchor}
+        onSaveRateScheduleAnchor={noopRateScheduleAnchor}
+      />
+    </div>
+  );
+}
+
+function CenterPanelStructure({
+  documents,
+  orgId,
+  onProjectDataRefresh,
+}: {
+  documents: ProjectDocumentRow[];
+  orgId: string | null;
+  onProjectDataRefresh: () => void;
+}) {
+  const extractedDocs = documents.filter(
+    (d) => d.processing_status === 'extracted' || d.processing_status === 'decisioned',
+  );
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(
+    extractedDocs.length === 1 ? extractedDocs[0].id : null,
+  );
+  const [detailReloadNonce, setDetailReloadNonce] = useState(0);
+  const [reprocessPhase, setReprocessPhase] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
+
+  // Auto-select when list changes (e.g., first load)
+  useEffect(() => {
+    if (extractedDocs.length === 1 && !selectedDocId) {
+      setSelectedDocId(extractedDocs[0].id);
+    }
+  }, [extractedDocs, selectedDocId]);
+
+  const selectedRow = selectedDocId ? extractedDocs.find((d) => d.id === selectedDocId) : null;
+
+  const handleReprocess = async () => {
+    if (!selectedDocId || reprocessPhase === 'loading') return;
+    setReprocessError(null);
+    setReprocessPhase('loading');
+    try {
+      const result = await postProjectDocumentProcess(selectedDocId, documents);
+      if (!result.ok) {
+        setReprocessError(result.error);
+        setReprocessPhase('error');
+        return;
+      }
+      setDetailReloadNonce((n) => n + 1);
+      onProjectDataRefresh();
+      setReprocessPhase('success');
+      window.setTimeout(() => {
+        setReprocessPhase('idle');
+      }, 2500);
+    } catch (err) {
+      setReprocessError(err instanceof Error ? err.message : 'Reprocess failed.');
+      setReprocessPhase('error');
+    }
+  };
+
+  if (extractedDocs.length === 0) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4">
+        <section className="min-w-0 rounded-lg border border-[#2F3B52]/70 bg-[#111827]/60">
+          <div className="flex items-center gap-2 border-b border-[#2F3B52]/70 px-4 py-2">
+            <h2 className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#94A3B8]">Structure</h2>
+          </div>
+          <p className="px-4 py-6 text-[12px] text-[#94A3B8]">No extracted documents in this project.</p>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-[#2F3B52]/80 bg-[#0B1020] px-4 py-2 sm:flex-row sm:items-center sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.18em] text-[#64748B]">Document</span>
+          {extractedDocs.length > 1 ? (
+            <select
+              aria-label="Document for structure inspection"
+              value={selectedDocId ?? ''}
+              onChange={(e) => {
+                setSelectedDocId(e.target.value || null);
+                setReprocessPhase('idle');
+                setReprocessError(null);
+              }}
+              className="min-w-0 flex-1 rounded border border-[#2F3B52]/80 bg-[#111827] px-2 py-1 text-[12px] text-[#C7D2E3] focus:border-[#3B82F6]/60 focus:outline-none"
+            >
+              <option value="">— Select a document —</option>
+              {extractedDocs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.title || d.name}
+                  {d.document_type ? ` (${d.document_type})` : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="min-w-0 truncate text-[12px] font-medium text-[#C7D2E3]">
+              {forgeInspectorDocumentLabel(extractedDocs[0])}
             </span>
           )}
         </div>
-        <ul className="max-h-[min(40rem,60vh)] divide-y divide-[#2F3B52]/50 overflow-y-auto">
-          {extractedDocs.length === 0 ? (
-            <li className="px-4 py-6 text-[12px] text-[#94A3B8]">No extracted documents awaiting review.</li>
-          ) : (
-            extractedDocs.map((doc) => {
-              const displayName = doc.title || doc.name;
-              return (
-                <li key={doc.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/platform/documents/${doc.id}`}
-                      className="block truncate text-[13px] font-semibold text-[#E5EDF7] hover:text-[#60A5FA]"
-                    >
-                      {displayName}
-                    </Link>
-                    <p className="mt-0.5 text-[11px] text-[#64748B]">
-                      {doc.document_type ? `${doc.document_type} · ` : ''}
-                      {doc.processed_at
-                        ? `extracted ${new Date(doc.processed_at).toLocaleDateString(undefined, { timeZone: 'UTC' })}`
-                        : 'extracted'}
-                    </p>
-                  </div>
-                  <Link
-                    href={`/platform/documents/${doc.id}`}
-                    className="shrink-0 rounded border border-[#2F3B52]/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#94A3B8] transition hover:border-[#3B82F6]/40 hover:text-[#E5EDF7]"
-                  >
-                    Review
-                  </Link>
-                </li>
-              );
-            })
-          )}
-        </ul>
-      </section>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          {selectedDocId ? (
+            <>
+              <Link
+                href={`/platform/documents/${selectedDocId}`}
+                className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#60A5FA] hover:text-[#93C5FD]"
+              >
+                Full view
+              </Link>
+              <button
+                type="button"
+                disabled={reprocessPhase === 'loading' || !selectedRow}
+                onClick={handleReprocess}
+                className="rounded border border-[#3B82F6]/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD] transition hover:bg-[#3B82F6]/15 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {reprocessPhase === 'loading' ? 'Reprocessing…' : 'Reprocess'}
+              </button>
+            </>
+          ) : null}
+        </div>
+        {reprocessError ? (
+          <p className="w-full text-[11px] leading-snug text-[#F87171] sm:order-last" role="alert">
+            {reprocessError}
+          </p>
+        ) : reprocessPhase === 'success' ? (
+          <p className="w-full text-[11px] text-[#22C55E] sm:order-last">Reprocess completed.</p>
+        ) : null}
+      </div>
+
+      {selectedDocId ? (
+        <StructureDocumentWorkspace
+          documentId={selectedDocId}
+          orgId={orgId}
+          reloadNonce={detailReloadNonce}
+        />
+      ) : (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-[12px] text-[#64748B]">Select a document above to inspect its extracted facts.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -750,9 +1017,17 @@ function RightPanel({
   );
 }
 
-export function ForgeWorkspace({ model, documents, decisions, tasks }: ForgeWorkspaceProps) {
+export function ForgeWorkspace({
+  model,
+  documents,
+  decisions,
+  tasks,
+  onProjectDataRefresh,
+}: ForgeWorkspaceProps) {
   const [stage, setStage] = useState<ForgeStageKey>('decide');
   const [selection, setSelection] = useState<ForgeSelection>(null);
+  const { organization } = useCurrentOrg();
+  const orgId = organization?.id ?? null;
 
   const stageCounts = useMemo(
     () =>
@@ -761,8 +1036,9 @@ export function ForgeWorkspace({ model, documents, decisions, tasks }: ForgeWork
         decisions,
         tasks,
         auditSurfaceCount: model.audit.length,
+        decisionCountOverride: model.decision_total,
       }),
-    [decisions, documents, model.audit.length, tasks],
+    [decisions, documents, model.audit.length, model.decision_total, tasks],
   );
 
   return (
@@ -772,9 +1048,7 @@ export function ForgeWorkspace({ model, documents, decisions, tasks }: ForgeWork
       {stage === 'decide' ? (
         <CenterPanelDecide
           model={model}
-          decisions={decisions}
           selection={selection}
-          onSelectDecision={(id) => setSelection({ kind: 'decision', id })}
           onSelectTask={(id) => setSelection({ kind: 'task', id })}
         />
       ) : stage === 'act' ? (
@@ -784,11 +1058,11 @@ export function ForgeWorkspace({ model, documents, decisions, tasks }: ForgeWork
           onSelectTask={(id) => setSelection({ kind: 'task', id })}
         />
       ) : stage === 'intake' ? (
-        <CenterPanelIntake documents={documents} />
+        <CenterPanelIntake documents={documents} onProjectDataRefresh={onProjectDataRefresh} />
       ) : stage === 'extract' ? (
         <CenterPanelExtract documents={documents} />
       ) : stage === 'structure' ? (
-        <CenterPanelStructure documents={documents} />
+        <CenterPanelStructure documents={documents} orgId={orgId} onProjectDataRefresh={onProjectDataRefresh} />
       ) : stage === 'audit' ? (
         <CenterPanelAudit items={model.audit} emptyState={model.audit_empty_state} />
       ) : (

@@ -10,7 +10,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   buildDocumentWorkspaceItems,
   filterDocumentWorkspaceItems,
@@ -569,6 +569,7 @@ function UploadModal({
   onClose,
   onUploaded,
   onUnauthorized,
+  initialProjectId,
 }: {
   orgId: string;
   onClose: () => void;
@@ -577,11 +578,12 @@ function UploadModal({
     analyzePromise: Promise<Response>;
   }) => void;
   onUnauthorized?: () => void;
+  initialProjectId?: string | null;
 }) {
   const [title, setTitle] = useState('');
   const [documentType, setDocumentType] = useState('');
   const [domain, setDomain] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -598,6 +600,12 @@ function UploadModal({
         if (data) setProjects(data as ProjectOption[]);
       });
   }, [orgId]);
+
+  useEffect(() => {
+    if (initialProjectId) {
+      setProjectId(initialProjectId);
+    }
+  }, [initialProjectId]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const picked = event.target.files?.[0] ?? null;
@@ -824,6 +832,7 @@ function UploadModal({
 
 export default function DocumentsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { organization, loading: orgLoading } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
   const orgId = organizationId;
@@ -834,6 +843,16 @@ export default function DocumentsPage() {
   const [docsError, setDocsError] = useState<string | null>(null);
   const [workspaceWarning, setWorkspaceWarning] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    const preset = searchParams.get('projectId');
+    if (preset) {
+      setSelectedProjectId(preset);
+    }
+    if (searchParams.get('openUpload') === '1') {
+      setModalOpen(true);
+    }
+  }, [searchParams]);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [processErrors, setProcessErrors] = useState<Record<string, string>>({});
 
@@ -1621,6 +1640,7 @@ export default function DocumentsPage() {
           onClose={() => setModalOpen(false)}
           onUploaded={handleUploaded}
           onUnauthorized={() => router.replace('/login')}
+          initialProjectId={searchParams.get('projectId')}
         />
       ) : null}
     </div>

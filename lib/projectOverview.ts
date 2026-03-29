@@ -1359,6 +1359,14 @@ function extractStatus(value: Record<string, unknown> | null | undefined): strin
   return typeof status === 'string' ? status : null;
 }
 
+function extractStringValue(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null {
+  const result = value?.[key];
+  return typeof result === 'string' && result.trim().length > 0 ? result : null;
+}
+
 export function resolveProjectAuditEvents(
   project: ProjectRecord,
   documents: ProjectDocumentRow[],
@@ -1398,33 +1406,80 @@ export function resolveProjectAuditEvents(
 
   const derivedActivityEvents = activityEvents.map((event) => {
     const isDecision = event.entity_type === 'decision';
+    const isTask = event.entity_type === 'workflow_task';
+    const isProject = event.entity_type === 'project';
+    const isDocument = event.entity_type === 'document';
     const entityTitle = isDecision
       ? decisionTitleById.get(event.entity_id) ?? 'Decision'
-      : taskTitleById.get(event.entity_id) ?? 'Action';
+      : isTask
+        ? taskTitleById.get(event.entity_id) ?? 'Action'
+        : isProject
+          ? extractStringValue(event.new_value, 'project_name') ??
+            extractStringValue(event.old_value, 'project_name') ??
+            project.name
+          : extractStringValue(event.new_value, 'document_title') ??
+            extractStringValue(event.old_value, 'document_title') ??
+            'Document';
     const nextStatus = extractStatus(event.new_value);
     const actor = memberName(members, event.changed_by);
 
     let label = 'Record updated';
     let detail = entityTitle;
     let tone: OverviewTone = 'info';
+    let href: string | null = isDecision
+      ? `/platform/decisions/${event.entity_id}`
+      : isTask
+        ? `/platform/workflows/${event.entity_id}`
+        : isProject
+          ? `/platform/projects/${event.entity_id}`
+          : `/platform/documents/${event.entity_id}`;
 
     switch (event.event_type) {
       case 'created':
-        label = isDecision ? 'Decision created' : 'Action created';
+        label = isDecision ? 'Decision created' : isTask ? 'Action created' : 'Record created';
         break;
       case 'status_changed':
-        label = isDecision ? 'Decision status changed' : 'Action status changed';
+        label = isDecision ? 'Decision status changed' : isTask ? 'Action status changed' : 'Status changed';
         detail = nextStatus ? `${entityTitle} -> ${titleize(nextStatus)}` : entityTitle;
         tone = auditToneForStatus(nextStatus);
         break;
       case 'assignment_changed':
-        label = isDecision ? 'Decision reassigned' : 'Action reassigned';
+        label = isDecision ? 'Decision reassigned' : isTask ? 'Action reassigned' : 'Assignment changed';
         detail = `${entityTitle} / ${actor}`;
         tone = 'warning';
         break;
       case 'due_date_changed':
-        label = isDecision ? 'Decision due date adjusted' : 'Action due date adjusted';
+        label = isDecision ? 'Decision due date adjusted' : isTask ? 'Action due date adjusted' : 'Due date adjusted';
         tone = 'muted';
+        break;
+      case 'document_removed_from_project':
+        label = 'Document removed from project';
+        detail = entityTitle;
+        tone = 'warning';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'document_moved_to_project': {
+        const fromProject = extractStringValue(event.old_value, 'project_name');
+        const toProject = extractStringValue(event.new_value, 'project_name');
+        label = 'Document moved to project';
+        detail = [entityTitle, fromProject && toProject ? `${fromProject} -> ${toProject}` : toProject]
+          .filter(Boolean)
+          .join(' / ');
+        tone = 'info';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      }
+      case 'project_archived':
+        label = 'Project archived';
+        detail = entityTitle;
+        tone = 'muted';
+        href = `/platform/projects/${event.entity_id}`;
+        break;
+      case 'project_deleted':
+        label = 'Project deleted';
+        detail = entityTitle;
+        tone = 'danger';
+        href = null;
         break;
       default:
         break;
@@ -1436,7 +1491,7 @@ export function resolveProjectAuditEvents(
       detail,
       timestamp_label: relativeTime(event.created_at),
       tone,
-      href: isDecision ? `/platform/decisions/${event.entity_id}` : `/platform/workflows/${event.entity_id}`,
+      href,
       sort_at: event.created_at,
     };
   });

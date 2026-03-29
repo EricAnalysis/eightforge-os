@@ -9,6 +9,7 @@ export type ActorContext = {
   actorId: string;
   organizationId: string;
   displayName: string | null;
+  role: string | null;
 };
 
 export type ActorContextResult =
@@ -61,7 +62,7 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
 
   const { data: profile, error: profileError } = await admin
     .from('user_profiles')
-    .select('organization_id, display_name')
+    .select('organization_id, display_name, role')
     .eq('id', user.id)
     .single();
 
@@ -80,6 +81,7 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
       actorId: user.id,
       organizationId,
       displayName: (profile.display_name as string) ?? null,
+      role: typeof profile.role === 'string' ? profile.role : null,
     },
   };
 }

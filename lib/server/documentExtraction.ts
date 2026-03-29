@@ -152,13 +152,14 @@ export type ExtractionPayload = {
     size_bytes: number | null;
   };
   extraction: {
-    mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'spreadsheet' | 'binary_fallback';
+    mode: ExtractionMode;
     text_preview: string | null;
     detected_document_type: string | null;
     evidence_v1?: ReturnType<typeof buildEvidenceV1>;
     content_layers_v1?: Record<string, unknown>;
     parsed_elements_v1?: ParsedElementsV1;
     ai_assist_v1?: InstructorAssistSnapshot;
+    metadata?: Record<string, unknown>;
   };
   fields: {
     detected_document_type: string | null;
@@ -172,6 +173,16 @@ export type ExtractionPayload = {
     typed_fields?: TypedExtraction | null;
   };
 };
+
+type ExtractionMode =
+  | 'text'
+  | 'pdf_text'
+  | 'pdf_fallback'
+  | 'ocr_recovery'
+  | 'spreadsheet'
+  | 'binary_fallback';
+
+type PdfExtractionMode = 'pdf_text' | 'pdf_fallback' | 'ocr_recovery';
 
 const MAX_EVIDENCE_PAGES = 200;
 
@@ -254,6 +265,31 @@ function isWeakExtractedText(text: string | null): boolean {
   if (!trimmed) return true;
   if (trimmed.length < 500) return true;
   if (isMostlyWhitespace(trimmed)) return true;
+  return false;
+}
+
+/** Below pdf-parse “weak” threshold but still meaningful when native/layout text exists. */
+const MEANINGFUL_LAYOUT_PLAIN_MIN_CHARS = 200;
+const MEANINGFUL_NATIVE_TOTAL_MIN_CHARS = 200;
+const MEANINGFUL_NATIVE_PAGE_MIN_CHARS = 80;
+
+/**
+ * True when the PDF has extractable meaning: structured plain-text blocks from pdf.js layout,
+ * enough layout-derived plain text, or enough native page text. Used to block OCR/pdf_fallback
+ * when pdf-parse alone looks weak.
+ */
+function hasMeaningfulPdfTextSignals(params: {
+  hasStructuredPlainBlocks: boolean;
+  layoutPlainCombinedLength: number;
+  nativePageTexts: string[] | null;
+}): boolean {
+  if (params.hasStructuredPlainBlocks) return true;
+  if (params.layoutPlainCombinedLength >= MEANINGFUL_LAYOUT_PLAIN_MIN_CHARS) return true;
+  const pages = params.nativePageTexts ?? [];
+  const total = pages.reduce((sum, t) => sum + (t?.length ?? 0), 0);
+  if (total >= MEANINGFUL_NATIVE_TOTAL_MIN_CHARS) return true;
+  const maxPage = pages.reduce((max, t) => Math.max(max, t?.length ?? 0), 0);
+  if (maxPage >= MEANINGFUL_NATIVE_PAGE_MIN_CHARS) return true;
   return false;
 }
 
@@ -811,19 +847,26 @@ function combinePageTextEvidence(
 }
 
 /**
- * Very narrow OCR fallback for contract PDFs:
- * - Only triggers when PDF text extraction returns effectively empty.
- * - OCRs a small set of pages (page 1 + pages 8–11) to recover key contract signals.
- *
- * This avoids building a general OCR platform while unblocking scanned PDFs
- * that have no extractable text layer.
+ * Minimal OCR recovery for weak contract-like PDFs.
+ * Runs whole-page OCR only after the existing weak PDF gate has fired so
+ * downstream normalization can keep using the shared text/evidence path.
  */
-async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
-  const pages = await extractContractPageTextViaOcr(bytes);
-  return combinePageTextEvidence(pages);
-}
+type PdfOcrExtractionResult = {
+  pages: PageTextEvidence[] | null;
+  pagesAttempted: number;
+  confidenceAvg: number | null;
+};
 
-async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTextEvidence[] | null> {
+async function extractPdfPageTextViaOcr(
+  bytes: ArrayBuffer,
+  opts?: { pageNumbers?: number[] | null },
+): Promise<PdfOcrExtractionResult> {
+  const fallbackResult: PdfOcrExtractionResult = {
+    pages: null,
+    pagesAttempted: 0,
+    confidenceAvg: null,
+  };
+
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const { createCanvas } = await import('@napi-rs/canvas');
@@ -832,16 +875,18 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
     const data = new Uint8Array(bytes);
     const pdfDoc = await pdfjs.getDocument({ data }).promise;
 
-    const requestedPages = [1, 2, 8, 9, 10, 11];
+    const requestedPages =
+      opts?.pageNumbers?.filter((pageNum) => Number.isInteger(pageNum) && pageNum > 0)
+      ?? Array.from({ length: pdfDoc.numPages }, (_, index) => index + 1);
     const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
-    if (pagesToRender.length === 0) return null;
+    if (pagesToRender.length === 0) return fallbackResult;
 
     const langPath = getLocalTesseractLangPath();
-
     const worker = await createWorker('eng', undefined, { langPath });
     try {
       await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
       const out: PageTextEvidence[] = [];
+      const confidences: number[] = [];
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
@@ -858,6 +903,11 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
         const pngBuffer = canvas.toBuffer('image/png');
         const result = await worker.recognize(pngBuffer);
         const text = result?.data?.text;
+        const confidence = result?.data?.confidence;
+
+        if (typeof confidence === 'number' && Number.isFinite(confidence)) {
+          confidences.push(confidence);
+        }
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({
             page_number: pageNum,
@@ -867,21 +917,33 @@ async function extractContractPageTextViaOcr(bytes: ArrayBuffer): Promise<PageTe
         }
       }
 
-      return out.length > 0 ? out : null;
+      return {
+        pages: out.length > 0 ? out : null,
+        pagesAttempted: pagesToRender.length,
+        confidenceAvg:
+          confidences.length > 0
+            ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
+            : null,
+      };
     } finally {
       await worker.terminate();
     }
   } catch (error) {
     if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
-      console.error('[extractContractPageTextViaOcr] failed', error);
+      console.error('[extractPdfPageTextViaOcr] failed', error);
     }
-    return null;
+    return fallbackResult;
   }
+}
+
+async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
+  const result = await extractPdfPageTextViaOcr(bytes);
+  return combinePageTextEvidence(result.pages);
 }
 
 function buildBase(
   metadata: DocumentMetadata,
-  mode: 'text' | 'pdf_text' | 'pdf_fallback' | 'spreadsheet' | 'binary_fallback',
+  mode: ExtractionMode,
   textPreview: string | null
 ): ExtractionPayload {
   const title = metadata.title ?? metadata.name;
@@ -909,6 +971,26 @@ function buildBase(
       title: metadata.title ?? null,
     },
   };
+}
+
+function applyPdfExtractionMetadata(
+  payload: ExtractionPayload,
+  metadata: {
+    extraction_mode: PdfExtractionMode;
+    ocr_trigger_reason: string | null;
+    ocr_pages_attempted: number;
+    ocr_confidence_avg: number | null;
+    canonical_persisted: boolean;
+    gate_context: {
+      contract_like: boolean;
+      full_weak: boolean;
+      meaningful_pdf_text: boolean;
+      fallback_allowed: boolean;
+      fallback_reason: string | null;
+    };
+  },
+): void {
+  payload.extraction.metadata = metadata;
 }
 
 function dedupeEvidence(evidence: EvidenceObject[]): EvidenceObject[] {
@@ -1166,18 +1248,21 @@ export async function extractDocument(
       native_page_text_total_length: (nativePageTexts ?? []).reduce((sum, t) => sum + (t?.length ?? 0), 0),
     });
 
-    // Always evaluate text quality. If it is too short/weak, run fallback OCR.
+    // Always evaluate text quality. OCR/pdf_fallback only when pdf-parse is weak AND
+    // there is no meaningful native/layout text (length or structured blocks).
     const fullWeak = isWeakExtractedText(extractedTextFull);
-    let partialWeak: boolean | null = null;
-
     let extractedText: string | null = null;
-    let extractionMode: 'pdf_text' | 'pdf_fallback' = 'pdf_text';
+    let extractionMode: PdfExtractionMode = 'pdf_text';
     let didAttemptOcr = false;
     let didAttemptOcrPrimary = false;
     let didAttemptOcrTargeted = false;
     let ocrCombinedTextLength = 0;
     let ocrEvidencePageCount = 0;
+    let ocrPagesAttempted = 0;
+    let ocrConfidenceAvg: number | null = null;
+    let ocrTriggerReason: string | null = null;
     let pdfParsePartialLength: number | null = null;
+    let partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
     let evidencePageText: PageTextEvidence[] = [];
 
@@ -1189,58 +1274,109 @@ export async function extractDocument(
       }));
     }
 
+    const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
+      maxPages: MAX_EVIDENCE_PAGES,
+    });
+    const pdfGateTextLayer = buildPdfTextExtraction({
+      layout: pdfLayout,
+      fallbackText: null,
+      fallbackPages: null,
+    });
+    const layoutPlainCombinedForGate = computeLayoutPlainCombinedText(pdfLayout).length;
+    const hasStructuredPlainBlocks = pdfGateTextLayer.pages.some(
+      (p) => p.plain_text_blocks.length > 0,
+    );
+    const meaningfulPdfText = hasMeaningfulPdfTextSignals({
+      hasStructuredPlainBlocks,
+      layoutPlainCombinedLength: layoutPlainCombinedForGate,
+      nativePageTexts,
+    });
+    const fallbackAllowed = fullWeak && !meaningfulPdfText;
+    logPdf('pdf fallback gate evaluated', {
+      fileName,
+      contractLike,
+      page_count: pdfLayout.page_count,
+      extracted_text_length: extractedTextFull?.length ?? 0,
+      native_page_text_lengths: nativePageTexts
+        ? nativePageTexts.slice(0, MAX_EVIDENCE_PAGES).map((t, idx) => ({
+            page_number: idx + 1,
+            text_length: t?.length ?? 0,
+          }))
+        : [],
+      has_structured_plain_blocks: hasStructuredPlainBlocks,
+      layout_plain_combined_length: layoutPlainCombinedForGate,
+      fullWeak,
+      meaningful_pdf_text: meaningfulPdfText,
+      fallback_allowed: fallbackAllowed,
+      fallback_reason:
+        meaningfulPdfText
+          ? 'blocked_meaningful_native_or_layout_text'
+          : fallbackAllowed
+            ? 'allowed_pdf_parse_insufficient_no_structured_blocks'
+            : 'skipped_pdf_parse_not_weak',
+    });
+
     if (!fullWeak) {
       extractedText = extractedTextFull;
       extractionMode = 'pdf_text';
       fallbackReason = null;
-    } else if (contractLike) {
-      fallbackReason = 'pdf_parse_full_weak_contract_like';
-      // First try contract-scoped “partial pages” extraction to reduce OCR load.
-      const extractedTextPartial = await extractPdfTextWithOptions(cloneArrayBuffer(fileBytes), { maxPages: 15 });
-      pdfParsePartialLength = extractedTextPartial?.length ?? 0;
-      logPdf('pdf-parse partial complete', {
+    } else if (meaningfulPdfText) {
+      const nativeAgg = combinePageTextEvidence(evidencePageText);
+      const layoutCombined = pdfGateTextLayer.combined_text.trim();
+      if (nativeAgg && nativeAgg.length > 0) {
+        extractedText = nativeAgg;
+      } else if (layoutCombined.length > 0) {
+        extractedText = layoutCombined;
+      } else {
+        extractedText = extractedTextFull ?? '';
+      }
+      extractionMode = 'pdf_text';
+      fallbackReason = null;
+    } else if (contractLike && fallbackAllowed) {
+      didAttemptOcr = true;
+      didAttemptOcrPrimary = true;
+      extractionMode = 'ocr_recovery';
+      ocrTriggerReason = 'pdf_parse_full_weak_contract_like';
+      fallbackReason = ocrTriggerReason;
+
+      logPdf('ocr recovery triggered for weak contract pdf', {
         fileName,
-        did_pdf_parse_partial: true,
-        extracted_text_length: pdfParsePartialLength,
+        page_count: pdfLayout.page_count,
+        extracted_text_length: extractedTextFull?.length ?? 0,
+        fallback_allowed: fallbackAllowed,
+        ocr_trigger_reason: ocrTriggerReason,
       });
 
-      partialWeak = isWeakExtractedText(extractedTextPartial);
-      if (!partialWeak && extractedTextPartial != null) {
-        extractedText = extractedTextPartial;
-        // Keep `pdf_fallback` when we only extracted a shallow/limited slice.
-        extractionMode = 'pdf_fallback';
-        fallbackReason = 'pdf_parse_partial_used_contract_slice';
-      } else {
-        // OCR MUST RUN when parsed extraction is null/weak (<500 or whitespace).
-        didAttemptOcr = true;
-        didAttemptOcrPrimary = true;
-        const textLengthForLog = extractedTextPartial?.length ?? extractedTextFull?.length ?? null;
-        logPdf('ocr fallback triggered for contract', { textLength: textLengthForLog });
-        const ocrPages = await extractContractPageTextViaOcr(cloneArrayBuffer(fileBytes));
-        const extractedTextOcr = combinePageTextEvidence(ocrPages);
-        const ocrLen = extractedTextOcr?.length ?? 0;
-        ocrCombinedTextLength = ocrLen;
-        ocrEvidencePageCount = ocrPages?.length ?? 0;
-        logPdf('ocr complete', { ocr_text_length: ocrLen });
+      const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
+      const ocrPages = ocrResult.pages;
+      const extractedTextOcr = combinePageTextEvidence(ocrPages);
+      const ocrLen = extractedTextOcr?.length ?? 0;
+      ocrCombinedTextLength = ocrLen;
+      ocrEvidencePageCount = ocrPages?.length ?? 0;
+      ocrPagesAttempted = ocrResult.pagesAttempted;
+      ocrConfidenceAvg = ocrResult.confidenceAvg;
 
-        // Guarantee text_preview is populated when OCR runs.
-        extractedText = extractedTextOcr ?? '';
-        extractionMode = 'pdf_fallback';
-        fallbackReason = extractedTextOcr && extractedTextOcr.trim().length > 0
-          ? 'ocr_used_contract_pages'
-          : 'ocr_attempted_but_empty';
+      logPdf('ocr recovery complete', {
+        ocr_text_length: ocrLen,
+        ocr_pages_attempted: ocrPagesAttempted,
+        ocr_confidence_avg: ocrConfidenceAvg,
+      });
 
-        // Preserve OCR page boundaries so downstream evidence can still map schedule pages.
-        if (ocrPages && ocrPages.length > 0) {
-          evidencePageText = ocrPages;
-        }
+      extractedText = extractedTextOcr ?? '';
+      fallbackReason = extractedTextOcr && extractedTextOcr.trim().length > 0
+        ? 'ocr_recovery_used_full_document'
+        : 'ocr_recovery_attempted_but_empty';
+
+      if (ocrPages && ocrPages.length > 0) {
+        evidencePageText = ocrPages;
       }
     }
 
     // If this is contract-like, we may have strong body text but image-only rate pages.
     // Deterministic targeted OCR: if evidence_v1 does NOT detect a rate section and
     // the likely attachment pages are nearly empty, OCR only those pages.
-    if (contractLike && !didAttemptOcr) {
+    // Skip when native/layout already yielded meaningful text (no OCR in that case).
+    if (contractLike && !didAttemptOcr && !meaningfulPdfText) {
       const preliminary = buildEvidenceV1({
         pageText: evidencePageText,
         documentTypeHint: metadata.document_type ?? null,
@@ -1254,7 +1390,11 @@ export async function extractDocument(
       if (!ratePresent && weakAttachmentPages) {
         didAttemptOcr = true;
         didAttemptOcrTargeted = true;
-        const ocrPages = await extractContractPageTextViaOcr(cloneArrayBuffer(fileBytes));
+        const ocrPages = (
+          await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
+            pageNumbers: [1, 2, 8, 9, 10, 11],
+          })
+        ).pages;
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1282,9 +1422,6 @@ export async function extractDocument(
       bytes: cloneArrayBuffer(fileBytes),
       fileName,
       mimeType,
-    });
-    const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
-      maxPages: MAX_EVIDENCE_PAGES,
     });
     logPdf('pdfjs layout complete', {
       did_pdfjs_layout_run: true,
@@ -1343,6 +1480,8 @@ export async function extractDocument(
       extractionMode = 'pdf_text';
       fallbackReason = 'layout_text_strong_overrode_fallback';
     }
+    const fallbackPathUsed =
+      extractionMode === 'pdf_fallback' || extractionMode === 'ocr_recovery';
     const combinedPdfGaps = dedupeGaps([
       ...pdfEvidenceLayer.gaps,
       ...(parsedElementsLayer?.gaps ?? []),
@@ -1387,6 +1526,9 @@ export async function extractDocument(
           native_page_text_available: Boolean(nativePageTexts && nativePageTexts.length > 0),
           ocr_text_length: ocrCombinedTextLength,
           ocr_evidence_page_count: ocrEvidencePageCount,
+          ocr_pages_attempted: ocrPagesAttempted,
+          ocr_confidence_avg: ocrConfidenceAvg,
+          ocr_trigger_reason: ocrTriggerReason,
           did_attempt_ocr: didAttemptOcr,
           did_attempt_ocr_primary: didAttemptOcrPrimary,
           did_attempt_ocr_targeted: didAttemptOcrTargeted,
@@ -1403,8 +1545,8 @@ export async function extractDocument(
           table_count: pdfTableLayer.tables.length,
           table_candidate_line_count: layoutLineKindCounts.table_candidate ?? 0,
           synthetic_evidence_page_collapsed: syntheticEvidencePageCollapsed,
-          fallback_path_used: extractionMode === 'pdf_fallback',
-          fallback_reason: extractionMode === 'pdf_fallback' ? fallbackReason : null,
+          fallback_path_used: fallbackPathUsed,
+          fallback_reason: fallbackPathUsed ? fallbackReason : null,
           upstream_diagnostic_note: upstreamDiagnosticNote,
           table_candidates: pdfTableLayer.tables.map((t) => ({
             id: t.id,
@@ -1425,7 +1567,7 @@ export async function extractDocument(
     if (textPreview != null && (textPreview.length > 0 || didAttemptOcr)) {
       logPdf('building extraction payload (primary pdf path)', {
         extraction_mode: extractionMode,
-        fallback_reason: extractionMode === 'pdf_fallback' ? fallbackReason : null,
+        fallback_reason: fallbackPathUsed ? fallbackReason : null,
         evidence_page_text_count: evidencePageText.length,
         synthetic_evidence_page_collapsed: syntheticEvidencePageCollapsed,
         will_persist_parsed_elements_v1: Boolean(parsedElementsLayer),
@@ -1435,6 +1577,20 @@ export async function extractDocument(
       const payload = buildBase(metadata, extractionMode, textPreview);
       payload.file.mime_type = mimeType ?? 'application/pdf';
       payload.file.size_bytes = size;
+      applyPdfExtractionMetadata(payload, {
+        extraction_mode: extractionMode,
+        ocr_trigger_reason: ocrTriggerReason,
+        ocr_pages_attempted: ocrPagesAttempted,
+        ocr_confidence_avg: ocrConfidenceAvg,
+        canonical_persisted: false,
+        gate_context: {
+          contract_like: contractLike,
+          full_weak: fullWeak,
+          meaningful_pdf_text: meaningfulPdfText,
+          fallback_allowed: fallbackAllowed,
+          fallback_reason: fallbackPathUsed ? fallbackReason : null,
+        },
+      });
       if (upstreamExtractionDebug) {
         (payload.extraction as Record<string, unknown>).debug_contract = upstreamExtractionDebug;
       }
@@ -1494,16 +1650,27 @@ export async function extractDocument(
         parsedElementsLayer,
       });
       // Always log fallback selection reason at least once, even if debug is off.
-      if (!pdfDebug && extractionMode === 'pdf_fallback') {
+      if (!pdfDebug && fallbackPathUsed) {
         const contentLayers = payload.extraction.content_layers_v1 as
           | { pdf?: { evidence?: unknown } }
           | undefined;
         const pdfEvidence = contentLayers?.pdf?.evidence;
         const pdfEvidenceCount = Array.isArray(pdfEvidence) ? pdfEvidence.length : null;
-        console.warn('[pdf-extract] selected pdf_fallback', {
+        console.warn(`[pdf-extract] selected ${extractionMode}`, {
           fileName,
-          reason: fallbackReason,
+          extraction_mode: extractionMode,
+          fallback_reason: fallbackReason,
           extracted_text_length: extractedText?.length ?? 0,
+          page_count: pdfLayout.page_count,
+          ocr_trigger_reason: ocrTriggerReason,
+          ocr_pages_attempted: ocrPagesAttempted,
+          ocr_confidence_avg: ocrConfidenceAvg,
+          native_page_text_lengths: nativePageTexts
+            ? nativePageTexts.slice(0, 25).map((t, idx) => ({
+                page_number: idx + 1,
+                text_length: t?.length ?? 0,
+              }))
+            : [],
           native_page_text_count: nativePageTexts?.length ?? 0,
           layout_pages_parsed: pdfLayout.pages.length,
           pdf_text_combined_length: pdfTextLayer.combined_text.length,
@@ -1513,8 +1680,11 @@ export async function extractDocument(
           content_layers_v1_present: Boolean(payload.extraction.content_layers_v1),
         });
       }
-      if (extractionMode === 'pdf_fallback') {
-        payload.summary = 'File received; PDF extraction is not yet deeply parsed server-side.';
+      if (fallbackPathUsed) {
+        payload.summary =
+          extractionMode === 'ocr_recovery'
+            ? 'File received; weak native PDF text triggered recovery OCR.'
+            : 'File received; PDF extraction is not yet deeply parsed server-side.';
       }
       return payload;
     }
@@ -1522,6 +1692,20 @@ export async function extractDocument(
     const payload = buildBase(metadata, 'pdf_fallback', null);
     payload.file.mime_type = mimeType ?? 'application/pdf';
     payload.file.size_bytes = size;
+    applyPdfExtractionMetadata(payload, {
+      extraction_mode: 'pdf_fallback',
+      ocr_trigger_reason: ocrTriggerReason,
+      ocr_pages_attempted: ocrPagesAttempted,
+      ocr_confidence_avg: ocrConfidenceAvg,
+      canonical_persisted: false,
+      gate_context: {
+        contract_like: contractLike,
+        full_weak: fullWeak,
+        meaningful_pdf_text: meaningfulPdfText,
+        fallback_allowed: fallbackAllowed,
+        fallback_reason: fallbackReason,
+      },
+    });
     if (upstreamExtractionDebug) {
       (payload.extraction as Record<string, unknown>).debug_contract = {
         ...upstreamExtractionDebug,
@@ -1584,7 +1768,10 @@ export async function extractDocument(
       const evidenceCount = Array.isArray(pdfEvidence) ? pdfEvidence.length : 0;
       logPdf('building extraction payload (null text preview path)', {
         extraction_mode: payload.extraction.mode,
-        fallback_reason: payload.extraction.mode === 'pdf_fallback' ? (fallbackReason ?? 'missing_text_preview') : null,
+        fallback_reason:
+          payload.extraction.mode === 'pdf_fallback' || payload.extraction.mode === 'ocr_recovery'
+            ? (fallbackReason ?? 'missing_text_preview')
+            : null,
         evidence_page_text_count: evidencePageText.length,
         evidence_v1_page_text_count: evidencePageText.length,
         pdf_evidence_object_count: evidenceCount,

@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import {
+  generateForgeDecisionsForDocument,
+  type ForgeGeneratedDecision,
+} from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
+import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
 import {
   dedupeById,
   matchesProjectDecision,
@@ -27,6 +33,23 @@ function collectError(messageParts: string[], label: string, error: { message?: 
   if (error?.message) {
     messageParts.push(`${label}: ${error.message}`);
   }
+}
+
+type ProjectDocumentExtractionRow = {
+  id: string;
+  document_id: string;
+  data: Record<string, unknown> | null;
+  created_at: string;
+};
+
+function parseExecutionTrace(
+  raw: ProjectDocumentRow['intelligence_trace'],
+): DocumentExecutionTrace | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const candidate = raw as Partial<DocumentExecutionTrace>;
+  if (!candidate.facts || typeof candidate.facts !== 'object') return null;
+  if (!Array.isArray(candidate.decisions) || !Array.isArray(candidate.flow_tasks)) return null;
+  return candidate as DocumentExecutionTrace;
 }
 
 /**
@@ -118,6 +141,7 @@ export type ProjectWorkspaceDataState = {
   project: ProjectRecord | null;
   documents: ProjectDocumentRow[];
   documentReviews: ProjectDocumentReviewRow[];
+  generatedDecisions: ForgeGeneratedDecision[];
   decisions: ProjectDecisionRow[];
   tasks: ProjectTaskRow[];
   activityEvents: ProjectActivityEventRow[];
@@ -128,6 +152,8 @@ export type ProjectWorkspaceDataState = {
   organizationId: string | null;
   orgLoading: boolean;
   members: ProjectMember[];
+  /** Re-runs the project workspace query (documents, decisions, tasks, audit). */
+  refetch: () => void;
 };
 
 /**
@@ -142,6 +168,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [documents, setDocuments] = useState<ProjectDocumentRow[]>([]);
   const [documentReviews, setDocumentReviews] = useState<ProjectDocumentReviewRow[]>([]);
+  const [generatedDecisions, setGeneratedDecisions] = useState<ForgeGeneratedDecision[]>([]);
   const [decisions, setDecisions] = useState<ProjectDecisionRow[]>([]);
   const [tasks, setTasks] = useState<ProjectTaskRow[]>([]);
   const [activityEvents, setActivityEvents] = useState<ProjectActivityEventRow[]>([]);
@@ -149,6 +176,15 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
   const [notFound, setNotFound] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
+  const [refetchTick, setRefetchTick] = useState(0);
+
+  const refetch = useCallback(() => {
+    setRefetchTick((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    setRefetchTick(0);
+  }, [projectId]);
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
@@ -158,7 +194,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     let cancelled = false;
 
     const load = async () => {
-      setLoading(true);
+      const silentRefetch = refetchTick > 0;
+      if (!silentRefetch) {
+        setLoading(true);
+      }
       setPageError(null);
       setLoadIssue(null);
       setNotFound(false);
@@ -185,6 +224,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       if (projectResult.error) {
         if (!cancelled) {
           setPageError('Failed to load this project.');
+          setGeneratedDecisions([]);
           setLoading(false);
         }
         return;
@@ -193,6 +233,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       if (!projectResult.data) {
         if (!cancelled) {
           setNotFound(true);
+          setGeneratedDecisions([]);
           setLoading(false);
         }
         return;
@@ -208,9 +249,58 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
             .eq('organization_id', organizationId)
             .in('document_id', projectDocumentIds)
         : { data: [], error: null };
+      const extractionsResult = projectDocumentIds.length > 0
+        ? await supabase
+            .from('document_extractions')
+            .select('id, document_id, data, created_at')
+            .eq('organization_id', organizationId)
+            .in('document_id', projectDocumentIds)
+            .is('field_key', null)
+            .order('created_at', { ascending: false })
+        : { data: [], error: null };
       const projectDocumentReviews = !reviewsResult.error
         ? ((reviewsResult.data ?? []) as ProjectDocumentReviewRow[])
         : [];
+      collectError(issues, 'Extraction blobs', extractionsResult.error);
+
+      const extractionRows = !extractionsResult.error
+        ? ((extractionsResult.data ?? []) as ProjectDocumentExtractionRow[])
+        : [];
+      const extractionRowsByDocumentId = new Map<string, ProjectDocumentExtractionRow[]>();
+      for (const row of extractionRows) {
+        const current = extractionRowsByDocumentId.get(row.document_id) ?? [];
+        current.push(row);
+        extractionRowsByDocumentId.set(row.document_id, current);
+      }
+
+      const generated = projectDocuments
+        .filter((document) => document.processing_status === 'extracted' || document.processing_status === 'decisioned')
+        .flatMap((document) => {
+          const preferredExtraction = pickPreferredExtractionBlob(
+            extractionRowsByDocumentId.get(document.id) ?? [],
+          );
+          const executionTrace = parseExecutionTrace(document.intelligence_trace ?? null);
+          if (!preferredExtraction?.data) return [];
+
+          try {
+            return generateForgeDecisionsForDocument({
+              documentId: document.id,
+              documentName: document.name,
+              documentTitle: document.title,
+              documentType: document.document_type,
+              projectName: projectRow.name,
+              preferredExtractionData: preferredExtraction.data,
+              executionTrace,
+            });
+          } catch (error) {
+            issues.push(
+              `Forge decisions (${document.title || document.name}): ${
+                error instanceof Error ? error.message : 'failed to derive decision prompts'
+              }`,
+            );
+            return [];
+          }
+        });
 
       // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
       // If columns are missing, fall back to document_id / decision_id scoping only.
@@ -292,6 +382,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const projectDecisionIds = new Set(projectDecisions.map((decision) => decision.id));
 
       const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+      const projectDocumentIdSet = new Set(projectDocumentIds);
 
       const activityResult = await supabase
         .from('activity_events')
@@ -305,6 +396,17 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const filteredActivityEvents = ((activityResult.data ?? []) as ProjectActivityEventRow[]).filter((event) => {
         if (event.entity_type === 'decision') return projectDecisionIds.has(event.entity_id);
         if (event.entity_type === 'workflow_task') return projectTaskIds.has(event.entity_id);
+        if (event.entity_type === 'project') return event.entity_id === projectId;
+        if (event.entity_type === 'document') {
+          if (projectDocumentIdSet.has(event.entity_id)) return true;
+          const oldProjectId = typeof event.old_value?.project_id === 'string'
+            ? event.old_value.project_id
+            : null;
+          const newProjectId = typeof event.new_value?.project_id === 'string'
+            ? event.new_value.project_id
+            : null;
+          return oldProjectId === projectId || newProjectId === projectId;
+        }
         return false;
       });
 
@@ -313,6 +415,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setProject(projectRow);
       setDocuments(projectDocuments);
       setDocumentReviews(projectDocumentReviews);
+      setGeneratedDecisions(generated);
       setDecisions(projectDecisions);
       setTasks(projectTasks);
       setActivityEvents(filteredActivityEvents);
@@ -323,18 +426,20 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     load().catch((error) => {
       if (cancelled) return;
       setPageError(error instanceof Error ? error.message : 'Failed to load this project.');
+      setGeneratedDecisions([]);
       setLoading(false);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [projectId, organizationId, orgLoading]);
+  }, [projectId, organizationId, orgLoading, refetchTick]);
 
   return {
     project,
     documents,
     documentReviews,
+    generatedDecisions,
     decisions,
     tasks,
     activityEvents,
@@ -345,5 +450,6 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     organizationId,
     orgLoading,
     members,
+    refetch,
   };
 }

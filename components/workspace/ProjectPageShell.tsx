@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
 import type { ProjectRecord } from '@/lib/projectOverview';
 
 type ProjectPageShellProps = {
@@ -10,6 +11,7 @@ type ProjectPageShellProps = {
   /** Opens documents upload with this project pre-selected (see DocumentsPage). */
   uploadHref: string;
   legacyProjectHref: string;
+  onProjectRefresh?: (() => void) | (() => Promise<void>);
 };
 
 export function ProjectPageShell({
@@ -17,6 +19,7 @@ export function ProjectPageShell({
   children,
   uploadHref,
   legacyProjectHref,
+  onProjectRefresh,
 }: ProjectPageShellProps) {
   const code = project.code?.trim();
   const subtitle = [code, project.status ? project.status.replace(/_/g, ' ') : null].filter(Boolean).join(' · ');
@@ -52,6 +55,13 @@ export function ProjectPageShell({
             </Link>
           </div>
         </div>
+
+        <ProjectAdminControls
+          project={project}
+          deleteRedirectHref="/platform/workspace"
+          onProjectRefresh={onProjectRefresh}
+          variant="header"
+        />
       </header>
 
       <div className="min-h-0 min-w-0 flex-1">{children}</div>

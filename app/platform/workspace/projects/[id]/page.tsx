@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { use, useMemo } from 'react';
-import { ForgeWorkspace } from '@/components/workspace/ForgeWorkspace';
+import { ForgeWorkspace, type ForgeWorkspaceModel } from '@/components/workspace/ForgeWorkspace';
 import { ProjectOverviewBand } from '@/components/workspace/ProjectOverviewBand';
 import { ProjectPageShell } from '@/components/workspace/ProjectPageShell';
 import { buildForgeStageCounts } from '@/lib/forgeStageCounts';
@@ -38,6 +38,18 @@ export default function WorkspaceProjectForgePage({
     data.tasks,
   ]);
 
+  const forgeModel = useMemo<ForgeWorkspaceModel | null>(() => {
+    if (!model) return null;
+    return {
+      ...model,
+      decisions: data.generatedDecisions,
+      decision_total: data.generatedDecisions.length,
+      decision_empty_state: data.documents.length === 0
+        ? model.decision_empty_state
+        : 'No operator decisions were generated from the current extracted facts.',
+    };
+  }, [data.documents.length, data.generatedDecisions, model]);
+
   const stageCounts = useMemo(() => {
     if (!model) return null;
     return buildForgeStageCounts({
@@ -45,8 +57,9 @@ export default function WorkspaceProjectForgePage({
       decisions: data.decisions,
       tasks: data.tasks,
       auditSurfaceCount: model.audit.length,
+      decisionCountOverride: data.generatedDecisions.length,
     });
-  }, [data.decisions, data.documents, data.tasks, model]);
+  }, [data.decisions, data.documents, data.generatedDecisions.length, data.tasks, model]);
 
   if (data.loading || data.orgLoading) {
     return (
@@ -72,7 +85,7 @@ export default function WorkspaceProjectForgePage({
     );
   }
 
-  if (data.notFound || !model || !stageCounts) {
+  if (data.notFound || !model || !forgeModel || !stageCounts) {
     return (
       <div className="space-y-3 px-8 py-10">
         <Link href="/platform/workspace" className="text-[11px] text-[#3B82F6] hover:underline">
@@ -92,6 +105,7 @@ export default function WorkspaceProjectForgePage({
       project={model.project}
       uploadHref={uploadHref}
       legacyProjectHref={`/platform/projects/${id}`}
+      onProjectRefresh={data.refetch}
     >
       {data.loadIssue ? (
         <div className="border-b border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-2 text-[11px] text-[#FBBF24]">
@@ -99,7 +113,13 @@ export default function WorkspaceProjectForgePage({
         </div>
       ) : null}
       <ProjectOverviewBand model={model} stageCounts={stageCounts} />
-      <ForgeWorkspace model={model} documents={data.documents} decisions={data.decisions} tasks={data.tasks} />
+      <ForgeWorkspace
+        model={forgeModel}
+        documents={data.documents}
+        decisions={data.decisions}
+        tasks={data.tasks}
+        onProjectDataRefresh={data.refetch}
+      />
     </ProjectPageShell>
   );
 }

@@ -662,4 +662,103 @@ describe('buildPdfTableExtraction', () => {
     assert.equal(table.rows[0]?.cells[2]?.text, '$ Per Tree');
     assert.equal(table.rows[1]?.cells[3]?.text, '483.31');
   });
+
+  it('keeps long schedules with many numbered rows from collapsing to a handful of rows', () => {
+    const lines: PdfLayoutLine[] = [
+      makeLine({ id: 'p18:h0', y: 10, kind: 'text', text: 'EXHIBIT' }),
+      makeLine({ id: 'p18:h1', y: 22, kind: 'text', text: 'UNIT PRICES' }),
+      makeLine({
+        id: 'p18:hdr',
+        y: 34,
+        kind: 'text',
+        entries: [
+          ['No.', 0],
+          ['Description', 40],
+          ['Qty', 200],
+          ['UOM', 260],
+          ['Rate', 320],
+        ],
+      }),
+    ];
+    let y = 46;
+    for (let i = 1; i <= 20; i += 1) {
+      lines.push(
+        makeLine({
+          id: `p18:r${i}`,
+          y,
+          kind: 'table_candidate',
+          entries: [
+            [`${i}.`, 0],
+            [`Work item ${i} description text`, 40],
+            ['100', 200],
+            ['CY', 260],
+            [`$${(10 + i).toFixed(2)}`, 320],
+          ],
+        }),
+      );
+      y += 12;
+    }
+    const result = buildPdfTableExtraction({ layout: makeLayout(lines) });
+    assert.equal(result.tables.length, 1);
+    assert.equal(result.tables[0]?.rows.length, 20);
+    assert.match(result.tables[0]?.rows[19]?.cells[1]?.text ?? '', /Work item 20/);
+  });
+
+  it('emits a density warning gap when few data rows span many layout lines', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:s0', y: 10, kind: 'text', text: 'SCHEDULE' }),
+      makeLine({
+        id: 'p18:sh',
+        y: 22,
+        kind: 'text',
+        entries: [
+          ['Item', 0],
+          ['Description', 40],
+          ['Unit', 260],
+          ['Unit Price', 340],
+        ],
+      }),
+      makeLine({
+        id: 'p18:s1',
+        y: 34,
+        kind: 'table_candidate',
+        entries: [
+          ['1.', 0],
+          ['Short', 40],
+          ['EA', 260],
+          ['$1.00', 340],
+        ],
+      }),
+      makeLine({ id: 'p18:s1a', y: 46, kind: 'text', text: 'continuation line a' }),
+      makeLine({ id: 'p18:s1b', y: 58, kind: 'text', text: 'continuation line b' }),
+      makeLine({ id: 'p18:s1c', y: 70, kind: 'text', text: 'continuation line c' }),
+      makeLine({ id: 'p18:s1d', y: 82, kind: 'text', text: 'continuation line d' }),
+      makeLine({ id: 'p18:s1e', y: 94, kind: 'text', text: 'continuation line e' }),
+      makeLine({ id: 'p18:s1f', y: 106, kind: 'text', text: 'continuation line f' }),
+      makeLine({ id: 'p18:s1g', y: 118, kind: 'text', text: 'continuation line g' }),
+      makeLine({ id: 'p18:s1h', y: 130, kind: 'text', text: 'continuation line h' }),
+      makeLine({ id: 'p18:s1i', y: 142, kind: 'text', text: 'continuation line i' }),
+      makeLine({ id: 'p18:s1j', y: 154, kind: 'text', text: 'continuation line j' }),
+      makeLine({ id: 'p18:s1k', y: 166, kind: 'text', text: 'continuation line k' }),
+      makeLine({ id: 'p18:s1l', y: 178, kind: 'text', text: 'continuation line l' }),
+      makeLine({ id: 'p18:s1m', y: 190, kind: 'text', text: 'continuation line m' }),
+      makeLine({ id: 'p18:s1n', y: 202, kind: 'text', text: 'continuation line n' }),
+      makeLine({ id: 'p18:s1o', y: 214, kind: 'text', text: 'continuation line o' }),
+      makeLine({
+        id: 'p18:s2',
+        y: 226,
+        kind: 'table_candidate',
+        entries: [
+          ['2.', 0],
+          ['Next item', 40],
+          ['EA', 260],
+          ['$2.00', 340],
+        ],
+      }),
+    ]);
+    const result = buildPdfTableExtraction({ layout });
+    const lowDensity = result.gaps.filter((g) => g.category === 'table_row_count_suspiciously_low');
+    assert.ok(lowDensity.length >= 1);
+    assert.equal(lowDensity[0]?.severity, 'warning');
+  });
 });

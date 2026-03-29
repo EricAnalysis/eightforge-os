@@ -10,6 +10,17 @@ import type {
   SuggestedQuestion,
 } from '@/lib/types/documentIntelligence';
 
+/** Normalize-stage classification for facts produced or blocked by derivation rules. */
+export type DerivationStatus = 'success' | 'calculated' | 'upstream_missing' | 'low_confidence';
+
+/** Traceability for derived contract dates: which upstream field blocked or supplied the anchor. */
+export interface FactDerivationDependency {
+  /** Pipeline fact key the derivation depended on (e.g. executed_date). */
+  source_field: string;
+  /** When the value reuses another fact's anchor (e.g. term_start copied from executed_date). */
+  anchor_inheritance?: string;
+}
+
 export interface PipelineFact {
   id: string;
   key: string;
@@ -29,6 +40,8 @@ export interface PipelineFact {
    * Surfaced on the parent fact in the document intelligence view model for operators and retained for debug/evals.
    */
   machine_classification?: string | null;
+  derivation_status?: DerivationStatus;
+  derivation_dependency?: FactDerivationDependency;
 }
 
 export interface PipelineAuditNote {

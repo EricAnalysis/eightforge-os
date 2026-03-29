@@ -34,36 +34,23 @@ export async function GET(req: Request) {
     const ctx = await getActorContext(req);
     if (!ctx.ok) return jsonError(ctx.error, ctx.status);
     const { organizationId } = ctx.actor;
+    const includeArchived = new URL(req.url).searchParams.get('includeArchived') === '1';
 
     const admin = getSupabaseAdmin();
     if (!admin) return jsonError('Server not configured', 503);
 
-    const [projectsResult, docsResult, decisionsResult, tasksResult] = await Promise.all([
-      admin.from('projects').select('id').eq('organization_id', organizationId),
+    const projectsQuery = admin
+      .from('projects')
+      .select('id')
+      .eq('organization_id', organizationId);
 
-      admin
-        .from('documents')
-        .select('id, project_id, processing_status')
-        .eq('organization_id', organizationId)
-        .not('project_id', 'is', null),
+    if (!includeArchived) {
+      projectsQuery.neq('status', 'archived');
+    }
 
-      admin
-        .from('decisions')
-        .select('project_id')
-        .eq('organization_id', organizationId)
-        .in('status', ['open', 'in_review'])
-        .not('project_id', 'is', null),
-
-      admin
-        .from('workflow_tasks')
-        .select('project_id, due_at')
-        .eq('organization_id', organizationId)
-        .in('status', ['open', 'in_progress', 'blocked'])
-        .not('project_id', 'is', null),
-    ]);
+    const projectsResult = await projectsQuery;
 
     if (projectsResult.error) return jsonError(projectsResult.error.message, 500);
-    if (docsResult.error) return jsonError(docsResult.error.message, 500);
 
     const counts: Record<string, WorkspaceProjectCounts> = {};
     for (const p of projectsResult.data ?? []) {
@@ -77,6 +64,35 @@ export async function GET(req: Request) {
         overdue: 0,
       };
     }
+
+    const projectIds = Object.keys(counts);
+    if (projectIds.length === 0) {
+      return NextResponse.json({ counts: [] });
+    }
+
+    const [docsResult, decisionsResult, tasksResult] = await Promise.all([
+      admin
+        .from('documents')
+        .select('id, project_id, processing_status')
+        .eq('organization_id', organizationId)
+        .in('project_id', projectIds),
+
+      admin
+        .from('decisions')
+        .select('project_id')
+        .eq('organization_id', organizationId)
+        .in('status', ['open', 'in_review'])
+        .in('project_id', projectIds),
+
+      admin
+        .from('workflow_tasks')
+        .select('project_id, due_at')
+        .eq('organization_id', organizationId)
+        .in('status', ['open', 'in_progress', 'blocked'])
+        .in('project_id', projectIds),
+    ]);
+
+    if (docsResult.error) return jsonError(docsResult.error.message, 500);
 
     const docIdToProjectId = new Map<string, string>();
     for (const doc of docsResult.data ?? []) {

@@ -7,6 +7,8 @@ import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
   ExtractNodeOutput,
   ExtractedNodeDocument,
+  FactDerivationDependency,
+  DerivationStatus,
   NormalizeNodeOutput,
   PipelineFact,
 } from '@/lib/pipeline/types';
@@ -23,6 +25,111 @@ function asArray<T>(value: unknown): T[] {
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+const CANONICAL_FACT_KEYS = {
+  contract: [
+    'contractor_name',
+    'owner_name',
+    'executed_date',
+    'term_start_date',
+    'term_end_date',
+    'expiration_date',
+    'contract_ceiling',
+    'rate_schedule_present',
+    'rate_row_count',
+    'rate_schedule_pages',
+  ],
+  invoice: [
+    'invoice_number',
+    'billed_amount',
+    'contractor_name',
+    'invoice_date',
+  ],
+} as const;
+
+function canonicalFactValueIsMeaningful(key: string, value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+  if (typeof value === 'boolean') {
+    if (key === 'rate_schedule_present') return value === true;
+    return value;
+  }
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0;
+  return false;
+}
+
+function buildCanonicalPersistenceMetadata(
+  document: ExtractedNodeDocument,
+  facts: PipelineFact[],
+): Record<string, unknown> | null {
+  const extractionStatus =
+    typeof document.extraction_data?.status === 'string'
+      ? document.extraction_data.status
+      : null;
+  if (extractionStatus !== 'completed') return null;
+
+  const canonicalKeys =
+    document.family === 'contract'
+      ? CANONICAL_FACT_KEYS.contract
+      : document.family === 'invoice'
+        ? CANONICAL_FACT_KEYS.invoice
+        : null;
+  if (canonicalKeys == null) return null;
+
+  const extraction = asRecord(document.extraction_data?.extraction);
+  const extractionMetadata = asRecord(extraction?.metadata);
+  const gateContext = asRecord(extractionMetadata?.gate_context);
+  const factMap = new Map(facts.map((fact) => [fact.key, fact.value]));
+  const presentCanonicalFacts = canonicalKeys.filter((key) =>
+    canonicalFactValueIsMeaningful(key, factMap.get(key)),
+  );
+  const missingCanonicalFacts = canonicalKeys.filter((key) => !presentCanonicalFacts.includes(key));
+
+  return {
+    document_id: document.document_id,
+    project_id: null,
+    document_family: document.family,
+    extraction_mode:
+      typeof extractionMetadata?.extraction_mode === 'string'
+        ? extractionMetadata.extraction_mode
+        : typeof extraction?.mode === 'string'
+          ? extraction.mode
+          : null,
+    ocr_trigger_reason:
+      typeof extractionMetadata?.ocr_trigger_reason === 'string'
+        ? extractionMetadata.ocr_trigger_reason
+        : null,
+    ocr_pages_attempted:
+      typeof extractionMetadata?.ocr_pages_attempted === 'number'
+        ? extractionMetadata.ocr_pages_attempted
+        : 0,
+    ocr_confidence_avg:
+      typeof extractionMetadata?.ocr_confidence_avg === 'number'
+        ? extractionMetadata.ocr_confidence_avg
+        : null,
+    canonical_persisted: presentCanonicalFacts.length > 0,
+    gate_context: gateContext ?? null,
+    present_canonical_facts: presentCanonicalFacts,
+    missing_canonical_facts: missingCanonicalFacts,
+  };
+}
+
+function attachCanonicalPersistenceMetadata(
+  document: ExtractedNodeDocument,
+  facts: PipelineFact[],
+  extracted: Record<string, unknown>,
+): void {
+  const metadata = buildCanonicalPersistenceMetadata(document, facts);
+  if (metadata == null) return;
+
+  extracted.canonical_persistence = metadata;
+
+  if (metadata.canonical_persisted !== true) {
+    console.warn('[normalizeNode] canonical persistence missing', metadata);
+  }
 }
 
 function parseNumber(value: unknown): number | null {
@@ -1075,7 +1182,8 @@ function findExecutedRelativeDurationDaysInText(fullTextLower: string): {
   matchIndex: number;
   clauseSample: string;
 } | null {
-  let best: { days: number; matchIndex: number; clauseSample: string; len: number } | null = null;
+  type Row = { days: number; matchIndex: number; clauseSample: string; len: number };
+  const acc: { current: Row | null } = { current: null };
 
   const consider = (m: RegExpExecArray) => {
     if (paymentAdjacentBeforeTermDurationMatch(fullTextLower, m.index)) return;
@@ -1083,8 +1191,8 @@ function findExecutedRelativeDurationDaysInText(fullTextLower: string): {
     if (days == null) return;
     const clauseSample = (m[0] ?? '').slice(0, 280);
     const len = (m[0] ?? '').length;
-    if (best == null || len > best.len) {
-      best = { days, matchIndex: m.index, clauseSample, len };
+    if (acc.current == null || len > acc.current.len) {
+      acc.current = { days, matchIndex: m.index, clauseSample, len };
     }
   };
 
@@ -1094,7 +1202,9 @@ function findExecutedRelativeDurationDaysInText(fullTextLower: string): {
   const r2 = new RegExp(EXECUTED_RELATIVE_ANCHOR_THEN_DURATION_RE.source, 'gi');
   while ((m = r2.exec(fullTextLower)) != null) consider(m);
 
-  return best != null ? { days: best.days, matchIndex: best.matchIndex, clauseSample: best.clauseSample } : null;
+  if (acc.current == null) return null;
+  const hit = acc.current;
+  return { days: hit.days, matchIndex: hit.matchIndex, clauseSample: hit.clauseSample };
 }
 
 function evidenceRefsForExecutedRelativeSample(
@@ -1182,6 +1292,70 @@ function tryDeriveTermEndFromDurationClause(
   };
 }
 
+
+function resolveDurationClauseAnchorString(
+  hit: TermDurationClauseHit,
+  ctx: {
+    executedDate: string | null;
+    termStartDate: string | null;
+    effectiveTyped: string | null;
+  },
+): string | null {
+  let anchorString: string | null = null;
+  if (hit.anchor === 'executed') {
+    anchorString = ctx.executedDate;
+  } else if (hit.anchor === 'effective') {
+    anchorString = firstNonEmptyString(ctx.effectiveTyped, ctx.termStartDate, ctx.executedDate);
+  } else {
+    anchorString = firstNonEmptyString(ctx.termStartDate, ctx.executedDate);
+  }
+  return anchorString?.trim() ? anchorString : null;
+}
+
+function primarySourceFieldWhenDurationAnchorMissing(hit: TermDurationClauseHit): string {
+  if (hit.anchor === 'executed') return 'executed_date';
+  if (hit.anchor === 'effective') return 'effective_date';
+  return 'term_start_date';
+}
+
+function termEndBlockedByMissingUpstream(
+  executedDate: string | null,
+  termStartDate: string | null,
+  effectiveTyped: string | null,
+  termEndDate: string | null,
+  executedRelativeHit: ReturnType<typeof findExecutedRelativeDurationDaysInText>,
+  durationClauseHit: TermDurationClauseHit | null,
+): { dependency: FactDerivationDependency; reason: string } | null {
+  if (termEndDate != null) return null;
+  const ctx = { executedDate, termStartDate, effectiveTyped };
+  if (executedRelativeHit && !executedDate?.trim()) {
+    return {
+      dependency: {
+        source_field: 'executed_date',
+        anchor_inheritance: 'executed_relative_duration_clause',
+      },
+      reason:
+        'A term tied to the execution date was detected in the contract text, but executed_date was not extracted, so term end was not calculated.',
+    };
+  }
+  if (durationClauseHit) {
+    const anchorString = resolveDurationClauseAnchorString(durationClauseHit, ctx);
+    if (!anchorString) {
+      const sf = primarySourceFieldWhenDurationAnchorMissing(durationClauseHit);
+      return {
+        dependency: {
+          source_field: sf,
+          anchor_inheritance: `duration_clause_anchor:${durationClauseHit.anchor}`,
+        },
+        reason:
+          'A term duration clause was detected, but no calendar anchor date was available to compute term end.',
+      };
+    }
+  }
+  return null;
+}
+
+
 /**
  * Heuristic extraction sometimes writes NTE / compensation prose into structured_fields.contractor_name.
  * Skip that so typed_fields / label evidence (actual contractor block) can win.
@@ -1194,6 +1368,41 @@ function structuredContractorValueLooksLikeMoneyProse(value: string): boolean {
     return /\$|dollars?|\bmillion\b|\bbillion\b|\bthousand\b/i.test(t);
   }
   return false;
+}
+
+/** Contract / vendor codes and numeric-heavy tokens that are not a contractor legal name (ranking layer only). */
+function contractorValueLooksNumericHeavy(value: string): boolean {
+  if (contractorHasLegalEntitySuffix(value)) return false;
+  const compact = value.replace(/[\s,.]/g, '');
+  if (compact.length < 5) return false;
+  const digits = (compact.match(/\d/g) ?? []).length;
+  return digits / compact.length >= 0.5;
+}
+
+function contractorValueLooksLikeContractOrVendorCode(value: string): boolean {
+  const v = value.trim();
+  if (v.length === 0) return true;
+  if (contractorHasLegalEntitySuffix(v)) return false;
+  const compact = v.replace(/[\s\-]/g, '');
+  if (/^(?:contract|agreement)\s*no\.?\s*:?\s*[A-Z0-9\-]+$/i.test(v)) return true;
+  if (/^vendor\s*no\.?\s*:?\s*[A-Z0-9\-]+$/i.test(v)) return true;
+  if (/^[A-Z]{1,4}-\d[\dA-Z\-]*$/i.test(v) && v.length <= 32) return true;
+  if (/^[A-Z]{2,12}\d{2,8}$/.test(compact) && !/\s/.test(v)) return true;
+  if (/^\d{5,}$/.test(compact)) return true;
+  if (/\b(?:contract|agreement)\s+no\.?\s*:?\s*[A-Z0-9\-]+\s*$/i.test(v) && v.length <= 64) return true;
+  if (/\bvendor\s+no\.?\s*:?\s*[A-Z0-9\-]+\s*$/i.test(v) && v.length <= 64) return true;
+  return false;
+}
+
+function evidenceHasExplicitContractorOrVendorLine(evidence: EvidenceObject): boolean {
+  const t = evidenceText(evidence);
+  return /(?:^|[\n\r|])\s*(?:name\s+of\s+)?(?:contractor|vendor(?:\s+name)?)\s*[:#.\-–]\s+/im.test(t);
+}
+
+function contractorCandidateTier(source: string, evidence: EvidenceObject | null): 1 | 2 | 3 {
+  if (evidence != null && evidenceHasExplicitContractorOrVendorLine(evidence)) return 3;
+  if (source === 'structured_fields.contractor_name' || source === 'typed_fields.vendor_name') return 2;
+  return 1;
 }
 
 /**
@@ -1213,6 +1422,14 @@ function stripContractorLinePrefix(value: string): string {
     if (stripped === t) break;
     t = stripped;
   }
+  return t;
+}
+
+/** Cut common trailing field noise when a full PDF line was captured after "Contractor:" / "Vendor:". */
+function trimContractorCandidateTail(value: string): string {
+  let t = value.trim();
+  const cut = /\s+(?:(?:Letting|Contract|Agreement)\s+Date|Contract\s+Execution)\b/i.exec(t);
+  if (cut && cut.index != null && cut.index > 0) t = t.slice(0, cut.index).trim();
   return t;
 }
 
@@ -1251,6 +1468,8 @@ function contractorValueLooksWeakGeneric(value: string): boolean {
 }
 
 function contractorRepeatPageBonus(value: string, allEvidence: EvidenceObject[]): number {
+  if (contractorValueLooksLikeContractOrVendorCode(value)) return 0;
+  if (contractorValueLooksNumericHeavy(value)) return 0;
   const needle = normalizeText(value);
   if (needle.length < 4) return 0;
   const pages = new Set<number>();
@@ -1275,6 +1494,10 @@ function scoreContractorCandidate(
   if (source === 'typed') score += 20;
   if (contractorHasLegalEntitySuffix(value)) score += 48;
 
+  if (evidence != null && evidenceHasExplicitContractorOrVendorLine(evidence)) {
+    score += 22;
+  }
+
   const label = evidence != null ? normalizeText(evidence.location.label ?? '') : '';
   if (/(?:name\s+of\s+)?contractor|vendor(?:\s+name)?|hereinaf.*contractor|between.*contractor/i.test(label)) {
     score += 24;
@@ -1298,6 +1521,9 @@ function scoreContractorCandidate(
     score -= 58;
   }
 
+  if (contractorValueLooksLikeContractOrVendorCode(value)) score -= 72;
+  if (contractorValueLooksNumericHeavy(value)) score -= 80;
+
   return score;
 }
 
@@ -1310,6 +1536,20 @@ function findContractorLabelEvidence(document: ExtractedNodeDocument, max = 48):
       return normalizedLabels.some((candidate) => label.includes(candidate));
     })
     .slice(0, max);
+}
+
+function findContractorEvidenceForContractorResolution(document: ExtractedNodeDocument, max = 48): EvidenceObject[] {
+  const labelBased = findContractorLabelEvidence(document, max);
+  const seen = new Set(labelBased.map((e) => e.id));
+  const extra: EvidenceObject[] = [];
+  for (const ev of document.evidence) {
+    if (seen.has(ev.id)) continue;
+    if (evidenceHasExplicitContractorOrVendorLine(ev)) {
+      extra.push(ev);
+      seen.add(ev.id);
+    }
+  }
+  return [...labelBased, ...extra].slice(0, max);
 }
 
 interface ContractContractorResolution {
@@ -1346,10 +1586,11 @@ function resolveContractContractor(
     };
   }
 
-  const labeledEvidence = findContractorLabelEvidence(document, 48);
+  const labeledEvidence = findContractorEvidenceForContractorResolution(document, 48);
   type Cand = {
     value: string;
     score: number;
+    tier: 1 | 2 | 3;
     evidence: EvidenceObject | null;
     source: string;
     page: number | null;
@@ -1361,10 +1602,16 @@ function resolveContractContractor(
       ? options.rawStructuredContractor.trim()
       : null;
 
-  if (contractorCandidateStructured != null && !contractorValueLooksLikeInsuranceArtifact(contractorCandidateStructured)) {
+  if (
+    contractorCandidateStructured != null
+    && !contractorValueLooksLikeInsuranceArtifact(contractorCandidateStructured)
+    && !contractorValueLooksLikeContractOrVendorCode(contractorCandidateStructured)
+    && !contractorValueLooksNumericHeavy(contractorCandidateStructured)
+  ) {
     candidates.push({
       value: contractorCandidateStructured,
       score: scoreContractorCandidate(contractorCandidateStructured, null, 'structured'),
+      tier: contractorCandidateTier('structured_fields.contractor_name', null),
       evidence: null,
       source: 'structured_fields.contractor_name',
       page: null,
@@ -1372,10 +1619,16 @@ function resolveContractContractor(
   }
 
   const vendorRaw = typeof options.vendorName === 'string' ? options.vendorName.trim() : '';
-  if (vendorRaw.length > 0 && !contractorValueLooksLikeInsuranceArtifact(vendorRaw)) {
+  if (
+    vendorRaw.length > 0
+    && !contractorValueLooksLikeInsuranceArtifact(vendorRaw)
+    && !contractorValueLooksLikeContractOrVendorCode(vendorRaw)
+    && !contractorValueLooksNumericHeavy(vendorRaw)
+  ) {
     candidates.push({
       value: vendorRaw,
       score: scoreContractorCandidate(vendorRaw, null, 'typed'),
+      tier: contractorCandidateTier('typed_fields.vendor_name', null),
       evidence: null,
       source: 'typed_fields.vendor_name',
       page: null,
@@ -1392,13 +1645,16 @@ function resolveContractContractor(
       parts.push({ raw: ev.text.trim(), field: 'text' });
     }
     for (const { raw, field } of parts) {
-      const cleaned = stripContractorLinePrefix(raw);
+      const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(raw));
       if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
+      const source = `evidence.label_match.${field}`;
       candidates.push({
         value: cleaned,
         score: scoreContractorCandidate(cleaned, ev, 'evidence'),
+        tier: contractorCandidateTier(source, ev),
         evidence: ev,
-        source: `evidence.label_match.${field}`,
+        source,
         page: typeof ev.location.page === 'number' ? ev.location.page : null,
       });
     }
@@ -1418,7 +1674,9 @@ function resolveContractContractor(
   for (const c of candidates) {
     const key = normalizeText(c.value);
     const prev = merged.get(key);
-    if (!prev || c.score > prev.score) merged.set(key, c);
+    if (!prev) merged.set(key, c);
+    else if (c.tier > prev.tier) merged.set(key, c);
+    else if (c.tier === prev.tier && c.score > prev.score) merged.set(key, c);
   }
 
   let pool = [...merged.values()].map((c) => ({
@@ -1426,7 +1684,11 @@ function resolveContractContractor(
     score: c.score + contractorRepeatPageBonus(c.value, document.evidence),
   }));
 
-  pool.sort((a, b) => b.score - a.score);
+  pool.sort((a, b) => {
+    const td = b.tier - a.tier;
+    if (td !== 0) return td;
+    return b.score - a.score;
+  });
   let best = pool[0]!;
 
   const withEntity = pool.filter((c) => contractorHasLegalEntitySuffix(c.value));
@@ -1434,7 +1696,7 @@ function resolveContractContractor(
   if (!topHasEntity && withEntity.length > 0) {
     const entityBest = withEntity[0]!;
     const topWeak = best.score < 55 || contractorValueLooksWeakGeneric(best.value);
-    if (topWeak && entityBest.score >= best.score - 10) {
+    if (topWeak && entityBest.score >= best.score - 10 && !contractorValueLooksLikeContractOrVendorCode(best.value)) {
       best = entityBest;
     }
   }
@@ -1550,7 +1812,14 @@ function addFact(
   value: unknown,
   evidenceRefs: string[],
   confidence: number,
-  options?: { machine_classification?: string | null },
+  options?: {
+    machine_classification?: string | null;
+    derivation?: {
+      status: DerivationStatus;
+      dependency?: FactDerivationDependency;
+      upstream_missing_reason?: string;
+    };
+  },
 ): void {
   let refs = [...new Set(evidenceRefs)];
   let resolution: NonNullable<PipelineFact['evidence_resolution']> =
@@ -1562,7 +1831,21 @@ function addFact(
     if (refs.length > 0) resolution = 'value_fallback';
   }
 
-  const missingSourceContext = refs.length > 0 ? [] : [missingAnchorReason(document, value)];
+  const deriv = options?.derivation;
+  let derivationStatus: DerivationStatus | undefined = deriv?.status;
+  const derivationDependency = deriv?.dependency;
+  if (derivationStatus === 'calculated' && refs.length === 0) {
+    derivationStatus = 'low_confidence';
+  }
+
+  let missingSourceContext: string[];
+  if (refs.length > 0) {
+    missingSourceContext = [];
+  } else if (derivationStatus === 'upstream_missing' && deriv?.upstream_missing_reason) {
+    missingSourceContext = [deriv.upstream_missing_reason];
+  } else {
+    missingSourceContext = [missingAnchorReason(document, value)];
+  }
 
   const machineClassification = options?.machine_classification;
   facts.push({
@@ -1579,6 +1862,8 @@ function addFact(
     document_family: document.family,
     evidence_resolution: resolution,
     ...(machineClassification != null ? { machine_classification: machineClassification } : {}),
+    ...(derivationStatus != null ? { derivation_status: derivationStatus } : {}),
+    ...(derivationDependency != null ? { derivation_dependency: derivationDependency } : {}),
   });
 }
 
@@ -1798,7 +2083,9 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const skipStructuredContractorAsProse =
     rawStructuredContractor.length > 0 &&
     !contractorExplicit &&
-    structuredContractorValueLooksLikeMoneyProse(rawStructuredContractor);
+    (structuredContractorValueLooksLikeMoneyProse(rawStructuredContractor)
+      || contractorValueLooksLikeContractOrVendorCode(rawStructuredContractor)
+      || contractorValueLooksNumericHeavy(rawStructuredContractor));
   const contractorCandidateStructured =
     rawStructuredContractor.length > 0 && !skipStructuredContractorAsProse
       ? rawStructuredContractor
@@ -1807,7 +2094,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     contractorExplicit,
     rawStructuredContractor,
     skipStructuredContractorAsProse,
-    vendorName: document.typed_fields.vendor_name,
+    vendorName: typeof document.typed_fields.vendor_name === 'string' ? document.typed_fields.vendor_name : undefined,
   });
   const contractor = contractorResolution.value;
   const contractorFromStructured = contractorResolution.fromStructured;
@@ -1833,6 +2120,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     termStartCandidateRegex,
     termStartCandidateStructured,
   );
+  const termStartFromExtraction = Boolean(termStartDate);
   let termStartDateEvidenceRefs: string[] =
     termStartDateEvidence?.evidence.map((evidence) => evidence.id) ?? [];
   const termEndCandidateRegex = termEndDateEvidence?.value;
@@ -1841,6 +2129,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     termEndCandidateRegex,
     termEndCandidateStructured,
   );
+  const termEndFromExtraction = termEndDate;
   let termEndDateEvidenceRefs: string[] =
     termEndDateEvidence?.evidence.map((evidence) => evidence.id) ?? [];
   const effectiveTypedRaw =
@@ -1848,6 +2137,12 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
       ? document.typed_fields.effective_date.trim()
       : '';
   const effectiveTypedForDuration = effectiveTypedRaw.length > 0 ? effectiveTypedRaw : null;
+
+  const termDerivationHaystack = joinContractTextForExecutedRelativeDerivation(document);
+  const executedRelativeClauseProbe = findExecutedRelativeDurationDaysInText(
+    termDerivationHaystack.toLowerCase(),
+  );
+  const durationClauseProbe = findBestTermDurationClauseHit(document);
 
   let termDurationDerivation: TermDurationDerivation | null = null;
   let executedRelativeDerivation: ExecutedRelativeTermDerivation | null = null;
@@ -1878,6 +2173,32 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     }
   }
 
+  const termEndUpstreamBlock = termEndBlockedByMissingUpstream(
+    executedDate,
+    termStartDate,
+    effectiveTypedForDuration,
+    termEndDate,
+    executedRelativeClauseProbe,
+    durationClauseProbe,
+  );
+
+  let termEndLowConfidenceParse = false;
+  if (!termEndDate && durationClauseProbe) {
+    const anchorTry = resolveDurationClauseAnchorString(durationClauseProbe, {
+      executedDate,
+      termStartDate,
+      effectiveTyped: effectiveTypedForDuration,
+    });
+    if (anchorTry?.trim() && !parseContractAnchorDate(anchorTry)) {
+      termEndLowConfidenceParse = true;
+    }
+  }
+  if (!termEndDate && executedRelativeClauseProbe && executedDate?.trim() && executedRelativeDerivation == null) {
+    if (!parseContractAnchorDate(executedDate)) {
+      termEndLowConfidenceParse = true;
+    }
+  }
+
   const structuredExpiration = firstNonEmptyString(document.structured_fields.expiration_date);
   const expirationDate = structuredExpiration ?? termEndDate ?? null;
   const expirationEvidenceRefs =
@@ -1901,11 +2222,131 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
       ? []
       : contractorResolution.evidenceRefIds.length > 0
         ? contractorResolution.evidenceRefIds
-        : findContractorLabelEvidence(document, 48).map((evidence) => evidence.id);
+        : findContractorEvidenceForContractorResolution(document, 48).map((evidence) => evidence.id);
   addFact(document, facts, 'contractor_name', 'Contractor', contractor, contractorEvidenceRefs, contractor ? 0.84 : 0.42);
   addFact(document, facts, 'owner_name', 'Owner', owner, ownerEvidence.map((evidence) => evidence.id), owner ? 0.8 : 0.38);
-  addFact(document, facts, 'executed_date', 'Executed Date', executedDate, executedDateEvidence?.evidence.map((evidence) => evidence.id) ?? [], executedDate ? 0.78 : 0.36);
-  addFact(document, facts, 'term_start_date', 'Term Start', termStartDate, termStartDateEvidenceRefs, termStartDate ? 0.76 : 0.42);
+
+  const executedDerivation: {
+    status: DerivationStatus;
+    dependency?: FactDerivationDependency;
+    upstream_missing_reason?: string;
+  } = executedDate
+    ? { status: 'success' }
+    : {
+        status: 'upstream_missing',
+        upstream_missing_reason:
+          'executed_date was not found in structured fields, typed fields, or regex evidence.',
+      };
+
+  let termEndDerivation: {
+    status: DerivationStatus;
+    dependency?: FactDerivationDependency;
+    upstream_missing_reason?: string;
+  };
+  if (termEndDate) {
+    if (executedRelativeDerivation != null) {
+      termEndDerivation = {
+        status: 'calculated',
+        dependency: {
+          source_field: 'executed_date',
+          anchor_inheritance: 'executed_relative_duration_clause',
+        },
+      };
+    } else if (termDurationDerivation != null) {
+      const h = termDurationDerivation.hit.anchor;
+      const src: 'executed_date' | 'effective_date' | 'term_start_date' =
+        h === 'executed' ? 'executed_date' : h === 'effective' ? 'effective_date' : 'term_start_date';
+      termEndDerivation = {
+        status: 'calculated',
+        dependency: {
+          source_field: src,
+          anchor_inheritance: `duration_clause_anchor:${termDurationDerivation.hit.anchor}`,
+        },
+      };
+    } else {
+      termEndDerivation = { status: 'success' };
+    }
+  } else if (termEndUpstreamBlock != null) {
+    termEndDerivation = {
+      status: 'upstream_missing',
+      dependency: termEndUpstreamBlock.dependency,
+      upstream_missing_reason: termEndUpstreamBlock.reason,
+    };
+  } else if (termEndLowConfidenceParse) {
+    termEndDerivation = {
+      status: 'low_confidence',
+      upstream_missing_reason:
+        'Term duration language was detected but the anchor date could not be parsed for calendar math.',
+    };
+  } else {
+    termEndDerivation = {
+      status: 'low_confidence',
+      upstream_missing_reason:
+        'No term end date was extracted and no derivable term clause produced a value.',
+    };
+  }
+
+  let termStartDerivation: {
+    status: DerivationStatus;
+    dependency?: FactDerivationDependency;
+    upstream_missing_reason?: string;
+  };
+  if (termStartDate) {
+    termStartDerivation = termStartFilledFromExecutedRelative
+      ? {
+          status: 'calculated',
+          dependency: {
+            source_field: 'executed_date',
+            anchor_inheritance: 'same_as_executed_for_executed_relative_term',
+          },
+        }
+      : { status: 'success' };
+  } else if (executedRelativeClauseProbe && !executedDate?.trim() && !termStartFromExtraction) {
+    termStartDerivation = {
+      status: 'upstream_missing',
+      dependency: {
+        source_field: 'executed_date',
+        anchor_inheritance: 'term_start_not_inferred_without_executed_date',
+      },
+      upstream_missing_reason:
+        'Term language references execution, but executed_date was not extracted, so term start was not inferred.',
+    };
+  } else {
+    termStartDerivation = {
+      status: 'low_confidence',
+      upstream_missing_reason: 'No term start date was extracted.',
+    };
+  }
+
+  let expirationDerivation: {
+    status: DerivationStatus;
+    dependency?: FactDerivationDependency;
+    upstream_missing_reason?: string;
+  };
+  if (structuredExpiration) {
+    expirationDerivation = { status: 'success' };
+  } else if (expirationDate != null && termEndDate != null && String(expirationDate) === String(termEndDate)) {
+    expirationDerivation = {
+      status: termEndDerivation.status,
+      dependency: { source_field: 'term_end_date', anchor_inheritance: 'mirrors_term_end_date' },
+    };
+  } else if (!expirationDate) {
+    expirationDerivation = {
+      status: 'upstream_missing',
+      dependency: { source_field: 'term_end_date', anchor_inheritance: 'mirrors_term_end_date' },
+      upstream_missing_reason:
+        'expiration_date was not extracted and term end is unavailable, so expiration was not set.',
+    };
+  } else {
+    expirationDerivation = { status: 'low_confidence' };
+  }
+
+  addFact(document, facts, 'executed_date', 'Executed Date', executedDate, executedDateEvidence?.evidence.map((evidence) => evidence.id) ?? [], executedDate ? 0.78 : 0.36, {
+    derivation: executedDerivation,
+  });
+  addFact(document, facts, 'term_start_date', 'Term Start', termStartDate, termStartDateEvidenceRefs, termStartDate ? 0.76 : 0.42, {
+    derivation: termStartDerivation,
+  });
   addFact(
     document,
     facts,
@@ -1914,6 +2355,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     termEndDate,
     termEndDateEvidenceRefs,
     termEndDate ? (termEndFromDurationDerivation ? 0.7 : 0.76) : 0.42,
+    { derivation: termEndDerivation },
   );
   addFact(
     document,
@@ -1925,6 +2367,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     expirationDate
       ? (expirationEvidenceRefs.length > 0 && termEndFromDurationDerivation ? 0.7 : 0.78)
       : 0.44,
+    { derivation: expirationDerivation },
   );
   const ceilingEvidenceRefs =
     ceiling_machine_classification === 'rate_price_no_ceiling'
@@ -2149,8 +2592,8 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
             : termStartFilledFromExecutedRelative ? 'derived.same_as_executed_for_executed_relative_term'
             : null,
           executed_relative_clause_probe: (() => {
-            const haystack = joinContractTextForExecutedRelativeDerivation(document);
-            const hit = findExecutedRelativeDurationDaysInText(haystack.toLowerCase());
+            const haystack = termDerivationHaystack;
+            const hit = executedRelativeClauseProbe;
             return {
               haystack_char_count: haystack.length,
               evidence_blob_char_count: document.evidence.reduce(
@@ -2524,6 +2967,11 @@ function factMap(facts: PipelineFact[]): Record<string, PipelineFact> {
 
 export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
   const primaryNormalized = normalizeDocument(input.primaryDocument);
+  attachCanonicalPersistenceMetadata(
+    input.primaryDocument,
+    primaryNormalized.facts,
+    primaryNormalized.extracted,
+  );
   const primaryDocument = {
     ...input.primaryDocument,
     facts: primaryNormalized.facts,
@@ -2531,6 +2979,7 @@ export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
   };
   const relatedDocuments = input.relatedDocuments.map((document) => {
     const normalized = normalizeDocument(document);
+    attachCanonicalPersistenceMetadata(document, normalized.facts, normalized.extracted);
     return {
       ...document,
       facts: normalized.facts,

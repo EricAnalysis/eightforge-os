@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
+import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
 import {
   processedDocsEmptyState,
   processedDocsSubtitle,
@@ -23,6 +24,7 @@ import type {
 type ProjectOverviewProps = {
   model: ProjectOverviewModel;
   loadIssue?: string | null;
+  onProjectRefresh?: (() => void) | (() => Promise<void>);
 };
 
 type ProjectTabKey = 'overview' | 'facts' | 'decisions' | 'actions' | 'documents' | 'audit';
@@ -334,7 +336,7 @@ function SectionHeading({
   );
 }
 
-export function ProjectOverview({ model, loadIssue }: ProjectOverviewProps) {
+export function ProjectOverview({ model, loadIssue, onProjectRefresh }: ProjectOverviewProps) {
   const [activeTab, setActiveTab] = useState<ProjectTabKey>('overview');
 
   useEffect(() => {
@@ -394,6 +396,14 @@ export function ProjectOverview({ model, loadIssue }: ProjectOverviewProps) {
                   {model.status.label}
                 </span>
               </div>
+            </div>
+
+            <div className="pt-2">
+              <ProjectAdminControls
+                project={model.project}
+                deleteRedirectHref="/platform/projects"
+                onProjectRefresh={onProjectRefresh}
+              />
             </div>
           </div>
 

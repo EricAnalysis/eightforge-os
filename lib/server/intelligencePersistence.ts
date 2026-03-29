@@ -408,6 +408,7 @@ async function upsertV2Decisions(
   params: {
     documentId: string;
     organizationId: string;
+    projectId?: string | null;
     decisions: IntelligenceDecisionInsert[];
     allowLegacyTypeFallback: boolean;
   },
@@ -418,7 +419,7 @@ async function upsertV2Decisions(
   deleted: number;
   preserved: number;
 }> {
-  const { documentId, organizationId, decisions, allowLegacyTypeFallback } = params;
+  const { documentId, organizationId, projectId, decisions, allowLegacyTypeFallback } = params;
   const now = new Date().toISOString();
   const existing = await loadExistingV2Decisions(admin, documentId, organizationId);
   const reusableExisting = existing.filter((row) => isReusableDecisionRow(row));
@@ -487,6 +488,7 @@ async function upsertV2Decisions(
       .insert({
         organization_id: organizationId,
         document_id: documentId,
+        project_id: projectId ?? null,
         decision_type: decision.decision_type,
         title: decision.title,
         summary: decision.summary,
@@ -561,6 +563,7 @@ async function upsertV2Tasks(
   params: {
     documentId: string;
     organizationId: string;
+    projectId?: string | null;
     tasks: IntelligenceTaskInsert[];
     decisionIdsByLocalId: Map<string, string>;
     allowLegacyTypeFallback: boolean;
@@ -572,7 +575,7 @@ async function upsertV2Tasks(
   deleted: number;
   preserved: number;
 }> {
-  const { documentId, organizationId, tasks, decisionIdsByLocalId, allowLegacyTypeFallback } = params;
+  const { documentId, organizationId, projectId, tasks, decisionIdsByLocalId, allowLegacyTypeFallback } = params;
   const now = new Date().toISOString();
   const existing = await loadExistingV2Tasks(admin, documentId, organizationId);
   const reusableExisting = existing.filter((row) => isReusableTaskRow(row));
@@ -644,6 +647,7 @@ async function upsertV2Tasks(
       .insert({
         organization_id: organizationId,
         document_id: documentId,
+        project_id: projectId ?? null,
         decision_id: decisionId,
         task_type: task.task_type,
         title: task.title,
@@ -715,6 +719,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   admin: SupabaseClient;
   documentId: string;
   organizationId: string;
+  projectId?: string | null;
   extractionData?: Record<string, unknown> | null;
 }): Promise<PersistCanonicalIntelligenceResult> {
   const buildContext = await loadBuildParams(params.admin, {
@@ -798,6 +803,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   const decisionResult = await upsertV2Decisions(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
+    projectId: params.projectId ?? null,
     decisions: mapped.decisions,
     allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
   });
@@ -805,6 +811,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   const taskResult = await upsertV2Tasks(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
+    projectId: params.projectId ?? null,
     tasks: mapped.tasks,
     decisionIdsByLocalId: decisionResult.decisionIdsByLocalId,
     allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),

@@ -246,6 +246,128 @@ function looksLikeExplicitRowStart(text: string): boolean {
   return EXPLICIT_ROW_START_PATTERN.test(text.trim());
 }
 
+const RATE_MONEY_IN_LINE_RE = /\$?\s*[\d,]+(?:\.\d{1,4})?\b/;
+
+function lineHasNumericRateSignal(text: string): boolean {
+  const t = stripUnsafeTextControls(text);
+  return RATE_MONEY_IN_LINE_RE.test(t) || /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/.test(t);
+}
+
+function looksLikeScheduleFooterLine(line: PdfLayoutLine, cells: PdfTableCell[]): boolean {
+  const t = stripUnsafeTextControls(line.text).trim();
+  if (t.length === 0) return false;
+  if (/^\*?\s*total\b/i.test(t)) return true;
+  if (/^page\s+\d+\s*(?:of\s+\d+)?$/i.test(t)) return true;
+  if (line.kind === 'form_candidate' && /\btotal\b/i.test(t)) return true;
+  if (/^subtotal\b/i.test(t)) return true;
+  const joined = cells.map((c) => c.text).join(' ');
+  if (/\btotal\b/i.test(joined) && lineHasNumericRateSignal(joined)) return true;
+  return false;
+}
+
+function looksLikeDescriptionContinuation(
+  line: PdfLayoutLine,
+  cells: PdfTableCell[],
+  lastRow: PdfTableDraftRow,
+): boolean {
+  const lead = leadingRowText(line, cells);
+  if (looksLikeExplicitRowStart(lead)) return false;
+  const numericCells = cells.filter((cell) => /[$]?\d/.test(cell.text)).length;
+  if (numericCells >= 2) return false;
+  const trimmed = lead.trim();
+  if (trimmed.length === 0) return false;
+  if (lastRow.cells.length < 2) return false;
+  if (/^\(/.test(trimmed)) return true;
+  if (/^[A-Z][a-z][^.]{2,}/.test(trimmed) && numericCells === 0 && cells.length <= 3) {
+    return true;
+  }
+  return false;
+}
+
+function mergeContinuationLine(
+  line: PdfLayoutLine,
+  cells: PdfTableCell[],
+  lastRow: PdfTableDraftRow,
+  headerCells: PdfTableCell[] | null,
+  explicitRowStart: boolean,
+  tableContextActive: boolean,
+  minimumContinuationColumns: number,
+  numericCells: number,
+): boolean {
+  if (!tableContextActive || !lastRow || explicitRowStart) return false;
+  if (looksLikeScheduleFooterLine(line, cells)) return false;
+
+  if (
+    line.kind === 'text' &&
+    cells.length === 1 &&
+    lastRow.cells.length >= minimumContinuationColumns &&
+    line.text.trim().length > 0
+  ) {
+    return true;
+  }
+
+  if (line.kind === 'text' && looksLikeWrappedContinuation({ line, cells, lastRow, headerCells })) {
+    return true;
+  }
+
+  if (line.kind === 'text' && looksLikeDescriptionContinuation(line, cells, lastRow)) {
+    return true;
+  }
+
+  if (
+    line.kind === 'table_candidate' &&
+    looksLikeDescriptionContinuation(line, cells, lastRow) &&
+    !(cells.length >= 3 && numericCells >= 1)
+  ) {
+    return true;
+  }
+
+  if (line.kind === 'table_candidate') {
+    const lead = leadingRowText(line, cells);
+    if (looksLikeExplicitRowStart(lead)) return false;
+    if (cells.length >= 3 && numericCells >= 1) return false;
+    if (cells.length >= 5) return false;
+    const strongMoney = cells.some((c) => /^\$\s*[\d,]+(?:\.\d+)?$/.test(c.text.trim()));
+    if (strongMoney && cells.length >= 3) return false;
+    if (
+      looksLikeWrappedContinuation({ line, cells, lastRow, headerCells }) ||
+      looksLikeDescriptionContinuation(line, cells, lastRow)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isRelaxedDataRow(params: {
+  line: PdfLayoutLine;
+  cells: PdfTableCell[];
+  numericCells: number;
+  explicitRowStart: boolean;
+  tableContextActive: boolean;
+}): boolean {
+  const { line, cells, numericCells, explicitRowStart, tableContextActive } = params;
+  if (!tableContextActive) return false;
+  if (explicitRowStart && (numericCells >= 1 || lineHasNumericRateSignal(line.text))) {
+    return true;
+  }
+  if (cells.length >= 2 && numericCells >= 1) {
+    const hasRateToken = cells.some(
+      (c) =>
+        /^\$?\s*[\d,]+(?:\.\d+)?$/.test(c.text.trim()) ||
+        /^\$?\s*[\d,]+(?:\.\d+)?\s*(?:per|\/)/i.test(c.text.trim()),
+    );
+    if (hasRateToken || lineHasNumericRateSignal(line.text)) return true;
+  }
+  return false;
+}
+
+function headerLooksLikeRateSchedule(headers: string[]): boolean {
+  const blob = headers.join(' ').toLowerCase();
+  return /(unit|price|rate|qty|quantity|clin|description|extension|item|service|uom)/i.test(blob);
+}
+
 function looksLikeWrappedContinuation(params: {
   line: PdfLayoutLine;
   cells: PdfTableCell[];
@@ -340,6 +462,27 @@ export function buildPdfTableExtraction(params: {
         confidence,
       });
 
+      const lineIndices = currentRows.map((r) => r.lineIndex);
+      const endIndices = currentRows.map((r) => r.endLineIndex);
+      const lineSpan = Math.max(1, Math.max(...endIndices) - Math.min(...lineIndices) + 1);
+      if (
+        dataRows.length > 0 &&
+        dataRows.length <= 4 &&
+        lineSpan >= 16 &&
+        headerLooksLikeRateSchedule(headers)
+      ) {
+        gaps.push(
+          buildGap({
+            category: 'table_row_count_suspiciously_low',
+            severity: 'warning',
+            page: page.page_number,
+            label: tableId,
+            message:
+              `Table "${tableId}" has ${dataRows.length} data row(s) over ${lineSpan} layout lines; row detection may have merged or dropped lines.`,
+          }),
+        );
+      }
+
       currentRows = [];
       pendingHeader = null;
       currentHeader = null;
@@ -372,43 +515,54 @@ export function buildPdfTableExtraction(params: {
         currentRows.length > 0 ||
         currentHeader != null ||
         pendingHeader != null;
+      const lastRow = currentRows.at(-1);
+      const headerCells = cellsForHeaderLine(line);
+
+      if (
+        tableContextActive &&
+        currentRows.length > 0 &&
+        looksLikeScheduleFooterLine(line, cells)
+      ) {
+        flush();
+        return;
+      }
+
+      const minimumContinuationColumns = currentHeader != null
+        ? Math.max(3, Math.min(currentHeader.cells.length, lastRow?.cells.length ?? 0))
+        : 0;
+      const mergeContinuation = lastRow
+        ? mergeContinuationLine(
+            line,
+            cells,
+            lastRow,
+            currentHeader?.cells ?? null,
+            explicitRowStart,
+            tableContextActive,
+            minimumContinuationColumns,
+            numericCells,
+          )
+        : false;
+
+      if (mergeContinuation) {
+        appendContinuation(line);
+        return;
+      }
+
       const candidate =
         line.kind === 'table_candidate' ||
         (cells.length >= 3 && numericCells >= 1) ||
-        (tableContextActive && explicitRowStart);
-      const headerCells = cellsForHeaderLine(line);
+        (tableContextActive && explicitRowStart) ||
+        isRelaxedDataRow({
+          line,
+          cells,
+          numericCells,
+          explicitRowStart,
+          tableContextActive,
+        });
       const headerLike =
         line.kind === 'text' &&
         headerCells.length >= 3 &&
         isMostlyNonNumeric(headerCells);
-      const lastRow = currentRows.at(-1);
-      const minimumContinuationColumns = currentHeader != null
-        ? Math.max(3, Math.min(currentHeader.cells.length, lastRow?.cells.length ?? 0))
-        : 0;
-      const continuation =
-        Boolean(lastRow) &&
-        (
-          (
-            line.kind === 'text' &&
-            cells.length === 1 &&
-            lastRow!.cells.length >= minimumContinuationColumns &&
-            line.text.trim().length > 0
-          ) ||
-          (
-            line.kind === 'text' &&
-            looksLikeWrappedContinuation({
-              line,
-              cells,
-              lastRow: lastRow!,
-              headerCells: currentHeader?.cells ?? null,
-            })
-          )
-        );
-
-      if (continuation && !explicitRowStart) {
-        appendContinuation(line);
-        return;
-      }
 
       if (candidate) {
         if (currentRows.length === 0) {

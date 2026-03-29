@@ -28,8 +28,10 @@ export function buildForgeStageCounts(params: {
   tasks: ProjectTaskRow[];
   /** Use the same audit tail as the overview (e.g. model.audit.length or activity rows). */
   auditSurfaceCount: number;
+  /** Optional override for generated, read-only Forge decisions. */
+  decisionCountOverride?: number;
 }): ForgeStageCounts {
-  const { documents, decisions, tasks, auditSurfaceCount } = params;
+  const { documents, decisions, tasks, auditSurfaceCount, decisionCountOverride } = params;
 
   let intake = 0;
   let extract = 0;
@@ -54,7 +56,10 @@ export function buildForgeStageCounts(params: {
     }
   }
 
-  const decide = decisions.filter((d) => DECISION_OPEN_STATUSES.includes(d.status)).length;
+  const decide =
+    typeof decisionCountOverride === 'number'
+      ? Math.max(0, decisionCountOverride)
+      : decisions.filter((d) => DECISION_OPEN_STATUSES.includes(d.status)).length;
   const act = tasks.filter((t) => TASK_OPEN_STATUSES.includes(t.status)).length;
 
   return {

@@ -105,6 +105,7 @@ export function DocumentDetailExperience({
   auditNotes,
   nodeTraces,
   evaluationNode,
+  managementNode,
   onSaveFactOverride,
   onSaveFactReview,
   onSaveFactAnchor,
@@ -157,6 +158,7 @@ export function DocumentDetailExperience({
   auditNotes: AuditNote[];
   nodeTraces: PipelineTraceNode[];
   evaluationNode?: ReactNode;
+  managementNode?: ReactNode;
   onSaveFactOverride: (input: {
     fieldKey: string;
     valueJson: unknown;
@@ -389,9 +391,11 @@ export function DocumentDetailExperience({
                   ? 'Generating secure source access.'
                   : fileError
                     ? fileError
-                    : 'Select a fact to jump directly into its source evidence.'}
+                  : 'Select a fact to jump directly into its source evidence.'}
               </p>
             </div>
+
+            {managementNode}
           </div>
         </div>
       </section>

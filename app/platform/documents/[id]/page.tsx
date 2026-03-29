@@ -150,7 +150,7 @@ function buildDocumentBreadcrumbs(params: {
 
   if (mode === 'project' && project) {
     return [
-      { label: 'Workspace', href: '/platform' },
+      { label: 'Workspace', href: '/platform/workspace' },
       { label: 'Projects', href: '/platform/projects' },
       { label: project.name, href: `/platform/projects/${project.id}` },
       { label: 'Documents', href: `/platform/projects/${project.id}#project-documents` },
@@ -159,7 +159,7 @@ function buildDocumentBreadcrumbs(params: {
   }
 
   return [
-    { label: 'Workspace', href: '/platform' },
+    { label: 'Workspace', href: '/platform/workspace' },
     { label: 'Documents', href: '/platform/documents' },
     { label: title },
   ];

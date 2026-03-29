@@ -29,7 +29,8 @@ type IconName =
 type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'documents';
 
 const TOP_NAV_ITEMS = [
-  { href: '/platform', label: 'Workspace', key: 'workspace' },
+  { href: '/platform/workspace', label: 'Workspace', key: 'workspace' },
+  { href: '/platform', label: 'Command Center', key: 'commandCenter' },
   { href: '/platform/projects', label: 'Projects', key: 'projects' },
   { href: '/platform/reviews', label: 'Intelligence', key: 'intelligence' },
 ] as const;
@@ -53,7 +54,11 @@ function normalizeWorkspaceName(workspaceName: string): string {
 }
 
 function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['key']): boolean {
-  if (key === 'projects') return pathname === '/platform/projects';
+  if (key === 'workspace') return pathname.startsWith('/platform/workspace');
+  if (key === 'commandCenter') return pathname === '/platform';
+  if (key === 'projects') {
+    return pathname === '/platform/projects' || pathname.startsWith('/platform/projects/');
+  }
   if (key === 'intelligence') {
     return (
       pathname.startsWith('/platform/reviews') ||
@@ -62,7 +67,7 @@ function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['k
     );
   }
 
-  return pathname.startsWith('/platform');
+  return false;
 }
 
 export function getActiveSideNavKey(pathname: string): NavKey | null {
@@ -208,7 +213,7 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[#2F3B52]/80 bg-[#0B1020]/92 backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-5 lg:gap-8">
-          <Link href="/platform" className="flex min-w-0 items-center gap-3">
+          <Link href="/platform/workspace" className="flex min-w-0 items-center gap-3">
             <EightForgeLogo size={24} />
             <p className="truncate text-[13px] font-semibold uppercase tracking-[0.22em] text-[#3B82F6]">
               EightForge
@@ -345,7 +350,7 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
                   {normalizedWorkspace}
                 </p>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[#94A3B8]">
-                  Command Center
+                  Platform
                 </p>
               </div>
             </div>

@@ -12,6 +12,7 @@ function makePdfEvidence(params: {
   page: number;
   text: string;
   label?: string;
+  nearbyText?: string;
   value?: string | null;
 }): EvidenceObject {
   return {
@@ -25,6 +26,7 @@ function makePdfEvidence(params: {
     location: {
       page: params.page,
       label: params.label ?? params.text,
+      ...(typeof params.nearbyText === 'string' ? { nearby_text: params.nearbyText } : {}),
     },
     confidence: 0.9,
     weak: false,
@@ -717,7 +719,7 @@ describe('normalizeNode anchor resolution', () => {
     });
     const normalized = normalizeNode(extracted);
     const facts = normalized.primaryDocument.fact_map;
-    assert.equal(facts.executed_date?.value, '2025-09-15');
+    assert.equal(facts.executed_date?.value, '9/15/2025');
     assert.equal(facts.term_end_date?.value, '2025-12-14');
     assert.equal(facts.expiration_date?.value, '2025-12-14');
   });
@@ -767,6 +769,191 @@ describe('normalizeNode anchor resolution', () => {
     const facts = normalized.primaryDocument.fact_map;
     assert.equal(facts.term_end_date?.value, '2025-12-14');
     assert.equal(facts.term_start_date?.value, '2025-09-15');
+  });
+
+  it('derives NMDOT contract dates from front-matter ordinal date and effective-date clause while rejecting wage-table noise', () => {
+    const documentId = 'nmdot-front-matter-dates';
+    const frontMatter = makePdfEvidence({
+      id: 'ev-nmdot-front-matter',
+      documentId,
+      page: 1,
+      text: [
+        'VENDOR NO. 0000168801',
+        'New Mexico Department of Transportation',
+        'Contract',
+        'THIS CONTRACT, made this _ day of ______._ 20 __,_ between the NEW MEXICO',
+        'DEPARTMENT OF TRANSPORTATION ("Department") and Stampede Ventures, Inc.',
+      ].join('\n'),
+      label: 'Page 1',
+      nearbyText: 'Rev. 6-03 CONTRACT NO. EMERG03 | 12th August 24',
+    });
+    const termClause = makePdfEvidence({
+      id: 'ev-nmdot-term-clause',
+      documentId,
+      page: 2,
+      text: [
+        '1. Effective Date and Term.',
+        'A. The Contract is effective as of the date the last party executes the Contract.',
+        'B. The term of the Contract is not to exceed six months from the effective date, absent prior approval from the Department of Finance and Administration.',
+      ].join(' '),
+      label: 'Page 2',
+    });
+    const notaryNoise = makePdfEvidence({
+      id: 'ev-nmdot-notary-noise',
+      documentId,
+      page: 1,
+      text: [
+        'ACKNOWLEDGMENT',
+        'STATE OF Colorado )',
+        'COUNTY OF El Paso )',
+        'The foregoing instrument was acknowledged before me this 6th day of August , 20£1.__',
+      ].join('\n'),
+      label: 'Page 1',
+    });
+    const wageNoise = makePdfEvidence({
+      id: 'ev-nmdot-wage-noise',
+      documentId,
+      page: 63,
+      text: [
+        'STREET, HIGHWAY, UTILITY & LIGHT ENGINEERING',
+        'Effective January 1, 2024',
+        'Trade Classification Base Rate Fringe Rate',
+      ].join('\n'),
+      label: 'Page 63',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'EMERG03_FE.pdf',
+      documentTitle: 'EMERG03_FE',
+      projectName: 'nmdot',
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'THE CERTIFICATE HOLDER. OTHER',
+            effective_date: '13-1-28',
+            contract_date: 'OCTOBER 23, 2027',
+            expiration_date: '13-1-199',
+          },
+        },
+        extraction: {
+          text_preview: [frontMatter.text, termClause.text, wageNoise.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              owner_name: 'OF El Paso )',
+              executed_date: null,
+              term_start_date: null,
+              term_end_date: null,
+              expiration_date: '13-1-199',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [frontMatter, termClause, notaryNoise, wageNoise],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.owner_name?.value, 'New Mexico Department of Transportation');
+    assert.equal(facts.executed_date?.value, '2024-08-12');
+    assert.equal(facts.term_start_date?.value, '2024-08-12');
+    assert.equal(facts.term_end_date?.value, '2025-02-12');
+    assert.equal(facts.expiration_date?.value, '2025-02-12');
+    assert.ok(facts.executed_date?.evidence_refs.includes('ev-nmdot-front-matter'));
+    assert.ok(facts.owner_name?.evidence_refs.includes('ev-nmdot-front-matter'));
+  });
+
+  it('rejects malformed partial contract dates instead of persisting junk canonical facts', () => {
+    const documentId = 'reject-malformed-partial-dates';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'bad-dates.pdf',
+      documentTitle: 'Bad Dates',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            effective_date: '13-1-28',
+            contract_date: '13-1-199',
+            expiration_date: '13-1-199',
+          },
+        },
+        extraction: {
+          text_preview: 'Contract terms reference the work, but no valid calendar dates were extracted.',
+          evidence_v1: {
+            structured_fields: {
+              executed_date: '13-1-199',
+              term_start_date: '13-1-199',
+              term_end_date: '13-1-199',
+              expiration_date: '13-1-199',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, null);
+    assert.equal(facts.term_start_date?.value, null);
+    assert.equal(facts.term_end_date?.value, null);
+    assert.equal(facts.expiration_date?.value, null);
+    assert.equal(facts.executed_date?.evidence_refs.length, 0);
+    assert.equal(facts.expiration_date?.derivation_status, 'upstream_missing');
+  });
+
+  it('normalizes ordinal day-of contract execution dates without producing fallback junk', () => {
+    const documentId = 'ordinal-day-of-contract-date';
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'ordinal.pdf',
+      documentTitle: 'Ordinal Date',
+      projectName: null,
+      extractionData: {
+        fields: { typed_fields: {} },
+        extraction: {
+          text_preview: 'Agreement Date: 28th day of August, 2025',
+          evidence_v1: {
+            structured_fields: {
+              executed_date: '28th day of August, 2025',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [
+                makePdfEvidence({
+                  id: 'ev-ordinal-day-of',
+                  documentId,
+                  page: 1,
+                  text: 'Agreement Date: 28th day of August, 2025',
+                  label: 'Page 1',
+                }),
+              ],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    assert.equal(normalized.primaryDocument.fact_map.executed_date?.value, '2025-08-28');
   });
 
   it('prefers extracted multi-page rate tables over weaker fallback schedule signals', () => {

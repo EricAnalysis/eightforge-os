@@ -201,7 +201,13 @@ function cellsForTableLine(line: PdfLayoutLine): PdfTableCell[] {
   const split = splitIntoCells(line);
   if (split.length >= 2) return split;
   const tokenized = tokenCells(line);
-  return tokenized.length > 0 ? tokenized : split;
+  if (tokenized.length >= 2) return tokenized;
+  const singleCell = tokenized.length > 0 ? tokenized : split;
+  if (singleCell.length === 1) {
+    const rowCells = splitSingleCellDataRowCells(line.text);
+    if (rowCells.length >= 2) return rowCells;
+  }
+  return singleCell;
 }
 
 function cellsForHeaderLine(line: PdfLayoutLine): PdfTableCell[] {
@@ -247,10 +253,102 @@ function looksLikeExplicitRowStart(text: string): boolean {
 }
 
 const RATE_MONEY_IN_LINE_RE = /\$?\s*[\d,]+(?:\.\d{1,4})?\b/;
+const TRAILING_ROW_VALUES_RE =
+  /(?:\$?\s*[\d,]+(?:\.\d+)?\s+){1,3}\$?\s*[\d,]+(?:\.\d+)?\s*$/;
+const TRAILING_RATE_UNIT_RE =
+  /(?:\$?\s*(?:per|\/)\s*[A-Za-z][A-Za-z .-]*|EA|EACH|HR|HOUR|DAY|CY|TN|LF|LS|LOT|TREE|TON|LOAD|ACRE|MILE|GAL|LB|SF|SY|MO|MONTH|WK|WEEK|CUBIC\s+YARD|LINEAR\s+FOOT|LUMP\s+SUM)\s*$/i;
+const ROW_VALUE_RE = /^\$?\s*[\d,]+(?:\.\d+)?$/;
+const ROW_SIGNAL_WORD_RE =
+  /\b(?:rate|price|qty|quantity|unit|extension|amount|county\s+[a-z])\b/i;
 
 function lineHasNumericRateSignal(text: string): boolean {
   const t = stripUnsafeTextControls(text);
   return RATE_MONEY_IN_LINE_RE.test(t) || /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/.test(t);
+}
+
+function normalizeLooseCellText(text: string): string {
+  return stripUnsafeTextControls(text).replace(/\s+/g, ' ').trim();
+}
+
+function pullTrailingLooseCellValue(text: string): { remaining: string; value: string } | null {
+  const match = /^(.*?)(?:\s+|^)(\$?\s*[\d,]+(?:\.\d+)?)\s*$/.exec(text);
+  if (!match) return null;
+  const remaining = normalizeLooseCellText(match[1] ?? '');
+  const value = normalizeLooseCellText(match[2] ?? '');
+  if (value.length === 0) return null;
+  return { remaining, value };
+}
+
+function pullTrailingLooseRateUnit(text: string): { remaining: string; value: string } | null {
+  const match = new RegExp(
+    `^(.*?)(?:\\s+|^)(${TRAILING_RATE_UNIT_RE.source})\\s*$`,
+    TRAILING_RATE_UNIT_RE.flags,
+  ).exec(text);
+  if (!match) return null;
+  const remaining = normalizeLooseCellText(match[1] ?? '');
+  const value = normalizeLooseCellText(match[2] ?? '');
+  if (value.length === 0) return null;
+  return { remaining, value };
+}
+
+function looksLikeSingleCellDataRowText(text: string): boolean {
+  const normalized = normalizeLooseCellText(text);
+  if (normalized.length === 0) return false;
+
+  const hasTrailingRowValues = TRAILING_ROW_VALUES_RE.test(normalized);
+  const hasTrailingRateUnit = TRAILING_RATE_UNIT_RE.test(normalized);
+  const hasRateWords = ROW_SIGNAL_WORD_RE.test(normalized);
+  const hasDecimalValue = /\b\d+\.\d+\b/.test(normalized);
+  const hasTrailingNumericValue = ROW_VALUE_RE.test(
+    pullTrailingLooseCellValue(normalized)?.value ?? '',
+  );
+
+  return (
+    (hasTrailingRowValues && hasDecimalValue) ||
+    (hasTrailingRateUnit && hasTrailingNumericValue) ||
+    (hasRateWords && hasTrailingNumericValue)
+  );
+}
+
+function splitSingleCellDataRowCells(text: string): PdfTableCell[] {
+  const normalized = normalizeLooseCellText(text);
+  if (!looksLikeSingleCellDataRowText(normalized)) return [];
+
+  const trailingValues: string[] = [];
+  let remaining = normalized;
+
+  for (let index = 0; index < 3; index += 1) {
+    const nextValue = pullTrailingLooseCellValue(remaining);
+    if (!nextValue) break;
+    trailingValues.unshift(nextValue.value);
+    remaining = nextValue.remaining;
+  }
+
+  if (trailingValues.length === 0) return [];
+
+  const rateUnit = pullTrailingLooseRateUnit(remaining);
+  const unitValue = rateUnit?.value ?? null;
+  remaining = rateUnit?.remaining ?? remaining;
+
+  let quantityValue: string | null = null;
+  const quantity = pullTrailingLooseCellValue(remaining);
+  if (quantity && unitValue) {
+    quantityValue = quantity.value;
+    remaining = quantity.remaining;
+  }
+
+  const description = normalizeLooseCellText(remaining);
+  if (description.length === 0) return [];
+
+  return renumberCells([
+    { column_index: 0, text: description },
+    ...(quantityValue ? [{ column_index: 1, text: quantityValue }] : []),
+    ...(unitValue ? [{ column_index: 2, text: unitValue }] : []),
+    ...trailingValues.map((value, index) => ({
+      column_index: 3 + index,
+      text: value,
+    })),
+  ]);
 }
 
 function looksLikeScheduleFooterLine(line: PdfLayoutLine, cells: PdfTableCell[]): boolean {
@@ -301,7 +399,8 @@ function mergeContinuationLine(
     line.kind === 'text' &&
     cells.length === 1 &&
     lastRow.cells.length >= minimumContinuationColumns &&
-    line.text.trim().length > 0
+    line.text.trim().length > 0 &&
+    !looksLikeSingleCellDataRowText(line.text)
   ) {
     return true;
   }
@@ -359,6 +458,9 @@ function isRelaxedDataRow(params: {
         /^\$?\s*[\d,]+(?:\.\d+)?\s*(?:per|\/)/i.test(c.text.trim()),
     );
     if (hasRateToken || lineHasNumericRateSignal(line.text)) return true;
+  }
+  if (cells.length === 1 && line.kind === 'text' && looksLikeSingleCellDataRowText(line.text)) {
+    return true;
   }
   return false;
 }

@@ -502,6 +502,101 @@ describe('buildPdfTableExtraction', () => {
     assert.equal(table.rows[2]?.cells[1]?.text, '31-60 Miles from ROW to DMS');
   });
 
+  it('does not merge single-cell rate rows into the previous description row', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:sc0', y: 10, kind: 'text', text: 'ATTACHMENT B' }),
+      makeLine({ id: 'p18:sc1', y: 22, kind: 'text', text: 'UNIT RATE PRICE FORM' }),
+      makeLine({
+        id: 'p18:sc2',
+        y: 34,
+        kind: 'text',
+        entries: [
+          ['Description', 0],
+          ['County A', 320],
+          ['County B', 420],
+        ],
+      }),
+      makeLine({
+        id: 'p18:sc3',
+        y: 46,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative Debris Removal', 0],
+          ['6.90', 320],
+          ['7.10', 420],
+        ],
+      }),
+      makeLine({ id: 'p18:sc4', y: 58, kind: 'text', text: 'from temporary staging areas' }),
+      makeLine({ id: 'p18:sc5', y: 70, kind: 'text', text: 'White Goods Removal 12.50 12.80' }),
+      makeLine({ id: 'p18:sc6', y: 82, kind: 'text', text: 'Hazardous Limb Removal 85.00 88.00' }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    const table = result.tables[0];
+    assert.equal(table.rows.length, 3);
+    assert.equal(
+      table.rows[0]?.cells[0]?.text,
+      'Vegetative Debris Removal from temporary staging areas',
+    );
+    assert.deepEqual(table.rows[1]?.cells.map((cell) => cell.text), [
+      'White Goods Removal',
+      '12.50',
+      '12.80',
+    ]);
+    assert.deepEqual(table.rows[2]?.cells.map((cell) => cell.text), [
+      'Hazardous Limb Removal',
+      '85.00',
+      '88.00',
+    ]);
+  });
+
+  it('still merges genuine single-cell wrapped descriptions without row-value signals', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:wd0', y: 10, kind: 'text', text: 'EXHIBIT A' }),
+      makeLine({ id: 'p18:wd1', y: 22, kind: 'text', text: 'PRICE SHEET' }),
+      makeLine({
+        id: 'p18:wd2',
+        y: 34,
+        kind: 'text',
+        entries: [
+          ['Description', 20],
+          ['Unit', 260],
+          ['Price', 340],
+        ],
+      }),
+      makeLine({
+        id: 'p18:wd3',
+        y: 46,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative Debris Removal', 20],
+          ['CY', 260],
+          ['36.33', 340],
+        ],
+      }),
+      makeLine({
+        id: 'p18:wd4',
+        y: 58,
+        kind: 'text',
+        text: 'including haul from temporary rights-of-way staging locations',
+      }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    const table = result.tables[0];
+    assert.equal(table.rows.length, 1);
+    assert.equal(
+      table.rows[0]?.cells[0]?.text,
+      'Vegetative Debris Removal including haul from temporary rights-of-way staging locations',
+    );
+    assert.equal(table.rows[0]?.cells[1]?.text, 'CY');
+    assert.equal(table.rows[0]?.cells[2]?.text, '36.33');
+  });
+
   it('captures continuation schedule rows across repeated headers on later pages', () => {
     const layout = makePagedLayout([
       {

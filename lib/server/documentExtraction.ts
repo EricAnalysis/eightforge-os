@@ -259,19 +259,37 @@ function isMostlyWhitespace(s: string): boolean {
   return nonWs / Math.max(1, trimmed.length) < 0.1;
 }
 
+function countReadableWords(text: string | null): number {
+  if (!text) return 0;
+  const matches = text.match(/[A-Za-z0-9][A-Za-z0-9'/-]*/g);
+  return matches?.length ?? 0;
+}
+
+const SHORT_VALID_TEXT_MIN_CHARS = 120;
+const SHORT_VALID_TEXT_MIN_WORDS = 24;
+
 function isWeakExtractedText(text: string | null): boolean {
   if (text == null) return true;
   const trimmed = text.trim();
   if (!trimmed) return true;
-  if (trimmed.length < 500) return true;
   if (isMostlyWhitespace(trimmed)) return true;
+  if (trimmed.length < 500) {
+    const wordCount = countReadableWords(trimmed);
+    if (trimmed.length >= SHORT_VALID_TEXT_MIN_CHARS && wordCount >= SHORT_VALID_TEXT_MIN_WORDS) {
+      return false;
+    }
+    return true;
+  }
   return false;
 }
 
 /** Below pdf-parse “weak” threshold but still meaningful when native/layout text exists. */
 const MEANINGFUL_LAYOUT_PLAIN_MIN_CHARS = 200;
+const MEANINGFUL_LAYOUT_PLAIN_MIN_WORDS = 24;
 const MEANINGFUL_NATIVE_TOTAL_MIN_CHARS = 200;
+const MEANINGFUL_NATIVE_TOTAL_MIN_WORDS = 24;
 const MEANINGFUL_NATIVE_PAGE_MIN_CHARS = 80;
+const MEANINGFUL_NATIVE_PAGE_MIN_WORDS = 12;
 
 /**
  * True when the PDF has extractable meaning: structured plain-text blocks from pdf.js layout,
@@ -280,16 +298,21 @@ const MEANINGFUL_NATIVE_PAGE_MIN_CHARS = 80;
  */
 function hasMeaningfulPdfTextSignals(params: {
   hasStructuredPlainBlocks: boolean;
-  layoutPlainCombinedLength: number;
+  layoutPlainCombinedText: string;
   nativePageTexts: string[] | null;
 }): boolean {
   if (params.hasStructuredPlainBlocks) return true;
-  if (params.layoutPlainCombinedLength >= MEANINGFUL_LAYOUT_PLAIN_MIN_CHARS) return true;
+  if (params.layoutPlainCombinedText.length >= MEANINGFUL_LAYOUT_PLAIN_MIN_CHARS) return true;
+  if (countReadableWords(params.layoutPlainCombinedText) >= MEANINGFUL_LAYOUT_PLAIN_MIN_WORDS) return true;
   const pages = params.nativePageTexts ?? [];
   const total = pages.reduce((sum, t) => sum + (t?.length ?? 0), 0);
   if (total >= MEANINGFUL_NATIVE_TOTAL_MIN_CHARS) return true;
+  const totalWords = pages.reduce((sum, t) => sum + countReadableWords(t), 0);
+  if (totalWords >= MEANINGFUL_NATIVE_TOTAL_MIN_WORDS) return true;
   const maxPage = pages.reduce((max, t) => Math.max(max, t?.length ?? 0), 0);
   if (maxPage >= MEANINGFUL_NATIVE_PAGE_MIN_CHARS) return true;
+  const maxPageWords = pages.reduce((max, t) => Math.max(max, countReadableWords(t)), 0);
+  if (maxPageWords >= MEANINGFUL_NATIVE_PAGE_MIN_WORDS) return true;
   return false;
 }
 
@@ -1282,13 +1305,14 @@ export async function extractDocument(
       fallbackText: null,
       fallbackPages: null,
     });
-    const layoutPlainCombinedForGate = computeLayoutPlainCombinedText(pdfLayout).length;
+    const layoutPlainCombinedForGate = computeLayoutPlainCombinedText(pdfLayout);
+    const nativePageWordCounts = (nativePageTexts ?? []).map((text) => countReadableWords(text));
     const hasStructuredPlainBlocks = pdfGateTextLayer.pages.some(
       (p) => p.plain_text_blocks.length > 0,
     );
     const meaningfulPdfText = hasMeaningfulPdfTextSignals({
       hasStructuredPlainBlocks,
-      layoutPlainCombinedLength: layoutPlainCombinedForGate,
+      layoutPlainCombinedText: layoutPlainCombinedForGate,
       nativePageTexts,
     });
     const fallbackAllowed = fullWeak && !meaningfulPdfText;
@@ -1301,10 +1325,12 @@ export async function extractDocument(
         ? nativePageTexts.slice(0, MAX_EVIDENCE_PAGES).map((t, idx) => ({
             page_number: idx + 1,
             text_length: t?.length ?? 0,
+            word_count: nativePageWordCounts[idx] ?? 0,
           }))
         : [],
       has_structured_plain_blocks: hasStructuredPlainBlocks,
-      layout_plain_combined_length: layoutPlainCombinedForGate,
+      layout_plain_combined_length: layoutPlainCombinedForGate.length,
+      layout_plain_combined_word_count: countReadableWords(layoutPlainCombinedForGate),
       fullWeak,
       meaningful_pdf_text: meaningfulPdfText,
       fallback_allowed: fallbackAllowed,

@@ -686,6 +686,7 @@ function CenterPanelStructure({
   const [detailReloadNonce, setDetailReloadNonce] = useState(0);
   const [reprocessPhase, setReprocessPhase] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [reprocessError, setReprocessError] = useState<string | null>(null);
+  const [lastReprocessedAt, setLastReprocessedAt] = useState<string | null>(null);
 
   const resolvedSelectedDocId = useMemo(() => {
     if (selectedDocId && structureDocuments.some((document) => document.id === selectedDocId)) {
@@ -715,9 +716,7 @@ function CenterPanelStructure({
       setDetailReloadNonce((n) => n + 1);
       onProjectDataRefresh();
       setReprocessPhase('success');
-      window.setTimeout(() => {
-        setReprocessPhase('idle');
-      }, 2500);
+      setLastReprocessedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err) {
       setReprocessError(err instanceof Error ? err.message : 'Reprocess failed.');
       setReprocessPhase('error');
@@ -750,6 +749,7 @@ function CenterPanelStructure({
                 setSelectedDocId(e.target.value || null);
                 setReprocessPhase('idle');
                 setReprocessError(null);
+                setLastReprocessedAt(null);
               }}
               className="min-w-0 flex-1 rounded border border-[#2F3B52]/80 bg-[#111827] px-2 py-1 text-[12px] text-[#C7D2E3] focus:border-[#3B82F6]/60 focus:outline-none"
             >
@@ -791,8 +791,8 @@ function CenterPanelStructure({
           <p className="w-full text-[11px] leading-snug text-[#F87171] sm:order-last" role="alert">
             {reprocessError}
           </p>
-        ) : reprocessPhase === 'success' ? (
-          <p className="w-full text-[11px] text-[#22C55E] sm:order-last">Reprocess completed.</p>
+        ) : reprocessPhase === 'success' && lastReprocessedAt ? (
+          <p className="w-full text-[11px] text-[#22C55E] sm:order-last">Reprocessed · {lastReprocessedAt}</p>
         ) : null}
       </div>
 

@@ -580,6 +580,138 @@ describe('normalizeNode anchor resolution', () => {
     assert.ok(facts.term_end_date?.evidence_refs.includes('ev-will-term-p2'));
   });
 
+  it('derives Williamson OCR-style term dates from the executed-date clause and rejects malformed expiration junk', () => {
+    const documentId = 'williamson-ocr-duration-term';
+    const frontMatter = makePdfEvidence({
+      id: 'ev-will-ocr-front',
+      documentId,
+      page: 1,
+      text: [
+        'WHEREAS, the State of Tennessee declared a state of emergency on January 22, 2026.',
+        'WHEREAS, the President approved an emergency declaration for Tennessee on January 24, 2026.',
+        'THIS CONTRACT is entered into by Williamson County, Tennessee and Aftermath Disaster Recovery, Inc. on this 9 day of February, 2026, and is executed as evidenced by the undersigned.',
+      ].join(' '),
+      label: 'Page 1',
+    });
+    const ocrTermClause = makePdfEvidence({
+      id: 'ev-will-ocr-term',
+      documentId,
+      page: 2,
+      text:
+        '2. Term. This Contract shall be effective for a period ofiingty (90) days | begining on the date itis filly execited. County shall automatically teFminate at the and of the term.',
+      label: 'Page 2',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'williamson-ocr.pdf',
+      documentTitle: 'Williamson OCR',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            contract_date: 'January 22, 2026',
+            effective_date: 'January 24, 2026',
+          },
+        },
+        extraction: {
+          text_preview: [frontMatter.text, ocrTermClause.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              owner_name: 'WILLIAMSON COUNTY, TENNESSEE',
+              expiration_date: '13-1-199',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [frontMatter, ocrTermClause],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, '2026-02-09');
+    assert.equal(facts.term_start_date?.value, '2026-02-09');
+    assert.equal(facts.term_end_date?.value, '2026-05-10');
+    assert.equal(facts.expiration_date?.value, '2026-05-10');
+    assert.ok(facts.executed_date?.evidence_refs.includes('ev-will-ocr-front'));
+    assert.ok(facts.term_end_date?.evidence_refs.includes('ev-will-ocr-term'));
+  });
+
+  it('derives Bentonville term dates when the effective date is defined as the executed signature-page date', () => {
+    const documentId = 'bentonville-effective-inherits-executed';
+    const termClause = makePdfEvidence({
+      id: 'ev-bentonville-term',
+      documentId,
+      page: 1,
+      text: [
+        '3. CONTRACT TERM.',
+        'The term for this Contract shall be six (6) months, commencing on the effective date of this Contract.',
+      ].join(' '),
+      nearbyText:
+        'a. Effective Date: The Effective Date of this Contract shall be defined as the executed date on the Signature Page of this Contract.',
+      label: 'Page 1',
+    });
+    const signaturePage = makePdfEvidence({
+      id: 'ev-bentonville-signature',
+      documentId,
+      page: 9,
+      text: 'CITY OF BENTONVILLE, ARKANSAS SIGNATURE PAGE The Parties hereto have caused this Contract to be executed this',
+      nearbyText: 'September 13, 2024 | By: __________',
+      label: 'Page 9',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'bentonville.pdf',
+      documentTitle: 'Bentonville',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            contract_date: 'September 13, 2024',
+            effective_date: 'September 24, 1965',
+          },
+        },
+        extraction: {
+          text_preview: [termClause.text, termClause.location.nearby_text, signaturePage.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              executed_date: 'September 13, 2024',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [termClause, signaturePage],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, 'September 13, 2024');
+    assert.equal(facts.term_start_date?.value, '2024-09-13');
+    assert.equal(facts.term_end_date?.value, '2025-03-13');
+    assert.equal(facts.expiration_date?.value, '2025-03-13');
+    assert.ok(facts.term_start_date?.evidence_refs.includes('ev-bentonville-term'));
+    assert.equal(
+      facts.term_start_date?.derivation_dependency?.anchor_inheritance,
+      'effective_date_inherits_executed_date',
+    );
+    assert.ok(facts.term_end_date?.evidence_refs.includes('ev-bentonville-term'));
+  });
+
 
 
   it('marks term dates upstream_missing when executed-relative clause exists but executed_date was not extracted', () => {

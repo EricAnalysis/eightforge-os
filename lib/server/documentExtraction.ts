@@ -1284,8 +1284,8 @@ export async function extractDocument(
     let ocrPagesAttempted = 0;
     let ocrConfidenceAvg: number | null = null;
     let ocrTriggerReason: string | null = null;
-    let pdfParsePartialLength: number | null = null;
-    let partialWeak: boolean | null = null;
+    const pdfParsePartialLength: number | null = null;
+    const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
     let evidencePageText: PageTextEvidence[] = [];
 
@@ -1398,6 +1398,55 @@ export async function extractDocument(
       }
     }
 
+    // If this is contract-like, we may have strong later-page body text but image-only agreement
+    // front matter. OCR only the weak front/signature pages so canonical contractor/date facts can
+    // see the introductory paragraph, commencement clause, and signature block.
+    if (contractLike && !didAttemptOcr && meaningfulPdfText) {
+      const preliminary = buildEvidenceV1({
+        pageText: evidencePageText,
+        documentTypeHint: metadata.document_type ?? null,
+      });
+      const structured = (preliminary.structured_fields ?? {}) as Record<string, unknown>;
+      const frontPages = evidencePageText
+        .filter((page) => page.page_number >= 1 && page.page_number <= 10);
+      const weakFrontPages = frontPages
+        .filter((page) => {
+          const text = page.text ?? '';
+          return text.trim().length < 80 || countReadableWords(text) < 12;
+        })
+        .map((page) => page.page_number);
+      const missingExecutedDate =
+        !(typeof structured.executed_date === 'string' && structured.executed_date.trim().length > 0);
+      const weakStructuredContractor =
+        !(typeof structured.contractor_name === 'string' && structured.contractor_name.trim().length > 5) ||
+        /^[a-z]/.test(String(structured.contractor_name).trim());
+
+      if (frontPages.length >= 4 && weakFrontPages.length >= 4 && (missingExecutedDate || weakStructuredContractor)) {
+        didAttemptOcr = true;
+        didAttemptOcrTargeted = true;
+        const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
+          pageNumbers: weakFrontPages,
+        });
+        const ocrPages = ocrResult.pages;
+        const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
+        if (targetedOcrLen > ocrCombinedTextLength) {
+          ocrCombinedTextLength = targetedOcrLen;
+        }
+        ocrEvidencePageCount = Math.max(ocrEvidencePageCount, ocrPages?.length ?? 0);
+        ocrPagesAttempted = Math.max(ocrPagesAttempted, ocrResult.pagesAttempted);
+        if (typeof ocrResult.confidenceAvg === 'number' && Number.isFinite(ocrResult.confidenceAvg)) {
+          ocrConfidenceAvg = ocrResult.confidenceAvg;
+        }
+        if (ocrPages && ocrPages.length > 0) {
+          const byPage = new Map<number, PageTextEvidence>();
+          for (const p of evidencePageText) byPage.set(p.page_number, p);
+          for (const p of ocrPages) byPage.set(p.page_number, p);
+          evidencePageText = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
+          extractedText = combinePageTextEvidence(evidencePageText) ?? extractedText;
+        }
+      }
+    }
+
     // If this is contract-like, we may have strong body text but image-only rate pages.
     // Deterministic targeted OCR: if evidence_v1 does NOT detect a rate section and
     // the likely attachment pages are nearly empty, OCR only those pages.
@@ -1416,16 +1465,19 @@ export async function extractDocument(
       if (!ratePresent && weakAttachmentPages) {
         didAttemptOcr = true;
         didAttemptOcrTargeted = true;
-        const ocrPages = (
-          await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
-            pageNumbers: [1, 2, 8, 9, 10, 11],
-          })
-        ).pages;
+        const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
+          pageNumbers: [1, 2, 8, 9, 10, 11],
+        });
+        const ocrPages = ocrResult.pages;
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
         }
         ocrEvidencePageCount = Math.max(ocrEvidencePageCount, ocrPages?.length ?? 0);
+        ocrPagesAttempted = Math.max(ocrPagesAttempted, ocrResult.pagesAttempted);
+        if (typeof ocrResult.confidenceAvg === 'number' && Number.isFinite(ocrResult.confidenceAvg)) {
+          ocrConfidenceAvg = ocrResult.confidenceAvg;
+        }
         if (ocrPages && ocrPages.length > 0) {
           const byPage = new Map<number, PageTextEvidence>();
           for (const p of evidencePageText) byPage.set(p.page_number, p);

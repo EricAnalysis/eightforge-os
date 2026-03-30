@@ -1192,6 +1192,7 @@ const TERM_DURATION_CLAUSE_REGEXES: RegExp[] = [
   /(?:shall\s+)?terminate\s+(?:at\s+)?(?:the\s+)?end\s+of\s+([a-z]+(?:\s+[a-z]+){0,2}\s+)?(?:\(([0-9]{1,4})\)\s*)?([0-9]{1,4}\s+)?(?:calendar\s+|working\s+)?(days?|months?|years?)\s+from\s+(?:the\s+)?(?:fully\s+)?(?:executed|execution|effective\s+date|commencement)/gi,
   /(?:term|period)\s+shall\s+be\s+([a-z]+(?:\s+[a-z]+){0,2}\s+)?(?:\(([0-9]{1,4})\)\s*)?([0-9]{1,4}\s+)?(?:calendar\s+|working\s+)?(days?|months?|years?)\s+from\s+(?:the\s+)?(?:execution|effective\s+date|fully\s+executed(?:\s+date)?|commencement|notice\s+to\s+proceed)/gi,
   /term\s+for\s+(?:this|the)\s+(?:contract|agreement)\s+shall\s+be\s+([a-z]+(?:\s+[a-z]+){0,2}\s+)?(?:\(([0-9]{1,4})\)\s*)?([0-9]{1,4}\s+)?(?:calendar\s+|working\s+)?(days?|months?|years?)\s*,?\s*(?:commencing|beginning)\s+on\s+(?:the\s+)?(?:effective\s+date(?:\s+of\s+(?:this|the)\s+(?:contract|agreement))?|execution|fully\s+executed(?:\s+date)?|commencement|notice\s+to\s+proceed)/gi,
+  /shall\s+commence(?:\s+immediately)?\s+upon\s+the\s+execution(?:\s+of\s+all\s+parties)?[\s\S]{0,160}?for\s+(?:an?\s+)?([a-z]+(?:\s+[a-z]+){0,2}\s+)?(?:\(([0-9]{1,4})\)\s*)?([0-9]{1,4}\s+)?(?:calendar\s+|working\s+)?(days?|months?|years?)\s+period/gi,
   /not\s+to\s+exceed\s+([a-z]+(?:\s+[a-z]+){0,2}\s+)?(?:\(([0-9]{1,4})\)\s*)?([0-9]{1,4}\s+)?(?:calendar\s+|working\s+)?(days?|months?|years?)\s+(?:after|from)\s+(?:the\s+)?(?:fully\s+)?(?:executed|execution|effective\s+date)/gi,
 ];
 
@@ -1527,6 +1528,18 @@ function structuredContractorValueLooksLikeMoneyProse(value: string): boolean {
   return false;
 }
 
+function contractorValueLooksLikeClauseFragment(value: string): boolean {
+  const t = value.trim();
+  if (t.length === 0) return false;
+  if (contractorHasLegalEntitySuffix(t)) return false;
+  if (/\b(?:venue|court|district|jurisdiction|federal)\b/i.test(t)) return true;
+  if (/\b(?:entered\s+into\s+by\s+and\s+between|made\s+and\s+entered\s+into|in\s+connection\s+with)\b/i.test(t)) return true;
+  if (/^(?:to\s+provide|provide\s+a|qualified\s+vendor|variety\s+of)\b/i.test(t)) return true;
+  if (/^(?:to|for|of|and|with)\b/i.test(t) && t.split(/\s+/).length <= 6) return true;
+  if (/^[a-z][a-z\s/&,-]{1,48}$/.test(t) && t.split(/\s+/).length <= 5) return true;
+  return false;
+}
+
 /** Contract / vendor codes and numeric-heavy tokens that are not a contractor legal name (ranking layer only). */
 function contractorValueLooksNumericHeavy(value: string): boolean {
   if (contractorHasLegalEntitySuffix(value)) return false;
@@ -1556,8 +1569,41 @@ function evidenceHasExplicitContractorOrVendorLine(evidence: EvidenceObject): bo
   return /(?:^|[\n\r|])\s*(?:name\s+of\s+)?(?:contractor|vendor(?:\s+name)?)\s*[:#.\-–]\s+/im.test(t);
 }
 
+const CONTRACTOR_DEFINED_ROLE_REGEXES: readonly RegExp[] = [
+  /\b([A-Z][A-Za-z0-9 &.,'()-]{2,220})\s*,?\s*\(\s*[^A-Za-z0-9]{0,3}(?:vendor|contractor|consultant|firm)\b[^A-Za-z0-9]{0,3}\)/i,
+  /\bhereinafter\s+referred\s+to\s+as\s+(?:the\s+)?(?:[A-Za-z]{0,8}\s+)?[^A-Za-z0-9]{0,3}(?:county|city|department|owner|client|agency|authority)[^A-Za-z0-9]{0,3}\s+and\s+([A-Z][A-Za-z0-9 &.,'()-]{2,260})[\s\S]{0,260}?\bhereinafter\s+referred\s+to\s+as\s+[^A-Za-z0-9]{0,3}(?:vendor|contractor|consultant|firm)\b/i,
+  /\b(?:county|city|department|owner|client|agency|authority)(?:[\s\S]{0,200}?)\band\s+([A-Z][A-Za-z0-9 &.,'()-]{2,260})[\s\S]{0,260}?\bhereinafter\s+referred\s+to\s+as\s+[^A-Za-z0-9]{0,3}(?:vendor|contractor|consultant|firm)\b/i,
+] as const;
+
+function normalizeContractEvidenceSearchText(value: string): string {
+  return value
+    .replace(/[|¦]/g, ' ')
+    .replace(/\?/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function evidenceHasDefinedContractorRole(evidence: EvidenceObject): boolean {
+  const search = normalizeContractEvidenceSearchText(evidenceSearchText(evidence));
+  return CONTRACTOR_DEFINED_ROLE_REGEXES.some((pattern) => pattern.test(search));
+}
+
+function evidenceHasPreferredContractorNameField(evidence: EvidenceObject): boolean {
+  const label = normalizeText(evidence.location.label ?? '');
+  return /\b(?:company|proposer|bidder)(?:\s+name)?\b/.test(label);
+}
+
 function contractorCandidateTier(source: string, evidence: EvidenceObject | null): 1 | 2 | 3 {
-  if (evidence != null && evidenceHasExplicitContractorOrVendorLine(evidence)) return 3;
+  if (
+    evidence != null &&
+    (
+      evidenceHasExplicitContractorOrVendorLine(evidence) ||
+      evidenceHasDefinedContractorRole(evidence) ||
+      evidenceHasPreferredContractorNameField(evidence)
+    )
+  ) {
+    return 3;
+  }
   if (source === 'structured_fields.contractor_name' || source === 'typed_fields.vendor_name') return 2;
   return 1;
 }
@@ -1587,6 +1633,18 @@ function trimContractorCandidateTail(value: string): string {
   let t = value.trim();
   const cut = /\s+(?:(?:Letting|Contract|Agreement)\s+Date|Contract\s+Execution)\b/i.exec(t);
   if (cut && cut.index != null && cut.index > 0) t = t.slice(0, cut.index).trim();
+  const entitySuffix = /\b(?:inc\.?|llc|l\.l\.c\.|corp\.?|corporation|ltd\.?|limited|l\.p\.?|\blp\b|llp|pc|p\.c\.|plc)\b\.?/i.exec(t);
+  if (entitySuffix) {
+    const entityEnd = entitySuffix.index + entitySuffix[0].length;
+    const trailing = t.slice(entityEnd);
+    if (
+      /^\s*,?\s*(?:a|an)\s+[A-Za-z]/i.test(trailing)
+      || /^\s*,?\s*(?:whose|with)\s+/i.test(trailing)
+      || /^\s*,?\s*(?:authorized|organized|existing|doing)\s+/i.test(trailing)
+    ) {
+      t = t.slice(0, entityEnd).replace(/[,\s;:]+$/, '').trim();
+    }
+  }
   return t;
 }
 
@@ -1620,6 +1678,7 @@ function contractorValueLooksWeakGeneric(value: string): boolean {
   if (contractorHasLegalEntitySuffix(value)) return false;
   const t = value.trim();
   if (t.length >= 120) return true;
+  if (contractorValueLooksLikeClauseFragment(t)) return true;
   if (/^[\sA-Z0-9.,#\-]+$/.test(t) && t.length <= 48 && /\bOTHER\b/.test(t)) return true;
   return false;
 }
@@ -1654,11 +1713,19 @@ function scoreContractorCandidate(
   if (evidence != null && evidenceHasExplicitContractorOrVendorLine(evidence)) {
     score += 22;
   }
+  if (evidence != null && evidenceHasDefinedContractorRole(evidence)) {
+    score += 28;
+  }
+  if (evidence != null && evidenceHasPreferredContractorNameField(evidence)) {
+    score += 22;
+  }
 
   const label = evidence != null ? normalizeText(evidence.location.label ?? '') : '';
   if (/(?:name\s+of\s+)?contractor|vendor(?:\s+name)?|hereinaf.*contractor|between.*contractor/i.test(label)) {
     score += 24;
   } else if (labelMatchesAnyCandidate(label, ['contractor', 'vendor'])) {
+    score += 18;
+  } else if (/\b(?:company|proposer|bidder)(?:\s+name)?\b/i.test(label)) {
     score += 18;
   } else if (labelMatchesCandidate(label, 'company')) {
     score += 5;
@@ -1700,7 +1767,11 @@ function findContractorEvidenceForContractorResolution(document: ExtractedNodeDo
   const extra: EvidenceObject[] = [];
   for (const ev of document.evidence) {
     if (seen.has(ev.id)) continue;
-    if (evidenceHasExplicitContractorOrVendorLine(ev)) {
+    if (
+      evidenceHasExplicitContractorOrVendorLine(ev) ||
+      evidenceHasDefinedContractorRole(ev) ||
+      evidenceHasPreferredContractorNameField(ev)
+    ) {
       extra.push(ev);
       seen.add(ev.id);
     }
@@ -1778,6 +1849,7 @@ function resolveContractContractor(
   if (
     vendorRaw.length > 0
     && !contractorValueLooksLikeInsuranceArtifact(vendorRaw)
+    && !contractorValueLooksLikeClauseFragment(vendorRaw)
     && !contractorValueLooksLikeContractOrVendorCode(vendorRaw)
     && !contractorValueLooksNumericHeavy(vendorRaw)
   ) {
@@ -1793,16 +1865,19 @@ function resolveContractContractor(
 
   for (const ev of labeledEvidence) {
     const parts: Array<{ raw: string; field: 'value' | 'text' }> = [];
+    const allowWholeTextCandidate =
+      evidenceHasExplicitContractorOrVendorLine(ev) || evidenceHasPreferredContractorNameField(ev);
     if (ev.value != null) {
       const s = String(ev.value).trim();
       if (s.length > 0) parts.push({ raw: s, field: 'value' });
     }
-    if (typeof ev.text === 'string' && ev.text.trim().length > 0) {
+    if (allowWholeTextCandidate && typeof ev.text === 'string' && ev.text.trim().length > 0) {
       parts.push({ raw: ev.text.trim(), field: 'text' });
     }
     for (const { raw, field } of parts) {
       const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(raw));
       if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikeClauseFragment(cleaned)) continue;
       if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
       const source = `evidence.label_match.${field}`;
       candidates.push({
@@ -1811,6 +1886,27 @@ function resolveContractContractor(
         tier: contractorCandidateTier(source, ev),
         evidence: ev,
         source,
+        page: typeof ev.location.page === 'number' ? ev.location.page : null,
+      });
+    }
+  }
+
+  for (const ev of document.evidence) {
+    const search = normalizeContractEvidenceSearchText(evidenceSearchText(ev));
+    if (!search) continue;
+    for (const pattern of CONTRACTOR_DEFINED_ROLE_REGEXES) {
+      const match = pattern.exec(search);
+      if (!match?.[1]) continue;
+      const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(match[1]));
+      if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikeClauseFragment(cleaned)) continue;
+      if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
+      candidates.push({
+        value: cleaned,
+        score: scoreContractorCandidate(cleaned, ev, 'evidence'),
+        tier: contractorCandidateTier('evidence.defined_role', ev),
+        evidence: ev,
+        source: 'evidence.defined_role',
         page: typeof ev.location.page === 'number' ? ev.location.page : null,
       });
     }
@@ -2087,6 +2183,10 @@ const EXECUTED_DATE_POSTFIX_EXECUTED_REGEX = new RegExp(
   'i',
 );
 const EXECUTED_DATE_TOP_MATTER_REGEX = new RegExp(`\\b${CONTRACT_DATE_CAPTURE_SOURCE}\\b`, 'i');
+const EXECUTED_DATE_SIGNATURE_BLOCK_REGEX = new RegExp(
+  `\\bdate\\b\\s*[:#\\-]?\\s*${CONTRACT_DATE_CAPTURE_SOURCE}`,
+  'i',
+);
 
 function contractDateNoisePenalty(textLower: string): number {
   if (
@@ -2127,6 +2227,9 @@ function resolveContractExecutedDate(document: ExtractedNodeDocument): ContractD
     if (/\b(?:agreement date|contract execution|executed|dated this|made and entered|entered into)\b/.test(context)) {
       score += 26;
     }
+    if (/\b(?:last below written|witness whereof|signed by)\b/.test(context)) {
+      score += 30;
+    }
     if (/\b(?:contract no|vendor no|this contract|this agreement|department)\b/.test(context)) {
       score += 16;
     }
@@ -2162,6 +2265,19 @@ function resolveContractExecutedDate(document: ExtractedNodeDocument): ContractD
       const match = regex.exec(search);
       if (match?.[1]) {
         pushCandidate(match[1], 'evidence.executed_or_effective_date', evidence, 92, search);
+      }
+    }
+
+    if (/\b(?:last below written|witness whereof|signed by|board of county commissioners)\b/i.test(search)) {
+      const signatureDateMatch = EXECUTED_DATE_SIGNATURE_BLOCK_REGEX.exec(search);
+      if (signatureDateMatch?.[1]) {
+        pushCandidate(
+          signatureDateMatch[1],
+          'evidence.signature_block_date',
+          evidence,
+          144,
+          search,
+        );
       }
     }
 
@@ -2584,6 +2700,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     rawStructuredContractor.length > 0 &&
     !contractorExplicit &&
     (structuredContractorValueLooksLikeMoneyProse(rawStructuredContractor)
+      || contractorValueLooksLikeClauseFragment(rawStructuredContractor)
       || contractorValueLooksLikeContractOrVendorCode(rawStructuredContractor)
       || contractorValueLooksNumericHeavy(rawStructuredContractor));
   const contractorCandidateStructured =
@@ -2714,18 +2831,30 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     }
   }
 
+  const termEndFromDurationDerivation =
+    termDurationDerivation != null || executedRelativeDerivation != null;
   const structuredExpiration = normalizeContractDateCandidate(document.structured_fields.expiration_date);
-  const expirationDate = structuredExpiration ?? termEndDate ?? null;
+  const parsedStructuredExpiration = structuredExpiration ? parseContractAnchorDate(structuredExpiration) : null;
+  const parsedDerivedTermEnd = termEndDate ? parseContractAnchorDate(termEndDate) : null;
+  const preferDerivedTermEndAsExpiration =
+    termEndFromDurationDerivation &&
+    structuredExpiration != null &&
+    termEndDate != null &&
+    parsedStructuredExpiration != null &&
+    parsedDerivedTermEnd != null &&
+    parsedStructuredExpiration.getTime() < parsedDerivedTermEnd.getTime();
+  const expirationDate =
+    preferDerivedTermEndAsExpiration
+      ? termEndDate
+      : structuredExpiration ?? termEndDate ?? null;
   const expirationEvidenceRefs =
     expirationDate != null
     && termEndDate != null
     && String(expirationDate) === String(termEndDate)
     && termEndDateEvidenceRefs.length > 0
-    && structuredExpiration == null
+    && (structuredExpiration == null || preferDerivedTermEndAsExpiration)
       ? termEndDateEvidenceRefs
       : [];
-  const termEndFromDurationDerivation =
-    termDurationDerivation != null || executedRelativeDerivation != null;
   const timeAndMaterialsPresent =
     document.section_signals.time_and_materials_present === true ||
     /time\s*(?:and|&)\s*materials|t&m/i.test(document.text_preview);
@@ -2854,7 +2983,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     dependency?: FactDerivationDependency;
     upstream_missing_reason?: string;
   };
-  if (structuredExpiration) {
+  if (structuredExpiration && !preferDerivedTermEndAsExpiration) {
     expirationDerivation = { status: 'success' };
   } else if (expirationDate != null && termEndDate != null && String(expirationDate) === String(termEndDate)) {
     expirationDerivation = {

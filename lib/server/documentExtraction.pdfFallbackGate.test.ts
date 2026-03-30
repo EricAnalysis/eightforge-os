@@ -21,8 +21,8 @@ type BuildPdfTextArgs = {
 };
 
 async function loadExtractDocument() {
-  const module = await import('@/lib/server/documentExtraction');
-  return module.extractDocument;
+  const documentExtractionModule = await import('@/lib/server/documentExtraction');
+  return documentExtractionModule.extractDocument;
 }
 
 function mockCommonPdfPipeline(pageCount: number) {
@@ -394,6 +394,88 @@ describe('documentExtraction pdf fallback gate', () => {
       extraction_mode: 'ocr_recovery',
       ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
       ocr_pages_attempted: 2,
+      canonical_persisted: false,
+    });
+  });
+
+  it('runs targeted front-matter OCR when later contract body text is meaningful but agreement pages are image-only', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(12);
+
+    const nativePageTexts = [
+      '', '', '', '', '', '', '', '', '', '',
+      'EXHIBIT A SCOPE OF WORK 1.1 The Lee County Board of County Commissioners seeks to contract with a qualified Vendor to provide services.',
+      'PROJECT FUNDING PACKAGE EXHIBIT E 1. PROJECT TERM 1.1. The Vendor shall be responsible for furnishing and delivering services for one five-year period.',
+    ];
+    const pdfDoc = {
+      numPages: 12,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({
+          items: [{
+            str: nativePageTexts[pageNumber - 1],
+            transform: [0, 0, 0, 0, 0, 100 - pageNumber],
+          }],
+        })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+
+    const recognize = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { text: 'THIS AGREEMENT is made and entered into by and between Lee County and Crowder-Gulf Joint Venture, Inc., hereinafter referred to as Vendor.', confidence: 91 } })
+      .mockResolvedValueOnce({ data: { text: 'This Agreement shall commence immediately upon the execution of all parties and shall continue on an as needed basis for a five (5) year period.', confidence: 90 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: '', confidence: 0 } })
+      .mockResolvedValueOnce({ data: { text: 'IN WITNESS WHEREOF, the parties have executed this Agreement as of the date last below written. Date: 10-02-22', confidence: 88 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'lee-front-matter-targeted-ocr',
+        title: 'Lee Front Matter Targeted OCR',
+        name: 'lee-front-matter-targeted-ocr.pdf',
+        document_type: 'contract',
+        storage_path: 'test/lee-front-matter-targeted-ocr.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'lee-front-matter-targeted-ocr.pdf',
+    );
+
+    expect(payload.extraction.mode).toBe('pdf_text');
+    const targetedCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
+      Array.isArray(args?.fallbackPages)
+      && args.fallbackPages.some((page) => page.page_number === 1 && page.text.includes('Crowder-Gulf Joint Venture, Inc.'))
+      && args.fallbackPages.some((page) => page.page_number === 2 && page.text.includes('five (5) year period'))
+      && args.fallbackPages.some((page) => page.page_number === 10 && page.text.includes('Date: 10-02-22')),
+    );
+    expect(targetedCall).toBeTruthy();
+    expect((payload.extraction.metadata ?? {}) as Record<string, unknown>).toMatchObject({
+      extraction_mode: 'pdf_text',
+      ocr_pages_attempted: 10,
       canonical_persisted: false,
     });
   });

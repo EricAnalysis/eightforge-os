@@ -1405,4 +1405,146 @@ describe('normalizeNode anchor resolution', () => {
 
     assert.equal(facts.rate_schedule_pages?.value, 'pages 20, 22');
   });
+
+  it('resolves Lee contractor and signature-block execution date over weak structured fragments and stale historical dates', () => {
+    const documentId = 'lee-contractor-and-executed-date';
+    const frontMatter = makePdfEvidence({
+      id: 'ev-lee-front-matter',
+      documentId,
+      page: 1,
+      text: [
+        'THIS AGREEMENT (“Agreement”) is made and entered into by and between Lee | County, a political subdivision of the State of Florida, hereinafter referred to as the i "County" and Crowder-Gulf Joint Venture, Inc., a Florida corporation authorized to i do business in the State of Florida, whose address is 5629 Commerce Blvd E, Mobile, | AL 36619, and whose federal tax identification number is 01-0626019, hereinafter | referred to as ?Vendor." ;',
+        'WITNESSETH',
+      ].join(' '),
+      label: 'Page 1',
+    });
+    const signaturePage = makePdfEvidence({
+      id: 'ev-lee-signature-page',
+      documentId,
+      page: 10,
+      text: [
+        'IN WITNESS WHEREOF, the parties have executed this Agreement as of the date last below written.',
+        'WITNESS: CROWDER-GULF JOINT VENTURE, INC.',
+        'Date: 10-02-22',
+        'LEE COUNTY BOARD OF COUNTY COMMISSIONERS OF LEE COUNTY, FLORIDA',
+      ].join(' '),
+      label: 'Page 10',
+    });
+    const staleHistoricalDate = makePdfEvidence({
+      id: 'ev-lee-stale-history',
+      documentId,
+      page: 37,
+      text: 'Revised 07/16/2018 - Page 2 of 2 Special Requirements.',
+      label: 'Page 37',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'lee.pdf',
+      documentTitle: 'Lee Contract',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name:
+              'for Lee County, Florida. If in federal court, venue shall be in the U.S. District Court for the Middle District of Florida',
+            contract_date: '07/16/2018',
+            effective_date: '7/16/2018',
+          },
+        },
+        extraction: {
+          text_preview: [frontMatter.text, signaturePage.text, staleHistoricalDate.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'to provide a',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [frontMatter, signaturePage, staleHistoricalDate],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.contractor_name?.value, 'Crowder-Gulf Joint Venture, Inc.');
+    assert.equal(facts.executed_date?.value, '2022-10-02');
+    assert.ok(facts.contractor_name?.evidence_refs.includes('ev-lee-front-matter'));
+    assert.ok(facts.executed_date?.evidence_refs.includes('ev-lee-signature-page'));
+  });
+
+  it('derives Lee five-year base term from the execution commencement clause and ignores stale structured expiration', () => {
+    const documentId = 'lee-five-year-term';
+    const termClause = makePdfEvidence({
+      id: 'ev-lee-term-clause',
+      documentId,
+      page: 2,
+      text: [
+        'II. TERM AND DELIVERY.',
+        'This Agreement shall commence immediately upon the execution of all parties and shall continue on an "as needed basis" for a five (5) year period.',
+        'Upon mutual written agreement of both parties, the parties may renew the Agreement, in whole or in part, for a renewal term or terms not to exceed the initial Agreement term of five (5) years.',
+      ].join(' '),
+      label: 'Page 2',
+    });
+    const signaturePage = makePdfEvidence({
+      id: 'ev-lee-term-signature',
+      documentId,
+      page: 10,
+      text: [
+        'IN WITNESS WHEREOF, the parties have executed this Agreement as of the date last below written.',
+        'Date: 10-02-22',
+      ].join(' '),
+      label: 'Page 10',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'lee-term.pdf',
+      documentTitle: 'Lee Term',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            contract_date: '07/16/2018',
+            effective_date: '7/16/2018',
+            expiration_date: '07/16/2018',
+          },
+        },
+        extraction: {
+          text_preview: [termClause.text, signaturePage.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              expiration_date: '2022-07-25',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [termClause, signaturePage],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, '2022-10-02');
+    assert.equal(facts.term_start_date?.value, '2022-10-02');
+    assert.equal(facts.term_end_date?.value, '2027-10-02');
+    assert.equal(facts.expiration_date?.value, '2027-10-02');
+    assert.ok(facts.term_end_date?.evidence_refs.includes('ev-lee-term-clause'));
+    assert.equal(
+      facts.term_start_date?.derivation_dependency?.anchor_inheritance,
+      'same_as_executed_for_duration_clause_anchor',
+    );
+  });
 });

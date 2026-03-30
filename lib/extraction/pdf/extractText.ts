@@ -380,12 +380,26 @@ export function buildPdfTextExtraction(params: {
   fallbackText?: string | null;
   fallbackPages?: PdfFallbackPageText[] | null;
 }): PdfTextExtractionResult {
+  const fallbackPagesByNumber = new Map(
+    (params.fallbackPages ?? []).map((page) => [page.page_number, normalizeWhitespace(page.text)] as const),
+  );
   const blocksByPage = params.layout.pages.map((page) => {
     const blocks = buildTextBlocks(page);
+    const fallbackText = fallbackPagesByNumber.get(page.page_number);
+    const mergedBlocks =
+      blocks.length === 0 && fallbackText
+        ? [{
+          id: `pdf:text:fallback:${page.page_number}`,
+          page_number: page.page_number,
+          text: fallbackText,
+          line_start: 0,
+          line_end: 0,
+        }]
+        : blocks;
     return {
       page_number: page.page_number,
       line_count: page.lines.length,
-      plain_text_blocks: blocks,
+      plain_text_blocks: mergedBlocks,
     };
   });
 

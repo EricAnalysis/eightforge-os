@@ -179,6 +179,74 @@ describe('documentExtraction pdf fallback gate', () => {
     });
   });
 
+  it('keeps short valid native contract text on the pdf_text path when word-rich content is present', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+
+    const nativePageTexts = [
+      'County debris contract scope rates apply to storm cleanup crews today only.',
+      'Vendor labor terms stay fixed and invoices follow signed contract exhibits now.',
+    ];
+    const pdfDoc = {
+      numPages: 2,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({
+          items: [{
+            str: nativePageTexts[pageNumber - 1],
+            transform: [0, 0, 0, 0, 0, 100 - pageNumber],
+          }],
+        })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+
+    const createWorker = vi.fn(async () => ({
+      setParameters: vi.fn(async () => undefined),
+      recognize: vi.fn(async () => ({ data: { text: '', confidence: 0 } })),
+      terminate: vi.fn(async () => undefined),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+    vi.doMock('tesseract.js', () => ({
+      createWorker,
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'short-native-contract',
+        title: 'Short Native Contract',
+        name: 'short-native-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/short-native-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'short-native-contract.pdf',
+    );
+
+    expect(nativePageTexts.reduce((sum, text) => sum + text.length, 0)).toBeLessThan(200);
+    expect(Math.max(...nativePageTexts.map((text) => text.length))).toBeLessThan(80);
+    expect(payload.extraction.mode).toBe('pdf_text');
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(buildPdfTextExtraction).toHaveBeenCalled();
+    expect(payload.extraction.text_preview).toContain('County debris contract scope rates');
+    expect(payload.extraction.metadata).toMatchObject({
+      extraction_mode: 'pdf_text',
+      ocr_pages_attempted: 0,
+      canonical_persisted: false,
+    });
+  });
+
   it('runs full-page OCR recovery only after the weak contract PDF gate fires', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -254,5 +322,79 @@ describe('documentExtraction pdf fallback gate', () => {
       canonical_persisted: false,
     });
     expect(metadata.ocr_confidence_avg).toBe(88);
+  });
+
+  it('still runs OCR recovery for genuinely weak native text snippets', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+
+    const nativePageTexts = [
+      'DocuSign Envelope ID 1234',
+      'Page 2 of 7',
+    ];
+    const pdfDoc = {
+      numPages: 2,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({
+          items: [{
+            str: nativePageTexts[pageNumber - 1],
+            transform: [0, 0, 0, 0, 0, 100 - pageNumber],
+          }],
+        })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+
+    const recognize = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { text: 'Recovered weak contract page 1', confidence: 84 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered weak contract page 2', confidence: 82 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'weak-native-snippet-contract',
+        title: 'Weak Native Snippet Contract',
+        name: 'weak-native-snippet-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/weak-native-snippet-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'weak-native-snippet-contract.pdf',
+    );
+
+    expect(payload.extraction.mode).toBe('ocr_recovery');
+    const recoveryCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
+      typeof args?.fallbackText === 'string'
+      && args.fallbackText.includes('Recovered weak contract page 1')
+      && Array.isArray(args.fallbackPages)
+      && args.fallbackPages.length === 2,
+    );
+    expect(recoveryCall).toBeTruthy();
+    expect((payload.extraction.metadata ?? {}) as Record<string, unknown>).toMatchObject({
+      extraction_mode: 'ocr_recovery',
+      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_pages_attempted: 2,
+      canonical_persisted: false,
+    });
   });
 });

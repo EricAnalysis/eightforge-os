@@ -27,6 +27,33 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+function tokenizeLabel(value: string): string[] {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0);
+}
+
+function labelMatchesCandidate(label: string, candidate: string): boolean {
+  const labelTokens = tokenizeLabel(label);
+  const candidateTokens = tokenizeLabel(candidate);
+  if (labelTokens.length === 0 || candidateTokens.length === 0) return false;
+  for (let start = 0; start <= labelTokens.length - candidateTokens.length; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < candidateTokens.length; offset += 1) {
+      if (labelTokens[start + offset] !== candidateTokens[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+function labelMatchesAnyCandidate(label: string, candidates: string[]): boolean {
+  return candidates.some((candidate) => labelMatchesCandidate(label, candidate));
+}
+
 const CANONICAL_FACT_KEYS = {
   contract: [
     'contractor_name',
@@ -825,10 +852,9 @@ function findEvidenceByLabel(
   document: ExtractedNodeDocument,
   labels: string[],
 ): EvidenceObject[] {
-  const normalizedLabels = labels.map(normalizeText);
   return document.evidence.filter((evidence) => {
-    const label = normalizeText(evidence.location.label ?? '');
-    return normalizedLabels.some((candidate) => label.includes(candidate));
+    const label = evidence.location.label ?? '';
+    return labelMatchesAnyCandidate(label, labels);
   }).slice(0, 3);
 }
 
@@ -1501,9 +1527,9 @@ function scoreContractorCandidate(
   const label = evidence != null ? normalizeText(evidence.location.label ?? '') : '';
   if (/(?:name\s+of\s+)?contractor|vendor(?:\s+name)?|hereinaf.*contractor|between.*contractor/i.test(label)) {
     score += 24;
-  } else if (label.includes('contractor') || label.includes('vendor')) {
+  } else if (labelMatchesAnyCandidate(label, ['contractor', 'vendor'])) {
     score += 18;
-  } else if (label.includes('company')) {
+  } else if (labelMatchesCandidate(label, 'company')) {
     score += 5;
   }
 
@@ -1529,11 +1555,10 @@ function scoreContractorCandidate(
 
 function findContractorLabelEvidence(document: ExtractedNodeDocument, max = 48): EvidenceObject[] {
   const labels = ['contractor', 'vendor', 'company'];
-  const normalizedLabels = labels.map(normalizeText);
   return document.evidence
     .filter((evidence) => {
-      const label = normalizeText(evidence.location.label ?? '');
-      return normalizedLabels.some((candidate) => label.includes(candidate));
+      const label = evidence.location.label ?? '';
+      return labelMatchesAnyCandidate(label, labels);
     })
     .slice(0, max);
 }
@@ -3009,3 +3034,8 @@ export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
     extracted: primaryNormalized.extracted,
   };
 }
+
+export const __test__ = {
+  labelMatchesCandidate,
+  findEvidenceByLabel,
+};

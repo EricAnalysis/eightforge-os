@@ -85,11 +85,56 @@ function parseEvidence(
   contentLayers: Record<string, unknown> | null,
   documentId: string,
 ): EvidenceObject[] {
-  const pdfEvidence = asArray<EvidenceObject>(asRecord(contentLayers?.pdf)?.evidence);
+  const pdfLayer = asRecord(contentLayers?.pdf);
+  const pdfEvidence = asArray<EvidenceObject>(pdfLayer?.evidence);
   const spreadsheetEvidence = asArray<EvidenceObject>(asRecord(contentLayers?.spreadsheet)?.evidence);
-  if (pdfEvidence.length > 0 || spreadsheetEvidence.length > 0) {
+  const pdfText = asRecord(pdfLayer?.text);
+  const pdfTextConfidence =
+    typeof pdfText?.confidence === 'number'
+      ? pdfText.confidence
+      : (typeof pdfLayer?.confidence === 'number'
+          ? pdfLayer.confidence as number
+          : 0);
+  const rehydratedPdfTextEvidence =
+    pdfEvidence.length === 0
+      ? asArray<Record<string, unknown>>(pdfText?.pages).flatMap((page, pageIndex) => {
+          const pageNumber = typeof page.page_number === 'number' ? page.page_number : pageIndex + 1;
+          return asArray<Record<string, unknown>>(page.plain_text_blocks).flatMap((block, blockIndex) => {
+            const text = typeof block.text === 'string' ? block.text.trim() : '';
+            if (!text) return [];
+            const nearbyText =
+              typeof block.nearby_text === 'string' && block.nearby_text.trim().length > 0
+                ? block.nearby_text.trim()
+                : undefined;
+            return [{
+              id:
+                typeof block.id === 'string' && block.id.trim().length > 0
+                  ? block.id
+                  : `${documentId}:pdf:text:${pageNumber}:${blockIndex + 1}`,
+              kind: 'text' as const,
+              source_type: 'pdf' as const,
+              source_document_id: documentId,
+              description: `PDF text block on page ${pageNumber}`,
+              text,
+              location: {
+                page: pageNumber,
+                ...(nearbyText ? { nearby_text: nearbyText } : {}),
+              },
+              confidence: pdfTextConfidence,
+              weak: pdfTextConfidence < 0.5,
+              metadata: {
+                source_document_id: documentId,
+                source_extraction_path: 'pdf_content_layers',
+                ...(typeof block.line_start === 'number' ? { line_start: block.line_start } : {}),
+                ...(typeof block.line_end === 'number' ? { line_end: block.line_end } : {}),
+              },
+            } satisfies EvidenceObject];
+          });
+        })
+      : [];
+  if (pdfEvidence.length > 0 || rehydratedPdfTextEvidence.length > 0 || spreadsheetEvidence.length > 0) {
     return withSourceDocument(
-      [...pdfEvidence, ...spreadsheetEvidence] as EvidenceObject[],
+      [...pdfEvidence, ...rehydratedPdfTextEvidence, ...spreadsheetEvidence] as EvidenceObject[],
       documentId,
     );
   }

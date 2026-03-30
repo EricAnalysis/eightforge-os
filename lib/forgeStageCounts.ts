@@ -87,6 +87,21 @@ function buildForgeStageRecordSet<T extends ForgeQueueRecord>(
   };
 }
 
+export function getForgeIntakeDocuments(
+  documents: ProjectDocumentRow[],
+): ProjectDocumentRow[] {
+  return documents.filter((document) => document.processing_status === 'uploaded');
+}
+
+export function getForgeExtractDocuments(
+  documents: ProjectDocumentRow[],
+): ProjectDocumentRow[] {
+  return documents.filter(
+    (document) =>
+      document.processing_status === 'processing' || document.processing_status === 'failed',
+  );
+}
+
 export function getForgeStructureDocuments(
   documents: ProjectDocumentRow[],
 ): ProjectDocumentRow[] {
@@ -121,25 +136,9 @@ export function buildForgeStageCounts(params: {
 }): ForgeStageCounts {
   const { documents, decisions, tasks, auditSurfaceCount } = params;
 
-  let intake = 0;
-  let extract = 0;
+  const intake = getForgeIntakeDocuments(documents).length;
+  const extract = getForgeExtractDocuments(documents).length;
   const structure = getForgeStructureDocuments(documents).length;
-
-  for (const document of documents) {
-    switch (document.processing_status) {
-      case 'uploaded':
-        intake += 1;
-        break;
-      case 'processing':
-        extract += 1;
-        break;
-      case 'failed':
-        extract += 1;
-        break;
-      default:
-        break;
-    }
-  }
 
   const decide = getForgeDecideStageRecords(decisions).visible.length;
   const act = getForgeActStageRecords(tasks).visible.length;

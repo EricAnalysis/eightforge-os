@@ -7,6 +7,8 @@ import {
   buildForgeStageCounts,
   getForgeActStageRecords,
   getForgeDecideStageRecords,
+  getForgeExtractDocuments,
+  getForgeIntakeDocuments,
   getForgeStructureDocuments,
   type ForgeStageCounts,
   type ForgeStageFilterSummary,
@@ -424,7 +426,7 @@ function CenterPanelIntake({
   documents: ProjectDocumentRow[];
   onProjectDataRefresh: () => void;
 }) {
-  const uploadedDocs = documents.filter((d) => d.processing_status === 'uploaded');
+  const uploadedDocs = getForgeIntakeDocuments(documents);
   const [triggerState, setTriggerState] = useState<Record<string, 'idle' | 'triggering'>>({});
   const [errorByDoc, setErrorByDoc] = useState<Record<string, string | null>>({});
 
@@ -463,8 +465,7 @@ function CenterPanelIntake({
         <ul className="max-h-[min(40rem,60vh)] divide-y divide-[#2F3B52]/50 overflow-y-auto">
           {uploadedDocs.length === 0 ? (
             <li className="px-4 py-6 text-[12px] leading-relaxed text-[#94A3B8]">
-              No uploaded documents in Intake. Existing project documents may be in Extraction (processing/failed) or
-              Structure (extracted/decisioned).
+              No uploaded documents are waiting in Intake.
             </li>
           ) : (
             uploadedDocs.map((doc) => {
@@ -512,9 +513,7 @@ function CenterPanelIntake({
 }
 
 function CenterPanelExtract({ documents }: { documents: ProjectDocumentRow[] }) {
-  const activeDocs = documents.filter(
-    (d) => d.processing_status === 'processing' || d.processing_status === 'failed',
-  );
+  const activeDocs = getForgeExtractDocuments(documents);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4">

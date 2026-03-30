@@ -1553,11 +1553,11 @@ export function buildProjectOverviewModel(params: {
     facts: resolveProjectFacts(project, rollup),
     decisions: decisionCards,
     decision_total: decisions.length,
-    decision_empty_state: documents.length === 0
-      ? 'No project decisions yet. Link and process documents to generate a project record.'
-      : rollup.unresolved_finding_count > 0
-        ? 'Linked documents still carry unresolved findings, but no promoted project decision rows are open yet.'
-        : 'No project decisions are linked right now.',
+    decision_empty_state: decisions.length === 0
+      ? (documents.length === 0
+          ? 'No project documents yet. Upload and process documents to generate a project record.'
+          : 'No persisted project decisions are linked right now.')
+      : 'All decisions are resolved, dismissed, or superseded.',
     actions: actionItems,
     action_total: rollup.open_document_action_count,
     action_empty_state: documents.length === 0

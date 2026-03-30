@@ -41,12 +41,12 @@ export function ProjectOverviewBand({ model, stageCounts }: ProjectOverviewBandP
 
         <div className="flex flex-wrap gap-4 text-[11px] text-[#94A3B8]">
           <span>
-            Decisions{' '}
-            <strong className="font-semibold text-[#E5EDF7]">{model.decision_total}</strong>
+            Active decisions{' '}
+            <strong className="font-semibold text-[#E5EDF7]">{stageCounts.decide}</strong>
           </span>
           <span>
             Open actions{' '}
-            <strong className="font-semibold text-[#E5EDF7]">{model.action_total}</strong>
+            <strong className="font-semibold text-[#E5EDF7]">{stageCounts.act}</strong>
           </span>
           {needsReviewMetric ? (
             <span className={needsReviewMetric.tone === 'warning' ? 'text-[#FBBF24]' : undefined}>

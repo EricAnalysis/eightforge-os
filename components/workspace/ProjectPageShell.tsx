@@ -8,6 +8,7 @@ import type { ProjectRecord } from '@/lib/projectOverview';
 type ProjectPageShellProps = {
   project: ProjectRecord;
   children: ReactNode;
+  headerMeta?: ReactNode;
   /** Opens documents upload with this project pre-selected (see DocumentsPage). */
   uploadHref: string;
   legacyProjectHref: string;
@@ -17,6 +18,7 @@ type ProjectPageShellProps = {
 export function ProjectPageShell({
   project,
   children,
+  headerMeta,
   uploadHref,
   legacyProjectHref,
   onProjectRefresh,
@@ -56,6 +58,8 @@ export function ProjectPageShell({
           </div>
         </div>
 
+        {headerMeta ? <div className="mt-3">{headerMeta}</div> : null}
+
         <ProjectAdminControls
           project={project}
           deleteRedirectHref="/platform/workspace"
@@ -64,7 +68,7 @@ export function ProjectPageShell({
         />
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1">{children}</div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

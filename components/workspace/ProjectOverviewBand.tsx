@@ -8,60 +8,63 @@ type ProjectOverviewBandProps = {
   stageCounts: ForgeStageCounts;
 };
 
+function toneClass(tone: string): string {
+  switch (tone) {
+    case 'danger':
+      return 'border-[#EF4444]/35 bg-[#EF4444]/10 text-[#FCA5A5]';
+    case 'warning':
+      return 'border-[#F59E0B]/35 bg-[#F59E0B]/10 text-[#FCD34D]';
+    case 'success':
+      return 'border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]';
+    case 'info':
+      return 'border-[#3B82F6]/35 bg-[#3B82F6]/10 text-[#BFDBFE]';
+    default:
+      return 'border-[#2F3B52]/80 bg-[#111827] text-[#C7D2E3]';
+  }
+}
+
 export function ProjectOverviewBand({ model, stageCounts }: ProjectOverviewBandProps) {
   const criticalLabel = model.status.is_clear ? 'Clear' : model.status.label;
   const needsReviewMetric = model.metrics.find((m) => m.key === 'needs-review');
   const anomaliesMetric = model.metrics.find((m) => m.key === 'anomalies');
 
   return (
-    <div className="border-b border-[#2F3B52]/80 bg-[#111827]/80 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">Status</p>
-          <p className="truncate text-[12px] font-semibold text-[#E5EDF7]">{criticalLabel}</p>
-          {!model.status.is_clear ? (
-            <p className="truncate text-[11px] text-[#94A3B8]">{model.status.detail}</p>
-          ) : null}
-        </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <span
+        title={model.status.detail}
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${toneClass(model.status.tone)}`}
+      >
+        <span className="text-[#94A3B8]">Status</span>
+        <span>{criticalLabel}</span>
+      </span>
 
-        <div className="hidden h-8 w-px bg-[#2F3B52]/80 sm:block" aria-hidden />
+      {FORGE_STAGE_KEYS.map((key) => (
+        <span
+          key={key}
+          className="inline-flex items-center gap-2 rounded-full border border-[#2F3B52]/80 bg-[#111827] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#C7D2E3]"
+        >
+          <span className="text-[#64748B]">{FORGE_STAGE_LABELS[key]}</span>
+          <span className="font-mono tabular-nums text-[#E5EDF7]">{stageCounts[key]}</span>
+        </span>
+      ))}
 
-        <div className="flex flex-wrap gap-3">
-          {FORGE_STAGE_KEYS.map((key) => (
-            <div key={key} className="flex items-baseline gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B]">
-                {FORGE_STAGE_LABELS[key]}
-              </span>
-              <span className="text-[12px] font-bold tabular-nums text-[#C7D2E3]">{stageCounts[key]}</span>
-            </div>
-          ))}
-        </div>
+      {needsReviewMetric ? (
+        <span
+          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${toneClass(needsReviewMetric.tone)}`}
+        >
+          <span className="text-[#94A3B8]">{needsReviewMetric.label}</span>
+          <span>{needsReviewMetric.value}</span>
+        </span>
+      ) : null}
 
-        <div className="hidden h-8 w-px bg-[#2F3B52]/80 md:block" aria-hidden />
-
-        <div className="flex flex-wrap gap-4 text-[11px] text-[#94A3B8]">
-          <span>
-            Active decisions{' '}
-            <strong className="font-semibold text-[#E5EDF7]">{stageCounts.decide}</strong>
-          </span>
-          <span>
-            Open actions{' '}
-            <strong className="font-semibold text-[#E5EDF7]">{stageCounts.act}</strong>
-          </span>
-          {needsReviewMetric ? (
-            <span className={needsReviewMetric.tone === 'warning' ? 'text-[#FBBF24]' : undefined}>
-              {needsReviewMetric.label}{' '}
-              <strong className="font-semibold text-[#E5EDF7]">{needsReviewMetric.value}</strong>
-            </span>
-          ) : null}
-          {anomaliesMetric && anomaliesMetric.tone === 'danger' ? (
-            <span className="text-[#F87171]">
-              {anomaliesMetric.label}{' '}
-              <strong className="font-semibold text-[#E5EDF7]">{anomaliesMetric.value}</strong>
-            </span>
-          ) : null}
-        </div>
-      </div>
+      {anomaliesMetric ? (
+        <span
+          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${toneClass(anomaliesMetric.tone)}`}
+        >
+          <span className="text-[#94A3B8]">{anomaliesMetric.label}</span>
+          <span>{anomaliesMetric.value}</span>
+        </span>
+      ) : null}
     </div>
   );
 }

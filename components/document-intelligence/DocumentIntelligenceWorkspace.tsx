@@ -26,6 +26,7 @@ export function DocumentIntelligenceWorkspace({
   onSaveFactReview,
   onSaveFactAnchor,
   onSaveRateScheduleAnchor,
+  variant = 'default',
 }: {
   model: DocumentIntelligenceViewModel;
   signedUrl: string | null;
@@ -65,11 +66,13 @@ export function DocumentIntelligenceWorkspace({
     | { ok: true; anchor: DocumentFactAnchorRecord }
     | { ok: false; error: string }
   >;
+  variant?: 'default' | 'workspace';
 }) {
   const [selectedFactId, setSelectedFactId] = useState<string | null>(model.defaultFactId);
   const [manualAnchorId, setManualAnchorId] = useState<string | null>(null);
   const [captureMode, setCaptureMode] = useState<DocumentAnchorCaptureMode | null>(null);
   const [focusToken, setFocusToken] = useState(0);
+  const isWorkspace = variant === 'workspace';
 
   const resolvedSelectedFactId = useMemo(() => {
     if (selectedFactId && model.factById.has(selectedFactId)) return selectedFactId;
@@ -140,6 +143,68 @@ export function DocumentIntelligenceWorkspace({
     return result;
   };
 
+  const handleSelectFact = (factId: string) => {
+    setSelectedFactId(factId);
+    setManualAnchorId(null);
+    setCaptureMode(null);
+    setFocusToken((value) => value + 1);
+  };
+
+  if (isWorkspace) {
+    return (
+      <section className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#08101D]">
+        <div className="grid min-h-0 min-w-0 flex-1 gap-0 lg:grid-cols-[minmax(15rem,28%)_minmax(0,48%)_minmax(14rem,24%)]">
+          <aside className="min-h-0 border-r border-white/8 bg-[#09111F]">
+            <FactLedger
+              groups={model.groups}
+              documentFamily={model.family}
+              selectedFactId={resolvedSelectedFactId}
+              onSelectFact={handleSelectFact}
+              variant="workspace"
+            />
+          </aside>
+
+          <div className="min-h-0 min-w-0 border-r border-white/8 bg-[#050A14]">
+            <DocumentSourceViewer
+              signedUrl={signedUrl}
+              fileExt={fileExt}
+              filename={filename}
+              fact={selectedFact}
+              anchors={selectedFact?.anchors ?? []}
+              activeAnchor={activeAnchor}
+              pageMarkerCounts={model.pageMarkerCounts}
+              focusToken={focusToken}
+              captureMode={captureMode}
+              rateScheduleAnchor={model.rateScheduleAnchor}
+              rateSchedulePages={model.rateSchedulePages}
+              onCancelCapture={() => setCaptureMode(null)}
+              onCreateAnchor={handleCreateAnchor}
+              onCreateRateScheduleAnchor={handleCreateRateScheduleAnchor}
+              variant="workspace"
+            />
+          </div>
+
+          <aside className="min-h-0 bg-[#09111F]">
+            <FactEvidencePanel
+              key={selectedFact?.id ?? 'no-fact-selected'}
+              fact={selectedFact}
+              activeAnchorId={activeAnchorId}
+              onSelectAnchor={handleSelectAnchor}
+              onSaveFactOverride={onSaveFactOverride}
+              onSaveFactReview={onSaveFactReview}
+              captureMode={captureMode}
+              canAttachAnchors={fileExt === 'pdf' && Boolean(signedUrl)}
+              canMarkRateSchedule={canMarkRateSchedule}
+              onStartAnchorCapture={setCaptureMode}
+              onCancelAnchorCapture={() => setCaptureMode(null)}
+              variant="workspace"
+            />
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
       <div className="border-b border-white/8 px-5 py-4">
@@ -176,12 +241,7 @@ export function DocumentIntelligenceWorkspace({
             groups={model.groups}
             documentFamily={model.family}
             selectedFactId={resolvedSelectedFactId}
-            onSelectFact={(factId) => {
-              setSelectedFactId(factId);
-              setManualAnchorId(null);
-              setCaptureMode(null);
-              setFocusToken((value) => value + 1);
-            }}
+            onSelectFact={handleSelectFact}
           />
           <div className="shrink-0">
             <FactEvidencePanel

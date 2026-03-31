@@ -90,6 +90,7 @@ export default function WorkspaceProjectForgePage({
   return (
     <ProjectPageShell
       project={model.project}
+      headerMeta={<ProjectOverviewBand model={model} stageCounts={stageCounts} />}
       uploadHref={uploadHref}
       legacyProjectHref={`/platform/projects/${id}`}
       onProjectRefresh={data.refetch}
@@ -99,7 +100,6 @@ export default function WorkspaceProjectForgePage({
           {data.loadIssue}
         </div>
       ) : null}
-      <ProjectOverviewBand model={model} stageCounts={stageCounts} />
       <ForgeWorkspace
         model={model}
         documents={data.documents}

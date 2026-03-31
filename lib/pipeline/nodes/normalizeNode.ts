@@ -1534,9 +1534,36 @@ function contractorValueLooksLikeClauseFragment(value: string): boolean {
   if (contractorHasLegalEntitySuffix(t)) return false;
   if (/\b(?:venue|court|district|jurisdiction|federal)\b/i.test(t)) return true;
   if (/\b(?:entered\s+into\s+by\s+and\s+between|made\s+and\s+entered\s+into|in\s+connection\s+with)\b/i.test(t)) return true;
+  if (
+    /\b(?:offers?\s+submitted\s+in\s+response|best\s+and\s+final\s+offer|request\s+for\s+(?:proposal|quote|quotation|bid|best\s+and\s+final\s+offer)|invitation\s+to\s+bid|notice\s+to\s+vendor|furnishing\s+and\s+delivering\s+goods?\s+and\s+services?)\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/\bcontract\s+awarded\s+this\s+day\s+of\b/i.test(t)) return true;
   if (/^(?:to\s+provide|provide\s+a|qualified\s+vendor|variety\s+of)\b/i.test(t)) return true;
   if (/^(?:to|for|of|and|with)\b/i.test(t) && t.split(/\s+/).length <= 6) return true;
   if (/^[a-z][a-z\s/&,-]{1,48}$/.test(t) && t.split(/\s+/).length <= 5) return true;
+  return false;
+}
+
+function contractorValueLooksLikePlaceholder(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return true;
+  if (/^[\s_./\\-]+$/.test(trimmed)) return true;
+
+  const letters = (trimmed.match(/[A-Za-z]/g) ?? []).length;
+  const underscores = (trimmed.match(/_/g) ?? []).length;
+  if (underscores >= 6 && letters < 4) return true;
+
+  if (!contractorHasLegalEntitySuffix(trimmed)) {
+    if (/^\s*(?:prime\s+)?contractor\b[\s:.\-]*_{4,}/i.test(trimmed)) return true;
+    if (/\b(?:registration|certificate|fein|tax\s+id)\b/i.test(trimmed) && /_{4,}/.test(trimmed)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -1575,6 +1602,10 @@ const CONTRACTOR_DEFINED_ROLE_REGEXES: readonly RegExp[] = [
   /\b(?:county|city|department|owner|client|agency|authority)(?:[\s\S]{0,200}?)\band\s+([A-Z][A-Za-z0-9 &.,'()-]{2,260})[\s\S]{0,260}?\bhereinafter\s+referred\s+to\s+as\s+[^A-Za-z0-9]{0,3}(?:vendor|contractor|consultant|firm)\b/i,
 ] as const;
 
+const CONTRACTOR_INLINE_LABELED_REGEXES: readonly RegExp[] = [
+  /\b(?:vendor|bidder|proposer)(?:\s+name)?\s*:\s*(?:email\s*:?\s*)?([A-Z][A-Za-z0-9 &.,'()-]{2,220}?\b(?:Inc\.?|LLC|L\.L\.C\.|Corp\.?|Corporation|Ltd\.?|Limited|L\.P\.?|LP|LLP|PLC)\b\.?)/i,
+] as const;
+
 function normalizeContractEvidenceSearchText(value: string): string {
   return value
     .replace(/[|¦]/g, ' ')
@@ -1588,6 +1619,11 @@ function evidenceHasDefinedContractorRole(evidence: EvidenceObject): boolean {
   return CONTRACTOR_DEFINED_ROLE_REGEXES.some((pattern) => pattern.test(search));
 }
 
+function evidenceHasDirectContractorNameLabel(evidence: EvidenceObject): boolean {
+  const label = normalizeText(evidence.location.label ?? '');
+  return /\b(?:prime\s+)?(?:contractor|vendor|company|proposer|bidder)(?:\s+name)?\b/.test(label);
+}
+
 function evidenceHasPreferredContractorNameField(evidence: EvidenceObject): boolean {
   const label = normalizeText(evidence.location.label ?? '');
   return /\b(?:company|proposer|bidder)(?:\s+name)?\b/.test(label);
@@ -1599,6 +1635,7 @@ function contractorCandidateTier(source: string, evidence: EvidenceObject | null
     (
       evidenceHasExplicitContractorOrVendorLine(evidence) ||
       evidenceHasDefinedContractorRole(evidence) ||
+      evidenceHasDirectContractorNameLabel(evidence) ||
       evidenceHasPreferredContractorNameField(evidence)
     )
   ) {
@@ -1618,7 +1655,7 @@ function stripContractorLinePrefix(value: string): string {
   for (let i = 0; i < 3; i++) {
     const stripped = t
       .replace(
-        /^(?:(?:name\s+of\s+)?contractor|vendor(?:\s+name)?|company(?:\s+name)?)\s*[:#.\-–]\s+/i,
+        /^(?:(?:name\s+of\s+)?(?:prime\s+)?contractor|vendor(?:\s+name)?|company(?:\s+name)?|bidder(?:\/proposer)?|proposer(?:\s+name)?)\s*[:#.\-–]\s+/i,
         '',
       )
       .trim();
@@ -1677,6 +1714,7 @@ function contractorValueLooksLikeInsuranceArtifact(value: string): boolean {
 function contractorValueLooksWeakGeneric(value: string): boolean {
   if (contractorHasLegalEntitySuffix(value)) return false;
   const t = value.trim();
+  if (contractorValueLooksLikePlaceholder(t)) return true;
   if (t.length >= 120) return true;
   if (contractorValueLooksLikeClauseFragment(t)) return true;
   if (/^[\sA-Z0-9.,#\-]+$/.test(t) && t.length <= 48 && /\bOTHER\b/.test(t)) return true;
@@ -1686,6 +1724,7 @@ function contractorValueLooksWeakGeneric(value: string): boolean {
 function contractorRepeatPageBonus(value: string, allEvidence: EvidenceObject[]): number {
   if (contractorValueLooksLikeContractOrVendorCode(value)) return 0;
   if (contractorValueLooksNumericHeavy(value)) return 0;
+  if (contractorValueLooksLikePlaceholder(value)) return 0;
   const needle = normalizeText(value);
   if (needle.length < 4) return 0;
   const pages = new Set<number>();
@@ -1832,6 +1871,7 @@ function resolveContractContractor(
   if (
     contractorCandidateStructured != null
     && !contractorValueLooksLikeInsuranceArtifact(contractorCandidateStructured)
+    && !contractorValueLooksLikePlaceholder(contractorCandidateStructured)
     && !contractorValueLooksLikeContractOrVendorCode(contractorCandidateStructured)
     && !contractorValueLooksNumericHeavy(contractorCandidateStructured)
   ) {
@@ -1849,6 +1889,7 @@ function resolveContractContractor(
   if (
     vendorRaw.length > 0
     && !contractorValueLooksLikeInsuranceArtifact(vendorRaw)
+    && !contractorValueLooksLikePlaceholder(vendorRaw)
     && !contractorValueLooksLikeClauseFragment(vendorRaw)
     && !contractorValueLooksLikeContractOrVendorCode(vendorRaw)
     && !contractorValueLooksNumericHeavy(vendorRaw)
@@ -1877,6 +1918,7 @@ function resolveContractContractor(
     for (const { raw, field } of parts) {
       const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(raw));
       if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikePlaceholder(cleaned)) continue;
       if (contractorValueLooksLikeClauseFragment(cleaned)) continue;
       if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
       const source = `evidence.label_match.${field}`;
@@ -1899,6 +1941,7 @@ function resolveContractContractor(
       if (!match?.[1]) continue;
       const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(match[1]));
       if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikePlaceholder(cleaned)) continue;
       if (contractorValueLooksLikeClauseFragment(cleaned)) continue;
       if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
       candidates.push({
@@ -1907,6 +1950,24 @@ function resolveContractContractor(
         tier: contractorCandidateTier('evidence.defined_role', ev),
         evidence: ev,
         source: 'evidence.defined_role',
+        page: typeof ev.location.page === 'number' ? ev.location.page : null,
+      });
+    }
+
+    for (const pattern of CONTRACTOR_INLINE_LABELED_REGEXES) {
+      const match = pattern.exec(search);
+      if (!match?.[1]) continue;
+      const cleaned = trimContractorCandidateTail(stripContractorLinePrefix(match[1]));
+      if (cleaned.length === 0 || contractorValueLooksLikeInsuranceArtifact(cleaned)) continue;
+      if (contractorValueLooksLikePlaceholder(cleaned)) continue;
+      if (contractorValueLooksLikeClauseFragment(cleaned)) continue;
+      if (contractorValueLooksLikeContractOrVendorCode(cleaned) || contractorValueLooksNumericHeavy(cleaned)) continue;
+      candidates.push({
+        value: cleaned,
+        score: scoreContractorCandidate(cleaned, ev, 'evidence') + 18,
+        tier: 3,
+        evidence: ev,
+        source: 'evidence.inline_vendor_label',
         page: typeof ev.location.page === 'number' ? ev.location.page : null,
       });
     }
@@ -2018,6 +2079,13 @@ function normalizeOwnerDisplayValue(value: string): string {
   return cleaned;
 }
 
+function titleCaseOwnerPhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
+    .replace(/\b(Of|And|The)\b/g, (match) => match.toLowerCase());
+}
+
 type ContractOwnerResolution = {
   value: string | null;
   evidenceRefIds: string[];
@@ -2037,6 +2105,36 @@ const OWNER_LABELED_VALUE_RE =
   /\b(?:owner|client|agency|authority|department)\b\s*[:=\-]\s*([A-Z][A-Za-z0-9 &.,'()-]{2,160})/i;
 const OWNER_ORG_FALLBACK_RE =
   /\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5}\s+Department of Transportation|City of [A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5}|Town of [A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5}|County of [A-Z][A-Za-z]+(?:\s+[A-Za-z]+){0,5}|[A-Z][A-Za-z]+ County(?:,\s*[A-Z][A-Za-z]+)?)\b/;
+const OWNER_STATE_AGENCY_RE =
+  /\bstate\s+of\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,4}?)(?=\s+(?:request|invitation|solicitation|department)\b)[\s\S]{0,120}?\bdepartment\s+of\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,6})\b/i;
+
+function documentLooksLikeSolicitationResponse(document: ExtractedNodeDocument): boolean {
+  const frontMatter = [
+    document.text_preview,
+    ...document.evidence
+      .filter((evidence) => typeof evidence.location.page !== 'number' || evidence.location.page <= 2)
+      .slice(0, 8)
+      .map((evidence) => evidenceSearchText(evidence)),
+  ]
+    .filter((value) => value.trim().length > 0)
+    .join(' ');
+  const search = normalizeContractEvidenceSearchText(frontMatter);
+
+  const solicitationMarkers =
+    /\b(?:best\s+and\s+final\s+offer|request\s+for\s+(?:proposal|quote|quotation|bid|best\s+and\s+final\s+offer)|invitation\s+to\s+bid|solicitation\s+no\.?|notice\s+to\s+vendor|offers?\s+will\s+be\s+received\s+until|acceptance\s+of\s+offer|offer\s+valid\s+for)\b/i.test(
+      search,
+    );
+  const responseMarkers =
+    /\b(?:proposal|proposer|vendor|bidder|submission\s+instructions|request\s+for\s+bafo|request\s+for\s+best\s+and\s+final\s+offer)\b/i.test(
+      search,
+    );
+  const executionMarkers =
+    /\b(?:this\s+(?:agreement|contract)\s+is\s+(?:made|between)|witness\s+whereof|dated\s+this|fully\s+executed|have\s+executed\s+this|parties\s+have\s+executed|executed\s+(?:on|this|as\s+of)|last\s+below\s+written)\b/i.test(
+      search,
+    );
+
+  return solicitationMarkers && responseMarkers && !executionMarkers;
+}
 
 function resolveContractOwner(document: ExtractedNodeDocument): ContractOwnerResolution {
   type Cand = {
@@ -2076,7 +2174,10 @@ function resolveContractOwner(document: ExtractedNodeDocument): ContractOwnerRes
     if (/\b(?:this contract|this agreement|between|department)\b/.test(context)) {
       score += 12;
     }
-    if (/\b(?:acknowledg(?:ment)?|notary|commission expires|subscribed and sworn|state of|county of)\b/.test(context)) {
+    if (
+      source !== 'evidence.state_agency_heading' &&
+      /\b(?:acknowledg(?:ment)?|notary|commission expires|subscribed and sworn|state of|county of)\b/.test(context)
+    ) {
       score -= 120;
     }
     candidates.push({
@@ -2105,6 +2206,21 @@ function resolveContractOwner(document: ExtractedNodeDocument): ContractOwnerRes
   for (const evidence of document.evidence) {
     const search = evidenceSearchText(evidence).replace(/\s+/g, ' ').trim();
     if (!search.trim()) continue;
+
+    const stateAgencyMatch = OWNER_STATE_AGENCY_RE.exec(search);
+    if (stateAgencyMatch?.[1] && stateAgencyMatch?.[2]) {
+      const stateAgencyValue =
+        `State of ${titleCaseOwnerPhrase(stateAgencyMatch[1])}, Department of ${titleCaseOwnerPhrase(stateAgencyMatch[2])}`
+          .replace(/\s+NO$/i, '')
+          .trim();
+      pushCandidate(
+        stateAgencyValue,
+        'evidence.state_agency_heading',
+        evidence,
+        132,
+        search,
+      );
+    }
 
     const definedMatch = OWNER_DEFINED_ROLE_RE.exec(search);
     if (definedMatch) {
@@ -2173,10 +2289,6 @@ const EXECUTED_DATE_EXPLICIT_REGEXES: readonly RegExp[] = [
     `(?:agreement\\s+date|contract\\s+execution(?:\\s+date)?|executed(?:\\s+on|\\s+this)?|dated\\s+this|made\\s+and\\s+entered(?:\\s+into)?(?:\\s+this)?|entered\\s+into(?:\\s+this)?)\\b[^0-9A-Za-z]{0,40}${CONTRACT_DATE_CAPTURE_SOURCE}`,
     'i',
   ),
-  new RegExp(
-    `(?:effective\\s+date(?:\\s+of\\s+(?:this|the)\\s+(?:agreement|contract))?|effective\\s+as\\s+of)\\b[^0-9A-Za-z]{0,24}${CONTRACT_DATE_CAPTURE_SOURCE}`,
-    'i',
-  ),
 ];
 const EXECUTED_DATE_POSTFIX_EXECUTED_REGEX = new RegExp(
   `(?:on\\s+this\\s+)?${CONTRACT_DATE_CAPTURE_SOURCE}[^0-9A-Za-z]{0,24}(?:and\\s+is\\s+)?executed\\b`,
@@ -2187,6 +2299,42 @@ const EXECUTED_DATE_SIGNATURE_BLOCK_REGEX = new RegExp(
   `\\bdate\\b\\s*[:#\\-]?\\s*${CONTRACT_DATE_CAPTURE_SOURCE}`,
   'i',
 );
+
+function typedExecutedDateLooksUntrustworthy(
+  document: ExtractedNodeDocument,
+  rawValue: unknown,
+): boolean {
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) return false;
+
+  const dateNeedle = normalizeText(rawValue);
+  const matches = document.evidence.filter((evidence) => {
+    const search = normalizeText(evidenceSearchText(evidence));
+    return search.includes(dateNeedle);
+  });
+
+  if (matches.length === 0) return false;
+
+  const hasExplicitExecutionContext = matches.some((evidence) => {
+    const search = evidenceSearchText(evidence).replace(/\s+/g, ' ').trim();
+    return (
+      EXECUTED_DATE_EXPLICIT_REGEXES.some((pattern) => pattern.test(search)) ||
+      EXECUTED_DATE_POSTFIX_EXECUTED_REGEX.test(search) ||
+      /\b(?:last\s+below\s+written|witness\s+whereof|signed\s+by)\b/i.test(search)
+    );
+  });
+  if (hasExplicitExecutionContext) return false;
+
+  return matches.every((evidence) => {
+    const page = typeof evidence.location.page === 'number' ? evidence.location.page : null;
+    const search = normalizeText(evidenceSearchText(evidence));
+    return (
+      (page != null && page > 5) ||
+      /\b(?:certificate\s+of\s+liability|insurance|policy\s+eff|policy\s+exp|acord|wage\s+decision|notary|commission\s+expires|acknowledg(?:ment)?|subscribed\s+and\s+sworn|before\s+me)\b/i.test(
+        search,
+      )
+    );
+  });
+}
 
 function contractDateNoisePenalty(textLower: string): number {
   if (
@@ -2209,6 +2357,7 @@ function resolveContractExecutedDate(document: ExtractedNodeDocument): ContractD
   };
 
   const candidates: Cand[] = [];
+  const solicitationResponse = documentLooksLikeSolicitationResponse(document);
   const pushCandidate = (
     rawValue: unknown,
     source: string,
@@ -2243,8 +2392,12 @@ function resolveContractExecutedDate(document: ExtractedNodeDocument): ContractD
   };
 
   pushCandidate(document.structured_fields.executed_date, 'structured_fields.executed_date', null, 132);
-  pushCandidate(document.typed_fields.effective_date, 'typed_fields.effective_date', null, 32);
-  pushCandidate(document.typed_fields.contract_date, 'typed_fields.contract_date', null, 28);
+  if (
+    !solicitationResponse &&
+    !typedExecutedDateLooksUntrustworthy(document, document.typed_fields.contract_date)
+  ) {
+    pushCandidate(document.typed_fields.contract_date, 'typed_fields.contract_date', null, 28);
+  }
 
   for (const evidence of document.evidence) {
     const search = evidenceSearchText(evidence).replace(/\s+/g, ' ').trim();
@@ -2282,7 +2435,13 @@ function resolveContractExecutedDate(document: ExtractedNodeDocument): ContractD
     }
 
     const page = typeof evidence.location.page === 'number' ? evidence.location.page : null;
-    if (page != null && page <= 2 && /\b(?:contract no|vendor no|this contract|this agreement|department)\b/i.test(search)) {
+    if (
+      !solicitationResponse &&
+      page != null &&
+      page <= 2 &&
+      /\b(?:contract no|vendor no|this contract|this agreement|department)\b/i.test(search) &&
+      !/\beffective(?:\s+date)?\b/i.test(search)
+    ) {
       const topMatterMatch = EXECUTED_DATE_TOP_MATTER_REGEX.exec(search);
       if (topMatterMatch?.[1]) {
         pushCandidate(topMatterMatch[1], 'evidence.front_matter_date', evidence, 108, search);
@@ -2329,12 +2488,30 @@ const EFFECTIVE_DATE_INHERITS_EXECUTED_REGEXES = [
   /\beffective\s+date(?:\s+of\s+(?:this|the)\s+(?:contract|agreement))?\s+shall\s+be\s+defined\s+as\s+the\s+executed\s+date(?:\s+on\s+the\s+signature\s+page(?:\s+of\s+(?:this|the)\s+(?:contract|agreement))?)?\b/i,
 ] as const;
 
+const TERM_START_FOLLOWS_EXPLICIT_EFFECTIVE_DATE_REGEXES = [
+  /\b(?:this\s+contract|this\s+agreement|contract|agreement)\s+shall\s+be\s+effective\s+on\b[\s\S]{0,180}\b(?:extend|remain\s+in\s+effect|period\s+of|term)\b[\s\S]{0,120}\bafter\s+the\s+effective\s+date\b/i,
+  /\b(?:term|period)\s+(?:for\s+(?:this|the)\s+(?:contract|agreement)\s+)?(?:shall\s+)?(?:begin|commence|start)\b[\s\S]{0,80}\b(?:on|upon)\s+the\s+effective\s+date\b/i,
+  /\bcommencing\s+on\s+the\s+effective\s+date\b/i,
+] as const;
+
 function resolveEffectiveDateInheritedFromExecuted(document: ExtractedNodeDocument): string[] {
   const evidenceIds: string[] = [];
   for (const evidence of document.evidence) {
     const search = normalizeContractClauseTextForMatching(evidenceSearchText(evidence));
     if (!search.trim()) continue;
     if (EFFECTIVE_DATE_INHERITS_EXECUTED_REGEXES.some((pattern) => pattern.test(search))) {
+      evidenceIds.push(evidence.id);
+    }
+  }
+  return [...new Set(evidenceIds)];
+}
+
+function resolveTermStartInheritedFromExplicitEffectiveDate(document: ExtractedNodeDocument): string[] {
+  const evidenceIds: string[] = [];
+  for (const evidence of document.evidence) {
+    const search = normalizeContractClauseTextForMatching(evidenceSearchText(evidence));
+    if (!search.trim()) continue;
+    if (TERM_START_FOLLOWS_EXPLICIT_EFFECTIVE_DATE_REGEXES.some((pattern) => pattern.test(search))) {
       evidenceIds.push(evidence.id);
     }
   }
@@ -2486,7 +2663,7 @@ function addFact(
 }
 
 /** Document-level phrases for an overall contract $ cap (excludes per-unit / schedule-only caps). */
-const GLOBAL_CONTRACT_CEILING_LANGUAGE_RE = /\b(?:total\s+compensation|contract\s+amount|contract\s+sum|aggregate\s+payments|maximum\s+contract\s+amount|total\s+amount\s+of\s+bid(?:\s+for\s+entire\s+project)?|total\s+amount\s+payable|contract\s+ceiling|contract\s+limit|contract\s+cap|ceiling\s+for\s+this\s+contract|maximum\s+amount\s+payable|aggregate\s+cap|contractual\s+limit|ceiling\s+amount)\b/i;
+const GLOBAL_CONTRACT_CEILING_LANGUAGE_RE = /\b(?:total\s+compensation|contract\s+amount|contract\s+sum|aggregate\s+payments|maximum\s+contract\s+amount|total\s+amount\s+of\s+bid(?:\s+for\s+entire\s+project)?|total\s+amount\s+payable|contract\s+ceiling|contract\s+limit|contract\s+cap|ceiling\s+for\s+this\s+contract|maximum\s+amount\s+payable|aggregate\s+cap|contractual\s+limit|ceiling\s+amount|estimated\s+liability)\b/i;
 
 const UNIT_PRICE_OR_SCHEDULE_LANGUAGE_RE = /\b(?:unit\s+prices?|unit\s+pricing|unit[-\s]rate|schedule\s+of\s+(?:values|rates)|lump\s+sum\s+per|price\s+per\s+unit|price\s+schedule|unit\s+rate\s+price|emergency\s+debris\s+removal\s+unit\s+rates)\b/i;
 
@@ -2503,6 +2680,7 @@ const EXPLICIT_CEILING_NTE_REGEXES: readonly RegExp[] = [
 ];
 
 const EXPLICIT_CEILING_MAX_REGEXES: readonly RegExp[] = [
+  /(?:\bestimated\s+liability\b)[^$0-9]{0,24}\(?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\)?/i,
   /(?:\bmaximum\s+amount\b|\bmaximum\s+contract\s+amount\b|\bcontractual\s+limit\b|\bceiling\s+amount\b|\baggregate\s+cap\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
 ];
 
@@ -2562,7 +2740,7 @@ function resolveContractCeilingFacts(params: {
   );
   const explicitMaxCeilingEvidence = findEvidenceByRegex(params.document, [...EXPLICIT_CEILING_MAX_REGEXES]);
   const labeledCeilingEvidence = findEvidenceByRegex(params.document, [
-    /(?:\bcontract\s+ceiling\b|\bcontract\s+limit\b|\bcontract\s+cap\b|\bceiling\s+for\s+this\s+contract\b|\bmaximum\s+payable\b)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /(?:\bcontract\s+ceiling\b|\bcontract\s+limit\b|\bcontract\s+cap\b|\bceiling\s+for\s+this\s+contract\b|\bmaximum\s+payable\b|\bestimated\s+liability\b)[^$0-9]{0,24}\(?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\)?/i,
   ]);
   const totalBidEvidence = findEvidenceByRegex(params.document, [
     /(?:total\s+amount\s+of\s+bid(?:\s+for\s+entire\s+project)?)[^$0-9]{0,20}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
@@ -2681,6 +2859,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     ceiling_machine_classification,
   } = resolveContractCeilingFacts({ document, rateSchedulePresent });
 
+  const solicitationResponse = documentLooksLikeSolicitationResponse(document);
   const ownerResolution = resolveContractOwner(document);
   const executedDateResolution = resolveContractExecutedDate(document);
   const termStartDateEvidence = findEvidenceByRegex(document, [
@@ -2719,10 +2898,11 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const owner = ownerResolution.value;
   const executedCandidateStructured = normalizeContractDateCandidate(document.structured_fields.executed_date);
   const executedCandidateRegex = executedDateResolution.value;
-  const executedCandidateTypedEffective = normalizeContractDateCandidate(document.typed_fields.effective_date);
   const executedCandidateTypedContract = normalizeContractDateCandidate(document.typed_fields.contract_date);
   const executedDate = executedDateResolution.value;
   const executedDateEvidenceRefs = executedDateResolution.evidenceRefIds;
+  const effectiveCandidateStructured = normalizeContractDateCandidate(document.structured_fields.effective_date);
+  const effectiveCandidateTyped = normalizeContractDateCandidate(document.typed_fields.effective_date);
   const termStartCandidateRegex = normalizeContractDateCandidate(termStartDateEvidence?.value);
   const termStartCandidateStructured = normalizeContractDateCandidate(document.structured_fields.term_start_date);
   let termStartDate = firstValidContractDate(
@@ -2750,15 +2930,20 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     resolveEffectiveDateInheritedFromExecuted(document);
   const effectiveDateInheritedFromExecuted =
     effectiveDateInheritedFromExecutedEvidenceRefs.length > 0;
-  const effectiveTypedForDuration =
-    effectiveDateInheritedFromExecuted && executedDate
-      ? firstValidContractDate(executedDate, document.typed_fields.effective_date)
-      : firstValidContractDate(document.typed_fields.effective_date);
+  const effectiveTermAnchorEvidenceRefs =
+    resolveTermStartInheritedFromExplicitEffectiveDate(document);
+  const effectiveDateForDuration =
+    solicitationResponse
+      ? null
+      : effectiveDateInheritedFromExecuted && executedDate
+      ? firstValidContractDate(executedDate, effectiveCandidateStructured, effectiveCandidateTyped)
+      : firstValidContractDate(effectiveCandidateStructured, effectiveCandidateTyped);
 
   let termDurationDerivation: TermDurationDerivation | null = null;
   let executedRelativeDerivation: ExecutedRelativeTermDerivation | null = null;
   let termStartFilledFromExecutedRelative = false;
   let termStartFilledFromEffectiveExecution = false;
+  let termStartFilledFromExplicitEffectiveDate = false;
   let termStartFilledFromDurationAnchor = false;
   if (!termEndDate) {
     const executedRel = tryDeriveTermEndFromExecutedRelativeDuration(document, executedDate);
@@ -2780,11 +2965,16 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     ];
     termStartFilledFromEffectiveExecution = true;
   }
+  if (!termStartDate && effectiveDateForDuration && effectiveTermAnchorEvidenceRefs.length > 0) {
+    termStartDate = normalizeContractDateForDerivedAnchor(effectiveDateForDuration);
+    termStartDateEvidenceRefs = [...effectiveTermAnchorEvidenceRefs];
+    termStartFilledFromExplicitEffectiveDate = true;
+  }
   if (!termEndDate) {
     const derived = tryDeriveTermEndFromDurationClause(document, {
       executedDate,
       termStartDate,
-      effectiveTyped: effectiveTypedForDuration,
+      effectiveTyped: effectiveDateForDuration,
     });
     if (derived != null) {
       termDurationDerivation = derived;
@@ -2808,7 +2998,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const termEndUpstreamBlock = termEndBlockedByMissingUpstream(
     executedDate,
     termStartDate,
-    effectiveTypedForDuration,
+    effectiveDateForDuration,
     termEndDate,
     executedRelativeClauseProbe,
     durationClauseProbe,
@@ -2819,7 +3009,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     const anchorTry = resolveDurationClauseAnchorString(durationClauseProbe, {
       executedDate,
       termStartDate,
-      effectiveTyped: effectiveTypedForDuration,
+      effectiveTyped: effectiveDateForDuration,
     });
     if (anchorTry?.trim() && !parseContractAnchorDate(anchorTry)) {
       termEndLowConfidenceParse = true;
@@ -2833,7 +3023,10 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
 
   const termEndFromDurationDerivation =
     termDurationDerivation != null || executedRelativeDerivation != null;
-  const structuredExpiration = normalizeContractDateCandidate(document.structured_fields.expiration_date);
+  const structuredExpiration =
+    solicitationResponse && !termStartCandidateStructured && !termEndCandidateStructured
+      ? null
+      : normalizeContractDateCandidate(document.structured_fields.expiration_date);
   const parsedStructuredExpiration = structuredExpiration ? parseContractAnchorDate(structuredExpiration) : null;
   const parsedDerivedTermEnd = termEndDate ? parseContractAnchorDate(termEndDate) : null;
   const preferDerivedTermEndAsExpiration =
@@ -2952,6 +3145,14 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
               anchor_inheritance: 'effective_date_inherits_executed_date',
             },
           }
+        : termStartFilledFromExplicitEffectiveDate
+          ? {
+              status: 'calculated',
+              dependency: {
+                source_field: 'effective_date',
+                anchor_inheritance: 'term_start_follows_explicit_effective_date',
+              },
+            }
         : termStartFilledFromDurationAnchor
           ? {
               status: 'calculated',
@@ -3253,7 +3454,6 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
           candidates: [
             { source: 'structured_fields.executed_date', value: executedCandidateStructured ?? null, selected: executedDate === executedCandidateStructured },
             { source: executedDateResolution.chosenSource ?? 'evidence_or_typed', value: executedCandidateRegex ?? null, selected: executedDate === executedCandidateRegex },
-            { source: 'typed_fields.effective_date', value: executedCandidateTypedEffective ?? null, selected: executedDate === executedCandidateTypedEffective },
             { source: 'typed_fields.contract_date', value: executedCandidateTypedContract ?? null, selected: executedDate === executedCandidateTypedContract },
           ],
         },
@@ -3265,6 +3465,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
             : termStartDate === termStartCandidateRegex ? 'regex.evidence'
             : termStartFilledFromExecutedRelative ? 'derived.same_as_executed_for_executed_relative_term'
             : termStartFilledFromEffectiveExecution ? 'derived.same_as_executed_for_effective_date_clause'
+            : termStartFilledFromExplicitEffectiveDate ? 'derived.same_as_explicit_effective_date'
             : termStartFilledFromDurationAnchor ? 'derived.same_as_executed_for_duration_clause_anchor'
             : null,
           effective_date_inherits_executed: effectiveDateInheritedFromExecuted,

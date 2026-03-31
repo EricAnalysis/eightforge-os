@@ -4041,7 +4041,7 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
     entities.push({ key: 'contractor', label: 'Contractor', value: contractorName, status: 'neutral' });
   }
   if (ownerName) {
-    entities.push({ key: 'owner', label: 'Owner', value: ownerName, status: 'neutral' });
+    entities.push({ key: 'owner', label: 'Client', value: ownerName, status: 'neutral' });
   }
   entities.push({
     key: 'billing_model',
@@ -4356,7 +4356,7 @@ function buildContractOutput(params: BuildIntelligenceParams): DocumentIntellige
   const entities: DetectedEntity[] = [];
   if (contractNumber) entities.push({ key: 'contract_number', label: 'Contract #', value: contractNumber, status: 'neutral' });
   if (vendorName) entities.push({ key: 'contractor', label: 'Contractor', value: vendorName, status: 'neutral' });
-  if (ownerName) entities.push({ key: 'owner', label: 'Owner', value: ownerName, status: 'neutral' });
+  if (ownerName) entities.push({ key: 'owner', label: 'Client', value: ownerName, status: 'neutral' });
   if (nteAmount !== null) entities.push({ key: 'nte', label: 'NTE', value: formatMoney(nteAmount), status: decisions.some(d => d.type === 'contract_ceiling_risk') ? 'warning' : 'neutral' });
   if (contractDate) entities.push({ key: 'executed_date', label: 'Executed', value: formatDate(contractDate), status: 'neutral' });
   if (femaDisaster) entities.push({ key: 'fema_disaster', label: 'FEMA Disaster', value: femaDisaster, status: 'neutral' });
@@ -5347,7 +5347,7 @@ function buildWilliamsonContractOutput(params: BuildIntelligenceParams): Documen
   // Entities
   const entities: DetectedEntity[] = [];
   if (contractorName) entities.push({ key: 'contractor', label: 'Contractor', value: contractorName, status: 'neutral' });
-  if (ownerName) entities.push({ key: 'owner', label: 'Owner', value: ownerName, status: 'neutral' });
+  if (ownerName) entities.push({ key: 'owner', label: 'Client', value: ownerName, status: 'neutral' });
   if (executedDate) entities.push({ key: 'executed', label: 'Executed', value: formatDate(executedDate), status: 'neutral' });
   if (termDays !== null && !isNaN(termDays)) entities.push({ key: 'term', label: 'Term', value: `${termDays} days`, status: 'neutral' });
   if (femaCompliant) entities.push({ key: 'fema', label: 'FEMA', value: 'Referenced', status: 'ok' });

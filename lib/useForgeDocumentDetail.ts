@@ -81,6 +81,7 @@ export function useForgeDocumentDetail(
 
   useEffect(() => {
     if (!documentId || !orgId) {
+      console.log('[useForgeDocumentDetail] Skipping load: missing documentId or orgId', { documentId, orgId });
       setDoc(null);
       setExtractions([]);
       setSignedUrl(null);
@@ -90,6 +91,7 @@ export function useForgeDocumentDetail(
       return;
     }
 
+    console.log('[useForgeDocumentDetail] Starting load', { documentId, orgId, reloadNonce });
     let cancelled = false;
 
     const load = async () => {
@@ -110,6 +112,7 @@ export function useForgeDocumentDetail(
 
         const orgParam = `?orgId=${encodeURIComponent(orgId)}`;
 
+        console.log('[useForgeDocumentDetail] Fetching document data', { documentId, orgId });
         const [docRes, extractionsResult, fileRes] = await Promise.all([
           fetch(`/api/documents/${documentId}${orgParam}`, { headers: authHeaders }),
           supabase
@@ -121,17 +124,30 @@ export function useForgeDocumentDetail(
           fetch(`/api/documents/${documentId}/file${orgParam}`, { headers: authHeaders }),
         ]);
 
+        console.log('[useForgeDocumentDetail] Fetch complete', {
+          documentId,
+          docResOk: docRes.ok,
+          extractionsCount: extractionsResult.data?.length ?? 0,
+          fileResOk: fileRes.ok,
+        });
+
         if (cancelled) return;
 
         if (docRes.ok) {
           const docData = (await docRes.json().catch(() => null)) as DocumentApiDetail | null;
+          console.log('[useForgeDocumentDetail] Document data loaded', {
+            documentId,
+            has_intelligence_trace: !!docData?.intelligence_trace,
+          });
           if (docData && !cancelled) setDoc(docData);
         } else {
           const body = await docRes.json().catch(() => ({})) as { error?: string };
+          console.error('[useForgeDocumentDetail] Failed to load document', { documentId, status: docRes.status, error: body?.error });
           if (!cancelled) setError(body?.error ?? 'Failed to load document');
         }
 
         if (!extractionsResult.error && extractionsResult.data && !cancelled) {
+          console.log('[useForgeDocumentDetail] Extractions loaded', { documentId, count: extractionsResult.data.length });
           setExtractions(extractionsResult.data as ExtractionRow[]);
         }
 
@@ -141,11 +157,13 @@ export function useForgeDocumentDetail(
             ext?: string;
           };
           if (!cancelled && fileBody.signedUrl) {
+            console.log('[useForgeDocumentDetail] Signed URL received', { documentId, ext: fileBody.ext });
             setSignedUrl(fileBody.signedUrl);
             setFileExt(fileBody.ext ?? '');
           }
         }
       } catch (err) {
+        console.error('[useForgeDocumentDetail] Exception during load', { documentId, error: err });
         if (!cancelled)
           setError(err instanceof Error ? err.message : 'Failed to load document');
       } finally {
@@ -160,10 +178,21 @@ export function useForgeDocumentDetail(
   }, [documentId, orgId, reloadNonce]);
 
   const preferredExtraction = useMemo(
-    () =>
-      extractions.length > 0
-        ? pickPreferredExtractionBlob(extractions)
-        : null,
+    () => {
+      if (extractions.length === 0) {
+        console.log('[useForgeDocumentDetail] No extractions available', { documentId });
+        return null;
+      }
+      const preferred = pickPreferredExtractionBlob(extractions);
+      console.log('[useForgeDocumentDetail] Selected extraction', {
+        documentId,
+        selectedId: preferred?.id ?? null,
+        selectedCreatedAt: preferred?.created_at ?? null,
+        totalExtractions: extractions.length,
+        extractionIds: extractions.map(e => ({ id: e.id, created_at: e.created_at })),
+      });
+      return preferred;
+    },
     [extractions],
   );
 
@@ -173,7 +202,15 @@ export function useForgeDocumentDetail(
   );
 
   const model = useMemo((): DocumentIntelligenceViewModel | null => {
-    if (!doc) return null;
+    if (!doc) {
+      console.log('[useForgeDocumentDetail] Model computation skipped: no doc', { documentId });
+      return null;
+    }
+    console.log('[useForgeDocumentDetail] Building model', {
+      documentId,
+      extractionId: preferredExtraction?.id ?? null,
+      hasIntelligenceTrace: !!executionTrace,
+    });
     try {
       return buildDocumentIntelligenceViewModel({
         documentId: doc.id,
@@ -194,12 +231,22 @@ export function useForgeDocumentDetail(
         factReviews: doc.factReviews ?? [],
         reviewedDecisionIds: [],
       });
-    } catch {
+    } catch (err) {
+      console.error('[useForgeDocumentDetail] Model build failed', { documentId, error: err });
       return null;
     }
   }, [doc, executionTrace, extractions, preferredExtraction]);
 
   const filename = doc?.storage_path.split('/').at(-1) ?? doc?.name ?? '';
+
+  if (model) {
+    console.log('[useForgeDocumentDetail] Returning complete model', {
+      documentId,
+      modelReady: true,
+      hasExtractions: extractions.length > 0,
+      hasIntelligenceTrace: !!executionTrace,
+    });
+  }
 
   return {
     model,

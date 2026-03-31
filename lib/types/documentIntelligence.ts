@@ -3,6 +3,7 @@
 // Used by buildDocumentIntelligence() and all document-intelligence UI components.
 
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
+import type { ContractAnalysisResult } from '@/lib/contracts/types';
 //
 // Primary document families (first-class):
 //   contract/rate docs · ticket exports/PDFs · invoices/payment recs · spreadsheet support
@@ -231,6 +232,7 @@ export interface DocumentExecutionTrace {
   extraction_gaps?: ExtractionGap[];
   audit_notes?: AuditNote[];
   node_traces?: PipelineTraceNode[];
+  contract_analysis?: ContractAnalysisResult | null;
 }
 
 export interface ComparisonResult {
@@ -452,6 +454,7 @@ export interface DocumentIntelligenceOutput {
   extractionGaps?: ExtractionGap[];
   auditNotes?: AuditNote[];
   nodeTraces?: PipelineTraceNode[];
+  contractAnalysis?: ContractAnalysisResult | null;
   extracted:
     | ContractExtraction
     | InvoiceExtraction

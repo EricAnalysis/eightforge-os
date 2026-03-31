@@ -43,15 +43,19 @@ async function postProjectDocumentProcess(
   documentId: string,
   projectDocuments: ProjectDocumentRow[],
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  console.log('[postProjectDocumentProcess] Starting', { documentId, projectDocCount: projectDocuments.length });
   if (!projectDocuments.some((d) => d.id === documentId)) {
+    console.error('[postProjectDocumentProcess] Document not in project', { documentId });
     return { ok: false, error: 'Document is not in this project.' };
   }
   const {
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.access_token) {
+    console.error('[postProjectDocumentProcess] No auth token', { documentId });
     return { ok: false, error: 'Sign in required.' };
   }
+  console.log('[postProjectDocumentProcess] Calling /api/documents/process', { documentId });
   const res = await fetch('/api/documents/process', {
     method: 'POST',
     headers: {
@@ -60,6 +64,7 @@ async function postProjectDocumentProcess(
     },
     body: JSON.stringify({ documentId }),
   });
+  console.log('[postProjectDocumentProcess] Response status', { documentId, status: res.status });
   const body = (await res.json().catch(() => ({}))) as {
     message?: string;
     error?: string;
@@ -71,8 +76,10 @@ async function postProjectDocumentProcess(
         : typeof body.error === 'string'
           ? body.error
           : `Request failed (${res.status})`;
+    console.error('[postProjectDocumentProcess] API error', { documentId, status: res.status, msg });
     return { ok: false, error: msg };
   }
+  console.log('[postProjectDocumentProcess] Success', { documentId, responseBody: body });
   return { ok: true };
 }
 
@@ -704,20 +711,34 @@ function CenterPanelStructure({
 
   const handleReprocess = async () => {
     if (!resolvedSelectedDocId || reprocessPhase === 'loading') return;
+    console.log('[Reprocess] Button clicked', { documentId: resolvedSelectedDocId, phase: reprocessPhase });
     setReprocessError(null);
     setReprocessPhase('loading');
     try {
+      console.log('[Reprocess] API call starting', { documentId: resolvedSelectedDocId });
       const result = await postProjectDocumentProcess(resolvedSelectedDocId, projectDocuments);
+      console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok, error: result.error });
       if (!result.ok) {
+        console.error('[Reprocess] API returned error', { documentId: resolvedSelectedDocId, error: result.error });
         setReprocessError(result.error);
         setReprocessPhase('error');
         return;
       }
-      setDetailReloadNonce((n) => n + 1);
+      // Wait for database writes to replicate before triggering refetch to avoid race conditions.
+      console.log('[Reprocess] Waiting for database persistence...', { documentId: resolvedSelectedDocId });
+      await new Promise(resolve => setTimeout(resolve, 250));
+      console.log('[Reprocess] Incrementing reload nonce', { documentId: resolvedSelectedDocId });
+      setDetailReloadNonce((n) => {
+        console.log('[Reprocess] Nonce incremented', { oldNonce: n, newNonce: n + 1 });
+        return n + 1;
+      });
+      console.log('[Reprocess] Calling onProjectDataRefresh', { documentId: resolvedSelectedDocId });
       onProjectDataRefresh();
       setReprocessPhase('success');
       setLastReprocessedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      console.log('[Reprocess] Success completed', { documentId: resolvedSelectedDocId });
     } catch (err) {
+      console.error('[Reprocess] Exception thrown', { documentId: resolvedSelectedDocId, error: err });
       setReprocessError(err instanceof Error ? err.message : 'Reprocess failed.');
       setReprocessPhase('error');
     }

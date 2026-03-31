@@ -173,6 +173,27 @@ export interface ContractIssue {
   resolution_effect: string;
 }
 
+export interface ContractSuppressedIssueTrace {
+  issue_id: string;
+  reason: string;
+}
+
+export interface ContractIssueAnchorSummary {
+  issue_id: string;
+  field_ids: ContractFieldId[];
+  anchor_count: number;
+  anchor_ids: string[];
+  anchor_previews: string[];
+}
+
+export interface ContractAnalysisTrace {
+  detected_pattern_ids: string[];
+  coverage_gap_ids: string[];
+  emitted_issue_ids: string[];
+  suppressed_issues: ContractSuppressedIssueTrace[];
+  issue_anchor_summary: ContractIssueAnchorSummary[];
+}
+
 export interface ContractFieldAnalysis {
   field_id: ContractFieldId;
   label: string;
@@ -208,4 +229,5 @@ export interface ContractAnalysisResult {
   clause_patterns_detected: DetectedClausePattern[];
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];
+  trace_summary: ContractAnalysisTrace;
 }

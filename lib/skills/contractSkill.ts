@@ -3,8 +3,11 @@ import {
   collectStrictContractRateGroundingRefs,
   collectTextOnlyRateInferenceRef,
 } from '@/lib/intelligence/groundingRefs';
+import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { EvidenceObject } from '@/lib/extraction/types';
 import type { DocumentFamilySkill, SkillExecutionOutput } from '@/lib/pipeline/types';
 import {
+  collectEvidenceByIds as collectEvidenceByIdsFromMap,
   evidenceForFact,
   getBooleanFact,
   getNumberFact,
@@ -377,6 +380,14 @@ export const contractSkill: DocumentFamilySkill = {
       }));
     }
 
+    const intelligenceIssueOutput = buildContractIssueOutput({
+      analysis: input.contractAnalysis ?? null,
+      document: input.primaryDocument,
+      allEvidenceById: input.allEvidenceById,
+    });
+    decisions.push(...intelligenceIssueOutput.decisions);
+    actions.push(...intelligenceIssueOutput.actions);
+
     if (owner || executedDate) {
       audit_notes.push({
         id: 'audit:contract:key_terms',
@@ -395,3 +406,123 @@ export const contractSkill: DocumentFamilySkill = {
     };
   },
 };
+
+function buildContractIssueOutput(params: {
+  analysis: ContractAnalysisResult | null | undefined;
+  document: Parameters<typeof primaryActionOnDocument>[0];
+  allEvidenceById: Map<string, EvidenceObject>;
+}): Pick<SkillExecutionOutput, 'decisions' | 'actions'> {
+  if (!params.analysis) {
+    return { decisions: [], actions: [] };
+  }
+
+  const decisions: SkillExecutionOutput['decisions'] = [];
+  const actions: SkillExecutionOutput['actions'] = [];
+
+  for (const issue of params.analysis.issues) {
+    const evidenceObjects = collectEvidenceByIdsFromMap(issue.evidence_anchors, params.allEvidenceById);
+    const baseId = `contract:intelligence:${issue.issue_id}`;
+    const severity =
+      issue.priority === 'P1' ? 'critical' :
+      issue.priority === 'P2' ? 'warning' :
+      'info';
+    const family =
+      issue.issue_type === 'conflicting_evidence' ? 'mismatch' :
+      issue.issue_type === 'missing_required_clause' ? 'missing' :
+      'risk';
+    const title =
+      issue.issue_type === 'derived_value_requires_confirmation'
+        ? 'Derived term value requires confirmation'
+        : issue.issue_type === 'conflicting_evidence'
+          ? 'Conflicting contractor identity evidence'
+          : issue.issue_type === 'conditional_without_trigger_status'
+            ? 'Activation trigger detected but status unresolved'
+            : issue.issue_type === 'pricing_applicability_unclear'
+              ? 'Pricing schedule present, applicability unresolved'
+              : issue.issue_type === 'documentation_prerequisite_unclear'
+                ? 'Documentation prerequisites remain unclear'
+                : issue.issue_type === 'fema_gate_ambiguous'
+                  ? 'FEMA eligibility gate is ambiguous'
+                  : 'Missing required contract clause';
+
+    const primaryAction =
+      issue.issue_type === 'pricing_applicability_unclear'
+        ? primaryActionOnDocument(params.document, {
+            id: `${baseId}:action`,
+            type: 'confirm',
+            target_object_type: 'rate_schedule',
+            description: 'Confirm which contract rate lines actually govern the authorized work.',
+            expected_outcome: 'Pricing applicability is resolved before billing or reimbursement logic uses the schedule.',
+          })
+        : issue.issue_type === 'conditional_without_trigger_status' || issue.issue_type === 'missing_required_clause'
+          ? primaryActionOnDocument(params.document, {
+              id: `${baseId}:action`,
+              type: 'escalate',
+              target_object_type: 'contract',
+              description: 'Confirm the activation basis before treating the contract as work-authorizing.',
+              expected_outcome: 'Activation dependency is resolved for downstream operations and billing.',
+            })
+          : issue.issue_type === 'fema_gate_ambiguous'
+            ? primaryActionOnDocument(params.document, {
+                id: `${baseId}:action`,
+                type: 'document',
+                target_object_type: 'contract',
+                description: 'Document the FEMA eligibility restrictions and the supporting evidence for reimbursement review.',
+                expected_outcome: 'FEMA gate handling is explicit before reimbursement logic depends on it.',
+              })
+            : primaryActionOnDocument(params.document, {
+                id: `${baseId}:action`,
+                type: 'confirm',
+                target_object_type: 'contract',
+                description: 'Review and confirm the contract meaning at the cited source locations.',
+                expected_outcome: 'The contract issue is resolved with cited evidence.',
+              });
+
+    decisions.push(makeDecision({
+      id: baseId,
+      family,
+      severity,
+      title,
+      detail: issue.reason,
+      confidence: issue.priority === 'P1' ? 0.82 : 0.7,
+      fact_refs: issue.field_ids,
+      evidence_objects: evidenceObjects,
+      missing_source_context: evidenceObjects.length === 0
+        ? ['No direct evidence anchor was carried into the contract intelligence issue.']
+        : [],
+      rule_id: `contract_intelligence:${issue.issue_type}`,
+      field_key: issue.field_ids[0],
+      reason: issue.reason,
+      primary_action: primaryAction,
+      reconciliation_scope: 'single_document',
+    }));
+
+    actions.push(makeTask({
+      id: `${baseId}:task`,
+      title,
+      priority:
+        issue.priority === 'P1' ? 'high' :
+        issue.priority === 'P2' ? 'medium' :
+        'low',
+      verb:
+        issue.issue_type === 'fema_gate_ambiguous' ? 'confirm' :
+        issue.issue_type === 'conditional_without_trigger_status'
+          || issue.issue_type === 'missing_required_clause'
+          ? 'escalate'
+          : 'confirm',
+      entity_type:
+        issue.issue_type === 'pricing_applicability_unclear' ? 'rate_schedule' : 'contract',
+      flow_type:
+        issue.issue_type === 'fema_gate_ambiguous'
+          ? 'documentation'
+          : issue.issue_type === 'conditional_without_trigger_status'
+            || issue.issue_type === 'missing_required_clause'
+            ? 'escalation'
+            : 'validation',
+      expected_outcome: issue.resolution_effect,
+      source_decision_ids: [baseId],
+    }));
+  }
+
+  return { decisions, actions };
+}

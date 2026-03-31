@@ -72,6 +72,7 @@ export function decisionNode(input: NormalizeNodeOutput): DecisionNodeOutput {
     relatedDocuments: input.relatedDocuments,
     projectName: null,
     allEvidenceById: new Map(input.evidence.map((evidence) => [evidence.id, evidence])),
+    contractAnalysis: input.contractAnalysis ?? null,
   });
 
   return {

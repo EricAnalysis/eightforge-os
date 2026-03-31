@@ -1,4 +1,5 @@
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
+import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
   DetectedEntity,
@@ -101,6 +102,7 @@ export interface SkillExecutionInput {
   relatedDocuments: NormalizedNodeDocument[];
   projectName: string | null;
   allEvidenceById: Map<string, EvidenceObject>;
+  contractAnalysis?: ContractAnalysisResult | null;
 }
 
 export interface SkillExecutionOutput {
@@ -145,6 +147,7 @@ export interface NormalizeNodeOutput {
   confidence: number;
   facts: Record<string, unknown>;
   extracted: Record<string, unknown>;
+  contractAnalysis?: ContractAnalysisResult | null;
 }
 
 export interface DecisionNodeOutput extends NormalizeNodeOutput {

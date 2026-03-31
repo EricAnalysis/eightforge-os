@@ -292,6 +292,7 @@ function buildDocumentExecutionTrace(params: {
     extraction_gaps: intelligence.extractionGaps,
     audit_notes: intelligence.auditNotes,
     node_traces: intelligence.nodeTraces,
+    contract_analysis: intelligence.contractAnalysis ?? null,
   };
 }
 

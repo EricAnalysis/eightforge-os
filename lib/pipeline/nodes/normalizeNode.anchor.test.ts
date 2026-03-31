@@ -509,6 +509,61 @@ describe('normalizeNode anchor resolution', () => {
     assert.ok(contractor?.evidence_refs.includes('ev-p11-stampede'));
   });
 
+  it('rejects placeholder prime-contractor fields so the actual contractor label wins', () => {
+    const documentId = 'emerg03-prime-contractor-placeholder';
+    const placeholder = makePdfEvidence({
+      id: 'ev-prime-contractor-placeholder',
+      documentId,
+      page: 53,
+      text: 'Prime Contractor ___________________________________________________________',
+      label: 'Prime Contractor',
+      value: '___________________________________________________________',
+    });
+    const actualContractor = makePdfEvidence({
+      id: 'ev-prime-contractor-stampede',
+      documentId,
+      page: 11,
+      text: 'Contractor: Stampede Ventures, Inc.',
+      label: 'Contractor',
+      value: 'Stampede Ventures, Inc.',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'emerg03-prime-contractor.pdf',
+      documentTitle: 'EMERG03 prime contractor',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'THE CERTIFICATE HOLDER. OTHER',
+          },
+        },
+        extraction: {
+          text_preview: [placeholder.text, actualContractor.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'in  sum of Thirty Million Dollars',
+              contractor_name_source: 'heuristic',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [placeholder, actualContractor],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const contractor = normalized.primaryDocument.fact_map.contractor_name;
+    assert.equal(contractor?.value, 'Stampede Ventures, Inc.');
+    assert.ok(contractor?.evidence_refs.includes('ev-prime-contractor-stampede'));
+  });
+
   it('strips Contractor: prefix from evidence lines so the fact value is the legal name only', () => {
     const documentId = 'contractor-prefix-strip';
     const ev = makePdfEvidence({
@@ -536,6 +591,73 @@ describe('normalizeNode anchor resolution', () => {
     });
     const normalized = normalizeNode(extracted);
     assert.equal(normalized.primaryDocument.fact_map.contractor_name?.value, 'Acme Works LLC');
+  });
+
+  it('treats BAFO response pages as solicitation responses and does not invent executed or term dates', () => {
+    const documentId = 'ncdot-bafo-response';
+      const page1 = [
+        'STATE OF NORTH CAROLINA REQUEST FOR BEST AND FINAL OFFER Department of Public Safety NO. 19-IFB-1545027233-PTW',
+        'Issue Date: August 7, 2025',
+        'NOTICE TO VENDOR: Offers submitted in response to this Best and Final Offer (BAFO) for the furnishing and delivering the goods and services described herein will be received until August 13, 2025.',
+        'Using Agency: NC Emergency Management',
+        'VENDOR: EMAIL: CrowderGulf, LLC jramsay@crowdergulf.com',
+        'TYPE OR PRINT NAME & TITLE OF PERSON SIGNING: Ashley Ramsay-Naile, President',
+        'DATE:',
+        'Offer valid for ninety (90) calendar days from date of opening unless otherwise stated here.',
+        'ACCEPTANCE OF OFFER: If the State accepts any or all parts of this offer, an authorized representative of the Agency shall affix his/her signature.',
+        'Vendor shall engage in PPDR work only with a written right of entry and hold harmless document executed by the private property owner.',
+      ].join(' ');
+    const page1Evidence = makePdfEvidence({
+      id: 'ev-ncdot-bafo-page-1',
+      documentId,
+      page: 1,
+      text: page1,
+      label: 'Page 1',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'ncdot-bafo.pdf',
+      documentTitle: 'NCDOT BAFO',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Contract awarded this day of 20',
+            contract_date: 'August 13, 2025',
+            effective_date: 'August 7, 2025',
+          },
+        },
+        extraction: {
+          text_preview: page1,
+          evidence_v1: {
+            structured_fields: {
+              owner_name: 'NC Emergency Management See page 2 for Submission Instructions Requisition No.',
+              contractor_name: 'Offers submitted in response to this Best and Final Offer (BAFO) for furnishing and delivering goods and services',
+              contractor_name_source: 'heuristic',
+              expiration_date: '2025-08-13',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [page1Evidence],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.contractor_name?.value, 'CrowderGulf, LLC');
+    assert.equal(facts.owner_name?.value, 'State of North Carolina, Department of Public Safety');
+    assert.equal(facts.executed_date?.value, null);
+    assert.equal(facts.term_start_date?.value, null);
+    assert.equal(facts.term_end_date?.value, null);
+    assert.equal(facts.expiration_date?.value, null);
   });
 
   it('derives term_end_date and expiration from N days from fully executed when no explicit end date exists', () => {
@@ -710,6 +832,108 @@ describe('normalizeNode anchor resolution', () => {
       'effective_date_inherits_executed_date',
     );
     assert.ok(facts.term_end_date?.evidence_refs.includes('ev-bentonville-term'));
+  });
+
+  it('keeps TDOT executed and effective dates distinct on the live runtime path and prefers estimated liability over duration noise', () => {
+    const documentId = 'tdot-live-runtime-dates';
+    const termClause = makePdfEvidence({
+      id: 'ev-tdot-term-clause',
+      documentId,
+      page: 1,
+      text: [
+        'B.1 TERM OF CONTRACT.',
+        'This Contract shall be effective on February 9, 2026 ("Effective Date") and extend for a period of twelve (12) months after the Effective Date ("Term").',
+      ].join(' '),
+      label: 'Page 1',
+    });
+    const liabilityPage = makePdfEvidence({
+      id: 'ev-tdot-estimated-liability',
+      documentId,
+      page: 2,
+      text: [
+        'Estimated Liability ($100,000,000.00)',
+        'Compensation shall be based on the attached price schedule.',
+        'Purchase Order issued by the State is required for payment.',
+      ].join(' '),
+      label: 'Page 2',
+    });
+    const signaturePage = makePdfEvidence({
+      id: 'ev-tdot-signature',
+      documentId,
+      page: 22,
+      text: [
+        'IN WITNESS WHEREOF, the parties have executed this Contract as of the date last below written.',
+        'CONTRACTOR SIGNATURE',
+      ].join(' '),
+      nearbyText: 'Gerry Arvidson, President | Date: 2/6/2026',
+      label: 'Page 22',
+    });
+    const attestationPage = makePdfEvidence({
+      id: 'ev-tdot-attestation',
+      documentId,
+      page: 23,
+      text: 'Attachment A DATE OF ATTESTATION 2/6/2026',
+      label: 'Page 23',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'tdot-swc-820-89633.pdf',
+      documentTitle: 'TDOT SWC 820 #89633',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'PHILLIPS HEAVY INC',
+            effective_date: 'February 9, 2026',
+            nte_amount: 12,
+          },
+        },
+        extraction: {
+          text_preview: [
+            termClause.text,
+            liabilityPage.text,
+            signaturePage.text,
+            signaturePage.location.nearby_text,
+            attestationPage.text,
+          ].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              effective_date: 'February 9, 2026',
+            },
+            section_signals: {
+              rate_section_present: true,
+              rate_section_pages: [2],
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [termClause, liabilityPage, signaturePage, attestationPage],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, '2/6/2026');
+    assert.equal(facts.term_start_date?.value, '2026-02-09');
+    assert.equal(
+      facts.term_start_date?.derivation_dependency?.anchor_inheritance,
+      'term_start_follows_explicit_effective_date',
+    );
+    assert.equal(facts.term_end_date?.value, null);
+    assert.equal(facts.expiration_date?.value, null);
+    assert.equal(facts.contract_ceiling?.value, 100000000);
+    assert.ok(facts.executed_date?.evidence_refs.includes('ev-tdot-signature'));
+    assert.ok(facts.term_start_date?.evidence_refs.includes('ev-tdot-term-clause'));
+    assert.ok(facts.contract_ceiling?.evidence_refs.includes('ev-tdot-estimated-liability'));
+    assert.equal(normalized.extracted.executedDate, '2/6/2026');
+    assert.equal(normalized.extracted.notToExceedAmount, 100000000);
   });
 
 
@@ -1546,5 +1770,66 @@ describe('normalizeNode anchor resolution', () => {
       facts.term_start_date?.derivation_dependency?.anchor_inheritance,
       'same_as_executed_for_duration_clause_anchor',
     );
+  });
+
+  it('does not use stale typed dates from Lee solicitation packet pages when no execution evidence exists', () => {
+    const documentId = 'lee-live-stale-dates';
+    const scopePage = makePdfEvidence({
+      id: 'ev-lee-live-scope',
+      documentId,
+      page: 11,
+      text: [
+        'Solicitation No. RFP220362BJB',
+        'The Lee County Board of County Commissioners seeks to contract with a qualified Vendor to provide a variety of disaster recovery related services.',
+      ].join(' '),
+      label: 'Page 11',
+    });
+    const staleDate = makePdfEvidence({
+      id: 'ev-lee-live-stale-date',
+      documentId,
+      page: 37,
+      text: 'Insurance certificate revised 07/16/2018. Policy eff 07/16/2018. Policy exp 07/16/2019.',
+      label: 'Page 37',
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'contract',
+      documentName: 'lee-live-stale.pdf',
+      documentTitle: 'Lee live stale dates',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: {
+            vendor_name:
+              'for Lee County, Florida. If in federal court, venue shall be in the U.S. District Court for the Middle District of Florida',
+            contract_date: '07/16/2018',
+            effective_date: '7/16/2018',
+            expiration_date: '07/16/2018',
+          },
+        },
+        extraction: {
+          text_preview: [scopePage.text, staleDate.text].join('\n\n'),
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'to provide a',
+              expiration_date: '2022-07-25',
+            },
+          },
+          content_layers_v1: {
+            pdf: {
+              evidence: [scopePage, staleDate],
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const facts = normalized.primaryDocument.fact_map;
+
+    assert.equal(facts.executed_date?.value, null);
+    assert.equal(facts.expiration_date?.value, null);
   });
 });

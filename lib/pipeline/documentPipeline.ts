@@ -3,6 +3,7 @@ import { auditNode } from '@/lib/pipeline/nodes/auditNode';
 import { decisionNode } from '@/lib/pipeline/nodes/decisionNode';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
+import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
 import type {
   DocumentPipelineResult,
   ExtractNodeInput,
@@ -116,7 +117,14 @@ function toIssues(decisions: GeneratedDecision[]): IntelligenceIssue[] {
 export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineResult {
   const extracted = extractNode(input);
   const normalized = normalizeNode(extracted);
-  const decided = decisionNode(normalized);
+  const analyzed = {
+    ...normalized,
+    contractAnalysis: analyzeContractIntelligence({
+      primaryDocument: normalized.primaryDocument,
+      relatedDocuments: normalized.relatedDocuments,
+    }),
+  };
+  const decided = decisionNode(analyzed);
   const actioned = actionNode(decided);
   const audited = auditNode(actioned);
 
@@ -196,5 +204,6 @@ export function pipelineResultToIntelligence(
     extractionGaps: result.gaps,
     auditNotes: result.audit_notes,
     nodeTraces: result.node_traces,
+    contractAnalysis: result.contractAnalysis ?? null,
   };
 }

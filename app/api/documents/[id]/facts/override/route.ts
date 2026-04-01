@@ -6,6 +6,7 @@ import {
 } from '@/lib/documentFactOverrides';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -57,7 +58,7 @@ export async function POST(
 
   const { data: document, error: documentError } = await admin
     .from('documents')
-    .select('id, organization_id')
+    .select('id, organization_id, project_id')
     .eq('id', documentId)
     .maybeSingle();
 
@@ -112,6 +113,15 @@ export async function POST(
     .single();
 
   if (insertError) return jsonError(insertError.message, 500);
+
+  const projectId =
+    document && typeof document.project_id === 'string'
+      ? document.project_id
+      : null;
+  if (projectId) {
+    // Fire-and-forget so validation never blocks fact override saves.
+    void triggerProjectValidation(projectId, 'fact_override', actorId);
+  }
 
   return NextResponse.json({
     ok: true,

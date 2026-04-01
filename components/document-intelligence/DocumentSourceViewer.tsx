@@ -13,6 +13,7 @@ import type {
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const PDF_WORKER_SRC = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
+const PDF_WASM_BASE_URL = '/vendor/pdfjs/wasm/';
 const IMAGE_TYPES = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
 
 type PdfViewportLike = {
@@ -259,12 +260,15 @@ export function DocumentSourceViewer({
   activeAnchor,
   pageMarkerCounts,
   focusToken,
+  initialPage,
+  navigationKey,
   captureMode,
   rateScheduleAnchor,
   rateSchedulePages,
   onCancelCapture,
   onCreateAnchor,
   onCreateRateScheduleAnchor,
+  variant = 'default',
 }: {
   signedUrl: string | null;
   fileExt: string;
@@ -274,6 +278,8 @@ export function DocumentSourceViewer({
   activeAnchor: DocumentEvidenceAnchor | null;
   pageMarkerCounts: Record<number, number>;
   focusToken: number;
+  initialPage?: number | null;
+  navigationKey?: string | null;
   captureMode: DocumentAnchorCaptureMode | null;
   rateScheduleAnchor: DocumentEvidenceAnchor | null;
   rateSchedulePages: string | null;
@@ -299,13 +305,15 @@ export function DocumentSourceViewer({
     | { ok: true; anchor: DocumentFactAnchorRecord }
     | { ok: false; error: string }
   >;
+  variant?: 'default' | 'workspace';
 }) {
+  const isWorkspace = variant === 'workspace';
   const [pdf, setPdf] = useState<PdfDocumentLike | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
-  const [zoom, setZoom] = useState(1.2);
+  const [zoom, setZoom] = useState(isWorkspace ? 1.35 : 1.2);
   const [showOverlays, setShowOverlays] = useState(true);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [savingAnchor, setSavingAnchor] = useState(false);
@@ -331,6 +339,25 @@ export function DocumentSourceViewer({
     rawActiveOverrideId.trim().toLowerCase() !== 'undefined'
       ? rawActiveOverrideId.trim()
       : null;
+  const rootClass = isWorkspace
+    ? 'flex h-full min-h-0 flex-col overflow-hidden bg-[#050A14]'
+    : 'overflow-hidden rounded-2xl border border-white/10 bg-[#0B1220]';
+  const headerClass = isWorkspace ? 'border-b border-white/8 px-4 py-3' : 'border-b border-white/8 px-5 py-4';
+  const viewerShellClass = isWorkspace
+    ? 'grid min-h-0 flex-1 gap-0 xl:grid-cols-[180px_minmax(0,1fr)]'
+    : 'grid gap-0 xl:grid-cols-[220px_minmax(0,1fr)]';
+  const thumbnailRailClass = isWorkspace
+    ? 'min-h-0 overflow-y-auto border-r border-white/8 p-3'
+    : 'max-h-[840px] overflow-y-auto border-r border-white/8 p-3';
+  const pageViewerClass = isWorkspace
+    ? 'min-h-0 overflow-auto bg-[#050A14] p-4 xl:p-6'
+    : 'min-h-[840px] overflow-auto bg-[#050A14] p-4';
+  const loadingClass = isWorkspace
+    ? 'flex min-h-0 flex-1 items-center justify-center text-sm text-[#8FA1BC]'
+    : 'flex min-h-[640px] items-center justify-center text-sm text-[#8FA1BC]';
+  const errorClass = isWorkspace
+    ? 'flex min-h-0 flex-1 items-center justify-center px-8 text-center text-sm text-red-300'
+    : 'flex min-h-[640px] items-center justify-center px-8 text-center text-sm text-red-300';
 
   useEffect(() => {
     let cancelled = false;
@@ -355,6 +382,7 @@ export function DocumentSourceViewer({
         const bytes = await response.arrayBuffer();
         const document = await pdfjs.getDocument({
           data: new Uint8Array(bytes),
+          wasmUrl: PDF_WASM_BASE_URL,
         }).promise;
         if (cancelled) return;
         setPdf(document as unknown as PdfDocumentLike);
@@ -378,7 +406,13 @@ export function DocumentSourceViewer({
     const raw = activeAnchor?.startPage ?? activeAnchor?.pageNumber ?? fallback;
     const targetPage = Math.min(Math.max(1, raw), pdf.numPages);
     setCurrentPage(targetPage);
-  }, [pdf, activeAnchor?.pageNumber, activeAnchor?.startPage, activeAnchor?.id, anchors, focusToken]);
+  }, [pdf, activeAnchor?.pageNumber, activeAnchor?.startPage, activeAnchor?.id, anchors]);
+
+  useEffect(() => {
+    if (!pdf || initialPage == null) return;
+    const targetPage = Math.min(Math.max(1, initialPage), pdf.numPages);
+    setCurrentPage(targetPage);
+  }, [initialPage, navigationKey, pdf]);
 
   useEffect(() => {
     viewerScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
@@ -710,7 +744,7 @@ export function DocumentSourceViewer({
 
   if (!signedUrl) {
     return (
-      <div className="flex min-h-[720px] items-center justify-center rounded-2xl border border-white/10 bg-[#0B1220] p-8 text-center text-sm text-[#8FA1BC]">
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[#050A14]' : 'min-h-[720px] rounded-2xl border border-white/10 bg-[#0B1220]'} items-center justify-center p-8 text-center text-sm text-[#8FA1BC]`}>
         File preview is unavailable for this document.
       </div>
     );
@@ -718,16 +752,16 @@ export function DocumentSourceViewer({
 
   if (IMAGE_TYPES.has(fileExt)) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1220]">
-        <div className="border-b border-white/8 px-5 py-4">
+      <div className={rootClass}>
+        <div className={headerClass}>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
             Source Viewer
           </p>
           <p className="mt-1 text-[12px] text-[#8FA1BC]">Image preview for {filename}.</p>
         </div>
-        <div className="p-4">
+        <div className={isWorkspace ? 'flex min-h-0 flex-1 items-center justify-center p-4' : 'p-4'}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={signedUrl} alt={filename} className="max-h-[760px] w-full rounded-xl object-contain" />
+          <img src={signedUrl} alt={filename} className={`${isWorkspace ? 'max-h-full' : 'max-h-[760px]'} w-full rounded-xl object-contain`} />
         </div>
       </div>
     );
@@ -735,14 +769,14 @@ export function DocumentSourceViewer({
 
   if (fileExt !== 'pdf') {
     return (
-      <div className="flex min-h-[720px] items-center justify-center rounded-2xl border border-white/10 bg-[#0B1220] p-8 text-center text-sm text-[#8FA1BC]">
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[#050A14]' : 'min-h-[720px] rounded-2xl border border-white/10 bg-[#0B1220]'} items-center justify-center p-8 text-center text-sm text-[#8FA1BC]`}>
         Inline preview is not available for this file type. Use the file actions in the header to open or download it.
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1220]">
+    <div className={rootClass}>
       <style jsx global>{`
         .ef-pdf-text-layer {
           position: absolute;
@@ -767,7 +801,7 @@ export function DocumentSourceViewer({
         }
       `}</style>
 
-      <div className="border-b border-white/8 px-5 py-4">
+      <div className={headerClass}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
@@ -876,14 +910,14 @@ export function DocumentSourceViewer({
       </div>
 
       {loading ? (
-        <div className="flex min-h-[640px] items-center justify-center text-sm text-[#8FA1BC]">Loading PDF...</div>
+        <div className={loadingClass}>Loading PDF...</div>
       ) : error ? (
-        <div className="flex min-h-[640px] items-center justify-center px-8 text-center text-sm text-red-300">
+        <div className={errorClass}>
           {error}
         </div>
       ) : pdf ? (
-        <div className="grid gap-0 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="max-h-[840px] overflow-y-auto border-r border-white/8 p-3">
+        <div className={viewerShellClass}>
+          <div className={thumbnailRailClass}>
             <div className="space-y-3">
               {Array.from({ length: pdf.numPages }, (_, index) => index + 1).map((pageNumber) => (
                 <Thumbnail
@@ -898,7 +932,7 @@ export function DocumentSourceViewer({
             </div>
           </div>
 
-          <div ref={viewerScrollRef} className="min-h-[840px] overflow-auto bg-[#050A14] p-4">
+          <div ref={viewerScrollRef} className={pageViewerClass}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8FA1BC]">
               <span>
                 Page {currentPage} of {pdf.numPages}

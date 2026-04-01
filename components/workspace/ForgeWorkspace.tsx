@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
-import { StageRail } from '@/components/workspace/StageRail';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  FORGE_STAGE_KEYS,
+  FORGE_STAGE_LABELS,
   buildForgeStageCounts,
   getForgeActStageRecords,
   getForgeDecideStageRecords,
@@ -22,6 +23,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useForgeDocumentDetail } from '@/lib/useForgeDocumentDetail';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
+import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import {
@@ -136,28 +138,16 @@ type ForgeWorkspaceProps = {
   onProjectDataRefresh: () => void;
 };
 
-function LeftPanel({
-  stage,
-  stageCounts,
-}: {
-  stage: ForgeStageKey;
-  stageCounts: ForgeStageCounts;
-}) {
+function stagePressureLine(stage: ForgeStageKey, stageCounts: ForgeStageCounts): string {
   const lines: Record<ForgeStageKey, string> = {
-    intake: `${stageCounts.intake} document(s) queued for processing. New uploads land here before extraction.`,
-    extract: `${stageCounts.extract} document(s) in extraction or failed extraction. Resolve parser and OCR issues here.`,
-    structure: `${stageCounts.structure} document(s) extracted or decisioned and available for fact inspection in this project.`,
-    decide: `${stageCounts.decide} active persisted decision(s). The center queue only shows project-scoped records that still belong in Decide.`,
-    act: `${stageCounts.act} active persisted action(s). The center queue only shows project-scoped workflow tasks that still belong in Act.`,
-    audit: `${stageCounts.audit} recent audit event(s) on record for this project.`,
+    intake: `${stageCounts.intake} document(s) queued for processing.`,
+    extract: `${stageCounts.extract} document(s) in extraction or failed extraction.`,
+    structure: `${stageCounts.structure} document(s) available for fact inspection.`,
+    decide: `${stageCounts.decide} active decision(s) in project scope.`,
+    act: `${stageCounts.act} active action(s) in project scope.`,
+    audit: `${stageCounts.audit} recent audit event(s) on record.`,
   };
-
-  return (
-    <aside className="flex w-[17rem] shrink-0 flex-col border-r border-[#2F3B52]/80 bg-[#0B1020] p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#64748B]">Pressure</p>
-      <p className="mt-3 text-[12px] leading-relaxed text-[#C7D2E3]">{lines[stage]}</p>
-    </aside>
-  );
+  return lines[stage];
 }
 
 function decisionSeverityClass(severity: string): string {
@@ -577,24 +567,6 @@ function CenterPanelExtract({ documents }: { documents: ProjectDocumentRow[] }) 
   );
 }
 
-// No-op callbacks for DocumentIntelligenceWorkspace in the Forge read-only context.
-// Fact edits stay on the full document page; process/reprocess uses /api/documents/process above.
-const noopFactOverride: (input: {
-  fieldKey: string;
-  valueJson: unknown;
-  rawValue?: string | null;
-  actionType: DocumentFactOverrideActionType;
-  reason?: string | null;
-}) => Promise<{ ok: true } | { ok: false; error: string }> = async () =>
-  ({ ok: false, error: 'Open the full document to edit facts.' });
-
-const noopFactReview: (input: {
-  fieldKey: string;
-  reviewStatus: DocumentFactReviewStatus;
-  reviewedValueJson?: unknown;
-  notes?: string | null;
-}) => Promise<{ ok: true } | { ok: false; error: string }> = async () =>
-  ({ ok: false, error: 'Open the full document to review facts.' });
 
 const noopFactAnchor: (input: {
   fieldKey: string;
@@ -622,7 +594,60 @@ function StructureDocumentWorkspace({
   orgId: string | null;
   reloadNonce: number;
 }) {
-  const detail = useForgeDocumentDetail(documentId, orgId, reloadNonce);
+  const [saveNonce, setSaveNonce] = useState(0);
+
+  useEffect(() => {
+    setSaveNonce((n) => n + 1);
+  }, [reloadNonce]);
+
+  const detail = useForgeDocumentDetail(documentId, orgId, saveNonce);
+
+  const handleFactOverride = async (input: {
+    fieldKey: string;
+    valueJson: unknown;
+    rawValue?: string | null;
+    actionType: DocumentFactOverrideActionType;
+    reason?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return { ok: false, error: 'Authentication required' };
+      const res = await fetch(`/api/documents/${documentId}/facts/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(input),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) return { ok: false, error: body?.error ?? 'Failed to save override' };
+      setSaveNonce((n) => n + 1);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Failed to save override' };
+    }
+  };
+
+  const handleFactReview = async (input: {
+    fieldKey: string;
+    reviewStatus: DocumentFactReviewStatus;
+    reviewedValueJson?: unknown;
+    notes?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return { ok: false, error: 'Authentication required' };
+      const res = await fetch(`/api/documents/${documentId}/facts/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(input),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) return { ok: false, error: body?.error ?? 'Failed to save review' };
+      setSaveNonce((n) => n + 1);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Failed to save review' };
+    }
+  };
 
   if (detail.loading) {
     return (
@@ -667,10 +692,11 @@ function StructureDocumentWorkspace({
         signedUrl={detail.signedUrl}
         fileExt={detail.fileExt}
         filename={detail.filename}
-        onSaveFactOverride={noopFactOverride}
-        onSaveFactReview={noopFactReview}
+        onSaveFactOverride={handleFactOverride}
+        onSaveFactReview={handleFactReview}
         onSaveFactAnchor={noopFactAnchor}
         onSaveRateScheduleAnchor={noopRateScheduleAnchor}
+        variant="workspace"
       />
     </div>
   );
@@ -717,13 +743,14 @@ function CenterPanelStructure({
     try {
       console.log('[Reprocess] API call starting', { documentId: resolvedSelectedDocId });
       const result = await postProjectDocumentProcess(resolvedSelectedDocId, projectDocuments);
-      console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok, error: result.error });
       if (!result.ok) {
+        console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok, error: result.error });
         console.error('[Reprocess] API returned error', { documentId: resolvedSelectedDocId, error: result.error });
         setReprocessError(result.error);
         setReprocessPhase('error');
         return;
       }
+      console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok });
       // Wait for database writes to replicate before triggering refetch to avoid race conditions.
       console.log('[Reprocess] Waiting for database persistence...', { documentId: resolvedSelectedDocId });
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -759,9 +786,9 @@ function CenterPanelStructure({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-[#2F3B52]/80 bg-[#0B1020] px-4 py-2 sm:flex-row sm:items-center sm:gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.18em] text-[#64748B]">Document</span>
+      <div className="flex shrink-0 flex-col gap-2 border-b border-[#2F3B52]/80 bg-[#0B1020] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.18em] text-[#64748B]">Inspection target</span>
           {structureDocuments.length > 1 ? (
             <select
               aria-label="Document for structure inspection"
@@ -772,7 +799,7 @@ function CenterPanelStructure({
                 setReprocessError(null);
                 setLastReprocessedAt(null);
               }}
-              className="min-w-0 flex-1 rounded border border-[#2F3B52]/80 bg-[#111827] px-2 py-1 text-[12px] text-[#C7D2E3] focus:border-[#3B82F6]/60 focus:outline-none"
+              className="min-w-[16rem] max-w-full flex-1 rounded-lg border border-[#2F3B52]/80 bg-[#111827] px-3 py-1.5 text-[12px] text-[#C7D2E3] focus:border-[#3B82F6]/60 focus:outline-none"
             >
               <option value="">-- Select a document --</option>
               {structureDocuments.map((d) => (
@@ -787,13 +814,23 @@ function CenterPanelStructure({
               {forgeInspectorDocumentLabel(structureDocuments[0])}
             </span>
           )}
+          {selectedRow ? (
+            <>
+              <span className="rounded-full border border-[#2F3B52]/80 bg-[#111827] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">
+                {selectedRow.document_type ? selectedRow.document_type.replace(/_/g, ' ') : 'Document'}
+              </span>
+              <span className="rounded-full border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#BFDBFE]">
+                {selectedRow.processing_status.replace(/_/g, ' ')}
+              </span>
+            </>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
           {resolvedSelectedDocId ? (
             <>
               <Link
                 href={`/platform/documents/${resolvedSelectedDocId}`}
-                className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#60A5FA] hover:text-[#93C5FD]"
+                className="rounded-full border border-[#2F3B52]/80 bg-[#111827] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#94A3B8] transition hover:border-[#3B82F6]/40 hover:text-[#E5EDF7]"
               >
                 Full view
               </Link>
@@ -801,7 +838,7 @@ function CenterPanelStructure({
                 type="button"
                 disabled={reprocessPhase === 'loading' || !selectedRow}
                 onClick={handleReprocess}
-                className="rounded border border-[#3B82F6]/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD] transition hover:bg-[#3B82F6]/15 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD] transition hover:bg-[#3B82F6]/15 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {reprocessPhase === 'loading' ? 'Reprocessing…' : 'Reprocess'}
               </button>
@@ -861,6 +898,7 @@ function CenterPanelAudit({ items, emptyState }: { items: ProjectOverviewAuditIt
                 ) : (
                   <p className="mt-1 text-[11px] text-[#94A3B8]">{item.detail}</p>
                 )}
+                <ValidationAuditEventSummary item={item} />
               </li>
             ))
           )}
@@ -1078,7 +1116,7 @@ export function ForgeWorkspace({
   tasks,
   onProjectDataRefresh,
 }: ForgeWorkspaceProps) {
-  const [stage, setStage] = useState<ForgeStageKey>('decide');
+  const [stage, setStage] = useState<ForgeStageKey>('structure');
   const [selection, setSelection] = useState<ForgeSelection>(null);
   const { organization } = useCurrentOrg();
   const orgId = organization?.id ?? null;
@@ -1098,41 +1136,75 @@ export function ForgeWorkspace({
   );
 
   return (
-    <div className="flex min-h-[min(70vh,40rem)] min-w-0 flex-1">
-      <StageRail selected={stage} counts={stageCounts} onSelect={setStage} />
-      <LeftPanel stage={stage} stageCounts={stageCounts} />
-      {stage === 'decide' ? (
-        <CenterPanelDecide
-          decisions={decideRecords}
-          tasks={actRecords}
-          emptyState={model.decision_empty_state}
-          selection={selection}
-          onSelectDecision={(id) => setSelection({ kind: 'decision', id })}
-          onSelectTask={(id) => setSelection({ kind: 'task', id })}
-        />
-      ) : stage === 'act' ? (
-        <CenterPanelAct
-          records={actRecords}
-          selection={selection}
-          onSelectTask={(id) => setSelection({ kind: 'task', id })}
-        />
-      ) : stage === 'intake' ? (
-        <CenterPanelIntake documents={documents} onProjectDataRefresh={onProjectDataRefresh} />
-      ) : stage === 'extract' ? (
-        <CenterPanelExtract documents={documents} />
-      ) : stage === 'structure' ? (
-        <CenterPanelStructure
-          structureDocuments={structureDocuments}
-          projectDocuments={documents}
-          orgId={orgId}
-          onProjectDataRefresh={onProjectDataRefresh}
-        />
-      ) : stage === 'audit' ? (
-        <CenterPanelAudit items={model.audit} emptyState={model.audit_empty_state} />
-      ) : (
-        <CenterPanelOtherStage stage={stage} />
-      )}
-      <RightPanel selection={selection} decisions={decisions} tasks={tasks} documents={documents} />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="border-b border-[#2F3B52]/80 bg-[#0B1020]/90 px-4 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {FORGE_STAGE_KEYS.map((key) => {
+            const active = stage === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStage(key)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                  active
+                    ? 'border-[#3B82F6]/50 bg-[#3B82F6]/12 text-[#BFDBFE]'
+                    : 'border-[#2F3B52]/80 bg-[#111827] text-[#94A3B8] hover:border-[#3B82F6]/30 hover:text-[#E5EDF7]'
+                }`}
+              >
+                <span>{FORGE_STAGE_LABELS[key]}</span>
+                <span className={`font-mono tabular-nums ${active ? 'text-[#E5EDF7]' : 'text-[#C7D2E3]'}`}>
+                  {stageCounts[key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="min-h-0 min-w-0 flex-1">
+        {stage === 'structure' ? (
+          <CenterPanelStructure
+            structureDocuments={structureDocuments}
+            projectDocuments={documents}
+            orgId={orgId}
+            onProjectDataRefresh={onProjectDataRefresh}
+          />
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <p className="shrink-0 border-b border-[#2F3B52]/60 px-4 py-2 text-[11px] text-[#64748B]">
+              {stagePressureLine(stage, stageCounts)}
+            </p>
+            <div className="flex min-h-0 flex-1">
+            {stage === 'decide' ? (
+              <CenterPanelDecide
+                decisions={decideRecords}
+                tasks={actRecords}
+                emptyState={model.decision_empty_state}
+                selection={selection}
+                onSelectDecision={(id) => setSelection({ kind: 'decision', id })}
+                onSelectTask={(id) => setSelection({ kind: 'task', id })}
+              />
+            ) : stage === 'act' ? (
+              <CenterPanelAct
+                records={actRecords}
+                selection={selection}
+                onSelectTask={(id) => setSelection({ kind: 'task', id })}
+              />
+            ) : stage === 'intake' ? (
+              <CenterPanelIntake documents={documents} onProjectDataRefresh={onProjectDataRefresh} />
+            ) : stage === 'extract' ? (
+              <CenterPanelExtract documents={documents} />
+            ) : stage === 'audit' ? (
+              <CenterPanelAudit items={model.audit} emptyState={model.audit_empty_state} />
+            ) : (
+              <CenterPanelOtherStage stage={stage} />
+            )}
+            <RightPanel selection={selection} decisions={decisions} tasks={tasks} documents={documents} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

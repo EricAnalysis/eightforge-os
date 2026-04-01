@@ -207,7 +207,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const [projectResult, documentsResult] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, code, status, created_at')
+          .select('id, name, code, status, created_at, validation_status, validation_summary_json')
           .eq('organization_id', organizationId)
           .eq('id', projectId)
           .maybeSingle(),
@@ -386,7 +386,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       const activityResult = await supabase
         .from('activity_events')
-        .select('id, entity_type, entity_id, event_type, old_value, new_value, changed_by, created_at')
+        .select('id, project_id, entity_type, entity_id, event_type, old_value, new_value, changed_by, created_at')
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false })
         .limit(150);
@@ -397,6 +397,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         if (event.entity_type === 'decision') return projectDecisionIds.has(event.entity_id);
         if (event.entity_type === 'workflow_task') return projectTaskIds.has(event.entity_id);
         if (event.entity_type === 'project') return event.entity_id === projectId;
+        if (event.entity_type === 'project_validation_run') return event.project_id === projectId;
         if (event.entity_type === 'document') {
           if (projectDocumentIdSet.has(event.entity_id)) return true;
           const oldProjectId = typeof event.old_value?.project_id === 'string'

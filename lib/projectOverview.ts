@@ -12,6 +12,7 @@ import type {
   FlowTask,
   NormalizedDecision,
 } from '@/lib/types/documentIntelligence';
+import type { ValidationStatus, ValidationTriggerSource } from '@/types/validator';
 
 type Relation<T> = T | T[] | null | undefined;
 
@@ -21,6 +22,8 @@ export type ProjectRecord = {
   code: string | null;
   status: string | null;
   created_at: string;
+  validation_status?: ValidationStatus | null;
+  validation_summary_json?: unknown;
 };
 
 export type ProjectDocumentRelation = {
@@ -89,6 +92,7 @@ export type ProjectTaskRow = {
 
 export type ProjectActivityEventRow = {
   id: string;
+  project_id: string | null;
   entity_type: string;
   entity_id: string;
   event_type: string;
@@ -137,8 +141,22 @@ export type ProjectOverviewExposure = {
   limit_label: string;
   actual_label: string;
   detail: string;
+  help_href: string | null;
+  help_label: string | null;
   tone: OverviewTone;
   derived: boolean;
+};
+
+export type ProjectValidatorSummarySnapshot = {
+  status: ValidationStatus;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  open_count: number;
+  blocked_reasons: string[];
+  trigger_source: ValidationTriggerSource | null;
+  nte_amount: number | null;
+  total_billed: number | null;
 };
 
 export type ProjectOverviewMetric = {
@@ -199,6 +217,15 @@ export type ProjectOverviewAuditItem = {
   timestamp_label: string;
   tone: OverviewTone;
   href: string | null;
+  validation_run?: {
+    status: ValidationStatus;
+    critical_count: number;
+    warning_count: number;
+    new_findings_count: number;
+    resolved_findings_count: number;
+    rules_applied_count: number;
+    rule_version: string | null;
+  } | null;
 };
 
 export type ProjectOverviewModel = {
@@ -208,6 +235,8 @@ export type ProjectOverviewModel = {
   project_id_label: string;
   tags: ProjectOverviewTag[];
   status: ProjectOverviewStatus;
+  validator_status: ValidationStatus;
+  validator_summary: ProjectValidatorSummarySnapshot;
   exposure: ProjectOverviewExposure;
   metrics: ProjectOverviewMetric[];
   facts: ProjectOverviewFact[];
@@ -241,11 +270,6 @@ export type ProjectOperationalRollup = {
       tone: OverviewTone;
     }
   >;
-};
-
-type ExposureDocumentInsight = {
-  document: ProjectDocumentRow;
-  trace: DocumentExecutionTrace | null;
 };
 
 type ProjectMatchContext = {
@@ -357,6 +381,59 @@ function parseNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isValidationStatus(value: unknown): value is ValidationStatus {
+  return (
+    value === 'NOT_READY' ||
+    value === 'BLOCKED' ||
+    value === 'VALIDATED' ||
+    value === 'FINDINGS_OPEN'
+  );
+}
+
+function isValidationTriggerSource(value: unknown): value is ValidationTriggerSource {
+  return (
+    value === 'document_processed' ||
+    value === 'fact_override' ||
+    value === 'relationship_change' ||
+    value === 'manual'
+  );
+}
+
+function resolveProjectValidatorSummary(
+  project: ProjectRecord,
+): ProjectValidatorSummarySnapshot {
+  const raw =
+    project.validation_summary_json &&
+    typeof project.validation_summary_json === 'object' &&
+    !Array.isArray(project.validation_summary_json)
+      ? (project.validation_summary_json as Record<string, unknown>)
+      : null;
+
+  const status = isValidationStatus(project.validation_status)
+    ? project.validation_status
+    : raw && isValidationStatus(raw.status)
+      ? raw.status
+      : 'NOT_READY';
+
+  return {
+    status,
+    critical_count: parseNumber(raw?.critical_count) ?? 0,
+    warning_count: parseNumber(raw?.warning_count) ?? 0,
+    info_count: parseNumber(raw?.info_count) ?? 0,
+    open_count: parseNumber(raw?.open_count) ?? 0,
+    blocked_reasons: Array.isArray(raw?.blocked_reasons)
+      ? raw.blocked_reasons.filter(
+          (value): value is string => typeof value === 'string' && value.trim().length > 0,
+        )
+      : [],
+    trigger_source: isValidationTriggerSource(raw?.trigger_source)
+      ? raw.trigger_source
+      : null,
+    nte_amount: parseNumber(raw?.nteAmount ?? raw?.nte_amount) ?? null,
+    total_billed: parseNumber(raw?.totalBilled ?? raw?.total_billed) ?? null,
+  };
+}
+
 function getFactValue(
   facts: Record<string, unknown> | undefined,
   keys: string[],
@@ -365,21 +442,6 @@ function getFactValue(
     if (key in (facts ?? {})) return facts?.[key];
   }
   return null;
-}
-
-function getFactNumber(
-  facts: Record<string, unknown> | undefined,
-  keys: string[],
-): number | null {
-  return parseNumber(getFactValue(facts, keys));
-}
-
-function getFactString(
-  facts: Record<string, unknown> | undefined,
-  keys: string[],
-): string | null {
-  const value = getFactValue(facts, keys);
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function shortProjectId(project: ProjectRecord): string {
@@ -1068,55 +1130,10 @@ export function buildProjectOperationalRollup(params: {
 export function resolveProjectExposure(
   project: ProjectRecord,
   documents: ProjectDocumentRow[],
+  validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewExposure {
-  const insights: ExposureDocumentInsight[] = documents.map((document) => ({
-    document,
-    trace: parseDocumentExecutionTrace(document.intelligence_trace ?? null),
-  }));
-
-  const limitCandidates: number[] = [];
-  const actualByInvoiceKey = new Map<string, { amount: number; precedence: number }>();
-
-  for (const insight of insights) {
-    const facts = insight.trace?.facts;
-    const limitCandidate = getFactNumber(facts, [
-      'nte_amount',
-      'notToExceedAmount',
-      'original_contract_sum',
-      'g702_contract_sum',
-      'approved_amount',
-    ]);
-    if (limitCandidate != null && limitCandidate > 0) {
-      limitCandidates.push(limitCandidate);
-    }
-
-    const actualCandidate = getFactNumber(facts, [
-      'amount_recommended_for_payment',
-      'approved_amount',
-      'current_payment_due',
-      'total_earned_less_retainage',
-      'extended_cost',
-    ]);
-    if (actualCandidate == null || actualCandidate <= 0) continue;
-
-    const invoiceKey =
-      getFactString(facts, ['invoice_number', 'invoiceNumber']) ??
-      insight.document.id;
-    const precedence =
-      insight.document.document_type === 'payment_rec' ||
-      insight.document.document_type === 'payment_recommendation'
-        ? 2
-        : 1;
-    const existing = actualByInvoiceKey.get(invoiceKey);
-    if (!existing || precedence >= existing.precedence) {
-      actualByInvoiceKey.set(invoiceKey, { amount: actualCandidate, precedence });
-    }
-  }
-
-  const limitAmount = limitCandidates.length > 0 ? Math.max(...limitCandidates) : null;
-  const actualAmount = actualByInvoiceKey.size > 0
-    ? [...actualByInvoiceKey.values()].reduce((sum, entry) => sum + entry.amount, 0)
-    : null;
+  const limitAmount = validatorSummary.nte_amount;
+  const actualAmount = validatorSummary.total_billed;
   const percent = limitAmount && actualAmount != null
     ? Number(((actualAmount / limitAmount) * 100).toFixed(0))
     : null;
@@ -1130,8 +1147,10 @@ export function resolveProjectExposure(
       actual_label: 'ACTUAL: Awaiting source docs',
       detail:
         documents.length > 0
-          ? `Exposure is waiting on contract or invoice totals for ${shortProjectId(project)}.`
-          : 'Exposure will appear once a contract or payment document is linked.',
+          ? `Exposure is waiting on validator NTE extraction for ${shortProjectId(project)}.`
+          : 'Exposure will appear once validator summary data is available for this project.',
+      help_href: '#project-validator',
+      help_label: 'Review Validator',
       tone: 'muted',
       derived: true,
     };
@@ -1148,7 +1167,9 @@ export function resolveProjectExposure(
     percent_label: `${percent}%`,
     limit_label: `LIMIT: ${formatCurrency(limitAmount)}`,
     actual_label: `ACTUAL: ${formatCurrency(actualAmount)}`,
-    detail: 'Derived from linked contract and invoice trace amounts.',
+    detail: 'Derived from validator summary state.',
+    help_href: null,
+    help_label: null,
     tone,
     derived: true,
   };
@@ -1156,9 +1177,17 @@ export function resolveProjectExposure(
 
 function resolveProjectMetrics(
   project: ProjectRecord,
-  documents: ProjectDocumentRow[],
   rollup: ProjectOperationalRollup,
+  validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewMetric[] {
+  const anomalyCount = validatorSummary.critical_count + validatorSummary.warning_count;
+  const anomalyTone: OverviewTone =
+    validatorSummary.critical_count > 0
+      ? 'danger'
+      : anomalyCount > 0
+        ? 'warning'
+        : 'success';
+
   return [
     {
       key: 'processed-docs',
@@ -1188,11 +1217,11 @@ function resolveProjectMetrics(
     {
       key: 'anomalies',
       label: 'Anomalies',
-      value: formatCompactNumber(rollup.anomaly_count),
-      supporting: rollup.anomaly_count > 0
-        ? `${rollup.anomaly_count} linked document${rollup.anomaly_count === 1 ? '' : 's'} have processing anomalies or failed execution`
-        : 'No processing anomalies are currently active',
-      tone: rollup.anomaly_count > 0 ? 'danger' : 'success',
+      value: formatCompactNumber(anomalyCount),
+      supporting: anomalyCount > 0
+        ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning validator finding${anomalyCount === 1 ? '' : 's'} are active`
+        : 'No validator anomalies are currently active',
+      tone: anomalyTone,
     },
   ];
 }
@@ -1200,12 +1229,17 @@ function resolveProjectMetrics(
 function resolveProjectFacts(
   project: ProjectRecord,
   rollup: ProjectOperationalRollup,
+  validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewFact[] {
+  const projectClear =
+    validatorSummary.status === 'VALIDATED' &&
+    validatorSummary.open_count === 0;
+
   return [
     { label: 'Project Code', value: shortProjectId(project) },
-    { label: 'Unresolved Findings', value: formatCompactNumber(rollup.unresolved_finding_count) },
+    { label: 'Unresolved Findings', value: formatCompactNumber(validatorSummary.open_count) },
     { label: 'Blocked', value: formatCompactNumber(rollup.blocked_count) },
-    { label: 'Project Clear', value: rollup.project_clear ? 'Yes' : 'No' },
+    { label: 'Project Clear', value: projectClear ? 'Yes' : 'No' },
   ];
 }
 
@@ -1367,6 +1401,42 @@ function extractStringValue(
   return typeof result === 'string' && result.trim().length > 0 ? result : null;
 }
 
+function extractNumberValue(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): number | null {
+  const result = value?.[key];
+  return typeof result === 'number' && Number.isFinite(result) ? result : null;
+}
+
+function extractStringArrayValue(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): string[] {
+  const result = value?.[key];
+  if (!Array.isArray(result)) return [];
+
+  return result.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  );
+}
+
+function extractValidationStatus(
+  value: Record<string, unknown> | null | undefined,
+): ValidationStatus | null {
+  const status = extractStringValue(value, 'status');
+  if (
+    status === 'NOT_READY' ||
+    status === 'BLOCKED' ||
+    status === 'VALIDATED' ||
+    status === 'FINDINGS_OPEN'
+  ) {
+    return status;
+  }
+
+  return null;
+}
+
 export function resolveProjectAuditEvents(
   project: ProjectRecord,
   documents: ProjectDocumentRow[],
@@ -1405,6 +1475,46 @@ export function resolveProjectAuditEvents(
   });
 
   const derivedActivityEvents = activityEvents.map((event) => {
+    const isValidationRun =
+      event.entity_type === 'project_validation_run' &&
+      event.event_type === 'validation_run_completed';
+    if (isValidationRun) {
+      const status = extractValidationStatus(event.new_value) ?? 'NOT_READY';
+      const criticalCount = extractNumberValue(event.new_value, 'critical_count') ?? 0;
+      const warningCount = extractNumberValue(event.new_value, 'warning_count') ?? 0;
+      const newFindingsCount = extractNumberValue(event.new_value, 'new_findings') ?? 0;
+      const resolvedFindingsCount = extractNumberValue(event.new_value, 'resolved_findings') ?? 0;
+      const rulesApplied = extractStringArrayValue(event.new_value, 'rules_applied');
+      const ruleVersion = extractStringValue(event.new_value, 'rule_version');
+      const tone: OverviewTone =
+        status === 'BLOCKED'
+          ? 'danger'
+          : status === 'VALIDATED'
+            ? 'success'
+            : status === 'FINDINGS_OPEN'
+              ? 'warning'
+              : 'muted';
+
+      return {
+        id: event.id,
+        label: 'Validation run',
+        detail: 'Project validator completed and recorded a new consistency snapshot.',
+        timestamp_label: relativeTime(event.created_at),
+        tone,
+        href: null,
+        sort_at: event.created_at,
+        validation_run: {
+          status,
+          critical_count: criticalCount,
+          warning_count: warningCount,
+          new_findings_count: newFindingsCount,
+          resolved_findings_count: resolvedFindingsCount,
+          rules_applied_count: rulesApplied.length,
+          rule_version: ruleVersion,
+        },
+      };
+    }
+
     const isDecision = event.entity_type === 'decision';
     const isTask = event.entity_type === 'workflow_task';
     const isProject = event.entity_type === 'project';
@@ -1493,6 +1603,7 @@ export function resolveProjectAuditEvents(
       tone,
       href,
       sort_at: event.created_at,
+      validation_run: null,
     };
   });
 
@@ -1506,6 +1617,7 @@ export function resolveProjectAuditEvents(
       timestamp_label: event.timestamp_label,
       tone: event.tone,
       href: event.href,
+      validation_run: event.validation_run ?? null,
     }));
 }
 
@@ -1527,6 +1639,7 @@ export function buildProjectOverviewModel(params: {
     activityEvents,
     members,
   } = params;
+  const validatorSummary = resolveProjectValidatorSummary(project);
   const rollup = buildProjectOperationalRollup({
     project,
     documents,
@@ -1535,7 +1648,7 @@ export function buildProjectOverviewModel(params: {
     documentReviews,
     members,
   });
-  const exposure = resolveProjectExposure(project, documents);
+  const exposure = resolveProjectExposure(project, documents, validatorSummary);
   const decisionCards = resolveProjectDecisionSummary(decisions, tasks, members);
   const actionItems = resolveProjectPendingActions(rollup);
   const processedDocuments = resolveProjectProcessedDocs(project, documents, rollup);
@@ -1548,9 +1661,11 @@ export function buildProjectOverviewModel(params: {
     project_id_label: shortProjectId(project),
     tags: resolveProjectTags(project, documents),
     status: rollup.status,
+    validator_status: validatorSummary.status,
+    validator_summary: validatorSummary,
     exposure,
-    metrics: resolveProjectMetrics(project, documents, rollup),
-    facts: resolveProjectFacts(project, rollup),
+    metrics: resolveProjectMetrics(project, rollup, validatorSummary),
+    facts: resolveProjectFacts(project, rollup, validatorSummary),
     decisions: decisionCards,
     decision_total: decisions.length,
     decision_empty_state: decisions.length === 0

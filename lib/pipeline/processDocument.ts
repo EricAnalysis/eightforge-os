@@ -24,6 +24,7 @@ import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
 import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
 import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
+import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -371,6 +372,10 @@ export async function processDocument(params: {
         resultExtractionId: inserted?.id ?? null,
       });
       await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+      if (projectId) {
+        // Fire-and-forget so project validation never blocks document processing.
+        void triggerProjectValidation(projectId, 'document_processed');
+      }
 
       return {
         success: true,
@@ -484,6 +489,10 @@ export async function processDocument(params: {
       resultExtractionId: inserted?.id ?? null,
     });
     await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+    if (projectId) {
+      // Fire-and-forget so project validation never blocks document processing.
+      void triggerProjectValidation(projectId, 'document_processed');
+    }
 
     return {
       success: true,

@@ -512,6 +512,12 @@ function buildContractInvoicePrimaryEntities(params: {
   }];
 }
 
+function parseRequestedPage(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export default function DocumentDetailPage({
   params,
 }: {
@@ -553,6 +559,23 @@ export default function DocumentDetailPage({
   const [lastEvalResult, setLastEvalResult] = useState<EvaluateResponse | null>(null);
   const requestedSource = searchParams.get('source');
   const requestedProjectId = searchParams.get('projectId');
+  const requestedEvidencePage = parseRequestedPage(searchParams.get('page'));
+  const requestedEvidenceFactId = searchParams.get('factId');
+  const requestedEvidenceFieldKey = searchParams.get('fieldKey');
+  const evidenceNavigationKey = useMemo(
+    () => {
+      if (
+        requestedEvidencePage == null &&
+        !requestedEvidenceFactId &&
+        !requestedEvidenceFieldKey
+      ) {
+        return null;
+      }
+
+      return `${requestedEvidencePage ?? 'none'}:${requestedEvidenceFactId ?? 'none'}:${requestedEvidenceFieldKey ?? 'none'}`;
+    },
+    [requestedEvidenceFactId, requestedEvidenceFieldKey, requestedEvidencePage],
+  );
   const linkedProject = doc ? resolveProject(doc.projects) : null;
   const detailContext = resolveDocumentDetailContext(
     searchParams,
@@ -1621,6 +1644,10 @@ export default function DocumentDetailPage({
         onSaveFactReview={handleFactReview}
         onSaveFactAnchor={handleFactAnchor}
         onSaveRateScheduleAnchor={handleRateScheduleAnchor}
+        initialSelectedFactId={requestedEvidenceFactId}
+        initialSelectedFieldKey={requestedEvidenceFieldKey}
+        initialPage={requestedEvidencePage}
+        navigationKey={evidenceNavigationKey}
         evaluationNode={evaluationSection}
         managementNode={(
           <DocumentProjectControls

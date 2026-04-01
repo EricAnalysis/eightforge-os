@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { use, useMemo } from 'react';
+import { ValidatorTab } from '@/app/platform/workspace/projects/[id]/ValidatorTab';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
 import { buildProjectOverviewModel } from '@/lib/projectOverview';
 import { useProjectWorkspaceData } from '@/lib/useProjectWorkspaceData';
@@ -77,6 +78,7 @@ export default function ProjectDetailPage({
       model={model}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}
+      validatorTab={<ValidatorTab projectId={id} />}
     />
   );
 }

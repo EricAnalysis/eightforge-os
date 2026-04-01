@@ -110,6 +110,10 @@ export function DocumentDetailExperience({
   onSaveFactReview,
   onSaveFactAnchor,
   onSaveRateScheduleAnchor,
+  initialSelectedFactId,
+  initialSelectedFieldKey,
+  initialPage,
+  navigationKey,
 }: {
   breadcrumbs: BreadcrumbItem[];
   contextLabel: string;
@@ -193,6 +197,10 @@ export function DocumentDetailExperience({
     | { ok: true; anchor: DocumentFactAnchorRecord }
     | { ok: false; error: string }
   >;
+  initialSelectedFactId?: string | null;
+  initialSelectedFieldKey?: string | null;
+  initialPage?: number | null;
+  navigationKey?: string | null;
 }) {
   const headerEntities = entities.slice(0, 6);
   const hasAuditData =
@@ -410,6 +418,10 @@ export function DocumentDetailExperience({
             signedUrl={signedUrl}
             fileExt={fileExt}
             filename={filename}
+            initialSelectedFactId={initialSelectedFactId}
+            initialSelectedFieldKey={initialSelectedFieldKey}
+            initialPage={initialPage}
+            navigationKey={navigationKey}
             onSaveFactOverride={onSaveFactOverride}
             onSaveFactReview={onSaveFactReview}
             onSaveFactAnchor={onSaveFactAnchor}

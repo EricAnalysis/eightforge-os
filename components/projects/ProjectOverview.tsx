@@ -1,10 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
+import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
+import { ValidatorStatusChip } from '@/components/validator/ValidatorStatusChip';
 import {
   processedDocsEmptyState,
   processedDocsSubtitle,
@@ -25,9 +28,17 @@ type ProjectOverviewProps = {
   model: ProjectOverviewModel;
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
+  validatorTab?: ReactNode;
 };
 
-type ProjectTabKey = 'overview' | 'facts' | 'decisions' | 'actions' | 'documents' | 'audit';
+type ProjectTabKey =
+  | 'overview'
+  | 'facts'
+  | 'decisions'
+  | 'actions'
+  | 'documents'
+  | 'validator'
+  | 'audit';
 
 const TABS: Array<{ key: ProjectTabKey; label: string; href: string }> = [
   { key: 'overview', label: 'Overview', href: '#project-overview' },
@@ -35,6 +46,7 @@ const TABS: Array<{ key: ProjectTabKey; label: string; href: string }> = [
   { key: 'decisions', label: 'Decisions', href: '#project-decisions' },
   { key: 'actions', label: 'Actions', href: '#project-actions' },
   { key: 'documents', label: 'Documents', href: '#project-documents' },
+  { key: 'validator', label: 'Validator', href: '#project-validator' },
   { key: 'audit', label: 'Audit', href: '#project-audit' },
 ];
 
@@ -305,6 +317,7 @@ function AuditTimeline({ items }: { items: ProjectOverviewAuditItem[] }) {
           <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
             {item.timestamp_label}
           </p>
+          <ValidationAuditEventSummary item={item} />
         </div>
       ))}
     </div>
@@ -336,7 +349,12 @@ function SectionHeading({
   );
 }
 
-export function ProjectOverview({ model, loadIssue, onProjectRefresh }: ProjectOverviewProps) {
+export function ProjectOverview({
+  model,
+  loadIssue,
+  onProjectRefresh,
+  validatorTab,
+}: ProjectOverviewProps) {
   const [activeTab, setActiveTab] = useState<ProjectTabKey>('overview');
 
   useEffect(() => {
@@ -396,6 +414,20 @@ export function ProjectOverview({ model, loadIssue, onProjectRefresh }: ProjectO
                   {model.status.label}
                 </span>
               </div>
+              <ValidatorStatusChip
+                status={model.validator_status}
+                criticalCount={
+                  model.validator_summary.critical_count > 0
+                    ? model.validator_summary.critical_count
+                    : undefined
+                }
+                warningCount={
+                  model.validator_summary.warning_count > 0
+                    ? model.validator_summary.warning_count
+                    : undefined
+                }
+                size="sm"
+              />
             </div>
 
             <div className="pt-2">
@@ -429,6 +461,16 @@ export function ProjectOverview({ model, loadIssue, onProjectRefresh }: ProjectO
             <p className="mt-3 text-[11px] text-[#C7D2E3]">
               {model.exposure.detail}
             </p>
+            {model.exposure.help_href && model.exposure.help_label ? (
+              <div className="mt-3">
+                <a
+                  href={model.exposure.help_href}
+                  className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:text-[#93C5FD]"
+                >
+                  {model.exposure.help_label}
+                </a>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -528,6 +570,12 @@ export function ProjectOverview({ model, loadIssue, onProjectRefresh }: ProjectO
             <section className="space-y-4">
               <AskProjectSection projectId={model.project.id} />
             </section>
+
+            {validatorTab ? (
+              <section id="project-validator" className="space-y-4">
+                {validatorTab}
+              </section>
+            ) : null}
 
             <section id="project-audit" className="space-y-4">
               <SectionHeading title="Recent Audit" />

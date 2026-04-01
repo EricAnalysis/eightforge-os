@@ -10,6 +10,7 @@ import {
 import { getActorContext } from '@/lib/server/getActorContext';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -264,6 +265,9 @@ export async function PATCH(
         );
 
       if (error) return jsonError(error.message, 500);
+
+      // Fire-and-forget so validation never blocks relationship saves.
+      void triggerProjectValidation(projectId, 'relationship_change', ctx.actor.actorId);
     } else {
       return jsonError('Unsupported action', 400);
     }

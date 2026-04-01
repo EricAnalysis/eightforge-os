@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   DocumentAnchorCaptureMode,
   DocumentFactAnchorRecord,
@@ -17,6 +17,55 @@ const RATE_SCHEDULE_FIELD_KEYS = new Set([
   'rate_schedule_pages',
 ]);
 
+function normalizeFieldKey(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return normalized || null;
+}
+
+function resolveRequestedFactId(params: {
+  model: DocumentIntelligenceViewModel;
+  factId?: string | null;
+  fieldKey?: string | null;
+}): string | null {
+  if (params.factId && params.model.factById.has(params.factId)) {
+    return params.factId;
+  }
+
+  const normalizedFieldKey = normalizeFieldKey(params.fieldKey);
+  if (!normalizedFieldKey) {
+    return params.model.defaultFactId;
+  }
+
+  return (
+    params.model.facts.find(
+      (fact) => normalizeFieldKey(fact.fieldKey) === normalizedFieldKey,
+    )?.id ?? params.model.defaultFactId
+  );
+}
+
+function findAnchorIdForPage(
+  fact: DocumentIntelligenceViewModel['facts'][number] | null,
+  page: number | null,
+): string | null {
+  if (!fact || page == null) return null;
+
+  const matchingAnchor = fact.anchors.find((anchor) => {
+    const startPage = anchor.startPage ?? anchor.pageNumber;
+    const endPage = anchor.endPage ?? anchor.pageNumber;
+    if (startPage == null || endPage == null) return false;
+    return page >= startPage && page <= endPage;
+  });
+
+  return matchingAnchor?.id ?? null;
+}
+
 export function DocumentIntelligenceWorkspace({
   model,
   signedUrl,
@@ -26,6 +75,10 @@ export function DocumentIntelligenceWorkspace({
   onSaveFactReview,
   onSaveFactAnchor,
   onSaveRateScheduleAnchor,
+  initialSelectedFactId,
+  initialSelectedFieldKey,
+  initialPage,
+  navigationKey,
   variant = 'default',
 }: {
   model: DocumentIntelligenceViewModel;
@@ -66,6 +119,10 @@ export function DocumentIntelligenceWorkspace({
     | { ok: true; anchor: DocumentFactAnchorRecord }
     | { ok: false; error: string }
   >;
+  initialSelectedFactId?: string | null;
+  initialSelectedFieldKey?: string | null;
+  initialPage?: number | null;
+  navigationKey?: string | null;
   variant?: 'default' | 'workspace';
 }) {
   const [selectedFactId, setSelectedFactId] = useState<string | null>(model.defaultFactId);
@@ -95,6 +152,31 @@ export function DocumentIntelligenceWorkspace({
     () => selectedFact?.anchors.find((anchor) => anchor.id === activeAnchorId) ?? selectedFact?.anchors[0] ?? null,
     [activeAnchorId, selectedFact],
   );
+
+  const requestedFactId = useMemo(
+    () =>
+      resolveRequestedFactId({
+        model,
+        factId: initialSelectedFactId,
+        fieldKey: initialSelectedFieldKey,
+      }),
+    [initialSelectedFactId, initialSelectedFieldKey, model],
+  );
+
+  const requestedAnchorId = useMemo(() => {
+    const requestedFact = requestedFactId ? model.factById.get(requestedFactId) ?? null : null;
+    return findAnchorIdForPage(requestedFact, initialPage ?? null);
+  }, [initialPage, model.factById, requestedFactId]);
+
+  useEffect(() => {
+    if (!navigationKey) return;
+
+    setSelectedFactId(requestedFactId);
+    setManualAnchorId(requestedAnchorId);
+    setCaptureMode(null);
+    setFocusToken((value) => value + 1);
+  }, [navigationKey, requestedAnchorId, requestedFactId]);
+
   const canMarkRateSchedule = useMemo(
     () =>
       fileExt === 'pdf' &&
@@ -175,6 +257,8 @@ export function DocumentIntelligenceWorkspace({
               pageMarkerCounts={model.pageMarkerCounts}
               focusToken={focusToken}
               captureMode={captureMode}
+              initialPage={initialPage ?? null}
+              navigationKey={navigationKey ?? null}
               rateScheduleAnchor={model.rateScheduleAnchor}
               rateSchedulePages={model.rateSchedulePages}
               onCancelCapture={() => setCaptureMode(null)}
@@ -193,8 +277,8 @@ export function DocumentIntelligenceWorkspace({
               onSaveFactOverride={onSaveFactOverride}
               onSaveFactReview={onSaveFactReview}
               captureMode={captureMode}
-              canAttachAnchors={fileExt === 'pdf' && Boolean(signedUrl)}
-              canMarkRateSchedule={canMarkRateSchedule}
+              canAttachAnchors={false}
+              canMarkRateSchedule={false}
               onStartAnchorCapture={setCaptureMode}
               onCancelAnchorCapture={() => setCaptureMode(null)}
               variant="workspace"
@@ -271,6 +355,8 @@ export function DocumentIntelligenceWorkspace({
             pageMarkerCounts={model.pageMarkerCounts}
             focusToken={focusToken}
             captureMode={captureMode}
+            initialPage={initialPage ?? null}
+            navigationKey={navigationKey ?? null}
             rateScheduleAnchor={model.rateScheduleAnchor}
             rateSchedulePages={model.rateSchedulePages}
             onCancelCapture={() => setCaptureMode(null)}

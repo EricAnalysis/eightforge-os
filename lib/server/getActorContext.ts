@@ -67,6 +67,16 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
     .single();
 
   if (profileError || !profile) {
+    // Diagnostic: distinguish missing row (PGRST116) from admin client misconfiguration (auth error).
+    // Check server logs for errorCode to determine root cause:
+    //   PGRST116 → no user_profiles row for this user (data problem)
+    //   401/JWT error → SUPABASE_SERVICE_ROLE_KEY is wrong or is the anon key (config problem)
+    console.error('[getActorContext] user_profiles lookup failed', {
+      userId: user.id,
+      errorCode: profileError?.code ?? null,
+      errorMessage: profileError?.message ?? null,
+      profileNull: !profile,
+    });
     return { ok: false, status: 403, error: 'User profile not found' };
   }
 

@@ -194,6 +194,43 @@ export interface ContractAnalysisTrace {
   issue_anchor_summary: ContractIssueAnchorSummary[];
 }
 
+// ─── Batch 7: runtime type graduation ────────────────────────────────────────
+// These 5 types are fixture-proven concepts graduated from the mock corpus seam
+// into the runtime ContractAnalysis type. They are OPTIONAL and INERT — the engine
+// does not populate them yet. They exist to enable:
+//   - future engine population without type changes
+//   - Batch 8 decision rule consumption
+//   - fixture harness opt-in comparison as the engine starts emitting values
+
+export type ContractDocumentShape =
+  | 'executed_contract'
+  | 'bafo_response'
+  | 'amendment'
+  | 'task_order'
+  | 'invoice'
+  | 'unknown';
+
+export type ContractDomain =
+  | 'debris_removal'
+  | 'waterway_maintenance';
+
+export type AuthorizationState =
+  | 'confirmed'
+  | 'conditional'
+  | 'missing';
+
+export interface ActivationGate {
+  gate_type: string;
+  satisfied: boolean;
+  description?: string;
+}
+
+export interface QuantityLevels {
+  estimate?: number | null;
+  authorized?: number | null;
+  actual?: number | null;
+}
+
 export interface ContractFieldAnalysis {
   field_id: ContractFieldId;
   label: string;
@@ -230,4 +267,51 @@ export interface ContractAnalysisResult {
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];
   trace_summary: ContractAnalysisTrace;
+  // Batch 7: optional inert fields — not populated by the engine yet.
+  // Available for Batch 8 decision rules and fixture harness opt-in comparison.
+  document_shape?: ContractDocumentShape;
+  contract_domain?: ContractDomain;
+  authorization_state?: AuthorizationState;
+  activation_gates?: ActivationGate[];
+  quantity_levels?: QuantityLevels;
+  // Batch 11 (C1): using_agency_name — graduated as optional inert field.
+  // Not populated by the engine. Available for fixture harness opt-in comparison.
+  // The using_agency_collapsed_into_client failure mode documents the known engine gap.
+  using_agency_name?: string;
+}
+
+// ─── Batch 8: operational decision output types ───────────────────────────────
+// Produced by evaluateOperationalDecisions in lib/contracts/contractDecisions.ts.
+// Exported here so engine, task generation (Batch 9), and adapters share one type.
+
+export interface EvidenceReference {
+  field: string;
+  value: unknown;
+  source_description: string;
+}
+
+export interface OperationalDecision {
+  rule_id: string;
+  severity: 'critical' | 'high' | 'medium' | 'info';
+  action: string;
+  evidence: EvidenceReference[];
+  operator_message: string;
+}
+
+// ─── Batch 9: generated task output type ─────────────────────────────────────
+// Produced by generateOperationalTasks in lib/contracts/contractTaskGeneration.ts.
+// Runtime-only shape. Not persistence-backed in this batch.
+
+export interface GeneratedOperationalTask {
+  task_id: string;
+  source_rule_id: string;
+  source_decision: OperationalDecision;
+  title: string;
+  description: string;
+  assignee_role: string;
+  priority: 'urgent' | 'high' | 'standard';
+  due_logic: 'immediate' | '24_hours' | '72_hours';
+  category: string;
+  evidence_links: EvidenceReference[];
+  status: 'pending';
 }

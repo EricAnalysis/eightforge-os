@@ -438,6 +438,7 @@ export function FactEvidencePanel({
   canMarkRateSchedule,
   onStartAnchorCapture,
   onCancelAnchorCapture,
+  variant = 'default',
 }: {
   fact: DocumentFact | null;
   activeAnchorId: string | null;
@@ -460,6 +461,7 @@ export function FactEvidencePanel({
   canMarkRateSchedule: boolean;
   onStartAnchorCapture: (mode: DocumentAnchorCaptureMode) => void;
   onCancelAnchorCapture: () => void;
+  variant?: 'default' | 'workspace';
 }) {
   const [editorMode, setEditorMode] = useState<DocumentFactOverrideActionType | null>(null);
   const [valueInput, setValueInput] = useState('');
@@ -473,10 +475,11 @@ export function FactEvidencePanel({
 
   const groupedAnchors = useMemo(() => (fact ? groupAnchors(fact.anchors) : []), [fact]);
   const reasons = useMemo(() => (fact ? conflictReasons(fact) : []), [fact]);
+  const isWorkspace = variant === 'workspace';
 
   if (!fact) {
     return (
-      <div className="border-t border-white/8 px-5 py-5 text-sm text-[#8FA1BC]">
+      <div className={`${isWorkspace ? 'flex h-full min-h-0 items-center px-4 py-6' : 'border-t border-white/8 px-5 py-5'} text-sm text-[#8FA1BC]`}>
         Select a fact to inspect normalization details and evidence anchors.
       </div>
     );
@@ -492,6 +495,11 @@ export function FactEvidencePanel({
   const normalizationExplain = fact.normalizationNotes.filter(
     (note) => !/^Raw source:/i.test(note),
   );
+  const rootClass = isWorkspace
+    ? 'flex h-full min-h-0 flex-col overflow-y-auto px-4 py-4'
+    : 'border-t border-white/8 px-5 py-5';
+  const valueGridClass = isWorkspace ? 'mt-4 grid gap-3' : 'mt-4 grid gap-3 md:grid-cols-3';
+  const comparisonGridClass = isWorkspace ? 'mt-4 grid gap-3' : 'mt-4 grid gap-3 md:grid-cols-2';
 
   const openEditor = (mode: DocumentFactOverrideActionType) => {
     setEditorMode(mode);
@@ -545,7 +553,7 @@ export function FactEvidencePanel({
   };
 
   return (
-    <div className="border-t border-white/8 px-5 py-5">
+    <div className={rootClass}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
@@ -684,7 +692,7 @@ export function FactEvidencePanel({
         <p className="mt-3 text-[11px] text-red-200">{reviewError}</p>
       ) : null}
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className={valueGridClass}>
         <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Displayed value</p>
           <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.displayValue}</p>
@@ -770,7 +778,7 @@ export function FactEvidencePanel({
       ) : null}
 
       {showValueComparison ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className={comparisonGridClass}>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Machine normalized</p>
             <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.machineDisplay}</p>

@@ -91,7 +91,11 @@
       "Bash(unzip -l '/c/Users/ADMS Thompson/Downloads/stitch_operational_home.zip')",
       "Bash(mkdir -p /tmp/stitch_ref)",
       "Bash(unzip -o \"/c/Users/ADMS Thompson/Downloads/stitch_operational_home.zip\" -d /tmp/stitch_ref)",
-      "Bash(head -150 app/platform/documents/[id]/page.tsx)"
+      "Bash(head -150 app/platform/documents/[id]/page.tsx)",
+      "Bash(find 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os/app' -name *.tsx -o -name *.ts)",
+      "Bash(grep -r \"facts/override\\\\|facts/review\\\\|onSaveFactOverride\" 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os' --include=*.tsx --include=*.ts -l)",
+      "Bash(grep -rn \"decisions_source_check\\\\|source_check\" 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os/supabase/migrations/' --include=*.sql)",
+      "Bash(npx vitest:*)"
     ]
   }
 }

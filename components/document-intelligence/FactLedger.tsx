@@ -142,79 +142,84 @@ function FactRow({
   const missingEvidence = shouldShowMissingEvidenceBadge(fact);
   const lowConfidence = shouldShowLowConfidence(fact);
 
+  const accentBorder =
+    fact.reviewState === 'conflicted'
+      ? 'border-l-2 border-l-red-400/70'
+      : fact.reviewState === 'missing'
+        ? 'border-l-2 border-l-amber-400/60'
+        : lowConfidence
+          ? 'border-l-2 border-l-rose-400/50'
+          : fact.reviewState === 'reviewed'
+            ? 'border-l-2 border-l-emerald-400/30'
+            : 'border-l-2 border-l-transparent';
+
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`grid w-full gap-3 border-t border-white/6 px-4 py-3 text-left transition ${
+      className={`grid w-full gap-2 border-t border-white/6 py-3 pl-3 pr-4 text-left transition ${accentBorder} ${
         selected ? 'bg-[#111A2C]' : 'bg-transparent hover:bg-white/[0.03]'
       }`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-[#F5F7FA]">{fact.fieldLabel}</span>
-            <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-[#7F90AA]">
-              {fact.fieldKey}
-            </span>
-          </div>
-          {fact.rawValue && fact.rawValue !== fact.normalizedDisplay ? (
-            <p className="mt-1 text-[11px] text-[#7F90AA]">Raw: {fact.rawValue}</p>
-          ) : null}
+      {/* Primary: identity + main status signals */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-[#F5F7FA]">{fact.fieldLabel}</span>
+          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-[#7F90AA]">
+            {fact.fieldKey}
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${stateClass(fact.reviewState)}`}>
             {fact.reviewState}
           </span>
-          <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${sourceClass(fact.displaySource)}`}>
+          <span className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${confidenceClass(fact.confidenceLabel)}`}>
+            {fact.confidenceLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* Value: the operative data */}
+      <p className={`text-sm ${fact.displayValue === 'Missing' ? 'text-[#7F90AA]' : 'text-[#EAF1FB]'}`}>
+        {fact.displayValue}
+      </p>
+
+      {/* Secondary: subdued metadata */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+          <span className={`rounded border px-1.5 py-px ${sourceClass(fact.displaySource)}`}>
             {sourceLabel(fact.displaySource)}
           </span>
           {fact.reviewStatus ? (
-            <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${reviewClass(fact.reviewStatus)}`}>
+            <span className={`rounded border px-1.5 py-px ${reviewClass(fact.reviewStatus)}`}>
               {reviewLabel(fact.reviewStatus)}
             </span>
           ) : null}
           {fact.humanDefinedSchedule ? (
-            <span className="rounded border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            <span className="rounded border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-px text-emerald-100">
               Schedule
             </span>
           ) : null}
-          <span className={`text-[11px] font-medium uppercase tracking-[0.16em] ${confidenceClass(fact.confidenceLabel)}`}>
-            {fact.confidenceLabel}
-          </span>
-          {missingEvidence ? (
-            <span className="rounded border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
-              Missing evidence
+          {fact.machineClassification === 'rate_price_no_ceiling' ? (
+            <span className="rounded border border-sky-400/25 bg-sky-400/10 px-1.5 py-px text-sky-100">
+              Rate/price
             </span>
           ) : null}
+          {missingEvidence ? (
+            <span className="text-amber-300/90">Missing evidence</span>
+          ) : null}
           {lowConfidence ? (
-            <span className="rounded border border-red-400/20 bg-red-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-red-100">
+            <span className="text-rose-300/90">
               {fact.confidenceLabel === 'none' ? 'No confidence' : 'Low confidence'}
             </span>
           ) : null}
-          {fact.machineClassification === 'rate_price_no_ceiling' ? (
-            <span className="rounded border border-sky-400/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100">
-              Rate/price terms
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`text-sm ${fact.displayValue === 'Missing' ? 'text-[#7F90AA]' : 'text-[#EAF1FB]'}`}>
-            {fact.displayValue}
-          </p>
           {fact.displaySource !== 'auto' ? (
-            <p className="mt-1 text-[11px] text-[#7F90AA]">
-              Machine: {fact.machineDisplay}
-            </p>
+            <span className="text-[#64748B]">Machine: {fact.machineDisplay}</span>
           ) : null}
-          <p className="mt-1 text-[11px] text-[#7F90AA]">{fact.statusLabel}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#9FB0CA]">
+        <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#64748B]">
           <span>{fact.evidenceCount} anchor{fact.evidenceCount === 1 ? '' : 's'}</span>
-          <span>{fact.primaryPage ? `Page ${fact.primaryPage}` : 'No page'}</span>
+          <span>{fact.primaryPage ? `pg ${fact.primaryPage}` : '—'}</span>
         </div>
       </div>
     </button>
@@ -226,15 +231,18 @@ export function FactLedger({
   documentFamily,
   selectedFactId,
   onSelectFact,
+  variant = 'default',
 }: {
   groups: DocumentFactGroup[];
   documentFamily: DocumentFamily;
   selectedFactId: string | null;
   onSelectFact: (factId: string) => void;
+  variant?: 'default' | 'workspace';
 }) {
   const [groupFilter, setGroupFilter] = useState('all');
   const [stateFilter, setStateFilter] = useState('all');
   const [confidenceFilter, setConfidenceFilter] = useState('all');
+  const isWorkspace = variant === 'workspace';
 
   const availableGroups = useMemo(
     () => groups.map((group) => ({ key: group.key, label: group.label })),
@@ -265,24 +273,19 @@ export function FactLedger({
 
   if (groups.length === 0) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center px-6 py-10 text-center text-sm text-[#8FA1BC]">
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0' : 'min-h-[320px]'} items-center justify-center px-6 py-10 text-center text-sm text-[#8FA1BC]`}>
         No normalized facts are available yet. Reprocess the document or inspect diagnostics below.
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-0 shrink-0 flex-col">
-      <div className="border-b border-white/8 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
-              Fact Ledger
-            </p>
-            <p className="mt-1 text-[12px] text-[#8FA1BC]">
-              Structured facts grouped by schema section. Selecting a row updates the evidence viewer.
-            </p>
-          </div>
+    <div className={`flex min-h-0 ${isWorkspace ? 'h-full overflow-y-auto' : 'shrink-0'} flex-col`}>
+      <div className={`${isWorkspace ? 'sticky top-0 z-10 border-b border-white/8 bg-[#09111F]/95 px-4 py-3 backdrop-blur-md' : 'border-b border-white/8 px-5 py-4'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
+            Fact Ledger
+          </p>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#D9E3F3]">
             <label className="flex items-center gap-2">
               <span className="text-[#7F90AA]">Group</span>
@@ -326,11 +329,46 @@ export function FactLedger({
             </label>
           </div>
         </div>
+        {(groupFilter !== 'all' || stateFilter !== 'all' || confidenceFilter !== 'all') ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+            <span className="text-[#64748B]">Filtered:</span>
+            {groupFilter !== 'all' ? (
+              <button
+                type="button"
+                onClick={() => setGroupFilter('all')}
+                className="flex items-center gap-1 rounded border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2 py-0.5 text-[#93C5FD] hover:bg-[#3B82F6]/15"
+              >
+                {availableGroups.find((g) => g.key === groupFilter)?.label ?? groupFilter}
+                <span aria-hidden>×</span>
+              </button>
+            ) : null}
+            {stateFilter !== 'all' ? (
+              <button
+                type="button"
+                onClick={() => setStateFilter('all')}
+                className="flex items-center gap-1 rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-amber-200 hover:bg-amber-400/15"
+              >
+                {stateFilter === 'needs_review' ? 'Needs review' : stateFilter === 'missing' ? 'Missing' : 'Conflicted'}
+                <span aria-hidden>×</span>
+              </button>
+            ) : null}
+            {confidenceFilter !== 'all' ? (
+              <button
+                type="button"
+                onClick={() => setConfidenceFilter('all')}
+                className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[#D9E3F3] hover:bg-white/[0.07]"
+              >
+                {confidenceFilter === 'medium_or_lower' ? 'Med or lower' : 'Low only'}
+                <span aria-hidden>×</span>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <div className="min-h-0 max-h-[min(52vh,36rem)] flex-1 overflow-y-auto">
+      <div className={`${isWorkspace ? 'min-h-0 flex-1' : 'min-h-0 max-h-[min(52vh,36rem)] flex-1 overflow-y-auto'}`}>
         {filteredGroups.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-[#8FA1BC]">
+          <div className={`${isWorkspace ? 'px-4 py-6' : 'px-5 py-6'} text-sm text-[#8FA1BC]`}>
             No facts match the current filter selection.
           </div>
         ) : filteredGroups.map((group) => (

@@ -110,7 +110,7 @@ export function ProjectAdminControls({
     <div
       className={
         compact
-          ? 'mt-3 rounded-lg border border-[#2F3B52]/80 bg-[#111827] px-3 py-2'
+          ? 'mt-3 border-t border-[#2F3B52]/80 pt-3'
           : 'rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4'
       }
     >

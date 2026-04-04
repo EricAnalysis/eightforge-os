@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { use, useMemo } from 'react';
+import { CommandBar } from '@/components/workspace/CommandBar';
 import { ForgeWorkspace } from '@/components/workspace/ForgeWorkspace';
-import { ProjectOverviewBand } from '@/components/workspace/ProjectOverviewBand';
 import { ProjectPageShell } from '@/components/workspace/ProjectPageShell';
 import { buildForgeStageCounts } from '@/lib/forgeStageCounts';
 import { buildProjectOverviewModel } from '@/lib/projectOverview';
@@ -90,10 +90,22 @@ export default function WorkspaceProjectForgePage({
   return (
     <ProjectPageShell
       project={model.project}
-      headerMeta={<ProjectOverviewBand model={model} stageCounts={stageCounts} />}
       uploadHref={uploadHref}
       legacyProjectHref={`/platform/projects/${id}`}
       onProjectRefresh={data.refetch}
+      commandBar={
+        <CommandBar
+          project={model.project}
+          uploadHref={uploadHref}
+          legacyProjectHref={`/platform/projects/${id}`}
+          model={model}
+          stageCounts={stageCounts}
+          projectId={id}
+          documents={data.documents}
+          decisions={data.decisions}
+          tasks={data.tasks}
+        />
+      }
     >
       {data.loadIssue ? (
         <div className="border-b border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-2 text-[11px] text-[#FBBF24]">
@@ -101,6 +113,7 @@ export default function WorkspaceProjectForgePage({
         </div>
       ) : null}
       <ForgeWorkspace
+        projectId={id}
         model={model}
         documents={data.documents}
         decisions={data.decisions}

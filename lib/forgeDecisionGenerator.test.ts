@@ -82,9 +82,9 @@ describe('forgeDecisionGenerator', () => {
 
     assert.ok(
       decisions.some((decision) =>
-        decision.field === 'contract_ceiling'
-        && decision.severity === 'critical'
-        && /overall contract ceiling amount/i.test(decision.prompt),
+        decision.field === 'contract_ceiling_type'
+        && decision.severity === 'review'
+        && /rate-based not-to-exceed schedule/i.test(decision.prompt),
       ),
     );
     assert.ok(
@@ -131,6 +131,7 @@ describe('forgeDecisionGenerator', () => {
           text_preview: [
             'CONTRACTOR: R & J Land Clearing LLC',
             'Exhibit A emergency debris removal unit rates.',
+            'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
             'The contract is effective for a period of ninety (90) days from the date it is fully executed.',
           ].join('\n'),
           evidence_v1: {
@@ -179,6 +180,17 @@ describe('forgeDecisionGenerator', () => {
                   weak: false,
                   source_document_id: 'doc-real-contract',
                 },
+                {
+                  id: 'ev-rate-nte',
+                  kind: 'text',
+                  source_type: 'pdf',
+                  description: 'Rate ceiling clause',
+                  text: 'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
+                  location: { page: 7, label: 'Page 7' },
+                  confidence: 0.98,
+                  weak: false,
+                  source_document_id: 'doc-real-contract',
+                },
               ],
             },
           },
@@ -200,11 +212,12 @@ describe('forgeDecisionGenerator', () => {
 
     assert.ok(
       decisions.some((decision) =>
-        decision.field === 'contract_ceiling'
-        && decision.severity === 'critical'
-        && /no explicit ceiling present/i.test(decision.answer_type),
+        decision.field === 'contract_ceiling_type'
+        && decision.severity === 'review'
+        && decision.anchors.some((anchor) => anchor.id === 'ev-rate-nte'),
       ),
     );
+    assert.ok(!decisions.some((decision) => decision.field === 'contract_ceiling'));
     assert.ok(
       decisions.some((decision) =>
         (decision.field === 'term_end_date' || decision.field === 'expiration_date')

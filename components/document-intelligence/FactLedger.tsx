@@ -202,7 +202,7 @@ function FactRow({
           ) : null}
           {fact.machineClassification === 'rate_price_no_ceiling' ? (
             <span className="rounded border border-sky-400/25 bg-sky-400/10 px-1.5 py-px text-sky-100">
-              Rate/price
+              Rate-based ceiling
             </span>
           ) : null}
           {missingEvidence ? (

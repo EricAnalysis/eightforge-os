@@ -2,6 +2,7 @@ import type { EvidenceObject } from '@/lib/extraction/types';
 import { COVERAGE_LIBRARY_V1 } from '@/lib/contracts/coverageLibrary.v1';
 import type {
   ContractAnalysisResult,
+  ContractCeilingType,
   ContractCoverageResult,
   ContractDocumentTypeProfile,
   ContractEvidenceDistribution,
@@ -136,6 +137,7 @@ export function evaluateContractCoverage(
     const monitoringField = fields.get('monitoring_required') ?? null;
     const femaField = fields.get('fema_eligibility_gate') ?? null;
     const ceilingField = fields.get('contract_ceiling') ?? null;
+    const ceilingTypeField = fields.get('contract_ceiling_type') ?? null;
 
     switch (definition.coverage_id) {
       case 'term_trigger': {
@@ -229,13 +231,31 @@ export function evaluateContractCoverage(
         break;
       }
       case 'contract_ceiling': {
-        found = ceilingField?.value != null;
-        extractionQuality = qualityFromField(ceilingField);
+        const ceilingType =
+          ceilingTypeField?.value === 'total'
+          || ceilingTypeField?.value === 'rate_based'
+          || ceilingTypeField?.value === 'none'
+            ? (ceilingTypeField.value as ContractCeilingType)
+            : ceilingField?.value != null
+              ? 'total'
+              : 'none';
+        found = ceilingType === 'total' || ceilingType === 'rate_based';
+        extractionQuality =
+          ceilingType === 'total'
+            ? qualityFromField(ceilingField)
+            : ceilingType === 'rate_based'
+              ? qualityFromField(ceilingTypeField)
+              : 'missing';
         evidenceAnchors = dedupe([
+          ...(ceilingTypeField?.evidence_anchors ?? []),
           ...(ceilingField?.evidence_anchors ?? []),
           ...(patterns.get('not_to_exceed')?.evidence_anchors ?? []),
         ]);
-        states.push(ceilingField?.state ?? 'missing');
+        states.push(
+          ceilingType === 'rate_based'
+            ? 'explicit'
+            : ceilingTypeField?.state ?? ceilingField?.state ?? 'missing',
+        );
         break;
       }
       case 'contractor_identity_consistency': {

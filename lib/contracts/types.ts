@@ -54,11 +54,14 @@ export type ContractFieldId =
   | 'rate_schedule_pages'
   | 'pricing_applicability'
   | 'contract_ceiling'
+  | 'contract_ceiling_type'
   | 'no_guarantee_quantity'
   | 'disposal_fee_treatment'
   | 'monitoring_required'
   | 'billing_documentation_required'
   | 'fema_eligibility_gate';
+
+export type ContractCeilingType = 'total' | 'rate_based' | 'none';
 
 export interface LanguageEngineFieldDefinition {
   field_id: ContractFieldId;

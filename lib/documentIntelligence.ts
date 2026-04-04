@@ -65,6 +65,11 @@ import {
   xrefPrimaryFact,
   xrefRelatedDocumentFact,
 } from './intelligence/groundingRefs.ts';
+import {
+  classifyContractCeiling,
+  contractCeilingDisplay,
+  contractCeilingSummary,
+} from './contracts/contractCeiling';
 
 type DocumentIntelligenceCore = Omit<
   DocumentIntelligenceOutput,
@@ -2979,6 +2984,12 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     ? inferProjectCode(contractTyped, contractDoc.title ?? null, contractText)
     : null;
   const nteAmount = extractNTE(contractTyped, contractText);
+  const contractCeilingType = classifyContractCeiling({
+    totalCeilingAmount: nteAmount,
+    text: contractText,
+    rateSchedulePresent: contractRateSchedulePresent,
+  });
+  const contractCeilingDisplayValue = contractCeilingDisplay(contractCeilingType);
   const contractContractor = (contractTyped.vendor_name as string | null) ??
     (contractTyped.contractorName as string | null);
 
@@ -3003,7 +3014,7 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     ? Math.abs(recommendedAmount - currentDue)
     : null;
   const amountMatches = amountDelta !== null && amountDelta < 0.02;
-  const contractCeilingDelta = nteAmount !== null && g702Sum !== null
+  const contractCeilingDelta = contractCeilingType === 'total' && nteAmount !== null && g702Sum !== null
     ? Math.abs(nteAmount - g702Sum)
     : null;
   const contractCeilingMatches = contractCeilingDelta !== null && contractCeilingDelta <= 100;
@@ -3040,6 +3051,8 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     billed_total: currentDue,
     approved_total: recommendedAmount,
     contract_ceiling_amount: nteAmount,
+    contract_ceiling_type: contractCeilingType,
+    contract_ceiling_display: contractCeilingDisplayValue,
     g702_contract_sum: g702Sum,
     governing_document_id: contractDoc?.id ?? null,
     governing_document_pricing_basis: contractBillingModel,
@@ -3179,14 +3192,34 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
       }));
     }
 
-    if (nteAmount === null || g702Sum === null) {
+    if (contractCeilingType === 'rate_based') {
+      decisions.push(createStructuredConfirmedDecision({
+        type: 'contract_ceiling_risk',
+        field: 'contract ceiling',
+        fieldKey: 'contract_ceiling',
+        value: contractCeilingDisplayValue,
+        confidence: 0.84,
+        factRefs: ['contract_ceiling_type', 'contract_ceiling_display'],
+        ruleId: 'invoice_contract_rate_based_ceiling_confirmed',
+        sourceRefs: [
+          xrefRelatedDocumentFact(contractDoc.id, 'caps_or_ceilings.type'),
+          xrefRelatedDocumentFact(contractDoc.id, 'governing_rate_tables.evidence_refs'),
+        ],
+        reconciliationScope: 'cross_document',
+      }));
+    } else if (nteAmount === null || g702Sum === null) {
       decisions.push(createStructuredRiskDecision({
         type: 'contract_ceiling_risk',
         condition: 'contract ceiling basis unavailable for invoice validation',
         fieldKey: 'contract_ceiling',
         impact: 'invoice ceiling cannot be validated against the governing agreement',
         confidence: 0.8,
-        factRefs: ['contract_ceiling_amount', 'g702_contract_sum', 'linked_contract_present'],
+        factRefs: [
+          'contract_ceiling_amount',
+          'contract_ceiling_type',
+          'g702_contract_sum',
+          'linked_contract_present',
+        ],
         ruleId: 'invoice_contract_ceiling_missing',
         sourceRefs: [
           xrefRelatedDocumentFact(contractDoc.id, 'caps_or_ceilings.amount'),
@@ -3662,6 +3695,13 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
     detectTandM(text);
   const pricingBasisRaw = detectPricingBasis(text, rateSchedulePresent, timeAndMaterialsPresent);
   const billingModel = normalizeBillingModel(pricingBasisRaw);
+  const contractCeilingType = classifyContractCeiling({
+    totalCeilingAmount: nteAmount,
+    text,
+    rateSchedulePresent,
+  });
+  const contractCeilingDisplayValue = contractCeilingDisplay(contractCeilingType);
+  const contractCeilingSummaryValue = contractCeilingSummary(contractCeilingType);
   const permissiveRateFactRefs = collectPermissiveContractRateFactRefs(evSignals, text);
   const strictRateGroundingRefs = collectStrictContractRateGroundingRefs(evSignals);
   const rateScheduleFromSignals =
@@ -3750,9 +3790,15 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
     project_name: projectName ?? contractNumber ?? null,
     project_code: contractNumber ?? null,
     billing_model: billingModel,
+    contract_ceiling_type: contractCeilingType,
+    contract_ceiling_display: contractCeilingDisplayValue,
+    contract_ceiling: contractCeilingSummaryValue,
     governing_rate_tables: governingRateTables,
     caps_or_ceilings: {
-      has_overall_nte: nteAmount !== null,
+      type: contractCeilingType,
+      display: contractCeilingDisplayValue,
+      summary: contractCeilingSummaryValue,
+      has_overall_nte: contractCeilingType === 'total',
       amount: nteAmount,
     },
     term_dates: {
@@ -3768,6 +3814,10 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
 
   const decisions: GeneratedDecision[] = [];
   const comparisons: ComparisonResult[] = [];
+  const rateBasedCeilingRefs =
+    strictRateGroundingRefs.length > 0
+      ? strictRateGroundingRefs
+      : permissiveRateFactRefs;
 
   if (!contractorName) {
     decisions.push(createStructuredMissingDecision({
@@ -3921,18 +3971,30 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
         source_refs_right: invoiceXref,
       });
     });
-  } else if (nteAmount === null && invoiceDocs.length > 0) {
+  } else if (contractCeilingType === 'rate_based') {
+    decisions.push(createStructuredConfirmedDecision({
+      type: 'contract_ceiling_risk',
+      field: 'contract ceiling',
+      fieldKey: 'contract_ceiling',
+      value: contractCeilingDisplayValue,
+      confidence: rateBasedCeilingRefs.length > 0 ? 0.88 : 0.76,
+      factRefs: ['contract_ceiling_type', 'contract_ceiling_display', 'contract_ceiling'],
+      ruleId: 'contract_ceiling_rate_based_confirmed',
+      sourceRefs: rateBasedCeilingRefs,
+      reconciliationScope: 'single_document',
+    }));
+  } else if (contractCeilingType === 'none' && invoiceDocs.length > 0) {
     decisions.push(createStructuredRiskDecision({
       type: 'contract_ceiling_risk',
       condition: 'contract ceiling unavailable in governing agreement',
       fieldKey: 'contract_ceiling',
       impact: 'linked invoices cannot be validated against a governing ceiling basis',
       confidence: 0.84,
-      factRefs: ['caps_or_ceilings.has_overall_nte', 'caps_or_ceilings.amount'],
+      factRefs: ['contract_ceiling_type', 'caps_or_ceilings.has_overall_nte', 'caps_or_ceilings.amount'],
       ruleId: 'contract_ceiling_missing',
       reconciliationScope: 'cross_document',
     }));
-  } else if (nteAmount !== null) {
+  } else if (contractCeilingType === 'total' && nteAmount !== null) {
     const nteConfirmRefs = [...structuredFieldRefs.nte];
     if (nteConfirmRefs.length === 0 && typed.nte_amount != null) {
       nteConfirmRefs.push('typed_fields.nte_amount');
@@ -4049,7 +4111,14 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
     value: billingModelLabel,
     status: billingModel === 'unknown' ? 'warning' : 'neutral',
   });
-  if (nteAmount !== null) {
+  if (contractCeilingType === 'rate_based') {
+    entities.push({
+      key: 'contract_ceiling',
+      label: 'Ceiling',
+      value: contractCeilingDisplayValue,
+      status: 'neutral',
+    });
+  } else if (nteAmount !== null) {
     entities.push({
       key: 'nte',
       label: 'NTE',
@@ -4085,6 +4154,9 @@ function buildCanonicalContractOutput(params: BuildIntelligenceParams): Document
     contractorName: contractorName ?? undefined,
     ownerName: ownerName ?? undefined,
     notToExceedAmount: nteAmount ?? undefined,
+    contractCeilingType,
+    contractCeilingDisplay: contractCeilingDisplayValue,
+    contractCeiling: contractCeilingSummaryValue,
     executedDate: contractDate ?? undefined,
     projectCode: projectName ?? contractNumber ?? undefined,
     rateSchedulePresent,

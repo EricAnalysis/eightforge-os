@@ -2,6 +2,12 @@ import {
   findEvidenceByValueMatch,
   hasInspectableValue,
 } from '@/lib/extraction/evidenceValueMatch';
+import {
+  RATE_BASED_CEILING_EVIDENCE_REGEXES,
+  classifyContractCeiling,
+  contractCeilingDisplay,
+  contractCeilingSummary,
+} from '@/lib/contracts/contractCeiling';
 import { CONTRACT_FAILURE_MODES } from '@/lib/extraction/failureModes/contractFailureModes';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
@@ -2716,11 +2722,36 @@ function findExplicitNteCeilingEvidenceSkippingRateCap(
   return null;
 }
 
+function hasRateBasedCeilingSignalFromTables(document: ExtractedNodeDocument): boolean {
+  const pdf = asRecord(document.content_layers?.pdf);
+  const tables = asArray<Record<string, unknown>>(asRecord(pdf?.tables)?.tables);
+
+  return tables.some((table) => {
+    const signals = [
+      ...stringValues(table.header_context),
+      ...stringValues(table.headers),
+    ];
+    if (signals.length === 0) return false;
+
+    const joined = signals.join(' | ');
+    if (matchesAnyRegex(joined, RATE_BASED_CEILING_EVIDENCE_REGEXES)) return true;
+
+    const normalized = normalizeText(joined);
+    const hasNotToExceedToken = /\b(?:not[-\s]+to[-\s]+exceed|nte)\b/i.test(normalized);
+    const hasRateContext =
+      /\b(?:rate|rates|unit|price|prices|pricing|classification|schedule|line\s+items?)\b/i.test(
+        normalized,
+      );
+    return hasNotToExceedToken && hasRateContext;
+  });
+}
+
 function resolveContractCeilingFacts(params: {
   document: ExtractedNodeDocument;
   rateSchedulePresent: boolean;
 }): {
   selectedCeilingEvidence: { value: string | number | boolean | null; evidence: EvidenceObject[] } | null;
+  rateBasedCeilingEvidence: EvidenceObject[];
   ceiling: number | null;
   ceiling_machine_classification: string | null;
 } {
@@ -2731,8 +2762,6 @@ function resolveContractCeilingFacts(params: {
     || /\bexhibit\s+[a-z]\b[\s\S]{0,120}\b(?:unit\s+rate|rate\s+schedule|unit\s+rates)\b/i.test(
       haystack,
     );
-  const unitPriceNoCeiling =
-    (params.rateSchedulePresent || hasUnitPriceLanguageInText) && !hasGlobalCeilingLanguage;
 
   const explicitNteCeilingEvidence = findExplicitNteCeilingEvidenceSkippingRateCap(
     params.document,
@@ -2759,14 +2788,36 @@ function resolveContractCeilingFacts(params: {
     null,
   );
   let ceiling_machine_classification: string | null = null;
+  const rateBasedCeilingEvidence = findEvidenceByRegex(
+    params.document,
+    [...RATE_BASED_CEILING_EVIDENCE_REGEXES],
+  ) ?? [];
+  const rateBasedCeilingDetected =
+    rateBasedCeilingEvidence.length > 0
+    || (
+      params.rateSchedulePresent
+      && matchesAnyRegex(haystack, RATE_BASED_CEILING_EVIDENCE_REGEXES)
+    )
+    || (
+      params.rateSchedulePresent
+      && hasRateBasedCeilingSignalFromTables(params.document)
+    );
+  const explicitTotalCeilingDetected = selectedCeilingEvidence != null;
 
-  if (unitPriceNoCeiling) {
+  if (rateBasedCeilingDetected && !hasGlobalCeilingLanguage && !explicitTotalCeilingDetected) {
     ceiling = null;
     selectedCeilingEvidence = null;
     ceiling_machine_classification = 'rate_price_no_ceiling';
+  } else if (rateBasedCeilingDetected && !hasGlobalCeilingLanguage && ceiling == null) {
+    ceiling_machine_classification = 'rate_price_no_ceiling';
   }
 
-  return { selectedCeilingEvidence, ceiling, ceiling_machine_classification };
+  return {
+    selectedCeilingEvidence,
+    rateBasedCeilingEvidence,
+    ceiling,
+    ceiling_machine_classification,
+  };
 }
 
 function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFact[]; extracted: Record<string, unknown> } {
@@ -2855,6 +2906,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
 
   const {
     selectedCeilingEvidence,
+    rateBasedCeilingEvidence,
     ceiling,
     ceiling_machine_classification,
   } = resolveContractCeilingFacts({ document, rateSchedulePresent });
@@ -3061,7 +3113,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
         ? contractorResolution.evidenceRefIds
         : findContractorEvidenceForContractorResolution(document, 48).map((evidence) => evidence.id);
   addFact(document, facts, 'contractor_name', 'Contractor', contractor, contractorEvidenceRefs, contractor ? 0.84 : 0.42);
-  addFact(document, facts, 'owner_name', 'Owner', owner, ownerResolution.evidenceRefIds, owner ? 0.8 : 0.38);
+  addFact(document, facts, 'owner_name', 'Client', owner, ownerResolution.evidenceRefIds, owner ? 0.8 : 0.38);
 
   const executedDerivation: {
     status: DerivationStatus;
@@ -3232,12 +3284,22 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   );
   const ceilingEvidenceRefs =
     ceiling_machine_classification === 'rate_price_no_ceiling'
-      ? rateEvidenceRefs.slice(0, 48)
+      ? (
+        rateBasedCeilingEvidence.length > 0
+          ? rateBasedCeilingEvidence.map((evidence) => evidence.id)
+          : rateEvidenceRefs
+      ).slice(0, 48)
       : (selectedCeilingEvidence?.evidence.map((evidence) => evidence.id) ?? []);
   const ceilingConfidence =
     ceiling != null ? 0.86
     : ceiling_machine_classification === 'rate_price_no_ceiling' ? 0.74
     : 0.44;
+  const contractCeilingType = classifyContractCeiling({
+    totalCeilingAmount: ceiling,
+    machineClassification: ceiling_machine_classification,
+    text: joinContractTextForExecutedRelativeDerivation(document),
+    rateSchedulePresent,
+  });
   addFact(
     document,
     facts,
@@ -3247,6 +3309,15 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     ceilingEvidenceRefs,
     ceilingConfidence,
     ceiling_machine_classification != null ? { machine_classification: ceiling_machine_classification } : undefined,
+  );
+  addFact(
+    document,
+    facts,
+    'contract_ceiling_type',
+    'Contract Ceiling Type',
+    contractCeilingType,
+    ceilingEvidenceRefs,
+    contractCeilingType === 'none' ? 0.72 : ceilingConfidence,
   );
   addFact(
     document,
@@ -3282,6 +3353,9 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     ownerName: owner ?? undefined,
     executedDate: executedDate ?? undefined,
     notToExceedAmount: ceiling ?? undefined,
+    contractCeilingType: contractCeilingType,
+    contractCeilingDisplay: contractCeilingDisplay(contractCeilingType),
+    contractCeilingSummary: contractCeilingSummary(contractCeilingType),
     rateSchedulePresent,
     timeAndMaterialsPresent,
   };

@@ -111,6 +111,74 @@ describe('contract intelligence analysis', () => {
     );
   });
 
+  it('classifies an explicit dollar cap as a total ceiling', () => {
+    const analysis = runContractAnalysis({
+      textPreview:
+        'Compensation shall be based on the unit prices set forth in Exhibit A. '
+        + 'The total amount payable under this Agreement shall not exceed $30,000,000.',
+      typedFields: {
+        nte_amount: 30000000,
+      },
+      sectionSignals: {
+        rate_section_present: true,
+        rate_section_pages: [12],
+      },
+      pageText: [
+        'Compensation shall be based on the unit prices set forth in Exhibit A.',
+        'The total amount payable under this Agreement shall not exceed $30,000,000.',
+      ],
+    });
+
+    assert.equal(analysis.pricing_model.contract_ceiling_type?.value, 'total');
+    assert.equal(analysis.pricing_model.contract_ceiling?.value, 30000000);
+    assert.equal(
+      analysis.coverage_status.find((coverage) => coverage.coverage_id === 'contract_ceiling')?.found,
+      true,
+    );
+  });
+
+  it('classifies not-to-exceed schedule language as a rate-based ceiling', () => {
+    const analysis = runContractAnalysis({
+      textPreview:
+        'Compensation shall be based on the unit prices and time-and-materials rates set forth in Exhibit A. '
+        + 'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
+      sectionSignals: {
+        rate_section_present: true,
+        rate_section_pages: [8],
+      },
+      pageText: [
+        'Compensation shall be based on the unit prices and time-and-materials rates set forth in Exhibit A.',
+        'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
+      ],
+    });
+
+    assert.equal(analysis.pricing_model.contract_ceiling_type?.value, 'rate_based');
+    assert.equal(analysis.pricing_model.contract_ceiling?.value, null);
+    assert.ok((analysis.pricing_model.contract_ceiling_type?.evidence_anchors.length ?? 0) > 0);
+    assert.equal(
+      analysis.coverage_status.find((coverage) => coverage.coverage_id === 'contract_ceiling')?.found,
+      true,
+    );
+  });
+
+  it('keeps truly schedule-only pricing classified as having no explicit ceiling', () => {
+    const analysis = runContractAnalysis({
+      textPreview:
+        'Compensation shall be based on the unit prices set forth in Exhibit A. '
+        + 'Emergency debris removal unit rates are attached as Exhibit A.',
+      sectionSignals: {
+        rate_section_present: true,
+        rate_section_pages: [5],
+      },
+    });
+
+    assert.equal(analysis.pricing_model.contract_ceiling_type?.value, 'none');
+    assert.equal(
+      analysis.coverage_status.find((coverage) => coverage.coverage_id === 'contract_ceiling')?.found,
+      false,
+    );
+  });
+
   it('treats FEMA eligibility and monitoring language as operational gates', () => {
     const analysis = runContractAnalysis({
       textPreview:
@@ -131,7 +199,7 @@ describe('contract intelligence analysis', () => {
     assert.ok(analysis.issues.some((issue) => issue.issue_type === 'fema_gate_ambiguous'));
   });
 
-  it('surfaces conflicting contractor identity as an issue instead of selecting a false fact', () => {
+  it('selects the role-grounded contractor when weaker typed noise disagrees', () => {
     const analysis = runContractAnalysis({
       textPreview:
         'Emergency debris removal services may be activated following a declared disaster event. '
@@ -139,11 +207,71 @@ describe('contract intelligence analysis', () => {
       typedFields: {
         vendor_name: 'Alpha Debris LLC',
       },
+      structuredFields: {
+        contractor_name: 'Beta Debris Services LLC',
+        contractor_name_source: 'explicit_definition',
+      },
     });
 
-    assert.equal(analysis.contract_identity.contractor_name?.state, 'conflicted');
+    assert.equal(analysis.contract_identity.contractor_name?.state, 'explicit');
+    assert.equal(analysis.contract_identity.contractor_name?.value, 'Beta Debris Services LLC');
     assert.ok(
-      analysis.issues.some((issue) => issue.issue_type === 'conflicting_evidence'),
+      analysis.issues.every((issue) => issue.issue_type !== 'conflicting_evidence'),
+    );
+  });
+
+  it('resolves Williamson-style OCR contractor drift when one role-grounded candidate is dominant', () => {
+    const openingPage = [
+      'CONTRACT BETWEEN WILLIAMSON COUNTY, TENNESSEE AND ARTERMATH DISASTER RECOVERY, INC.',
+      'This Contract is made by and between Williamson County, Tennessee, and Artermath Disaster Recovery, Inc. (hereinafter "Contractor").',
+      'Contractor shall commence work only upon written Notice to Proceed.',
+    ].join(' ');
+
+    const analysis = runContractAnalysis({
+      textPreview: openingPage,
+      typedFields: {
+        vendor_name: 'Aftermath Disaster Recovery, Inc.',
+      },
+      structuredFields: {
+        contractor_name: 'Artermath Disaster Recovery, Inc.',
+        contractor_name_source: 'explicit_definition',
+      },
+      pageText: [
+        openingPage,
+        'Footer contact: Williamson County procurement office. Prepared by operations support.',
+      ],
+    });
+
+    assert.equal(analysis.contract_identity.contractor_name?.state, 'explicit');
+    assert.equal(analysis.contract_identity.contractor_name?.value, 'Aftermath Disaster Recovery, Inc.');
+    assert.ok(
+      analysis.issues.every((issue) => issue.issue_id !== 'contractor_identity_conflict'),
+    );
+  });
+
+  it('ignores weak footer-style organization noise when a contractor is clearly defined', () => {
+    const analysis = runContractAnalysis({
+      textPreview: [
+        'This Contract is between Example County and Aftermath Disaster Recovery, Inc. (hereinafter "Contractor").',
+        'Prepared by WM Gulf Coast Landfill contact desk for routing only.',
+      ].join(' '),
+      typedFields: {
+        vendor_name: 'Aftermath Disaster Recovery, Inc.',
+      },
+      structuredFields: {
+        contractor_name: 'WM Gulf Coast Landfill',
+        contractor_name_source: 'heuristic',
+      },
+      pageText: [
+        'This Contract is between Example County and Aftermath Disaster Recovery, Inc. (hereinafter "Contractor"). Contractor shall maintain mobilization readiness.',
+        'Prepared by WM Gulf Coast Landfill contact desk for routing only. Footer notes and disposal contact information.',
+      ],
+    });
+
+    assert.equal(analysis.contract_identity.contractor_name?.state, 'explicit');
+    assert.equal(analysis.contract_identity.contractor_name?.value, 'Aftermath Disaster Recovery, Inc.');
+    assert.ok(
+      analysis.issues.every((issue) => issue.issue_id !== 'contractor_identity_conflict'),
     );
   });
 

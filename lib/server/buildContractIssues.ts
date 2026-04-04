@@ -101,7 +101,7 @@ export function buildContractIssues(
       field_ids: ['contractor_name'],
       pattern_ids: contractorField.pattern_ids,
       reason:
-        'Competing contractor identity candidates were detected. The layer keeps this as a conflict instead of selecting a false definitive contractor.',
+        'Competing contractor identity candidates remain after OCR-tolerant normalization, and the top candidates still carry comparable contractor-role evidence.',
       evidence_anchors: dedupe(contractorField.evidence_anchors),
       resolution_effect: 'resolve_identity_conflict',
     });

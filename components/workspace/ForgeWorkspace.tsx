@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { SummaryTab } from '@/components/workspace/SummaryTab';
+import { WorkTab } from '@/components/workspace/WorkTab';
 import {
-  FORGE_STAGE_KEYS,
-  FORGE_STAGE_LABELS,
   buildForgeStageCounts,
   getForgeActStageRecords,
   getForgeDecideStageRecords,
@@ -24,6 +24,7 @@ import { useForgeDocumentDetail } from '@/lib/useForgeDocumentDetail';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
 import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
+import { ValidatorTab } from '@/app/platform/workspace/projects/[id]/ValidatorTab';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import {
@@ -130,6 +131,7 @@ function InspectorRow({ label, children }: { label: string; children: ReactNode 
 }
 
 type ForgeWorkspaceProps = {
+  projectId: string;
   model: ProjectOverviewModel;
   documents: ProjectDocumentRow[];
   decisions: ProjectDecisionRow[];
@@ -1109,19 +1111,27 @@ function RightPanel({
   );
 }
 
+type TabKey = 'summary' | 'work' | 'documents' | 'validator' | 'audit';
+
+const WORKSPACE_TABS: Array<{ key: TabKey; label: string }> = [
+  { key: 'summary', label: 'Summary' },
+  { key: 'work', label: 'Work' },
+  { key: 'documents', label: 'Documents' },
+  { key: 'validator', label: 'Validator' },
+  { key: 'audit', label: 'Audit' },
+];
+
 export function ForgeWorkspace({
+  projectId,
   model,
   documents,
   decisions,
   tasks,
   onProjectDataRefresh,
 }: ForgeWorkspaceProps) {
-  const [stage, setStage] = useState<ForgeStageKey>('structure');
-  const [selection, setSelection] = useState<ForgeSelection>(null);
+  const [tab, setTab] = useState<TabKey>('work');
   const { organization } = useCurrentOrg();
   const orgId = organization?.id ?? null;
-  const decideRecords = useMemo(() => getForgeDecideStageRecords(decisions), [decisions]);
-  const actRecords = useMemo(() => getForgeActStageRecords(tasks), [tasks]);
   const structureDocuments = useMemo(() => getForgeStructureDocuments(documents), [documents]);
 
   const stageCounts = useMemo(
@@ -1135,75 +1145,73 @@ export function ForgeWorkspace({
     [decisions, documents, model.audit.length, tasks],
   );
 
+  const uploadHref = `/platform/documents?projectId=${encodeURIComponent(projectId)}&openUpload=1`;
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="border-b border-[#2F3B52]/80 bg-[#0B1020]/90 px-4 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {FORGE_STAGE_KEYS.map((key) => {
-            const active = stage === key;
+      {/* Tab navigation */}
+      <div className="border-b border-[#2F3B52]/80 bg-[#0B1020]/90 px-4">
+        <div className="flex items-center gap-0">
+          {WORKSPACE_TABS.map(({ key, label }) => {
+            const active = tab === key;
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => setStage(key)}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                onClick={() => setTab(key)}
+                className={`relative px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${
                   active
-                    ? 'border-[#3B82F6]/50 bg-[#3B82F6]/12 text-[#BFDBFE]'
-                    : 'border-[#2F3B52]/80 bg-[#111827] text-[#94A3B8] hover:border-[#3B82F6]/30 hover:text-[#E5EDF7]'
+                    ? 'text-[#E5EDF7]'
+                    : 'text-[#64748B] hover:text-[#94A3B8]'
                 }`}
               >
-                <span>{FORGE_STAGE_LABELS[key]}</span>
-                <span className={`font-mono tabular-nums ${active ? 'text-[#E5EDF7]' : 'text-[#C7D2E3]'}`}>
-                  {stageCounts[key]}
-                </span>
+                {label}
+                {active ? (
+                  <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full bg-[#3B82F6]" />
+                ) : null}
               </button>
             );
           })}
         </div>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1">
-        {stage === 'structure' ? (
+      {/* Tab content */}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {tab === 'summary' ? (
+          <SummaryTab
+            model={model}
+            stageCounts={stageCounts}
+            decisions={decisions}
+            tasks={tasks}
+            onGoToWork={() => setTab('work')}
+          />
+        ) : tab === 'work' ? (
+          <WorkTab
+            projectId={projectId}
+            model={model}
+            documents={documents}
+            decisions={decisions}
+            tasks={tasks}
+            uploadHref={uploadHref}
+          />
+        ) : tab === 'documents' ? (
           <CenterPanelStructure
             structureDocuments={structureDocuments}
             projectDocuments={documents}
             orgId={orgId}
             onProjectDataRefresh={onProjectDataRefresh}
           />
-        ) : (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <p className="shrink-0 border-b border-[#2F3B52]/60 px-4 py-2 text-[11px] text-[#64748B]">
-              {stagePressureLine(stage, stageCounts)}
-            </p>
-            <div className="flex min-h-0 flex-1">
-            {stage === 'decide' ? (
-              <CenterPanelDecide
-                decisions={decideRecords}
-                tasks={actRecords}
-                emptyState={model.decision_empty_state}
-                selection={selection}
-                onSelectDecision={(id) => setSelection({ kind: 'decision', id })}
-                onSelectTask={(id) => setSelection({ kind: 'task', id })}
-              />
-            ) : stage === 'act' ? (
-              <CenterPanelAct
-                records={actRecords}
-                selection={selection}
-                onSelectTask={(id) => setSelection({ kind: 'task', id })}
-              />
-            ) : stage === 'intake' ? (
-              <CenterPanelIntake documents={documents} onProjectDataRefresh={onProjectDataRefresh} />
-            ) : stage === 'extract' ? (
-              <CenterPanelExtract documents={documents} />
-            ) : stage === 'audit' ? (
-              <CenterPanelAudit items={model.audit} emptyState={model.audit_empty_state} />
-            ) : (
-              <CenterPanelOtherStage stage={stage} />
-            )}
-            <RightPanel selection={selection} decisions={decisions} tasks={tasks} documents={documents} />
+        ) : tab === 'validator' ? (
+          <div className="flex-1 overflow-auto">
+            <div className="px-4 py-6">
+              <ValidatorTab projectId={projectId} />
             </div>
           </div>
-        )}
+        ) : tab === 'audit' ? (
+          <div className="flex min-h-0 flex-1">
+            <CenterPanelAudit items={model.audit} emptyState={model.audit_empty_state} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

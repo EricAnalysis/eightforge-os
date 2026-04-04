@@ -3,7 +3,7 @@
 // Used by buildDocumentIntelligence() and all document-intelligence UI components.
 
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
-import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { ContractAnalysisResult, ContractCeilingType } from '@/lib/contracts/types';
 //
 // Primary document families (first-class):
 //   contract/rate docs · ticket exports/PDFs · invoices/payment recs · spreadsheet support
@@ -277,6 +277,9 @@ export interface ContractExtraction {
   projectCode?: string;
   executedDate?: string;
   notToExceedAmount?: number;
+  contractCeilingType?: ContractCeilingType;
+  contractCeilingDisplay?: string;
+  contractCeiling?: string;
   scopeSummary?: string;
   tipFee?: number;
   rateSchedulePresent?: boolean;

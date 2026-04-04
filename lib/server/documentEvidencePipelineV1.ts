@@ -25,6 +25,10 @@ export type ContractStructuredFieldsV1 = {
 
 export type ContractSectionSignalsV1 = {
   // Pricing / compensation section signals
+  // `rate_section_present` / `rate_section_pages` / `rate_items_detected`
+  // are reserved for actual table-like schedule pages with structured pricing rows.
+  // `unit_price_structure_present` stays broad enough to preserve narrative
+  // schedule references for downstream pricing logic.
   rate_section_present: boolean;
   rate_section_label: string | null;
   rate_section_pages: number[];
@@ -405,25 +409,258 @@ const RATE_PRICE_STRUCTURE_HEADER_SIGNAL_REGEXES = CONTRACT_FAILURE_MODES.rateSc
   /unit price|unit rate|unit cost|rate per|price per|scheduled value/i.test(pattern.source),
 );
 
+const TIME_AND_MATERIALS_RE = /\btime(?:\s+|-)?(?:and|&)(?:\s+|-)?materials\b/i;
+
 const UNIT_TOKENS = [
   'cubic yard', 'cy', 'ton', 'tons', 'hour', 'hours', 'hr', 'hrs',
   'mile', 'miles', 'each', 'ea', 'load', 'loads', 'day', 'days',
   'lf', 'linear foot', 'sq ft', 'square foot', 'yard', 'yd',
+  'pound', 'lb', 'lbs', 'unit', 'tree', 'stump',
 ];
 
-const RATE_ROW_RE = /(\$?\s*[\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|tons|cubic\s+yard|cy|hour|hr|hrs|mile|each|ea|load|day|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot)/gi;
+const RATE_ROW_RE = /(\$?\s*[\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|tons|cubic\s+yard|cy|hour|hr|hrs|mile|each|ea|load|day|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot|pound|lb|lbs|unit|tree|stump)/gi;
+const RATE_REFERENCE_LINE_RE = /\b(?:fee schedule|price schedule|pricing schedule|rate schedule|unit prices?|time\s*(?:and|&)\s*materials(?:\s+rates?)?)\b/i;
+
+type PricingReferencePageDetection = {
+  present: boolean;
+  score: number;
+  labelCandidate: string | null;
+};
+
+type StrictRateSchedulePageDetection = {
+  qualifies: boolean;
+  score: number;
+  labelCandidate: string | null;
+  rateRows: number;
+  units: string[];
+};
 
 function unitMatchesForLine(line: string): string[] {
   const lower = safeLower(line);
   return UNIT_TOKENS.filter((unit) => lower.includes(unit));
 }
 
-function looksLikeColumnRateRow(line: string): boolean {
-  const normalized = line.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!/\$\s*\d[\d,]*(?:\.\d{1,2})?/.test(normalized)) return false;
-  if (unitMatchesForLine(normalized).length === 0) return false;
+function lineContainsMoneyValue(line: string): boolean {
+  const normalized = normalizeWhitespace(line);
+  return (
+    /\$\s*[\d,]+(?:\.\d+)?/.test(normalized) ||
+    /\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b/.test(normalized) ||
+    /\b\d+\.\d{2}\b/.test(normalized)
+  );
+}
+
+function lineLooksLikeInlineRateRow(line: string): boolean {
+  const normalized = normalizeWhitespace(line);
+  if (!lineContainsMoneyValue(normalized)) return false;
+  if ((normalized.match(/[A-Za-z]/g) ?? []).length < 4) return false;
+  if (/[.!?]$/.test(normalized)) return false;
+  return normalized.split(/\s+/).filter(Boolean).length >= 3;
+}
+
+function splitLineColumns(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed) return [];
+
+  const pipeColumns = trimmed.split('|').map((value) => value.trim()).filter(Boolean);
+  if (pipeColumns.length >= 2) return pipeColumns;
+
+  const tabColumns = trimmed.split(/\t+/).map((value) => value.trim()).filter(Boolean);
+  if (tabColumns.length >= 3) return tabColumns;
+
+  const spacedColumns = trimmed.split(/\s{2,}/).map((value) => value.trim()).filter(Boolean);
+  if (spacedColumns.length >= 3) return spacedColumns;
+
+  return [trimmed];
+}
+
+function looksLikeDescriptionSegment(value: string): boolean {
+  const normalized = normalizeWhitespace(value);
+  if (!normalized) return false;
+  if (lineContainsMoneyValue(normalized)) return false;
+  if (unitMatchesForLine(normalized).length > 0) return false;
   const letters = (normalized.match(/[A-Za-z]/g) ?? []).length;
-  return letters >= 8;
+  return letters >= 4;
+}
+
+function lineContainsRateValue(line: string): boolean {
+  return lineContainsMoneyValue(line) || /pass[\s-]?through/i.test(line);
+}
+
+function detectHeaderCategories(line: string): {
+  description: boolean;
+  price: boolean;
+  unit: boolean;
+  support: boolean;
+  score: number;
+} {
+  const description =
+    /\b(?:category|description|service|classification|work activity|labor class|item|pay item)\b/i.test(line);
+  const price =
+    matchesRateScheduleHeaderSignal(line) ||
+    /\b(?:rate|price|cost|scheduled value)\b/i.test(line);
+  const unit =
+    CONTRACT_FAILURE_MODES.units.headerAliases.some((pattern) => testRegex(line, pattern)) ||
+    /\bunit\b/i.test(line);
+  const support =
+    /\b(?:qty|quantity|total|clin|contract line item number)\b/i.test(line);
+  const score = [description, price, unit, support].filter(Boolean).length;
+  return { description, price, unit, support, score };
+}
+
+function scorePricingReferencePage(pageText: string): PricingReferencePageDetection {
+  const normalized = normalizeWhitespace(pageText);
+  const lower = safeLower(normalized);
+  const lines = pageText.split('\n').map((line) => line.trim()).filter(Boolean);
+  const headings = collectHeadings(pageText);
+
+  const titleHeadingHit = headings.find((heading) => matchesRateScheduleTitleAlias(heading)) ?? null;
+  const headerSignalHeadingHit = headings.find((heading) => matchesRateScheduleHeaderSignal(heading)) ?? null;
+  const headingKeywordHit =
+    headings.find((heading) => RATE_HEADING_KEYWORDS.some((keyword) => safeLower(heading).includes(keyword))) ?? null;
+  const explicitReferenceLine =
+    lines.find((line) => RATE_REFERENCE_LINE_RE.test(line)) ?? null;
+  const phraseHits = RATE_PHRASES.filter((phrase) => lower.includes(phrase));
+
+  let score = 0;
+  if (titleHeadingHit) score += 5;
+  if (headerSignalHeadingHit) score += 3;
+  if (headingKeywordHit) score += 2;
+  if (explicitReferenceLine) score += 3;
+  score += Math.min(4, phraseHits.length * 2);
+
+  return {
+    present: score >= 3,
+    score,
+    labelCandidate: titleHeadingHit ?? headerSignalHeadingHit ?? headingKeywordHit ?? explicitReferenceLine,
+  };
+}
+
+function scoreStrictRateSchedulePage(pageText: string): StrictRateSchedulePageDetection {
+  const normalized = normalizeWhitespace(pageText);
+  const lines = pageText.split('\n').map((line) => line.trim()).filter(Boolean);
+  const headings = collectHeadings(pageText);
+
+  const titleHeadingHit = headings.find((heading) => matchesRateScheduleTitleAlias(heading)) ?? null;
+  const headerLines = lines
+    .map((line) => ({ line, categories: detectHeaderCategories(line) }))
+    .filter(({ categories }) => categories.score >= 2 && (categories.price || categories.unit));
+  const hasHeaderLine = headerLines.length > 0;
+  const hasSupportHeader = headerLines.some(({ categories }) => categories.support);
+  const hasDescriptionHeader = headerLines.some(({ categories }) => categories.description);
+
+  const inlineMatchUnits: string[] = [];
+  let inlineRateRows = 0;
+  const inlineRegex = new RegExp(RATE_ROW_RE.source, RATE_ROW_RE.flags);
+  let inlineMatch: RegExpExecArray | null;
+  while ((inlineMatch = inlineRegex.exec(normalized)) !== null && inlineRateRows < 200) {
+    inlineRateRows += 1;
+    if (inlineMatch[2]) inlineMatchUnits.push(inlineMatch[2].toLowerCase());
+  }
+
+  const inlineHeaderRows = lines.filter((line) => {
+    const headerCategories = detectHeaderCategories(line);
+    if (headerCategories.score >= 2 && (headerCategories.price || headerCategories.unit)) {
+      return false;
+    }
+    return hasHeaderLine && lineLooksLikeInlineRateRow(line);
+  }).length;
+
+  const candidateRows = lines
+    .map((line) => {
+      const headerCategories = detectHeaderCategories(line);
+      if (headerCategories.score >= 2 && (headerCategories.price || headerCategories.unit)) {
+        return null;
+      }
+
+      const columns = splitLineColumns(line);
+      const usesColumns = columns.length >= 3;
+      const numericPrice = usesColumns
+        ? columns.some((value) => lineContainsMoneyValue(value))
+        : lineContainsMoneyValue(line);
+      const hasRateValue = usesColumns
+        ? columns.some((value) => lineContainsRateValue(value))
+        : hasHeaderLine && lineLooksLikeInlineRateRow(line);
+      const units = usesColumns
+        ? uniqStrings(columns.flatMap((value) => unitMatchesForLine(value)))
+        : uniqStrings(unitMatchesForLine(line));
+      const hasUnit = units.length > 0;
+      const hasDescription = usesColumns
+        ? columns.some((value) => looksLikeDescriptionSegment(value))
+        : looksLikeDescriptionSegment(line);
+      const isStructured =
+        hasRateValue &&
+        hasDescription &&
+        (
+          (usesColumns && (hasUnit || hasHeaderLine || titleHeadingHit != null)) ||
+          (!usesColumns && hasHeaderLine)
+        );
+
+      if (!isStructured) return null;
+      return {
+        columns,
+        numericPrice,
+        hasUnit,
+        units,
+      };
+    })
+    .filter((row): row is { columns: string[]; numericPrice: boolean; hasUnit: boolean; units: string[] } => row != null);
+
+  const columnRows = candidateRows.filter((row) => row.columns.length >= 3);
+  const columnWidths = columnRows.map((row) => row.columns.length);
+  const consistentColumns =
+    columnWidths.length >= 2 &&
+    Math.max(...columnWidths) - Math.min(...columnWidths) <= 1;
+  const structuredRowCount = candidateRows.length;
+  const numericPriceRowCount = candidateRows.filter((row) => row.numericPrice).length;
+  const unitRowCount = candidateRows.filter((row) => row.hasUnit).length;
+  const inferredRowCount = Math.max(structuredRowCount, inlineHeaderRows, inlineRateRows);
+  const rowUnits = uniqStrings([
+    ...candidateRows.flatMap((row) => row.units),
+    ...inlineMatchUnits,
+  ]);
+
+  const qualifiesInlineRatePage =
+    titleHeadingHit != null &&
+    inlineRateRows >= 2;
+  const qualifiesUnitRatePage =
+    (structuredRowCount >= 2 || inlineRateRows >= 2) &&
+    (numericPriceRowCount >= 1 || inlineRateRows >= 2) &&
+    unitRowCount >= 1 &&
+    (hasHeaderLine || titleHeadingHit != null || consistentColumns);
+  const qualifiesStructuredPricePage =
+    hasHeaderLine &&
+    hasDescriptionHeader &&
+    (structuredRowCount >= 2 || inlineHeaderRows >= 2) &&
+    (numericPriceRowCount >= 2 || inlineHeaderRows >= 2) &&
+    (unitRowCount >= 1 || hasSupportHeader || titleHeadingHit != null);
+  const qualifiesContinuationPage =
+    consistentColumns &&
+    structuredRowCount >= 3 &&
+    numericPriceRowCount >= 1 &&
+    (unitRowCount >= 1 || hasSupportHeader);
+
+  const qualifies =
+    qualifiesInlineRatePage ||
+    qualifiesUnitRatePage ||
+    qualifiesStructuredPricePage ||
+    qualifiesContinuationPage;
+
+  let score = 0;
+  if (titleHeadingHit) score += 4;
+  if (hasHeaderLine) score += 3;
+  if (consistentColumns) score += 2;
+  score += Math.min(6, inferredRowCount);
+  if (numericPriceRowCount >= 2) score += 2;
+  if (unitRowCount >= 1) score += 1;
+  if (inlineRateRows >= 2) score += 1;
+
+  return {
+    qualifies,
+    score,
+    labelCandidate: titleHeadingHit ?? headerLines[0]?.line ?? null,
+    rateRows: inferredRowCount,
+    units: rowUnits,
+  };
 }
 
 function scoreRateBearingPage(pageText: string): {
@@ -432,65 +669,15 @@ function scoreRateBearingPage(pageText: string): {
   rateRows: number;
   units: string[];
 } {
-  const normalized = normalizeWhitespace(pageText);
-  const lower = safeLower(normalized);
+  const reference = scorePricingReferencePage(pageText);
+  const strict = scoreStrictRateSchedulePage(pageText);
 
-  let score = 0;
-  let labelCandidate: string | null = null;
-
-  const headings = collectHeadings(pageText);
-  const titleHeadingHit = headings.find((h) => matchesRateScheduleTitleAlias(h));
-  const headerSignalHeadingHit = headings.find((h) => matchesRateScheduleHeaderSignal(h));
-  const headingHit =
-    titleHeadingHit ??
-    headerSignalHeadingHit ??
-    headings.find((h) => RATE_HEADING_KEYWORDS.some((kw) => safeLower(h).includes(kw)));
-  if (headingHit) {
-    score += 6;
-    labelCandidate = headingHit;
-  }
-
-  const phraseHits = RATE_PHRASES.filter((p) => lower.includes(p));
-  score += Math.min(9, phraseHits.length * 3);
-
-  const dollarSigns = (normalized.match(/\$/g) ?? []).length;
-  const moneyLike = (normalized.match(/\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b/g) ?? []).length;
-  score += Math.min(6, dollarSigns + moneyLike);
-
-  const unitHits = UNIT_TOKENS.filter((u) => lower.includes(u)).length;
-  score += Math.min(6, unitHits);
-
-  // Table-ish: many short lines with numbers or repeated row structure.
-  const lines = pageText.split('\n').map((l) => l.trim()).filter(Boolean);
-  const numericLines = lines.filter((l) => /(\$?\d[\d,]*(?:\.\d{1,2})?)/.test(l)).length;
-  if (numericLines >= 8) score += 4;
-  if (lines.length >= 25 && numericLines / Math.max(1, lines.length) >= 0.35) score += 2;
-
-  // Count rate rows + units.
-  let rateRows = 0;
-  const units: string[] = [];
-  const re = new RegExp(RATE_ROW_RE.source, RATE_ROW_RE.flags);
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(normalized)) !== null && rateRows < 200) {
-    rateRows += 1;
-    if (m[2]) units.push(m[2].toLowerCase());
-  }
-
-  // OCR table pages often separate Unit and Rate into columns instead of inline "$x per unit" phrases.
-  if (rateRows === 0) {
-    const columnRateLines = lines.filter((line) => looksLikeColumnRateRow(line));
-    if (columnRateLines.length >= 3) {
-      rateRows = columnRateLines.length;
-      for (const line of columnRateLines) {
-        units.push(...unitMatchesForLine(line));
-      }
-    }
-  }
-
-  if (rateRows >= 3) score += 6;
-  else if (rateRows >= 1) score += 2;
-
-  return { score, labelCandidate, rateRows, units: uniqStrings(units) };
+  return {
+    score: strict.qualifies ? Math.max(10, strict.score) : (reference.present ? reference.score : 0),
+    labelCandidate: strict.labelCandidate ?? (reference.present ? reference.labelCandidate : null),
+    rateRows: strict.qualifies ? strict.rateRows : 0,
+    units: strict.qualifies ? strict.units : [],
+  };
 }
 
 function detectFederalSignals(textLower: string): string[] {
@@ -687,15 +874,16 @@ export function parseContractEvidenceV1(params: {
     .map((r) => r.page);
 
   const time_and_materials_present =
-    /\btime\s*(?:and|&)\s*materials\b/.test(firstLower) ||
+    TIME_AND_MATERIALS_RE.test(firstLower) ||
     /\bt\s*&\s*m\b/.test(firstLower) ||
     /\bt&m\b/.test(firstLower) ||
-    /\btime\s*(?:and|&)\s*materials\b/.test(lower) ||
+    TIME_AND_MATERIALS_RE.test(lower) ||
     /\bt\s*&\s*m\b/.test(lower) ||
     /\bt&m\b/.test(lower);
 
   const unit_price_structure_present =
     rate_section_pages.length > 0 ||
+    bestLabelScore >= 3 ||
     matchesAnyRegex(combined, RATE_PRICE_STRUCTURE_HEADER_SIGNAL_REGEXES);
 
   const fema_reference_present =

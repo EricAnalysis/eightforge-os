@@ -456,7 +456,10 @@ function buildPatterns(params: {
     patterns.push('duration_from_execution');
   }
 
-  if (params.facts.contract_ceiling?.machine_classification === 'rate_price_no_ceiling') {
+  if (
+    params.facts.contract_ceiling?.machine_classification === 'rate_price_no_ceiling'
+    || params.facts.contract_ceiling_type?.value === 'rate_based'
+  ) {
     patterns.push('not_to_exceed_rates_only');
   }
 
@@ -476,8 +479,10 @@ function buildMissingFields(params: {
   traceDecisions: NormalizedDecision[];
 }): string[] {
   const fields = new Set<string>();
+  const hasRateBasedCeilingType = params.facts.contract_ceiling_type?.value === 'rate_based';
 
   for (const field of REQUIRED_FIELDS_BY_FAMILY[params.family] ?? []) {
+    if (field === 'contract_ceiling' && hasRateBasedCeilingType) continue;
     if (!hasMeaningfulValue(params.facts[field]?.value)) {
       fields.add(field);
     }
@@ -485,7 +490,9 @@ function buildMissingFields(params: {
 
   for (const decision of params.traceDecisions) {
     if (decision.family !== 'missing' || !decision.field_key) continue;
-    fields.add(toSnakeCase(decision.field_key.split(':')[0] ?? decision.field_key));
+    const field = toSnakeCase(decision.field_key.split(':')[0] ?? decision.field_key);
+    if (field === 'contract_ceiling' && hasRateBasedCeilingType) continue;
+    fields.add(field);
   }
 
   return [...fields];
@@ -625,9 +632,11 @@ function buildFactMap(params: {
 export function forgeDecisionGenerator(input: ForgeDecisionGeneratorInput): ForgeGeneratedDecision[] {
   const patterns = input.patterns ?? [];
   const decisions: RankedDecisionDraft[] = [];
+  const hasRateBasedCeilingType = input.facts.contract_ceiling_type?.value === 'rate_based';
 
   for (const [field, fact] of Object.entries(input.facts)) {
     if (isHelperFact(field)) continue;
+    if (field === 'contract_ceiling' && hasRateBasedCeilingType && fact.value == null) continue;
     if (fact.confirmed) continue;
     if ((fact.confidence ?? 1) >= LOW_CONFIDENCE_THRESHOLD) continue;
 
@@ -674,15 +683,15 @@ export function forgeDecisionGenerator(input: ForgeDecisionGeneratorInput): Forg
           documentId: input.documentId,
           documentTitle: input.documentTitle,
           documentType: input.documentType,
-          field: 'contract_ceiling',
-          prompt: 'Is there any overall contract ceiling amount, or does the document only define capped rates and category limits?',
-          reason: 'Critical field missing; detected rate-schedule and not-to-exceed-rates-only patterns suggest no explicit total ceiling may be present.',
+          field: 'contract_ceiling_type',
+          prompt: 'Confirm whether this agreement uses a rate-based not-to-exceed schedule instead of a single total contract cap.',
+          reason: 'Detected rate-schedule and not-to-exceed-rates-only patterns. Classify the ceiling model instead of treating the ceiling as missing.',
           anchors: dedupeAnchors([
             ...(input.facts.rate_schedule?.anchors ?? []),
             ...(input.facts.contract_ceiling?.anchors ?? []),
           ]),
-          answer_type: 'select: overall ceiling present / no explicit ceiling present',
-          severity: 'critical',
+          answer_type: 'select: rate based / overall ceiling present / no explicit ceiling present',
+          severity: 'review',
           pattern: 'not_to_exceed_rates_only',
         }),
       );

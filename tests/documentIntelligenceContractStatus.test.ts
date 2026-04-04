@@ -117,6 +117,9 @@ test('unit-rate Williamson contract does not invent an overall NTE or numeric ti
   const extracted = intelligence.extracted as {
     contractorName?: string;
     notToExceedAmount?: number;
+    contractCeilingType?: string;
+    contractCeilingDisplay?: string;
+    contractCeiling?: string;
     rateSchedulePresent?: boolean;
     tipFee?: number;
   };
@@ -124,9 +127,25 @@ test('unit-rate Williamson contract does not invent an overall NTE or numeric ti
   assert.equal(extracted.contractorName, 'Aftermath Disaster Recovery, Inc.');
   assert.equal(extracted.rateSchedulePresent, true);
   assert.equal(extracted.notToExceedAmount, undefined);
+  assert.equal(extracted.contractCeilingType, 'rate_based');
+  assert.equal(extracted.contractCeilingDisplay, 'Rate based ceiling per schedule');
+  assert.equal(
+    extracted.contractCeiling,
+    'No total ceiling stated; Exhibit A rates are not to exceed',
+  );
   assert.equal(extracted.tipFee, undefined);
   assert.equal(intelligence.entities.some((entity: { key: string }) => entity.key === 'nte'), false);
+  assert.equal(
+    intelligence.entities.some((entity: { key: string; value: string }) =>
+      entity.key === 'contract_ceiling' && entity.value === 'Rate based ceiling per schedule'),
+    true,
+  );
   assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'Missing rate schedule (Exhibit A)'), false);
   assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'Tip fee detected'), false);
-  assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'No overall contract ceiling detected'), true);
+  assert.equal(intelligence.decisions.some((d: { title: string }) => d.title === 'No overall contract ceiling detected'), false);
+  assert.equal(
+    intelligence.decisions.some((d: { field_key?: string; observed_value?: string | number | null }) =>
+      d.field_key === 'contract_ceiling' && d.observed_value === 'Rate based ceiling per schedule'),
+    true,
+  );
 });

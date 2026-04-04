@@ -89,7 +89,9 @@ function normalizeContractFromTables(params: {
 describe('normalizeNode contract rate schedule qualification', () => {
   it('preserves Williamson-style baseline schedules and row counts', () => {
     const normalized = normalizeContractFromTables({
-      textPreview: 'Exhibit A emergency debris removal unit rates.',
+      textPreview:
+        'Exhibit A emergency debris removal unit rates. '
+        + 'All rates in Exhibit A shall be considered not-to-exceed rates for emergency response purposes.',
       tables: [
         makeTable({
           id: 'williamson-rate-table',
@@ -114,7 +116,7 @@ describe('normalizeNode contract rate schedule qualification', () => {
     assert.equal(facts.rate_schedule_pages?.value, 'page 8');
     assert.equal(facts.contract_ceiling?.value, null);
     assert.equal(facts.contract_ceiling?.machine_classification, 'rate_price_no_ceiling');
-    assert.equal(normalized.primaryDocument.fact_map.contract_ceiling_status, undefined);
+    assert.equal(facts.contract_ceiling_type?.value, 'rate_based');
   });
 
   it('does not treat NTE amounts beside unit/rate/classification language as contract ceiling when a rate schedule qualifies', () => {
@@ -137,7 +139,30 @@ describe('normalizeNode contract rate schedule qualification', () => {
     const facts = normalized.primaryDocument.fact_map;
     assert.equal(facts.contract_ceiling?.value, null);
     assert.equal(facts.contract_ceiling?.machine_classification, 'rate_price_no_ceiling');
-    assert.equal(facts.contract_ceiling_status, undefined);
+    assert.equal(facts.contract_ceiling_type?.value, 'rate_based');
+  });
+
+  it('keeps schedule-only pricing without rate-based NTE language classified as no explicit ceiling', () => {
+    const normalized = normalizeContractFromTables({
+      textPreview: 'Exhibit A emergency debris removal unit rates.',
+      tables: [
+        makeTable({
+          id: 'schedule-only-rate-table',
+          page: 6,
+          headerContext: ['EXHIBIT A', 'EMERGENCY DEBRIS REMOVAL UNIT RATES'],
+          headers: ['Category', 'Description', 'Unit', 'Rate'],
+          rows: [
+            ['Vegetative', '0-15 Miles from ROW to DMS', 'Cubic Yard', '$6.90'],
+            ['Vegetative', '16-30 Miles from ROW to DMS', 'Cubic Yard', '$7.90'],
+          ],
+        }),
+      ],
+    });
+
+    const facts = normalized.primaryDocument.fact_map;
+    assert.equal(facts.contract_ceiling?.value, null);
+    assert.equal(facts.contract_ceiling?.machine_classification, undefined);
+    assert.equal(facts.contract_ceiling_type?.value, 'none');
   });
 
   it('accepts EMERG03-style wide rate tables with inline unit labels and deterministic debug reasons', () => {

@@ -19,6 +19,10 @@ import {
 } from '@/lib/documentFactOverrides';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
+import {
+  contractCeilingSummary,
+  isRatePriceNoCeilingMachineClassification,
+} from '@/lib/contracts/contractCeiling';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -305,7 +309,7 @@ type BaseDocumentFact = Omit<
 >;
 
 const CONTRACT_CEILING_RATE_PRICE_LEDGER_NOTE =
-  'Rate- or price-based agreement: no explicit overall contract ceiling cited. Supporting anchors reflect the rate schedule context.';
+  'Rate based ceiling per schedule. No total ceiling stated; Exhibit A rates are not to exceed.';
 
 const ADDITIONAL_FACT_SOURCE_PRIORITY: Record<FlattenedField['source'], number> = {
   structured_fields: 0,
@@ -708,6 +712,15 @@ function titleize(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+/** Human labels for stable schema keys; `owner_name` stays the stored key (contracting entity). */
+const FACT_FIELD_LABEL_OVERRIDES: Record<string, string> = {
+  owner_name: 'Client',
+};
+
+function fieldLabelForKey(fieldKey: string): string {
+  return FACT_FIELD_LABEL_OVERRIDES[fieldKey] ?? titleize(fieldKey);
 }
 
 function toCamelCase(value: string): string {
@@ -1314,7 +1327,7 @@ function ensureRateScheduleFact(
     id: `${documentId}:${fieldKey}:rate-schedule`,
     documentId,
     fieldKey,
-    fieldLabel: titleize(fieldKey),
+    fieldLabel: fieldLabelForKey(fieldKey),
     schemaGroup: group.key,
     schemaGroupLabel: group.label,
     valueType: fieldKey === 'rate_schedule_present' ? 'boolean' : 'text',
@@ -1824,7 +1837,8 @@ function buildDecisionMeta(
 }
 
 function isContractCeilingRatePriceNoOverallCap(fact: PipelineFact | null): boolean {
-  return fact?.key === 'contract_ceiling' && fact.machine_classification === 'rate_price_no_ceiling';
+  return fact?.key === 'contract_ceiling'
+    && isRatePriceNoCeilingMachineClassification(fact.machine_classification);
 }
 
 function factState(params: {
@@ -2128,7 +2142,7 @@ function buildSyntheticMissingFacts(params: {
         id: factId,
         documentId: params.documentId,
         fieldKey,
-        fieldLabel: titleize(fieldKey),
+        fieldLabel: fieldLabelForKey(fieldKey),
         schemaGroup: group.key,
         schemaGroupLabel: group.label,
         valueType: 'unknown',
@@ -2178,7 +2192,7 @@ function buildOverrideOnlyFacts(params: {
         id: `${params.documentId}:${fieldKey}:override`,
         documentId: params.documentId,
         fieldKey,
-        fieldLabel: titleize(fieldKey),
+        fieldLabel: fieldLabelForKey(fieldKey),
         schemaGroup: group.key,
         schemaGroupLabel: group.label,
         valueType,
@@ -2533,7 +2547,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     const ratePriceNoOverallCeiling = isContractCeilingRatePriceNoOverallCap(fact);
     let normalizedDisplay = formatFactValue(fact.value, valueType);
     if (ratePriceNoOverallCeiling) {
-      normalizedDisplay = 'No explicit ceiling';
+      normalizedDisplay = contractCeilingSummary('rate_based');
     }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
@@ -2550,7 +2564,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       value: fact.value,
     });
     const statusLabel =
-      ratePriceNoOverallCeiling ? 'rate/price (no overall cap)' : factStatusLabel(state);
+      ratePriceNoOverallCeiling ? 'rate based ceiling' : factStatusLabel(state);
 
     return withDisplayMetadata({
       id: fact.id,

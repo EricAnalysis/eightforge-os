@@ -1,10 +1,16 @@
 import { CLAUSE_PATTERN_LIBRARY_V1_BY_ID } from '@/lib/contracts/clausePatternLibrary.v1';
+import {
+  RATE_BASED_CEILING_EVIDENCE_REGEXES,
+  classifyContractCeiling,
+  contractCeilingSummary,
+} from '@/lib/contracts/contractCeiling';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
   CLAUSE_PATTERN_LIBRARY_VERSION_V1,
   COVERAGE_LIBRARY_VERSION_V1,
   LANGUAGE_ENGINE_FIELDS_VERSION_V1,
 } from '@/lib/contracts/types';
+import { resolveContractorIdentity } from '@/lib/contracts/contractorIdentity';
 import type {
   ContractAnalysisResult,
   ContractCriticality,
@@ -69,15 +75,6 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
     out.push(trimmed);
   }
   return out;
-}
-
-function normalizeIdentityValue(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\b(inc|incorporated|llc|corp|corporation|co|company|ltd)\b\.?/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function evidenceText(evidence: EvidenceObject): string {
@@ -412,8 +409,25 @@ function detectClausePatterns(document: NormalizedNodeDocument): DetectedClauseP
           : 0.72,
     }),
     detectSimplePhrasePattern(ctx, 'not_to_exceed', {
-      slotValues: { contract_ceiling: document.fact_map.contract_ceiling?.value ?? null },
-      confidence: document.fact_map.contract_ceiling?.value != null ? 0.86 : 0.68,
+      slotValues: {
+        contract_ceiling: document.fact_map.contract_ceiling?.value ?? null,
+        contract_ceiling_type: classifyContractCeiling({
+          totalCeilingAmount:
+            typeof document.fact_map.contract_ceiling?.value === 'number'
+              ? document.fact_map.contract_ceiling.value
+              : null,
+          machineClassification: document.fact_map.contract_ceiling?.machine_classification ?? null,
+          text,
+          rateSchedulePresent:
+            document.fact_map.rate_schedule_present?.value === true
+            || document.section_signals.rate_section_present === true,
+        }),
+      },
+      confidence:
+        document.fact_map.contract_ceiling?.value != null
+        || document.fact_map.contract_ceiling?.machine_classification === 'rate_price_no_ceiling'
+          ? 0.86
+          : 0.68,
     }),
     detectSimplePhrasePattern(ctx, 'no_guarantee_quantity', { slotValues: { no_guarantee_quantity: true } }),
     detectSimplePhrasePattern(ctx, 'pass_through_disposal', { slotValues: { disposal_fee_treatment: 'pass_through' } }),
@@ -502,47 +516,6 @@ function stateFromFact(
   return 'explicit';
 }
 
-function collectContractorCandidates(
-  document: NormalizedNodeDocument,
-): Array<{ value: string; evidenceAnchors: string[] }> {
-  const candidates = new Map<string, { value: string; evidenceAnchors: string[] }>();
-  const rawCandidates = uniqueStrings([
-    asString(document.fact_map.contractor_name?.value),
-    asString(document.typed_fields.vendor_name),
-    asString(document.structured_fields.contractor_name),
-  ]);
-
-  for (const value of rawCandidates) {
-    const normalized = normalizeIdentityValue(value);
-    if (!normalized) continue;
-    candidates.set(normalized, {
-      value,
-      evidenceAnchors: document.fact_map.contractor_name?.evidence_refs ?? [],
-    });
-  }
-
-  const regexes = [
-    /(?:contractor|vendor)\s*[:\-]\s*([A-Z][A-Za-z0-9,&.\- ]{3,120})/i,
-  ];
-  for (const regex of regexes) {
-    for (const evidence of document.evidence) {
-      const text = evidenceText(evidence);
-      const match = regex.exec(text);
-      if (!match?.[1]) continue;
-      const value = normalizeWhitespace(match[1]);
-      const normalized = normalizeIdentityValue(value);
-      if (!normalized) continue;
-      const existing = candidates.get(normalized);
-      candidates.set(normalized, {
-        value: existing?.value ?? value,
-        evidenceAnchors: uniqueStrings([...(existing?.evidenceAnchors ?? []), evidence.id]),
-      });
-    }
-  }
-
-  return [...candidates.values()];
-}
-
 function findScopeCategoryEvidence(document: NormalizedNodeDocument): string[] {
   return findEvidenceIdsByPhrases(document, [
     'debris',
@@ -567,28 +540,41 @@ function buildFieldFamilies(
   const families = fieldFamilyContainer();
   const patternById = new Map(patterns.map((pattern) => [pattern.pattern_id, pattern] as const));
 
-  const contractorCandidates = collectContractorCandidates(document);
+  const contractorResolution = resolveContractorIdentity(document);
   const contractorFact = document.fact_map.contractor_name ?? null;
-  if (contractorCandidates.length > 1) {
+  if (contractorResolution.conflict) {
     setField(families, 'contractor_name', {
-      value: contractorCandidates.map((candidate) => candidate.value),
+      value: contractorResolution.candidates.map((candidate) => candidate.value),
       state: 'conflicted',
-      evidenceAnchors: contractorCandidates.flatMap((candidate) => candidate.evidenceAnchors),
-      sourceFactIds: ['contractor_name'],
-      confidence: contractorFact?.confidence ?? 0.42,
-      notes: ['Multiple plausible contractor identity candidates were detected.'],
+      evidenceAnchors: contractorResolution.candidates.flatMap((candidate) => candidate.evidenceAnchors),
+      sourceFactIds: uniqueStrings(contractorResolution.candidates.flatMap((candidate) => candidate.sourceFactIds)),
+      confidence: contractorResolution.confidence ?? contractorFact?.confidence ?? 0.42,
+      notes: contractorResolution.notes,
     });
   } else {
+    const resolvedContractorValue =
+      contractorResolution.selected?.value
+      ?? contractorFact?.value
+      ?? null;
     setField(families, 'contractor_name', {
-      value: contractorFact?.value ?? contractorCandidates[0]?.value ?? null,
+      value: resolvedContractorValue,
       state: stateFromFact(
-        contractorFact?.value ?? contractorCandidates[0]?.value ?? null,
+        resolvedContractorValue,
         contractorFact?.derivation_status,
         'P1',
       ),
-      evidenceAnchors: contractorFact?.evidence_refs ?? contractorCandidates[0]?.evidenceAnchors ?? [],
-      sourceFactIds: contractorFact ? ['contractor_name'] : [],
-      confidence: contractorFact?.confidence ?? null,
+      evidenceAnchors:
+        contractorResolution.selected?.evidenceAnchors
+        ?? contractorFact?.evidence_refs
+        ?? [],
+      sourceFactIds:
+        contractorResolution.selected?.sourceFactIds
+        ?? (contractorFact ? ['contractor_name'] : []),
+      confidence:
+        contractorResolution.confidence
+        ?? contractorFact?.confidence
+        ?? null,
+      notes: contractorResolution.notes,
     });
   }
 
@@ -839,17 +825,65 @@ function buildFieldFamilies(
   });
 
   const ceilingFact = document.fact_map.contract_ceiling ?? null;
+  const contractCeilingType = classifyContractCeiling({
+    totalCeilingAmount:
+      typeof ceilingFact?.value === 'number' ? ceilingFact.value : null,
+    machineClassification: ceilingFact?.machine_classification ?? null,
+    text: document.text_preview,
+    rateSchedulePresent:
+      rateFact?.value === true || document.section_signals.rate_section_present === true,
+  });
+  const rateBasedCeilingEvidenceAnchors = contractCeilingType === 'rate_based'
+    ? uniqueStrings([
+      ...(ceilingFact?.evidence_refs ?? []),
+      ...findEvidenceIdsByRegexes(document, [...RATE_BASED_CEILING_EVIDENCE_REGEXES]),
+    ])
+    : [];
+  const ceilingNotes = contractCeilingType === 'rate_based'
+    ? [contractCeilingSummary('rate_based')]
+    : [];
+  setField(families, 'contract_ceiling_type', {
+    value: contractCeilingType,
+    state: 'explicit',
+    evidenceAnchors:
+      contractCeilingType === 'total'
+        ? ceilingFact?.evidence_refs ?? []
+        : rateBasedCeilingEvidenceAnchors,
+    sourceFactIds: ceilingFact ? ['contract_ceiling'] : [],
+    confidence:
+      contractCeilingType === 'total'
+        ? ceilingFact?.confidence ?? null
+        : contractCeilingType === 'rate_based'
+          ? ceilingFact?.confidence ?? 0.78
+          : 0.72,
+    patternIds:
+      contractCeilingType === 'none' || !patternById.has('not_to_exceed')
+        ? []
+        : ['not_to_exceed'],
+    notes: ceilingNotes,
+  });
   setField(families, 'contract_ceiling', {
     value: ceilingFact?.value ?? null,
-    state: ceilingFact?.value != null ? 'explicit' : 'missing_critical',
-    evidenceAnchors: ceilingFact?.evidence_refs ?? [],
+    state:
+      contractCeilingType === 'total'
+        ? 'explicit'
+        : contractCeilingType === 'rate_based'
+          ? 'derived'
+          : 'missing_critical',
+    evidenceAnchors:
+      contractCeilingType === 'rate_based'
+        ? rateBasedCeilingEvidenceAnchors
+        : ceilingFact?.evidence_refs ?? [],
     sourceFactIds: ceilingFact ? ['contract_ceiling'] : [],
-    confidence: ceilingFact?.confidence ?? null,
-    patternIds: patternById.has('not_to_exceed') ? ['not_to_exceed'] : [],
-    notes:
-      ceilingFact?.value == null && ceilingFact?.machine_classification === 'rate_price_no_ceiling'
-        ? ['Normalization detected rate-based pricing but no explicit overall contract ceiling.']
-        : [],
+    confidence:
+      contractCeilingType === 'rate_based'
+        ? ceilingFact?.confidence ?? 0.74
+        : ceilingFact?.confidence ?? null,
+    patternIds:
+      contractCeilingType === 'none' || !patternById.has('not_to_exceed')
+        ? []
+        : ['not_to_exceed'],
+    notes: ceilingNotes,
   });
 
   const noGuaranteePattern = patternById.get('no_guarantee_quantity') ?? null;

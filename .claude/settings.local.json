@@ -95,7 +95,9 @@
       "Bash(find 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os/app' -name *.tsx -o -name *.ts)",
       "Bash(grep -r \"facts/override\\\\|facts/review\\\\|onSaveFactOverride\" 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os' --include=*.tsx --include=*.ts -l)",
       "Bash(grep -rn \"decisions_source_check\\\\|source_check\" 'c:/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os/supabase/migrations/' --include=*.sql)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(xargs grep:*)",
+      "Bash(find '/c/Users/ADMS Thompson/OneDrive/EightForge/eightforge-os/lib/contracts' -type f -name *.ts -o -name *.tsx)"
     ]
   }
 }

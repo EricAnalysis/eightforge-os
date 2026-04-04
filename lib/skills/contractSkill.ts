@@ -3,6 +3,11 @@ import {
   collectStrictContractRateGroundingRefs,
   collectTextOnlyRateInferenceRef,
 } from '@/lib/intelligence/groundingRefs';
+import {
+  classifyContractCeiling,
+  contractCeilingDisplay,
+  contractCeilingSummary,
+} from '@/lib/contracts/contractCeiling';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type { DocumentFamilySkill, SkillExecutionOutput } from '@/lib/pipeline/types';
@@ -23,7 +28,7 @@ export const contractSkill: DocumentFamilySkill = {
   decisionRules: [
     'Confirm contractor identity only when a PDF or workbook cell cites the name.',
     'Require a cited rate schedule before matching invoice lines to contract prices.',
-    'Escalate a missing not-to-exceed because ceiling checks cannot run.',
+    'Treat rate-based not-to-exceed schedules as a ceiling model, not a missing ceiling.',
   ],
   actionGenerationRules: [
     'Use one imperative sentence per primary_action.description.',
@@ -31,7 +36,7 @@ export const contractSkill: DocumentFamilySkill = {
   ],
   evidenceExpectations: [
     'Contractor name should map to an opening clause, signature block, or labeled form field.',
-    'Ceiling amount should map to an explicit not-to-exceed clause.',
+    'Ceiling evidence should map to either an explicit total NTE clause or a rate-based not-to-exceed schedule clause.',
     'Rate schedule should reference a page, section, or table context.',
   ],
   reviewTriggers: [
@@ -48,6 +53,7 @@ export const contractSkill: DocumentFamilySkill = {
     const owner = getStringFact(input.primaryDocument, 'owner_name');
     const executedDate = getStringFact(input.primaryDocument, 'executed_date');
     const ceiling = getNumberFact(input.primaryDocument, 'contract_ceiling');
+    const storedCeilingType = getStringFact(input.primaryDocument, 'contract_ceiling_type');
     const rateSchedulePresent = getBooleanFact(input.primaryDocument, 'rate_schedule_present');
     const ratePages = getStringFact(input.primaryDocument, 'rate_schedule_pages');
 
@@ -69,6 +75,28 @@ export const contractSkill: DocumentFamilySkill = {
       /rate schedule|unit price|compensation shall be based on|exhibit a\b/i.test(
         input.primaryDocument.text_preview,
       );
+    const ceilingType = classifyContractCeiling({
+      totalCeilingAmount: ceiling,
+      machineClassification: ceilingFact?.machine_classification ?? null,
+      text: input.primaryDocument.text_preview,
+      rateSchedulePresent,
+    });
+    const ceilingDisplay = contractCeilingDisplay(
+      storedCeilingType === 'total'
+      || storedCeilingType === 'rate_based'
+      || storedCeilingType === 'none'
+        ? storedCeilingType
+        : ceilingType,
+    );
+    const resolvedCeilingType =
+      storedCeilingType === 'total'
+      || storedCeilingType === 'rate_based'
+      || storedCeilingType === 'none'
+        ? storedCeilingType
+        : ceilingType;
+    const rateBasedCeilingResolved = resolvedCeilingType === 'rate_based';
+    const rateBasedCeilingCitation =
+      rateBasedCeilingResolved && (ceilingEvidence.length > 0 || rateCitation);
 
     const decisions: SkillExecutionOutput['decisions'] = [];
     const actions: SkillExecutionOutput['actions'] = [];
@@ -77,7 +105,7 @@ export const contractSkill: DocumentFamilySkill = {
         id: 'audit:contract:evidence',
         stage: 'decision' as const,
         status: 'info' as const,
-        message: (contractorCitation && rateCitation && ceilingCitation
+        message: (contractorCitation && rateCitation && (ceilingCitation || rateBasedCeilingCitation)
           ? 'Contract evidence includes contractor identity, ceiling, and rate schedule anchors.'
           : 'Contract evidence is incomplete for one or more required approval checks.') +
           ' [single-document scope]',
@@ -308,6 +336,25 @@ export const contractSkill: DocumentFamilySkill = {
         field_key: 'contract_ceiling',
         reconciliation_scope: 'single_document',
       }));
+    } else if (rateBasedCeilingResolved && rateBasedCeilingCitation) {
+      decisions.push(makeDecision({
+        id: 'contract:ceiling_rate_based_confirmed',
+        family: 'confirmed',
+        severity: 'info',
+        title: 'Confirmed rate-based ceiling model',
+        detail: `${ceilingDisplay}: ${contractCeilingSummary('rate_based')}.`,
+        confidence: ceilingFact?.confidence ?? 0.8,
+        fact_refs: ['contract_ceiling', 'contract_ceiling_type'],
+        evidence_objects: ceilingEvidence.length > 0 ? ceilingEvidence : rateEvidence,
+        extra_source_refs:
+          strictRateRefs.length > 0
+            ? strictRateRefs
+            : collectTextOnlyRateInferenceRef(true),
+        missing_source_context: [],
+        rule_id: 'contract_ceiling_rate_based_confirmed',
+        field_key: 'contract_ceiling',
+        reconciliation_scope: 'single_document',
+      }));
     } else if (ceiling != null && !ceilingCitation) {
       const decisionId = 'contract:ceiling_uncited';
       decisions.push(makeDecision({
@@ -353,7 +400,7 @@ export const contractSkill: DocumentFamilySkill = {
         title: 'Missing contract ceiling',
         detail: 'No explicit contract ceiling or not-to-exceed amount was grounded from the uploaded contract package.',
         confidence: 0.58,
-        fact_refs: ['contract_ceiling'],
+        fact_refs: ['contract_ceiling', 'contract_ceiling_type'],
         evidence_objects: ceilingEvidence,
         missing_source_context: ['No cited not-to-exceed clause was found.'],
         rule_id: 'contract_ceiling_missing',
@@ -394,7 +441,7 @@ export const contractSkill: DocumentFamilySkill = {
         stage: 'audit',
         status: 'info',
         message:
-          `[single-document scope] Key terms extracted${owner ? `; owner: ${owner}` : ''}${executedDate ? `; executed: ${executedDate}` : ''}.`,
+          `[single-document scope] Key terms extracted${owner ? `; client: ${owner}` : ''}${executedDate ? `; executed: ${executedDate}` : ''}.`,
         fact_refs: ['owner_name', 'executed_date'],
       });
     }

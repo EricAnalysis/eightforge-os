@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
-import { resolveContractorIdentity } from '@/lib/contracts/contractorIdentity';
+import {
+  applyContractorIdentityResolutionToNormalizedDocument,
+  resolveContractorIdentity,
+} from '@/lib/contracts/contractorIdentity';
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type { NormalizedNodeDocument, PipelineFact } from '@/lib/pipeline/types';
 
@@ -174,5 +177,106 @@ describe('contractor identity resolution', () => {
     assert.ok(
       resolution.candidates.some((candidate) => candidate.value === 'WM Gulf Coast Landfill'),
     );
+  });
+});
+
+describe('applyContractorIdentityResolutionToNormalizedDocument', () => {
+  it('replaces fact_map contractor_name with the resolved canonical string and preserves the pipeline value', () => {
+    const pageText = [
+      [
+        'CONTRACT BETWEEN WILLIAMSON COUNTY, TENNESSEE AND ARTERMATH DISASTER RECOVERY, INC.',
+        'This Contract is made by and between Williamson County, Tennessee, and Artermath Disaster Recovery, Inc. (hereinafter "Contractor").',
+        'Contractor shall commence work only upon written Notice to Proceed.',
+      ].join(' '),
+    ];
+    const fact = buildFact(
+      'williamson-apply',
+      'contractor_name',
+      'Artermath Disaster Recovery, Inc.',
+      ['williamson-apply:evidence:1'],
+      0.78,
+    );
+    const document = buildDocument({
+      documentId: 'williamson-apply',
+      pageText,
+      typedFields: {
+        vendor_name: 'Aftermath Disaster Recovery, Inc.',
+      },
+      structuredFields: {
+        contractor_name: 'Artermath Disaster Recovery, Inc.',
+        contractor_name_source: 'explicit_definition',
+      },
+      contractorFact: fact,
+    });
+
+    const patched = applyContractorIdentityResolutionToNormalizedDocument(document);
+
+    assert.equal(patched.fact_map.contractor_name?.value, 'Aftermath Disaster Recovery, Inc.');
+    assert.equal(
+      patched.fact_map.contractor_name?.identity_resolution_source_value,
+      'Artermath Disaster Recovery, Inc.',
+    );
+  });
+
+  it('does not override contractor_name when identity resolution is conflicted', () => {
+    const pageText = [
+      'This Contract is between Example County and Alpha Recovery LLC (hereinafter "Contractor").',
+      'CONTRACT BETWEEN EXAMPLE COUNTY AND BETA DEBRIS SERVICES LLC. Beta Debris Services LLC (hereinafter "Contractor").',
+    ];
+    const fact = buildFact(
+      'ambiguous-apply',
+      'contractor_name',
+      'Alpha Recovery LLC',
+      ['ambiguous-apply:evidence:1'],
+      0.78,
+    );
+    const document = buildDocument({
+      documentId: 'ambiguous-apply',
+      pageText,
+      typedFields: {
+        vendor_name: 'Beta Debris Services LLC',
+      },
+      structuredFields: {
+        contractor_name: 'Alpha Recovery LLC',
+        contractor_name_source: 'explicit_definition',
+      },
+      contractorFact: fact,
+    });
+
+    const patched = applyContractorIdentityResolutionToNormalizedDocument(document);
+
+    assert.equal(patched.fact_map.contractor_name?.value, 'Alpha Recovery LLC');
+    assert.equal(patched.fact_map.contractor_name?.identity_resolution_source_value, undefined);
+  });
+
+  it('does not set identity_resolution_source_value when the canonical value already matched the fact', () => {
+    const pageText = [
+      'This Contract is between Example County and Aftermath Disaster Recovery, Inc. (hereinafter "Contractor"). Contractor shall maintain mobilization readiness.',
+      'Prepared by WM Gulf Coast Landfill contact desk for routing only. Footer notes and disposal contact information.',
+    ];
+    const fact = buildFact(
+      'footer-noise-apply',
+      'contractor_name',
+      'Aftermath Disaster Recovery, Inc.',
+      ['footer-noise-apply:evidence:1'],
+      0.84,
+    );
+    const document = buildDocument({
+      documentId: 'footer-noise-apply',
+      pageText,
+      typedFields: {
+        vendor_name: 'Aftermath Disaster Recovery, Inc.',
+      },
+      structuredFields: {
+        contractor_name: 'WM Gulf Coast Landfill',
+        contractor_name_source: 'heuristic',
+      },
+      contractorFact: fact,
+    });
+
+    const patched = applyContractorIdentityResolutionToNormalizedDocument(document);
+
+    assert.equal(patched.fact_map.contractor_name?.value, 'Aftermath Disaster Recovery, Inc.');
+    assert.equal(patched.fact_map.contractor_name?.identity_resolution_source_value, undefined);
   });
 });

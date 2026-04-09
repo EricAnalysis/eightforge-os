@@ -58,6 +58,9 @@ function inferFamily(
     ?? documentType
     ?? ''
   ).toLowerCase();
+  if (normalizedType.includes('transaction_data') || normalizedType.includes('transaction data')) {
+    return 'spreadsheet';
+  }
   const spreadsheet = asRecord(contentLayers?.spreadsheet);
   const detectedSheets = asRecord(spreadsheet?.detected_sheets);
   const sheets = asArray<Record<string, unknown>>(detectedSheets?.sheets);
@@ -201,7 +204,10 @@ function buildExtractedRecord(contentLayers: Record<string, unknown> | null): Re
   if (spreadsheet) {
     const workbook = asRecord(spreadsheet.workbook);
     const normalizedTicketExport = asRecord(spreadsheet.normalized_ticket_export);
+    const normalizedTransactionData = asRecord(spreadsheet.normalized_transaction_data);
     const summary = asRecord(normalizedTicketExport?.summary);
+    const rollups = asRecord(normalizedTransactionData?.rollups);
+    const distinctInvoiceNumbers = asArray<string>(rollups?.distinct_invoice_numbers);
     return {
       source_kind: 'xlsx',
       sheet_count: workbook?.sheet_count ?? null,
@@ -209,6 +215,9 @@ function buildExtractedRecord(contentLayers: Record<string, unknown> | null): Re
       ticket_row_count: summary?.row_count ?? null,
       missing_quantity_rows: summary?.missing_quantity_rows ?? null,
       missing_rate_rows: summary?.missing_rate_rows ?? null,
+      transaction_row_count: normalizedTransactionData?.row_count ?? null,
+      total_extended_cost: rollups?.total_extended_cost ?? null,
+      distinct_invoice_number_count: distinctInvoiceNumbers.length,
     };
   }
 

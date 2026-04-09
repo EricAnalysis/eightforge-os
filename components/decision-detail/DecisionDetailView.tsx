@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
+import { DecisionContextPanel } from '@/components/decision-detail/DecisionContextPanel';
+import { DecisionWorkflowOutcomePanel } from '@/components/decision-detail/DecisionWorkflowOutcomePanel';
+import type { DecisionProjectValidationContext } from '@/lib/decisionContext';
 import { dueDateInputValue, dueDateToISO, formatDueDate } from '@/lib/dateUtils';
 import {
   type DecisionDetailDocumentRef,
@@ -24,6 +27,7 @@ import { memberDisplayName, type OrgMember } from '@/lib/useOrgMembers';
 type DecisionRecord = {
   id: string;
   document_id: string | null;
+  project_id: string | null;
   decision_type: string;
   title: string;
   summary: string | null;
@@ -53,6 +57,7 @@ type DecisionDetailViewProps = {
   suggestedActions: DecisionAction[];
   summary: DecisionExecutiveSummary;
   evidence: DecisionEvidencePayload;
+  projectValidation: DecisionProjectValidationContext;
   processState: DecisionProcessState;
   metrics: DecisionMetricCard[];
   relatedTasks: DecisionDetailTask[];
@@ -304,7 +309,10 @@ function DecisionDetailHeader(props: {
   const overdue = isDecisionOverdue(decision.due_at, decision.status);
 
   return (
-    <section className="mb-8 rounded-2xl border border-[#2F3B52] bg-[#111827] p-6 shadow-[0_24px_64px_rgba(8,13,29,0.35)]">
+    <section
+      id="decision-header"
+      className="mb-8 rounded-2xl border border-[#2F3B52] bg-[#111827] p-6 shadow-[0_24px_64px_rgba(8,13,29,0.35)]"
+    >
       <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -430,10 +438,11 @@ function ExecutiveSummaryPanel({ summary }: { summary: DecisionExecutiveSummary 
         <h2 className="mb-5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
           Executive summary
         </h2>
-        <div className="grid gap-5 lg:grid-cols-3">
-          <SummaryRow label="What this is" value={summary.whatThisIs} />
-          <SummaryRow label="What is wrong" value={summary.whatIsWrong} />
-          <SummaryRow label="What matters" value={summary.whatMatters} />
+        <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
+          <SummaryRow label="Input" value={summary.input} />
+          <SummaryRow label="Truth" value={summary.truth} />
+          <SummaryRow label="Gate" value={summary.gate} />
+          <SummaryRow label="Action" value={summary.action} />
         </div>
         {summary.sparseSignals.length > 0 && (
           <div className="mt-5 flex flex-wrap gap-2">
@@ -615,6 +624,7 @@ function ActionResolutionPanel(props: {
     statusControl,
     feedbackControl,
   } = props;
+  const decisionId = decision.id;
   const sortedTasks = sortTasks(relatedTasks);
   const recentFeedback = [...feedback]
     .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
@@ -624,7 +634,10 @@ function ActionResolutionPanel(props: {
     : false;
 
   return (
-    <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-6">
+    <section
+      id="decision-workflow"
+      className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-6"
+    >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-[#E5EDF7]">
@@ -780,6 +793,8 @@ function ActionResolutionPanel(props: {
               </div>
             )}
           </div>
+
+          <DecisionWorkflowOutcomePanel decisionId={decisionId} />
 
           <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
@@ -1022,6 +1037,7 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
     suggestedActions,
     summary,
     evidence,
+    projectValidation,
     processState,
     metrics,
     relatedTasks,
@@ -1051,6 +1067,23 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
 
         <ExecutiveSummaryPanel summary={summary} />
 
+        <DecisionContextPanel
+          decisionId={decision.id}
+          decisionDetails={decision.details}
+          decisionStatus={decision.status}
+          documentId={decision.document_id}
+          documentLabel={documentLabel}
+          documentHref={documentHref}
+          evidence={evidence}
+          primaryAction={primaryAction}
+          projectId={decision.project_id}
+          projectValidation={projectValidation}
+          relatedTasks={relatedTasks.map((task) => ({
+            id: task.id,
+            status: task.status,
+          }))}
+        />
+
         <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-8">
             <CriticalDecisionNodesSection
@@ -1078,7 +1111,7 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
           </div>
         </div>
 
-        <section className="mt-8">
+        <section id="decision-activity" className="mt-8">
           <ActivityTimeline
             organizationId={organizationId}
             entityType="decision"

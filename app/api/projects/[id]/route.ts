@@ -7,6 +7,7 @@ import {
   requireProjectAdminRole,
 } from '@/lib/server/projectAdmin';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { canProjectProceed, createApprovalBlockResponse } from '@/lib/server/approvalEnforcement';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -58,6 +59,22 @@ export async function PATCH(
     projectId,
   });
   if (!project) return jsonError('Project not found', 404);
+
+  // Approval gate enforcement: check if project is blocked (fail-closed for destructive action)
+  const approvalCheck = await canProjectProceed(projectId);
+  if (approvalCheck.status === 'blocked') {
+    const blockedAmount =
+      approvalCheck.snapshot && 'blocked_amount' in approvalCheck.snapshot
+        ? approvalCheck.snapshot.blocked_amount ?? undefined
+        : undefined;
+    return createApprovalBlockResponse(
+      approvalCheck.reason || 'Project is blocked by approval gate',
+      blockedAmount,
+    );
+  }
+  if (approvalCheck.status === 'unknown') {
+    return jsonError(approvalCheck.error, 503);
+  }
 
   const body = await request.json().catch(() => ({}));
   const action = typeof body?.action === 'string' ? body.action : null;
@@ -132,6 +149,22 @@ export async function DELETE(
     projectId,
   });
   if (!project) return jsonError('Project not found', 404);
+
+  // Approval gate enforcement: check if project is blocked (fail-closed for destructive action)
+  const approvalCheck = await canProjectProceed(projectId);
+  if (approvalCheck.status === 'blocked') {
+    const blockedAmount =
+      approvalCheck.snapshot && 'blocked_amount' in approvalCheck.snapshot
+        ? approvalCheck.snapshot.blocked_amount ?? undefined
+        : undefined;
+    return createApprovalBlockResponse(
+      approvalCheck.reason || 'Project is blocked by approval gate',
+      blockedAmount,
+    );
+  }
+  if (approvalCheck.status === 'unknown') {
+    return jsonError(approvalCheck.error, 503);
+  }
 
   const blockers = await getProjectDeletionBlockers(admin, {
     organizationId: ctx.actor.organizationId,

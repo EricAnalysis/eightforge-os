@@ -8,9 +8,9 @@ import type {
   InvoiceExtraction,
   ReportExtraction,
   RateTableEntry,
-  LineItem,
   Finding,
 } from '@/lib/types/extractionSchemas';
+import { extractInvoiceTypedFields } from '@/lib/invoices/invoiceParser';
 import {
   buildEvidenceV1,
   type PageTextEvidence,
@@ -42,6 +42,7 @@ import type { ParsedElementsV1 } from '@/lib/extraction/pdf/types';
 import { parseWorkbook } from '@/lib/extraction/xlsx/parseWorkbook';
 import { detectSheets } from '@/lib/extraction/xlsx/detectSheets';
 import { normalizeTicketExport } from '@/lib/extraction/xlsx/normalizeTicketExport';
+import { normalizeTransactionData } from '@/lib/extraction/xlsx/normalizeTransactionData';
 import { buildSpreadsheetEvidence } from '@/lib/extraction/xlsx/buildSpreadsheetEvidence';
 import {
   countUnsafeTextControls,
@@ -115,13 +116,6 @@ const BONDING_KEYWORDS = ['bond', 'bonding', 'surety', 'performance bond', 'paym
 const TERMINATION_CLAUSE_KEYWORDS = ['termination for convenience', 'termination for cause', 'right to terminate', 'termination clause'];
 const TIPPING_FEE_RE = /(?:tipping\s+fee|disposal\s+fee|landfill\s+fee)\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/gi;
 const HAULING_RATE_RE = /(?:haul(?:ing)?\s+rate|transport(?:ation)?\s+rate)\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/gi;
-
-// Invoice patterns
-const INVOICE_NUMBER_RE = /(?:invoice\s*(?:#|no\.?|number)\s*[:=]?\s*)([A-Za-z0-9\-]+)/gi;
-const PO_NUMBER_RE = /(?:p\.?o\.?\s*(?:#|no\.?|number)?\s*[:=]?\s*)([A-Za-z0-9\-]+)/gi;
-const TOTAL_AMOUNT_RE = /(?:total\s*(?:amount|due|balance)?)\s*[:=]?\s*\$\s?([\d,]+(?:\.\d{1,2})?)/gi;
-const PAYMENT_TERMS_KEYWORDS = ['net 30', 'net 60', 'net 90', 'due upon receipt', 'payment terms', 'net 15', 'net 45'];
-const LINE_ITEM_RE = /^(.{5,60}?)\s+(\d+(?:\.\d+)?)\s+(ton|cy|ea|hr|load|lf|mile|each|ls|day)s?\s+\$?\s?([\d,]+(?:\.\d{1,2})?)\s+\$?\s?([\d,]+(?:\.\d{1,2})?)$/gim;
 
 // Report patterns
 const REPORT_TYPE_KEYWORDS = ['daily report', 'weekly report', 'monthly report', 'final report', 'compliance report', 'progress report', 'monitoring report', 'status report'];
@@ -566,45 +560,14 @@ function extractContractFields(text: string): ContractExtraction {
   };
 }
 
-function extractInvoiceFields(text: string): InvoiceExtraction {
-  const lower = text.toLowerCase();
-
-  const invoice_number = firstMatch(text, INVOICE_NUMBER_RE);
-  const invoice_date = firstMatch(text, DATE_RE);
-  const vendor_name = firstMatch(text, VENDOR_NAME_RE);
-  const po_number = firstMatch(text, PO_NUMBER_RE);
-
-  // Total amount
-  const totalRaw = firstMatch(text, TOTAL_AMOUNT_RE);
-  const total_amount = totalRaw ? parseAmount(totalRaw) : null;
-
-  // Payment terms
-  const payment_terms = firstKeywordMention(lower, PAYMENT_TERMS_KEYWORDS);
-
-  // Line items
-  const line_items: LineItem[] = [];
-  const lineRe = new RegExp(LINE_ITEM_RE.source, LINE_ITEM_RE.flags);
-  let lm: RegExpExecArray | null;
-  while ((lm = lineRe.exec(text)) !== null && line_items.length < 30) {
-    line_items.push({
-      description: lm[1]?.trim() ?? '',
-      quantity: parseAmount(lm[2] ?? ''),
-      unit: lm[3]?.trim() ?? null,
-      unit_price: parseAmount(lm[4] ?? ''),
-      total: parseAmount(lm[5] ?? ''),
-    });
-  }
-
-  return {
-    schema_type: 'invoice',
-    invoice_number,
-    invoice_date,
-    vendor_name,
-    line_items,
-    total_amount,
-    payment_terms,
-    po_number,
-  };
+function extractInvoiceFields(
+  text: string,
+  contentLayers?: Record<string, unknown> | null,
+): InvoiceExtraction {
+  return extractInvoiceTypedFields({
+    text,
+    contentLayers: (contentLayers ?? null) as Record<string, unknown> | null,
+  });
 }
 
 function extractReportFields(text: string): ReportExtraction {
@@ -659,12 +622,13 @@ function extractReportFields(text: string): ReportExtraction {
 
 function deriveTypedFields(
   documentType: string | null,
-  text: string
+  text: string,
+  contentLayers?: Record<string, unknown> | null,
 ): TypedExtraction | null {
   if (!text || text.length === 0) return null;
   switch (documentType) {
     case 'contract': return extractContractFields(text);
-    case 'invoice':  return extractInvoiceFields(text);
+    case 'invoice':  return extractInvoiceFields(text, contentLayers);
     case 'report':   return extractReportFields(text);
     default:         return null;
   }
@@ -685,7 +649,11 @@ function applyDerivedFields(
 
   // Typed extraction based on document_type
   const docType = payload.fields.detected_document_type ?? null;
-  payload.fields.typed_fields = deriveTypedFields(docType, fullText);
+  payload.fields.typed_fields = deriveTypedFields(
+    docType,
+    fullText,
+    (payload.extraction.content_layers_v1 as Record<string, unknown> | undefined) ?? null,
+  );
 }
 
 /**
@@ -1550,7 +1518,7 @@ export async function extractDocument(
       : null;
     // If pdfjs layout produced strong text, do not label this run as "pdf_fallback" just because pdf-parse was weak.
     const layoutTextStrong = pdfTextLayer.combined_text.trim().length >= 500 && !isMostlyWhitespace(pdfTextLayer.combined_text);
-    if (extractionMode === 'pdf_fallback' && layoutTextStrong) {
+    if ((extractionMode as PdfExtractionMode) === 'pdf_fallback' && layoutTextStrong) {
       logPdf('overriding pdf_fallback due to strong layout text', {
         prior_fallback_reason: fallbackReason,
         combined_text_length: pdfTextLayer.combined_text.length,
@@ -1559,7 +1527,7 @@ export async function extractDocument(
       fallbackReason = 'layout_text_strong_overrode_fallback';
     }
     const fallbackPathUsed =
-      extractionMode === 'pdf_fallback' || extractionMode === 'ocr_recovery';
+      (extractionMode as PdfExtractionMode) === 'pdf_fallback' || extractionMode === 'ocr_recovery';
     const combinedPdfGaps = dedupeGaps([
       ...pdfEvidenceLayer.gaps,
       ...(parsedElementsLayer?.gaps ?? []),
@@ -1685,6 +1653,13 @@ export async function extractDocument(
         }),
       });
       applyInstructorClassification(payload, classification);
+      applyPdfContentLayers(payload, {
+        text: pdfTextLayer,
+        tables: pdfTableLayer,
+        forms: pdfFormLayer,
+        pdfEvidenceLayer,
+        parsedElementsLayer,
+      });
       applyDerivedFields(payload, extractedText ?? '');
       const extractionAssist = await maybeAssistTypedExtraction({
         detectedDocumentType: payload.fields.detected_document_type ?? null,
@@ -1719,13 +1694,6 @@ export async function extractDocument(
         pageText: fallbackPageText,
         documentTypeHint: payload.fields.detected_document_type ?? null,
         layoutCombinedText: pdfTextLayer.combined_text,
-      });
-      applyPdfContentLayers(payload, {
-        text: pdfTextLayer,
-        tables: pdfTableLayer,
-        forms: pdfFormLayer,
-        pdfEvidenceLayer,
-        parsedElementsLayer,
       });
       // Always log fallback selection reason at least once, even if debug is off.
       if (!pdfDebug && fallbackPathUsed) {
@@ -1806,6 +1774,13 @@ export async function extractDocument(
       }),
     });
     applyInstructorClassification(payload, classification);
+    applyPdfContentLayers(payload, {
+      text: pdfTextLayer,
+      tables: pdfTableLayer,
+      forms: pdfFormLayer,
+      pdfEvidenceLayer,
+      parsedElementsLayer,
+    });
     applyDerivedFields(payload, extractedText ?? textPreview ?? '');
     const extractionAssist = await maybeAssistTypedExtraction({
       detectedDocumentType: payload.fields.detected_document_type ?? null,
@@ -1830,13 +1805,6 @@ export async function extractDocument(
       pageText: evidencePageText,
       documentTypeHint: payload.fields.detected_document_type ?? null,
       layoutCombinedText: pdfTextLayer.combined_text,
-    });
-    applyPdfContentLayers(payload, {
-      text: pdfTextLayer,
-      tables: pdfTableLayer,
-      forms: pdfFormLayer,
-      pdfEvidenceLayer,
-      parsedElementsLayer,
     });
     if (pdfDebug) {
       const contentLayers = payload.extraction.content_layers_v1 as
@@ -1863,21 +1831,35 @@ export async function extractDocument(
   if (isSpreadsheet(fileName, mimeType)) {
     const workbook = await parseWorkbook(cloneArrayBuffer(fileBytes));
     const detectedSheets = detectSheets(workbook);
-    const ticketExport = normalizeTicketExport({
-      workbook,
-      detectedSheets,
-    });
+    const explicitDocumentType = (metadata.document_type ?? '').trim().toLowerCase();
+    const transactionDataRequested = explicitDocumentType === 'transaction_data';
+    const transactionData = transactionDataRequested
+      ? normalizeTransactionData({
+          workbook,
+          detectedSheets,
+        })
+      : null;
+    const ticketExport = transactionDataRequested
+      ? null
+      : normalizeTicketExport({
+          workbook,
+          detectedSheets,
+        });
     const spreadsheetEvidence = buildSpreadsheetEvidence({
       sourceDocumentId: metadata.id,
       workbook,
       detectedSheets,
       ticketExport,
+      transactionData,
     });
     const textPreview = workbook.workbook_text_preview || null;
     const payload = buildBase(metadata, 'spreadsheet', textPreview);
     payload.file.mime_type = mimeType;
     payload.file.size_bytes = size;
-    if (!payload.fields.detected_document_type && ticketExport) {
+    if (transactionDataRequested) {
+      payload.fields.detected_document_type = 'transaction_data';
+      payload.extraction.detected_document_type = 'transaction_data';
+    } else if (!payload.fields.detected_document_type && ticketExport) {
       payload.fields.detected_document_type = 'ticket';
       payload.extraction.detected_document_type = 'ticket';
     }
@@ -1890,8 +1872,77 @@ export async function extractDocument(
       tableHeaders: detectedSheets.sheets.map((sheet) => sheet.sheet_name),
     });
     applyInstructorClassification(payload, classification);
+    if (transactionDataRequested) {
+      payload.fields.detected_document_type = 'transaction_data';
+      payload.extraction.detected_document_type = 'transaction_data';
+    }
     if (textPreview) {
       applyDerivedFields(payload, textPreview);
+    }
+    if (transactionData) {
+      payload.extraction.evidence_v1 = {
+        parser_version: 'evidence_v1',
+        page_text: [],
+        structured_fields: {
+          source_type: transactionData.source_type,
+          row_count: transactionData.row_count,
+          sheet_names: transactionData.sheet_names,
+          header_map: transactionData.header_map,
+          inferred_project_name: transactionData.inferred_project_name,
+          inferred_invoice_numbers: transactionData.inferred_invoice_numbers,
+          inferred_date_range: transactionData.inferred_date_range,
+          detected_metric_columns: transactionData.detected_metric_columns,
+          detected_code_columns: transactionData.detected_code_columns,
+          detected_amount_columns: transactionData.detected_amount_columns,
+          transaction_data_records: transactionData.records,
+          transaction_data_summary: transactionData.summary,
+          transaction_data_rollups: transactionData.rollups,
+          total_extended_cost: transactionData.rollups.total_extended_cost,
+          total_transaction_quantity: transactionData.rollups.total_transaction_quantity,
+          total_tickets: transactionData.rollups.total_tickets,
+          total_cyd: transactionData.rollups.total_cyd,
+          invoiced_ticket_count: transactionData.rollups.invoiced_ticket_count,
+          distinct_invoice_count: transactionData.rollups.distinct_invoice_count,
+          total_invoiced_amount: transactionData.rollups.total_invoiced_amount,
+          uninvoiced_line_count: transactionData.rollups.uninvoiced_line_count,
+          eligible_count: transactionData.rollups.eligible_count,
+          ineligible_count: transactionData.rollups.ineligible_count,
+          unknown_eligibility_count: transactionData.rollups.unknown_eligibility_count,
+          distinct_rate_codes: transactionData.rollups.distinct_rate_codes,
+          distinct_invoice_numbers: transactionData.rollups.distinct_invoice_numbers,
+          distinct_service_items: transactionData.rollups.distinct_service_items,
+          distinct_materials: transactionData.rollups.distinct_materials,
+          project_operations_overview: transactionData.summary.project_operations_overview,
+          invoice_readiness_summary: transactionData.summary.invoice_readiness_summary,
+          rows_with_missing_rate_code: transactionData.rollups.rows_with_missing_rate_code,
+          rows_with_missing_invoice_number: transactionData.rollups.rows_with_missing_invoice_number,
+          rows_with_missing_quantity: transactionData.rollups.rows_with_missing_quantity,
+          rows_with_missing_extended_cost: transactionData.rollups.rows_with_missing_extended_cost,
+          rows_with_zero_cost: transactionData.rollups.rows_with_zero_cost,
+          rows_with_extreme_unit_rate: transactionData.rollups.rows_with_extreme_unit_rate,
+          grouped_by_rate_code: transactionData.rollups.grouped_by_rate_code,
+          grouped_by_invoice: transactionData.rollups.grouped_by_invoice,
+          grouped_by_site_material: transactionData.rollups.grouped_by_site_material,
+          grouped_by_service_item: transactionData.rollups.grouped_by_service_item,
+          grouped_by_material: transactionData.rollups.grouped_by_material,
+          grouped_by_site_type: transactionData.rollups.grouped_by_site_type,
+          grouped_by_disposal_site: transactionData.rollups.grouped_by_disposal_site,
+          outlier_rows: transactionData.rollups.outlier_rows,
+          dms_fds_lifecycle_summary: transactionData.summary.dms_fds_lifecycle_summary,
+          boundary_location_review: transactionData.summary.boundary_location_review,
+          distance_from_feature_review: transactionData.summary.distance_from_feature_review,
+          debris_class_at_disposal_site_review: transactionData.summary.debris_class_at_disposal_site_review,
+          mileage_review: transactionData.summary.mileage_review,
+          load_call_review: transactionData.summary.load_call_review,
+          linked_mobile_load_consistency_review: transactionData.summary.linked_mobile_load_consistency_review,
+          truck_trip_time_review: transactionData.summary.truck_trip_time_review,
+          detected_header_map: transactionData.summary.detected_header_map,
+          detected_sheet_names: transactionData.summary.detected_sheet_names,
+          inferred_date_range_start: transactionData.summary.inferred_date_range_start,
+          inferred_date_range_end: transactionData.summary.inferred_date_range_end,
+        },
+        section_signals: {},
+      };
     }
     payload.extraction.content_layers_v1 = {
       parser_version: 'content_layers_v1',
@@ -1900,14 +1951,17 @@ export async function extractDocument(
         workbook,
         detected_sheets: detectedSheets,
         normalized_ticket_export: ticketExport,
+        normalized_transaction_data: transactionData,
         evidence: spreadsheetEvidence.evidence,
         confidence: spreadsheetEvidence.confidence,
         gaps: spreadsheetEvidence.gaps,
       },
     };
-    payload.summary = ticketExport
-      ? 'Workbook parsed with ticket-export normalization.'
-      : 'Workbook parsed into structured sheet evidence.';
+    payload.summary = transactionData
+      ? 'Workbook parsed with transaction-data normalization.'
+      : ticketExport
+        ? 'Workbook parsed with ticket-export normalization.'
+        : 'Workbook parsed into structured sheet evidence.';
     return payload;
   }
 

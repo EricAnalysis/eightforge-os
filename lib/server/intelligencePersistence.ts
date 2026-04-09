@@ -31,6 +31,7 @@ import {
   type IntelligenceTaskInsert,
 } from '@/lib/server/intelligenceAdapter';
 import { loadPrecedenceAwareRelatedDocs } from '@/lib/server/documentPrecedence';
+import { persistTransactionDataForDocument } from '@/lib/server/transactionDataPersistence';
 
 type DocumentRow = {
   id: string;
@@ -760,6 +761,23 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     extractionData: buildContext.buildParams.extractionData,
     relatedDocs: buildContext.buildParams.relatedDocs,
   });
+
+  try {
+    await persistTransactionDataForDocument({
+      admin: params.admin,
+      documentId: params.documentId,
+      projectId: params.projectId ?? null,
+      extracted: pipelineResult.extracted,
+    });
+  } catch (error) {
+    console.error('[generateAndPersistCanonicalIntelligence] persist transaction data failed', {
+      documentId: params.documentId,
+      projectId: params.projectId ?? null,
+      documentType: buildContext.buildParams.documentType,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   const contractInvoicePrimaryMode = isContractInvoicePrimaryDocumentType(
     buildContext.buildParams.documentType,
   );

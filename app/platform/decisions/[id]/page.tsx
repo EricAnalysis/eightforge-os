@@ -28,6 +28,7 @@ import { useOrgMembers } from '@/lib/useOrgMembers';
 type DecisionDetail = {
   id: string;
   document_id: string | null;
+  project_id: string | null;
   decision_type: string;
   title: string;
   summary: string | null;
@@ -46,6 +47,12 @@ type DecisionDetail = {
   details: Record<string, unknown> | null;
   documents?: DecisionDetailDocumentRef | DecisionDetailDocumentRef[];
 };
+
+type DecisionProjectValidationRow = {
+  id: string;
+  validation_status: string | null;
+  validation_summary_json: unknown;
+} | null;
 
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 
@@ -74,6 +81,7 @@ export default function DecisionDetailPage({
   const { members } = useOrgMembers(organizationId);
 
   const [decision, setDecision] = useState<DecisionDetail | null>(null);
+  const [projectValidation, setProjectValidation] = useState<DecisionProjectValidationRow>(null);
   const [relatedTasks, setRelatedTasks] = useState<DecisionDetailTask[]>([]);
   const [feedback, setFeedback] = useState<DecisionDetailFeedback[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,13 +139,14 @@ export default function DecisionDetailPage({
       setNotFound(false);
       setLoadError(null);
       setDecision(null);
+      setProjectValidation(null);
       setRelatedTasks([]);
       setFeedback([]);
 
       const { data: decisionData, error: decisionError } = await supabase
         .from('decisions')
         .select(
-          'id, document_id, decision_type, title, summary, severity, status, confidence, source, created_at, first_detected_at, last_detected_at, resolved_at, due_at, assigned_to, assigned_at, assigned_by, details, documents(id, title, name, processing_status, processed_at)'
+          'id, document_id, project_id, decision_type, title, summary, severity, status, confidence, source, created_at, first_detected_at, last_detected_at, resolved_at, due_at, assigned_to, assigned_at, assigned_by, details, documents(id, title, name, processing_status, processed_at)'
         )
         .eq('id', id)
         .eq('organization_id', organizationId)
@@ -160,6 +169,22 @@ export default function DecisionDetailPage({
       }
 
       setDecision(decisionData as DecisionDetail);
+
+      const decisionProjectId =
+        typeof (decisionData as { project_id?: unknown }).project_id === 'string'
+          ? (decisionData as { project_id: string }).project_id
+          : null;
+
+      if (decisionProjectId) {
+        const { data: projectData } = await supabase
+          .from('projects')
+          .select('id, validation_status, validation_summary_json')
+          .eq('organization_id', organizationId)
+          .eq('id', decisionProjectId)
+          .maybeSingle();
+
+        setProjectValidation((projectData ?? null) as DecisionProjectValidationRow);
+      }
 
       const { data: taskData } = await supabase
         .from('workflow_tasks')
@@ -437,6 +462,14 @@ export default function DecisionDetailPage({
       suggestedActions={suggestedActions}
       summary={summary}
       evidence={evidence}
+      projectValidation={
+        projectValidation
+          ? {
+              validationStatus: projectValidation.validation_status,
+              validationSummary: projectValidation.validation_summary_json,
+            }
+          : null
+      }
       processState={processState}
       metrics={metrics}
       relatedTasks={relatedTasks}

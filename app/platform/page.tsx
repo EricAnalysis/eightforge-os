@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DecisionQueue,
   FloatingCommandBar,
@@ -18,8 +18,10 @@ import {
   type StatusStripMetric,
 } from '@/components/platform/command-center';
 import { formatDueDate } from '@/lib/dateUtils';
+import { buildOperatorGraphData } from '@/lib/operatorGraph';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
+import { OperatorGraphPanel } from '@/components/platform/OperatorGraphPanel';
 
 type Tone = 'brand' | 'success' | 'warning' | 'danger' | 'info' | 'muted';
 
@@ -425,6 +427,11 @@ export default function PlatformDashboardPage() {
     };
   }, [counts.blocked, counts.highRisk, counts.lowTrust, isLoading]);
 
+  const operatorGraph = useMemo(
+    () => buildOperatorGraphData(operationalModel ?? null, null),
+    [operationalModel],
+  );
+
   const isEmpty =
     !isLoading &&
     (operationalModel?.recent_documents_count ?? 0) === 0 &&
@@ -480,6 +487,8 @@ export default function PlatformDashboardPage() {
           </Link>
         </div>
       ) : null}
+
+      <OperatorGraphPanel data={operatorGraph} />
 
       <section className="grid gap-6 xl:grid-cols-[0.92fr,1.3fr,0.9fr] xl:items-start">
         <div className="space-y-6">
@@ -627,7 +636,99 @@ export default function PlatformDashboardPage() {
         </section>
       </section>
 
+      {organization && (
+        <PortfolioTeaserCard organizationId={organization.id} />
+      )}
+
       <FloatingCommandBar />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Portfolio teaser — lightweight summary linking to /platform/portfolio
+// ---------------------------------------------------------------------------
+
+type PortfolioSummary = {
+  totalRequiresVerification: number;
+  totalAtRisk: number;
+  projectsRequiringReview: number;
+};
+
+function formatShortCurrency(amount: number): string {
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
+  return `$${amount.toFixed(0)}`;
+}
+
+function PortfolioTeaserCard({ organizationId }: { organizationId: string }) {
+  const [summary, setSummary] = useState<PortfolioSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/portfolio/summary?organizationId=${organizationId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: PortfolioSummary | null) => {
+        if (!cancelled) { setSummary(data); setLoading(false); }
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [organizationId]);
+
+  const metrics: Array<{ label: string; value: string; colorClass: string }> = [
+    {
+      label: 'Requires Verification',
+      value: loading ? '—' : formatShortCurrency(summary?.totalRequiresVerification ?? 0),
+      colorClass: 'text-red-300',
+    },
+    {
+      label: 'At Risk',
+      value: loading ? '—' : formatShortCurrency(summary?.totalAtRisk ?? 0),
+      colorClass: 'text-amber-200',
+    },
+    {
+      label: 'Needs Review',
+      value: loading ? '—' : `${summary?.projectsRequiringReview ?? 0}`,
+      colorClass: 'text-sky-300',
+    },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-5 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[#94A3B8]">
+            Workspace
+          </p>
+          <h2 className="mt-2 text-[15px] font-semibold tracking-tight text-[#E5EDF7]">
+            Portfolio Command Center
+          </h2>
+          <p className="mt-1 text-[11px] text-[#94A3B8]">
+            Cross-project approval exposure and review triage
+          </p>
+        </div>
+        <Link
+          href="/platform/portfolio"
+          className="shrink-0 rounded-xl border border-[#2F3B52]/80 bg-[#1A2333] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3B82F6] transition hover:border-[#3B82F6]/50 hover:text-[#60A5FA]"
+        >
+          Open →
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {metrics.map((m) => (
+          <div
+            key={m.label}
+            className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] px-4 py-3"
+          >
+            <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{m.label}</p>
+            <p className={`mt-2 text-[20px] font-bold tabular-nums ${m.colorClass}`}>
+              {m.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

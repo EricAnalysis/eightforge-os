@@ -2493,12 +2493,21 @@ function buildInvoiceOutput(params: BuildIntelligenceParams): DocumentIntelligen
     (typed.invoiceNumber as string | null);
   const contractorName = (typed.vendor_name as string | null) ??
     (typed.contractorName as string | null);
+  const clientName = (typed.client_name as string | null) ??
+    (typed.clientName as string | null) ??
+    (typed.ownerName as string | null);
+  const invoiceStatus = (typed.invoice_status as string | null) ??
+    (typed.invoiceStatus as string | null);
   const invoiceDate = (typed.invoice_date as string | null) ??
     (typed.invoiceDate as string | null);
   const periodFrom = (typed.period_start as string | null) ??
     (typed.periodFrom as string | null);
   const periodTo = (typed.period_end as string | null) ??
     (typed.periodTo as string | null);
+  const periodThrough = (typed.period_through as string | null) ??
+    (typed.periodThrough as string | null);
+  const subtotalAmount = parseMoney(typed.subtotal_amount ?? typed.subtotalAmount);
+  const totalAmount = parseMoney(typed.total_amount ?? typed.totalAmount);
   const currentDue = extractCurrentDue(typed, text);
   const g702Sum = extractG702ContractSum(typed, text);
   const projectCode = inferProjectCode(typed, documentTitle, text);
@@ -2958,12 +2967,21 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     (typed.invoiceNumber as string | null);
   const contractorName = (typed.vendor_name as string | null) ??
     (typed.contractorName as string | null);
+  const clientName = (typed.client_name as string | null) ??
+    (typed.clientName as string | null) ??
+    (typed.ownerName as string | null);
+  const invoiceStatus = (typed.invoice_status as string | null) ??
+    (typed.invoiceStatus as string | null);
   const invoiceDate = (typed.invoice_date as string | null) ??
     (typed.invoiceDate as string | null);
   const periodFrom = (typed.period_start as string | null) ??
     (typed.periodFrom as string | null);
   const periodTo = (typed.period_end as string | null) ??
     (typed.periodTo as string | null);
+  const periodThrough = (typed.period_through as string | null) ??
+    (typed.periodThrough as string | null);
+  const subtotalAmount = parseMoney(typed.subtotal_amount ?? typed.subtotalAmount);
+  const totalAmount = parseMoney(typed.total_amount ?? typed.totalAmount);
   const currentDue = extractCurrentDue(typed, text);
   const g702Sum = extractG702ContractSum(typed, text);
   const projectCode = inferProjectCode(typed, documentTitle, text);
@@ -3010,6 +3028,19 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     if (Array.isArray(support)) return support.length > 0;
     return Boolean(support) || Boolean(spreadsheetDoc);
   })();
+  const lineItems = Array.isArray(typed.line_items)
+    ? typed.line_items
+    : Array.isArray(typed.lineItems)
+      ? typed.lineItems
+      : [];
+  const lineItemCount = typeof typed.line_item_count === 'number'
+    ? typed.line_item_count
+    : typeof typed.lineItemCount === 'number'
+      ? typed.lineItemCount
+      : lineItems.length;
+  const lineItemCodes = lineItems
+    .map((line) => (line as Record<string, unknown>)?.line_code ?? (line as Record<string, unknown>)?.lineCode)
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
   const amountDelta = recommendedAmount !== null && currentDue !== null
     ? Math.abs(recommendedAmount - currentDue)
     : null;
@@ -3621,13 +3652,54 @@ function buildCanonicalInvoiceOutput(params: BuildIntelligenceParams): DocumentI
     invoiceNumber: invoiceNumber ?? undefined,
     projectCode: projectCode ?? undefined,
     contractorName: contractorName ?? undefined,
+    clientName: clientName ?? undefined,
+    invoiceStatus: invoiceStatus ?? undefined,
     invoiceDate: invoiceDate ?? undefined,
     periodFrom: periodFrom ?? undefined,
     periodTo: periodTo ?? undefined,
+    periodThrough: periodThrough ?? undefined,
+    subtotalAmount: subtotalAmount ?? undefined,
+    totalAmount: totalAmount ?? currentDue ?? undefined,
     currentPaymentDue: currentDue ?? undefined,
     originalContractSum: g702Sum ?? undefined,
     previousCertificatesPaid: parseMoney(typed.previousCertificates) ?? undefined,
     totalEarnedLessRetainage: parseMoney(typed.totalEarned) ?? undefined,
+    lineItemCount: lineItemCount > 0 ? lineItemCount : undefined,
+    lineItemCodes: lineItemCodes.length > 0 ? lineItemCodes : undefined,
+    lineItems: lineItems.length > 0
+      ? lineItems.map((line) => {
+        const record = line as Record<string, unknown>;
+        return {
+          lineCode: typeof record.line_code === 'string' ? record.line_code : undefined,
+          lineDescription:
+            typeof record.line_description === 'string'
+              ? record.line_description
+              : typeof record.description === 'string'
+                ? record.description
+                : undefined,
+          quantity: typeof record.quantity === 'number' ? record.quantity : undefined,
+          unit: typeof record.unit === 'string' ? record.unit : undefined,
+          unitPrice:
+            typeof record.unit_price === 'number'
+              ? record.unit_price
+              : undefined,
+          lineTotal:
+            typeof record.line_total === 'number'
+              ? record.line_total
+              : typeof record.total === 'number'
+                ? record.total
+                : undefined,
+          billingRateKey:
+            typeof record.billing_rate_key === 'string'
+              ? record.billing_rate_key
+              : undefined,
+          descriptionMatchKey:
+            typeof record.description_match_key === 'string'
+              ? record.description_match_key
+              : undefined,
+        };
+      })
+      : undefined,
   };
 
   return {

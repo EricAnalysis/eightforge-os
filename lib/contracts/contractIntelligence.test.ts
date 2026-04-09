@@ -3,15 +3,16 @@ import { describe, it } from 'vitest';
 
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
+import type { DocumentPipelineResult } from '@/lib/pipeline/types';
 
-function runContractAnalysis(params: {
+function runDocumentPipelineForContractIntel(params: {
   textPreview: string;
   typedFields?: Record<string, unknown>;
   structuredFields?: Record<string, unknown>;
   sectionSignals?: Record<string, unknown>;
   pageText?: string[];
-}): ContractAnalysisResult {
-  const result = runDocumentPipeline({
+}): DocumentPipelineResult {
+  return runDocumentPipeline({
     documentId: 'contract-intel-doc',
     documentType: 'contract',
     documentTitle: 'Emergency Debris Contract',
@@ -41,6 +42,16 @@ function runContractAnalysis(params: {
     },
     relatedDocs: [],
   });
+}
+
+function runContractAnalysis(params: {
+  textPreview: string;
+  typedFields?: Record<string, unknown>;
+  structuredFields?: Record<string, unknown>;
+  sectionSignals?: Record<string, unknown>;
+  pageText?: string[];
+}): ContractAnalysisResult {
+  const result = runDocumentPipelineForContractIntel(params);
 
   assert.ok(result.contractAnalysis, 'Expected contract analysis to be attached to the pipeline result.');
   return result.contractAnalysis;
@@ -247,6 +258,33 @@ describe('contract intelligence analysis', () => {
     assert.ok(
       analysis.issues.every((issue) => issue.issue_id !== 'contractor_identity_conflict'),
     );
+  });
+
+  it('persists resolved contractor into fact_map.contractor_name for Williamson-style OCR drift', () => {
+    const openingPage = [
+      'CONTRACT BETWEEN WILLIAMSON COUNTY, TENNESSEE AND ARTERMATH DISASTER RECOVERY, INC.',
+      'This Contract is made by and between Williamson County, Tennessee, and Artermath Disaster Recovery, Inc. (hereinafter "Contractor").',
+      'Contractor shall commence work only upon written Notice to Proceed.',
+    ].join(' ');
+
+    const result = runDocumentPipelineForContractIntel({
+      textPreview: openingPage,
+      typedFields: {
+        vendor_name: 'Aftermath Disaster Recovery, Inc.',
+      },
+      structuredFields: {
+        contractor_name: 'Artermath Disaster Recovery, Inc.',
+        contractor_name_source: 'explicit_definition',
+      },
+      pageText: [
+        openingPage,
+        'Footer contact: Williamson County procurement office. Prepared by operations support.',
+      ],
+    });
+
+    const contractorFact = result.primaryDocument.fact_map.contractor_name;
+    assert.equal(contractorFact?.value, 'Aftermath Disaster Recovery, Inc.');
+    assert.equal(contractorFact?.identity_resolution_source_value, 'Artermath Disaster Recovery, Inc.');
   });
 
   it('ignores weak footer-style organization noise when a contractor is clearly defined', () => {

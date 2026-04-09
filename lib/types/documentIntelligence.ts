@@ -4,6 +4,21 @@
 
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type { ContractAnalysisResult, ContractCeilingType } from '@/lib/contracts/types';
+import type {
+  TransactionDataDatasetSummary,
+  TransactionDataDateRange,
+  TransactionDataDisposalSiteGroup,
+  TransactionDataDmsFdsLifecycleSummary,
+  TransactionDataFieldKey,
+  TransactionDataHeaderMatch,
+  TransactionDataInvoiceReadinessSummary,
+  TransactionDataMaterialGroup,
+  TransactionDataOpsReviewBucket,
+  TransactionDataProjectOperationsOverview,
+  TransactionDataRecord,
+  TransactionDataServiceItemGroup,
+  TransactionDataSiteTypeGroup,
+} from '@/lib/types/transactionData';
 //
 // Primary document families (first-class):
 //   contract/rate docs · ticket exports/PDFs · invoices/payment recs · spreadsheet support
@@ -291,15 +306,31 @@ export interface InvoiceExtraction {
   projectCode?: string;
   contractorName?: string;
   ownerName?: string;
+  clientName?: string;
+  invoiceStatus?: string;
   invoiceDate?: string;
   periodFrom?: string;
   periodTo?: string;
+  periodThrough?: string;
+  subtotalAmount?: number;
+  totalAmount?: number;
   currentPaymentDue?: number;
   previousCertificatesPaid?: number;
   totalEarnedLessRetainage?: number;
   retainageAmount?: number;
   originalContractSum?: number;
+  lineItemCount?: number;
   lineItemCodes?: string[];
+  lineItems?: Array<{
+    lineCode?: string;
+    lineDescription?: string;
+    quantity?: number;
+    unit?: string;
+    unitPrice?: number;
+    lineTotal?: number;
+    billingRateKey?: string;
+    descriptionMatchKey?: string;
+  }>;
 }
 
 export interface PaymentRecommendationExtraction {
@@ -337,6 +368,63 @@ export interface SpreadsheetSupportExtraction {
   parseStatus?: 'parsed' | 'manual_review_required';
   keyColumns?: string[];
   notes?: string;
+}
+
+export interface TransactionDataExtraction {
+  sourceType?: 'transaction_data';
+  rowCount?: number;
+  sheetNames?: string[];
+  headerMap?: Partial<Record<TransactionDataFieldKey, TransactionDataHeaderMatch[]>>;
+  inferredProjectName?: string;
+  inferredInvoiceNumbers?: string[];
+  inferredDateRange?: TransactionDataDateRange | null;
+  detectedMetricColumns?: string[];
+  detectedCodeColumns?: string[];
+  detectedAmountColumns?: string[];
+  records?: TransactionDataRecord[];
+  summary?: TransactionDataDatasetSummary;
+  rollups?: Partial<TransactionDataDatasetSummary> & {
+    totalExtendedCost?: number;
+    totalTransactionQuantity?: number;
+    totalTickets?: number;
+    totalCyd?: number;
+    invoicedTicketCount?: number;
+    distinctInvoiceCount?: number;
+    totalInvoicedAmount?: number;
+    uninvoicedLineCount?: number;
+    eligibleCount?: number;
+    ineligibleCount?: number;
+    unknownEligibilityCount?: number;
+    rowsWithMissingRateCode?: number;
+    rowsWithMissingInvoiceNumber?: number;
+    rowsWithMissingQuantity?: number;
+    rowsWithMissingExtendedCost?: number;
+    rowsWithZeroCost?: number;
+    rowsWithExtremeUnitRate?: number;
+    groupedByRateCode?: TransactionDataDatasetSummary['grouped_by_rate_code'];
+    groupedByInvoice?: TransactionDataDatasetSummary['grouped_by_invoice'];
+    groupedBySiteMaterial?: TransactionDataDatasetSummary['grouped_by_site_material'];
+    groupedByServiceItem?: TransactionDataServiceItemGroup[];
+    groupedByMaterial?: TransactionDataMaterialGroup[];
+    groupedBySiteType?: TransactionDataSiteTypeGroup[];
+    groupedByDisposalSite?: TransactionDataDisposalSiteGroup[];
+    outlierRows?: TransactionDataDatasetSummary['outlier_rows'];
+  };
+  projectOperationsOverview?: TransactionDataProjectOperationsOverview;
+  invoiceReadinessSummary?: TransactionDataInvoiceReadinessSummary;
+  groupedByServiceItem?: TransactionDataServiceItemGroup[];
+  groupedByMaterial?: TransactionDataMaterialGroup[];
+  groupedBySiteType?: TransactionDataSiteTypeGroup[];
+  groupedByDisposalSite?: TransactionDataDisposalSiteGroup[];
+  outlierRows?: TransactionDataDatasetSummary['outlier_rows'];
+  dmsFdsLifecycleSummary?: TransactionDataDmsFdsLifecycleSummary;
+  boundaryLocationReview?: TransactionDataOpsReviewBucket;
+  distanceFromFeatureReview?: TransactionDataOpsReviewBucket;
+  debrisClassAtDisposalSiteReview?: TransactionDataOpsReviewBucket;
+  mileageReview?: TransactionDataOpsReviewBucket;
+  loadCallReview?: TransactionDataOpsReviewBucket;
+  linkedMobileLoadConsistencyReview?: TransactionDataOpsReviewBucket;
+  truckTripTimeReview?: TransactionDataOpsReviewBucket;
 }
 
 // ─── Secondary family extraction shapes (Williamson ops) ─────────────────────
@@ -464,6 +552,7 @@ export interface DocumentIntelligenceOutput {
     | PaymentRecommendationExtraction
     | TicketExtraction
     | SpreadsheetSupportExtraction
+    | TransactionDataExtraction
     | DisposalChecklistExtraction
     | PermitExtraction
     | ProjectContractExtraction

@@ -24,12 +24,14 @@ type IconName =
   | 'history'
   | 'user'
   | 'search'
-  | 'upload';
+  | 'upload'
+  | 'portfolio';
 
-type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'documents';
+type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'documents' | 'portfolio';
 
 const TOP_NAV_ITEMS = [
   { href: '/platform/workspace', label: 'Workspace', key: 'workspace' },
+  { href: '/platform/portfolio', label: 'Portfolio', key: 'portfolio' },
   { href: '/platform', label: 'Command Center', key: 'commandCenter' },
   { href: '/platform/projects', label: 'Projects', key: 'projects' },
   { href: '/platform/reviews', label: 'Intelligence', key: 'intelligence' },
@@ -42,6 +44,7 @@ const SIDE_NAV_ITEMS: Array<{
   key: NavKey;
 }> = [
   { href: '/platform', label: 'Command Center', icon: 'terminal', key: 'command' },
+  { href: '/platform/portfolio', label: 'Portfolio', icon: 'portfolio', key: 'portfolio' },
   { href: '/platform/decisions', label: 'Decision Queue', icon: 'gavel', key: 'decisions' },
   { href: '/platform/workflows', label: 'My Actions', icon: 'checklist', key: 'actions' },
   { href: '/platform/reviews', label: 'Intelligence', icon: 'spark', key: 'intelligence' },
@@ -55,6 +58,7 @@ function normalizeWorkspaceName(workspaceName: string): string {
 
 function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['key']): boolean {
   if (key === 'workspace') return pathname.startsWith('/platform/workspace');
+  if (key === 'portfolio') return pathname.startsWith('/platform/portfolio');
   if (key === 'commandCenter') return pathname === '/platform';
   if (key === 'projects') {
     return pathname === '/platform/projects' || pathname.startsWith('/platform/projects/');
@@ -72,6 +76,7 @@ function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['k
 
 export function getActiveSideNavKey(pathname: string): NavKey | null {
   if (pathname === '/platform') return 'command';
+  if (pathname.startsWith('/platform/portfolio')) return 'portfolio';
   if (pathname.startsWith('/platform/decisions')) return 'decisions';
   if (pathname.startsWith('/platform/workflows')) return 'actions';
   if (pathname.startsWith('/platform/documents')) return 'documents';
@@ -178,6 +183,19 @@ function PlatformIcon({ name, className }: { name: IconName; className?: string 
           <path d="M10 13.5V4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           <path d="M6.75 7.5L10 4.25L13.25 7.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M4.5 15.75H15.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case 'portfolio':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+          {/* Vertical axis */}
+          <path d="M3.5 4V15.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          {/* Horizontal baseline */}
+          <path d="M3.5 15.5H16.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          {/* Risk-ranked project bars (horizontal, descending length) */}
+          <path d="M3.5 6H16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M3.5 9.5H12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M3.5 13H7.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       );
     default:

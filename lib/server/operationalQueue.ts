@@ -15,14 +15,17 @@ import {
   type ProjectDocumentReviewRow,
   type ProjectDocumentRow,
   type ProjectOperationalRollup,
+  type ProjectOverviewActionItem,
   type ProjectRecord,
   type ProjectTaskRow,
 } from '@/lib/projectOverview';
+import { buildValidatorFindingActionsByProjectId } from '@/lib/validator/queueFindingActions';
 import type {
   FlowTask,
   NormalizedDecision,
   ReviewErrorType,
 } from '@/lib/types/documentIntelligence';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type Relation<T> = T | T[] | null | undefined;
 
@@ -195,6 +198,38 @@ export type OperationalFeedbackRow = {
       }>
     | null;
 };
+
+type QueueFindingRow = Pick<
+  ValidationFinding,
+  | 'id'
+  | 'project_id'
+  | 'rule_id'
+  | 'severity'
+  | 'status'
+  | 'subject_type'
+  | 'subject_id'
+  | 'field'
+  | 'expected'
+  | 'actual'
+  | 'variance'
+  | 'variance_unit'
+  | 'blocked_reason'
+  | 'decision_eligible'
+  | 'action_eligible'
+>;
+
+type QueueFindingEvidenceRow = Pick<
+  ValidationEvidence,
+  | 'finding_id'
+  | 'evidence_type'
+  | 'source_document_id'
+  | 'source_page'
+  | 'fact_id'
+  | 'record_id'
+  | 'field_name'
+  | 'field_value'
+  | 'note'
+>;
 
 function firstRelation<T>(value: Relation<T>): T | null {
   if (!value) return null;
@@ -626,6 +661,55 @@ function sortDocumentSignals(items: OperationalDocumentSignal[]): OperationalDoc
   });
 }
 
+function augmentRollupWithValidatorActions(
+  rollup: ProjectOperationalRollup,
+  validatorActions: readonly ProjectOverviewActionItem[],
+): ProjectOperationalRollup {
+  if (validatorActions.length === 0) {
+    return rollup;
+  }
+
+  const blockedFindingCount = validatorActions.filter(
+    (action) => action.approval_status === 'blocked',
+  ).length;
+  const reviewFindingCount = validatorActions.filter(
+    (action) => action.approval_status === 'needs_review',
+  ).length;
+
+  let status = rollup.status;
+  if (blockedFindingCount > 0 && rollup.status.key !== 'blocked') {
+    status = {
+      key: 'blocked',
+      label: 'Blocked',
+      tone: 'danger',
+      detail: `${blockedFindingCount} validator finding${blockedFindingCount === 1 ? '' : 's'} are blocking approval.`,
+      is_clear: false,
+    };
+  } else if (
+    blockedFindingCount === 0
+    && reviewFindingCount > 0
+    && rollup.status.key === 'operationally_clear'
+  ) {
+    status = {
+      key: 'needs_review',
+      label: 'Needs Review',
+      tone: 'warning',
+      detail: `${reviewFindingCount} validator finding${reviewFindingCount === 1 ? '' : 's'} require operator review.`,
+      is_clear: false,
+    };
+  }
+
+  return {
+    ...rollup,
+    status,
+    project_clear: status.is_clear,
+    open_document_action_count: rollup.open_document_action_count + validatorActions.length,
+    unresolved_finding_count: rollup.unresolved_finding_count + validatorActions.length,
+    blocked_count: rollup.blocked_count + blockedFindingCount,
+    pending_actions: [...validatorActions, ...rollup.pending_actions],
+  };
+}
+
 export function buildOperationalQueueModel(params: {
   projects: ProjectRecord[];
   documents: ProjectDocumentRow[];
@@ -633,6 +717,7 @@ export function buildOperationalQueueModel(params: {
   tasks: ProjectTaskRow[];
   documentReviews?: ProjectDocumentReviewRow[];
   feedback?: OperationalFeedbackRow[];
+  validatorFindingActionsByProjectId?: Map<string, ProjectOverviewActionItem[]>;
   recentDocumentsCount?: number | null;
   supersededCounts?: {
     decisions: number;
@@ -647,6 +732,7 @@ export function buildOperationalQueueModel(params: {
     tasks,
     documentReviews = [],
     feedback = [],
+    validatorFindingActionsByProjectId = new Map<string, ProjectOverviewActionItem[]>(),
     recentDocumentsCount = null,
     supersededCounts = { decisions: 0, actions: 0 },
     warnings = [],
@@ -1281,13 +1367,16 @@ export function buildOperationalQueueModel(params: {
 
     return {
       project,
-      rollup: buildProjectOperationalRollup({
-        project,
-        documents: scopedDocuments,
-        decisions: scopedDecisions,
-        tasks: scopedTasks,
-        documentReviews: scopedDocumentReviews,
-      }),
+      rollup: augmentRollupWithValidatorActions(
+        buildProjectOperationalRollup({
+          project,
+          documents: scopedDocuments,
+          decisions: scopedDecisions,
+          tasks: scopedTasks,
+          documentReviews: scopedDocumentReviews,
+        }),
+        validatorFindingActionsByProjectId.get(project.id) ?? [],
+      ),
       href: `/platform/projects/${project.id}`,
     };
   });
@@ -1474,9 +1563,50 @@ export async function loadOperationalQueueModel(params: {
   const rawTasks = (tasksResult.data ?? []) as ProjectTaskRow[];
   const currentDecisions = filterCurrentQueueRecords(rawDecisions);
   const currentTasks = filterCurrentQueueRecords(rawTasks);
+  const projects = (projectsResult.data ?? []) as ProjectRecord[];
+  const projectIds = projects.map((project) => project.id);
+  let validatorFindingActionsByProjectId = new Map<string, ProjectOverviewActionItem[]>();
+
+  if (projectIds.length > 0) {
+    const findingsResult = await admin
+      .from('project_validation_findings')
+      .select(
+        'id, project_id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, variance, variance_unit, blocked_reason, decision_eligible, action_eligible',
+      )
+      .in('project_id', projectIds)
+      .eq('status', 'open');
+
+    if (findingsResult.error) {
+      warnings.push('Validator findings are unavailable. Queue-backed line issues may be incomplete.');
+    } else {
+      const findings = (findingsResult.data ?? []) as QueueFindingRow[];
+      const findingIds = findings.map((finding) => finding.id);
+      let evidence: QueueFindingEvidenceRow[] = [];
+
+      if (findingIds.length > 0) {
+        const evidenceResult = await admin
+          .from('project_validation_evidence')
+          .select(
+            'finding_id, evidence_type, source_document_id, source_page, fact_id, record_id, field_name, field_value, note',
+          )
+          .in('finding_id', findingIds);
+
+        if (evidenceResult.error) {
+          warnings.push('Validator evidence links are unavailable. Queue deep links may fall back to the validator tab.');
+        } else {
+          evidence = (evidenceResult.data ?? []) as QueueFindingEvidenceRow[];
+        }
+      }
+
+      validatorFindingActionsByProjectId = buildValidatorFindingActionsByProjectId({
+        findings,
+        evidence,
+      });
+    }
+  }
 
   return buildOperationalQueueModel({
-    projects: (projectsResult.data ?? []) as ProjectRecord[],
+    projects,
     documents: (documentsResult.data ?? []) as ProjectDocumentRow[],
     decisions: currentDecisions,
     tasks: currentTasks,
@@ -1486,6 +1616,7 @@ export async function loadOperationalQueueModel(params: {
     feedback: feedbackResult.error
       ? []
       : ((feedbackResult.data ?? []) as OperationalFeedbackRow[]),
+    validatorFindingActionsByProjectId,
     recentDocumentsCount: recentDocumentsResult.error
       ? null
       : (recentDocumentsResult.count ?? 0),

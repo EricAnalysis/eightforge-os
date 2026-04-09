@@ -1989,4 +1989,116 @@ describe('document intelligence view model', () => {
     assert.ok(model.anchorCoverage.factsWithAtLeastOneAnchor >= 0);
     assert.ok(model.anchorCoverage.anchorsTotal >= 0);
   });
+
+  it('prioritizes transaction_data dataset review groups ahead of row drilldown', () => {
+    const model = buildModel({
+      documentId: 'transaction-review-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {
+            structured_fields: {
+              source_type: 'transaction_data',
+              row_count: 4,
+              total_tickets: 4,
+              total_cyd: 56,
+              distinct_invoice_count: 2,
+              total_invoiced_amount: 1449,
+              project_operations_overview: {
+                total_tickets: 4,
+                distinct_invoice_count: 2,
+              },
+              invoice_readiness_summary: {
+                status: 'partial',
+                outlier_row_count: 1,
+              },
+              grouped_by_service_item: [
+                {
+                  service_item: 'Hauling',
+                  row_count: 3,
+                  total_transaction_quantity: 16,
+                  total_extended_cost: 1449,
+                },
+              ],
+              grouped_by_material: [
+                {
+                  material: 'Vegetative',
+                  row_count: 3,
+                  total_transaction_quantity: 16,
+                  total_extended_cost: 1449,
+                },
+              ],
+              grouped_by_site_type: [
+                {
+                  site_type: 'DMS',
+                  row_count: 2,
+                  total_transaction_quantity: 8,
+                  total_extended_cost: 724.5,
+                },
+              ],
+              grouped_by_disposal_site: [
+                {
+                  disposal_site: 'Ag Center DMS',
+                  row_count: 2,
+                  total_transaction_quantity: 8,
+                  total_extended_cost: 724.5,
+                },
+              ],
+              outlier_rows: [
+                {
+                  record_id: 'transaction:ticket_query:7',
+                  source_sheet_name: 'ticket_query',
+                  source_row_number: 7,
+                  reasons: ['transaction rate deviates from baseline'],
+                },
+              ],
+              boundary_location_review: {
+                status: 'warning',
+                flagged_row_count: 1,
+              },
+              transaction_data_records: [
+                {
+                  id: 'transaction:ticket_query:3',
+                  transaction_number: 'TX-1001',
+                },
+              ],
+              sheet_names: ['ticket_query'],
+              detected_header_map: {
+                invoice_number: [{ column_name: 'Invoice #' }],
+              },
+            },
+          },
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+              },
+            },
+          },
+        },
+      },
+      executionTrace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {},
+      },
+    });
+
+    assert.deepEqual(
+      model.groups.map((group) => group.key).slice(0, 4),
+      ['dataset_summary', 'grouped_review_tables', 'flags_outliers', 'row_drilldown'],
+    );
+    assert.equal(getFact(model, 'project_operations_overview').schemaGroup, 'dataset_summary');
+    assert.equal(getFact(model, 'invoice_readiness_summary').schemaGroup, 'dataset_summary');
+    assert.equal(getFact(model, 'grouped_by_service_item').schemaGroup, 'grouped_review_tables');
+    assert.equal(getFact(model, 'outlier_rows').schemaGroup, 'flags_outliers');
+    assert.equal(getFact(model, 'transaction_data_records').schemaGroup, 'row_drilldown');
+  });
 });

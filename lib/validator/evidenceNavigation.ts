@@ -31,7 +31,7 @@ export function getEvidenceDocumentUrl(args: {
   const documentId = normalizeString(args.evidence.source_document_id);
   const page = normalizePositivePage(args.evidence.source_page);
 
-  if (!documentId || page == null) {
+  if (!documentId) {
     return null;
   }
 
@@ -39,7 +39,9 @@ export function getEvidenceDocumentUrl(args: {
   const params = new URLSearchParams();
   params.set('source', 'project');
   params.set('projectId', args.projectId);
-  params.set('page', String(page));
+  if (page != null) {
+    params.set('page', String(page));
+  }
 
   const factId = normalizeString(args.evidence.fact_id);
   if (factId) {

@@ -2,11 +2,22 @@ import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
 } from '@/lib/documentPrecedence';
+import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { EvidenceObject } from '@/lib/extraction/types';
+import type {
+  TransactionDataInvoiceGroup,
+  TransactionDataRateCodeGroup,
+  TransactionDataSiteMaterialGroup,
+} from '@/lib/types/transactionData';
 import {
   normalizeCurrency,
   normalizeString,
 } from '@/lib/validation/normalizeValidationValues';
 import type {
+  ContractInvoiceReconciliationSummary,
+  InvoiceTransactionReconciliationSummary,
+  ProjectExposureSummary,
+  ProjectReconciliationSummary,
   ValidationEvidence,
   ValidationFinding,
   ValidationRuleState,
@@ -14,6 +25,8 @@ import type {
   ValidationCategory,
   ValidationSeverity,
   ValidationStatus,
+  ValidatorStatus,
+  ValidatorSummaryItem,
 } from '@/types/validator';
 
 export const PURE_VALIDATOR_RUN_ID = 'pure-validator';
@@ -90,6 +103,7 @@ export type ValidatorFactRecord = {
 
 export type ValidatorEvidenceResult = ValidationEvidence;
 
+/** Rate rows: raw fields preserved; canonical billing keys live in `@/lib/validator/billingKeys`. */
 export type RateScheduleItem = {
   source_document_id: string;
   record_id: string;
@@ -98,7 +112,14 @@ export type RateScheduleItem = {
   rate_amount: number | null;
   material_type: string | null;
   description: string | null;
+  service_item?: string | null;
   raw_value: unknown;
+  /** Derived: canonical pricing key for reconciliation (see billingKeys). */
+  billing_rate_key?: string | null;
+  /** Derived: normalized description for fallback matching. */
+  description_match_key?: string | null;
+  /** Derived: site/facility + material when available. */
+  site_material_key?: string | null;
 };
 
 export type ProjectTotals = {
@@ -109,11 +130,112 @@ export type ProjectTotals = {
   load_ticket_count: number;
 };
 
+export type ValidatorTransactionDataDataset = {
+  id: string;
+  document_id: string;
+  project_id: string;
+  row_count: number;
+  total_extended_cost: number;
+  total_transaction_quantity: number;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  summary_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ValidatorTransactionDataRow = {
+  id: string;
+  document_id: string;
+  project_id: string;
+  invoice_number: string | null;
+  transaction_number: string | null;
+  rate_code: string | null;
+  billing_rate_key: string | null;
+  site_material_key: string | null;
+  transaction_quantity: number | null;
+  extended_cost: number | null;
+  invoice_date: string | null;
+  source_sheet_name: string;
+  source_row_number: number;
+  record_json: Record<string, unknown>;
+  raw_row_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ValidatorProjectTransactionData = {
+  datasets: ValidatorTransactionDataDataset[];
+  rows: ValidatorTransactionDataRow[];
+  rollups?: ValidatorTransactionRollups;
+};
+
+export type ValidatorTransactionRollups = {
+  grouped_by_rate_code: TransactionDataRateCodeGroup[];
+  grouped_by_invoice: TransactionDataInvoiceGroup[];
+  grouped_by_site_material: TransactionDataSiteMaterialGroup[];
+};
+
+export type ValidatorContractReconciliationSource = {
+  governing_document_ids: string[];
+  intelligence: ValidatorContractAnalysisContext | null;
+  rate_schedule_items: RateScheduleItem[];
+};
+
+export type ValidatorInvoiceReconciliationSource = {
+  invoices: InvoiceRow[];
+  line_items: InvoiceLineRow[];
+};
+
+export type ValidatorTransactionReconciliationSource = {
+  datasets: ValidatorTransactionDataDataset[];
+  rows: ValidatorTransactionDataRow[];
+  rollups: ValidatorTransactionRollups;
+};
+
+export type ValidatorBillingGroup = {
+  billing_group_id: string;
+  billing_rate_key: string;
+  description_match_key: string | null;
+  site_material_keys: string[];
+  invoice_rate_keys: string[];
+  contract_rate_schedule_items: RateScheduleItem[];
+  invoice_lines: InvoiceLineRow[];
+  transaction_rows: ValidatorTransactionDataRow[];
+  transaction_rate_groups: TransactionDataRateCodeGroup[];
+  transaction_invoice_groups: TransactionDataInvoiceGroup[];
+  transaction_site_material_groups: TransactionDataSiteMaterialGroup[];
+};
+
+export type ValidatorReconciliationContext = {
+  contract: ValidatorContractReconciliationSource;
+  invoice: ValidatorInvoiceReconciliationSource;
+  transaction: ValidatorTransactionReconciliationSource;
+  billing_groups: ValidatorBillingGroup[];
+};
+
+export type ValidatorContractAnalysisContext = {
+  document_id: string;
+  analysis: ContractAnalysisResult;
+  evidence_by_id: Map<string, EvidenceObject>;
+};
+
 export type ValidatorFactLookups = {
   contractProjectCodeFacts: ValidatorFactRecord[];
   invoiceProjectCodeFacts: ValidatorFactRecord[];
   contractPartyNameFacts: ValidatorFactRecord[];
   nteFact: ValidatorFactRecord | null;
+  contractDocumentId: string | null;
+  contractCeilingTypeFact: ValidatorFactRecord | null;
+  contractCeilingType: string | null;
+  rateSchedulePresentFact: ValidatorFactRecord | null;
+  rateSchedulePresent: boolean | null;
+  rateRowCountFact: ValidatorFactRecord | null;
+  rateRowCount: number | null;
+  rateSchedulePagesFact: ValidatorFactRecord | null;
+  rateSchedulePagesDisplay: string | null;
+  rateUnitsDetectedFact: ValidatorFactRecord | null;
+  rateUnitsDetected: string[];
+  timeAndMaterialsPresentFact: ValidatorFactRecord | null;
+  timeAndMaterialsPresent: boolean;
   rateScheduleFacts: ValidatorFactRecord[];
   rateScheduleItems: RateScheduleItem[];
   hasRateScheduleFacts: boolean;
@@ -137,6 +259,9 @@ export type ProjectValidatorInput = {
   invoiceLineToRateMap: Map<string, RateScheduleItem | null>;
   projectTotals: ProjectTotals;
   factLookups: ValidatorFactLookups;
+  contractValidationContext: ValidatorContractAnalysisContext | null;
+  transactionData?: ValidatorProjectTransactionData;
+  reconciliationContext?: ValidatorReconciliationContext | null;
 };
 
 export type FindingEvidenceInput = {
@@ -221,6 +346,24 @@ export function toNumber(value: unknown): number | null {
 
     const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+export function toBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 'yes', 'y', '1'].includes(normalized)) return true;
+    if (['false', 'no', 'n', '0'].includes(normalized)) return false;
   }
 
   return null;
@@ -578,13 +721,200 @@ export function sortFindings<T extends ValidationFinding>(findings: readonly T[]
   });
 }
 
+const FINDING_FACT_KEYS_BY_RULE_ID: Record<string, string[]> = {
+  FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED: ['rate_schedule_present'],
+  FINANCIAL_RATE_BASED_ROWS_REQUIRED: ['rate_row_count'],
+  FINANCIAL_RATE_BASED_PAGES_REQUIRED: ['rate_schedule_pages'],
+  FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR: [
+    'rate_schedule_present',
+    'pricing_applicability',
+    'disposal_fee_treatment',
+    'fema_eligibility_gate',
+  ],
+  FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE: [
+    'rate_units_detected',
+    'time_and_materials_present',
+  ],
+  FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED: [
+    'activation_trigger_type',
+    'authorization_required',
+    'performance_start_basis',
+  ],
+  FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT: [
+    'rate_code',
+    'rate_table',
+    'hauling_rates',
+    'tipping_fees',
+  ],
+  FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE: [
+    'rate_code',
+    'unit_price',
+    'rate_table',
+    'hauling_rates',
+    'tipping_fees',
+  ],
+  FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR: [
+    'contractor_name',
+    'vendor_name',
+  ],
+  FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT: [
+    'owner_name',
+    'client_name',
+    'bill_to_name',
+  ],
+  FINANCIAL_INVOICE_CLIENT_MISSING_FOR_CONTRACT_COMPARISON: [
+    'owner_name',
+    'client_name',
+    'bill_to_name',
+  ],
+  FINANCIAL_INVOICE_SERVICE_PERIOD_WITHIN_CONTRACT_TERM: [
+    'period_start',
+    'period_end',
+    'term_start_date',
+    'term_end_date',
+    'effective_date',
+    'expiration_date',
+  ],
+  FINANCIAL_INVOICE_SERVICE_PERIOD_MISSING: [
+    'period_start',
+    'period_end',
+  ],
+  FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS: [
+    'line_total',
+    'total_amount',
+    'invoice_total',
+    'billed_amount',
+  ],
+  INVOICE_DUPLICATE_BILLED_LINE: ['invoice_number', 'rate_code', 'line_total'],
+  INVOICE_LINE_REQUIRES_BILLING_KEY: ['invoice_number', 'rate_code', 'description', 'line_total'],
+  FINANCIAL_NTE_FACT_MISSING: ['nte_amount', 'contract_ceiling'],
+  FINANCIAL_NTE_EXCEEDED: ['billed_total', 'nte_amount', 'contract_ceiling'],
+  FINANCIAL_NTE_APPROACHING: ['billed_total', 'nte_amount', 'contract_ceiling'],
+  SOURCES_NO_CONTRACT: ['contract_document'],
+  SOURCES_NO_RATE_SCHEDULE: ['rate_schedule'],
+  SOURCES_NO_TICKET_DATA: ['ticket_data', 'transaction_data'],
+};
+
+const FINDING_MESSAGE_BY_RULE_ID: Record<string, string> = {
+  FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED: 'Rate-based contract has no valid rate schedule',
+  FINANCIAL_RATE_BASED_ROWS_REQUIRED:
+    'Rate schedule present but insufficient rows to support operations',
+  FINANCIAL_RATE_BASED_PAGES_REQUIRED:
+    'Rate schedule pages could not be confidently identified',
+  FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR:
+    'Pricing schedule present but applicability is unresolved',
+  FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE:
+    'Rate schedule detected but unit coverage may be incomplete',
+  FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED:
+    'Activation trigger detected but status unresolved',
+  FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT:
+    'Invoice line code is not found in governing contract schedule',
+  FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE:
+    'Invoice unit price does not match governing contract rate',
+  FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR:
+    'Invoice vendor does not match contract contractor',
+  FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT:
+    'Invoice client does not match governing contract client',
+  FINANCIAL_INVOICE_CLIENT_MISSING_FOR_CONTRACT_COMPARISON:
+    'Invoice client could not be extracted for governing contract comparison',
+  FINANCIAL_INVOICE_SERVICE_PERIOD_WITHIN_CONTRACT_TERM:
+    'Invoice service period falls outside governing contract term',
+  FINANCIAL_INVOICE_SERVICE_PERIOD_MISSING:
+    'Invoice service period could not be extracted for governing contract comparison',
+  FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS:
+    'Invoice totals do not reconcile to billed line items',
+  INVOICE_DUPLICATE_BILLED_LINE:
+    'Duplicate billed line appears more than once on the invoice',
+  INVOICE_LINE_REQUIRES_BILLING_KEY:
+    'Invoice line is missing the billing key required for validation',
+};
+
+function humanizeRuleId(ruleId: string): string {
+  return ruleId
+    .toLowerCase()
+    .split(/[_:]+/g)
+    .filter((token) => token.length > 0)
+    .map((token, index) => (
+      index === 0 ? token[0]?.toUpperCase() + token.slice(1) : token
+    ))
+    .join(' ');
+}
+
+export function messageForFinding(finding: ValidationFinding): string {
+  const explicit = FINDING_MESSAGE_BY_RULE_ID[finding.rule_id];
+  if (explicit) return explicit;
+
+  if (finding.blocked_reason) return finding.blocked_reason;
+
+  if (finding.field && finding.expected && finding.actual) {
+    return `${finding.field} expected ${finding.expected} but found ${finding.actual}`;
+  }
+
+  if (finding.field && finding.actual) {
+    return `${finding.field} found ${finding.actual}`;
+  }
+
+  if (finding.field && finding.expected) {
+    return `${finding.field} expected ${finding.expected}`;
+  }
+
+  return humanizeRuleId(finding.rule_id);
+}
+
+export function factKeysForFinding(finding: ValidationFinding): string[] {
+  const explicit = FINDING_FACT_KEYS_BY_RULE_ID[finding.rule_id];
+  if (explicit) return explicit;
+
+  return finding.field ? [finding.field] : [];
+}
+
+export function toValidatorSummaryItem(
+  finding: ValidationFinding,
+): ValidatorSummaryItem {
+  return {
+    rule_id: finding.rule_id,
+    severity: finding.severity,
+    subject_type: finding.subject_type,
+    subject_id: finding.subject_id,
+    field: finding.field,
+    fact_keys: factKeysForFinding(finding),
+    message: messageForFinding(finding),
+  };
+}
+
+export function deriveValidatorStatus(
+  findings: readonly ValidationFinding[],
+): ValidatorStatus {
+  const openFindings = findings.filter((finding) => finding.status === 'open');
+  if (openFindings.some((finding) => finding.severity === 'critical')) {
+    return 'BLOCKED';
+  }
+  if (openFindings.length === 0) {
+    return 'READY';
+  }
+  return 'NEEDS_REVIEW';
+}
+
 export function buildValidationSummary(
   findings: readonly ValidationFinding[],
   status: ValidationStatus,
+  options: {
+    contractInvoiceReconciliation?: ContractInvoiceReconciliationSummary | null;
+    invoiceTransactionReconciliation?: InvoiceTransactionReconciliationSummary | null;
+    reconciliation?: ProjectReconciliationSummary | null;
+    exposure?: ProjectExposureSummary | null;
+    nte_amount?: number | null;
+    total_billed?: number | null;
+  } = {},
 ): ValidationSummary {
   const criticalCount = findings.filter((finding) => finding.severity === 'critical').length;
   const warningCount = findings.filter((finding) => finding.severity === 'warning').length;
   const infoCount = findings.filter((finding) => finding.severity === 'info').length;
+  const openFindings = findings.filter((finding) => finding.status === 'open');
+  const validatorOpenItems = openFindings.map(toValidatorSummaryItem);
+  const validatorBlockers = openFindings
+    .filter((finding) => finding.severity === 'critical')
+    .map(toValidatorSummaryItem);
 
   return {
     status,
@@ -592,9 +922,24 @@ export function buildValidationSummary(
     critical_count: criticalCount,
     warning_count: warningCount,
     info_count: infoCount,
-    open_count: findings.filter((finding) => finding.status === 'open').length,
+    open_count: openFindings.length,
     blocked_reasons: blockingReasons(findings),
     trigger_source: null,
+    validator_status: deriveValidatorStatus(findings),
+    validator_open_items: validatorOpenItems,
+    validator_blockers: validatorBlockers,
+    contract_invoice_reconciliation:
+      options.contractInvoiceReconciliation ?? null,
+    invoice_transaction_reconciliation:
+      options.invoiceTransactionReconciliation ?? null,
+    reconciliation:
+      options.reconciliation ?? null,
+    exposure:
+      options.exposure ?? null,
+    nte_amount: options.nte_amount ?? null,
+    total_billed: options.total_billed ?? null,
+    requires_verification_amount:
+      options.exposure?.total_requires_verification_amount ?? null,
   };
 }
 

@@ -48,6 +48,9 @@ function mapDocumentTypeToFamily(documentType: string | null | undefined): Docum
     return 'payment_recommendation';
   }
   if (normalized.includes('ticket')) return 'ticket';
+  if (normalized.includes('transaction_data') || normalized.includes('transaction data')) {
+    return 'spreadsheet';
+  }
   if (normalized.includes('spreadsheet') || normalized.includes('xlsx') || normalized.includes('xls')) {
     return 'spreadsheet';
   }

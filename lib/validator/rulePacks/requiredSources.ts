@@ -21,6 +21,10 @@ export function runRequiredSourcesRules(
   const hasContract = contractDocumentIds.length > 0;
   const hasTickets =
     input.mobileTickets.length > 0 || input.loadTickets.length > 0;
+  const hasTransactionData =
+    (input.transactionData?.rows?.length ?? 0) > 0
+    || (input.transactionData?.datasets?.some((dataset) => (dataset.row_count ?? 0) > 0) ?? false);
+  const hasTicketLikeOperationalData = hasTickets || hasTransactionData;
 
   if (
     !hasContract &&
@@ -55,6 +59,7 @@ export function runRequiredSourcesRules(
   if (
     hasContract &&
     !input.factLookups.hasRateScheduleFacts &&
+    input.factLookups.contractCeilingType !== 'rate_based' &&
     isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_RATE_SCHEDULE')
   ) {
     findings.push(
@@ -83,7 +88,7 @@ export function runRequiredSourcesRules(
   }
 
   if (
-    !hasTickets &&
+    !hasTicketLikeOperationalData &&
     isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_TICKET_DATA')
   ) {
     findings.push(
@@ -95,9 +100,9 @@ export function runRequiredSourcesRules(
         subjectType: 'project',
         subjectId: input.project.id,
         field: 'ticket_data',
-        expected: 'mobile_tickets or load_tickets rows',
+        expected: 'mobile_tickets, load_tickets, or transaction_data rows',
         actual: 'none',
-        blockedReason: 'No ticket data associated with this project',
+        blockedReason: 'No ticket or transaction data associated with this project',
         actionEligible: true,
         evidence: [
           makeEvidenceInput({
@@ -105,7 +110,8 @@ export function runRequiredSourcesRules(
             record_id: input.project.id,
             field_name: 'project_id',
             field_value: input.project.id,
-            note: 'No structured mobile_tickets or load_tickets rows were loaded for this project.',
+            note:
+              'No structured mobile_tickets, load_tickets, or persisted transaction_data rows were loaded for this project.',
           }),
         ],
       }),

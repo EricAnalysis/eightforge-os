@@ -30,7 +30,7 @@ export function useCurrentOrg() {
 
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('organization_id, organizations(id, name)')
+          .select('organization_id, role, organizations(id, name)')
           .eq('id', user.id)
           .single();
 

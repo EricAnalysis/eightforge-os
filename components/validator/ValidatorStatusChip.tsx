@@ -10,10 +10,10 @@ type ValidatorStatusChipProps = {
 };
 
 const STATUS_LABELS: Record<ValidationStatus, string> = {
-  NOT_READY: 'Not Ready',
-  BLOCKED: 'Blocked',
-  VALIDATED: 'Validated',
-  FINDINGS_OPEN: 'Findings Open',
+  NOT_READY: 'Not Evaluated',
+  BLOCKED: 'Requires Verification',
+  VALIDATED: 'Approved',
+  FINDINGS_OPEN: 'Needs Review',
 };
 
 function statusClassName(status: ValidationStatus): string {

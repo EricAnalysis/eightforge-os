@@ -2,6 +2,7 @@
 
 import { ContextSidebar } from '@/components/workspace/ContextSidebar';
 import { DecisionActionQueue } from '@/components/workspace/DecisionActionQueue';
+import { ProjectTruthSnapshot } from '@/components/workspace/ProjectTruthSnapshot';
 import type { ProjectOverviewModel, ProjectDecisionRow, ProjectDocumentRow, ProjectTaskRow } from '@/lib/projectOverview';
 
 type WorkTabProps = {
@@ -25,6 +26,7 @@ export function WorkTab({
     <div className="flex min-h-0 flex-1">
       {/* Left 70%: unified work queue */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ flexBasis: '70%' }}>
+        <ProjectTruthSnapshot projectId={projectId} model={model} decisions={decisions} />
         <DecisionActionQueue
           decisions={decisions}
           tasks={tasks}

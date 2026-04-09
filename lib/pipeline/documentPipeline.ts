@@ -4,6 +4,7 @@ import { decisionNode } from '@/lib/pipeline/nodes/decisionNode';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import type {
   DocumentPipelineResult,
   ExtractNodeInput,
@@ -117,11 +118,15 @@ function toIssues(decisions: GeneratedDecision[]): IntelligenceIssue[] {
 export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineResult {
   const extracted = extractNode(input);
   const normalized = normalizeNode(extracted);
+  const primaryDocument = applyContractorIdentityResolutionToNormalizedDocument(normalized.primaryDocument);
+  const relatedDocuments = normalized.relatedDocuments.map(applyContractorIdentityResolutionToNormalizedDocument);
   const analyzed = {
     ...normalized,
+    primaryDocument,
+    relatedDocuments,
     contractAnalysis: analyzeContractIntelligence({
-      primaryDocument: normalized.primaryDocument,
-      relatedDocuments: normalized.relatedDocuments,
+      primaryDocument,
+      relatedDocuments,
     }),
   };
   const decided = decisionNode(analyzed);

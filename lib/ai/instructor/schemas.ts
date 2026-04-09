@@ -16,6 +16,7 @@ export const instructorDetectedDocumentTypeSchema = z.enum([
   'payment_recommendation',
   'ticket',
   'spreadsheet',
+  'transaction_data',
   'operational',
   'generic',
   'report',
@@ -54,20 +55,33 @@ export const contractExtractionAssistSchema = z.object({
 });
 
 const invoiceLineItemSchema = z.object({
-  description: boundedString(220),
+  line_code: z.string().trim().min(1).max(64).nullable().optional(),
+  line_description: boundedString(220).nullable().optional(),
+  description: boundedString(220).nullable().optional(),
   quantity: z.number().finite().nullable(),
   unit: z.string().trim().min(1).max(40).nullable(),
   unit_price: z.number().finite().nullable(),
-  total: z.number().finite().nullable(),
+  line_total: z.number().finite().nullable().optional(),
+  total: z.number().finite().nullable().optional(),
+  billing_rate_key: z.string().trim().min(1).max(120).nullable().optional(),
+  description_match_key: z.string().trim().min(1).max(220).nullable().optional(),
 });
 
 export const invoiceExtractionAssistSchema = z.object({
   schema_type: z.literal('invoice'),
   invoice_number: z.string().trim().min(1).max(120).nullable().optional(),
+  invoice_status: z.string().trim().min(1).max(80).nullable().optional(),
   invoice_date: z.string().trim().min(1).max(80).nullable().optional(),
+  period_start: z.string().trim().min(1).max(80).nullable().optional(),
+  period_end: z.string().trim().min(1).max(80).nullable().optional(),
+  period_through: z.string().trim().min(1).max(80).nullable().optional(),
   vendor_name: z.string().trim().min(1).max(180).nullable().optional(),
+  client_name: z.string().trim().min(1).max(180).nullable().optional(),
   line_items: z.array(invoiceLineItemSchema).max(30).optional(),
+  line_item_count: z.number().int().nonnegative().nullable().optional(),
+  subtotal_amount: z.number().finite().nullable().optional(),
   total_amount: z.number().finite().nullable().optional(),
+  current_amount_due: z.number().finite().nullable().optional(),
   payment_terms: z.string().trim().min(1).max(120).nullable().optional(),
   po_number: z.string().trim().min(1).max(120).nullable().optional(),
 });

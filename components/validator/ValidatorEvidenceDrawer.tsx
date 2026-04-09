@@ -1,6 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import {
+  findingApprovalLabel,
+  findingGateImpact,
+  findingNextAction,
+} from '@/lib/truthToAction';
 import type { ValidationCategory, ValidationEvidence, ValidationFinding, ValidationSeverity } from '@/types/validator';
 import { getEvidenceDocumentUrl } from '@/lib/validator/evidenceNavigation';
 
@@ -70,6 +75,36 @@ function formatVariance(finding: ValidationFinding): string {
   return finding.variance_unit
     ? `${finding.variance} ${finding.variance_unit}`
     : String(finding.variance);
+}
+
+function findingSourceReference(finding: ValidationFinding): string {
+  return [
+    finding.rule_id,
+    formatSubject(finding),
+    finding.field,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' | ');
+}
+
+function findingValue(finding: ValidationFinding): string {
+  if (finding.blocked_reason?.trim()) {
+    return finding.blocked_reason;
+  }
+
+  if (finding.actual?.trim()) {
+    return finding.actual;
+  }
+
+  if (finding.expected?.trim()) {
+    return finding.expected;
+  }
+
+  if (finding.variance != null) {
+    return `Variance ${formatVariance(finding)}`;
+  }
+
+  return 'See the structured and document evidence below.';
 }
 
 function ValueBlock({
@@ -200,6 +235,9 @@ export function ValidatorEvidenceDrawer({
 
   const structuredEvidence = evidence.filter((item) => !isDocumentEvidence(item));
   const documentEvidence = evidence.filter((item) => isDocumentEvidence(item));
+  const approvalLabel = findingApprovalLabel(finding);
+  const gateImpact = findingGateImpact(finding);
+  const nextAction = findingNextAction(finding);
 
   return (
     <aside className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-5 xl:sticky xl:top-6">
@@ -230,6 +268,14 @@ export function ValidatorEvidenceDrawer({
         </span>
       </div>
 
+      <div className="mt-5 grid gap-3">
+        <ValueBlock label="Value" value={findingValue(finding)} />
+        <ValueBlock label="Source" value={findingSourceReference(finding)} />
+        <ValueBlock label="Validation" value={approvalLabel} />
+        <ValueBlock label="Gate impact" value={gateImpact} />
+        <ValueBlock label="Next action" value={nextAction} />
+      </div>
+
       <dl className="mt-5 grid gap-3 sm:grid-cols-2">
         <div>
           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
@@ -257,7 +303,7 @@ export function ValidatorEvidenceDrawer({
         </div>
         <div>
           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
-            Status
+            Finding state
           </dt>
           <dd className="mt-1 break-words text-sm text-[#E5EDF7]">
             {finding.status}

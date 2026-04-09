@@ -1,3 +1,4 @@
+import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import type { EvidenceObject } from '@/lib/extraction/types';
@@ -806,7 +807,7 @@ export function generateForgeDecisionsForDocument(
     }),
   );
 
-  const document = normalized.primaryDocument;
+  const document = applyContractorIdentityResolutionToNormalizedDocument(normalized.primaryDocument);
   const evidenceById = new Map(document.evidence.map((entry) => [entry.id, entry] as const));
   const structuredFields =
     ((document.structured_fields ?? {}) as Record<string, unknown>) ?? {};

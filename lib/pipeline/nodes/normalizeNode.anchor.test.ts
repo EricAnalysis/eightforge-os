@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
 
+import { extractInvoiceTypedFields } from '@/lib/invoices/invoiceParser';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import type { EvidenceObject } from '@/lib/extraction/types';
@@ -159,6 +160,211 @@ describe('normalizeNode anchor resolution', () => {
     assert.ok(billed);
     assert.equal(billed.evidence_resolution, 'value_fallback');
     assert.ok(billed.evidence_refs.includes('ev-misc'));
+  });
+
+  it('grounds billed amount from the invoice totals section when Williamson cover totals and line groups are visible', () => {
+    const documentId = 'invoice-williamson-cover';
+    const text = [
+      'INVOICE',
+      'Invoice Number: 2026-002',
+      'Invoice Date: 04/03/2026',
+      'Vendor: Aftermath Disaster Recovery, Inc.',
+      'Bill To: Williamson County, Tennessee',
+      'Service Period: 02/23/2026 through 03/18/2026',
+      '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894 CYD $6.90 $302,868.60',
+      '1B Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 12,250 CYD $7.90 $96,775.00',
+      '1E Vegetative Collect Remove Haul Rural Areas ROW to DMS 3,099 CYD $13.50 $41,836.50',
+      '1F Vegetative Collect Remove Haul Rural Areas ROW to DMS 916 CYD $14.50 $13,282.00',
+      '5A Tree Operations Hazardous Tree Removal 5 EA $95.00 $475.00',
+      '6A Tree Operations Hazardous Hanging Limb Removal 994 EA $80.00 $79,520.00',
+      'Subtotal $534,757.10',
+      'TOTAL $534,757.10',
+    ].join('\n');
+
+    const contentLayers = {
+      pdf: {
+        evidence: [] as EvidenceObject[],
+        forms: {
+          fields: [
+            {
+              id: 'form:williamson:number',
+              page_number: 1,
+              label: 'Invoice Number',
+              value: '2026-002',
+              confidence: 0.95,
+            },
+            {
+              id: 'form:williamson:period',
+              page_number: 1,
+              label: 'Service Period',
+              value: '02/23/2026 through 03/18/2026',
+              confidence: 0.95,
+            },
+          ],
+        },
+        tables: {
+          tables: [
+            {
+              id: 'table:williamson:lines',
+              page_number: 1,
+              headers: ['Code', 'Description', 'Qty', 'Unit', 'Unit Price', 'Amount'],
+              header_context: [],
+              confidence: 0.94,
+              rows: [
+                {
+                  id: 'table:williamson:lines:r1',
+                  page_number: 1,
+                  row_index: 1,
+                    cells: [
+                      { column_index: 0, text: '1A' },
+                      { column_index: 1, text: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS' },
+                      { column_index: 2, text: '43,894.00' },
+                      { column_index: 3, text: 'CYD' },
+                      { column_index: 4, text: '6.90' },
+                      { column_index: 5, text: '302,868.60' },
+                    ],
+                    raw_text: '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD 6.90 302,868.60',
+                  },
+                {
+                  id: 'table:williamson:lines:r2',
+                  page_number: 1,
+                  row_index: 2,
+                    cells: [
+                      { column_index: 0, text: '1B' },
+                      { column_index: 1, text: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS' },
+                      { column_index: 2, text: '12,250.00' },
+                      { column_index: 3, text: 'CYD' },
+                      { column_index: 4, text: '7.90' },
+                      { column_index: 5, text: '96,775.00' },
+                    ],
+                    raw_text: '1B Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 12,250.00 CYD 7.90 96,775.00',
+                  },
+                {
+                  id: 'table:williamson:lines:r3',
+                  page_number: 1,
+                  row_index: 3,
+                    cells: [
+                      { column_index: 0, text: '1E' },
+                      { column_index: 1, text: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS' },
+                      { column_index: 2, text: '3,099.00' },
+                      { column_index: 3, text: 'CYD' },
+                      { column_index: 4, text: '13.50' },
+                      { column_index: 5, text: '41,836.50' },
+                    ],
+                    raw_text: '1E Vegetative Collect Remove Haul Rural Areas ROW to DMS 3,099.00 CYD 13.50 41,836.50',
+                  },
+                {
+                  id: 'table:williamson:lines:r4',
+                  page_number: 1,
+                  row_index: 4,
+                    cells: [
+                      { column_index: 0, text: '1F' },
+                      { column_index: 1, text: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS' },
+                      { column_index: 2, text: '916.00' },
+                      { column_index: 3, text: 'CYD' },
+                      { column_index: 4, text: '14.50' },
+                      { column_index: 5, text: '13,282.00' },
+                    ],
+                    raw_text: '1F Vegetative Collect Remove Haul Rural Areas ROW to DMS 916.00 CYD 14.50 13,282.00',
+                  },
+                {
+                  id: 'table:williamson:lines:r5',
+                  page_number: 1,
+                  row_index: 5,
+                    cells: [
+                      { column_index: 0, text: '5A' },
+                      { column_index: 1, text: 'Tree Operations Hazardous Tree Removal' },
+                      { column_index: 2, text: '5.00' },
+                      { column_index: 3, text: 'EA' },
+                      { column_index: 4, text: '95.00' },
+                      { column_index: 5, text: '475.00' },
+                    ],
+                    raw_text: '5A Tree Operations Hazardous Tree Removal 5.00 EA 95.00 475.00',
+                  },
+                {
+                  id: 'table:williamson:lines:r6',
+                  page_number: 1,
+                  row_index: 6,
+                    cells: [
+                      { column_index: 0, text: '6A' },
+                      { column_index: 1, text: 'Tree Operations Hazardous Hanging Limb Removal' },
+                      { column_index: 2, text: '994.00' },
+                      { column_index: 3, text: 'EA' },
+                      { column_index: 4, text: '80.00' },
+                      { column_index: 5, text: '79,520.00' },
+                    ],
+                    raw_text: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00 79,520.00',
+                  },
+              ],
+            },
+            {
+              id: 'table:williamson:totals',
+              page_number: 1,
+              headers: ['Label', 'Amount'],
+              header_context: [],
+              confidence: 0.93,
+              rows: [
+                {
+                  id: 'table:williamson:totals:r1',
+                  page_number: 1,
+                  row_index: 1,
+                  cells: [
+                    { column_index: 0, text: 'Subtotal' },
+                    { column_index: 1, text: '$534,757.10' },
+                  ],
+                  raw_text: 'Subtotal $534,757.10',
+                },
+                {
+                  id: 'table:williamson:totals:r2',
+                  page_number: 1,
+                  row_index: 2,
+                  cells: [
+                    { column_index: 0, text: 'TOTAL' },
+                    { column_index: 1, text: '$534,757.10' },
+                  ],
+                  raw_text: 'TOTAL $534,757.10',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    const typed = extractInvoiceTypedFields({
+      text,
+      contentLayers,
+    });
+
+    const extracted = extractNode({
+      documentId,
+      documentType: 'invoice',
+      documentName: 'williamson-2026-002.pdf',
+      documentTitle: 'Williamson Invoice 2026-002',
+      projectName: null,
+      extractionData: {
+        fields: {
+          typed_fields: typed,
+        },
+        extraction: {
+          text_preview: text,
+          content_layers_v1: contentLayers,
+        },
+      },
+      relatedDocs: [],
+    });
+
+    const normalized = normalizeNode(extracted);
+    const billed = normalized.primaryDocument.fact_map.billed_amount;
+    const lineItemCount = normalized.primaryDocument.fact_map.line_item_count;
+
+    assert.ok(billed);
+    assert.equal(billed.value, 534757.1);
+    assert.ok(billed.evidence_refs.includes('table:williamson:totals:r2'));
+    assert.equal(lineItemCount?.value, 6);
+    assert.equal(normalized.primaryDocument.fact_map.invoice_number?.value, '2026-002');
+    assert.equal(normalized.primaryDocument.fact_map.period_through?.value, '2026-03-18');
+    assert.equal(normalized.primaryDocument.fact_map.line_item_support_present?.value, true);
   });
 
   it('prefers evidence-backed contract values over weak typed and heuristic fields', () => {

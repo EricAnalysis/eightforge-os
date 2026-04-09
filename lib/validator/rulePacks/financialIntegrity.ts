@@ -8,11 +8,12 @@ import {
   rowIdentifier,
   structuredRowEvidenceInput,
   toNumber,
-  uniqueStrings,
   type InvoiceLineRow,
   type ProjectValidatorInput,
   type ValidatorFindingResult,
 } from '@/lib/validator/shared';
+import { billingRateKeyForScheduleItem } from '@/lib/validator/billingKeys';
+import { runRateBasedContractValidationRules } from '@/lib/validator/rulePacks/rateBasedContractValidation';
 
 const CATEGORY = 'financial_integrity';
 
@@ -22,13 +23,6 @@ const INVOICE_LINE_RATE_CODE_KEYS = [
   'contract_rate_code',
   'item_code',
   'service_code',
-] as const;
-const INVOICE_LINE_RATE_KEYS = [
-  'billed_rate',
-  'unit_rate',
-  'rate',
-  'price',
-  'contract_rate',
 ] as const;
 const INVOICE_LINE_UNIT_KEYS = ['unit_type', 'unit', 'uom'] as const;
 const INVOICE_LINE_TOTAL_KEYS = [
@@ -70,55 +64,15 @@ function invoiceEvidence(input: ProjectValidatorInput) {
 export function runFinancialIntegrityRules(
   input: ProjectValidatorInput,
 ): ValidatorFindingResult[] {
-  const findings: ValidatorFindingResult[] = [];
-  const hasInvoiceLineData = input.invoiceLines.length > 0;
+  const findings = runRateBasedContractValidationRules(input);
   const hasUsableRateSchedule = input.factLookups.rateScheduleItems.some(
-    (item) => item.rate_code != null,
+    (item) => billingRateKeyForScheduleItem(item) != null,
   );
-
-  if (
-    hasInvoiceLineData &&
-    isRuleEnabled(
-      input.ruleStateByRuleId,
-      'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-    ) &&
-    (!input.factLookups.hasRateScheduleFacts || !hasUsableRateSchedule)
-  ) {
-    findings.push(
-      makeFinding({
-        projectId: input.project.id,
-        ruleId: 'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-        category: CATEGORY,
-        severity: 'info',
-        subjectType: 'project',
-        subjectId: input.project.id,
-        field: 'rate_schedule',
-        expected: 'usable extracted rate schedule items',
-        actual: input.factLookups.hasRateScheduleFacts
-          ? 'facts present but no usable items'
-          : 'missing',
-        blockedReason: input.factLookups.hasRateScheduleFacts
-          ? 'Rate schedule facts extracted but no usable rate items were parsed'
-          : 'Rate schedule not extracted - contract may need review',
-        evidence: [
-          ...input.factLookups.rateScheduleFacts.flatMap((fact) => fact.evidence),
-          ...input.familyDocumentIds.contract.map((documentId) =>
-            makeEvidenceInput({
-              evidence_type: 'document',
-              source_document_id: documentId,
-              record_id: documentId,
-              note: 'Contract document linked for rate-schedule comparison.',
-            }),
-          ),
-        ],
-      }),
-    );
-  }
+  const rateBasedCeiling = input.factLookups.contractCeilingType === 'rate_based';
 
   for (const row of input.invoiceLines) {
     const lineId = invoiceLineId(row);
     const rateCode = readRowString(row, INVOICE_LINE_RATE_CODE_KEYS);
-    const billedRate = readRowNumber(row, INVOICE_LINE_RATE_KEYS);
     const billedUnit = readRowString(row, INVOICE_LINE_UNIT_KEYS);
     const scheduleItem = input.invoiceLineToRateMap.get(lineId) ?? null;
 
@@ -154,119 +108,6 @@ export function runFinancialIntegrityRules(
     }
 
     if (!rateCode || !hasUsableRateSchedule) continue;
-
-    if (
-      !scheduleItem &&
-      isRuleEnabled(
-        input.ruleStateByRuleId,
-        'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-      )
-    ) {
-      findings.push(
-        makeFinding({
-          projectId: input.project.id,
-          ruleId: 'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-          category: CATEGORY,
-          severity: 'critical',
-          subjectType: 'invoice_line',
-          subjectId: lineId,
-          field: 'rate_code',
-          expected: uniqueStrings(
-            input.factLookups.rateScheduleItems.map((item) => item.rate_code),
-          ).join(', '),
-          actual: rateCode,
-          evidence: [
-            structuredRowEvidenceInput({
-              evidenceType: 'invoice_line',
-              row,
-              fieldName: 'rate_code',
-              fieldValue: rateCode,
-              note: 'Invoice line rate code was not found in the extracted contract rate schedule.',
-            }),
-          ],
-        }),
-      );
-
-      continue;
-    }
-
-    if (
-      scheduleItem &&
-      isRuleEnabled(
-        input.ruleStateByRuleId,
-        'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-      )
-    ) {
-      if (billedRate == null || scheduleItem.rate_amount == null) {
-        findings.push(
-          makeFinding({
-            projectId: input.project.id,
-            ruleId: 'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-            category: CATEGORY,
-            severity: 'info',
-            subjectType: 'invoice_line',
-            subjectId: lineId,
-            field: 'rate_amount',
-            expected: scheduleItem.rate_amount,
-            actual: billedRate,
-            blockedReason:
-              'Rate amount missing from the invoice line or extracted schedule',
-            evidence: [
-              structuredRowEvidenceInput({
-                evidenceType: 'invoice_line',
-                row,
-                fieldName: 'rate',
-                fieldValue: billedRate,
-                note: 'Invoice line rate could not be fully compared to the extracted schedule rate.',
-              }),
-              makeEvidenceInput({
-                evidence_type: 'rate_schedule',
-                source_document_id: scheduleItem.source_document_id,
-                record_id: scheduleItem.record_id,
-                field_name: 'rate_amount',
-                field_value: scheduleItem.rate_amount,
-                note: 'Matched rate schedule item used for comparison.',
-              }),
-            ],
-          }),
-        );
-      } else if (
-        Math.abs(billedRate - scheduleItem.rate_amount) > 0.01
-      ) {
-        findings.push(
-          makeFinding({
-            projectId: input.project.id,
-            ruleId: 'FINANCIAL_RATE_NOT_IN_SCHEDULE',
-            category: CATEGORY,
-            severity: 'critical',
-            subjectType: 'invoice_line',
-            subjectId: lineId,
-            field: 'rate',
-            expected: scheduleItem.rate_amount,
-            actual: billedRate,
-            variance: Math.abs(billedRate - scheduleItem.rate_amount),
-            varianceUnit: 'USD',
-            evidence: [
-              structuredRowEvidenceInput({
-                evidenceType: 'invoice_line',
-                row,
-                fieldName: 'rate',
-                fieldValue: billedRate,
-                note: 'Invoice line billed rate differs from the extracted contract rate.',
-              }),
-              makeEvidenceInput({
-                evidence_type: 'rate_schedule',
-                source_document_id: scheduleItem.source_document_id,
-                record_id: scheduleItem.record_id,
-                field_name: 'rate_amount',
-                field_value: scheduleItem.rate_amount,
-                note: 'Matched contract rate schedule item.',
-              }),
-            ],
-          }),
-        );
-      }
-    }
 
     if (
       scheduleItem &&
@@ -316,6 +157,7 @@ export function runFinancialIntegrityRules(
 
   if (
     nte == null &&
+    !rateBasedCeiling &&
     isRuleEnabled(input.ruleStateByRuleId, 'FINANCIAL_NTE_FACT_MISSING')
   ) {
     findings.push(

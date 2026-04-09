@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
+import { ApprovalActionTimeline } from '@/components/approval/ApprovalActionTimeline';
 import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
 import { ValidatorStatusChip } from '@/components/validator/ValidatorStatusChip';
 import {
@@ -19,6 +20,7 @@ import type {
   ProjectOverviewDecisionCard,
   ProjectOverviewDocumentItem,
   ProjectOverviewFact,
+  ProjectOverviewInvoiceItem,
   ProjectOverviewMetric,
   ProjectOverviewModel,
   ProjectOverviewTag,
@@ -233,11 +235,30 @@ function DecisionCard({ decision }: { decision: ProjectOverviewDecisionCard }) {
   );
 }
 
+function fmtActionMoney(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return '';
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1_000) return `$${Math.round(value / 1_000)}k`;
+  return `$${Math.round(value)}`;
+}
+
 function ActionRow({ action }: { action: ProjectOverviewActionItem }) {
+  const isInvoiceAction = action.approval_status != null;
+  const borderClass = isInvoiceAction
+    ? action.due_tone === 'danger'
+      ? 'border-l-[#EF4444]/60'
+      : 'border-l-[#F59E0B]/60'
+    : 'border-l-[#2F3B52]';
+
+  const billedLabel = fmtActionMoney(action.impacted_amount);
+  const atRiskLabel = fmtActionMoney(action.at_risk_amount);
+  const requiresVerificationLabel = fmtActionMoney(action.requires_verification_amount);
+  const blockedLabel = fmtActionMoney(action.blocked_amount);
+
   return (
     <Link
       href={action.href}
-      className="flex items-start gap-3 border-y border-r border-[#2F3B52]/40 border-l-2 border-l-[#2F3B52] bg-[#1A2333] p-3 transition-colors hover:bg-[#243044]"
+      className={`flex items-start gap-3 border-y border-r border-[#2F3B52]/40 border-l-2 bg-[#1A2333] p-3 transition-colors hover:bg-[#243044] ${borderClass}`}
     >
       <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${toneDotClass(action.due_tone)}`} />
       <div className="min-w-0 flex-1">
@@ -249,13 +270,45 @@ function ActionRow({ action }: { action: ProjectOverviewActionItem }) {
           <span className="text-[#94A3B8]">{action.priority_label}</span>
           <span className="text-[#C7D2E3]">{action.status_label}</span>
         </div>
+
+        {/* Financial impact pills — shown for invoice-level actions */}
+        {isInvoiceAction && (billedLabel || atRiskLabel || requiresVerificationLabel || blockedLabel) ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {billedLabel ? (
+              <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#C7D2E3]">
+                {billedLabel} billed
+              </span>
+            ) : null}
+            {requiresVerificationLabel ? (
+              <span className="rounded border border-[#EF4444]/25 bg-[#EF4444]/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-[#FCA5A5]">
+                {requiresVerificationLabel} requires verification
+              </span>
+            ) : null}
+            {atRiskLabel ? (
+              <span className="rounded border border-[#F59E0B]/25 bg-[#F59E0B]/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-[#FCD34D]">
+                {atRiskLabel} at risk
+              </span>
+            ) : null}
+            {blockedLabel ? (
+              <span className="rounded border border-[#EF4444]/25 bg-[#EF4444]/[0.07] px-1.5 py-0.5 font-mono text-[10px] text-[#FCA5A5]">
+                {blockedLabel} blocked
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         <p className="mt-1 text-[11px] text-[#94A3B8]">
           {action.assignee_label}
         </p>
+        {action.next_step ? (
+          <p className="mt-1 text-[11px] text-[#5A7090]">
+            Next: {action.next_step}
+          </p>
+        ) : null}
         {(action.source_document_title || action.source_document_type) && (
           <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">
             Source: {action.source_document_title ?? 'Project record'}
-            {action.source_document_type ? ` / ${action.source_document_type}` : ''}
+            {action.source_document_type ? ` · ${action.source_document_type}` : ''}
           </p>
         )}
       </div>
@@ -349,6 +402,203 @@ function SectionHeading({
   );
 }
 
+const INVOICE_APPROVAL_LABEL: Record<ProjectOverviewInvoiceItem['approval_status'], string> = {
+  approved: 'Approved',
+  approved_with_exceptions: 'Approved w/ Exceptions',
+  needs_review: 'Needs Review',
+  blocked: 'Blocked',
+};
+
+const INVOICE_APPROVAL_BADGE: Record<ProjectOverviewInvoiceItem['approval_status'], string> = {
+  approved: 'border-[#22C55E]/30 bg-[#0F2417] text-[#86EFAC]',
+  approved_with_exceptions: 'border-[#F59E0B]/30 bg-[#2A1B08] text-[#FCD34D]',
+  needs_review: 'border-[#F59E0B]/30 bg-[#2A1B08] text-[#FCD34D]',
+  blocked: 'border-[#EF4444]/30 bg-[#2A1016] text-[#FCA5A5]',
+};
+
+function fmtMoney(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+  }).format(value);
+}
+
+function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceItem[] }) {
+  if (invoices.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-white/[0.06]">
+            <th className="pb-2 pr-4 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Invoice</th>
+            <th className="pb-2 pr-4 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Status</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Billed</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Supported</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">At Risk</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Requires Verification</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Reconciliation</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.04]">
+          {invoices.map((inv, i) => (
+            <tr key={i} className="hover:bg-white/[0.02]">
+              <td className="py-2 pr-4 font-mono text-[11px] text-[#C7D2E3]">
+                {inv.invoice_number ?? <span className="text-[#5A6E88] italic">No number</span>}
+              </td>
+              <td className="py-2 pr-4">
+                <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${INVOICE_APPROVAL_BADGE[inv.approval_status]}`}>
+                  {INVOICE_APPROVAL_LABEL[inv.approval_status]}
+                </span>
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">
+                {fmtMoney(inv.billed_amount)}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">
+                {fmtMoney(inv.supported_amount)}
+              </td>
+              <td className={`py-2 pr-4 text-right font-semibold tabular-nums ${
+                inv.at_risk_amount != null && inv.at_risk_amount > 0
+                  ? 'text-[#FCD34D]'
+                  : 'text-[#4ADE80]'
+              }`}>
+                {fmtMoney(inv.at_risk_amount)}
+              </td>
+              <td className={`py-2 pr-4 text-right font-semibold tabular-nums ${
+                inv.requires_verification_amount != null && inv.requires_verification_amount > 0
+                  ? 'text-[#F87171]'
+                  : 'text-[#4ADE80]'
+              }`}>
+                {fmtMoney(inv.requires_verification_amount)}
+              </td>
+              <td className="py-2 font-mono text-[10px] text-[#5A7090]">
+                {inv.reconciliation_status}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
+  const readiness = model.validator_summary.validator_readiness;
+  const totalBilled = model.validator_summary.total_billed;
+  const totalAtRisk = model.validator_summary.total_at_risk;
+  const requiresVerificationAmount = model.validator_summary.requires_verification_amount;
+  const blockedAmount = model.validator_summary.blocked_amount;
+  const invoices = model.validator_summary.invoice_summaries;
+
+  const hasFinancials = totalBilled != null;
+  const hasInvoices = invoices.length > 0;
+  const hasPanel = readiness != null || hasFinancials || hasInvoices;
+  if (!hasPanel) return null;
+
+  const approvalLabel =
+    readiness === 'READY' ? 'Approved'
+    : readiness === 'BLOCKED' ? 'Blocked'
+    : readiness === 'NEEDS_REVIEW' ? 'Needs Review'
+    : 'Not Evaluated';
+
+  const approvalTone: OverviewTone =
+    readiness === 'READY' ? 'success'
+    : readiness === 'BLOCKED' ? 'danger'
+    : readiness === 'NEEDS_REVIEW' ? 'warning'
+    : 'muted';
+
+  const panelBorder =
+    approvalTone === 'danger' ? 'border-[#EF4444]/25 bg-[#0E0810]'
+    : approvalTone === 'warning' ? 'border-[#F59E0B]/20 bg-[#0D0A05]'
+    : approvalTone === 'success' ? 'border-[#22C55E]/20 bg-[#050E08]'
+    : 'border-[#2F3B52]/60 bg-[#0B101D]';
+
+  return (
+    <div className={`mt-5 overflow-hidden rounded-xl border ${panelBorder}`}>
+      {/* Top strip — status + financial pills */}
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
+        {/* Status */}
+        <div className="flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${toneDotClass(approvalTone)}`} />
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">
+              Approval Status
+            </p>
+            <p className={`text-lg font-black tracking-tight leading-none mt-0.5 ${toneTextClass(approvalTone)}`}>
+              {approvalLabel}
+            </p>
+          </div>
+        </div>
+
+        {/* Divider */}
+        {hasFinancials ? (
+          <div className="h-10 w-px shrink-0 bg-white/[0.08]" />
+        ) : null}
+
+        {/* Financial stats */}
+        {hasFinancials ? (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Total Billed</p>
+              <p className="mt-0.5 text-sm font-semibold text-[#E5EDF7]">{fmtMoney(totalBilled)}</p>
+            </div>
+            {totalAtRisk != null ? (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">At Risk</p>
+                <p className={`mt-0.5 text-sm font-semibold ${totalAtRisk > 0 ? 'text-[#FCD34D]' : 'text-[#4ADE80]'}`}>
+                  {fmtMoney(totalAtRisk)}
+                </p>
+              </div>
+            ) : null}
+            {requiresVerificationAmount != null ? (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Requires Verification</p>
+                <p className={`mt-0.5 text-sm font-semibold ${requiresVerificationAmount > 0 ? 'text-[#F87171]' : 'text-[#4ADE80]'}`}>
+                  {fmtMoney(requiresVerificationAmount)}
+                </p>
+              </div>
+            ) : null}
+            {blockedAmount != null ? (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Blocked</p>
+                <p className="mt-0.5 text-sm font-semibold text-[#F87171]">{fmtMoney(blockedAmount)}</p>
+              </div>
+            ) : null}
+            {model.exposure.percent != null ? (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">NTE Used</p>
+                <p className={`mt-0.5 text-sm font-semibold ${toneTextClass(model.exposure.tone)}`}>
+                  {model.exposure.percent_label}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Reconciliation pill */}
+        {model.validator_summary.reconciliation_overall ? (
+          <div className="ml-auto shrink-0">
+            <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-mono text-[#8FA1BC]">
+              {model.validator_summary.reconciliation_overall}
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Invoice table */}
+      {hasInvoices ? (
+        <div className="border-t border-white/[0.06] px-5 pb-4 pt-3">
+          <p className="mb-2.5 text-[9px] font-bold uppercase tracking-[0.2em] text-[#7FA6FF]">
+            Invoice Approval Breakdown
+          </p>
+          <InvoiceApprovalTable invoices={invoices} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ProjectOverview({
   model,
   loadIssue,
@@ -380,99 +630,66 @@ export function ProjectOverview({
       )}
 
       <section id="project-overview" className="border-b border-[#2F3B52]/40 px-8 pb-6 pt-10">
-        <div className="flex flex-wrap items-end justify-between gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3B82F6]">
-                {model.context_label}
-              </span>
-              <div className="h-px w-8 bg-[#2F3B52]" />
-              <span className="text-xs text-[#94A3B8]">
-                ID: {model.project_id_label}
-              </span>
-            </div>
-
-            <div>
-              <Link href="/platform/projects" className="text-[11px] text-[#94A3B8] transition-colors hover:text-[#E5EDF7]">
-                Back to projects
-              </Link>
-              <h1 className="mt-3 text-4xl font-black tracking-tight text-[#E5EDF7] xl:text-5xl">
-                {model.title}
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm text-[#C7D2E3]">
-                {model.status.detail}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-2">
-              {model.tags.map((tag) => (
-                <ProjectTagPill key={tag.label} tag={tag} />
-              ))}
-              <div className={`ml-2 inline-flex items-center gap-2 border-l-2 px-3 py-1 ${toneBadgeClass(model.status.tone)}`}>
-                <div className={`h-1.5 w-1.5 rounded-full ${toneDotClass(model.status.tone)}`} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
-                  {model.status.label}
-                </span>
-              </div>
-              <ValidatorStatusChip
-                status={model.validator_status}
-                criticalCount={
-                  model.validator_summary.critical_count > 0
-                    ? model.validator_summary.critical_count
-                    : undefined
-                }
-                warningCount={
-                  model.validator_summary.warning_count > 0
-                    ? model.validator_summary.warning_count
-                    : undefined
-                }
-                size="sm"
-              />
-            </div>
-
-            <div className="pt-2">
-              <ProjectAdminControls
-                project={model.project}
-                deleteRedirectHref="/platform/projects"
-                onProjectRefresh={onProjectRefresh}
-              />
-            </div>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3B82F6]">
+              {model.context_label}
+            </span>
+            <div className="h-px w-8 bg-[#2F3B52]" />
+            <span className="text-xs text-[#94A3B8]">
+              ID: {model.project_id_label}
+            </span>
           </div>
 
-          <div className="w-full max-w-sm rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-5">
-            <div className="mb-3 flex items-end justify-between gap-3">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
-                Contract Exposure
-              </span>
-              <span className={`text-3xl font-bold tracking-tight ${toneTextClass(model.exposure.tone)}`}>
-                {model.exposure.percent_label}
-              </span>
-            </div>
-            <div className="h-1 overflow-hidden bg-[#243044]">
-              <div
-                className={`h-full ${toneDotClass(model.exposure.tone)}`}
-                style={{ width: `${model.exposure.bar_percent}%` }}
-              />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.16em]">
-              <span className="text-[#94A3B8]">{model.exposure.limit_label}</span>
-              <span className="text-[#E5EDF7]">{model.exposure.actual_label}</span>
-            </div>
-            <p className="mt-3 text-[11px] text-[#C7D2E3]">
-              {model.exposure.detail}
+          <div>
+            <Link href="/platform/projects" className="text-[11px] text-[#94A3B8] transition-colors hover:text-[#E5EDF7]">
+              Back to projects
+            </Link>
+            <h1 className="mt-3 text-4xl font-black tracking-tight text-[#E5EDF7] xl:text-5xl">
+              {model.title}
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm text-[#C7D2E3]">
+              {model.status.detail}
             </p>
-            {model.exposure.help_href && model.exposure.help_label ? (
-              <div className="mt-3">
-                <a
-                  href={model.exposure.help_href}
-                  className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:text-[#93C5FD]"
-                >
-                  {model.exposure.help_label}
-                </a>
-              </div>
-            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            {model.tags.map((tag) => (
+              <ProjectTagPill key={tag.label} tag={tag} />
+            ))}
+            <div className={`ml-2 inline-flex items-center gap-2 border-l-2 px-3 py-1 ${toneBadgeClass(model.status.tone)}`}>
+              <div className={`h-1.5 w-1.5 rounded-full ${toneDotClass(model.status.tone)}`} />
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
+                {model.status.label}
+              </span>
+            </div>
+            <ValidatorStatusChip
+              status={model.validator_status}
+              criticalCount={
+                model.validator_summary.critical_count > 0
+                  ? model.validator_summary.critical_count
+                  : undefined
+              }
+              warningCount={
+                model.validator_summary.warning_count > 0
+                  ? model.validator_summary.warning_count
+                  : undefined
+              }
+              size="sm"
+            />
+          </div>
+
+          <div className="pt-2">
+            <ProjectAdminControls
+              project={model.project}
+              deleteRedirectHref="/platform/projects"
+              onProjectRefresh={onProjectRefresh}
+            />
           </div>
         </div>
+
+        <ApprovalStatusPanel model={model} />
+        <ApprovalActionTimeline projectId={model.project.id} />
       </section>
 
       <nav className="border-b border-[#2F3B52]/40 bg-[#111827] px-8">

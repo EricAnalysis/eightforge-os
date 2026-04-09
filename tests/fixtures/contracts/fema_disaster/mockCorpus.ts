@@ -331,6 +331,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         document_shape: 'executed_contract',
       },
       issue_expectations: {
+        present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'signature_page_not_detected',
         target_engine_behavior:
           'Prefer the final signature-page execution evidence and ignore stale typed date noise when only the signature block is trustworthy.',
@@ -378,6 +381,8 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
       },
       issue_expectations: {
         present_issue_ids: ['activation_trigger_status_unresolved'],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'ntp_activation_missed',
         target_engine_behavior:
           'Keep the agreement effective date distinct from the operational notice-to-proceed gate and surface the unresolved activation condition.',
@@ -428,6 +433,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         effective_date: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'effective_date_used_as_execution',
         target_engine_behavior:
           'Keep executed_date on the signature anchor, keep effective_date separate, and preserve the estimated-liability ceiling without inventing a derived term end date.',
@@ -478,6 +486,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         contract_ceiling: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'estimate_misread_as_ceiling',
         target_engine_behavior:
           'Keep the overall not-to-exceed amount as the contract ceiling even when softer estimated-purchases language appears nearby.',
@@ -535,6 +546,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         executed_date: 'missing_critical',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'bafo_misclassified_as_contract',
         target_engine_behavior:
           'Treat BAFO front matter as a solicitation response, keep the using agency separate from the client, and do not invent executed or term dates.',
@@ -587,6 +601,8 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
       },
       issue_expectations: {
         present_issue_ids: ['documentation_gate_unclear', 'fema_gate_ambiguous'],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'monitoring_dependency_missed',
         target_engine_behavior:
           'Surface monitoring, ticketing, and FEMA-eligibility language as reimbursement gates rather than simple scope prose.',
@@ -623,6 +639,8 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
       },
       issue_expectations: {
         present_issue_ids: ['activation_trigger_status_unresolved'],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'disaster_trigger_activation_missed',
         target_engine_behavior:
           'Keep disaster declarations as an unresolved activation trigger that must be satisfied before work may begin.',
@@ -653,6 +671,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         document_shape: 'amendment_term_only',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'amendment_term_scope_overread',
         target_engine_behavior:
           'Keep amendment language scoped to the stated term change and avoid treating it like a fully re-executed base contract.',
@@ -691,6 +712,8 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
       },
       issue_expectations: {
         present_issue_ids: ['pricing_applicability_requires_context'],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'pass_through_disposal_missed',
         target_engine_behavior:
           'Keep disposal fees as pass-through pricing and leave the final pricing basis conditional instead of collapsing it into the unit-rate schedule.',
@@ -737,6 +760,8 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
       },
       issue_expectations: {
         present_issue_ids: ['activation_trigger_status_unresolved'],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'using_agency_collapsed_into_client',
         target_engine_behavior:
           'Preserve the contracting client separately from the using agency while still surfacing the notice-to-proceed activation gate.',
@@ -768,6 +793,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         rate_schedule_present: true,
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'weird_clause_not_normalized',
         target_engine_behavior:
           'Normalize ordinal-style execution phrasing into a stable canonical executed date without persisting malformed fallback values.',
@@ -803,6 +831,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         pricing_applicability: 'unit_rate_schedule_controls_pricing',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'multi_schedule_pricing_collapsed',
         target_engine_behavior:
           'Treat multiple related pricing schedules as a valid rate-schedule surface without collapsing them into an unpriced contract.',
@@ -840,6 +871,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'estimate_treated_as_guarantee',
         target_engine_behavior:
           'Keep large estimated debris quantities as planning context only when the contract expressly disclaims any guaranteed quantity.',
@@ -875,6 +909,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'standby_misread_as_quantity_commitment',
         target_engine_behavior:
           'Keep standby minimums in payment semantics and do not reinterpret them as a guaranteed debris quantity commitment.',
@@ -909,6 +946,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'body_quantity_text_overrides_exhibit_disclaimer',
         target_engine_behavior:
           'Resolve body-versus-exhibit quantity conflicts in favor of the exhibit disclaimer when the order-of-precedence clause says the exhibit controls.',
@@ -940,6 +980,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'estimate_treated_as_guarantee',
         target_engine_behavior:
           'Keep zone estimates category-local and non-binding instead of aggregating them into a guaranteed contract quantity.',
@@ -973,6 +1016,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'estimate_treated_as_guarantee',
         target_engine_behavior:
           'Keep schedule-level quantity disclaimers attached to their own categories instead of collapsing them into a global guaranteed total.',
@@ -1004,6 +1050,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'historical_quantity_used_as_contract_quantity',
         target_engine_behavior:
           'Treat prior-event tonnage as contextual planning material only and not as a contractual quantity promise.',
@@ -1035,6 +1084,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         no_guarantee_quantity: 'explicit',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'estimate_treated_as_guarantee',
         target_engine_behavior:
           'Preserve the narrow initial assignment as distinct from the much larger non-binding estimate and avoid escalating the estimate into a guaranteed total.',
@@ -1066,6 +1118,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         document_shape: 'executed_contract',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'signature_ocr_loss',
         target_engine_behavior:
           'Keep degraded signature-page evidence visible enough for executed-contract classification or explicit uncertainty instead of fabricating a cleaner date from unrelated text.',
@@ -1098,6 +1153,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         document_shape: 'executed_contract',
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'signature_page_not_detected',
         target_engine_behavior:
           'Allow late-page and exhibit-style execution evidence to contribute to contract formation instead of discarding it as package noise.',
@@ -1135,6 +1193,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         term_end_date: null,
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'vendor_signature_misread_as_bilateral_execution',
         target_engine_behavior:
           'Keep a vendor-signed BAFO as a unilateral solicitation response until bilateral acceptance evidence exists.',
@@ -1173,6 +1234,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         term_end_date: null,
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'amendment_term_scope_overread',
         target_engine_behavior:
           'Keep pricing-only amendments from mutating term fields unless the amendment expressly restates the term.',
@@ -1202,6 +1266,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         term_end_date: null,
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'amendment_without_base_overwrites_core_fields',
         target_engine_behavior:
           'When the base package is absent, keep amendment handling cautious and avoid overwriting core contract fields from sparse amendment-only text.',
@@ -1260,6 +1327,9 @@ export const FEMA_DISASTER_MOCK_FIXTURE_LIBRARY: FixtureLibrary = {
         ],
       },
       issue_expectations: {
+              present_issue_ids: [],
+        absent_issue_ids: [],
+        coverage_gap_ids: [],
         expected_failure_mode: 'debris_contract_normalization_applied_to_waterway',
         target_engine_behavior:
           'Keep a clean channel-maintenance agreement distinct from debris-removal normalization by preserving waterway scope, cubic-yard dredging rates, and permitting controls.',

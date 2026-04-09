@@ -36,6 +36,12 @@ const baseModel: ProjectOverviewModel = {
     trigger_source: null,
     nte_amount: null,
     total_billed: null,
+    total_at_risk: null,
+    requires_verification_amount: null,
+    validator_readiness: null,
+    reconciliation_overall: null,
+    invoice_summaries: [],
+    blocked_amount: null,
   },
   exposure: {
     percent: null,

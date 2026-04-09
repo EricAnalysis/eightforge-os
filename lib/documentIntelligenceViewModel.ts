@@ -23,6 +23,7 @@ import {
   contractCeilingSummary,
   isRatePriceNoCeilingMachineClassification,
 } from '@/lib/contracts/contractCeiling';
+import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -30,8 +31,10 @@ import type {
   AuditNote,
   DocumentExecutionTrace,
   DocumentFamily,
+  InvoiceExtraction,
   NormalizedDecision,
   PipelineTraceNode,
+  TransactionDataExtraction,
 } from '@/lib/types/documentIntelligence';
 
 export type DocumentFactState =
@@ -236,6 +239,16 @@ export type DocumentIntelligenceViewModel = {
     anchorsPageOnly: number;
   };
   diagnostics: DiagnosticsDrawerModel[];
+  /**
+   * Typed extraction for invoice documents. Populated when family === 'invoice' and
+   * the execution trace carries structured extracted data. Used by InvoiceSurface.
+   */
+  invoiceExtraction: InvoiceExtraction | null;
+  /**
+   * Typed extraction for transaction_data spreadsheets. Populated when family === 'spreadsheet'
+   * and document_type includes 'transaction_data'. Used by TransactionDataSurface.
+   */
+  transactionDataExtraction: TransactionDataExtraction | null;
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -352,7 +365,12 @@ const FIELD_KEY_ALIASES: Record<DocumentFamily | 'generic', Record<string, strin
   ticket: {
     invoice_number: 'invoice_references',
   },
-  spreadsheet: {},
+  spreadsheet: {
+    detected_sheet_names: 'sheet_names',
+    summary_detected_sheet_names: 'sheet_names',
+    processed_sheet_names: 'sheet_names',
+    sheet_names: 'sheet_names',
+  },
   operational: {},
   generic: {},
 };
@@ -392,8 +410,54 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
     'ticket_rows',
   ],
   spreadsheet: [
-    'sheet_count',
+    'project_operations_overview',
+    'invoice_readiness_summary',
+    'row_count',
+    'total_tickets',
+    'total_cyd',
+    'total_extended_cost',
+    'total_transaction_quantity',
+    'invoiced_ticket_count',
+    'distinct_invoice_count',
+    'total_invoiced_amount',
+    'uninvoiced_line_count',
+    'eligible_count',
+    'ineligible_count',
+    'unknown_eligibility_count',
+    'distinct_invoice_numbers',
+    'distinct_rate_codes',
+    'distinct_service_items',
+    'distinct_materials',
+    'grouped_by_service_item',
+    'grouped_by_material',
+    'grouped_by_site_type',
+    'grouped_by_disposal_site',
+    'grouped_by_rate_code',
+    'grouped_by_invoice',
+    'grouped_by_site_material',
+    'dms_fds_lifecycle_summary',
+    'outlier_rows',
+    'boundary_location_review',
+    'distance_from_feature_review',
+    'debris_class_at_disposal_site_review',
+    'mileage_review',
+    'load_call_review',
+    'linked_mobile_load_consistency_review',
+    'truck_trip_time_review',
+    'rows_with_missing_rate_code',
+    'rows_with_missing_invoice_number',
+    'rows_with_missing_quantity',
+    'rows_with_missing_extended_cost',
+    'rows_with_zero_cost',
+    'rows_with_extreme_unit_rate',
+    'transaction_data_records',
+    'header_map',
+    'detected_header_map',
     'sheet_names',
+    'detected_sheet_names',
+    'inferred_date_range_start',
+    'inferred_date_range_end',
+    'sheet_count',
   ],
   operational: [],
   generic: [
@@ -609,22 +673,50 @@ const GROUP_DEFINITIONS: Record<
   ],
   spreadsheet: [
     {
+      key: 'dataset_summary',
+      label: 'Dataset Summary',
+      order: 10,
+      patterns: [
+        /source_type/i,
+        /project/i,
+        /project_operations_overview/i,
+        /invoice_readiness_summary/i,
+        /^row_count$/i,
+        /^total_/i,
+        /^distinct_/i,
+        /^invoiced_ticket_count$/i,
+        /^uninvoiced_line_count$/i,
+        /^eligible_count$/i,
+        /^ineligible_count$/i,
+        /^unknown_eligibility_count$/i,
+        /header_map/i,
+        /sheet_names/i,
+        /inferred_date_range/i,
+      ],
+    },
+    {
+      key: 'grouped_review_tables',
+      label: 'Grouped Review Tables',
+      order: 20,
+      patterns: [/^grouped_by_/i, /dms_fds_lifecycle_summary/i],
+    },
+    {
+      key: 'flags_outliers',
+      label: 'Flags And Outliers',
+      order: 30,
+      patterns: [/outlier_rows/i, /^rows_with_/i, /_review$/i],
+    },
+    {
+      key: 'row_drilldown',
+      label: 'Row-Level Drilldown',
+      order: 40,
+      patterns: [/transaction_data_records/i],
+    },
+    {
       key: 'document_identity',
       label: 'Document Identity',
-      order: 10,
+      order: 50,
       patterns: [/sheet/i, /workbook/i, /document/i],
-    },
-    {
-      key: 'structured_rows',
-      label: 'Structured Rows',
-      order: 20,
-      patterns: [/row/i, /quantity/i, /rate/i, /invoice/i, /ticket/i],
-    },
-    {
-      key: 'quality_signals',
-      label: 'Quality Signals',
-      order: 30,
-      patterns: [/missing/i, /confidence/i, /error/i],
     },
   ],
   operational: [
@@ -2507,7 +2599,14 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     relatedDocs: params.relatedDocs,
   });
   const normalizedNode = normalizeNode(extractedNode);
-  const family = normalizedNode.primaryDocument.family;
+  const primaryDocument = applyContractorIdentityResolutionToNormalizedDocument(normalizedNode.primaryDocument);
+  const relatedDocuments = normalizedNode.relatedDocuments.map(applyContractorIdentityResolutionToNormalizedDocument);
+  const normalizedNodeForFacts = {
+    ...normalizedNode,
+    primaryDocument,
+    relatedDocuments,
+  };
+  const family = primaryDocument.family;
   const rawValueMap = buildRawSourceMap({
     typedFields,
     structuredFields,
@@ -2524,9 +2623,9 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     (persistedAnchorsByField.get(RATE_SCHEDULE_CONTROL_FIELD_KEY) ?? []).find(
       isRateScheduleControlAnchorRecord,
     ) ?? null;
-  const evidenceById = new Map(normalizedNode.evidence.map((evidence) => [evidence.id, evidence] as const));
+  const evidenceById = new Map(normalizedNodeForFacts.evidence.map((evidence) => [evidence.id, evidence] as const));
 
-  const pipelineFacts = normalizedNode.primaryDocument.facts.map((fact) => {
+  const pipelineFacts = primaryDocument.facts.map((fact) => {
     const anchors = dedupeAnchors(
       fact.evidence_refs
         .map((ref) => evidenceById.get(ref) ?? null)
@@ -2566,7 +2665,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     const statusLabel =
       ratePriceNoOverallCeiling ? 'rate based ceiling' : factStatusLabel(state);
 
-    return withDisplayMetadata({
+    const baseFact = withDisplayMetadata({
       id: fact.id,
       documentId: params.documentId,
       fieldKey: fact.key,
@@ -2603,6 +2702,17 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       relatedDecisionIds: decision?.ids ?? [],
       relatedDecisionTitles: decision?.titles ?? [],
     });
+
+    const machineSource = fact.identity_resolution_source_value;
+    if (typeof machineSource === 'string' && machineSource.trim().length > 0) {
+      return {
+        ...baseFact,
+        machineValue: machineSource,
+        machineDisplay: formatFactValue(machineSource, valueType),
+      };
+    }
+
+    return baseFact;
   });
 
   const existingKeys = new Set(pipelineFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)));
@@ -2613,7 +2723,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     sectionSignals,
     traceFacts,
     extracted,
-    evidence: normalizedNode.evidence,
+    evidence: normalizedNodeForFacts.evidence,
     rawValueMap,
     family,
     extractionVersion,
@@ -2739,6 +2849,15 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
 
   const anchorCoverage = computeAnchorCoverage(facts);
 
+  const hasExtractedKeys = Object.keys(extracted).length > 0;
+  const isTransactionDataType = (params.documentType ?? '').toLowerCase().includes('transaction_data');
+  const invoiceExtraction: InvoiceExtraction | null =
+    family === 'invoice' && hasExtractedKeys ? (extracted as unknown as InvoiceExtraction) : null;
+  const transactionDataExtraction: TransactionDataExtraction | null =
+    family === 'spreadsheet' && isTransactionDataType && hasExtractedKeys
+      ? (extracted as unknown as TransactionDataExtraction)
+      : null;
+
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_ANCHOR_COVERAGE_LOG === '1') {
     console.info('[EightForge anchor coverage]', {
       documentId: params.documentId,
@@ -2784,5 +2903,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       auditNotes: params.auditNotes,
       nodeTraces: params.nodeTraces,
     }),
+    invoiceExtraction,
+    transactionDataExtraction,
   };
 }

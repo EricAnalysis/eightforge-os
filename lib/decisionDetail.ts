@@ -42,9 +42,10 @@ export type DecisionDetailFeedback = {
 export type DecisionTone = 'brand' | 'success' | 'warning' | 'danger' | 'muted';
 
 export type DecisionExecutiveSummary = {
-  whatThisIs: string;
-  whatIsWrong: string;
-  whatMatters: string;
+  input: string;
+  truth: string;
+  gate: string;
+  action: string;
   sparseSignals: string[];
 };
 
@@ -304,35 +305,39 @@ export function resolveDecisionExecutiveSummary(
   const context = projectContextLabel
     ? ` within ${projectContextLabel}`
     : '';
-  const whatThisIs = documentLabel
-    ? `${decisionTitle} on ${documentLabel}${context}.`
-    : `${decisionTitle}${context}.`;
+  const input = documentLabel
+    ? `${documentLabel}${context} is the current input for ${decisionTitle}.`
+    : `The persisted decision payload${context} is the current input for ${decisionTitle}.`;
 
-  const whatIsWrong = stringValue(reason)
+  const truth = stringValue(reason)
     ?? 'The decision exists, but the payload does not include a structured rationale yet.';
 
-  let whatMatters = stringValue(impact);
-  if (!whatMatters) {
+  let gate = stringValue(impact);
+  if (!gate) {
     const fieldKey = stringValue(details?.field_key) ?? '';
     const observed = numericValue(details?.observed_value);
     const expected = numericValue(details?.expected_value);
     if (observed !== null && expected !== null && expected !== 0) {
       const ratio = observed / expected;
       const delta = observed - expected;
-      whatMatters = `${humanize(fieldKey || 'threshold')} is running at ${formatRatioPercent(ratio)} of target (${formatUnknownValue(observed, fieldKey)} observed vs ${formatUnknownValue(expected, fieldKey)} expected${delta > 0 ? `, ${formatUnknownValue(delta, fieldKey)} over threshold` : ''}).`;
+      gate = `${humanize(fieldKey || 'threshold')} is running at ${formatRatioPercent(ratio)} of target (${formatUnknownValue(observed, fieldKey)} observed vs ${formatUnknownValue(expected, fieldKey)} expected${delta > 0 ? `, ${formatUnknownValue(delta, fieldKey)} over threshold` : ''}).`;
     } else if (relatedTaskCount > 0) {
-      whatMatters = `${relatedTaskCount} remediation item${relatedTaskCount === 1 ? '' : 's'} already sit in the operator queue.`;
+      gate = `${relatedTaskCount} remediation item${relatedTaskCount === 1 ? '' : 's'} already sit in the operator queue.`;
     } else if (primaryAction?.expected_outcome) {
-      whatMatters = primaryAction.expected_outcome;
+      gate = primaryAction.expected_outcome;
     } else {
-      whatMatters = 'The decision payload does not yet quantify operational impact.';
+      gate = 'The decision payload does not yet quantify operational impact.';
     }
   }
 
+  const action = primaryAction?.description
+    ?? 'Escalate the missing primary action so the operator has a concrete next step.';
+
   return {
-    whatThisIs,
-    whatIsWrong,
-    whatMatters,
+    input,
+    truth,
+    gate,
+    action,
     sparseSignals,
   };
 }

@@ -1,6 +1,15 @@
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type { NormalizedNodeDocument, PipelineFact } from '@/lib/pipeline/types';
 
+function factDisplayValue(value: unknown): string {
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+  if (value == null) return 'Missing';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 type ContractorObservationSource =
   | 'fact_map.contractor_name'
   | 'typed_fields.vendor_name'
@@ -608,5 +617,66 @@ export function resolveContractorIdentity(document: NormalizedNodeDocument): Con
     conflict: false,
     confidence,
     notes,
+  };
+}
+
+/**
+ * Writes the winning contractor identity from {@link resolveContractorIdentity} into
+ * `fact_map.contractor_name` when resolution is unambiguous (`conflict === false`).
+ * Preserves the pre-resolution pipeline string in `identity_resolution_source_value` for machine traceability.
+ *
+ * Does not override when the resolver reports a genuine ambiguity conflict, or when there is no selected candidate.
+ */
+export function applyContractorIdentityResolutionToNormalizedDocument(
+  document: NormalizedNodeDocument,
+): NormalizedNodeDocument {
+  const resolution = resolveContractorIdentity(document);
+  if (resolution.conflict || !resolution.selected) {
+    return document;
+  }
+
+  const selected = resolution.selected;
+  const nextValue = selected.value.trim();
+  if (!nextValue) {
+    return document;
+  }
+
+  const existing = document.fact_map.contractor_name ?? null;
+  if (!existing) {
+    return document;
+  }
+
+  const prevRaw = existing.value;
+  const prevStr = typeof prevRaw === 'string' ? prevRaw.trim() : '';
+  if (prevStr === nextValue) {
+    return document;
+  }
+
+  const mergedEvidence = [...new Set([...existing.evidence_refs, ...selected.evidenceAnchors])];
+  const confidence = Math.max(
+    existing.confidence,
+    resolution.confidence ?? 0,
+  );
+
+  const updatedFact: PipelineFact = {
+    ...existing,
+    value: selected.value,
+    display_value: factDisplayValue(selected.value),
+    evidence_refs: mergedEvidence,
+    confidence,
+    ...(prevStr.length > 0 ? { identity_resolution_source_value: prevStr } : {}),
+  };
+
+  const facts = document.facts.map((fact) =>
+    fact.key === 'contractor_name' ? updatedFact : fact,
+  );
+
+  return {
+    ...document,
+    facts,
+    fact_map: {
+      ...document.fact_map,
+      contractor_name: updatedFact,
+    },
   };
 }

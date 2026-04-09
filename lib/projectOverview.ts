@@ -12,7 +12,11 @@ import type {
   FlowTask,
   NormalizedDecision,
 } from '@/lib/types/documentIntelligence';
-import type { ValidationStatus, ValidationTriggerSource } from '@/types/validator';
+import type {
+  ValidationStatus,
+  ValidationTriggerSource,
+  ValidatorStatus,
+} from '@/types/validator';
 
 type Relation<T> = T | T[] | null | undefined;
 
@@ -147,6 +151,16 @@ export type ProjectOverviewExposure = {
   derived: boolean;
 };
 
+export type ProjectOverviewInvoiceItem = {
+  invoice_number: string | null;
+  approval_status: 'approved' | 'approved_with_exceptions' | 'needs_review' | 'blocked';
+  billed_amount: number | null;
+  supported_amount: number | null;
+  at_risk_amount: number | null;
+  requires_verification_amount: number | null;
+  reconciliation_status: string;
+};
+
 export type ProjectValidatorSummarySnapshot = {
   status: ValidationStatus;
   critical_count: number;
@@ -157,6 +171,17 @@ export type ProjectValidatorSummarySnapshot = {
   trigger_source: ValidationTriggerSource | null;
   nte_amount: number | null;
   total_billed: number | null;
+  /** Total exposure variance not yet confirmed — parsed from validation_summary_json.exposure. */
+  total_at_risk: number | null;
+  /** Total dollars tied to blocked or needs-review findings. */
+  requires_verification_amount: number | null;
+  /** READY / BLOCKED / NEEDS_REVIEW from persisted validation summary when present. */
+  validator_readiness: ValidatorStatus | null;
+  reconciliation_overall: string | null;
+  /** Per-invoice approval breakdown parsed from validation_summary_json.exposure.invoices. */
+  invoice_summaries: ProjectOverviewInvoiceItem[];
+  /** Sum of billed_amount for invoices with approval_status === 'blocked'. Null when no blocked invoices. */
+  blocked_amount: number | null;
 };
 
 export type ProjectOverviewMetric = {
@@ -198,6 +223,28 @@ export type ProjectOverviewActionItem = {
   status_label: string;
   source_document_title?: string | null;
   source_document_type?: string | null;
+  /** Invoice number this action relates to — set for invoice-approval synthetic actions. */
+  invoice_number?: string | null;
+  /** Invoice approval state that triggered this action. */
+  approval_status?: 'approved' | 'approved_with_exceptions' | 'needs_review' | 'blocked' | null;
+  /** Total billed amount on the affected invoice or finding. */
+  impacted_amount?: number | null;
+  /** Dollars currently at risk (unreconciled / unsupported). */
+  at_risk_amount?: number | null;
+  /** Dollars currently tied to blocked or needs-review findings. */
+  requires_verification_amount?: number | null;
+  /** Dollars fully blocked from payment approval. */
+  blocked_amount?: number | null;
+  /** Billing group IDs associated with this action — populated when available from findings. */
+  billing_group_ids?: string[] | null;
+  /** Human-readable next step for the operator. */
+  next_step?: string | null;
+  /** Queue-ready validator finding detail: expected value. */
+  expected_value?: string | null;
+  /** Queue-ready validator finding detail: actual value. */
+  actual_value?: string | null;
+  /** Queue-ready validator finding detail: human-readable variance. */
+  variance_label?: string | null;
 };
 
 export type ProjectOverviewDocumentItem = {
@@ -399,6 +446,55 @@ function isValidationTriggerSource(value: unknown): value is ValidationTriggerSo
   );
 }
 
+function isValidatorStatus(value: unknown): value is ValidatorStatus {
+  return value === 'READY' || value === 'BLOCKED' || value === 'NEEDS_REVIEW';
+}
+
+function deriveOverviewInvoiceApprovalStatus(
+  reconciliationStatus: string,
+  requiresVerificationAmount: number,
+): ProjectOverviewInvoiceItem['approval_status'] {
+  if (reconciliationStatus === 'MISMATCH' || reconciliationStatus === 'MISSING') {
+    return 'blocked';
+  }
+  if (reconciliationStatus === 'PARTIAL') {
+    return requiresVerificationAmount > 0 ? 'needs_review' : 'approved_with_exceptions';
+  }
+  return 'approved';
+}
+
+function parseOverviewInvoiceSummaries(rawInvoices: unknown[]): ProjectOverviewInvoiceItem[] {
+  return rawInvoices.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const e = entry as Record<string, unknown>;
+    const reconciliation_status =
+      typeof e.reconciliation_status === 'string' && e.reconciliation_status.trim()
+        ? e.reconciliation_status.trim()
+        : null;
+    if (!reconciliation_status) return [];
+    const at_risk_raw = parseNumber(e.unreconciled_amount);
+    const requires_verification_raw =
+      parseNumber(e.requires_verification_amount)
+      ?? parseNumber(e.at_risk_amount);
+    const requires_verification_amount = requires_verification_raw ?? 0;
+    return [{
+      invoice_number:
+        typeof e.invoice_number === 'string' && e.invoice_number.trim()
+          ? e.invoice_number.trim()
+          : null,
+      approval_status: deriveOverviewInvoiceApprovalStatus(
+        reconciliation_status,
+        requires_verification_amount,
+      ),
+      billed_amount: parseNumber(e.billed_amount) ?? null,
+      supported_amount: parseNumber(e.supported_amount) ?? null,
+      at_risk_amount: at_risk_raw ?? null,
+      requires_verification_amount: requires_verification_raw ?? null,
+      reconciliation_status,
+    }];
+  });
+}
+
 function resolveProjectValidatorSummary(
   project: ProjectRecord,
 ): ProjectValidatorSummarySnapshot {
@@ -415,6 +511,38 @@ function resolveProjectValidatorSummary(
       ? raw.status
       : 'NOT_READY';
 
+  const rawExposure =
+    raw?.exposure && typeof raw.exposure === 'object' && !Array.isArray(raw.exposure)
+      ? (raw.exposure as Record<string, unknown>)
+      : null;
+  const rawReconciliation =
+    raw?.reconciliation && typeof raw.reconciliation === 'object' && !Array.isArray(raw.reconciliation)
+      ? (raw.reconciliation as Record<string, unknown>)
+      : null;
+
+  const nte_amount = parseNumber(raw?.nteAmount ?? raw?.nte_amount) ?? null;
+  const total_billed =
+    parseNumber(raw?.totalBilled ?? raw?.total_billed)
+    ?? (rawExposure ? parseNumber(rawExposure.total_billed_amount) : null)
+    ?? null;
+  const total_at_risk =
+    rawExposure ? parseNumber(rawExposure.total_unreconciled_amount) : null;
+  const requires_verification_amount =
+    parseNumber(raw?.requires_verification_amount)
+    ?? (rawExposure
+      ? parseNumber(rawExposure.total_requires_verification_amount)
+        ?? parseNumber(rawExposure.total_at_risk_amount)
+      : null)
+    ?? null;
+
+  const invoice_summaries = parseOverviewInvoiceSummaries(
+    rawExposure && Array.isArray(rawExposure.invoices) ? rawExposure.invoices : [],
+  );
+  const blocked_total = invoice_summaries
+    .filter((i) => i.approval_status === 'blocked')
+    .reduce((sum, i) => sum + (i.billed_amount ?? 0), 0);
+  const blocked_amount = blocked_total > 0 ? blocked_total : null;
+
   return {
     status,
     critical_count: parseNumber(raw?.critical_count) ?? 0,
@@ -429,8 +557,19 @@ function resolveProjectValidatorSummary(
     trigger_source: isValidationTriggerSource(raw?.trigger_source)
       ? raw.trigger_source
       : null,
-    nte_amount: parseNumber(raw?.nteAmount ?? raw?.nte_amount) ?? null,
-    total_billed: parseNumber(raw?.totalBilled ?? raw?.total_billed) ?? null,
+    nte_amount,
+    total_billed,
+    total_at_risk,
+    requires_verification_amount,
+    validator_readiness: raw && isValidatorStatus(raw.validator_status)
+      ? raw.validator_status
+      : null,
+    reconciliation_overall:
+      typeof rawReconciliation?.overall_reconciliation_status === 'string'
+        ? rawReconciliation.overall_reconciliation_status
+        : null,
+    invoice_summaries,
+    blocked_amount,
   };
 }
 
@@ -605,6 +744,13 @@ function resolveProjectTags(
 
 type ProjectActionDraft = ProjectOverviewActionItem & {
   sort_status_rank: number;
+  /**
+   * Financial importance tier within a status bucket.
+   * 0 = blocked invoice (highest — payment fully stopped)
+   * 1 = needs-review invoice (second — payment at risk)
+   * 9 = standard finding / task (no financial tier)
+   */
+  sort_financial_rank: number;
   sort_priority_rank: number;
   sort_due_rank: number;
   sort_timestamp: number;
@@ -663,10 +809,25 @@ function hasMissingSourceContext(
   return Array.isArray(value) && value.some((entry) => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-function isBlockedPersistedDecision(decision: ProjectDecisionRow): boolean {
+export function isBlockedPersistedDecision(decision: ProjectDecisionRow): boolean {
   const family = decisionFamilyFromPersisted(decision);
   if (family === 'mismatch') return true;
   return decision.severity === 'critical';
+}
+
+const FORGE_QUEUE_OPEN_DECISION_STATUSES = new Set([
+  'open',
+  'in_review',
+  'needs_review',
+  'flagged',
+  'draft',
+]);
+
+/** Count of open decisions in Forge queue scope that block approval (critical / mismatch). */
+export function countForgeQueueBlockedDecisions(decisions: ProjectDecisionRow[]): number {
+  return decisions.filter(
+    (d) => FORGE_QUEUE_OPEN_DECISION_STATUSES.has(d.status) && isBlockedPersistedDecision(d),
+  ).length;
 }
 
 function isMissingSupportPersistedDecision(decision: ProjectDecisionRow): boolean {
@@ -725,12 +886,17 @@ function finalizePendingActions(actions: ProjectActionDraft[]): ProjectOverviewA
       if (left.sort_status_rank !== right.sort_status_rank) {
         return left.sort_status_rank - right.sort_status_rank;
       }
+      // Financial tier: blocked invoice (0) → needs-review invoice (1) → standard (9)
+      if (left.sort_financial_rank !== right.sort_financial_rank) {
+        return left.sort_financial_rank - right.sort_financial_rank;
+      }
       if (left.sort_priority_rank !== right.sort_priority_rank) {
         return left.sort_priority_rank - right.sort_priority_rank;
       }
       if (left.sort_due_rank !== right.sort_due_rank) {
         return left.sort_due_rank - right.sort_due_rank;
       }
+      // sort_timestamp is used as a descending dollar-amount key for invoice actions
       if (left.sort_timestamp !== right.sort_timestamp) {
         return right.sort_timestamp - left.sort_timestamp;
       }
@@ -748,6 +914,19 @@ function finalizePendingActions(actions: ProjectActionDraft[]): ProjectOverviewA
       status_label: action.status_label,
       source_document_title: action.source_document_title,
       source_document_type: action.source_document_type,
+      ...(action.invoice_number != null ? { invoice_number: action.invoice_number } : {}),
+      ...(action.approval_status != null ? { approval_status: action.approval_status } : {}),
+      ...(action.impacted_amount != null ? { impacted_amount: action.impacted_amount } : {}),
+      ...(action.at_risk_amount != null ? { at_risk_amount: action.at_risk_amount } : {}),
+      ...(action.requires_verification_amount != null
+        ? { requires_verification_amount: action.requires_verification_amount }
+        : {}),
+      ...(action.blocked_amount != null ? { blocked_amount: action.blocked_amount } : {}),
+      ...(action.billing_group_ids != null ? { billing_group_ids: action.billing_group_ids } : {}),
+      ...(action.next_step != null ? { next_step: action.next_step } : {}),
+      ...(action.expected_value != null ? { expected_value: action.expected_value } : {}),
+      ...(action.actual_value != null ? { actual_value: action.actual_value } : {}),
+      ...(action.variance_label != null ? { variance_label: action.variance_label } : {}),
     }));
 }
 
@@ -870,6 +1049,7 @@ export function buildProjectOperationalRollup(params: {
         source_document_title: documentTitleLabel,
         source_document_type: documentType,
         sort_status_rank: task.status === 'blocked' ? 0 : 1,
+        sort_financial_rank: 9,
         sort_priority_rank: TASK_PRIORITY_RANK[task.priority] ?? 9,
         sort_due_rank: task.due_at ? new Date(task.due_at).getTime() : Number.MAX_SAFE_INTEGER,
         sort_timestamp: new Date(task.created_at).getTime(),
@@ -886,7 +1066,7 @@ export function buildProjectOperationalRollup(params: {
         id: `trace-task:${document.id}:${task.id}`,
         href: documentHref,
         title: task.title,
-        due_label: blockedFromSource ? 'Blocked finding' : 'Source document action',
+        due_label: blockedFromSource ? 'Approval blocker' : 'Source document action',
         due_tone: blockedFromSource ? 'danger' : traceTaskPriorityTone(task),
         assignee_label: task.suggested_owner?.trim()
           ? `Suggested owner: ${task.suggested_owner}`
@@ -897,6 +1077,7 @@ export function buildProjectOperationalRollup(params: {
         source_document_title: documentTitleLabel,
         source_document_type: documentType,
         sort_status_rank: blockedFromSource ? 0 : 1,
+        sort_financial_rank: 9,
         sort_priority_rank: traceTaskPriorityRank(task),
         sort_due_rank: Number.MAX_SAFE_INTEGER,
         sort_timestamp: new Date(document.processed_at ?? document.created_at).getTime(),
@@ -914,7 +1095,7 @@ export function buildProjectOperationalRollup(params: {
         id: `decision-action:${decision.id}`,
         href: documentHref,
         title: persistedDecisionActionTitle(decision),
-        due_label: blockedDecision ? 'Blocked finding' : 'Decision follow-up',
+        due_label: blockedDecision ? 'Approval blocker' : 'Decision follow-up',
         due_tone: blockedDecision ? 'danger' : 'warning',
         assignee_label: assignee?.display_name?.trim() || memberName(members, decision.assigned_to),
         priority_label: titleize(decision.severity),
@@ -925,6 +1106,7 @@ export function buildProjectOperationalRollup(params: {
         source_document_title: documentTitleLabel,
         source_document_type: documentType,
         sort_status_rank: blockedDecision ? 0 : 1,
+        sort_financial_rank: 9,
         sort_priority_rank: SEVERITY_RANK[decision.severity] ?? 9,
         sort_due_rank: decision.due_at ? new Date(decision.due_at).getTime() : Number.MAX_SAFE_INTEGER,
         sort_timestamp: new Date(decision.last_detected_at ?? decision.created_at).getTime(),
@@ -941,7 +1123,7 @@ export function buildProjectOperationalRollup(params: {
         id: `trace-decision:${document.id}:${decision.id}`,
         href: documentHref,
         title: traceDecisionActionTitle(decision),
-        due_label: blockedDecision ? 'Blocked finding' : 'Source document follow-up',
+        due_label: blockedDecision ? 'Approval blocker' : 'Source document follow-up',
         due_tone: blockedDecision ? 'danger' : 'warning',
         assignee_label: decision.primary_action?.target_label
           ? `Context: ${decision.primary_action.target_label}`
@@ -952,6 +1134,7 @@ export function buildProjectOperationalRollup(params: {
         source_document_title: documentTitleLabel,
         source_document_type: documentType,
         sort_status_rank: blockedDecision ? 0 : 1,
+        sort_financial_rank: 9,
         sort_priority_rank: decision.severity === 'critical' ? 0 : decision.severity === 'warning' ? 1 : 2,
         sort_due_rank: Number.MAX_SAFE_INTEGER,
         sort_timestamp: new Date(document.processed_at ?? document.created_at).getTime(),
@@ -1035,6 +1218,7 @@ export function buildProjectOperationalRollup(params: {
       source_document_title: 'Project record',
       source_document_type: null,
       sort_status_rank: task.status === 'blocked' ? 0 : 1,
+      sort_financial_rank: 9,
       sort_priority_rank: TASK_PRIORITY_RANK[task.priority] ?? 9,
       sort_due_rank: task.due_at ? new Date(task.due_at).getTime() : Number.MAX_SAFE_INTEGER,
       sort_timestamp: new Date(task.created_at).getTime(),
@@ -1062,6 +1246,7 @@ export function buildProjectOperationalRollup(params: {
       source_document_title: 'Project record',
       source_document_type: null,
       sort_status_rank: blockedDecision ? 0 : 1,
+      sort_financial_rank: 9,
       sort_priority_rank: SEVERITY_RANK[decision.severity] ?? 9,
       sort_due_rank: decision.due_at ? new Date(decision.due_at).getTime() : Number.MAX_SAFE_INTEGER,
       sort_timestamp: new Date(decision.last_detected_at ?? decision.created_at).getTime(),
@@ -1082,7 +1267,7 @@ export function buildProjectOperationalRollup(params: {
       key: 'blocked',
       label: 'Blocked',
       tone: 'danger',
-      detail: `${blockedCount} blocked finding${blockedCount === 1 ? '' : 's'} are stopping project progress.`,
+      detail: `${blockedCount} approval blocker${blockedCount === 1 ? '' : 's'} are preventing payment. Resolve mismatches or missing support to unblock.`,
       is_clear: false,
     };
   } else if (needsReviewDocumentCount > 0) {
@@ -1090,7 +1275,7 @@ export function buildProjectOperationalRollup(params: {
       key: 'needs_review',
       label: 'Needs Review',
       tone: 'warning',
-      detail: `${needsReviewDocumentCount} linked document${needsReviewDocumentCount === 1 ? '' : 's'} still need operator review.`,
+      detail: `${needsReviewDocumentCount} linked document${needsReviewDocumentCount === 1 ? '' : 's'} have at-risk amounts or open findings that require operator confirmation.`,
       is_clear: false,
     };
   } else if (openDocumentActionCount > 0 || unresolvedFindingCount > 0 || anomalyCount > 0) {
@@ -1098,17 +1283,17 @@ export function buildProjectOperationalRollup(params: {
       key: 'attention_required',
       label: 'Attention Required',
       tone: 'info',
-      detail: `${openDocumentActionCount} pending action${openDocumentActionCount === 1 ? '' : 's'}, ${unresolvedFindingCount} unresolved finding${unresolvedFindingCount === 1 ? '' : 's'}, and ${anomalyCount} anomal${anomalyCount === 1 ? 'y' : 'ies'} are still active.`,
+      detail: `${openDocumentActionCount} open action${openDocumentActionCount === 1 ? '' : 's'} and ${unresolvedFindingCount} unresolved finding${unresolvedFindingCount === 1 ? '' : 's'} are pending review — no payment blockers.`,
       is_clear: false,
     };
   } else {
     status = {
       key: 'operationally_clear',
-      label: 'Operationally Clear',
+      label: 'Approved',
       tone: 'success',
       detail: processedDocuments.length > 0
-        ? 'Linked processed documents and project rows show no unresolved operational work.'
-        : `No unresolved operational work is linked to ${shortProjectId(project)} yet.`,
+        ? 'Invoice claims are supported by contract and transaction data. No open approval blockers.'
+        : `No processed documents are linked to ${shortProjectId(project)} yet. Upload and process to begin approval analysis.`,
       is_clear: true,
     };
   }
@@ -1134,23 +1319,57 @@ export function resolveProjectExposure(
 ): ProjectOverviewExposure {
   const limitAmount = validatorSummary.nte_amount;
   const actualAmount = validatorSummary.total_billed;
-  const percent = limitAmount && actualAmount != null
+  const hasCeiling =
+    limitAmount != null && Number.isFinite(limitAmount) && limitAmount > 0;
+  const hasActual = actualAmount != null && Number.isFinite(actualAmount);
+  const percent = hasCeiling && hasActual
     ? Number(((actualAmount / limitAmount) * 100).toFixed(0))
     : null;
 
   if (percent == null) {
+    if (hasActual) {
+      const approvalLabel = validatorSummary.validator_readiness === 'READY'
+        ? 'Approved'
+        : validatorSummary.validator_readiness === 'BLOCKED'
+          ? 'Blocked'
+          : validatorSummary.validator_readiness === 'NEEDS_REVIEW'
+            ? 'Needs Review'
+            : null;
+      const detailParts = [
+        'Total billed comes from invoice exposure analysis.',
+        validatorSummary.reconciliation_overall
+          ? `Reconciliation: ${validatorSummary.reconciliation_overall}.`
+          : null,
+        approvalLabel ? `Approval status: ${approvalLabel}.` : null,
+        'Link contract NTE to show NTE utilization.',
+      ].filter(Boolean);
+
+      return {
+        percent: null,
+        bar_percent: 0,
+        percent_label: '--',
+        limit_label: 'LIMIT: NTE not linked',
+        actual_label: `ACTUAL: ${formatCurrency(actualAmount)}`,
+        detail: detailParts.join(' '),
+        help_href: '#project-validator',
+        help_label: 'Review approval analysis',
+        tone: 'info',
+        derived: true,
+      };
+    }
+
     return {
       percent: null,
       bar_percent: 0,
       percent_label: '--',
-      limit_label: 'LIMIT: Awaiting source docs',
-      actual_label: 'ACTUAL: Awaiting source docs',
+      limit_label: 'LIMIT: No contract NTE',
+      actual_label: 'ACTUAL: No invoice data',
       detail:
         documents.length > 0
-          ? `Exposure is waiting on validator NTE extraction for ${shortProjectId(project)}.`
-          : 'Exposure will appear once validator summary data is available for this project.',
+          ? `Approval analysis is pending — no invoice or NTE data is available yet for ${shortProjectId(project)}.`
+          : 'Upload and process an invoice and contract to begin approval analysis.',
       help_href: '#project-validator',
-      help_label: 'Review Validator',
+      help_label: 'Review approval analysis',
       tone: 'muted',
       derived: true,
     };
@@ -1161,13 +1380,20 @@ export function resolveProjectExposure(
     percent >= 70 ? 'warning' :
     'info';
 
+  const reconNote = validatorSummary.reconciliation_overall
+    ? ` Reconciliation: ${validatorSummary.reconciliation_overall}.`
+    : '';
+  const approvalNote = validatorSummary.validator_readiness
+    ? ` Approval: ${validatorSummary.validator_readiness === 'READY' ? 'Approved' : validatorSummary.validator_readiness === 'BLOCKED' ? 'Blocked' : 'Needs Review'}.`
+    : '';
+
   return {
     percent,
     bar_percent: clamp(percent, 0, 100),
     percent_label: `${percent}%`,
     limit_label: `LIMIT: ${formatCurrency(limitAmount)}`,
     actual_label: `ACTUAL: ${formatCurrency(actualAmount)}`,
-    detail: 'Derived from validator summary state.',
+    detail: `NTE utilization from invoice exposure analysis.${reconNote}${approvalNote}`.trim(),
     help_href: null,
     help_label: null,
     tone,
@@ -1187,6 +1413,67 @@ function resolveProjectMetrics(
       : anomalyCount > 0
         ? 'warning'
         : 'success';
+  const hasExposureData = validatorSummary.total_billed != null;
+
+  if (hasExposureData) {
+    const atRisk = validatorSummary.total_at_risk;
+    const requiresVerification = validatorSummary.requires_verification_amount;
+    const atRiskTone: OverviewTone =
+      atRisk != null && atRisk > 0 ? 'warning' : 'success';
+    const readiness = validatorSummary.validator_readiness;
+    const readinessTone: OverviewTone =
+      readiness === 'BLOCKED' ? 'danger' : readiness === 'NEEDS_REVIEW' ? 'warning' : 'success';
+
+    const approvalLabel =
+      readiness === 'READY' ? 'Approved'
+      : readiness === 'BLOCKED' ? 'Blocked'
+      : readiness === 'NEEDS_REVIEW' ? 'Needs Review'
+      : 'Not Evaluated';
+
+    return [
+      {
+        key: 'total-billed',
+        label: 'Total Billed',
+        value: formatCurrency(validatorSummary.total_billed),
+        supporting: `Invoice billed total from exposure analysis across all linked claims`,
+        tone: 'neutral',
+      },
+      {
+        key: 'at-risk',
+        label: 'At Risk',
+        value: atRisk != null ? formatCurrency(atRisk) : '—',
+        supporting: atRisk != null && atRisk > 0
+          ? 'Exposure variance is still awaiting confirmation'
+          : 'No at-risk variance is currently open',
+        tone: atRiskTone,
+      },
+      {
+        key: 'requires-verification',
+        label: 'Requires Verification',
+        value: requiresVerification != null ? formatCurrency(requiresVerification) : '—',
+        supporting: requiresVerification != null && requiresVerification > 0
+          ? 'Blocked or needs-review findings are carrying approval-gated dollars'
+          : 'No approval-gated verification dollars are currently open',
+        tone: requiresVerification != null && requiresVerification > 0 ? 'danger' : 'success',
+      },
+      {
+        key: 'open-actions',
+        label: 'Open Actions',
+        value: formatCompactNumber(rollup.open_document_action_count),
+        supporting: `${rollup.unresolved_finding_count} open finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are driving the current queue`,
+        tone: rollup.open_document_action_count > 0 ? 'warning' : 'muted',
+      },
+      {
+        key: 'approval-status',
+        label: 'Approval Status',
+        value: approvalLabel,
+        supporting: anomalyCount > 0
+          ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning finding${anomalyCount === 1 ? '' : 's'} are open`
+          : 'No open approval findings for this project',
+        tone: readinessTone,
+      },
+    ];
+  }
 
   return [
     {
@@ -1194,8 +1481,8 @@ function resolveProjectMetrics(
       label: 'Processed Docs',
       value: formatCompactNumber(rollup.processed_document_count),
       supporting: rollup.processed_document_count === 0
-        ? `No processed operational records are linked to ${shortProjectId(project)} yet`
-        : `${rollup.processed_document_count} linked document${rollup.processed_document_count === 1 ? '' : 's'} are contributing project truth`,
+        ? `No processed documents are contributing to ${shortProjectId(project)} yet — upload to begin`
+        : `${rollup.processed_document_count} linked document${rollup.processed_document_count === 1 ? '' : 's'} are contributing to the approval record`,
       tone: rollup.processed_document_count > 0 ? 'neutral' : 'muted',
     },
     {
@@ -1203,24 +1490,24 @@ function resolveProjectMetrics(
       label: 'Needs Review',
       value: formatCompactNumber(rollup.needs_review_document_count),
       supporting: rollup.needs_review_document_count === 0
-        ? 'No linked documents are waiting on review'
-        : `${rollup.needs_review_document_count} document${rollup.needs_review_document_count === 1 ? '' : 's'} still need operator review`,
+        ? 'No documents have at-risk amounts or open findings'
+        : `${rollup.needs_review_document_count} document${rollup.needs_review_document_count === 1 ? '' : 's'} have at-risk amounts or open findings`,
       tone: rollup.needs_review_document_count > 0 ? 'warning' : 'success',
     },
     {
       key: 'open-actions',
       label: 'Open Actions',
       value: formatCompactNumber(rollup.open_document_action_count),
-      supporting: `${rollup.unresolved_finding_count} unresolved finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are driving the current queue`,
+      supporting: `${rollup.unresolved_finding_count} open finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are driving the current queue`,
       tone: rollup.open_document_action_count > 0 ? 'warning' : 'muted',
     },
     {
-      key: 'anomalies',
-      label: 'Anomalies',
+      key: 'approval-findings',
+      label: 'Approval Findings',
       value: formatCompactNumber(anomalyCount),
       supporting: anomalyCount > 0
-        ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning validator finding${anomalyCount === 1 ? '' : 's'} are active`
-        : 'No validator anomalies are currently active',
+        ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning finding${anomalyCount === 1 ? '' : 's'} are open`
+        : 'No open approval findings',
       tone: anomalyTone,
     },
   ];
@@ -1231,15 +1518,18 @@ function resolveProjectFacts(
   rollup: ProjectOperationalRollup,
   validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewFact[] {
-  const projectClear =
-    validatorSummary.status === 'VALIDATED' &&
-    validatorSummary.open_count === 0;
+  const readiness = validatorSummary.validator_readiness;
+  const approvalStatusLabel =
+    readiness === 'READY' ? 'Approved'
+    : readiness === 'BLOCKED' ? 'Blocked'
+    : readiness === 'NEEDS_REVIEW' ? 'Needs Review'
+    : 'Not Evaluated';
 
   return [
     { label: 'Project Code', value: shortProjectId(project) },
-    { label: 'Unresolved Findings', value: formatCompactNumber(validatorSummary.open_count) },
-    { label: 'Blocked', value: formatCompactNumber(rollup.blocked_count) },
-    { label: 'Project Clear', value: projectClear ? 'Yes' : 'No' },
+    { label: 'Approval Status', value: approvalStatusLabel },
+    { label: 'Open Findings', value: formatCompactNumber(validatorSummary.open_count) },
+    { label: 'Approval Blockers', value: formatCompactNumber(rollup.blocked_count) },
   ];
 }
 
@@ -1333,10 +1623,96 @@ function taskDueTone(task: ProjectTaskRow): OverviewTone {
   return 'neutral';
 }
 
+/** Compact currency label for action titles. $1,234 → "$1k", $125,000 → "$125k", $1.2M → "$1.2M". */
+function fmtMoneyCompact(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '';
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}k`;
+  return `$${Math.round(amount)}`;
+}
+
+/**
+ * Derive invoice-level action items from the validator snapshot.
+ * Blocked invoices sort before needs-review; within each tier, larger billed amounts sort first.
+ * Approved and approved_with_exceptions invoices are excluded (they don't need operator action).
+ */
+function buildInvoiceApprovalActionItems(
+  invoices: ProjectOverviewInvoiceItem[],
+  projectId: string,
+): ProjectOverviewActionItem[] {
+  const actionable = invoices.filter(
+    (inv) => inv.approval_status === 'blocked' || inv.approval_status === 'needs_review',
+  );
+
+  // Sort: blocked first, then needs_review; within each group by billed_amount DESC
+  actionable.sort((a, b) => {
+    const tierA = a.approval_status === 'blocked' ? 0 : 1;
+    const tierB = b.approval_status === 'blocked' ? 0 : 1;
+    if (tierA !== tierB) return tierA - tierB;
+    return (b.billed_amount ?? 0) - (a.billed_amount ?? 0);
+  });
+
+  return actionable.map((inv) => {
+    const isBlocked = inv.approval_status === 'blocked';
+    const invLabel = inv.invoice_number ? `Invoice ${inv.invoice_number}` : 'Invoice';
+    const billedSuffix = inv.billed_amount != null
+      ? ` · ${fmtMoneyCompact(inv.billed_amount)} billed`
+      : '';
+    const atRiskSuffix =
+      !isBlocked && inv.at_risk_amount != null && inv.at_risk_amount > 0
+        ? ` · ${fmtMoneyCompact(inv.at_risk_amount)} at risk`
+        : '';
+
+    const title = isBlocked
+      ? `Review blocked ${invLabel}${billedSuffix}`
+      : `Review ${invLabel} — reconciliation issues${atRiskSuffix}`;
+
+    const statusLabel = isBlocked ? 'Blocked' : 'Needs Review';
+    const dueLabel = isBlocked
+      ? 'Payment blocked — requires resolution'
+      : 'Payment at risk — requires review';
+
+    const nextStep = isBlocked
+      ? `Resolve ${inv.reconciliation_status.toLowerCase().replace(/_/g, ' ')} status to unblock payment`
+      : `Review ${fmtMoneyCompact(inv.at_risk_amount ?? 0)} in exposure variance`;
+
+    return {
+      id: `invoice-action:${inv.invoice_number ?? 'unknown'}`,
+      href: `/platform/projects/${projectId}#project-validator`,
+      title,
+      due_label: dueLabel,
+      due_tone: (isBlocked ? 'danger' : 'warning') as OverviewTone,
+      assignee_label: 'Project reviewer',
+      priority_label: isBlocked ? 'Critical' : 'High',
+      priority_tone: (isBlocked ? 'danger' : 'warning') as OverviewTone,
+      status_label: statusLabel,
+      source_document_title: 'Validator exposure analysis',
+      source_document_type: 'validator',
+      invoice_number: inv.invoice_number,
+      approval_status: inv.approval_status,
+      impacted_amount: inv.billed_amount,
+      at_risk_amount: inv.at_risk_amount,
+      requires_verification_amount: inv.requires_verification_amount,
+      blocked_amount: isBlocked ? inv.billed_amount : null,
+      billing_group_ids: null,
+      next_step: nextStep,
+    };
+  });
+}
+
 export function resolveProjectPendingActions(
   rollup: ProjectOperationalRollup,
+  validatorSummary?: ProjectValidatorSummarySnapshot | null,
+  projectId?: string,
 ): ProjectOverviewActionItem[] {
-  return rollup.pending_actions.slice(0, 5);
+  // Invoice-level actions always lead — they represent money movement blockers.
+  const invoiceActions =
+    validatorSummary && projectId
+      ? buildInvoiceApprovalActionItems(validatorSummary.invoice_summaries, projectId)
+      : [];
+  // Keep up to 5 task/decision actions after invoice actions so they are not crowded out entirely.
+  const taskActions = rollup.pending_actions.slice(0, 5);
+  return [...invoiceActions, ...taskActions];
 }
 
 function documentStatusTone(status: string): OverviewTone {
@@ -1518,7 +1894,6 @@ export function resolveProjectAuditEvents(
     const isDecision = event.entity_type === 'decision';
     const isTask = event.entity_type === 'workflow_task';
     const isProject = event.entity_type === 'project';
-    const isDocument = event.entity_type === 'document';
     const entityTitle = isDecision
       ? decisionTitleById.get(event.entity_id) ?? 'Decision'
       : isTask
@@ -1650,7 +2025,7 @@ export function buildProjectOverviewModel(params: {
   });
   const exposure = resolveProjectExposure(project, documents, validatorSummary);
   const decisionCards = resolveProjectDecisionSummary(decisions, tasks, members);
-  const actionItems = resolveProjectPendingActions(rollup);
+  const actionItems = resolveProjectPendingActions(rollup, validatorSummary, project.id);
   const processedDocuments = resolveProjectProcessedDocs(project, documents, rollup);
   const auditItems = resolveProjectAuditEvents(project, documents, decisions, tasks, activityEvents, members);
 

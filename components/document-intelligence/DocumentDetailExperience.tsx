@@ -8,6 +8,8 @@ import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides
 import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { DocumentIntelligenceStrip } from '@/components/document-intelligence/DocumentIntelligenceStrip';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
+import { InvoiceSurface } from '@/components/document-intelligence/InvoiceSurface';
+import { TransactionDataSurface } from '@/components/document-intelligence/TransactionDataSurface';
 import { DiagnosticsDrawer } from '@/components/document-intelligence/DiagnosticsDrawer';
 import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
 import { FlowSection } from '@/components/document-intelligence/FlowSection';
@@ -413,6 +415,17 @@ export function DocumentDetailExperience({
       {hasIntelligenceWorkspace && intelligenceViewModel ? (
         <>
           <DocumentIntelligenceStrip items={intelligenceViewModel.strip} />
+
+          {/* Type-specific inspection surfaces — rendered before the fact ledger.
+              Contracts intentionally render nothing here; their UX is the fact ledger itself. */}
+          {intelligenceViewModel.invoiceExtraction ? (
+            <InvoiceSurface extraction={intelligenceViewModel.invoiceExtraction} />
+          ) : null}
+          {intelligenceViewModel.transactionDataExtraction ? (
+            <TransactionDataSurface extraction={intelligenceViewModel.transactionDataExtraction} />
+          ) : null}
+
+          {/* Fact workspace — always available as evidence drilldown for all document types */}
           <DocumentIntelligenceWorkspace
             model={intelligenceViewModel}
             signedUrl={signedUrl}

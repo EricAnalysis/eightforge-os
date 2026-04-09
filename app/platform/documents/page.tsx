@@ -28,6 +28,7 @@ import {
   type DocumentWorkspaceSort,
   type DocumentWorkspaceTone,
 } from '@/lib/documentWorkspace';
+import { UPLOAD_DOCUMENT_TYPES } from '@/lib/documentTypes';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
@@ -46,15 +47,7 @@ type ProjectOption = {
   name: string;
 };
 
-const DOC_TYPES = [
-  'contract',
-  'invoice',
-  'report',
-  'policy',
-  'procedure',
-  'specification',
-  'other',
-] as const;
+const DOC_TYPES = UPLOAD_DOCUMENT_TYPES;
 
 const WORKSPACE_MODES: Array<{
   key: DocumentWorkspaceMode;

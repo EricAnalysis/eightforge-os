@@ -1183,6 +1183,7 @@ export function ForgeWorkspace({
             stageCounts={stageCounts}
             decisions={decisions}
             tasks={tasks}
+            projectId={projectId}
             onGoToWork={() => setTab('work')}
           />
         ) : tab === 'work' ? (

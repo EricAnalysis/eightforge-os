@@ -41,6 +41,11 @@ export interface PipelineFact {
    * Surfaced on the parent fact in the document intelligence view model for operators and retained for debug/evals.
    */
   machine_classification?: string | null;
+  /**
+   * When contractor identity resolution replaces the pipeline-normalized contractor string,
+   * preserves the pre-resolution fact value (typically OCR / structured fallback) for machine traceability.
+   */
+  identity_resolution_source_value?: string | null;
   derivation_status?: DerivationStatus;
   derivation_dependency?: FactDerivationDependency;
 }

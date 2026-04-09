@@ -3,6 +3,9 @@ import type { DetectSheetsResult } from '@/lib/extraction/xlsx/detectSheets';
 import type { WorkbookParseResult } from '@/lib/extraction/xlsx/parseWorkbook';
 import type { TicketFieldKey, TicketExportNormalizationResult } from '@/lib/extraction/xlsx/normalizeTicketExport';
 import { neighborCellContext } from '@/lib/extraction/xlsx/normalizeTicketExport';
+import type { TransactionDataNormalizationResult } from '@/lib/extraction/xlsx/normalizeTransactionData';
+import { TRANSACTION_DATA_FIELD_LABELS } from '@/lib/types/transactionData';
+import type { TransactionDataFieldKey } from '@/lib/types/transactionData';
 
 export interface SpreadsheetEvidenceResult {
   evidence: EvidenceObject[];
@@ -112,11 +115,82 @@ function buildTicketCellEvidence(params: {
   return out;
 }
 
+function buildTransactionDataCellEvidence(params: {
+  docId: string;
+  path: string;
+  workbook: WorkbookParseResult;
+  detectedSheets: DetectSheetsResult;
+  transactionData: TransactionDataNormalizationResult;
+}): EvidenceObject[] {
+  const { docId, path, workbook, detectedSheets, transactionData } = params;
+  const out: EvidenceObject[] = [];
+  const seenIds = new Set<string>();
+
+  for (const record of transactionData.records) {
+    const sheet = workbook.sheets.find((candidate) => candidate.name === record.source_sheet_name);
+    if (!sheet) continue;
+
+    const wbRow = sheet.rows.find((candidate) => candidate.row_number === record.source_row_number);
+    if (!wbRow) continue;
+
+    const sheetConfidence = sheetConfidenceForKey(sheet.key, workbook, detectedSheets);
+    const fieldKeys = Object.keys(record.field_evidence_ids) as TransactionDataFieldKey[];
+
+    for (const fieldKey of fieldKeys) {
+      const evidenceId = record.field_evidence_ids[fieldKey];
+      const header = record.column_headers[fieldKey];
+      if (!evidenceId || !header) continue;
+      if (seenIds.has(evidenceId)) continue;
+      seenIds.add(evidenceId);
+
+      const raw = wbRow.values[header];
+      const hasValue = raw !== null && raw !== undefined && String(raw).trim() !== '';
+      const nearby = neighborCellContext(wbRow, sheet.headers, header);
+      const colIndex = sheet.headers.indexOf(header);
+
+      out.push({
+        id: evidenceId,
+        kind: 'sheet_cell',
+        source_type: 'xlsx',
+        source_document_id: docId,
+        description: `${TRANSACTION_DATA_FIELD_LABELS[fieldKey]} - ${sheet.name}, row ${record.source_row_number}, column "${header}"`,
+        text: hasValue ? `${header}: ${String(raw)}` : `${header}: (empty)`,
+        value: toEvidenceValue(raw),
+        location: {
+          sheet: sheet.name,
+          row: record.source_row_number,
+          column: header,
+          column_index: colIndex >= 0 ? colIndex : undefined,
+          header_context: sheet.headers,
+          nearby_text: nearby || undefined,
+          label: TRANSACTION_DATA_FIELD_LABELS[fieldKey],
+        },
+        confidence: hasValue
+          ? Math.min(0.94, sheetConfidence + 0.05)
+          : Math.max(0.35, sheetConfidence - 0.12),
+        weak: !hasValue || sheetConfidence < 0.55,
+        metadata: {
+          source_document_id: docId,
+          source_extraction_path: path,
+          field_key: fieldKey,
+          sheet_key: sheet.key,
+          matched_header: header,
+          transaction_record_id: record.id,
+          row_evidence_id: record.evidence_ref,
+        },
+      });
+    }
+  }
+
+  return out;
+}
+
 export function buildSpreadsheetEvidence(params: {
   sourceDocumentId: string;
   workbook: WorkbookParseResult;
   detectedSheets: DetectSheetsResult;
   ticketExport?: TicketExportNormalizationResult | null;
+  transactionData?: TransactionDataNormalizationResult | null;
 }): SpreadsheetEvidenceResult {
   const docId = params.sourceDocumentId;
   const path = 'xlsx_workbook';
@@ -190,10 +264,23 @@ export function buildSpreadsheetEvidence(params: {
     );
   }
 
+  if (params.transactionData) {
+    evidence.push(
+      ...buildTransactionDataCellEvidence({
+        docId,
+        path,
+        workbook: params.workbook,
+        detectedSheets: params.detectedSheets,
+        transactionData: params.transactionData,
+      }),
+    );
+  }
+
   const contributingScores = [
     params.workbook.confidence,
     params.detectedSheets.confidence,
     params.ticketExport?.confidence,
+    params.transactionData?.confidence,
   ].filter((score): score is number => typeof score === 'number' && score > 0);
 
   return {
@@ -205,6 +292,7 @@ export function buildSpreadsheetEvidence(params: {
       ...params.workbook.gaps,
       ...params.detectedSheets.gaps,
       ...(params.ticketExport?.gaps ?? []),
+      ...(params.transactionData?.gaps ?? []),
     ]),
   };
 }

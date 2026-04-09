@@ -79,7 +79,7 @@ export const contractSkill: DocumentFamilySkill = {
       totalCeilingAmount: ceiling,
       machineClassification: ceilingFact?.machine_classification ?? null,
       text: input.primaryDocument.text_preview,
-      rateSchedulePresent,
+      rateSchedulePresent: rateSchedulePresent ?? undefined,
     });
     const ceilingDisplay = contractCeilingDisplay(
       storedCeilingType === 'total'

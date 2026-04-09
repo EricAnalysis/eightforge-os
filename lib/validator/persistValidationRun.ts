@@ -1,6 +1,8 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
+import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
+import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
 import type {
   ValidationEvidence,
   ValidationFinding,
@@ -522,6 +524,95 @@ export async function persistValidationRun(
       findingDiff,
     });
     await updateProjectValidationState(projectId, result);
+
+    // Persist approval snapshot for audit trail (Phase 6)
+    // Construct a minimal ProjectOperationalRollup from validation findings
+    const rollupStatus = {
+      label: result.status === 'VALIDATED' ? 'Approved' :
+             result.status === 'BLOCKED' ? 'Blocked' :
+             result.status === 'FINDINGS_OPEN' ? 'Needs Review' : 'Not Evaluated',
+    };
+
+    const pendingActions = findings
+      .filter((f) => f.decision_eligible && f.status === 'open')
+      .map((f, index) => ({
+        id: `finding-${f.check_key}`,
+        title: f.blocked_reason || f.category,
+        description: f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category,
+        status_label: f.severity === 'critical' ? 'Blocked' : 'Needs Review',
+        due_tone: f.severity === 'critical' ? 'danger' : 'warning',
+        impacted_amount: null,
+        at_risk_amount: null,
+        blocked_amount: null,
+        next_step: `Review finding: ${f.check_key}`,
+        href: `/platform/projects/${projectId}#validator`,
+        invoice_number: null,
+        approval_status: null,
+        decision_id: f.rule_id || f.check_key,
+        entity_type: 'finding',
+        index,
+      }));
+
+    const rollup = {
+      status: rollupStatus,
+      project_clear: result.status === 'VALIDATED',
+      pending_actions: pendingActions,
+      needs_review_document_count: 0,
+      unresolved_finding_count: findings.filter((f) => f.status === 'open').length,
+      blocked_count: findings.filter((f) => f.severity === 'critical' && f.status === 'open').length,
+      open_document_action_count: 0,
+    };
+
+    let approvalSnapshot = null;
+    try {
+      approvalSnapshot = await persistApprovalSnapshot(
+        projectId,
+        (result.summary as any) || null, // ProjectValidatorSummarySnapshot
+        (rollup as any), // ProjectOperationalRollup
+      );
+    } catch (snapshotError) {
+      console.error('[persistValidationRun] failed to persist approval snapshot', {
+        projectId,
+        runId,
+        error: snapshotError,
+      });
+      // Don't throw - snapshot failure shouldn't block validation completion
+    }
+
+    // Phase 10: Execute operator graph actions from approval decision
+    // Run after snapshot persists so executeApprovalActions can use the fresh snapshot.
+    // Non-blocking: action execution failure must not fail the validation run.
+    try {
+      const actionResult = await executeApprovalActions({
+        projectId,
+        organizationId: project.organization_id,
+        // Pass snapshot directly to avoid a redundant DB query
+        snapshot: approvalSnapshot,
+      });
+
+      if (actionResult.errors.length > 0) {
+        console.warn('[persistValidationRun] approval action engine completed with errors', {
+          projectId,
+          runId,
+          errors: actionResult.errors,
+        });
+      } else {
+        console.info('[persistValidationRun] approval actions executed', {
+          projectId,
+          runId,
+          approval_status: actionResult.approval_status,
+          tasks_created: actionResult.tasks_created,
+          tasks_updated: actionResult.tasks_updated,
+        });
+      }
+    } catch (actionError) {
+      console.error('[persistValidationRun] approval action engine threw unexpectedly', {
+        projectId,
+        runId,
+        error: actionError,
+      });
+      // Never throw — action execution is a side effect, not part of validation correctness
+    }
 
     return { runId };
   } catch (error) {

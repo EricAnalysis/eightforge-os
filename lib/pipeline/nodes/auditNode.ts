@@ -26,8 +26,30 @@ function factOrNull(facts: Record<string, Fact>, key: string): Fact | null {
   return facts[key] ?? null;
 }
 
+function factNumberValue(facts: Record<string, Fact>, key: string): number | null {
+  const value = factOrNull(facts, key)?.value;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function factArrayLength(facts: Record<string, Fact>, key: string): number | null {
+  const value = factOrNull(facts, key)?.value;
+  return Array.isArray(value) ? value.length : null;
+}
+
+function factObjectField(
+  facts: Record<string, Fact>,
+  key: string,
+  field: string,
+): unknown {
+  const value = factOrNull(facts, key)?.value;
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[field]
+    : null;
+}
+
 function buildKeyFacts(input: ActionNodeOutput): AuditNodeOutput['key_facts'] {
   const facts = input.primaryDocument.fact_map;
+  const explicitDocumentType = (input.primaryDocument.document_type ?? '').toLowerCase();
   const keysByFamily: Record<string, string[]> = {
     contract: ['contractor_name', 'contract_ceiling', 'rate_schedule_present', 'executed_date'],
     invoice: ['invoice_number', 'billed_amount', 'contractor_name', 'invoice_date'],
@@ -35,7 +57,17 @@ function buildKeyFacts(input: ActionNodeOutput): AuditNodeOutput['key_facts'] {
     ticket: ['ticket_row_count', 'missing_quantity_rows', 'missing_rate_rows'],
     spreadsheet: ['sheet_count', 'sheet_names'],
   };
-  const selectedKeys = keysByFamily[input.primaryDocument.family] ?? [];
+  const selectedKeys =
+    input.primaryDocument.family === 'spreadsheet' && explicitDocumentType === 'transaction_data'
+      ? [
+        'total_tickets',
+        'total_cyd',
+        'distinct_invoice_count',
+        'total_invoiced_amount',
+        'uninvoiced_line_count',
+        'unknown_eligibility_count',
+      ]
+      : (keysByFamily[input.primaryDocument.family] ?? []);
   return selectedKeys
     .map((key) => factOrNull(facts, key))
     .filter((fact): fact is Fact => fact != null && fact.value != null)
@@ -100,6 +132,16 @@ function decisionAuditNotes(decisions: PipelineDecision[]): PipelineAuditNote[] 
 }
 
 function buildQuestions(input: ActionNodeOutput): AuditNodeOutput['suggested_questions'] {
+  const explicitDocumentType = (input.primaryDocument.document_type ?? '').toLowerCase();
+
+  if (input.primaryDocument.family === 'spreadsheet' && explicitDocumentType === 'transaction_data') {
+    return [
+      { id: 'q:transaction_data:overview', question: 'What does the dataset summary say about ticket volume, invoices, and invoiced dollars?', intent: 'facts' },
+      { id: 'q:transaction_data:groupings', question: 'Which service-item, material, site-type, or disposal-site groups stand out in review?', intent: 'comparison' },
+      { id: 'q:transaction_data:outliers', question: 'Which transaction rows are flagged as outliers or invoice-readiness blockers?', intent: 'risk' },
+    ];
+  }
+
   switch (input.primaryDocument.family) {
     case 'contract':
       return [
@@ -128,26 +170,64 @@ function buildQuestions(input: ActionNodeOutput): AuditNodeOutput['suggested_que
 
 export function auditNode(input: ActionNodeOutput): AuditNodeOutput {
   const actionable = input.decisions.find((decision) => decision.family !== 'confirmed');
+  const facts = input.primaryDocument.fact_map;
+  const explicitDocumentType = (input.primaryDocument.document_type ?? '').toLowerCase();
   const familyLabel = titleize(input.primaryDocument.family);
   const nextAction = input.actions[0]?.title ?? 'No action required.';
   const citationCount = input.decisions.reduce(
     (sum, decision) => sum + (decision.source_refs?.length ?? 0),
     0,
   );
-  const summary = {
-    headline: actionable
-      ? `${familyLabel} needs review: ${actionable.title}.`
-      : `${familyLabel} evidence is ready for operator review.`,
-    nextAction,
-    confidence: confidenceAverage([
-      input.confidence,
-      ...input.decisions.map((decision) => decision.confidence),
-    ]),
-    traceHint:
-      input.decisions.length > 0
-        ? `${input.decisions.length} decision record(s), ${citationCount} evidence id(s) linked.`
-        : undefined,
-  };
+  const summary =
+    input.primaryDocument.family === 'spreadsheet' && explicitDocumentType === 'transaction_data'
+      ? (() => {
+        const totalTickets = factNumberValue(facts, 'total_tickets') ?? factNumberValue(facts, 'row_count') ?? 0;
+        const distinctInvoiceCount =
+          factNumberValue(facts, 'distinct_invoice_count')
+          ?? factArrayLength(facts, 'distinct_invoice_numbers')
+          ?? 0;
+        const outlierCount =
+          factArrayLength(facts, 'outlier_rows')
+          ?? (
+            typeof factObjectField(facts, 'invoice_readiness_summary', 'outlier_row_count') === 'number'
+              ? Number(factObjectField(facts, 'invoice_readiness_summary', 'outlier_row_count'))
+              : 0
+          );
+        const readinessStatus = String(
+          factObjectField(facts, 'invoice_readiness_summary', 'status') ?? '',
+        ).trim();
+        return {
+          headline: actionable
+            ? `Transaction dataset needs review: ${totalTickets} ticket(s), ${distinctInvoiceCount} invoice(s), ${outlierCount} flagged outlier row(s). ${actionable.title}.`
+            : `Transaction dataset ready for operational review: ${totalTickets} ticket(s) across ${distinctInvoiceCount} invoice(s) with ${outlierCount} flagged outlier row(s).`,
+          nextAction:
+            readinessStatus === 'ready'
+              ? 'Review grouped service, material, site, and lifecycle tables before invoice approval.'
+              : 'Review grouped service, material, site, and outlier sections before invoice approval.',
+          confidence: confidenceAverage([
+            input.confidence,
+            ...input.decisions.map((decision) => decision.confidence),
+          ]),
+          traceHint:
+            input.decisions.length > 0
+              ? `${input.decisions.length} decision record(s), ${citationCount} evidence id(s) linked. Invoice readiness: ${readinessStatus || 'unspecified'}.`
+              : `Invoice readiness: ${readinessStatus || 'unspecified'}.`,
+        };
+      })()
+      : {
+        headline: actionable
+          ? `${familyLabel} needs review: ${actionable.title}.`
+          : `${familyLabel} evidence is ready for operator review.`,
+        nextAction,
+        confidence: confidenceAverage([
+          input.confidence,
+          ...input.decisions.map((decision) => decision.confidence),
+        ]),
+        traceHint:
+          input.decisions.length > 0
+            ? `${input.decisions.length} decision record(s), ${citationCount} evidence id(s) linked.`
+            : undefined,
+      };
 
   return {
     ...input,

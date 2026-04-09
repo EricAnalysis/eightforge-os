@@ -240,4 +240,49 @@ describe('buildOperationalQueueModel', () => {
     assert.equal(model.actions[0]?.kind, 'persisted_task');
     assert.equal(model.actions[0]?.task_id, 'task-1');
   });
+
+  it('surfaces validator finding actions in the unified queue rollup', () => {
+    const document = buildDocument();
+
+    const model = buildOperationalQueueModel({
+      projects: [baseProject],
+      documents: [document],
+      decisions: [],
+      tasks: [],
+      documentReviews: [],
+      validatorFindingActionsByProjectId: new Map([
+        ['project-1', [{
+          id: 'validator-finding:finding-1',
+          href: '/platform/documents/doc-1?source=project&projectId=project-1&page=3',
+          title: 'Rate 6A exceeds contract rate',
+          due_label: 'Requires Verification',
+          due_tone: 'danger',
+          assignee_label: 'Operator queue',
+          priority_label: 'Critical',
+          priority_tone: 'danger',
+          status_label: 'Blocked',
+          source_document_title: 'Contract document + Invoice extraction',
+          source_document_type: null,
+          invoice_number: 'INV-300',
+          approval_status: 'blocked',
+          requires_verification_amount: 5,
+          at_risk_amount: null,
+          next_step: 'Review contract rate schedule',
+          expected_value: '$75.00',
+          actual_value: '$80.00',
+          variance_label: '+$5.00',
+        }]],
+      ]),
+    });
+
+    const rollupActions = model.project_rollups[0]?.rollup.pending_actions ?? [];
+    assert.equal(rollupActions.length, 1);
+    assert.equal(rollupActions[0]?.title, 'Rate 6A exceeds contract rate');
+    assert.equal(rollupActions[0]?.approval_status, 'blocked');
+    assert.equal(rollupActions[0]?.requires_verification_amount, 5);
+    assert.equal(rollupActions[0]?.expected_value, '$75.00');
+    assert.equal(rollupActions[0]?.actual_value, '$80.00');
+    assert.equal(rollupActions[0]?.variance_label, '+$5.00');
+    assert.equal(model.project_rollups[0]?.rollup.status.label, 'Blocked');
+  });
 });

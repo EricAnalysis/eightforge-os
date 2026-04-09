@@ -13,11 +13,12 @@ import {
 import { isHistoryStatusFilter } from '@/lib/currentWork';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
+import { operatorApprovalLabel } from '@/lib/truthToAction';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { DECISION_OPEN_STATUSES, OverdueBadge, isDecisionOverdue } from '@/lib/overdue';
-import type { OperationalDecisionQueueItem } from '@/lib/server/operationalQueue';
+import type { OperationalDecisionQueueItem, OperationalProjectRollupItem } from '@/lib/server/operationalQueue';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 type AssigneeRef = { id: string; display_name: string | null } | null;
@@ -67,7 +68,7 @@ type DecisionListItem = {
   evidenceSummary: string | null;
   deepLinkTarget: string;
   actionMode: 'decision' | 'document_review' | 'history';
-  kind: 'history' | OperationalDecisionQueueItem['kind'];
+  kind: 'history' | OperationalDecisionQueueItem['kind'] | 'approval_blocker';
 };
 
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
@@ -205,6 +206,123 @@ function mapOperationalDecision(item: OperationalDecisionQueueItem): DecisionLis
     actionMode: item.action_mode,
     kind: item.kind,
   };
+}
+
+// ── Validator / approval-gate integration ────────────────────────────────────
+
+type ValidatorAction = OperationalProjectRollupItem['rollup']['pending_actions'][number];
+
+function formatCurrency(amount: number): string {
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+  return `$${Math.round(amount)}`;
+}
+
+function formatFinancialImpact(action: ValidatorAction): string | null {
+  const parts: string[] = [];
+  if (action.requires_verification_amount && action.requires_verification_amount > 0) {
+    parts.push(`Requires Verification: ${formatCurrency(action.requires_verification_amount)}`);
+  }
+  if (action.at_risk_amount && action.at_risk_amount > 0)
+    parts.push(`At Risk: ${formatCurrency(action.at_risk_amount)}`);
+  if (action.impacted_amount && action.impacted_amount > 0 && parts.length === 0)
+    parts.push(`Impact: ${formatCurrency(action.impacted_amount)}`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/** Maps a project rollup pending_action (approval-gate finding) into the queue row format. */
+function mapValidatorAction(
+  rollupItem: OperationalProjectRollupItem,
+  action: ValidatorAction,
+): DecisionListItem {
+  const isBlocked = action.approval_status === 'blocked';
+  const approvalLabel = operatorApprovalLabel(action.approval_status ?? null);
+  const ctx = action.invoice_number ? ` — Invoice ${action.invoice_number}` : '';
+  const detailParts: string[] = [];
+
+  if (action.expected_value || action.actual_value || action.variance_label) {
+    const valueParts = [
+      action.expected_value ? `Expected ${action.expected_value}` : null,
+      action.actual_value ? `Actual ${action.actual_value}` : null,
+      action.variance_label ? `Variance ${action.variance_label}` : null,
+    ].filter((part): part is string => part != null);
+
+    if (valueParts.length > 0) {
+      detailParts.push(valueParts.join(', '));
+    }
+  }
+
+  if (approvalLabel !== 'Unknown') {
+    detailParts.push(`Gate impact: ${approvalLabel}`);
+  }
+
+  if (action.next_step) {
+    detailParts.push(`Next step: ${action.next_step}`);
+  }
+
+  const summary = detailParts.length > 0
+    ? detailParts.join('. ')
+    : (
+      isBlocked
+        ? 'This item is blocking payment approval. Resolve before proceeding.'
+        : 'This item requires sign-off before approval can proceed.'
+    );
+  const evidenceSummary =
+    action.expected_value || action.actual_value || action.variance_label
+      ? (action.source_document_title ? `Source: ${action.source_document_title}` : null)
+      : formatFinancialImpact(action);
+
+  return {
+    id: `approval-${rollupItem.project.id}-${action.id}`,
+    decisionId: null,
+    documentId: null,
+    decisionType: 'approval_blocker',
+    title: `${action.title}${ctx}`,
+    summary,
+    severity: isBlocked ? 'critical' : 'high',
+    status: 'open',
+    confidence: null,
+    createdAt: new Date().toISOString(),
+    detectedAt: null,
+    dueAt: null,
+    assignedTo: null,
+    assignedName: null,
+    projectLabel: rollupItem.project.name ?? rollupItem.project.code ?? null,
+    primaryActionLabel: action.next_step ?? null,
+    expectedOutcome: null,
+    missingAction: !action.next_step,
+    vagueAction: false,
+    reviewStatus: 'not_reviewed',
+    sourceDocumentTitle:
+      action.source_document_title ??
+      (action.invoice_number ? `Invoice ${action.invoice_number}` : null),
+    sourceDocumentType: action.source_document_type ?? null,
+    sourceDocumentTarget:
+      action.expected_value || action.actual_value || action.variance_label
+        ? action.href
+        : null,
+    evidenceSummary,
+    deepLinkTarget: action.href,
+    actionMode: 'history',
+    kind: 'approval_blocker',
+  };
+}
+
+/**
+ * Precedence sort for the unified queue:
+ *  0 — validator / approval-gate blockers (critical)
+ *  1 — existing blocked decisions (critical)
+ *  2 — approval-gate needs-review (high)
+ *  3 — high-severity decisions
+ *  4 — medium, then low
+ */
+function queuePrecedence(item: DecisionListItem): number {
+  if (item.kind === 'approval_blocker' && item.severity === 'critical') return 0;
+  if (item.severity === 'critical') return 1;
+  if (item.kind === 'approval_blocker' && item.severity === 'high') return 2;
+  if (item.severity === 'high') return 3;
+  if (item.severity === 'medium') return 4;
+  return 5;
 }
 
 export default function DecisionsPage() {
@@ -365,8 +483,28 @@ export default function DecisionsPage() {
     if (includeHistory) {
       return historyDecisions.map(mapHistoryDecision);
     }
-    return (operationalModel?.decisions ?? []).map(mapOperationalDecision);
-  }, [historyDecisions, includeHistory, operationalModel?.decisions]);
+
+    const decisions = (operationalModel?.decisions ?? []).map(mapOperationalDecision);
+
+    // Merge validator / approval-gate findings from project rollup pending_actions.
+    // Only include items with an actionable approval_status (blocked or needs_review)
+    // to avoid duplicating decision-eligible findings already present as persisted decisions.
+    const seenIds = new Set(decisions.map((d) => d.id));
+    const validatorItems: DecisionListItem[] = [];
+    for (const rollupItem of operationalModel?.project_rollups ?? []) {
+      for (const action of rollupItem.rollup.pending_actions) {
+        const status = action.approval_status;
+        if (status !== 'blocked' && status !== 'needs_review') continue;
+        const mapped = mapValidatorAction(rollupItem, action);
+        if (!seenIds.has(mapped.id)) {
+          seenIds.add(mapped.id);
+          validatorItems.push(mapped);
+        }
+      }
+    }
+
+    return [...decisions, ...validatorItems];
+  }, [historyDecisions, includeHistory, operationalModel?.decisions, operationalModel?.project_rollups]);
 
   const filteredDecisions = useMemo(() => {
     let list = decisionItems;
@@ -389,7 +527,7 @@ export default function DecisionsPage() {
       );
     }
 
-    return list;
+    return [...list].sort((a, b) => queuePrecedence(a) - queuePrecedence(b));
   }, [
     decisionItems,
     filterAge,
@@ -611,7 +749,11 @@ export default function DecisionsPage() {
                               {item.title}
                             </Link>
                             <span className="text-[10px] text-[#5B6578]">{titleize(item.decisionType)}</span>
-                            {item.kind === 'trace_decision' ? (
+                            {item.kind === 'approval_blocker' ? (
+                              <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
+                                Approval gate finding
+                              </span>
+                            ) : item.kind === 'trace_decision' ? (
                               <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
                                 Derived from document intelligence
                               </span>
@@ -622,7 +764,9 @@ export default function DecisionsPage() {
                           </p>
                           {item.evidenceSummary ? (
                             <p className="text-[10px] uppercase tracking-wide text-[#5B6578]">
-                              Evidence: {item.evidenceSummary}
+                              {item.kind === 'approval_blocker'
+                                ? item.evidenceSummary
+                                : `Evidence: ${item.evidenceSummary}`}
                             </p>
                           ) : null}
                           {item.sourceDocumentTarget ? (

@@ -4,11 +4,15 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const STATUS_STYLES: Record<string, string> = {
-  uploaded:    'bg-[#1A1A3E] text-[#8B94A3] border border-white/5',
-  processing:  'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
-  extracted:   'bg-sky-500/20 text-sky-400 border border-sky-500/40',
-  decisioned:  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-  failed:      'bg-red-500/20 text-red-400 border border-red-500/40',
+  // Raw pipeline statuses (legacy / fallback)
+  uploaded:      'bg-[#1A1A3E] text-[#8B94A3] border border-white/5',
+  extracted:     'bg-sky-500/20 text-sky-400 border border-sky-500/40',
+  decisioned:    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+  // Derived statuses (canonical — passed from derivedDocumentStatus)
+  processing:    'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
+  needs_review:  'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+  ready:         'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+  failed:        'bg-red-500/20 text-red-400 border border-red-500/40',
 };
 
 export function DocumentProcessingStatus({
@@ -85,10 +89,9 @@ export function DocumentProcessingStatus({
 
   const displayStatus = processing ? 'processing' : status;
   const cls = STATUS_STYLES[displayStatus] ?? STATUS_STYLES.uploaded;
-  // Allow reprocessing from any terminal state (uploaded, extracted, decisioned, failed)
-  const canReprocess =
-    !processing &&
-    (status === 'uploaded' || status === 'extracted' || status === 'decisioned' || status === 'failed');
+  // Allow reprocessing from any non-in-flight state.
+  // Supports both derived statuses (needs_review, ready, failed) and raw pipeline statuses.
+  const canReprocess = !processing && status !== 'processing';
 
   // Show the most recent error: live API error takes priority over stored DB error.
   const visibleError = liveError ?? (displayStatus === 'failed' ? processingError : null);
@@ -107,7 +110,7 @@ export function DocumentProcessingStatus({
             onClick={handleReprocess}
             className="rounded-md border border-[#8B5CFF]/30 px-3 py-1 text-[11px] font-medium text-[#8B5CFF] hover:bg-[#8B5CFF]/10 hover:text-[#B794FF]"
           >
-            {status === 'uploaded' ? 'Process Document' : 'Reprocess'}
+            Reprocess
           </button>
         )}
 

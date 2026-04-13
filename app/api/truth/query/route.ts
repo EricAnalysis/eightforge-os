@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveTruth, type TruthQueryType } from '@/lib/server/truthEngine';
 
-const VALID_TYPES = new Set<TruthQueryType>(['invoice', 'rate_code', 'project']);
+const VALID_TYPES = new Set<TruthQueryType>(['invoice', 'rate_code', 'project', 'contract']);
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let body: unknown;
@@ -23,13 +23,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (typeof type !== 'string' || !VALID_TYPES.has(type as TruthQueryType)) {
     return NextResponse.json(
-      { error: 'type must be one of: invoice, rate_code, project' },
+      { error: 'type must be one of: invoice, rate_code, project, contract' },
       { status: 400 },
     );
   }
 
   const queryValue = typeof value === 'string' ? value.trim() : '';
-  if (type !== 'project' && !queryValue) {
+  if (type !== 'project' && type !== 'contract' && !queryValue) {
     return NextResponse.json({ error: 'value is required for invoice and rate_code queries' }, { status: 400 });
   }
 

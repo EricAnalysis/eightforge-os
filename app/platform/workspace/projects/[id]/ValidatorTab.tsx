@@ -785,65 +785,6 @@ export function ValidatorTab({ projectId }: ValidatorTabProps) {
         ? 'Review the open findings and confirm the next operator action.'
         : approvalNextAction(approvalLabel);
 
-  const handleRecheck = async () => {
-    setNotice(
-      'Automatic validation is enabled. Manual re-check is not wired yet, so this button refreshes the current validator view only.',
-    );
-
-    try {
-      await loadValidatorState(false);
-    } catch (refreshError) {
-      setError(
-        refreshError instanceof Error
-          ? refreshError.message
-          : 'Failed to refresh validator data.',
-      );
-    }
-  };
-
-  const handlePlaceholderAction = (
-    action:
-      | 'create_decision'
-      | 'create_action'
-      | 'resolve'
-      | 'dismiss'
-      | 'mute'
-      | 'view_document',
-    finding: ValidationFinding,
-  ) => {
-    switch (action) {
-      case 'create_decision':
-        setNotice(
-          finding.decision_eligible
-            ? 'Decision creation is not wired yet for validator findings.'
-            : 'This finding is not decision eligible yet.',
-        );
-        break;
-      case 'create_action':
-        setNotice(
-          finding.action_eligible
-            ? 'Action creation is not wired yet for validator findings.'
-            : 'This finding is not action eligible yet.',
-        );
-        break;
-      case 'resolve':
-        setNotice('Resolve is not wired yet for validator findings.');
-        break;
-      case 'dismiss':
-        setNotice('Dismiss is not wired yet for validator findings.');
-        break;
-      case 'mute':
-        setNotice('Mute is not wired yet for validator findings.');
-        break;
-      case 'view_document':
-        setNotice(`Document deep-linking is not wired yet for ${finding.rule_id}.`);
-        break;
-      default:
-        setNotice('This validator action is not wired yet.');
-        break;
-    }
-  };
-
   return (
     <div className="space-y-6">
       <section className={`rounded-sm border p-5 ${statusPanelClassName(status)}`}>
@@ -859,16 +800,6 @@ export function ValidatorTab({ projectId }: ValidatorTabProps) {
               Deterministic checks verify contract truth, invoice claims, and transaction support to produce an approval decision and financial exposure.
             </p>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              void handleRecheck();
-            }}
-            className="rounded-sm border border-[#2F3B52] bg-[#111827] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#E5EDF7] transition-colors hover:border-[#3B82F6] hover:text-[#3B82F6]"
-          >
-            Re-check
-          </button>
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -1156,18 +1087,6 @@ export function ValidatorTab({ projectId }: ValidatorTabProps) {
                   >
                     {finding.action_eligible ? 'Action eligible' : 'Review required'}
                   </span>
-                  <button
-                    type="button"
-                    disabled={!finding.action_eligible}
-                    onClick={() => handlePlaceholderAction('create_action', finding)}
-                    className={`rounded-sm border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] ${
-                      finding.action_eligible
-                        ? 'border-[#EF4444]/35 bg-[#45141B] text-[#FDE2E2] transition-colors hover:border-[#FCA5A5]'
-                        : 'cursor-not-allowed border-[#2F3B52]/50 bg-[#1A2333] text-[#6B7C93]'
-                    }`}
-                  >
-                    Create Action
-                  </button>
                 </div>
               </div>
             ))}
@@ -1200,15 +1119,6 @@ export function ValidatorTab({ projectId }: ValidatorTabProps) {
                 Rules applied: <span className="font-bold text-[#E5EDF7]">{rulesAppliedCount}</span>
               </div>
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                void handleRecheck();
-              }}
-              className="rounded-sm border border-[#2F3B52] bg-[#111827] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#E5EDF7] transition-colors hover:border-[#3B82F6] hover:text-[#3B82F6]"
-            >
-              Re-check
-            </button>
           </div>
         </section>
       ) : (
@@ -1241,9 +1151,7 @@ export function ValidatorTab({ projectId }: ValidatorTabProps) {
             finding={selectedFinding}
             evidence={selectedEvidence}
             loading={evidenceLoadingId === selectedFindingId}
-            notice={notice}
             onClose={() => setSelectedFindingId(null)}
-            onPlaceholderAction={handlePlaceholderAction}
           />
         </div>
       )}

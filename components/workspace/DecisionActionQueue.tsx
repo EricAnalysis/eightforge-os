@@ -144,7 +144,7 @@ export function DecisionActionQueue({
             : 'Moves operator review forward',
         nextAction: task.title,
         createdAt: task.created_at,
-        detailHref: `/platform/workflows/${task.id}`,
+        detailHref: `/platform/decisions`,
         sourceDocHref: docId ? `/platform/documents/${docId}` : null,
       });
     }

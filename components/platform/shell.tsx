@@ -46,7 +46,6 @@ const SIDE_NAV_ITEMS: Array<{
   { href: '/platform', label: 'Command Center', icon: 'terminal', key: 'command' },
   { href: '/platform/portfolio', label: 'Portfolio', icon: 'portfolio', key: 'portfolio' },
   { href: '/platform/decisions', label: 'Decision Queue', icon: 'gavel', key: 'decisions' },
-  { href: '/platform/workflows', label: 'My Actions', icon: 'checklist', key: 'actions' },
   { href: '/platform/reviews', label: 'Intelligence', icon: 'spark', key: 'intelligence' },
   { href: '/platform/documents', label: 'Documents', icon: 'archive', key: 'documents' },
 ] as const;
@@ -78,7 +77,6 @@ export function getActiveSideNavKey(pathname: string): NavKey | null {
   if (pathname === '/platform') return 'command';
   if (pathname.startsWith('/platform/portfolio')) return 'portfolio';
   if (pathname.startsWith('/platform/decisions')) return 'decisions';
-  if (pathname.startsWith('/platform/workflows')) return 'actions';
   if (pathname.startsWith('/platform/documents')) return 'documents';
   if (
     pathname.startsWith('/platform/reviews') ||

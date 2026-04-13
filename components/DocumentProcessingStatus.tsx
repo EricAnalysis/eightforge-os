@@ -60,7 +60,6 @@ export function DocumentProcessingStatus({
       });
 
       const body = await res.json().catch(() => ({}));
-      console.log('[DocumentProcessingStatus] process response', { ok: res.ok, status: res.status, body });
 
       if (!res.ok) {
         // Show the error prominently and restore the button so the user can retry.

@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { DecisionContextPanel } from '@/components/decision-detail/DecisionContextPanel';
 import { DecisionWorkflowOutcomePanel } from '@/components/decision-detail/DecisionWorkflowOutcomePanel';
-import type { DecisionProjectValidationContext } from '@/lib/decisionContext';
+import type {
+  DecisionProjectValidationContext,
+  DecisionQueueFindingActionContext,
+  DecisionWorkflowExecutionStatus,
+} from '@/lib/decisionContext';
 import { dueDateInputValue, dueDateToISO, formatDueDate } from '@/lib/dateUtils';
 import {
   type DecisionDetailDocumentRef,
@@ -58,6 +62,8 @@ type DecisionDetailViewProps = {
   summary: DecisionExecutiveSummary;
   evidence: DecisionEvidencePayload;
   projectValidation: DecisionProjectValidationContext;
+  queueFindingAction: DecisionQueueFindingActionContext | null;
+  executionStatus: DecisionWorkflowExecutionStatus | null;
   processState: DecisionProcessState;
   metrics: DecisionMetricCard[];
   relatedTasks: DecisionDetailTask[];
@@ -757,10 +763,9 @@ function ActionResolutionPanel(props: {
             ) : (
               <div className="mt-4 space-y-3">
                 {sortedTasks.map((task) => (
-                  <Link
+                  <div
                     key={task.id}
-                    href={`/platform/workflows/${task.id}`}
-                    className="block rounded-xl border border-[#2F3B52] bg-[#111827] p-4 transition-colors hover:bg-[#1A2333]"
+                    className="block rounded-xl border border-[#2F3B52] bg-[#111827] p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -788,7 +793,7 @@ function ActionResolutionPanel(props: {
                         </div>
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
@@ -1038,6 +1043,8 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
     summary,
     evidence,
     projectValidation,
+    queueFindingAction,
+    executionStatus,
     processState,
     metrics,
     relatedTasks,
@@ -1078,10 +1085,13 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
           primaryAction={primaryAction}
           projectId={decision.project_id}
           projectValidation={projectValidation}
+          queueFindingAction={queueFindingAction}
           relatedTasks={relatedTasks.map((task) => ({
             id: task.id,
             status: task.status,
+            title: task.title,
           }))}
+          executionStatus={executionStatus}
         />
 
         <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">

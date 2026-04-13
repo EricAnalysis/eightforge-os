@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { buildValidatorFindingAction } from '@/lib/validator/queueFindingActions';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
-import type { ValidationFinding } from '@/types/validator';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type ProjectContextRow = {
   id: string;
@@ -48,21 +49,25 @@ async function loadProject(projectId: string): Promise<ProjectContextRow> {
   return data as ProjectContextRow;
 }
 
-async function loadPrimaryDocumentId(findingId: string): Promise<string | null> {
+async function loadFindingEvidence(findingId: string): Promise<ValidationEvidence[]> {
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('project_validation_evidence')
-    .select('source_document_id')
+    .select('id, finding_id, evidence_type, source_document_id, source_page, fact_id, record_id, field_name, field_value, note, created_at')
     .eq('finding_id', findingId)
-    .not('source_document_id', 'is', null)
-    .limit(1)
-    .maybeSingle();
+    .order('created_at', { ascending: true });
 
   if (error) {
     throw new Error(`Failed to load validation evidence for finding ${findingId}: ${error.message}`);
   }
 
-  return (data as { source_document_id?: string | null } | null)?.source_document_id ?? null;
+  return (data ?? []) as ValidationEvidence[];
+}
+
+function loadPrimaryDocumentId(
+  evidence: readonly ValidationEvidence[],
+): string | null {
+  return evidence.find((entry) => entry.source_document_id)?.source_document_id ?? null;
 }
 
 function formatProjectLabel(project: ProjectContextRow): string {
@@ -114,7 +119,12 @@ export async function createFindingAction(
 
   const admin = requireAdminClient();
   const project = await loadProject(finding.project_id);
-  const documentId = await loadPrimaryDocumentId(findingId);
+  const evidence = await loadFindingEvidence(findingId);
+  const queueFindingAction = buildValidatorFindingAction({
+    finding,
+    evidence,
+  });
+  const documentId = loadPrimaryDocumentId(evidence);
   const now = new Date().toISOString();
   const description = buildTaskDescription(project, finding, routing.routing_reason);
 
@@ -126,7 +136,7 @@ export async function createFindingAction(
       document_id: documentId,
       project_id: project.id,
       task_type: 'review_validator_finding',
-      title: `Review validator finding: ${finding.rule_id}`,
+      title: queueFindingAction?.next_step?.trim() || `Review validator finding: ${finding.rule_id}`,
       description,
       priority: resolvePriority(finding),
       status: 'open',

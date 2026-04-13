@@ -35,6 +35,9 @@ type QueueEvidence = Pick<
   | 'note'
 >;
 
+export type QueueFindingActionFinding = QueueFinding;
+export type QueueFindingActionEvidence = QueueEvidence;
+
 const PROJECT_VALIDATOR_FALLBACK_ANCHOR = '#project-validator';
 
 export const QUEUE_FINDING_RULE_IDS = [
@@ -513,6 +516,13 @@ function buildFindingAction(
     actual_value: actualValue,
     variance_label: varianceLabel,
   };
+}
+
+export function buildValidatorFindingAction(params: {
+  finding: QueueFindingActionFinding;
+  evidence: readonly QueueFindingActionEvidence[];
+}): ProjectOverviewActionItem | null {
+  return buildFindingAction(params.finding, params.evidence);
 }
 
 function sortFindingActions(

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   compareDocumentFactsForLedger,
   shouldShowMissingEvidenceBadge,
@@ -232,12 +232,15 @@ export function FactLedger({
   selectedFactId,
   onSelectFact,
   variant = 'default',
+  belowFiltersSlot,
 }: {
   groups: DocumentFactGroup[];
   documentFamily: DocumentFamily;
   selectedFactId: string | null;
   onSelectFact: (factId: string) => void;
   variant?: 'default' | 'workspace';
+  /** Rendered after filter controls and before the scrollable fact list. */
+  belowFiltersSlot?: ReactNode;
 }) {
   const [groupFilter, setGroupFilter] = useState('all');
   const [stateFilter, setStateFilter] = useState('all');
@@ -365,6 +368,8 @@ export function FactLedger({
           </div>
         ) : null}
       </div>
+
+      {belowFiltersSlot ? <div className="shrink-0">{belowFiltersSlot}</div> : null}
 
       <div className={`${isWorkspace ? 'min-h-0 flex-1' : 'min-h-0 max-h-[min(52vh,36rem)] flex-1 overflow-y-auto'}`}>
         {filteredGroups.length === 0 ? (

@@ -4,6 +4,11 @@ import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DecisionDetailView } from '@/components/decision-detail/DecisionDetailView';
+import type {
+  DecisionQueueFindingActionContext,
+  DecisionWorkflowExecutionLogEntry,
+  DecisionWorkflowExecutionStatus,
+} from '@/lib/decisionContext';
 import {
   type DecisionDetailDocumentRef,
   type DecisionDetailFeedback,
@@ -19,11 +24,14 @@ import {
   resolveDecisionReason,
   resolveDecisionSuggestedActions,
 } from '@/lib/decisionActions';
+import { resolveDecisionExecutionStatus } from '@/lib/decisionContext';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
+import { buildValidatorFindingAction } from '@/lib/validator/queueFindingActions';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type DecisionDetail = {
   id: string;
@@ -54,6 +62,13 @@ type DecisionProjectValidationRow = {
   validation_summary_json: unknown;
 } | null;
 
+type WorkflowOutcomesResponse = {
+  approval_engine_actions?: Array<{
+    task_id: string | null;
+    task_outcome: string;
+  }>;
+};
+
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 
 function documentRefFromDecision(
@@ -82,7 +97,9 @@ export default function DecisionDetailPage({
 
   const [decision, setDecision] = useState<DecisionDetail | null>(null);
   const [projectValidation, setProjectValidation] = useState<DecisionProjectValidationRow>(null);
+  const [queueFindingAction, setQueueFindingAction] = useState<DecisionQueueFindingActionContext | null>(null);
   const [relatedTasks, setRelatedTasks] = useState<DecisionDetailTask[]>([]);
+  const [executionStatus, setExecutionStatus] = useState<DecisionWorkflowExecutionStatus | null>(null);
   const [feedback, setFeedback] = useState<DecisionDetailFeedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -140,7 +157,9 @@ export default function DecisionDetailPage({
       setLoadError(null);
       setDecision(null);
       setProjectValidation(null);
+      setQueueFindingAction(null);
       setRelatedTasks([]);
+      setExecutionStatus(null);
       setFeedback([]);
 
       const { data: decisionData, error: decisionError } = await supabase
@@ -174,6 +193,14 @@ export default function DecisionDetailPage({
         typeof (decisionData as { project_id?: unknown }).project_id === 'string'
           ? (decisionData as { project_id: string }).project_id
           : null;
+      const decisionDetails =
+        decisionData.details && typeof decisionData.details === 'object' && !Array.isArray(decisionData.details)
+          ? decisionData.details as Record<string, unknown>
+          : null;
+      const validatorFindingId =
+        typeof decisionDetails?.validator_finding_id === 'string'
+          ? decisionDetails.validator_finding_id
+          : null;
 
       if (decisionProjectId) {
         const { data: projectData } = await supabase
@@ -186,6 +213,43 @@ export default function DecisionDetailPage({
         setProjectValidation((projectData ?? null) as DecisionProjectValidationRow);
       }
 
+      if (validatorFindingId) {
+        const [findingResult, evidenceResult] = await Promise.all([
+          supabase
+            .from('project_validation_findings')
+            .select('*')
+            .eq('id', validatorFindingId)
+            .maybeSingle(),
+          supabase
+            .from('project_validation_evidence')
+            .select('id, finding_id, evidence_type, source_document_id, source_page, fact_id, record_id, field_name, field_value, note, created_at')
+            .eq('finding_id', validatorFindingId),
+        ]);
+
+        const finding = (findingResult.data ?? null) as ValidationFinding | null;
+        const evidence = (evidenceResult.data ?? []) as ValidationEvidence[];
+
+        if (finding) {
+          const action = buildValidatorFindingAction({
+            finding,
+            evidence,
+          });
+
+          setQueueFindingAction(
+            action
+              ? {
+                  title: action.title,
+                  approvalStatus: action.approval_status ?? null,
+                  nextStep: action.next_step ?? null,
+                  impactedAmount: action.impacted_amount ?? null,
+                  atRiskAmount: action.at_risk_amount ?? null,
+                  requiresVerificationAmount: action.requires_verification_amount ?? null,
+                }
+              : null,
+          );
+        }
+      }
+
       const { data: taskData } = await supabase
         .from('workflow_tasks')
         .select('id, document_id, task_type, title, description, priority, status, due_at, assigned_to, source_metadata, details, created_at, updated_at')
@@ -194,6 +258,39 @@ export default function DecisionDetailPage({
         .limit(20);
 
       setRelatedTasks((taskData ?? []) as DecisionDetailTask[]);
+      const relatedTaskSummaries = ((taskData ?? []) as DecisionDetailTask[]).map((task) => ({
+        id: task.id,
+        status: task.status,
+        title: task.title,
+      }));
+
+      if (relatedTaskSummaries.length > 0) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        let executionLogs: DecisionWorkflowExecutionLogEntry[] = [];
+
+        if (token) {
+          const workflowOutcomesResponse = await fetch(`/api/decisions/${id}/workflow-outcomes`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (workflowOutcomesResponse.ok) {
+            const workflowOutcomes = await workflowOutcomesResponse.json() as WorkflowOutcomesResponse;
+            executionLogs = (workflowOutcomes.approval_engine_actions ?? []).map((entry) => ({
+              taskId: entry.task_id,
+              taskOutcome: entry.task_outcome,
+            }));
+          }
+        }
+
+        setExecutionStatus(resolveDecisionExecutionStatus({
+          tasks: relatedTaskSummaries,
+          logs: executionLogs,
+        }));
+      }
+
       await loadFeedbackHistory(id);
       setLoading(false);
     };
@@ -470,6 +567,8 @@ export default function DecisionDetailPage({
             }
           : null
       }
+      queueFindingAction={queueFindingAction}
+      executionStatus={executionStatus}
       processState={processState}
       metrics={metrics}
       relatedTasks={relatedTasks}

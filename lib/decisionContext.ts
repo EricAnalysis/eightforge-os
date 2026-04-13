@@ -5,7 +5,6 @@ import {
 } from '@/lib/documentNavigation';
 import {
   approvalGateImpact,
-  approvalNextAction,
   operatorApprovalLabel,
   type OperatorApprovalLabel,
   type TruthValidationState,
@@ -24,6 +23,8 @@ export type DecisionContextRow = {
   validation: TruthValidationState;
   gateImpact: string;
   nextAction: string;
+  actionImpact: string;
+  executionStatus?: DecisionWorkflowExecutionStatus | null;
 };
 
 export type DecisionInvoiceStripItem = {
@@ -47,6 +48,25 @@ export type DecisionCausalChainStep = {
   href: string | null;
 };
 
+export type DecisionQueueFindingActionContext = {
+  title: string;
+  approvalStatus: 'approved' | 'approved_with_exceptions' | 'needs_review' | 'blocked' | null;
+  nextStep: string | null;
+  impactedAmount: number | null;
+  atRiskAmount: number | null;
+  requiresVerificationAmount: number | null;
+};
+
+export type DecisionWorkflowExecutionStatus =
+  | 'Not started'
+  | 'In progress'
+  | 'Completed';
+
+export type DecisionWorkflowExecutionLogEntry = {
+  taskId: string | null;
+  taskOutcome: string;
+};
+
 type ProjectValidationSnapshot = {
   approvalGateRaw: string | null;
   validatorStateRaw: string | null;
@@ -67,6 +87,7 @@ type ProjectValidationSnapshot = {
 type DecisionWorkflowChainTask = {
   id: string;
   status: string;
+  title?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -393,6 +414,105 @@ function approvalLabelFromRaw(raw: string | null): OperatorApprovalLabel {
   return resolved === 'Unknown' ? 'Not Evaluated' : resolved;
 }
 
+function preferredApprovalLabel(
+  ...labels: OperatorApprovalLabel[]
+): OperatorApprovalLabel {
+  for (const label of labels) {
+    if (label !== 'Unknown' && label !== 'Not Evaluated') {
+      return label;
+    }
+  }
+
+  return labels.find((label) => label !== 'Unknown') ?? 'Not Evaluated';
+}
+
+function decisionFallbackNextAction(
+  label: OperatorApprovalLabel,
+): string {
+  switch (label) {
+    case 'Requires Verification':
+      return 'Review supporting evidence';
+    case 'Needs Review':
+      return 'Confirm rate or quantity';
+    case 'Approved with Notes':
+      return 'Record exception';
+    case 'Approved':
+      return 'Continue workflow';
+    default:
+      return 'Review supporting evidence';
+  }
+}
+
+function workflowActionImpact(
+  title: string | null,
+): string | null {
+  const normalized = title?.trim().toLowerCase() ?? '';
+  if (!normalized) return null;
+  if (normalized.includes('verification')) return 'Will unblock approval';
+  if (normalized.includes('review')) return 'Will reduce at-risk amount';
+  if (
+    normalized.includes('invoice processing')
+    || normalized.includes('approved')
+    || normalized.includes('approval log')
+    || normalized.includes('export')
+  ) {
+    return 'Will allow invoice processing';
+  }
+  if (normalized.includes('analyst') || normalized.includes('validator')) {
+    return 'Will complete validation';
+  }
+  return null;
+}
+
+function resolveDecisionActionImpact(params: {
+  approvalLabel: OperatorApprovalLabel;
+  queueFindingAction: DecisionQueueFindingActionContext | null;
+  relatedTasks: DecisionWorkflowChainTask[];
+}): string {
+  const selectedTask = pickWorkflowTask(params.relatedTasks);
+
+  if ((params.queueFindingAction?.requiresVerificationAmount ?? 0) > 0) {
+    return 'Will unblock approval';
+  }
+
+  if ((params.queueFindingAction?.atRiskAmount ?? 0) > 0) {
+    return 'Will reduce at-risk amount';
+  }
+
+  const workflowImpact = workflowActionImpact(stringValue(selectedTask?.title));
+  if (workflowImpact) return workflowImpact;
+
+  switch (params.approvalLabel) {
+    case 'Requires Verification':
+      return 'Will unblock approval';
+    case 'Needs Review':
+      return 'Will reduce at-risk amount';
+    case 'Approved with Notes':
+    case 'Approved':
+      return 'Will allow invoice processing';
+    default:
+      return 'Will complete validation';
+  }
+}
+
+function resolveDecisionNextAction(params: {
+  approvalLabel: OperatorApprovalLabel;
+  primaryAction: DecisionAction | null;
+  queueFindingAction: DecisionQueueFindingActionContext | null;
+  relatedTasks: DecisionWorkflowChainTask[];
+}): string {
+  const selectedTask = pickWorkflowTask(params.relatedTasks);
+
+  const directAction = [
+    stringValue(params.queueFindingAction?.nextStep),
+    stringValue(params.primaryAction?.description),
+    stringValue(selectedTask?.title),
+  ].find((candidate): candidate is string => candidate != null);
+
+  if (directAction) return directAction;
+  return decisionFallbackNextAction(params.approvalLabel);
+}
+
 function validationFromApprovalLabel(
   label: OperatorApprovalLabel,
 ): TruthValidationState {
@@ -411,10 +531,6 @@ function validationFromApprovalLabel(
 
 function gateImpactForApprovalLabel(label: OperatorApprovalLabel): string {
   return approvalGateImpact(label);
-}
-
-function nextActionForApprovalLabel(label: OperatorApprovalLabel): string {
-  return approvalNextAction(label);
 }
 
 function decisionStateLabel(decisionStatus: string): string {
@@ -515,6 +631,31 @@ function pickWorkflowTask(
   return [...tasks].sort((left, right) => {
     return (statusRank[left.status] ?? 10) - (statusRank[right.status] ?? 10);
   })[0] ?? null;
+}
+
+export function resolveDecisionExecutionStatus(params: {
+  tasks: DecisionWorkflowChainTask[];
+  logs: DecisionWorkflowExecutionLogEntry[];
+}): DecisionWorkflowExecutionStatus | null {
+  if (params.tasks.length === 0) return null;
+
+  if (params.tasks.some((task) => task.status === 'resolved' || task.status === 'completed')) {
+    return 'Completed';
+  }
+
+  const taskIds = new Set(params.tasks.map((task) => task.id));
+  const relevantLogs = params.logs.filter((entry) => (
+    entry.taskId == null || taskIds.has(entry.taskId)
+  ));
+
+  if (
+    params.tasks.some((task) => task.status === 'in_progress' || task.status === 'blocked')
+    || relevantLogs.some((entry) => entry.taskOutcome === 'created' || entry.taskOutcome === 'updated')
+  ) {
+    return 'In progress';
+  }
+
+  return 'Not started';
 }
 
 function workflowStepDescriptor(params: {
@@ -659,16 +800,22 @@ function isInvoiceDecision(params: {
 export function buildDecisionContextRows(params: {
   decisionDetails: Record<string, unknown> | null;
   documentHref: string | null;
+  executionStatus?: DecisionWorkflowExecutionStatus | null;
   projectId: string | null;
   primaryAction: DecisionAction | null;
   projectValidation: DecisionProjectValidationContext;
+  queueFindingAction?: DecisionQueueFindingActionContext | null;
+  relatedTasks?: DecisionWorkflowChainTask[];
 }): DecisionContextRow[] {
   const {
     decisionDetails,
     documentHref,
+    executionStatus = null,
     projectId,
     primaryAction,
     projectValidation,
+    queueFindingAction = null,
+    relatedTasks = [],
   } = params;
 
   const validationSnapshot = parseProjectValidationSnapshot(projectValidation);
@@ -749,6 +896,38 @@ export function buildDecisionContextRows(params: {
 
   const validatorLabel = approvalLabelFromRaw(validatorStateRaw);
   const approvalGateLabel = approvalLabelFromRaw(approvalGateRaw);
+  const queueFindingLabel = approvalLabelFromRaw(queueFindingAction?.approvalStatus ?? null);
+  const effectiveApprovalLabel = preferredApprovalLabel(
+    queueFindingLabel,
+    approvalGateLabel,
+    validatorLabel,
+  );
+  const decisionNextAction = resolveDecisionNextAction({
+    approvalLabel: effectiveApprovalLabel,
+    primaryAction,
+    queueFindingAction,
+    relatedTasks,
+  });
+  const decisionActionImpact = resolveDecisionActionImpact({
+    approvalLabel: effectiveApprovalLabel,
+    queueFindingAction,
+    relatedTasks,
+  });
+  const selectedWorkflowTask = pickWorkflowTask(relatedTasks);
+  const nextOperatorSourceLabel = queueFindingAction?.nextStep
+    ? 'Queue finding'
+    : primaryAction
+      ? 'Decision payload'
+      : selectedWorkflowTask?.title
+        ? 'Workflow task'
+        : 'Decision payload';
+  const nextOperatorSourceHref = queueFindingAction?.nextStep
+    ? queueSourceHref(projectId)
+    : selectedWorkflowTask
+      ? selectedWorkflowTask.decision_id
+        ? `/platform/decisions/${selectedWorkflowTask.decision_id}`
+        : '/platform/decisions'
+      : null;
 
   return [
     {
@@ -771,6 +950,7 @@ export function buildDecisionContextRows(params: {
         contractCeiling != null
           ? 'Use the contract ceiling as the approval limit.'
           : 'Confirm the governing contract ceiling before approving the invoice.',
+      actionImpact: contractCeiling != null ? decisionActionImpact : 'Will complete validation',
     },
     {
       label: 'Billed to date',
@@ -789,6 +969,7 @@ export function buildDecisionContextRows(params: {
         billedToDate != null
           ? 'Use cumulative billed exposure to judge contract burn before this invoice.'
           : 'Publish cumulative billed totals before this invoice can be judged precisely.',
+      actionImpact: billedToDate != null ? decisionActionImpact : 'Will complete validation',
     },
     {
       label: 'Invoice total',
@@ -807,6 +988,10 @@ export function buildDecisionContextRows(params: {
         invoiceTotal != null
           ? 'Confirm the invoice total against the current packet.'
           : 'Confirm the invoice total from the extracted invoice.',
+      actionImpact:
+        invoiceTotal != null
+          ? decisionActionImpact
+          : 'Will complete validation',
     },
     {
       label: 'Remaining capacity',
@@ -815,6 +1000,10 @@ export function buildDecisionContextRows(params: {
       validation: remainingCapacityValidation(contractCeiling, invoiceTotal),
       gateImpact: remainingCapacityGateImpact(contractCeiling, invoiceTotal),
       nextAction: remainingCapacityNextAction(contractCeiling, invoiceTotal),
+      actionImpact:
+        contractCeiling != null && invoiceTotal != null
+          ? decisionActionImpact
+          : 'Will complete validation',
     },
     {
       label: 'Requires verification amount',
@@ -842,6 +1031,12 @@ export function buildDecisionContextRows(params: {
           : requiresVerificationAmount > 0
             ? 'Review blocking and needs-review findings before approving payment.'
             : 'No approval-gated follow-up is currently required.',
+      actionImpact:
+        requiresVerificationAmount == null
+          ? 'Will complete validation'
+          : requiresVerificationAmount > 0
+            ? 'Will unblock approval'
+            : 'Will allow invoice processing',
     },
     {
       label: 'At risk amount',
@@ -869,6 +1064,12 @@ export function buildDecisionContextRows(params: {
           : atRiskAmount > 0
             ? 'Review the exposure variance and confirm whether it changes approval.'
             : 'No additional exposure follow-up is currently required.',
+      actionImpact:
+        atRiskAmount == null
+          ? 'Will complete validation'
+          : atRiskAmount > 0
+            ? 'Will reduce at-risk amount'
+            : 'Will allow invoice processing',
     },
     {
       label: 'Validator state',
@@ -877,7 +1078,12 @@ export function buildDecisionContextRows(params: {
       sourceHref: validatorStateRaw ? null : validatorHref,
       validation: validationFromApprovalLabel(validatorLabel),
       gateImpact: gateImpactForApprovalLabel(validatorLabel),
-      nextAction: nextActionForApprovalLabel(validatorLabel),
+      nextAction: decisionNextAction,
+      actionImpact: resolveDecisionActionImpact({
+        approvalLabel: preferredApprovalLabel(queueFindingLabel, validatorLabel),
+        queueFindingAction,
+        relatedTasks,
+      }),
     },
     {
       label: 'Approval gate state',
@@ -886,17 +1092,25 @@ export function buildDecisionContextRows(params: {
       sourceHref: approvalGateRaw ? null : validatorHref,
       validation: validationFromApprovalLabel(approvalGateLabel),
       gateImpact: gateImpactForApprovalLabel(approvalGateLabel),
-      nextAction: primaryAction?.description ?? nextActionForApprovalLabel(approvalGateLabel),
+      nextAction: decisionNextAction,
+      actionImpact: decisionActionImpact,
     },
     {
       label: 'Next operator move',
-      value: primaryAction?.description ?? 'Awaiting next operator move',
-      sourceLabel: 'Decision payload',
-      validation: primaryAction ? 'Verified' : 'Missing',
-      gateImpact: primaryAction ? 'Moves operator review forward' : 'Action path is not established',
-      nextAction:
-        primaryAction?.expected_outcome
-        ?? 'Escalate the missing primary action so the decision becomes operator-safe.',
+      value: decisionNextAction,
+      sourceLabel: nextOperatorSourceLabel,
+      sourceHref: nextOperatorSourceHref,
+      validation:
+        stringValue(queueFindingAction?.nextStep) || primaryAction
+          ? 'Verified'
+          : 'Missing',
+      gateImpact:
+        stringValue(queueFindingAction?.nextStep) || primaryAction || selectedWorkflowTask?.title
+          ? 'Moves operator review forward'
+          : 'Action path is not established',
+      nextAction: decisionNextAction,
+      actionImpact: decisionActionImpact,
+      executionStatus,
     },
   ];
 }
@@ -1082,7 +1296,9 @@ export function buildDecisionCausalChain(params: {
 
   const selectedWorkflowTask = pickWorkflowTask(relatedTasks);
   const workflowHref = selectedWorkflowTask
-    ? `/platform/workflows/${selectedWorkflowTask.id}`
+    ? selectedWorkflowTask.decision_id
+      ? `/platform/decisions/${selectedWorkflowTask.decision_id}`
+      : '/platform/decisions'
     : '#decision-workflow';
 
   const workflowStep = workflowStepDescriptor({

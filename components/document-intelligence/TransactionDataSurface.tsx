@@ -1,17 +1,58 @@
 'use client';
 
-import type { TransactionDataExtraction } from '@/lib/types/documentIntelligence';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import {
+  findingApprovalLabel,
+  findingNextAction,
+  humanizeTruthToken,
+} from '@/lib/truthToAction';
+import type {
+  ComparisonResult,
+  TransactionDataExtraction,
+} from '@/lib/types/documentIntelligence';
 import type {
   TransactionDataOpsReviewBucket,
+  TransactionDataOutlierRow,
+  TransactionDataRateCodeGroup,
   TransactionDataServiceItemGroup,
   TransactionDataMaterialGroup,
   TransactionDataSiteTypeGroup,
   TransactionDataDisposalSiteGroup,
   TransactionDataRecord,
 } from '@/lib/types/transactionData';
+import type {
+  ValidationEvidence,
+  ValidationFinding,
+} from '@/types/validator';
+import {
+  deriveSpreadsheetValidatorLifecycle,
+  listUnresolvedStage1Findings,
+  loadSpreadsheetValidatorOverrides,
+  readValidationStatusFromSummaryJson,
+  stageTwoInvoiceSupportAllowed,
+  type SpreadsheetValidatorLifecycleStatus,
+} from '@/lib/spreadsheetDocumentReview';
+
+const STAGE1_STATUS_LABEL: Record<SpreadsheetValidatorLifecycleStatus, string> = {
+  not_reviewed: 'Not reviewed',
+  in_review: 'In review',
+  validated: 'Validated',
+  blocked: 'Blocked',
+  exceptions_approved: 'Exceptions approved',
+};
 
 /** Max rows to render inline in the row-drilldown section before truncating. */
 const ROW_DRILLDOWN_LIMIT = 150;
+const EMPTY_SERVICE_ITEM_GROUPS: TransactionDataServiceItemGroup[] = [];
+const EMPTY_MATERIAL_GROUPS: TransactionDataMaterialGroup[] = [];
+const EMPTY_SITE_TYPE_GROUPS: TransactionDataSiteTypeGroup[] = [];
+const EMPTY_DISPOSAL_SITE_GROUPS: TransactionDataDisposalSiteGroup[] = [];
+const EMPTY_RATE_CODE_GROUPS: TransactionDataRateCodeGroup[] = [];
+const EMPTY_OUTLIER_ROWS: TransactionDataOutlierRow[] = [];
+const EMPTY_RECORDS: TransactionDataRecord[] = [];
+const EMPTY_COMPARISONS: ComparisonResult[] = [];
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -127,6 +168,438 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
   );
 }
 
+function OperationalSourceLine({ source }: { source: OperationalReviewSource }) {
+  return (
+    <p className="mt-2 text-[11px] text-[#7F90AA]">
+      Source: {source}
+    </p>
+  );
+}
+
+type TicketSupportStatus = 'supported' | 'needs_review' | 'requires_verification';
+type OperationalReviewSource = 'Validator' | 'Cross-document review' | 'Transaction review';
+
+type ValidatorSnapshot = {
+  lastRunAt: string | null;
+  exposure: {
+    totalTransactionSupportedAmount: number | null;
+    totalAtRiskAmount: number | null;
+    totalRequiresVerificationAmount: number | null;
+  } | null;
+};
+
+type RecordMatchIndexes = {
+  byId: Map<string, TransactionDataRecord>;
+  byInvoiceNumber: Map<string, TransactionDataRecord[]>;
+  byInvoiceRateKey: Map<string, TransactionDataRecord[]>;
+  byBillingRateKey: Map<string, TransactionDataRecord[]>;
+  bySiteMaterialKey: Map<string, TransactionDataRecord[]>;
+  byTransactionNumber: Map<string, TransactionDataRecord[]>;
+  byRateCode: Map<string, TransactionDataRecord[]>;
+};
+
+type TicketSupportFinding = {
+  finding: ValidationFinding;
+  evidence: ValidationEvidence[];
+};
+
+type TicketReviewRow = {
+  record: TransactionDataRecord;
+  status: TicketSupportStatus;
+  findings: TicketSupportFinding[];
+  primaryFinding: ValidationFinding | null;
+  varianceText: string;
+  reason: string;
+  nextStep: string;
+};
+
+type TicketSupportGroupRow = {
+  key: string;
+  label: string;
+  supportedQty: number;
+  unsupportedQty: number;
+  varianceText: string;
+  status: TicketSupportStatus;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value != null && !Array.isArray(value);
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function normalizeLookupValue(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return 'Not available';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function readValidatorSnapshot(raw: unknown): ValidatorSnapshot {
+  const summary = isRecord(raw) ? raw : null;
+  const exposure = isRecord(summary?.exposure) ? summary.exposure : null;
+
+  return {
+    lastRunAt:
+      typeof summary?.last_run_at === 'string' && summary.last_run_at.trim().length > 0
+        ? summary.last_run_at
+        : null,
+    exposure: exposure
+      ? {
+          totalTransactionSupportedAmount: readNumber(exposure.total_transaction_supported_amount),
+          totalAtRiskAmount:
+            readNumber(exposure.total_unreconciled_amount)
+            ?? readNumber(exposure.total_at_risk_amount),
+          totalRequiresVerificationAmount:
+            readNumber(exposure.total_requires_verification_amount)
+            ?? readNumber(exposure.total_at_risk_amount),
+        }
+      : null,
+  };
+}
+
+function supportStatusLabel(status: TicketSupportStatus): string {
+  switch (status) {
+    case 'requires_verification':
+      return 'Requires Verification';
+    case 'needs_review':
+      return 'Needs Review';
+    case 'supported':
+    default:
+      return 'Supported';
+  }
+}
+
+function supportStatusClassName(status: TicketSupportStatus): string {
+  switch (status) {
+    case 'requires_verification':
+      return 'border-red-500/30 bg-red-500/10 text-red-200';
+    case 'needs_review':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+    case 'supported':
+    default:
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  }
+}
+
+function supportStatusRank(status: TicketSupportStatus): number {
+  switch (status) {
+    case 'requires_verification':
+      return 3;
+    case 'needs_review':
+      return 2;
+    case 'supported':
+    default:
+      return 1;
+  }
+}
+
+function recordQuantity(record: TransactionDataRecord): number {
+  return typeof record.transaction_quantity === 'number' && Number.isFinite(record.transaction_quantity)
+    ? record.transaction_quantity
+    : 0;
+}
+
+function pushRecordLookup(
+  map: Map<string, TransactionDataRecord[]>,
+  key: string | null | undefined,
+  record: TransactionDataRecord,
+) {
+  const normalizedKey = normalizeLookupValue(key);
+  if (!normalizedKey) return;
+  const existing = map.get(normalizedKey) ?? [];
+  existing.push(record);
+  map.set(normalizedKey, existing);
+}
+
+function buildRecordIndexes(records: readonly TransactionDataRecord[]): RecordMatchIndexes {
+  const indexes: RecordMatchIndexes = {
+    byId: new Map(records.map((record) => [record.id, record] as const)),
+    byInvoiceNumber: new Map(),
+    byInvoiceRateKey: new Map(),
+    byBillingRateKey: new Map(),
+    bySiteMaterialKey: new Map(),
+    byTransactionNumber: new Map(),
+    byRateCode: new Map(),
+  };
+
+  for (const record of records) {
+    pushRecordLookup(indexes.byInvoiceNumber, record.invoice_number, record);
+    pushRecordLookup(indexes.byInvoiceRateKey, record.invoice_rate_key, record);
+    pushRecordLookup(indexes.byBillingRateKey, record.billing_rate_key, record);
+    pushRecordLookup(indexes.bySiteMaterialKey, record.site_material_key, record);
+    pushRecordLookup(indexes.byTransactionNumber, record.transaction_number, record);
+    pushRecordLookup(indexes.byRateCode, record.rate_code, record);
+  }
+
+  return indexes;
+}
+
+function addLookupMatches(
+  matches: Set<string>,
+  lookup: Map<string, TransactionDataRecord[]>,
+  key: string | null | undefined,
+) {
+  const normalizedKey = normalizeLookupValue(key);
+  if (!normalizedKey) return;
+
+  for (const record of lookup.get(normalizedKey) ?? []) {
+    matches.add(record.id);
+  }
+}
+
+function findingStatus(finding: ValidationFinding): TicketSupportStatus {
+  return findingApprovalLabel(finding) === 'Requires Verification'
+    ? 'requires_verification'
+    : 'needs_review';
+}
+
+function findingRank(finding: ValidationFinding): number {
+  const statusRank = supportStatusRank(findingStatus(finding));
+  const severityRank =
+    finding.severity === 'critical' ? 3 : finding.severity === 'warning' ? 2 : 1;
+  const blockedRank = finding.blocked_reason ? 2 : 1;
+
+  return (statusRank * 100) + (severityRank * 10) + blockedRank;
+}
+
+function compareTicketSupportFindings(
+  left: TicketSupportFinding,
+  right: TicketSupportFinding,
+): number {
+  const rankDifference = findingRank(right.finding) - findingRank(left.finding);
+  if (rankDifference !== 0) return rankDifference;
+  return left.finding.rule_id.localeCompare(right.finding.rule_id, 'en-US');
+}
+
+function formatFindingVariance(finding: ValidationFinding): string {
+  if (finding.variance == null) return '-';
+  const absoluteVariance = Math.abs(finding.variance);
+  const value = Number.isInteger(absoluteVariance)
+    ? absoluteVariance.toLocaleString()
+    : absoluteVariance.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return finding.variance_unit ? `${value} ${finding.variance_unit}` : value;
+}
+
+function formatVarianceFromFindings(findings: readonly ValidationFinding[]): string {
+  const findingsWithVariance = findings.filter((finding) => finding.variance != null);
+  if (findingsWithVariance.length === 0) {
+    return '-';
+  }
+
+  const units = Array.from(new Set(
+    findingsWithVariance.map((finding) => finding.variance_unit?.trim() || ''),
+  ));
+
+  if (units.length === 1) {
+    const total = findingsWithVariance.reduce((sum, finding) => sum + Math.abs(finding.variance ?? 0), 0);
+    const rendered = Number.isInteger(total)
+      ? total.toLocaleString()
+      : total.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return units[0] ? `${rendered} ${units[0]}` : rendered;
+  }
+
+  return `${findingsWithVariance.length} flagged`;
+}
+
+function summarizeFindingReason(finding: ValidationFinding): string {
+  if (finding.blocked_reason?.trim()) {
+    return finding.blocked_reason;
+  }
+
+  if (finding.expected?.trim() && finding.actual?.trim()) {
+    return `${finding.expected} vs ${finding.actual}`;
+  }
+
+  if (finding.actual?.trim()) {
+    return finding.actual;
+  }
+
+  if (finding.expected?.trim()) {
+    return `Expected ${finding.expected}`;
+  }
+
+  if (finding.field?.trim()) {
+    return `${humanizeTruthToken(finding.field)} requires review.`;
+  }
+
+  return humanizeTruthToken(finding.rule_id);
+}
+
+function compareTicketReviewRows(left: TicketReviewRow, right: TicketReviewRow): number {
+  const statusDifference = supportStatusRank(right.status) - supportStatusRank(left.status);
+  if (statusDifference !== 0) return statusDifference;
+
+  const leftCost = left.record.extended_cost ?? 0;
+  const rightCost = right.record.extended_cost ?? 0;
+  if (rightCost !== leftCost) return rightCost - leftCost;
+
+  const leftQty = left.record.transaction_quantity ?? 0;
+  const rightQty = right.record.transaction_quantity ?? 0;
+  if (rightQty !== leftQty) return rightQty - leftQty;
+
+  return left.record.id.localeCompare(right.record.id, 'en-US');
+}
+
+function buildSupportGroupRow(params: {
+  key: string;
+  label: string | null | undefined;
+  recordIds: readonly string[];
+  reviewById: Map<string, TicketReviewRow>;
+}): TicketSupportGroupRow | null {
+  const rows = params.recordIds
+    .map((recordId) => params.reviewById.get(recordId))
+    .filter((row): row is TicketReviewRow => row != null);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const status = rows.some((row) => row.status === 'requires_verification')
+    ? 'requires_verification'
+    : rows.some((row) => row.status === 'needs_review')
+      ? 'needs_review'
+      : 'supported';
+
+  return {
+    key: params.key,
+    label: params.label?.trim() || '(unset)',
+    supportedQty: rows
+      .filter((row) => row.status === 'supported')
+      .reduce((sum, row) => sum + recordQuantity(row.record), 0),
+    unsupportedQty: rows
+      .filter((row) => row.status !== 'supported')
+      .reduce((sum, row) => sum + recordQuantity(row.record), 0),
+    varianceText: formatVarianceFromFindings(
+      rows.flatMap((row) => row.findings.map((item) => item.finding)),
+    ),
+    status,
+  };
+}
+
+function parseComparableDate(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function matchRecordIdsForFinding(params: {
+  finding: ValidationFinding;
+  evidence: readonly ValidationEvidence[];
+  indexes: RecordMatchIndexes;
+}): Set<string> {
+  const { finding, evidence, indexes } = params;
+  const matches = new Set<string>();
+
+  if (indexes.byId.has(finding.subject_id)) {
+    matches.add(finding.subject_id);
+  }
+
+  switch (finding.subject_type) {
+    case 'transaction_row':
+      addLookupMatches(matches, indexes.byTransactionNumber, finding.subject_id);
+      break;
+    case 'transaction_group':
+    case 'invoice_rate_group':
+      addLookupMatches(matches, indexes.byInvoiceRateKey, finding.subject_id);
+      addLookupMatches(matches, indexes.byBillingRateKey, finding.subject_id);
+      addLookupMatches(matches, indexes.bySiteMaterialKey, finding.subject_id);
+      break;
+    case 'invoice':
+    case 'invoice_line':
+      addLookupMatches(matches, indexes.byInvoiceNumber, finding.subject_id);
+      break;
+    default:
+      break;
+  }
+
+  for (const item of evidence) {
+    if (item.record_id && indexes.byId.has(item.record_id)) {
+      matches.add(item.record_id);
+    }
+    addLookupMatches(matches, indexes.byInvoiceRateKey, item.record_id);
+    addLookupMatches(matches, indexes.byBillingRateKey, item.record_id);
+    addLookupMatches(matches, indexes.bySiteMaterialKey, item.record_id);
+    addLookupMatches(matches, indexes.byInvoiceNumber, item.record_id);
+
+    if (item.field_name === 'invoice_number') {
+      addLookupMatches(matches, indexes.byInvoiceNumber, item.field_value);
+    }
+    if (item.field_name === 'transaction_number') {
+      addLookupMatches(matches, indexes.byTransactionNumber, item.field_value);
+    }
+    if (item.field_name === 'rate_code') {
+      addLookupMatches(matches, indexes.byRateCode, item.field_value);
+    }
+  }
+
+  if (matches.size === 0) {
+    addLookupMatches(matches, indexes.byTransactionNumber, finding.subject_id);
+    addLookupMatches(matches, indexes.byRateCode, finding.subject_id);
+  }
+
+  return matches;
+}
+
+function isInvoiceRelatedFinding(finding: ValidationFinding): boolean {
+  const haystack = [
+    finding.rule_id,
+    finding.check_key,
+    finding.subject_type,
+    finding.field,
+    finding.expected,
+    finding.actual,
+    finding.blocked_reason,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes('invoice');
+}
+
+function isContractRelatedFinding(finding: ValidationFinding): boolean {
+  const haystack = [
+    finding.rule_id,
+    finding.check_key,
+    finding.subject_type,
+    finding.field,
+    finding.expected,
+    finding.actual,
+    finding.blocked_reason,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes('contract') || haystack.includes('rate schedule');
+}
+
+function isActionableComparison(comparison: ComparisonResult): boolean {
+  return comparison.status === 'warning'
+    || comparison.status === 'mismatch'
+    || comparison.status === 'missing';
+}
+
 function ReadinessBadge({ status }: { status: 'ready' | 'partial' | 'needs_review' }) {
   const cfg = {
     ready: { label: 'Ready to Invoice', cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' },
@@ -175,6 +648,36 @@ function OpsReviewBucketRow({ bucket }: { bucket: TransactionDataOpsReviewBucket
 }
 
 // ─── Grouped review tables ────────────────────────────────────────────────────
+
+function RateCodeTable({ rows }: { rows: TransactionDataRateCodeGroup[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-white/10">
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Rate Code</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Rows</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Qty</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Extended Cost</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Service Items</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.04]">
+          {rows.map((row, i) => (
+            <tr key={`${row.billing_rate_key ?? 'unset'}:${i}`} className="hover:bg-white/[0.02]">
+              <td className="py-2 pr-4 text-[#D9E3F3]">{row.rate_code ?? '(unset)'}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#8FA1BC]">{fmtNum(row.row_count)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">{fmtNum(row.total_transaction_quantity)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums font-semibold text-[#F5F7FA]">{fmt$(row.total_extended_cost)}</td>
+              <td className="py-2 text-[11px] text-[#8FA1BC]">{row.distinct_service_items.join(', ') || 'â€”'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function ServiceItemTable({ rows }: { rows: TransactionDataServiceItemGroup[] }) {
   if (rows.length === 0) return null;
@@ -302,6 +805,108 @@ function DisposalSiteTable({ rows }: { rows: TransactionDataDisposalSiteGroup[] 
 
 // ─── Row drilldown table ──────────────────────────────────────────────────────
 
+function SupportStatusPill({ status }: { status: TicketSupportStatus }) {
+  return (
+    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${supportStatusClassName(status)}`}>
+      {supportStatusLabel(status)}
+    </span>
+  );
+}
+
+function TicketSupportGroupingTable({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: TicketSupportGroupRow[];
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-[12px] text-[#8FA1BC]">
+        No grouped support rows are available.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-white/10">
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">{label}</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Supported Qty</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Unsupported Qty</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Variance</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.04]">
+          {rows.map((row) => (
+            <tr key={row.key} className="hover:bg-white/[0.02]">
+              <td className="py-2 pr-4 text-[#D9E3F3]">{row.label}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-emerald-300">{fmtNum(row.supportedQty)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-amber-300">{fmtNum(row.unsupportedQty)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">{row.varianceText}</td>
+              <td className="py-2"><SupportStatusPill status={row.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TicketReviewTable({
+  rows,
+  emptyMessage,
+}: {
+  rows: TicketReviewRow[];
+  emptyMessage: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-[12px] text-[#8FA1BC]">
+        {emptyMessage}
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-white/10">
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Ticket Id</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Rate</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Qty</th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Variance</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Reason</th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Next Step</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.04]">
+          {rows.map((row) => (
+            <tr key={row.record.id} className="align-top hover:bg-white/[0.02]">
+              <td className="py-2 pr-4 font-mono text-[11px] text-[#D9E3F3]">
+                {row.record.transaction_number ?? row.record.id}
+              </td>
+              <td className="py-2 pr-4 font-mono text-[11px] text-[#8FA1BC]">
+                {row.record.rate_code ?? '-'}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">
+                {row.record.transaction_quantity != null ? fmtNum(row.record.transaction_quantity) : '-'}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums text-[#D9E3F3]">{row.varianceText}</td>
+              <td className="py-2 pr-4 text-[#D9E3F3]">{row.reason}</td>
+              <td className="py-2 text-[#8FA1BC]">{row.nextStep}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function RowDrilldownTable({ records }: { records: TransactionDataRecord[] }) {
   const shown = records.slice(0, ROW_DRILLDOWN_LIMIT);
   const truncated = records.length > ROW_DRILLDOWN_LIMIT;
@@ -354,8 +959,8 @@ function RowDrilldownTable({ records }: { records: TransactionDataRecord[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.04]">
-            {shown.map((record, i) => (
-              <tr key={i} className="hover:bg-white/[0.02]">
+            {shown.map((record) => (
+              <tr key={record.id} className="hover:bg-white/[0.02]">
                 <td className="py-1.5 pr-3 font-mono text-[10px] text-[#5A7090]">
                   {record.source_sheet_name}:{record.source_row_number}
                 </td>
@@ -417,22 +1022,147 @@ function RowDrilldownTable({ records }: { records: TransactionDataRecord[] }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function TransactionDataSurface({ extraction }: { extraction: TransactionDataExtraction }) {
+export function TransactionDataSurface({
+  extraction,
+  projectId,
+  documentId,
+  comparisons = EMPTY_COMPARISONS,
+}: {
+  extraction: TransactionDataExtraction;
+  projectId?: string | null;
+  /** Used with projectId for Stage 1 override store keys and Stage 2 gating. */
+  documentId?: string | null;
+  comparisons?: ComparisonResult[];
+}) {
+  const [validationSummaryRaw, setValidationSummaryRaw] = useState<unknown>(null);
+  const [validationFindings, setValidationFindings] = useState<ValidationFinding[]>([]);
+  const [validationEvidence, setValidationEvidence] = useState<ValidationEvidence[]>([]);
+  const [validationLastRunAt, setValidationLastRunAt] = useState<string | null>(null);
+  const [validationLoading, setValidationLoading] = useState(Boolean(projectId));
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId) {
+      setValidationSummaryRaw(null);
+      setValidationFindings([]);
+      setValidationEvidence([]);
+      setValidationLastRunAt(null);
+      setValidationLoading(false);
+      setValidationError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadValidatorReview = async () => {
+      setValidationLoading(true);
+      setValidationError(null);
+
+      try {
+        const [projectResult, findingsResult, runResult] = await Promise.all([
+          supabase
+            .from('projects')
+            .select('validation_summary_json')
+            .eq('id', projectId)
+            .maybeSingle(),
+          supabase
+            .from('project_validation_findings')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('status', 'open'),
+          supabase
+            .from('project_validation_runs')
+            .select('run_at, completed_at')
+            .eq('project_id', projectId)
+            .order('run_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+
+        if (projectResult.error) {
+          throw new Error(projectResult.error.message);
+        }
+        if (findingsResult.error) {
+          throw new Error(findingsResult.error.message);
+        }
+        if (runResult.error) {
+          throw new Error(runResult.error.message);
+        }
+
+        const findings = ((findingsResult.data ?? []) as ValidationFinding[])
+          .filter((finding) => finding.status === 'open');
+        let evidence: ValidationEvidence[] = [];
+
+        if (findings.length > 0) {
+          const evidenceResult = await supabase
+            .from('project_validation_evidence')
+            .select('*')
+            .in('finding_id', findings.map((finding) => finding.id));
+
+          if (evidenceResult.error) {
+            throw new Error(evidenceResult.error.message);
+          }
+
+          evidence = (evidenceResult.data ?? []) as ValidationEvidence[];
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setValidationSummaryRaw(
+          isRecord(projectResult.data) ? projectResult.data.validation_summary_json ?? null : null,
+        );
+        setValidationFindings(findings);
+        setValidationEvidence(evidence);
+        setValidationLastRunAt(
+          isRecord(runResult.data)
+            ? typeof runResult.data.completed_at === 'string' && runResult.data.completed_at.trim().length > 0
+              ? runResult.data.completed_at
+              : typeof runResult.data.run_at === 'string' && runResult.data.run_at.trim().length > 0
+                ? runResult.data.run_at
+                : null
+            : null,
+        );
+        setValidationLoading(false);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setValidationError(
+          error instanceof Error
+            ? error.message
+            : 'Validator review could not be loaded.',
+        );
+        setValidationLoading(false);
+      }
+    };
+
+    void loadValidatorReview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
   const ops = extraction.projectOperationsOverview;
   const readiness = extraction.invoiceReadinessSummary;
 
   // Resolve grouped tables — may live directly on extraction or inside rollups
   const rollups = extraction.rollups;
+  const groupedByRateCode =
+    rollups?.groupedByRateCode ?? extraction.summary?.grouped_by_rate_code ?? EMPTY_RATE_CODE_GROUPS;
   const groupedByServiceItem =
-    extraction.groupedByServiceItem ?? rollups?.groupedByServiceItem ?? [];
+    extraction.groupedByServiceItem ?? rollups?.groupedByServiceItem ?? EMPTY_SERVICE_ITEM_GROUPS;
   const groupedByMaterial =
-    extraction.groupedByMaterial ?? rollups?.groupedByMaterial ?? [];
+    extraction.groupedByMaterial ?? rollups?.groupedByMaterial ?? EMPTY_MATERIAL_GROUPS;
   const groupedBySiteType =
-    extraction.groupedBySiteType ?? rollups?.groupedBySiteType ?? [];
+    extraction.groupedBySiteType ?? rollups?.groupedBySiteType ?? EMPTY_SITE_TYPE_GROUPS;
   const groupedByDisposalSite =
-    extraction.groupedByDisposalSite ?? rollups?.groupedByDisposalSite ?? [];
+    extraction.groupedByDisposalSite ?? rollups?.groupedByDisposalSite ?? EMPTY_DISPOSAL_SITE_GROUPS;
   const outlierRows =
-    extraction.outlierRows ?? rollups?.outlierRows ?? [];
+    extraction.outlierRows ?? rollups?.outlierRows ?? EMPTY_OUTLIER_ROWS;
 
   const dmsFds = extraction.dmsFdsLifecycleSummary;
 
@@ -446,16 +1176,435 @@ export function TransactionDataSurface({ extraction }: { extraction: Transaction
     extraction.truckTripTimeReview,
   ].filter((b): b is TransactionDataOpsReviewBucket => b != null && b.available);
 
-  const records: TransactionDataRecord[] = extraction.records ?? [];
+  const records: TransactionDataRecord[] = extraction.records ?? EMPTY_RECORDS;
+  const crossDocumentComparisons = comparisons;
+  const actionableCrossDocumentComparisons = useMemo(
+    () => crossDocumentComparisons.filter(isActionableComparison),
+    [crossDocumentComparisons],
+  );
+  const validatorSnapshot = useMemo(
+    () => readValidatorSnapshot(validationSummaryRaw),
+    [validationSummaryRaw],
+  );
+  const lastValidatedAt = validatorSnapshot.lastRunAt ?? validationLastRunAt;
+  const hasValidatorContext =
+    validationSummaryRaw != null
+    || validationFindings.length > 0
+    || validationLastRunAt != null;
+  const evidenceByFindingId = useMemo(() => {
+    const grouped = new Map<string, ValidationEvidence[]>();
+
+    for (const evidence of validationEvidence) {
+      const existing = grouped.get(evidence.finding_id) ?? [];
+      existing.push(evidence);
+      grouped.set(evidence.finding_id, existing);
+    }
+
+    return grouped;
+  }, [validationEvidence]);
+
+  const [overrideEpoch, setOverrideEpoch] = useState(0);
+  useEffect(() => {
+    const bump = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string; documentId?: string }>).detail;
+      if (detail?.projectId === projectId && detail?.documentId === documentId) {
+        setOverrideEpoch((v) => v + 1);
+      }
+    };
+    window.addEventListener('eightforge-spreadsheet-overrides-changed', bump as EventListener);
+    return () => window.removeEventListener('eightforge-spreadsheet-overrides-changed', bump as EventListener);
+  }, [projectId, documentId]);
+
+  const overrideStore = useMemo(
+    () =>
+      projectId && documentId
+        ? loadSpreadsheetValidatorOverrides(projectId, documentId)
+        : { byCheck: {}, byTicket: {} },
+    [projectId, documentId, overrideEpoch],
+  );
+
+  const evidenceByFindingIdForStage1 = useMemo(() => {
+    const m = new Map<string, { record_id: string | null }[]>();
+    for (const [findingId, list] of evidenceByFindingId) {
+      m.set(
+        findingId,
+        list.map((row) => ({ record_id: row.record_id })),
+      );
+    }
+    return m;
+  }, [evidenceByFindingId]);
+
+  const validationStatus = readValidationStatusFromSummaryJson(validationSummaryRaw);
+  const stageTwoGateActive = Boolean(projectId);
+  const unresolvedStage1Findings = useMemo(
+    () =>
+      listUnresolvedStage1Findings(validationFindings, evidenceByFindingIdForStage1, overrideStore),
+    [validationFindings, evidenceByFindingIdForStage1, overrideStore],
+  );
+  const stageTwoAllowed =
+    !stageTwoGateActive ||
+    stageTwoInvoiceSupportAllowed(validationStatus, unresolvedStage1Findings.length);
+  const validatorReviewActive = !stageTwoGateActive || stageTwoAllowed;
+
+  const recordIndexes = useMemo(
+    () => buildRecordIndexes(records),
+    [records],
+  );
+  const ticketReviewRows = useMemo((): TicketReviewRow[] => {
+    if (!hasValidatorContext || !validatorReviewActive) {
+      return [];
+    }
+
+    const findingsByRecordId = new Map<string, TicketSupportFinding[]>();
+    const actionableFindings = validationFindings.filter(
+      (finding) => finding.status === 'open' && finding.severity !== 'info',
+    );
+
+    for (const finding of actionableFindings) {
+      const evidence = evidenceByFindingId.get(finding.id) ?? [];
+      const matchedRecordIds = matchRecordIdsForFinding({
+        finding,
+        evidence,
+        indexes: recordIndexes,
+      });
+
+      for (const recordId of matchedRecordIds) {
+        const existing = findingsByRecordId.get(recordId) ?? [];
+        existing.push({ finding, evidence });
+        findingsByRecordId.set(recordId, existing);
+      }
+    }
+
+    return records.map((record) => {
+      const matchedFindings = [...(findingsByRecordId.get(record.id) ?? [])]
+        .sort(compareTicketSupportFindings);
+      const primaryFinding = matchedFindings[0]?.finding ?? null;
+      const status = matchedFindings.some(
+        (entry) => findingStatus(entry.finding) === 'requires_verification',
+      )
+        ? 'requires_verification'
+        : matchedFindings.length > 0
+          ? 'needs_review'
+          : 'supported';
+
+      return {
+        record,
+        status,
+        findings: matchedFindings,
+        primaryFinding,
+        varianceText:
+          primaryFinding?.variance != null
+            ? formatFindingVariance(primaryFinding)
+            : formatVarianceFromFindings(matchedFindings.map((entry) => entry.finding)),
+        reason: primaryFinding
+          ? summarizeFindingReason(primaryFinding)
+          : 'Supported by the current validator run.',
+        nextStep: primaryFinding ? findingNextAction(primaryFinding) : 'Continue workflow',
+      };
+    });
+  }, [
+    evidenceByFindingId,
+    hasValidatorContext,
+    validatorReviewActive,
+    recordIndexes,
+    records,
+    validationFindings,
+  ]);
+  const reviewRowsById = useMemo(
+    () => new Map(ticketReviewRows.map((row) => [row.record.id, row] as const)),
+    [ticketReviewRows],
+  );
+  const billedTicketReviewRows = useMemo(
+    () => ticketReviewRows.filter((row) => normalizeLookupValue(row.record.invoice_number) != null),
+    [ticketReviewRows],
+  );
+  const supportedTicketRows = useMemo(
+    () => billedTicketReviewRows.filter((row) => row.status === 'supported'),
+    [billedTicketReviewRows],
+  );
+  const atRiskRows = useMemo(
+    () => [...billedTicketReviewRows.filter((row) => row.status === 'needs_review')].sort(compareTicketReviewRows),
+    [billedTicketReviewRows],
+  );
+  const requiresVerificationRows = useMemo(
+    () => [...billedTicketReviewRows.filter((row) => row.status === 'requires_verification')].sort(compareTicketReviewRows),
+    [billedTicketReviewRows],
+  );
+  const transactionAtRiskRows = useMemo(() => {
+    return outlierRows
+      .map((outlier) => {
+        const record = recordIndexes.byId.get(outlier.record_id);
+        if (!record || normalizeLookupValue(record.invoice_number) == null) {
+          return null;
+        }
+
+        const existingReview = reviewRowsById.get(record.id);
+        if (existingReview && existingReview.status !== 'supported') {
+          return existingReview;
+        }
+
+        return {
+          record,
+          status: 'needs_review' as const,
+          findings: [],
+          primaryFinding: null,
+          varianceText: '-',
+          reason: outlier.reasons[0] ?? 'Transaction review flagged this ticket.',
+          nextStep: 'Review supporting evidence',
+        };
+      })
+      .filter((row): row is TicketReviewRow => row != null)
+      .sort(compareTicketReviewRows);
+  }, [outlierRows, recordIndexes, reviewRowsById]);
+  const rateCodeSupportRows = useMemo(() => {
+    if (!hasValidatorContext || !validatorReviewActive) return [];
+
+    const grouped = new Map<string, string[]>();
+    const labels = new Map<string, string>();
+
+    for (const record of records) {
+      const key = normalizeLookupValue(record.rate_code) ?? '__missing_rate_code__';
+      const existing = grouped.get(key) ?? [];
+      existing.push(record.id);
+      grouped.set(key, existing);
+      if (!labels.has(key)) {
+        labels.set(key, record.rate_code?.trim() || '(unset)');
+      }
+    }
+
+    return [...grouped.entries()]
+      .map(([key, recordIds]) => buildSupportGroupRow({
+        key: `rate:${key}`,
+        label: labels.get(key),
+        recordIds,
+        reviewById: reviewRowsById,
+      }))
+      .filter((row): row is TicketSupportGroupRow => row != null)
+      .sort((left, right) => {
+        const statusDifference = supportStatusRank(right.status) - supportStatusRank(left.status);
+        if (statusDifference !== 0) return statusDifference;
+        if (right.unsupportedQty !== left.unsupportedQty) {
+          return right.unsupportedQty - left.unsupportedQty;
+        }
+        return left.label.localeCompare(right.label, 'en-US');
+      });
+  }, [hasValidatorContext, validatorReviewActive, records, reviewRowsById]);
+  const serviceItemSupportRows = useMemo(() => {
+    if (!hasValidatorContext || !validatorReviewActive) return [];
+
+    return groupedByServiceItem
+      .map((group, index) => buildSupportGroupRow({
+        key: `service_item:${group.service_item ?? 'unset'}:${index}`,
+        label: group.service_item,
+        recordIds: group.record_ids,
+        reviewById: reviewRowsById,
+      }))
+      .filter((row): row is TicketSupportGroupRow => row != null)
+      .sort((left, right) => {
+        const statusDifference = supportStatusRank(right.status) - supportStatusRank(left.status);
+        if (statusDifference !== 0) return statusDifference;
+        if (right.unsupportedQty !== left.unsupportedQty) {
+          return right.unsupportedQty - left.unsupportedQty;
+        }
+        return left.label.localeCompare(right.label, 'en-US');
+      });
+  }, [groupedByServiceItem, hasValidatorContext, validatorReviewActive, reviewRowsById]);
+  const materialSupportRows = useMemo(() => {
+    if (!hasValidatorContext || !validatorReviewActive) return [];
+
+    return groupedByMaterial
+      .map((group, index) => buildSupportGroupRow({
+        key: `material:${group.material ?? 'unset'}:${index}`,
+        label: group.material,
+        recordIds: group.record_ids,
+        reviewById: reviewRowsById,
+      }))
+      .filter((row): row is TicketSupportGroupRow => row != null)
+      .sort((left, right) => {
+        const statusDifference = supportStatusRank(right.status) - supportStatusRank(left.status);
+        if (statusDifference !== 0) return statusDifference;
+        if (right.unsupportedQty !== left.unsupportedQty) {
+          return right.unsupportedQty - left.unsupportedQty;
+        }
+        return left.label.localeCompare(right.label, 'en-US');
+      });
+  }, [groupedByMaterial, hasValidatorContext, validatorReviewActive, reviewRowsById]);
+  const siteSupportRows = useMemo(() => {
+    if (!hasValidatorContext || !validatorReviewActive) return [];
+
+    return groupedByDisposalSite
+      .map((group, index) => buildSupportGroupRow({
+        key: `site:${group.disposal_site ?? 'unset'}:${index}`,
+        label: group.disposal_site,
+        recordIds: group.record_ids,
+        reviewById: reviewRowsById,
+      }))
+      .filter((row): row is TicketSupportGroupRow => row != null)
+      .sort((left, right) => {
+        const statusDifference = supportStatusRank(right.status) - supportStatusRank(left.status);
+        if (statusDifference !== 0) return statusDifference;
+        if (right.unsupportedQty !== left.unsupportedQty) {
+          return right.unsupportedQty - left.unsupportedQty;
+        }
+        return left.label.localeCompare(right.label, 'en-US');
+      });
+  }, [groupedByDisposalSite, hasValidatorContext, validatorReviewActive, reviewRowsById]);
+  const missingRateMappingCount = useMemo(
+    () => records.filter((record) => normalizeLookupValue(record.rate_code) == null).length,
+    [records],
+  );
+  const missingInvoiceMatchCount = useMemo(() => {
+    const recordIds = new Set<string>();
+
+    for (const record of records) {
+      if (normalizeLookupValue(record.invoice_number) == null) {
+        recordIds.add(record.id);
+      }
+    }
+
+    for (const row of ticketReviewRows) {
+      if (row.findings.some((entry) => isInvoiceRelatedFinding(entry.finding))) {
+        recordIds.add(row.record.id);
+      }
+    }
+
+    return recordIds.size;
+  }, [records, ticketReviewRows]);
+  const ticketsExceedingContractCount = useMemo(() => {
+    const recordIds = new Set<string>();
+
+    for (const row of ticketReviewRows) {
+      if (row.findings.some((entry) => isContractRelatedFinding(entry.finding))) {
+        recordIds.add(row.record.id);
+      }
+    }
+
+    return recordIds.size;
+  }, [ticketReviewRows]);
+  const newTicketsSinceLastValidationCount = useMemo(() => {
+    if (records.length === 0) return 0;
+    if (!lastValidatedAt) return records.length;
+
+    const lastValidationValue = parseComparableDate(lastValidatedAt);
+    if (lastValidationValue == null) return records.length;
+
+    return records.filter((record) => {
+      const invoiceDate = parseComparableDate(record.invoice_date);
+      return invoiceDate != null && invoiceDate > lastValidationValue;
+    }).length;
+  }, [lastValidatedAt, records]);
 
   const criticalOutliers = outlierRows.filter((r) => r.severity === 'critical');
   const warningOutliers = outlierRows.filter((r) => r.severity === 'warning');
 
+  const hasTransactionGroupingTables =
+    groupedByRateCode.length > 0 ||
+    groupedByServiceItem.length > 0 ||
+    groupedByMaterial.length > 0 ||
+    groupedBySiteType.length > 0 ||
+    groupedByDisposalSite.length > 0;
   const hasGroupedTables =
     groupedByServiceItem.length > 0 ||
     groupedByMaterial.length > 0 ||
     groupedBySiteType.length > 0 ||
     groupedByDisposalSite.length > 0;
+  const hasTransactionReviewOutputs =
+    hasTransactionGroupingTables ||
+    readiness != null ||
+    outlierRows.length > 0 ||
+    opsReviewBuckets.length > 0 ||
+    records.length > 0;
+  const hasCrossDocumentReview = crossDocumentComparisons.length > 0;
+  const hasValidatorGroupingTables =
+    rateCodeSupportRows.length > 0 ||
+    serviceItemSupportRows.length > 0 ||
+    materialSupportRows.length > 0 ||
+    siteSupportRows.length > 0;
+  const validatedSupportedAmount = validatorSnapshot.exposure?.totalTransactionSupportedAmount ?? null;
+  const validatedAtRiskAmount = validatorSnapshot.exposure?.totalAtRiskAmount ?? null;
+  const validatedRequiresVerificationAmount =
+    validatorSnapshot.exposure?.totalRequiresVerificationAmount ?? null;
+  const hasValidatedFinancialRollup =
+    validatedSupportedAmount != null ||
+    validatedAtRiskAmount != null ||
+    validatedRequiresVerificationAmount != null;
+  const financialSource: OperationalReviewSource | null =
+    hasValidatedFinancialRollup || hasValidatorContext || validationLoading
+      ? 'Validator'
+      : hasCrossDocumentReview
+        ? 'Cross-document review'
+        : hasTransactionReviewOutputs
+          ? 'Transaction review'
+          : null;
+  const groupingSource: OperationalReviewSource | null =
+    hasValidatorGroupingTables
+      ? 'Validator'
+      : hasTransactionGroupingTables
+        ? 'Transaction review'
+        : hasCrossDocumentReview
+          ? 'Cross-document review'
+          : hasValidatorContext
+            ? 'Validator'
+            : hasTransactionReviewOutputs
+              ? 'Transaction review'
+              : null;
+  const atRiskTableRows = atRiskRows.length > 0 ? atRiskRows : transactionAtRiskRows;
+  const atRiskSource: OperationalReviewSource | null =
+    atRiskRows.length > 0
+      ? 'Validator'
+      : transactionAtRiskRows.length > 0
+        ? 'Transaction review'
+        : actionableCrossDocumentComparisons.length > 0
+          ? 'Cross-document review'
+          : hasValidatorContext
+            ? 'Validator'
+            : hasTransactionReviewOutputs
+              ? 'Transaction review'
+              : null;
+  const requiresVerificationSource: OperationalReviewSource | null =
+    requiresVerificationRows.length > 0
+      ? 'Validator'
+      : actionableCrossDocumentComparisons.length > 0
+        ? 'Cross-document review'
+        : hasValidatorContext
+          ? 'Validator'
+          : hasTransactionReviewOutputs
+            ? 'Transaction review'
+            : null;
+  const dailyReviewSource: OperationalReviewSource | null =
+    hasValidatorContext &&
+    validatorReviewActive &&
+    (lastValidatedAt != null ||
+      missingInvoiceMatchCount > 0 ||
+      ticketsExceedingContractCount > 0)
+      ? 'Validator'
+      : hasTransactionReviewOutputs
+        ? 'Transaction review'
+        : hasCrossDocumentReview
+          ? 'Cross-document review'
+          : null;
+
+  const operationalFinancialBlocked =
+    stageTwoGateActive && !stageTwoAllowed && !validationLoading;
+
+  const hadValidatorRunForLifecycle =
+    validationSummaryRaw != null || validationFindings.length > 0;
+  const stage1Lifecycle = deriveSpreadsheetValidatorLifecycle({
+    validationStatus,
+    unresolvedActionableCount: unresolvedStage1Findings.length,
+    hadValidatorRun: hadValidatorRunForLifecycle,
+  });
+  const failedChecksCount = validationFindings.filter(
+    (f) => f.status === 'open' && f.severity !== 'info',
+  ).length;
+  const flaggedItemsCount = validationFindings.filter(
+    (f) => f.status === 'open' && f.severity === 'info',
+  ).length;
+  const overridesAppliedCount =
+    projectId && documentId
+      ? Object.keys(overrideStore.byCheck).length + Object.keys(overrideStore.byTicket).length
+      : 0;
+  const stage1LastRunLabel = formatDateTime(validatorSnapshot.lastRunAt ?? validationLastRunAt);
 
   // Conditional display flags for ops overview stats
   const hasEligibilityData = ops
@@ -466,9 +1615,78 @@ export function TransactionDataSurface({ extraction }: { extraction: Transaction
   // Derived dataset summary descriptor
   const summaryLine = buildDatasetSummaryLine(extraction);
   const reviewedSheets = ops?.reviewed_sheet_names ?? extraction.sheetNames ?? [];
+  const supportedAmount = validatedSupportedAmount;
+  const atRiskAmount = validatedAtRiskAmount;
+  const requiresVerificationAmount = validatedRequiresVerificationAmount;
+  const supportedValue = supportedAmount != null ? fmt$(supportedAmount) : 'Awaiting validated support';
+  const atRiskValue = atRiskAmount != null ? fmt$(atRiskAmount) : 'Awaiting at-risk calculation';
+  const requiresVerificationValue =
+    requiresVerificationAmount != null
+      ? fmt$(requiresVerificationAmount)
+      : 'Awaiting verification rollup';
+  const atRiskMessage =
+    atRiskAmount === 0
+      ? 'No at-risk tickets were identified for this document.'
+      : 'At-risk ticket review is not available yet for this document.';
+  const requiresVerificationMessage =
+    requiresVerificationAmount === 0
+      ? 'No tickets currently require verification.'
+      : 'Verification ticket review is not available yet for this document.';
+  const validatorHref =
+    projectId && projectId.trim().length > 0
+      ? `/platform/workspace/projects/${encodeURIComponent(projectId)}?tab=validator`
+      : null;
 
   return (
     <section className="space-y-4">
+      {projectId ? (
+        <div className="overflow-hidden rounded-2xl border border-[#2A3550] bg-[#08101D] px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
+                Stage 1 · Project Validator
+              </p>
+              <p className="mt-1 text-[13px] font-semibold text-[#E5EDF7]">
+                {STAGE1_STATUS_LABEL[stage1Lifecycle]}
+                {validationLoading ? (
+                  <span className="ml-2 text-[10px] font-normal text-[#5A7090]">Updating…</span>
+                ) : null}
+              </p>
+            </div>
+            {validatorHref ? (
+              <Link
+                href={validatorHref}
+                className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD] hover:underline"
+              >
+                Open validator
+              </Link>
+            ) : (
+              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5A7090]">
+                Open validator
+              </span>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#8FA1BC]">
+            <span>
+              Last run:{' '}
+              <span className="font-medium tabular-nums text-[#E5EDF7]">{stage1LastRunLabel}</span>
+            </span>
+            <span>
+              Failed checks:{' '}
+              <span className="font-medium tabular-nums text-[#E5EDF7]">{fmtNum(failedChecksCount)}</span>
+            </span>
+            <span>
+              Flagged:{' '}
+              <span className="font-medium tabular-nums text-[#E5EDF7]">{fmtNum(flaggedItemsCount)}</span>
+            </span>
+            <span>
+              Overrides:{' '}
+              <span className="font-medium tabular-nums text-[#E5EDF7]">{fmtNum(overridesAppliedCount)}</span>
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       {/* ── 1. Project Operations Overview ─────────────────────────────────── */}
       <div className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
         <div className="border-b border-white/8 px-5 py-4">
@@ -585,6 +1803,238 @@ export function TransactionDataSurface({ extraction }: { extraction: Transaction
       </div>
 
       {/* ── 2. Invoice Readiness Summary ───────────────────────────────────── */}
+      <div className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+        <div className="border-b border-white/8 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+            Operational Review
+          </p>
+          <h3 className="mt-2 text-base font-semibold text-[#F5F7FA]">
+            Financial Support Summary
+          </h3>
+          <p className="mt-1 text-[12px] text-[#8FA1BC]">
+            Review ticket support, billed exposure, and validator-backed blockers before approval.
+          </p>
+          {financialSource ? <OperationalSourceLine source={financialSource} /> : null}
+        </div>
+
+        <div className="px-5 py-4">
+          {validationError ? (
+            <p className="mb-4 rounded-xl border border-red-500/20 bg-red-500/[0.04] px-4 py-3 text-[12px] text-red-200">
+              {validationError}
+            </p>
+          ) : null}
+          {operationalFinancialBlocked ? (
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3 text-[12px] leading-relaxed text-amber-50">
+              <p className="font-semibold text-amber-100">Stage 2 Blocked — Complete Stage 1 Validator</p>
+              <p className="mt-2 text-[#E7E1D8]">
+                Resolve open validator checks in Stage 1 (or document approved overrides in Fact Workspace) to unlock invoice support review below.
+                {unresolvedStage1Findings.length > 0
+                  ? ` ${unresolvedStage1Findings.length} unresolved check${unresolvedStage1Findings.length !== 1 ? 's' : ''} remain.`
+                  : ''}
+              </p>
+              {projectId ? (
+                validatorHref ? (
+                  <Link
+                    href={validatorHref}
+                    className="mt-3 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#FDE68A] hover:underline"
+                  >
+                    Open project validator
+                  </Link>
+                ) : (
+                  <span className="mt-3 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5A7090]">
+                    Open project validator
+                  </span>
+                )
+              ) : null}
+            </div>
+          ) : financialSource ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <StatCard
+                label="Total Billed Supported"
+                value={supportedValue}
+                sub={supportedAmount != null ? `${fmtNum(supportedTicketRows.length)} ticket${supportedTicketRows.length !== 1 ? 's' : ''} supporting billing` : undefined}
+                tone="green"
+              />
+              <StatCard
+                label="Total At Risk"
+                value={atRiskValue}
+                sub={atRiskAmount != null ? `${fmtNum(atRiskTableRows.length)} ticket${atRiskTableRows.length !== 1 ? 's' : ''} at risk` : undefined}
+                tone="amber"
+              />
+              <StatCard
+                label="Total Requires Verification"
+                value={requiresVerificationValue}
+                sub={requiresVerificationAmount != null ? `${fmtNum(requiresVerificationRows.length)} ticket${requiresVerificationRows.length !== 1 ? 's' : ''} requiring verification` : undefined}
+                tone="red"
+              />
+            </div>
+          ) : (
+            <p className="text-[12px] text-[#8FA1BC]">
+              Financial support review is not available yet for this document.
+            </p>
+          )}
+
+          {hasValidatorContext && !validationLoading && !validationError ? (
+            <p className="mt-4 text-[11px] text-[#7F90AA]">
+              Last validation: {formatDateTime(lastValidatedAt)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+        <div className="border-b border-white/8 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+            Ticket Support Grouping
+          </p>
+          <h3 className="mt-2 text-base font-semibold text-[#F5F7FA]">
+            Support by Rate, Service, Material, and Site
+          </h3>
+          {groupingSource ? <OperationalSourceLine source={groupingSource} /> : null}
+        </div>
+
+        {hasValidatorGroupingTables ? (
+          <div className="divide-y divide-white/8">
+            <div className="px-5 py-4">
+              <SectionHeader
+                label="By Rate Code"
+                sub="Supported and unsupported quantities are grouped from the validator-backed ticket review state."
+              />
+              <TicketSupportGroupingTable label="Rate Code" rows={rateCodeSupportRows} />
+            </div>
+            <div className="px-5 py-4">
+              <SectionHeader label="By Service Item" />
+              <TicketSupportGroupingTable label="Service Item" rows={serviceItemSupportRows} />
+            </div>
+            <div className="px-5 py-4">
+              <SectionHeader label="By Material" />
+              <TicketSupportGroupingTable label="Material" rows={materialSupportRows} />
+            </div>
+            <div className="px-5 py-4">
+              <SectionHeader label="By Site" />
+              <TicketSupportGroupingTable label="Site" rows={siteSupportRows} />
+            </div>
+          </div>
+        ) : hasTransactionGroupingTables ? (
+          <div className="divide-y divide-white/8">
+            {groupedByRateCode.length > 0 ? (
+              <div className="px-5 py-4">
+                <SectionHeader label="By Rate Code" />
+                <RateCodeTable rows={groupedByRateCode} />
+              </div>
+            ) : null}
+            {groupedByServiceItem.length > 0 ? (
+              <div className="px-5 py-4">
+                <SectionHeader label="By Service Item" />
+                <ServiceItemTable rows={groupedByServiceItem} />
+              </div>
+            ) : null}
+            {groupedByMaterial.length > 0 ? (
+              <div className="px-5 py-4">
+                <SectionHeader label="By Material" />
+                <MaterialTable rows={groupedByMaterial} />
+              </div>
+            ) : null}
+            {groupedByDisposalSite.length > 0 ? (
+              <div className="px-5 py-4">
+                <SectionHeader label="By Site" />
+                <DisposalSiteTable rows={groupedByDisposalSite} />
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <p className="text-[12px] text-[#8FA1BC]">
+              Support grouping is not available yet for this document.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-amber-500/20 bg-[#08101D]">
+        <div className="border-b border-white/8 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300">
+            At-Risk Tickets
+          </p>
+          <h3 className="mt-2 text-base font-semibold text-[#F5F7FA]">
+            Tickets Contributing to At-Risk Amount
+          </h3>
+          {atRiskSource ? <OperationalSourceLine source={atRiskSource} /> : null}
+        </div>
+        <div className="px-5 py-4">
+          {atRiskTableRows.length > 0 ? (
+            <TicketReviewTable rows={atRiskTableRows} emptyMessage={atRiskMessage} />
+          ) : (
+            <p className="text-[12px] text-[#8FA1BC]">
+              {atRiskMessage}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-red-500/20 bg-[#08101D]">
+        <div className="border-b border-white/8 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-red-300">
+            Requires Verification
+          </p>
+          <h3 className="mt-2 text-base font-semibold text-[#F5F7FA]">
+            Tickets Requiring Verification
+          </h3>
+          {requiresVerificationSource ? <OperationalSourceLine source={requiresVerificationSource} /> : null}
+        </div>
+        <div className="px-5 py-4">
+          {requiresVerificationRows.length > 0 ? (
+            <TicketReviewTable rows={requiresVerificationRows} emptyMessage={requiresVerificationMessage} />
+          ) : (
+            <p className="text-[12px] text-[#8FA1BC]">
+              {requiresVerificationMessage}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+        <div className="border-b border-white/8 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+            Daily Review Bucket
+          </p>
+          <h3 className="mt-2 text-base font-semibold text-[#F5F7FA]">
+            What Requires Review Today
+          </h3>
+          {dailyReviewSource ? <OperationalSourceLine source={dailyReviewSource} /> : null}
+        </div>
+        {dailyReviewSource ? (
+          <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="New Tickets Since Last Validation"
+              value={fmtNum(newTicketsSinceLastValidationCount)}
+              tone="sky"
+            />
+            <StatCard
+              label="Missing Rate Mapping"
+              value={fmtNum(missingRateMappingCount)}
+              tone={missingRateMappingCount > 0 ? 'amber' : 'default'}
+            />
+            <StatCard
+              label="Missing Invoice Match"
+              value={fmtNum(missingInvoiceMatchCount)}
+              tone={missingInvoiceMatchCount > 0 ? 'amber' : 'default'}
+            />
+            <StatCard
+              label="Tickets Exceeding Contract"
+              value={fmtNum(ticketsExceedingContractCount)}
+              tone={ticketsExceedingContractCount > 0 ? 'red' : 'default'}
+            />
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <p className="text-[12px] text-[#8FA1BC]">
+              Daily review bucket is not available yet for this document.
+            </p>
+          </div>
+        )}
+      </div>
+
       {readiness ? (
         <div className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/8 px-5 py-4">

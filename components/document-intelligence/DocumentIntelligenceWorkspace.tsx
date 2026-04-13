@@ -8,9 +8,11 @@ import type {
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
 import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
+import { isSpreadsheetFileExtension } from '@/lib/spreadsheetDocumentReview';
 import { FactEvidencePanel } from '@/components/document-intelligence/FactEvidencePanel';
 import { FactLedger } from '@/components/document-intelligence/FactLedger';
 import { DocumentSourceViewer } from '@/components/document-intelligence/DocumentSourceViewer';
+import { SpreadsheetDatasetSummaryPanel } from '@/components/document-intelligence/SpreadsheetDatasetSummaryPanel';
 
 const RATE_SCHEDULE_FIELD_KEYS = new Set([
   'rate_schedule_present',
@@ -80,6 +82,8 @@ export function DocumentIntelligenceWorkspace({
   initialPage,
   navigationKey,
   variant = 'default',
+  projectId = null,
+  documentId = null,
 }: {
   model: DocumentIntelligenceViewModel;
   signedUrl: string | null;
@@ -124,12 +128,23 @@ export function DocumentIntelligenceWorkspace({
   initialPage?: number | null;
   navigationKey?: string | null;
   variant?: 'default' | 'workspace';
+  projectId?: string | null;
+  documentId?: string | null;
 }) {
   const [selectedFactId, setSelectedFactId] = useState<string | null>(model.defaultFactId);
   const [manualAnchorId, setManualAnchorId] = useState<string | null>(null);
   const [captureMode, setCaptureMode] = useState<DocumentAnchorCaptureMode | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const isWorkspace = variant === 'workspace';
+  const isSpreadsheetTicketSurface = Boolean(model.transactionDataExtraction);
+  /** Suppress non-PDF inline preview for ticket-query spreadsheets and other spreadsheet files (xlsx/xls/csv). */
+  const hideSpreadsheetFilePreview =
+    isSpreadsheetTicketSurface || isSpreadsheetFileExtension(fileExt);
+
+  const datasetSummaryBelowFilters =
+    isSpreadsheetTicketSurface && model.spreadsheetFactWorkspaceDatasetSummary && documentId ? (
+      <SpreadsheetDatasetSummaryPanel model={model} projectId={projectId} documentId={documentId} />
+    ) : null;
 
   const resolvedSelectedFactId = useMemo(() => {
     if (selectedFactId && model.factById.has(selectedFactId)) return selectedFactId;
@@ -235,7 +250,13 @@ export function DocumentIntelligenceWorkspace({
   if (isWorkspace) {
     return (
       <section className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#08101D]">
-        <div className="grid min-h-0 min-w-0 flex-1 gap-0 lg:grid-cols-[minmax(15rem,28%)_minmax(0,48%)_minmax(14rem,24%)]">
+        <div
+          className={
+            hideSpreadsheetFilePreview
+              ? 'grid min-h-0 min-w-0 flex-1 gap-0 lg:grid-cols-[minmax(15rem,34%)_minmax(0,1fr)]'
+              : 'grid min-h-0 min-w-0 flex-1 gap-0 lg:grid-cols-[minmax(15rem,28%)_minmax(0,48%)_minmax(14rem,24%)]'
+          }
+        >
           <aside className="min-h-0 border-r border-white/8 bg-[#09111F]">
             <FactLedger
               groups={model.groups}
@@ -243,30 +264,33 @@ export function DocumentIntelligenceWorkspace({
               selectedFactId={resolvedSelectedFactId}
               onSelectFact={handleSelectFact}
               variant="workspace"
+              belowFiltersSlot={datasetSummaryBelowFilters}
             />
           </aside>
 
-          <div className="min-h-0 min-w-0 border-r border-white/8 bg-[#050A14]">
-            <DocumentSourceViewer
-              signedUrl={signedUrl}
-              fileExt={fileExt}
-              filename={filename}
-              fact={selectedFact}
-              anchors={selectedFact?.anchors ?? []}
-              activeAnchor={activeAnchor}
-              pageMarkerCounts={model.pageMarkerCounts}
-              focusToken={focusToken}
-              captureMode={captureMode}
-              initialPage={initialPage ?? null}
-              navigationKey={navigationKey ?? null}
-              rateScheduleAnchor={model.rateScheduleAnchor}
-              rateSchedulePages={model.rateSchedulePages}
-              onCancelCapture={() => setCaptureMode(null)}
-              onCreateAnchor={handleCreateAnchor}
-              onCreateRateScheduleAnchor={handleCreateRateScheduleAnchor}
-              variant="workspace"
-            />
-          </div>
+          {hideSpreadsheetFilePreview ? null : (
+            <div className="min-h-0 min-w-0 border-r border-white/8 bg-[#050A14]">
+              <DocumentSourceViewer
+                signedUrl={signedUrl}
+                fileExt={fileExt}
+                filename={filename}
+                fact={selectedFact}
+                anchors={selectedFact?.anchors ?? []}
+                activeAnchor={activeAnchor}
+                pageMarkerCounts={model.pageMarkerCounts}
+                focusToken={focusToken}
+                captureMode={captureMode}
+                initialPage={initialPage ?? null}
+                navigationKey={navigationKey ?? null}
+                rateScheduleAnchor={model.rateScheduleAnchor}
+                rateSchedulePages={model.rateSchedulePages}
+                onCancelCapture={() => setCaptureMode(null)}
+                onCreateAnchor={handleCreateAnchor}
+                onCreateRateScheduleAnchor={handleCreateRateScheduleAnchor}
+                variant="workspace"
+              />
+            </div>
+          )}
 
           <aside className="min-h-0 bg-[#09111F]">
             <FactEvidencePanel
@@ -301,7 +325,9 @@ export function DocumentIntelligenceWorkspace({
               Structured facts with inspectable provenance
             </h3>
             <p className="mt-1 text-[12px] text-[#8FA1BC]">
-              The left pane is the machine-usable ledger. The right pane is the proof surface.
+              {hideSpreadsheetFilePreview
+                ? 'The ledger and evidence inspector below are the operational review surface for this spreadsheet. Use Open File in the document header to view the workbook.'
+                : 'The left pane is the machine-usable ledger. The right pane is the proof surface.'}
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-right">
@@ -319,13 +345,20 @@ export function DocumentIntelligenceWorkspace({
         </div>
       </div>
 
-      <div className="grid items-start gap-0 xl:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
+      <div
+        className={
+          hideSpreadsheetFilePreview
+            ? 'grid items-stretch gap-0'
+            : 'grid items-start gap-0 xl:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]'
+        }
+      >
         <div className="flex min-h-0 min-w-0 flex-col border-r border-white/8">
           <FactLedger
             groups={model.groups}
             documentFamily={model.family}
             selectedFactId={resolvedSelectedFactId}
             onSelectFact={handleSelectFact}
+            belowFiltersSlot={datasetSummaryBelowFilters}
           />
           <div className="shrink-0">
             <FactEvidencePanel
@@ -344,26 +377,28 @@ export function DocumentIntelligenceWorkspace({
           </div>
         </div>
 
-        <div className="min-w-0">
-          <DocumentSourceViewer
-            signedUrl={signedUrl}
-            fileExt={fileExt}
-            filename={filename}
-            fact={selectedFact}
-            anchors={selectedFact?.anchors ?? []}
-            activeAnchor={activeAnchor}
-            pageMarkerCounts={model.pageMarkerCounts}
-            focusToken={focusToken}
-            captureMode={captureMode}
-            initialPage={initialPage ?? null}
-            navigationKey={navigationKey ?? null}
-            rateScheduleAnchor={model.rateScheduleAnchor}
-            rateSchedulePages={model.rateSchedulePages}
-            onCancelCapture={() => setCaptureMode(null)}
-            onCreateAnchor={handleCreateAnchor}
-            onCreateRateScheduleAnchor={handleCreateRateScheduleAnchor}
-          />
-        </div>
+        {hideSpreadsheetFilePreview ? null : (
+          <div className="min-w-0">
+            <DocumentSourceViewer
+              signedUrl={signedUrl}
+              fileExt={fileExt}
+              filename={filename}
+              fact={selectedFact}
+              anchors={selectedFact?.anchors ?? []}
+              activeAnchor={activeAnchor}
+              pageMarkerCounts={model.pageMarkerCounts}
+              focusToken={focusToken}
+              captureMode={captureMode}
+              initialPage={initialPage ?? null}
+              navigationKey={navigationKey ?? null}
+              rateScheduleAnchor={model.rateScheduleAnchor}
+              rateSchedulePages={model.rateSchedulePages}
+              onCancelCapture={() => setCaptureMode(null)}
+              onCreateAnchor={handleCreateAnchor}
+              onCreateRateScheduleAnchor={handleCreateRateScheduleAnchor}
+            />
+          </div>
+        )}
       </div>
     </section>
   );

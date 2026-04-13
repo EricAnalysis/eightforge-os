@@ -84,7 +84,11 @@ export async function fetchClientDecisions(projectId: string): Promise<{
   const items: ClientDecisionItem[] = (rows ?? [])
     .filter((row) => VISIBLE_STATUSES.has(row.status))
     .map((row) => {
-      const clientStatus = operatorApprovalLabel(row.status);
+      // 'open' and 'in_review' are not in operatorApprovalLabel's status map —
+      // normalise them to 'needs_review' so the label resolves correctly.
+      const normalizedStatus =
+        row.status === 'open' || row.status === 'in_review' ? 'needs_review' : row.status;
+      const clientStatus = operatorApprovalLabel(normalizedStatus);
       const details = row.details as Record<string, unknown> | null;
       return {
         id: row.id,

@@ -305,6 +305,7 @@ export interface TransactionDataSiteMaterialGroup {
 }
 
 export interface TransactionDataRecord {
+  id: string;
   transaction_number: string | null;
   invoice_number: string | null;
   invoice_date: string | null;

@@ -57,7 +57,7 @@ export default function ReviewsPage() {
       {
         label: 'Open actions',
         value: operationalModel.intelligence.open_actions_count,
-        href: '/platform/workflows',
+        href: '/platform/decisions',
         tone: operationalModel.intelligence.open_actions_count > 0 ? 'warning' : 'success',
       },
       {
@@ -93,7 +93,7 @@ export default function ReviewsPage() {
         <div>
           <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Intelligence</h2>
           <p className="text-xs text-[#8B94A3]">
-            Diagnostic rollups from the same operational model powering Decision Queue and My Actions.
+            Diagnostic rollups from the same operational model powering Decision Queue and remediation.
           </p>
         </div>
       </section>

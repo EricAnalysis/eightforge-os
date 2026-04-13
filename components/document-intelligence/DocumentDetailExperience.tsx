@@ -43,6 +43,10 @@ function statusClass(status: string): string {
   switch (status) {
     case 'processing':
       return 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
+    case 'ready':
+      return 'bg-sky-500/20 text-sky-300 border border-sky-500/40';
+    case 'needs_review':
+      return 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
     case 'extracted':
       return 'bg-sky-500/20 text-sky-300 border border-sky-500/40';
     case 'decisioned':
@@ -66,6 +70,7 @@ export function DocumentDetailExperience({
   breadcrumbs,
   contextLabel,
   contextDescription,
+  projectId,
   projectName,
   documentType,
   displayTitle,
@@ -120,6 +125,7 @@ export function DocumentDetailExperience({
   breadcrumbs: BreadcrumbItem[];
   contextLabel: string;
   contextDescription: string;
+  projectId: string | null;
   projectName: string | null;
   documentType: string | null;
   displayTitle: string;
@@ -211,7 +217,8 @@ export function DocumentDetailExperience({
     processedAt != null ||
     decisionsGeneratedAt != null ||
     tasksCreatedAt != null;
-  const hasRightRail = comparisons.length > 0 || suggestedQuestions.length > 0;
+  const hasRightRail = comparisons.length > 0;
+  const showAskThisDocument = suggestedQuestions.length > 0;
 
   return (
     <div className="space-y-5">
@@ -410,6 +417,10 @@ export function DocumentDetailExperience({
         </div>
       </section>
 
+      {showAskThisDocument ? (
+        <AskDocumentSection questions={suggestedQuestions} documentId={documentId} />
+      ) : null}
+
       {processingStatusNode}
 
       {hasIntelligenceWorkspace && intelligenceViewModel ? (
@@ -422,7 +433,12 @@ export function DocumentDetailExperience({
             <InvoiceSurface extraction={intelligenceViewModel.invoiceExtraction} />
           ) : null}
           {intelligenceViewModel.transactionDataExtraction ? (
-            <TransactionDataSurface extraction={intelligenceViewModel.transactionDataExtraction} />
+            <TransactionDataSurface
+              extraction={intelligenceViewModel.transactionDataExtraction}
+              projectId={projectId}
+              documentId={documentId}
+              comparisons={comparisons}
+            />
           ) : null}
 
           {/* Fact workspace — always available as evidence drilldown for all document types */}
@@ -439,6 +455,8 @@ export function DocumentDetailExperience({
             onSaveFactReview={onSaveFactReview}
             onSaveFactAnchor={onSaveFactAnchor}
             onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
+            projectId={projectId}
+            documentId={documentId}
           />
         </>
       ) : (
@@ -472,7 +490,6 @@ export function DocumentDetailExperience({
           <ReviewSection documentId={documentId} orgId={orgId} />
           <div className="space-y-4">
             {comparisons.length > 0 ? <CrossDocChecks comparisons={comparisons} /> : null}
-            <AskDocumentSection questions={suggestedQuestions} documentId={documentId} />
           </div>
         </section>
       ) : (

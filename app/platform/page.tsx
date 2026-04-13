@@ -6,9 +6,8 @@ import {
   DecisionQueue,
   FloatingCommandBar,
   IntelligenceInsightCard,
-  IntegrityAuditPanel,
-  MyActionsPanel,
   ProjectsPanel,
+  QueueTrustStrip,
   StatusStrip,
   type ActionListItem,
   type DecisionQueueItem,
@@ -22,8 +21,25 @@ import { buildOperatorGraphData } from '@/lib/operatorGraph';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
 import { OperatorGraphPanel } from '@/components/platform/OperatorGraphPanel';
+import { AskOperationsSection } from '@/components/platform/AskOperationsSection';
 
 type Tone = 'brand' | 'success' | 'warning' | 'danger' | 'info' | 'muted';
+
+function buildProjectTabHref(params: {
+  projectId: string;
+  hash: '#project-decisions' | '#project-actions' | '#project-documents';
+  query?: Record<string, string | number | boolean | null | undefined>;
+}): string {
+  const base = `/platform/projects/${params.projectId}`;
+  const queryEntries = Object.entries(params.query ?? {}).filter(([, value]) => value != null);
+  if (queryEntries.length === 0) return `${base}${params.hash}`;
+
+  const search = new URLSearchParams();
+  for (const [key, value] of queryEntries) {
+    search.set(key, String(value));
+  }
+  return `${base}?${search.toString()}${params.hash}`;
+}
 
 function humanize(value: string | null | undefined): string {
   if (!value) return 'Unknown';
@@ -445,6 +461,8 @@ export default function PlatformDashboardPage() {
         lastSyncLabel={buildLastSyncLabel(operationalModel?.generated_at)}
       />
 
+      <AskOperationsSection operationalModel={operationalModel ?? null} loading={isLoading} />
+
       {error ? (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
           <p className="text-[11px] font-medium text-red-300">{error}</p>
@@ -490,30 +508,6 @@ export default function PlatformDashboardPage() {
 
       <OperatorGraphPanel data={operatorGraph} />
 
-      <section className="grid gap-6 xl:grid-cols-[0.92fr,1.3fr,0.9fr] xl:items-start">
-        <div className="space-y-6">
-          <ProjectsPanel
-            items={projectItems}
-            loading={isLoading}
-          />
-          <IntegrityAuditPanel summary={integritySummary} />
-        </div>
-
-        <DecisionQueue
-          items={decisionItems}
-          criticalCount={criticalDecisionCount}
-          loading={isLoading}
-        />
-
-        <div className="space-y-6">
-          <MyActionsPanel
-            items={actionItems}
-            loading={isLoading}
-          />
-          <IntelligenceInsightCard insight={intelligenceInsight} />
-        </div>
-      </section>
-
       <section className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
         <section className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-5 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -544,11 +538,15 @@ export default function PlatformDashboardPage() {
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {operationalModel.project_rollups.slice(0, 4).map((item) => (
-                <Link
+                <div
                   key={item.project.id}
-                  href={item.href}
-                  className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] p-4 transition hover:bg-[#1A2333]"
+                  className="relative rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] p-4 transition hover:bg-[#1A2333]"
                 >
+                  <Link
+                    href={item.href}
+                    aria-label={`Open ${item.project.name}`}
+                    className="absolute inset-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
+                  />
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-medium text-[#E5EDF7]">
@@ -560,80 +558,128 @@ export default function PlatformDashboardPage() {
                         </p>
                       ) : null}
                     </div>
-                    <span className={`rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${
-                      item.rollup.status.key === 'blocked'
-                        ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                        : item.rollup.status.key === 'needs_review' || item.rollup.status.key === 'attention_required'
-                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-                          : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                    }`}>
+                    <span
+                      className={`rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${
+                        item.rollup.status.key === 'blocked'
+                          ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                          : item.rollup.status.key === 'needs_review' ||
+                              item.rollup.status.key === 'attention_required'
+                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      }`}
+                    >
                       {item.rollup.status.label}
                     </span>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">
+                  <div className="relative z-10 mt-4 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">
                     <div className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2">
                       {item.rollup.unresolved_finding_count} findings
                     </div>
-                    <div className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2">
+                    <Link
+                      href={buildProjectTabHref({
+                        projectId: item.project.id,
+                        hash: '#project-actions',
+                      })}
+                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
+                    >
                       {item.rollup.open_document_action_count} actions
-                    </div>
-                    <div className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2">
-                      {item.rollup.needs_review_document_count} review
-                    </div>
-                    <div className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2">
+                    </Link>
+                    <Link
+                      href={buildProjectTabHref({
+                        projectId: item.project.id,
+                        hash: '#project-documents',
+                      })}
+                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
+                    >
+                      {item.rollup.needs_review_document_count} docs
+                    </Link>
+                    <Link
+                      href={buildProjectTabHref({
+                        projectId: item.project.id,
+                        hash: '#project-decisions',
+                        query: { filter: 'blocked' },
+                      })}
+                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
+                    >
                       {item.rollup.blocked_count} blocked
-                    </div>
+                    </Link>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           )}
         </section>
 
         <section className="space-y-4">
-          <DiagnosticLink
-            label="Low Trust Surface"
-            value={isLoading ? 0 : counts.lowTrust}
-            detail={
-              isLoading
-                ? 'Loading extraction trust diagnostics...'
-                : counts.lowTrust > 0
-                  ? `${counts.lowTrust} document${counts.lowTrust === 1 ? '' : 's'} still depend on lower-trust extraction modes.`
-                  : 'No low-trust extraction documents are active in the current workspace view.'
-            }
-            href="/platform/reviews#low-trust"
-            tone={!isLoading && counts.lowTrust > 0 ? 'warning' : 'success'}
-          />
+          {!isLoading &&
+          counts.lowTrust === 0 &&
+          counts.feedbackExceptions === 0 &&
+          counts.hiddenRows === 0 ? (
+            <div className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-4 text-[12px] text-[#C7D2E3] shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
+              No trust issues detected in current workspace
+            </div>
+          ) : (
+            <>
+              {isLoading || counts.lowTrust > 0 ? (
+                <DiagnosticLink
+                  label="Low Trust Surface"
+                  value={isLoading ? 0 : counts.lowTrust}
+                  detail={
+                    isLoading
+                      ? 'Loading extraction trust diagnostics...'
+                      : `${counts.lowTrust} document${counts.lowTrust === 1 ? '' : 's'} still depend on lower-trust extraction modes.`
+                  }
+                  href="/platform/reviews#low-trust"
+                  tone={!isLoading && counts.lowTrust > 0 ? 'warning' : 'success'}
+                />
+              ) : null}
 
-          <DiagnosticLink
-            label="Feedback Exceptions"
-            value={isLoading ? 0 : counts.feedbackExceptions}
-            detail={
-              isLoading
-                ? 'Loading feedback diagnostics...'
-                : counts.feedbackExceptions > 0
-                  ? `${counts.feedbackExceptions} recent feedback exception${counts.feedbackExceptions === 1 ? '' : 's'} need follow-up.`
-                  : 'No recent feedback exceptions are currently recorded.'
-            }
-            href="/platform/reviews"
-            tone={!isLoading && counts.feedbackExceptions > 0 ? 'danger' : 'info'}
-          />
+              {isLoading || counts.feedbackExceptions > 0 ? (
+                <DiagnosticLink
+                  label="Feedback Exceptions"
+                  value={isLoading ? 0 : counts.feedbackExceptions}
+                  detail={
+                    isLoading
+                      ? 'Loading feedback diagnostics...'
+                      : `${counts.feedbackExceptions} recent feedback exception${counts.feedbackExceptions === 1 ? '' : 's'} need follow-up.`
+                  }
+                  href="/platform/reviews"
+                  tone={!isLoading && counts.feedbackExceptions > 0 ? 'danger' : 'info'}
+                />
+              ) : null}
 
-          <DiagnosticLink
-            label="Filtered Stale Rows"
-            value={isLoading ? 0 : counts.hiddenRows}
-            detail={
-              isLoading
-                ? 'Loading queue hygiene diagnostics...'
-                : counts.hiddenRows > 0
-                  ? `${counts.hiddenRows} superseded generated row${counts.hiddenRows === 1 ? '' : 's'} are hidden from the active queue.`
-                  : 'No superseded generated rows are currently being filtered out of the live workspace.'
-            }
-            href="/platform/reviews"
-            tone={!isLoading && counts.hiddenRows > 0 ? 'brand' : 'muted'}
-          />
+              {isLoading || counts.hiddenRows > 0 ? (
+                <DiagnosticLink
+                  label="Filtered Stale Rows"
+                  value={isLoading ? 0 : counts.hiddenRows}
+                  detail={
+                    isLoading
+                      ? 'Loading queue hygiene diagnostics...'
+                      : `${counts.hiddenRows} superseded generated row${counts.hiddenRows === 1 ? '' : 's'} are hidden from the active queue.`
+                  }
+                  href="/platform/reviews"
+                  tone={!isLoading && counts.hiddenRows > 0 ? 'brand' : 'muted'}
+                />
+              ) : null}
+            </>
+          )}
         </section>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.3fr,0.9fr] xl:items-start">
+        <div className="space-y-3">
+          <QueueTrustStrip summary={integritySummary} />
+          <DecisionQueue
+            items={decisionItems}
+            criticalCount={criticalDecisionCount}
+            loading={isLoading}
+          />
+        </div>
+
+        <div className="space-y-6">
+          <IntelligenceInsightCard insight={intelligenceInsight} />
+        </div>
       </section>
 
       {organization && (

@@ -9,21 +9,11 @@ import {
 import type { ValidationCategory, ValidationEvidence, ValidationFinding, ValidationSeverity } from '@/types/validator';
 import { getEvidenceDocumentUrl } from '@/lib/validator/evidenceNavigation';
 
-type DrawerAction =
-  | 'create_decision'
-  | 'create_action'
-  | 'resolve'
-  | 'dismiss'
-  | 'mute'
-  | 'view_document';
-
 type ValidatorEvidenceDrawerProps = {
   finding: ValidationFinding | null;
   evidence: ValidationEvidence[];
   loading: boolean;
-  notice: string | null;
   onClose: () => void;
-  onPlaceholderAction: (action: DrawerAction, finding: ValidationFinding) => void;
 };
 
 const CATEGORY_LABELS: Record<ValidationCategory, string> = {
@@ -184,38 +174,11 @@ function EvidenceCard({
   );
 }
 
-function DrawerButton({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`rounded-sm border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
-        disabled
-          ? 'cursor-not-allowed border-[#2F3B52]/50 bg-[#0F172A] text-[#5B6B82]'
-          : 'border-[#2F3B52] bg-[#111827] text-[#E5EDF7] hover:border-[#3B82F6] hover:text-[#3B82F6]'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
 export function ValidatorEvidenceDrawer({
   finding,
   evidence,
   loading,
-  notice,
   onClose,
-  onPlaceholderAction,
 }: ValidatorEvidenceDrawerProps) {
   if (!finding) {
     return (
@@ -227,7 +190,7 @@ export function ValidatorEvidenceDrawer({
           Select a finding
         </h3>
         <p className="mt-2 text-sm text-[#94A3B8]">
-          Pick a validator finding from the table to review its evidence, expected vs actual values, and available follow-up actions.
+          Pick a validator finding from the table to review its evidence and compare the expected and actual values.
         </p>
       </aside>
     );
@@ -325,41 +288,6 @@ export function ValidatorEvidenceDrawer({
       <div className="mt-5 grid gap-3">
         <ValueBlock label="Expected" value={finding.expected} />
         <ValueBlock label="Actual" value={finding.actual} />
-      </div>
-
-      <div className="mt-6 space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">
-          Actions
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <DrawerButton
-            label="Create Decision"
-            disabled={!finding.decision_eligible}
-            onClick={() => onPlaceholderAction('create_decision', finding)}
-          />
-          <DrawerButton
-            label="Create Action"
-            disabled={!finding.action_eligible}
-            onClick={() => onPlaceholderAction('create_action', finding)}
-          />
-          <DrawerButton
-            label="Resolve"
-            onClick={() => onPlaceholderAction('resolve', finding)}
-          />
-          <DrawerButton
-            label="Dismiss"
-            onClick={() => onPlaceholderAction('dismiss', finding)}
-          />
-          <DrawerButton
-            label="Mute"
-            onClick={() => onPlaceholderAction('mute', finding)}
-          />
-        </div>
-        {notice ? (
-          <p className="text-xs text-[#94A3B8]">
-            {notice}
-          </p>
-        ) : null}
       </div>
 
       <div className="mt-6 space-y-5">

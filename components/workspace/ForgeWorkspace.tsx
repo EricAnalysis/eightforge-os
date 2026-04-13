@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { SummaryTab } from '@/components/workspace/SummaryTab';
 import { WorkTab } from '@/components/workspace/WorkTab';
 import {
@@ -46,7 +47,6 @@ async function postProjectDocumentProcess(
   documentId: string,
   projectDocuments: ProjectDocumentRow[],
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  console.log('[postProjectDocumentProcess] Starting', { documentId, projectDocCount: projectDocuments.length });
   if (!projectDocuments.some((d) => d.id === documentId)) {
     console.error('[postProjectDocumentProcess] Document not in project', { documentId });
     return { ok: false, error: 'Document is not in this project.' };
@@ -58,7 +58,6 @@ async function postProjectDocumentProcess(
     console.error('[postProjectDocumentProcess] No auth token', { documentId });
     return { ok: false, error: 'Sign in required.' };
   }
-  console.log('[postProjectDocumentProcess] Calling /api/documents/process', { documentId });
   const res = await fetch('/api/documents/process', {
     method: 'POST',
     headers: {
@@ -67,7 +66,6 @@ async function postProjectDocumentProcess(
     },
     body: JSON.stringify({ documentId }),
   });
-  console.log('[postProjectDocumentProcess] Response status', { documentId, status: res.status });
   const body = (await res.json().catch(() => ({}))) as {
     message?: string;
     error?: string;
@@ -82,7 +80,6 @@ async function postProjectDocumentProcess(
     console.error('[postProjectDocumentProcess] API error', { documentId, status: res.status, msg });
     return { ok: false, error: msg };
   }
-  console.log('[postProjectDocumentProcess] Success', { documentId, responseBody: body });
   return { ok: true };
 }
 
@@ -589,10 +586,12 @@ const noopRateScheduleAnchor: (input: {
 
 function StructureDocumentWorkspace({
   documentId,
+  projectId,
   orgId,
   reloadNonce,
 }: {
   documentId: string;
+  projectId: string;
   orgId: string | null;
   reloadNonce: number;
 }) {
@@ -699,17 +698,21 @@ function StructureDocumentWorkspace({
         onSaveFactAnchor={noopFactAnchor}
         onSaveRateScheduleAnchor={noopRateScheduleAnchor}
         variant="workspace"
+        projectId={projectId}
+        documentId={documentId}
       />
     </div>
   );
 }
 
 function CenterPanelStructure({
+  projectId,
   structureDocuments,
   projectDocuments,
   orgId,
   onProjectDataRefresh,
 }: {
+  projectId: string;
   structureDocuments: ProjectDocumentRow[];
   projectDocuments: ProjectDocumentRow[];
   orgId: string | null;
@@ -739,33 +742,22 @@ function CenterPanelStructure({
 
   const handleReprocess = async () => {
     if (!resolvedSelectedDocId || reprocessPhase === 'loading') return;
-    console.log('[Reprocess] Button clicked', { documentId: resolvedSelectedDocId, phase: reprocessPhase });
     setReprocessError(null);
     setReprocessPhase('loading');
     try {
-      console.log('[Reprocess] API call starting', { documentId: resolvedSelectedDocId });
       const result = await postProjectDocumentProcess(resolvedSelectedDocId, projectDocuments);
       if (!result.ok) {
-        console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok, error: result.error });
         console.error('[Reprocess] API returned error', { documentId: resolvedSelectedDocId, error: result.error });
         setReprocessError(result.error);
         setReprocessPhase('error');
         return;
       }
-      console.log('[Reprocess] API response received', { documentId: resolvedSelectedDocId, ok: result.ok });
       // Wait for database writes to replicate before triggering refetch to avoid race conditions.
-      console.log('[Reprocess] Waiting for database persistence...', { documentId: resolvedSelectedDocId });
       await new Promise(resolve => setTimeout(resolve, 250));
-      console.log('[Reprocess] Incrementing reload nonce', { documentId: resolvedSelectedDocId });
-      setDetailReloadNonce((n) => {
-        console.log('[Reprocess] Nonce incremented', { oldNonce: n, newNonce: n + 1 });
-        return n + 1;
-      });
-      console.log('[Reprocess] Calling onProjectDataRefresh', { documentId: resolvedSelectedDocId });
+      setDetailReloadNonce((n) => n + 1);
       onProjectDataRefresh();
       setReprocessPhase('success');
       setLastReprocessedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-      console.log('[Reprocess] Success completed', { documentId: resolvedSelectedDocId });
     } catch (err) {
       console.error('[Reprocess] Exception thrown', { documentId: resolvedSelectedDocId, error: err });
       setReprocessError(err instanceof Error ? err.message : 'Reprocess failed.');
@@ -859,6 +851,7 @@ function CenterPanelStructure({
       {resolvedSelectedDocId ? (
         <StructureDocumentWorkspace
           documentId={resolvedSelectedDocId}
+          projectId={projectId}
           orgId={orgId}
           reloadNonce={detailReloadNonce}
         />
@@ -1100,12 +1093,6 @@ function RightPanel({
             Open linked decision
           </Link>
         ) : null}
-        <Link
-          href={`/platform/workflows/${task.id}`}
-          className="block text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B] transition hover:text-[#94A3B8]"
-        >
-          Full task record
-        </Link>
       </div>
     </aside>
   );
@@ -1130,9 +1117,23 @@ export function ForgeWorkspace({
   onProjectDataRefresh,
 }: ForgeWorkspaceProps) {
   const [tab, setTab] = useState<TabKey>('work');
+  const searchParams = useSearchParams();
   const { organization } = useCurrentOrg();
   const orgId = organization?.id ?? null;
   const structureDocuments = useMemo(() => getForgeStructureDocuments(documents), [documents]);
+
+  useEffect(() => {
+    const requested = searchParams.get('tab');
+    if (
+      requested === 'summary' ||
+      requested === 'work' ||
+      requested === 'documents' ||
+      requested === 'validator' ||
+      requested === 'audit'
+    ) {
+      setTab(requested);
+    }
+  }, [searchParams]);
 
   const stageCounts = useMemo(
     () =>
@@ -1197,6 +1198,7 @@ export function ForgeWorkspace({
           />
         ) : tab === 'documents' ? (
           <CenterPanelStructure
+            projectId={projectId}
             structureDocuments={structureDocuments}
             projectDocuments={documents}
             orgId={orgId}

@@ -495,7 +495,7 @@ function parseOverviewInvoiceSummaries(rawInvoices: unknown[]): ProjectOverviewI
   });
 }
 
-function resolveProjectValidatorSummary(
+export function resolveProjectValidatorSummary(
   project: ProjectRecord,
 ): ProjectValidatorSummarySnapshot {
   const raw =
@@ -1207,7 +1207,7 @@ export function buildProjectOperationalRollup(params: {
 
     pendingActionDrafts.push({
       id: task.id,
-      href: task.decision_id ? `/platform/decisions/${task.decision_id}` : `/platform/workflows/${task.id}`,
+      href: task.decision_id ? `/platform/decisions/${task.decision_id}` : `/platform/decisions`,
       title: task.title,
       due_label: dueLabel,
       due_tone: dueTone,
@@ -1914,7 +1914,7 @@ export function resolveProjectAuditEvents(
     let href: string | null = isDecision
       ? `/platform/decisions/${event.entity_id}`
       : isTask
-        ? `/platform/workflows/${event.entity_id}`
+        ? `/platform/decisions`
         : isProject
           ? `/platform/projects/${event.entity_id}`
           : `/platform/documents/${event.entity_id}`;

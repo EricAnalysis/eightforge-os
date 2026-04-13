@@ -5,6 +5,7 @@ import {
   buildDecisionCausalChain,
   buildDecisionContextRows,
   buildDecisionInvoiceStrip,
+  resolveDecisionExecutionStatus,
 } from '@/lib/decisionContext';
 import type { DecisionAction } from '@/lib/types/documentIntelligence';
 
@@ -76,7 +77,8 @@ describe('buildDecisionContextRows', () => {
     assert.equal(rows[6]?.value, 'Needs Review');
     assert.equal(rows[7]?.value, 'Requires Verification');
     assert.equal(rows[8]?.value, primaryAction.description);
-    assert.equal(rows[8]?.nextAction, primaryAction.expected_outcome);
+    assert.equal(rows[8]?.nextAction, primaryAction.description);
+    assert.equal(rows[8]?.actionImpact, 'Will unblock approval');
   });
 
   it('keeps billed to date separate from invoice total when only project rollup data exists', () => {
@@ -139,6 +141,60 @@ describe('buildDecisionContextRows', () => {
     assert.equal(invoiceTotal?.value, '$18,000');
     assert.equal(remainingCapacity?.value, 'Over by $3,000');
     assert.equal(remainingCapacity?.validation, 'Requires Verification');
+  });
+
+  it('reuses the queue finding next step and execution state when validator context is present', () => {
+    const rows = buildDecisionContextRows({
+      decisionDetails: {
+        approval_status: 'blocked',
+      },
+      documentHref: null,
+      executionStatus: 'In progress',
+      projectId: 'project-1',
+      primaryAction: null,
+      projectValidation: {
+        validationStatus: 'BLOCKED',
+        validationSummary: {},
+      },
+      queueFindingAction: {
+        title: 'Rate 6A exceeds contract rate',
+        approvalStatus: 'blocked',
+        nextStep: 'Review contract rate schedule',
+        impactedAmount: 80,
+        atRiskAmount: null,
+        requiresVerificationAmount: 80,
+      },
+      relatedTasks: [
+        {
+          id: 'task-1',
+          status: 'open',
+          title: 'Review contract rate schedule',
+        },
+      ],
+    });
+
+    const approvalGate = rows.find((row) => row.label === 'Approval gate state');
+    const nextOperatorMove = rows.find((row) => row.label === 'Next operator move');
+
+    assert.equal(approvalGate?.nextAction, 'Review contract rate schedule');
+    assert.equal(approvalGate?.actionImpact, 'Will unblock approval');
+    assert.equal(nextOperatorMove?.value, 'Review contract rate schedule');
+    assert.equal(nextOperatorMove?.executionStatus, 'In progress');
+  });
+
+  it('uses the explicit operator fallbacks when no next action source is available', () => {
+    const rows = buildDecisionContextRows({
+      decisionDetails: {
+        approval_status: 'approved',
+      },
+      documentHref: null,
+      projectId: null,
+      primaryAction: null,
+      projectValidation: null,
+    });
+
+    const nextOperatorMove = rows.find((row) => row.label === 'Next operator move');
+    assert.equal(nextOperatorMove?.value, 'Continue workflow');
   });
 });
 
@@ -231,7 +287,7 @@ describe('buildDecisionCausalChain', () => {
     assert.equal(chain[3]?.state, 'current');
     assert.equal(chain[3]?.href, '/platform/decisions/decision-1');
     assert.equal(chain[4]?.stateLabel, 'Ready to Execute');
-    assert.equal(chain[4]?.href, '/platform/workflows/task-1');
+    assert.equal(chain[4]?.href, '/platform/decisions/decision-1');
   });
 
   it('shows calm incomplete states when the payload is missing operating context', () => {
@@ -256,5 +312,44 @@ describe('buildDecisionCausalChain', () => {
     assert.equal(chain[3]?.stateLabel, 'Not Evaluated');
     assert.equal(chain[4]?.stateLabel, 'Awaiting Workflow');
     assert.equal(chain[4]?.href, '#decision-workflow');
+  });
+});
+
+describe('resolveDecisionExecutionStatus', () => {
+  it('maps open workflow records without execution logs to Not started', () => {
+    const status = resolveDecisionExecutionStatus({
+      tasks: [
+        { id: 'task-1', status: 'open' },
+      ],
+      logs: [],
+    });
+
+    assert.equal(status, 'Not started');
+  });
+
+  it('maps approval-action activity to In progress until a task resolves', () => {
+    const status = resolveDecisionExecutionStatus({
+      tasks: [
+        { id: 'task-1', status: 'open' },
+      ],
+      logs: [
+        { taskId: 'task-1', taskOutcome: 'created' },
+      ],
+    });
+
+    assert.equal(status, 'In progress');
+  });
+
+  it('maps resolved workflow records to Completed', () => {
+    const status = resolveDecisionExecutionStatus({
+      tasks: [
+        { id: 'task-1', status: 'resolved' },
+      ],
+      logs: [
+        { taskId: 'task-1', taskOutcome: 'updated' },
+      ],
+    });
+
+    assert.equal(status, 'Completed');
   });
 });

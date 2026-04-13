@@ -102,10 +102,7 @@ function TriggeredTaskRow({ task }: { task: TriggeredTask }) {
   const statusInfo = TASK_STATUS_LABEL[task.status] ?? { label: task.status, color: 'text-[#94A3B8]' };
 
   return (
-    <Link
-      href={`/platform/workflows/${task.id}`}
-      className="group flex items-start gap-3 rounded-lg border border-[#2F3B52]/60 bg-[#0B1020]/60 px-3 py-2.5 transition-colors hover:border-[#3B82F6]/30 hover:bg-[#111827]"
-    >
+    <div className="group flex items-start gap-3 rounded-lg border border-[#2F3B52]/60 bg-[#0B1020]/60 px-3 py-2.5">
       {/* Outcome dot */}
       <div className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
         task.status === 'resolved' ? 'bg-[#22C55E]' :
@@ -130,13 +127,13 @@ function TriggeredTaskRow({ task }: { task: TriggeredTask }) {
 
       {/* Link chevron */}
       <svg
-        className="mt-0.5 h-3 w-3 shrink-0 text-[#2F3B52] transition-colors group-hover:text-[#3B82F6]"
+        className="mt-0.5 h-3 w-3 shrink-0 text-[#2F3B52]"
         fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
         aria-hidden
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
       </svg>
-    </Link>
+    </div>
   );
 }
 

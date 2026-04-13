@@ -1417,6 +1417,42 @@ export default function DocumentDetailPage({
     reviewedDecisionIds,
   ]);
 
+  const derivedDocumentStatus = useMemo(() => {
+    const baseStatus = (doc?.processing_status ?? doc?.status ?? '').toLowerCase();
+    if (baseStatus === 'failed') return 'failed';
+
+    const model = intelligenceViewModel;
+    const factsPresent = (model?.counts.totalFacts ?? 0) > 0;
+    const parserReady = model?.parserStatus === 'Ready';
+
+    // Prefer derived readiness (facts + parser status) over persisted processing_status,
+    // since the persisted row can lag for spreadsheet ticket-query flows.
+    const extractionComplete =
+      preferredExtraction != null ||
+      model?.extractionTimestamp != null ||
+      (factsPresent && parserReady);
+
+    const reviewBlockersPresent =
+      displayDecisions.length > 0 ||
+      displayTasks.length > 0 ||
+      (model?.counts.conflictingFacts ?? 0) > 0 ||
+      (model?.counts.missingFacts ?? 0) > 0 ||
+      (model?.counts.missingEvidenceFacts ?? 0) > 0;
+
+    if (extractionComplete && reviewBlockersPresent) return 'needs_review';
+    if (extractionComplete) return 'ready';
+
+    // Default to processing for in-flight/unknown states (including uploaded).
+    return 'processing';
+  }, [
+    displayDecisions.length,
+    displayTasks.length,
+    doc?.processing_status,
+    doc?.status,
+    intelligenceViewModel,
+    preferredExtraction,
+  ]);
+
   const reviewableDecisionIds = useMemo(
     () =>
       contractInvoicePrimaryMode
@@ -1585,10 +1621,11 @@ export default function DocumentDetailPage({
         breadcrumbs={breadcrumbs}
         contextLabel={documentContextBadgeLabel(detailContext.mode)}
         contextDescription={documentContextDescription(detailContext.mode, project)}
+        projectId={project?.id ?? doc.project_id ?? null}
         projectName={project?.name ?? null}
         documentType={doc.document_type}
         displayTitle={displayTitle}
-        processingStatus={doc.processing_status ?? doc.status}
+        processingStatus={derivedDocumentStatus}
         summary={displaySummary}
         entities={displayEntities}
         fileContentType={fileContentType}

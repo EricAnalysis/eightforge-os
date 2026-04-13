@@ -1,24 +1,24 @@
 'use client';
 
 import { startTransition, useState, type FormEvent } from 'react';
-import type { AskResponse } from '@/lib/ask/types';
-import { AskResponsePanel } from '@/components/ask/AskResponsePanel';
-import { SuggestedQueries, type SuggestedQuery } from '@/components/ask/SuggestedQueries';
-import { supabase } from '@/lib/supabaseClient';
+import { ProjectQueryResultCard } from '@/components/ask/ProjectQueryResultCard';
+import type { ProjectQueryContext } from '@/lib/projectQuery/executeProjectQuery';
+import { runAskThisProjectQueryWithLogging } from '@/lib/projectQuery/runClientQuery';
+import type { ProjectQueryResult } from '@/lib/projectQuery/types';
 
 type AskInterfaceProps = {
   projectId: string;
   title?: string;
-  suggestedQueries: SuggestedQuery[];
+  context?: ProjectQueryContext;
 };
 
 export function AskInterface({
   projectId,
   title = 'Ask This Project',
-  suggestedQueries,
+  context,
 }: AskInterfaceProps) {
   const [draft, setDraft] = useState('');
-  const [answer, setAnswer] = useState<AskResponse | null>(null);
+  const [result, setResult] = useState<ProjectQueryResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,36 +28,12 @@ export function AskInterface({
 
     setPending(true);
     setError(null);
-    setDraft(trimmed);
-
+    setResult(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setError('Authentication required');
-        return;
-      }
-
-      const response = await fetch('/api/ask/project', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          projectId,
-          question: trimmed,
-        }),
-      });
-
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError((body as { error?: string }).error ?? 'Ask failed');
-        return;
-      }
-
-      setAnswer(body as AskResponse);
+      const next = await runAskThisProjectQueryWithLogging({ projectId, input: trimmed, context });
+      setResult(next);
     } catch {
-      setError('Ask failed');
+      setError('Query failed');
     } finally {
       setPending(false);
     }
@@ -77,40 +53,51 @@ export function AskInterface({
           {title}
         </h3>
         <span className="text-[10px] uppercase tracking-[0.16em] text-[#5B6578]">
-          Query to result
+          Single-shot query
         </span>
       </div>
 
       <div className="space-y-3 px-5 py-4">
-        <SuggestedQueries
-          queries={suggestedQueries}
-          disabled={pending}
-          onSelect={(query) => {
-            setDraft(query.text);
-            startTransition(() => {
-              void submitQuestion(query.text);
-            });
-          }}
-        />
+        <p className="text-[11px] text-[#94A3B8]">
+          One query, one result. Prior output is replaced each time.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Ask about facts, blockers, missing data, documents, or actions"
-              className="min-w-0 flex-1 rounded-lg border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm text-[#E5EDF7] outline-none placeholder:text-[#5B6578] focus:border-[#3B82F6]/50"
+              placeholder="contract ceiling · invoice 2026-003 · rate 6A · signal approval blockers"
+              className="min-w-0 flex-1 rounded-lg border border-[#2F3B52] bg-[#111827] px-3 py-2.5 text-sm text-[#E5EDF7] outline-none placeholder:text-[#5B6578] focus:border-[#3B82F6]/50"
             />
             <button
               type="submit"
               disabled={pending || draft.trim().length === 0}
-              className="rounded-lg border border-[#3B82F6]/50 bg-[#3B82F6]/12 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-[#3B82F6]/50 bg-[#3B82F6]/12 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending ? 'Running' : 'Ask'}
             </button>
           </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(['contract ceiling', '/signal blockers', 'list blocked documents'] as const).map((example) => (
+              <button
+                key={example}
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  setDraft(example);
+                  startTransition(() => {
+                    void submitQuestion(example);
+                  });
+                }}
+                className="rounded border border-[#2F3B52]/60 bg-[#0D1526] px-2 py-0.5 font-mono text-[10px] text-[#5B6578] transition hover:border-[#3B82F6]/40 hover:text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {example}
+              </button>
+            ))}
+          </div>
           <p className="text-[10px] text-[#5B6578]">
-            Ask reads persisted facts, validator findings, decisions, and project documents in that order.
+            Sources: structured extracted facts, validator findings, decisions, then project documents (precedence applied when sources conflict).
           </p>
         </form>
 
@@ -120,19 +107,7 @@ export function AskInterface({
           </div>
         ) : null}
 
-        {answer ? (
-          <AskResponsePanel
-            response={answer}
-            projectId={projectId}
-            pending={pending}
-            onSelectFollowup={(question) => {
-              setDraft(question);
-              startTransition(() => {
-                void submitQuestion(question);
-              });
-            }}
-          />
-        ) : null}
+        {result ? <ProjectQueryResultCard result={result} /> : null}
       </div>
     </div>
   );

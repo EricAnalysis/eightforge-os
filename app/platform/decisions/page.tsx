@@ -46,6 +46,7 @@ type DecisionListItem = {
   decisionId: string | null;
   documentId: string | null;
   decisionType: string;
+  projectId: string | null;
   title: string;
   summary: string;
   severity: string;
@@ -73,6 +74,15 @@ type DecisionListItem = {
 
 const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'] as const;
+
+type GroupedDecisionListItem = {
+  groupId: string;
+  primary: DecisionListItem;
+  children: DecisionListItem[];
+  occurrencesCount: number;
+  sourcesCount: number | null;
+  latestDetectedAt: string | null;
+};
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
@@ -139,6 +149,108 @@ function isVagueDescription(description: string | null | undefined): boolean {
   return normalized.includes('manual review') || normalized.includes('follow up as needed');
 }
 
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function resolveQueueState(item: DecisionListItem): string {
+  if (item.actionMode === 'history') return item.status;
+  if (item.reviewStatus && item.reviewStatus !== 'not_reviewed') return item.reviewStatus;
+  return item.status;
+}
+
+function normalizeDecisionKey(item: DecisionListItem): string {
+  // Avoid grouping purely by title. decisionType is the stable key surface across persisted + trace items.
+  return normalizeText(item.decisionType);
+}
+
+function severityRank(severity: string): number {
+  if (severity === 'critical') return 0;
+  if (severity === 'high') return 1;
+  if (severity === 'medium') return 2;
+  return 3;
+}
+
+function latestTimestamp(items: DecisionListItem[]): string | null {
+  let latest: number | null = null;
+  for (const item of items) {
+    const value = item.detectedAt ?? item.createdAt;
+    const ts = new Date(value).getTime();
+    if (Number.isNaN(ts)) continue;
+    if (latest == null || ts > latest) latest = ts;
+  }
+  return latest == null ? null : new Date(latest).toISOString();
+}
+
+function pickPrimaryForGroup(items: DecisionListItem[]): DecisionListItem {
+  const persisted = items.filter(
+    (item) =>
+      item.actionMode !== 'history' &&
+      item.decisionId != null &&
+      item.kind !== 'trace_decision' &&
+      item.kind !== 'approval_blocker',
+  );
+  const pool = persisted.length > 0 ? persisted : items;
+  return [...pool].sort((a, b) => {
+    const aTime = new Date(a.detectedAt ?? a.createdAt).getTime();
+    const bTime = new Date(b.detectedAt ?? b.createdAt).getTime();
+    if (aTime !== bTime) return bTime - aTime;
+    return a.id.localeCompare(b.id);
+  })[0]!;
+}
+
+function groupDecisionQueueItems(items: DecisionListItem[]): GroupedDecisionListItem[] {
+  const groups = new Map<string, DecisionListItem[]>();
+
+  for (const item of items) {
+    const groupKey = [
+      item.projectId ?? 'no_project',
+      normalizeDecisionKey(item),
+      resolveQueueState(item),
+    ].join(':');
+    const current = groups.get(groupKey) ?? [];
+    current.push(item);
+    groups.set(groupKey, current);
+  }
+
+  const grouped: GroupedDecisionListItem[] = [];
+  for (const [groupId, children] of groups.entries()) {
+    const primary = pickPrimaryForGroup(children);
+    const docIds = new Set(children.map((child) => child.documentId).filter((id): id is string => Boolean(id)));
+    grouped.push({
+      groupId,
+      primary,
+      children: [...children].sort((a, b) => {
+        const aTime = new Date(a.detectedAt ?? a.createdAt).getTime();
+        const bTime = new Date(b.detectedAt ?? b.createdAt).getTime();
+        if (aTime !== bTime) return bTime - aTime;
+        return a.id.localeCompare(b.id);
+      }),
+      occurrencesCount: children.length,
+      sourcesCount: docIds.size > 0 ? docIds.size : null,
+      latestDetectedAt: latestTimestamp(children),
+    });
+  }
+
+  // Stable output ordering should mirror the pre-group list’s precedence and then newest detection.
+  grouped.sort((a, b) => {
+    const aRank = severityRank(a.primary.severity);
+    const bRank = severityRank(b.primary.severity);
+    if (aRank !== bRank) return aRank - bRank;
+
+    const aTime = new Date(a.latestDetectedAt ?? a.primary.detectedAt ?? a.primary.createdAt).getTime();
+    const bTime = new Date(b.latestDetectedAt ?? b.primary.detectedAt ?? b.primary.createdAt).getTime();
+    if (aTime !== bTime) return bTime - aTime;
+    return a.groupId.localeCompare(b.groupId);
+  });
+
+  return grouped;
+}
+
 function mapHistoryDecision(row: HistoryDecisionRow): DecisionListItem {
   const documentRef = Array.isArray(row.documents) ? row.documents[0] ?? null : row.documents ?? null;
   const primaryAction = resolveDecisionPrimaryAction(row.details ?? null);
@@ -150,6 +262,7 @@ function mapHistoryDecision(row: HistoryDecisionRow): DecisionListItem {
     decisionId: row.id,
     documentId: row.document_id,
     decisionType: row.decision_type,
+    projectId: null,
     title: row.title,
     summary,
     severity: row.severity,
@@ -182,6 +295,7 @@ function mapOperationalDecision(item: OperationalDecisionQueueItem): DecisionLis
     decisionId: item.decision_id,
     documentId: item.document_id,
     decisionType: item.decision_type,
+    projectId: item.project_id,
     title: item.title,
     summary: item.summary,
     severity: item.severity,
@@ -277,6 +391,7 @@ function mapValidatorAction(
     decisionId: null,
     documentId: null,
     decisionType: 'approval_blocker',
+    projectId: rollupItem.project.id,
     title: `${action.title}${ctx}`,
     summary,
     severity: isBlocked ? 'critical' : 'high',
@@ -297,10 +412,7 @@ function mapValidatorAction(
       action.source_document_title ??
       (action.invoice_number ? `Invoice ${action.invoice_number}` : null),
     sourceDocumentType: action.source_document_type ?? null,
-    sourceDocumentTarget:
-      action.expected_value || action.actual_value || action.variance_label
-        ? action.href
-        : null,
+    sourceDocumentTarget: action.href,
     evidenceSummary,
     deepLinkTarget: action.href,
     actionMode: 'history',
@@ -337,6 +449,7 @@ export default function DecisionsPage() {
   const [filterAssigned, setFilterAssigned] = useState<string>(searchParams.get('assigned') ?? '');
   const [filterDue, setFilterDue] = useState<string>(searchParams.get('due') ?? '');
   const [filterAge, setFilterAge] = useState<string>(searchParams.get('age') ?? '');
+  const filterProject = searchParams.get('project') ?? '';
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateErrorId, setUpdateErrorId] = useState<string | null>(null);
   const includeHistory =
@@ -479,7 +592,13 @@ export default function DecisionsPage() {
     }
   }, [reload, runAuthorizedRequest]);
 
-  const decisionItems = useMemo(() => {
+  const projectFilterLabel = useMemo(() => {
+    if (!filterProject || !operationalModel) return null;
+    const hit = operationalModel.project_rollups.find((r) => r.project.id === filterProject);
+    return hit?.project.name ?? hit?.project.code ?? null;
+  }, [filterProject, operationalModel]);
+
+  const decisionItems = useMemo<DecisionListItem[]>(() => {
     if (includeHistory) {
       return historyDecisions.map(mapHistoryDecision);
     }
@@ -506,34 +625,78 @@ export default function DecisionsPage() {
     return [...decisions, ...validatorItems];
   }, [historyDecisions, includeHistory, operationalModel?.decisions, operationalModel?.project_rollups]);
 
-  const filteredDecisions = useMemo(() => {
-    let list = decisionItems;
-
-    if (!includeHistory && filterStatus) {
-      list = list.filter((item) => item.status === filterStatus);
+  const filteredDecisions = useMemo<GroupedDecisionListItem[]>(() => {
+    if (includeHistory) {
+      // No grouping for history mode; keep existing behavior and counts.
+      let list = decisionItems;
+      if (filterStatus) list = list.filter((item) => item.status === filterStatus);
+      if (filterSeverity) list = list.filter((item) => item.severity === filterSeverity);
+      if (filterDecisionType) list = list.filter((item) => item.decisionType === filterDecisionType);
+      if (filterAssigned === '__unassigned') list = list.filter((item) => !item.assignedTo);
+      else if (filterAssigned === '__me' && userId) list = list.filter((item) => item.assignedTo === userId);
+      else if (filterAssigned && filterAssigned !== '__me')
+        list = list.filter((item) => item.assignedTo === filterAssigned);
+      if (filterDue === '__overdue') list = list.filter((item) => isDecisionOverdue(item.dueAt, item.status));
+      else if (filterDue === '__my_overdue')
+        list = list.filter((item) => item.assignedTo === userId && isDecisionOverdue(item.dueAt, item.status));
+      else if (filterDue === '__no_due') list = list.filter((item) => !item.dueAt);
+      if (filterAge && AGING_BUCKETS.some((bucket) => bucket.key === filterAge)) {
+        list = list.filter((item) =>
+          DECISION_OPEN_STATUSES.includes(item.status) &&
+          ageBucketKey(item.createdAt) === (filterAge as AgingBucketKey),
+        );
+      }
+      if (filterProject) {
+        list = list.filter((item) => item.projectId === filterProject);
+      }
+      const sorted = [...list].sort((a, b) => queuePrecedence(a) - queuePrecedence(b));
+      return sorted.map((item) => ({
+        groupId: item.id,
+        primary: item,
+        children: [item],
+        occurrencesCount: 1,
+        sourcesCount: item.documentId ? 1 : null,
+        latestDetectedAt: item.detectedAt ?? item.createdAt,
+      }));
     }
-    if (filterSeverity) list = list.filter((item) => item.severity === filterSeverity);
-    if (filterDecisionType) list = list.filter((item) => item.decisionType === filterDecisionType);
-    if (filterAssigned === '__unassigned') list = list.filter((item) => !item.assignedTo);
-    else if (filterAssigned === '__me' && userId) list = list.filter((item) => item.assignedTo === userId);
-    else if (filterAssigned && filterAssigned !== '__me') list = list.filter((item) => item.assignedTo === filterAssigned);
-    if (filterDue === '__overdue') list = list.filter((item) => isDecisionOverdue(item.dueAt, item.status));
-    else if (filterDue === '__my_overdue') list = list.filter((item) => item.assignedTo === userId && isDecisionOverdue(item.dueAt, item.status));
-    else if (filterDue === '__no_due') list = list.filter((item) => !item.dueAt);
+
+    const grouped = groupDecisionQueueItems(decisionItems);
+
+    let list = grouped;
+    if (filterStatus) list = list.filter((group) => group.primary.status === filterStatus);
+    if (filterSeverity) list = list.filter((group) => group.primary.severity === filterSeverity);
+    if (filterDecisionType) list = list.filter((group) => group.primary.decisionType === filterDecisionType);
+    if (filterAssigned === '__unassigned') list = list.filter((group) => !group.primary.assignedTo);
+    else if (filterAssigned === '__me' && userId)
+      list = list.filter((group) => group.primary.assignedTo === userId);
+    else if (filterAssigned && filterAssigned !== '__me')
+      list = list.filter((group) => group.primary.assignedTo === filterAssigned);
+    if (filterDue === '__overdue')
+      list = list.filter((group) => isDecisionOverdue(group.primary.dueAt, group.primary.status));
+    else if (filterDue === '__my_overdue')
+      list = list.filter(
+        (group) =>
+          group.primary.assignedTo === userId && isDecisionOverdue(group.primary.dueAt, group.primary.status),
+      );
+    else if (filterDue === '__no_due') list = list.filter((group) => !group.primary.dueAt);
     if (filterAge && AGING_BUCKETS.some((bucket) => bucket.key === filterAge)) {
-      list = list.filter((item) =>
-        DECISION_OPEN_STATUSES.includes(item.status) &&
-        ageBucketKey(item.createdAt) === (filterAge as AgingBucketKey),
+      list = list.filter((group) =>
+        DECISION_OPEN_STATUSES.includes(group.primary.status) &&
+        ageBucketKey(group.primary.createdAt) === (filterAge as AgingBucketKey),
       );
     }
+    if (filterProject) {
+      list = list.filter((group) => group.primary.projectId === filterProject);
+    }
 
-    return [...list].sort((a, b) => queuePrecedence(a) - queuePrecedence(b));
+    return [...list].sort((a, b) => queuePrecedence(a.primary) - queuePrecedence(b.primary));
   }, [
     decisionItems,
     filterAge,
     filterAssigned,
     filterDecisionType,
     filterDue,
+    filterProject,
     filterSeverity,
     filterStatus,
     includeHistory,
@@ -546,9 +709,10 @@ export default function DecisionsPage() {
   }, [decisionItems]);
 
   const scanSummary = useMemo(() => {
-    const criticalHigh = filteredDecisions.filter((item) => item.severity === 'critical' || item.severity === 'high').length;
-    const overdue = filteredDecisions.filter((item) => isDecisionOverdue(item.dueAt, item.status)).length;
-    const unassignedCrit = filteredDecisions.filter(
+    const primaries = filteredDecisions.map((group) => group.primary);
+    const criticalHigh = primaries.filter((item) => item.severity === 'critical' || item.severity === 'high').length;
+    const overdue = primaries.filter((item) => isDecisionOverdue(item.dueAt, item.status)).length;
+    const unassignedCrit = primaries.filter(
       (item) => !item.assignedTo && (item.severity === 'critical' || item.severity === 'high'),
     ).length;
     return { criticalHigh, overdue, unassignedCrit };
@@ -556,7 +720,16 @@ export default function DecisionsPage() {
 
   const isLoading = orgLoading || (includeHistory ? historyLoading : operationalLoading);
   const listError = includeHistory ? historyError : operationalError;
-  const hasActiveFilter = !!(filterStatus || filterSeverity || filterDecisionType || filterAssigned || filterDue || filterAge);
+  const hasActiveFilter = !!(
+    filterStatus
+    || filterSeverity
+    || filterDecisionType
+    || filterAssigned
+    || filterDue
+    || filterAge
+    || filterProject
+  );
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   return (
     <div className="space-y-4">
@@ -568,6 +741,23 @@ export default function DecisionsPage() {
           </p>
         </div>
       </section>
+
+      {filterProject ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#3B82F6]/25 bg-[#3B82F6]/[0.06] px-3 py-2 text-[11px] text-[#93C5FD]">
+          <span>
+            Project filter:{' '}
+            <span className="font-semibold text-[#E5EDF7]">
+              {projectFilterLabel ?? filterProject}
+            </span>
+          </span>
+          <Link
+            href="/platform/decisions"
+            className="font-semibold uppercase tracking-[0.12em] text-[#60A5FA] underline-offset-2 hover:underline"
+          >
+            Clear
+          </Link>
+        </div>
+      ) : null}
 
       <section className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
@@ -720,112 +910,208 @@ export default function DecisionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDecisions.map((item) => {
+                {filteredDecisions.map((group) => {
+                  const item = group.primary;
                   const isHighRisk = item.severity === 'critical' || item.severity === 'high';
                   const overdue = isDecisionOverdue(item.dueAt, item.status);
+                  const isExpanded = !!expandedGroups[group.groupId];
+                  const canExpand = group.occurrencesCount > 1;
                   return (
-                    <tr
-                      key={item.id}
-                      className={`border-b border-[#1A1A3E] last:border-0 transition-colors hover:bg-[#12122E] ${isHighRisk ? 'bg-red-500/[0.04]' : ''}`}
-                    >
-                      <td className="py-2.5 pr-3">
-                        <SeverityBadge severity={item.severity} />
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex flex-col gap-1">
-                          <StatusBadge status={item.status} />
-                          {!includeHistory ? <ReviewBadge status={item.reviewStatus} /> : null}
-                        </div>
-                      </td>
-                      <td className="min-w-[380px] max-w-[560px] py-2.5 pr-3">
-                        <div className="flex flex-col gap-1.5">
-                          {item.projectLabel ? (
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5B6578]">
-                              {item.projectLabel}
-                            </span>
-                          ) : null}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link href={item.deepLinkTarget} className="font-medium text-[#8B5CFF] hover:underline" title={item.title}>
-                              {item.title}
-                            </Link>
-                            <span className="text-[10px] text-[#5B6578]">{titleize(item.decisionType)}</span>
-                            {item.kind === 'approval_blocker' ? (
-                              <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
-                                Approval gate finding
-                              </span>
-                            ) : item.kind === 'trace_decision' ? (
-                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
-                                Derived from document intelligence
+                    <>
+                      <tr
+                        key={group.groupId}
+                        className={`border-b border-[#1A1A3E] last:border-0 transition-colors hover:bg-[#12122E] ${isHighRisk ? 'bg-red-500/[0.04]' : ''}`}
+                      >
+                        <td className="py-2.5 pr-3">
+                          <SeverityBadge severity={item.severity} />
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <div className="flex flex-col gap-1">
+                            <StatusBadge status={item.status} />
+                            {!includeHistory ? <ReviewBadge status={item.reviewStatus} /> : null}
+                          </div>
+                        </td>
+                        <td className="min-w-[380px] max-w-[560px] py-2.5 pr-3">
+                          <div className="flex flex-col gap-1.5">
+                            {item.projectLabel ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5B6578]">
+                                {item.projectLabel}
                               </span>
                             ) : null}
-                          </div>
-                          <p className="text-[11px] text-[#8B94A3]">
-                            {item.summary}
-                          </p>
-                          {item.evidenceSummary ? (
-                            <p className="text-[10px] uppercase tracking-wide text-[#5B6578]">
-                              {item.kind === 'approval_blocker'
-                                ? item.evidenceSummary
-                                : `Evidence: ${item.evidenceSummary}`}
-                            </p>
-                          ) : null}
-                          {item.sourceDocumentTarget ? (
-                            <div className="text-[11px] text-[#8B94A3]">
-                              Source:{' '}
-                              <Link href={item.sourceDocumentTarget} className="text-[#8B5CFF] hover:underline">
-                                {item.sourceDocumentTitle ?? 'View document'}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Link href={item.deepLinkTarget} className="font-medium text-[#8B5CFF] hover:underline" title={item.title}>
+                                {item.title}
                               </Link>
-                              {item.sourceDocumentType ? ` / ${item.sourceDocumentType}` : ''}
-                            </div>
-                          ) : null}
-                          {!includeHistory ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleApprove(item)}
-                                disabled={updatingId === item.id}
-                                className="rounded px-2 py-1 text-[11px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50"
-                              >
-                                {updatingId === item.id ? 'Saving…' : 'Approve'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCorrection(item)}
-                                disabled={updatingId === item.id}
-                                className="rounded px-2 py-1 text-[11px] font-medium bg-amber-500/20 text-amber-400 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-50"
-                              >
-                                {updatingId === item.id ? 'Saving…' : 'Request correction'}
-                              </button>
-                              {updateErrorId === item.id ? (
-                                <span className="text-[10px] text-red-400">Update failed</span>
+                              <span className="text-[10px] text-[#5B6578]">{titleize(item.decisionType)}</span>
+                              {item.kind === 'approval_blocker' ? (
+                                <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
+                                  Approval gate finding
+                                </span>
+                              ) : item.kind === 'trace_decision' ? (
+                                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
+                                  Derived from document intelligence
+                                </span>
+                              ) : null}
+                              {canExpand ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedGroups((current) => ({ ...current, [group.groupId]: !current[group.groupId] }))}
+                                  className="ml-1 rounded border border-[#1A1A3E] bg-[#0A0A20] px-1.5 py-0.5 text-[10px] font-medium text-[#8B94A3] hover:bg-[#1A1A3E] hover:text-[#F5F7FA]"
+                                >
+                                  {isExpanded ? 'Hide occurrences' : 'Show occurrences'}
+                                </button>
                               ) : null}
                             </div>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3">
-                        {item.dueAt ? (
-                          <span className={`flex items-center gap-1.5 ${overdue ? 'font-medium text-red-400' : 'text-[#8B94A3]'}`}>
-                            <span>{formatDueDate(item.dueAt)}</span>
-                            {overdue ? <OverdueBadge /> : null}
-                          </span>
-                        ) : (
-                          <span className="text-[#3a3f5a]">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3">
-                        {item.assignedName ? (
-                          <span className="text-[#F5F7FA]">{item.assignedName}</span>
-                        ) : (
-                          <span className={isHighRisk ? 'font-medium text-amber-400' : 'text-[#8B94A3]'}>
-                            Unassigned
-                          </span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-[#8B94A3]">
-                        {new Date(item.detectedAt ?? item.createdAt).toLocaleString()}
-                      </td>
-                    </tr>
+
+                            <p className="text-[11px] text-[#8B94A3]">
+                              {item.summary}
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-[#5B6578]">
+                              {canExpand ? (
+                                <span>
+                                  Occurrences: <span className="font-semibold text-[#8B94A3]">{group.occurrencesCount}</span>
+                                </span>
+                              ) : null}
+                              {canExpand && group.sourcesCount != null ? (
+                                <span>
+                                  Sources: <span className="font-semibold text-[#8B94A3]">{group.sourcesCount}</span>
+                                </span>
+                              ) : null}
+                              {canExpand && group.latestDetectedAt ? (
+                                <span>
+                                  Latest: <span className="font-semibold text-[#8B94A3]">{new Date(group.latestDetectedAt).toLocaleString()}</span>
+                                </span>
+                              ) : null}
+                            </div>
+
+                            {item.evidenceSummary ? (
+                              <p className="text-[10px] uppercase tracking-wide text-[#5B6578]">
+                                {item.kind === 'approval_blocker'
+                                  ? item.evidenceSummary
+                                  : `Evidence: ${item.evidenceSummary}`}
+                              </p>
+                            ) : null}
+                            {item.sourceDocumentTarget ? (
+                              <div className="text-[11px] text-[#8B94A3]">
+                                Source:{' '}
+                                <Link href={item.sourceDocumentTarget} className="text-[#8B5CFF] hover:underline">
+                                  {item.sourceDocumentTitle ?? 'View document'}
+                                </Link>
+                                {item.sourceDocumentType ? ` / ${item.sourceDocumentType}` : ''}
+                              </div>
+                            ) : null}
+                            {!includeHistory ? (
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprove(item)}
+                                  disabled={updatingId === item.id}
+                                  className="rounded px-2 py-1 text-[11px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50"
+                                >
+                                  {updatingId === item.id ? 'Saving…' : 'Approve'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCorrection(item)}
+                                  disabled={updatingId === item.id}
+                                  className="rounded px-2 py-1 text-[11px] font-medium bg-amber-500/20 text-amber-400 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-50"
+                                >
+                                  {updatingId === item.id ? 'Saving…' : 'Request correction'}
+                                </button>
+                                {updateErrorId === item.id ? (
+                                  <span className="text-[10px] text-red-400">Update failed</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3">
+                          {item.dueAt ? (
+                            <span className={`flex items-center gap-1.5 ${overdue ? 'font-medium text-red-400' : 'text-[#8B94A3]'}`}>
+                              <span>{formatDueDate(item.dueAt)}</span>
+                              {overdue ? <OverdueBadge /> : null}
+                            </span>
+                          ) : (
+                            <span className="text-[#3a3f5a]">—</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3">
+                          {item.assignedName ? (
+                            <span className="text-[#F5F7FA]">{item.assignedName}</span>
+                          ) : (
+                            <span className={isHighRisk ? 'font-medium text-amber-400' : 'text-[#8B94A3]'}>
+                              Unassigned
+                            </span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-[#8B94A3]">
+                          {new Date(item.detectedAt ?? item.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+
+                      {canExpand && isExpanded ? (
+                        <tr key={`${group.groupId}:children`} className="border-b border-[#1A1A3E] bg-[#0A0A20]">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="space-y-2">
+                              {group.children.map((child) => (
+                                <div
+                                  key={child.id}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Link
+                                        href={child.deepLinkTarget}
+                                        className="font-medium text-[#8B5CFF] hover:underline"
+                                        title={child.title}
+                                      >
+                                        {child.sourceDocumentTitle ?? child.sourceDocumentType ?? child.documentId ?? 'Source record'}
+                                      </Link>
+                                      {child.evidenceSummary ? (
+                                        <span className="truncate text-[10px] uppercase tracking-wide text-[#5B6578]">
+                                          {child.kind === 'approval_blocker' ? child.evidenceSummary : `Evidence: ${child.evidenceSummary}`}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-wide text-[#5B6578]">
+                                      <span>
+                                        Last detected:{' '}
+                                        <span className="font-semibold text-[#8B94A3]">
+                                          {new Date(child.detectedAt ?? child.createdAt).toLocaleString()}
+                                        </span>
+                                      </span>
+                                      <span>
+                                        Status:{' '}
+                                        <span className="font-semibold text-[#8B94A3]">
+                                          {child.status.replace(/_/g, ' ')}
+                                        </span>
+                                      </span>
+                                      {!includeHistory ? (
+                                        <span>
+                                          Review:{' '}
+                                          <span className="font-semibold text-[#8B94A3]">
+                                            {child.reviewStatus.replace(/_/g, ' ')}
+                                          </span>
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  {child.sourceDocumentTarget ? (
+                                    <Link
+                                      href={child.sourceDocumentTarget}
+                                      className="shrink-0 rounded border border-[#1A1A3E] px-2 py-1 text-[10px] font-medium text-[#8B94A3] hover:bg-[#12122E] hover:text-[#F5F7FA]"
+                                    >
+                                      Open source
+                                    </Link>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </>
                   );
                 })}
               </tbody>

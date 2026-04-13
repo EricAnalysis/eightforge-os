@@ -2,7 +2,7 @@
  * lib/server/truthEngine.ts
  *
  * Query-to-truth engine.
- * Takes a typed query (invoice, rate_code, project) and returns validated truth
+ * Takes a typed query (invoice, rate_code, project, contract) and returns validated truth
  * instead of raw rows. Reuses validator findings, decision context, and approval
  * snapshots as the authoritative source of record.
  */
@@ -24,7 +24,7 @@ import type { InvoiceApprovalSnapshot, ProjectApprovalSnapshot } from '@/lib/ser
 // Public types
 // ---------------------------------------------------------------------------
 
-export type TruthQueryType = 'invoice' | 'rate_code' | 'project';
+export type TruthQueryType = 'invoice' | 'rate_code' | 'project' | 'contract';
 
 /** A single piece of secondary evidence. IDs and raw keys are omitted. */
 export type TruthEvidence = {
@@ -49,6 +49,8 @@ export type TruthResult = {
   nextAction: string;
   /** Secondary evidence. Raw row values surfaced here only. */
   evidence: TruthEvidence[];
+  /** Deep link to the validator surface for this project. */
+  sourceHref: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ export type TruthResult = {
 
 type FindingRow = {
   id: string;
+  rule_id: string;
   severity: string;
   status: string;
   subject_type: string;
@@ -71,6 +74,11 @@ type FindingRow = {
   linked_action_id: string | null;
 };
 
+type ProjectValidationRow = {
+  validation_status: string | null;
+  validation_summary_json: unknown;
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -82,6 +90,48 @@ function fmtCurrency(amount: number | null | undefined): string {
     currency: 'USD',
     maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
   }).format(amount);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const normalized = trimmed
+    .replace(/^\((.+)\)$/, '-$1')
+    .replace(/[$,%\s,]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function truthFromApprovalLabel(
+  label: OperatorApprovalLabel,
+): TruthValidationState {
+  switch (label) {
+    case 'Approved':
+      return 'Verified';
+    case 'Approved with Notes':
+    case 'Needs Review':
+      return 'Needs Review';
+    case 'Requires Verification':
+      return 'Requires Verification';
+    case 'Not Evaluated':
+      return 'Missing';
+    default:
+      return 'Unknown';
+  }
 }
 
 function snapshotStatusToTruth(
@@ -136,6 +186,204 @@ function decisionEvidenceDetail(decision: {
   return `${base} (${decision.status.replace(/_/g, ' ')})`;
 }
 
+const CONTRACT_FINDING_FIELDS = new Set([
+  'activation_trigger_type',
+  'contract_ceiling',
+  'nte_amount',
+  'pricing_applicability',
+  'rate_row_count',
+  'rate_schedule_pages',
+  'rate_schedule_present',
+  'rate_units_detected',
+]);
+
+function isContractFinding(finding: FindingRow): boolean {
+  const ruleId = finding.rule_id.toUpperCase();
+  const field = finding.field?.toLowerCase() ?? '';
+
+  return (
+    finding.subject_type === 'contract'
+    || CONTRACT_FINDING_FIELDS.has(field)
+    || ruleId.includes('CONTRACT_CEILING')
+    || ruleId.includes('RATE_BASED')
+    || ruleId.includes('_NTE_')
+    || ruleId === 'SOURCES_NO_CONTRACT'
+    || ruleId === 'SOURCES_NO_RATE_SCHEDULE'
+  );
+}
+
+function isRateBasedContractFinding(finding: FindingRow): boolean {
+  const ruleId = finding.rule_id.toUpperCase();
+  return (
+    ruleId.includes('RATE_BASED')
+    || ruleId === 'SOURCES_NO_RATE_SCHEDULE'
+    || finding.field === 'rate_schedule_present'
+    || finding.field === 'rate_row_count'
+    || finding.field === 'rate_schedule_pages'
+  );
+}
+
+function formatRemainingCapacity(
+  contractCeiling: number | null,
+  billedToDate: number | null,
+  hasRateBasedSignal: boolean,
+): string {
+  if (hasRateBasedSignal && contractCeiling == null) {
+    return 'Depends on verified rate schedule';
+  }
+
+  if (contractCeiling == null) return 'Awaiting contract ceiling';
+  if (billedToDate == null) return 'Awaiting billed-to-date total';
+
+  const remaining = contractCeiling - billedToDate;
+  if (remaining < 0) {
+    return `Over by ${fmtCurrency(Math.abs(remaining))}`;
+  }
+
+  return fmtCurrency(remaining);
+}
+
+function contractGateImpact(params: {
+  approvalLabel: OperatorApprovalLabel;
+  contractCeiling: number | null;
+  billedToDate: number | null;
+  hasRateBasedSignal: boolean;
+}): string {
+  const {
+    approvalLabel,
+    contractCeiling,
+    billedToDate,
+    hasRateBasedSignal,
+  } = params;
+
+  if (hasRateBasedSignal && contractCeiling == null) {
+    return approvalLabel === 'Approved'
+      ? 'Uses the verified rate schedule as the approval basis'
+      : 'Holds approval until the rate schedule is verified';
+  }
+
+  if (contractCeiling == null) {
+    return 'Approval limit is not established';
+  }
+
+  if (billedToDate == null) {
+    return 'Remaining capacity is not established';
+  }
+
+  const remaining = contractCeiling - billedToDate;
+  if (remaining < 0) return 'Blocks approval until capacity is restored';
+  if (remaining === 0) return 'No remaining contract capacity';
+  if (approvalLabel !== 'Approved') return approvalGateImpact(approvalLabel);
+  return 'Shows remaining contract capacity';
+}
+
+function contractNextAction(params: {
+  approvalLabel: OperatorApprovalLabel;
+  contractCeiling: number | null;
+  billedToDate: number | null;
+  hasRateBasedSignal: boolean;
+  worstFinding: FindingRow | null;
+}): string {
+  const {
+    approvalLabel,
+    contractCeiling,
+    billedToDate,
+    hasRateBasedSignal,
+    worstFinding,
+  } = params;
+
+  if (worstFinding) {
+    if (isRateBasedContractFinding(worstFinding)) {
+      return 'Verify rate schedule.';
+    }
+
+    const ruleId = worstFinding.rule_id.toUpperCase();
+    if (ruleId === 'SOURCES_NO_CONTRACT') {
+      return 'Attach the governing contract before continuing.';
+    }
+    if (ruleId.includes('CONTRACT_CEILING') || ruleId.includes('_NTE_')) {
+      return 'Confirm the governing contract ceiling.';
+    }
+
+    return findingNextAction({
+      status: worstFinding.status as 'open' | 'resolved' | 'dismissed' | 'muted',
+      severity: worstFinding.severity as 'critical' | 'warning' | 'info',
+      blocked_reason: worstFinding.blocked_reason,
+      decision_eligible: worstFinding.decision_eligible,
+      action_eligible: worstFinding.action_eligible,
+    });
+  }
+
+  if (hasRateBasedSignal && contractCeiling == null) {
+    return approvalLabel === 'Approved'
+      ? 'Use the verified rate schedule when approving contract-backed spend.'
+      : 'Verify rate schedule.';
+  }
+
+  if (contractCeiling == null) {
+    return 'Confirm the governing contract ceiling.';
+  }
+
+  if (billedToDate == null) {
+    return 'Publish billed-to-date totals to calculate remaining capacity.';
+  }
+
+  return contractCeiling - billedToDate < 0
+    ? 'Resolve the over-ceiling exposure before approving additional spend.'
+    : 'Use the remaining capacity when making the approval decision.';
+}
+
+function contractQueryLabel(queryValue: string): string {
+  switch (queryValue.trim().toLowerCase()) {
+    case 'ceiling':
+      return 'Contract ceiling';
+    case 'remaining':
+      return 'Contract remaining capacity';
+    case 'status':
+      return 'Contract status';
+    default:
+      return 'Contract';
+  }
+}
+
+async function loadContractFactHints(projectId: string): Promise<{
+  contractCeilingType: string | null;
+}> {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    return { contractCeilingType: null };
+  }
+
+  const { data: documentRows } = await admin
+    .from('documents')
+    .select('id, document_type')
+    .eq('project_id', projectId)
+    .in('document_type', ['contract', 'rate_sheet']);
+
+  const documentIds = ((documentRows ?? []) as Array<{ id: string }>).map((row) => row.id);
+  if (documentIds.length === 0) {
+    return { contractCeilingType: null };
+  }
+
+  const { data: factRows } = await admin
+    .from('document_extractions')
+    .select('field_key, field_value_text')
+    .in('document_id', documentIds)
+    .eq('status', 'active')
+    .in('field_key', ['contract_ceiling_type']);
+
+  const contractCeilingType = ((factRows ?? []) as Array<{
+    field_key: string | null;
+    field_value_text: string | null;
+  }>)
+    .find((row) => row.field_key === 'contract_ceiling_type')
+    ?.field_value_text
+    ?.trim()
+    .toLowerCase() ?? null;
+
+  return { contractCeilingType };
+}
+
 // ---------------------------------------------------------------------------
 // Invoice truth
 // ---------------------------------------------------------------------------
@@ -161,7 +409,7 @@ async function resolveInvoiceTruth(
   // 2. Open findings for this invoice
   const { data: findingRows } = await admin
     .from('project_validation_findings')
-    .select('id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
+    .select('id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
     .eq('project_id', projectId)
     .eq('status', 'open')
     .or(`subject_id.ilike.${invoiceNumber},field.ilike.%${invoiceNumber}%`);
@@ -227,6 +475,7 @@ async function resolveInvoiceTruth(
     gateImpact: approvalGateImpact(approvalLabel),
     nextAction: derivedNextAction,
     evidence,
+    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
   };
 }
 
@@ -245,7 +494,7 @@ async function resolveRateCodeTruth(
   const pattern = `%${rateCode}%`;
   const { data: findingRows } = await admin
     .from('project_validation_findings')
-    .select('id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
+    .select('id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
     .eq('project_id', projectId)
     .eq('status', 'open')
     .or(
@@ -265,6 +514,7 @@ async function resolveRateCodeTruth(
       gateImpact: approvalGateImpact('Approved'),
       nextAction: approvalNextAction('Approved'),
       evidence: [],
+      sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
     };
   }
 
@@ -319,6 +569,7 @@ async function resolveRateCodeTruth(
       action_eligible: worst.action_eligible,
     }),
     evidence,
+    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
   };
 }
 
@@ -344,7 +595,7 @@ async function resolveProjectTruth(projectId: string): Promise<TruthResult | nul
   // 2. Critical open findings
   const { data: criticalRows } = await admin
     .from('project_validation_findings')
-    .select('id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
+    .select('id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
     .eq('project_id', projectId)
     .eq('status', 'open')
     .in('severity', ['critical', 'warning'])
@@ -401,6 +652,160 @@ async function resolveProjectTruth(projectId: string): Promise<TruthResult | nul
     gateImpact: approvalGateImpact(approvalLabel),
     nextAction: approvalNextAction(approvalLabel),
     evidence,
+    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Contract truth
+// ---------------------------------------------------------------------------
+
+async function resolveContractTruth(
+  projectId: string,
+  queryValue: string,
+): Promise<TruthResult | null> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+
+  const [{ data: projectData }, { data: findingRows }, factHints] = await Promise.all([
+    admin
+      .from('projects')
+      .select('validation_status, validation_summary_json')
+      .eq('id', projectId)
+      .maybeSingle(),
+    admin
+      .from('project_validation_findings')
+      .select('id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, blocked_reason, decision_eligible, action_eligible, linked_decision_id, linked_action_id')
+      .eq('project_id', projectId)
+      .eq('status', 'open')
+      .limit(50),
+    loadContractFactHints(projectId),
+  ]);
+
+  const project = (projectData ?? null) as ProjectValidationRow | null;
+  if (!project) return null;
+
+  const summary = isRecord(project.validation_summary_json)
+    ? project.validation_summary_json
+    : null;
+  const exposure = isRecord(summary?.exposure)
+    ? summary.exposure
+    : null;
+  const findings = ((findingRows ?? []) as FindingRow[]).filter(isContractFinding);
+
+  const severityOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+  const worstFinding = findings.length > 0
+    ? [...findings].sort(
+        (left, right) => (severityOrder[left.severity] ?? 9) - (severityOrder[right.severity] ?? 9),
+      )[0] ?? null
+    : null;
+
+  const validatorRaw =
+    readString(summary?.validator_status)
+    ?? readString(summary?.validator_readiness)
+    ?? readString(project.validation_status)
+    ?? null;
+
+  const contractCeiling =
+    readNumber(summary?.nte_amount)
+    ?? readNumber(summary?.nteAmount)
+    ?? null;
+  const billedToDate =
+    readNumber(summary?.total_billed)
+    ?? readNumber(summary?.totalBilled)
+    ?? (exposure
+      ? readNumber(exposure.total_billed_amount)
+        ?? readNumber(exposure.totalBilledAmount)
+        ?? null
+      : null);
+
+  const hasRateBasedSignal =
+    factHints.contractCeilingType === 'rate_based'
+    || findings.some(isRateBasedContractFinding);
+
+  const fallbackApprovalLabel =
+    validatorRaw != null ? operatorApprovalLabel(validatorRaw) : 'Not Evaluated';
+  const approvalLabel = worstFinding
+    ? findingApprovalLabel({
+        status: worstFinding.status as 'open' | 'resolved' | 'dismissed' | 'muted',
+        severity: worstFinding.severity as 'critical' | 'warning' | 'info',
+        blocked_reason: worstFinding.blocked_reason,
+        decision_eligible: worstFinding.decision_eligible,
+        action_eligible: worstFinding.action_eligible,
+      })
+    : hasRateBasedSignal || contractCeiling != null
+      ? 'Approved'
+      : fallbackApprovalLabel === 'Unknown'
+        ? 'Not Evaluated'
+        : fallbackApprovalLabel;
+
+  const validationState = worstFinding
+    ? findingToTruth(worstFinding)
+    : hasRateBasedSignal || contractCeiling != null
+      ? 'Verified'
+      : truthFromApprovalLabel(approvalLabel);
+
+  const contractCeilingValue = contractCeiling != null
+    ? fmtCurrency(contractCeiling)
+    : hasRateBasedSignal
+      ? 'Rate-based schedule'
+      : 'Awaiting contract ceiling';
+  const remainingCapacityValue = formatRemainingCapacity(
+    contractCeiling,
+    billedToDate,
+    hasRateBasedSignal,
+  );
+
+  const evidence: TruthEvidence[] = [
+    {
+      kind: 'snapshot',
+      label: 'Contract ceiling',
+      detail: contractCeilingValue,
+    },
+    {
+      kind: 'snapshot',
+      label: 'Billed to date',
+      detail: billedToDate != null ? fmtCurrency(billedToDate) : 'Not established',
+    },
+    {
+      kind: 'snapshot',
+      label: 'Validator status',
+      detail:
+        fallbackApprovalLabel === 'Unknown'
+          ? (validatorRaw ?? 'Not Evaluated')
+          : fallbackApprovalLabel,
+    },
+  ];
+
+  for (const finding of findings.slice(0, 2)) {
+    evidence.push({
+      kind: 'finding',
+      label: `${finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1)} finding`,
+      detail: findingEvidenceDetail(finding),
+    });
+  }
+
+  return {
+    queryType: 'contract',
+    queryLabel: contractQueryLabel(queryValue),
+    value: `Contract ceiling ${contractCeilingValue}, Remaining capacity ${remainingCapacityValue}`,
+    validationState,
+    approvalLabel,
+    gateImpact: contractGateImpact({
+      approvalLabel,
+      contractCeiling,
+      billedToDate,
+      hasRateBasedSignal,
+    }),
+    nextAction: contractNextAction({
+      approvalLabel,
+      contractCeiling,
+      billedToDate,
+      hasRateBasedSignal,
+      worstFinding,
+    }),
+    evidence,
+    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
   };
 }
 
@@ -417,5 +822,6 @@ export async function resolveTruth(
     case 'invoice':  return resolveInvoiceTruth(projectId, queryValue);
     case 'rate_code': return resolveRateCodeTruth(projectId, queryValue);
     case 'project':  return resolveProjectTruth(projectId);
+    case 'contract': return resolveContractTruth(projectId, queryValue);
   }
 }

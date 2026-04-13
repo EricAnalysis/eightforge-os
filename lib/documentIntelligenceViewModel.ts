@@ -36,6 +36,10 @@ import type {
   PipelineTraceNode,
   TransactionDataExtraction,
 } from '@/lib/types/documentIntelligence';
+import {
+  buildSpreadsheetFactWorkspaceDatasetSummary,
+  type SpreadsheetFactWorkspaceDatasetSummary,
+} from '@/lib/spreadsheetDocumentReview';
 
 export type DocumentFactState =
   | 'auto'
@@ -249,6 +253,10 @@ export type DocumentIntelligenceViewModel = {
    * and document_type includes 'transaction_data'. Used by TransactionDataSurface.
    */
   transactionDataExtraction: TransactionDataExtraction | null;
+  /**
+   * Read-only operational rollups for Fact Workspace dataset summary (ticket-query spreadsheets).
+   */
+  spreadsheetFactWorkspaceDatasetSummary: SpreadsheetFactWorkspaceDatasetSummary | null;
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -2858,6 +2866,14 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       ? (extracted as unknown as TransactionDataExtraction)
       : null;
 
+  const spreadsheetFactWorkspaceDatasetSummary =
+    transactionDataExtraction
+      ? buildSpreadsheetFactWorkspaceDatasetSummary({
+          ops: transactionDataExtraction.projectOperationsOverview ?? null,
+          records: transactionDataExtraction.records ?? [],
+        })
+      : null;
+
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_ANCHOR_COVERAGE_LOG === '1') {
     console.info('[EightForge anchor coverage]', {
       documentId: params.documentId,
@@ -2905,5 +2921,6 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     }),
     invoiceExtraction,
     transactionDataExtraction,
+    spreadsheetFactWorkspaceDatasetSummary,
   };
 }

@@ -44,8 +44,8 @@ function loadingGraph(): OperatorGraphData {
     { stage: 'documents', label: 'Documents', sublabel: 'Uploaded', countLabel: 'recent', href: '/platform/documents' },
     { stage: 'truth', label: 'Truth', sublabel: 'Facts Extracted', countLabel: 'processed', href: '/platform/documents' },
     { stage: 'decision', label: 'Decision', sublabel: 'Open Decisions', countLabel: 'open', href: '/platform/decisions' },
-    { stage: 'enforcement', label: 'Enforcement', sublabel: 'Approval Status', countLabel: 'pending', href: '/platform/reviews' },
-    { stage: 'execution', label: 'Execution', sublabel: 'Tasks Created', countLabel: 'tasks', href: '/platform/workflows' },
+    { stage: 'enforcement', label: 'Enforcement', sublabel: 'Approval Status', countLabel: 'pending', href: '/platform/decisions' },
+    { stage: 'execution', label: 'Execution', sublabel: 'Tasks Created', countLabel: 'tasks', href: '/platform/decisions' },
   ];
   return {
     nodes: stages.map((s) => ({
@@ -173,7 +173,7 @@ export function buildOperatorGraphData(
         amount: null,
         status: executionStatus,
         statusLabel: openActions > 0 ? 'In progress' : 'Clear',
-        href: '/platform/workflows',
+        href: '/platform/decisions',
       },
     ],
   };

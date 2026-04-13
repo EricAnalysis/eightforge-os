@@ -7,6 +7,8 @@ import {
   buildDecisionInvoiceStrip,
   type DecisionCausalChainStepState,
   type DecisionProjectValidationContext,
+  type DecisionQueueFindingActionContext,
+  type DecisionWorkflowExecutionStatus,
 } from '@/lib/decisionContext';
 import { validationToneKey, type TruthValidationState } from '@/lib/truthToAction';
 import type { DecisionEvidencePayload } from '@/lib/decisionDetail';
@@ -118,10 +120,13 @@ export function DecisionContextPanel(props: {
   primaryAction: DecisionAction | null;
   projectId: string | null;
   projectValidation: DecisionProjectValidationContext;
+  queueFindingAction: DecisionQueueFindingActionContext | null;
   relatedTasks: Array<{
     id: string;
     status: string;
+    title?: string | null;
   }>;
+  executionStatus: DecisionWorkflowExecutionStatus | null;
 }) {
   const {
     decisionId,
@@ -130,18 +135,23 @@ export function DecisionContextPanel(props: {
     documentId,
     documentHref,
     evidence,
+    executionStatus,
     primaryAction,
     projectId,
     projectValidation,
+    queueFindingAction,
     relatedTasks,
   } = props;
 
   const rows = buildDecisionContextRows({
     decisionDetails,
     documentHref,
+    executionStatus,
     projectId,
     primaryAction,
     projectValidation,
+    queueFindingAction,
+    relatedTasks,
   });
   const invoiceStrip = buildDecisionInvoiceStrip({
     decisionDetails,
@@ -279,6 +289,20 @@ export function DecisionContextPanel(props: {
                     {row.nextAction}
                   </span>
                 </p>
+                <p className="text-[#64748B]">
+                  Action impact:{' '}
+                  <span className="font-semibold text-[#C7D2E3]">
+                    {row.actionImpact}
+                  </span>
+                </p>
+                {row.executionStatus ? (
+                  <p className="text-[#64748B]">
+                    Execution status:{' '}
+                    <span className="font-semibold text-[#C7D2E3]">
+                      {row.executionStatus}
+                    </span>
+                  </p>
+                ) : null}
               </div>
             </li>
           ))}

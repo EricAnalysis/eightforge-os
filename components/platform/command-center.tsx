@@ -386,6 +386,46 @@ export function IntegrityAuditPanel({
   );
 }
 
+export function QueueTrustStrip({ summary }: { summary: IntegrityAuditSummary }) {
+  const nextStepsFinding = summary.findings.find((item) => item.id === 'missing-action');
+  const nextStepsCountMatch = nextStepsFinding?.detail.match(/\d+/);
+  const nextStepsCount = nextStepsCountMatch ? Number(nextStepsCountMatch[0]) : 0;
+
+  const projectContextHighlight = summary.highlights.find((item) => item.id === 'project-context');
+  const projectContextParts = projectContextHighlight?.value.split('/') ?? [];
+  const projectContextComplete =
+    projectContextParts.length === 2 &&
+    projectContextParts[0] === projectContextParts[1] &&
+    projectContextParts[1] !== '0';
+
+  const hiddenRowsHighlight = summary.highlights.find((item) => item.id === 'hidden-stale-rows');
+  const hiddenRowsCount = Number(hiddenRowsHighlight?.value ?? 0);
+
+  return (
+    <div className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#94A3B8]">
+          Queue Trust Surface
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em]">
+          <span className={`rounded-full border px-2 py-1 ${nextStepsCount > 0 ? toneChipClass('danger') : toneChipClass('success')}`}>
+            {nextStepsCount > 0 ? `${nextStepsCount} next step${nextStepsCount === 1 ? '' : 's'}` : 'Next steps clear'}
+          </span>
+
+          <span className={`rounded-full border px-2 py-1 ${projectContextComplete ? toneChipClass('success') : toneChipClass('warning')}`}>
+            {projectContextComplete ? 'Project context present' : 'Project context missing'}
+          </span>
+
+          <span className={`rounded-full border px-2 py-1 ${hiddenRowsCount > 0 ? toneChipClass('brand') : toneChipClass('muted')}`}>
+            {hiddenRowsCount > 0 ? `${hiddenRowsCount} hidden row${hiddenRowsCount === 1 ? '' : 's'}` : 'No hidden rows'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DecisionQueue({
   items,
   criticalCount,
@@ -551,7 +591,7 @@ export function MyActionsPanel({
         </div>
 
         <Link
-          href="/platform/workflows"
+          href="/platform/decisions"
           className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3B82F6] transition hover:text-[#60A5FA]"
         >
           View All
@@ -654,7 +694,6 @@ export function FloatingCommandBar() {
   const shortcuts = [
     { href: '/platform/documents', label: 'Upload', keycap: 'U' },
     { href: '/platform/decisions', label: 'Queue', keycap: 'D' },
-    { href: '/platform/workflows', label: 'Actions', keycap: 'A' },
     { href: '/platform/reviews', label: 'Intel', keycap: 'I' },
   ];
 

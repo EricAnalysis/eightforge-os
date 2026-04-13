@@ -15,6 +15,8 @@ import {
 } from '@/lib/projectOverviewCopy';
 import type {
   OverviewTone,
+  ProjectDecisionRow,
+  ProjectDocumentRow,
   ProjectOverviewActionItem,
   ProjectOverviewAuditItem,
   ProjectOverviewDecisionCard,
@@ -24,10 +26,14 @@ import type {
   ProjectOverviewMetric,
   ProjectOverviewModel,
   ProjectOverviewTag,
+  ProjectTaskRow,
 } from '@/lib/projectOverview';
 
 type ProjectOverviewProps = {
   model: ProjectOverviewModel;
+  documents?: ProjectDocumentRow[];
+  decisions?: ProjectDecisionRow[];
+  tasks?: ProjectTaskRow[];
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
   validatorTab?: ReactNode;
@@ -601,6 +607,9 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
 
 export function ProjectOverview({
   model,
+  documents = [],
+  decisions = [],
+  tasks = [],
   loadIssue,
   onProjectRefresh,
   validatorTab,
@@ -620,6 +629,18 @@ export function ProjectOverview({
     window.addEventListener('hashchange', syncWithHash);
     return () => window.removeEventListener('hashchange', syncWithHash);
   }, []);
+
+  const blockedFilterActive =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('filter') === 'blocked';
+
+  const visibleDecisions = blockedFilterActive
+    ? model.decisions.filter((decision) => decision.border_tone === 'danger')
+    : model.decisions;
+
+  const visibleDecisionTotal = blockedFilterActive
+    ? visibleDecisions.length
+    : model.decision_total;
 
   return (
     <div className="bg-[#0B1020] text-[#E5EDF7]">
@@ -725,21 +746,36 @@ export function ProjectOverview({
           </div>
         </section>
 
+        <section className="space-y-4">
+          <AskProjectSection
+            projectId={model.project.id}
+            validatorStatus={model.validator_status}
+            criticalFindings={model.validator_summary.critical_count ?? 0}
+            documents={documents}
+            decisions={decisions}
+            tasks={tasks}
+          />
+        </section>
+
         <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-12">
           <div className="space-y-6 xl:col-span-8">
             <SectionHeading
               id="project-decisions"
               title="Project Decisions"
-              subtitle={`${model.decision_total} linked decision record${model.decision_total === 1 ? '' : 's'} in this project context`}
+              subtitle={
+                blockedFilterActive
+                  ? `${visibleDecisionTotal} blocked decision${visibleDecisionTotal === 1 ? '' : 's'}`
+                  : `${model.decision_total} linked decision record${model.decision_total === 1 ? '' : 's'} in this project context`
+              }
             />
 
-            {model.decisions.length === 0 ? (
+            {visibleDecisions.length === 0 ? (
               <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-6 text-sm text-[#94A3B8]">
                 {model.decision_empty_state}
               </div>
             ) : (
               <div className="space-y-4">
-                {model.decisions.map((decision) => (
+                {visibleDecisions.map((decision) => (
                   <DecisionCard key={decision.id} decision={decision} />
                 ))}
               </div>
@@ -782,10 +818,6 @@ export function ProjectOverview({
                 </div>
               )}
               <DocumentPrecedenceSection projectId={model.project.id} />
-            </section>
-
-            <section className="space-y-4">
-              <AskProjectSection projectId={model.project.id} />
             </section>
 
             {validatorTab ? (

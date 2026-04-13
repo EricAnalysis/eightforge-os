@@ -76,6 +76,9 @@ export default function ProjectDetailPage({
   return (
     <ProjectOverview
       model={model}
+      documents={data.documents}
+      decisions={data.decisions}
+      tasks={data.tasks}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}
       validatorTab={<ValidatorTab projectId={id} />}

@@ -235,7 +235,7 @@ function actionHref(
   }
 
   if (type === 'check_validator' || type === 'review_validator') {
-    return `/platform/projects/${projectId}#project-validator`;
+    return `/platform/workspace/projects/${projectId}?tab=validator`;
   }
 
   return null;

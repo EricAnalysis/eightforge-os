@@ -1641,7 +1641,7 @@ export default function DocumentDetailPage({
         primaryBackLabel={primaryBackLabel}
         processingStatusNode={(
           <DocumentProcessingStatus
-            status={doc.processing_status ?? doc.status}
+            status={derivedDocumentStatus}
             processingError={doc.processing_error ?? null}
             documentId={id}
             orgId={orgId ?? undefined}

@@ -36,6 +36,10 @@ import type {
   PipelineTraceNode,
   TransactionDataExtraction,
 } from '@/lib/types/documentIntelligence';
+import type {
+  TransactionDataProjectOperationsOverview,
+  TransactionDataRecord,
+} from '@/lib/types/transactionData';
 import {
   buildSpreadsheetFactWorkspaceDatasetSummary,
   type SpreadsheetFactWorkspaceDatasetSummary,
@@ -2866,13 +2870,33 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       ? (extracted as unknown as TransactionDataExtraction)
       : null;
 
+  // Fallback: for spreadsheets whose data was stored via the pre-v2 pipeline path
+  // (preferredExtraction.data.extraction.evidence_v1.structured_fields) rather than
+  // executionTrace.extracted, read records and ops directly from structuredFields.
+  const spreadsheetStructuredRecords =
+    transactionDataExtraction == null &&
+    family === 'spreadsheet' &&
+    Array.isArray(structuredFields.transaction_data_records)
+      ? (structuredFields.transaction_data_records as TransactionDataRecord[])
+      : null;
+  const spreadsheetStructuredOps =
+    spreadsheetStructuredRecords != null &&
+    structuredFields.project_operations_overview != null
+      ? (structuredFields.project_operations_overview as TransactionDataProjectOperationsOverview)
+      : null;
+
   const spreadsheetFactWorkspaceDatasetSummary =
     transactionDataExtraction
       ? buildSpreadsheetFactWorkspaceDatasetSummary({
           ops: transactionDataExtraction.projectOperationsOverview ?? null,
           records: transactionDataExtraction.records ?? [],
         })
-      : null;
+      : spreadsheetStructuredRecords != null
+        ? buildSpreadsheetFactWorkspaceDatasetSummary({
+            ops: spreadsheetStructuredOps,
+            records: spreadsheetStructuredRecords,
+          })
+        : null;
 
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_ANCHOR_COVERAGE_LOG === '1') {
     console.info('[EightForge anchor coverage]', {

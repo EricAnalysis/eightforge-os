@@ -11,6 +11,7 @@ type Organization = {
 export function useCurrentOrg() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,6 +22,7 @@ export function useCurrentOrg() {
         if (authError || !user) {
           setOrganization(null);
           setUserId(null);
+          setRole(null);
           return;
         }
 
@@ -28,13 +30,14 @@ export function useCurrentOrg() {
 
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('organization_id, organizations(id, name)')
+          .select('organization_id, role, organizations(id, name)')
           .eq('id', user.id)
           .single();
 
         if (error || !data) {
           console.error('Error loading user profile:', error?.message);
           setOrganization(null);
+          setRole(null);
         } else {
           // Supabase infers the join as array but the FK is many-to-one,
           // so PostgREST returns a single object at runtime.
@@ -43,10 +46,12 @@ export function useCurrentOrg() {
             ? (raw[0] as Organization) ?? null
             : (raw as unknown as Organization | null);
           setOrganization(org);
+          setRole(typeof data.role === 'string' ? data.role : null);
         }
       } catch (err) {
         console.error('Unexpected error loading organization:', err);
         setOrganization(null);
+        setRole(null);
       } finally {
         setLoading(false);
       }
@@ -62,6 +67,7 @@ export function useCurrentOrg() {
       if (event === 'SIGNED_OUT') {
         setOrganization(null);
         setUserId(null);
+        setRole(null);
         setLoading(false);
       }
     });
@@ -69,5 +75,5 @@ export function useCurrentOrg() {
     return () => subscription.unsubscribe();
   }, []);
 
-  return { organization, userId, loading };
+  return { organization, userId, role, loading };
 }

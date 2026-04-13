@@ -44,3 +44,7 @@ next-env.d.ts
 /tests/.auth/
 /playwright-report/
 /test-results/
+
+# local-only machine files
+.claude/settings.local.json
+eng.traineddata

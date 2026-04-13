@@ -19,6 +19,7 @@ import { loadFactsWithDerived, loadRules, evaluateRule } from '@/lib/server/rule
 import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
 import type { RuleEvalResult } from '@/lib/types/rules';
 
 export async function POST(
@@ -75,11 +76,10 @@ export async function POST(
     );
   }
 
-  if (!document.domain || !document.document_type) {
+  if (!document.document_type) {
     return NextResponse.json(
       {
-        error:
-          'Document is missing domain or document_type. Classify the document before evaluation.',
+        error: 'Document is missing document_type. Classify the document before evaluation.',
         document_id: documentId,
         domain: document.domain,
         document_type: document.document_type,
@@ -89,6 +89,79 @@ export async function POST(
   }
 
   try {
+    const canonicalResult = await generateAndPersistCanonicalIntelligence({
+      admin,
+      documentId,
+      organizationId: document.organization_id,
+    });
+
+    if (canonicalResult.handled) {
+      await admin
+        .from('documents')
+        .update({
+          processing_status: 'decisioned',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', documentId);
+
+      try {
+        await logActivityEvent({
+          organization_id: document.organization_id,
+          entity_type: 'decision',
+          entity_id: documentId,
+          event_type: 'created',
+          changed_by: null,
+          new_value: {
+            action: 'canonical_intelligence_evaluation',
+            family: canonicalResult.family,
+            decisions_created: canonicalResult.decisions_created,
+            decisions_updated: canonicalResult.decisions_updated,
+            decisions_preserved: canonicalResult.decisions_preserved,
+            tasks_created: canonicalResult.tasks_created,
+            tasks_updated: canonicalResult.tasks_updated,
+            tasks_preserved: canonicalResult.tasks_preserved,
+          },
+        });
+      } catch {
+        // Activity logging is best-effort — don't fail the request
+      }
+
+      return NextResponse.json({
+        document_id: documentId,
+        domain: document.domain,
+        document_type: document.document_type,
+        facts_loaded: 0,
+        rules_evaluated: 0,
+        matched_rules:
+          canonicalResult.intelligence?.decisions.filter((decision) => decision.status !== 'passed').length ?? 0,
+        decisions_created: canonicalResult.decisions_created,
+        decisions_updated: canonicalResult.decisions_updated,
+        decisions_skipped: canonicalResult.decisions_preserved,
+        tasks_created: canonicalResult.tasks_created,
+        tasks_skipped: canonicalResult.tasks_preserved,
+        processing_status: 'decisioned',
+        debug: {
+          extraction_row_count: 0,
+          derived_facts: {
+            canonical_intelligence: true,
+            intelligence_family: canonicalResult.family,
+            intelligence_version: 'v2',
+          },
+        },
+      });
+    }
+
+    if (!document.domain) {
+      return NextResponse.json(
+        {
+          error: 'Document is missing domain. Classify the document before evaluation.',
+          document_id: documentId,
+          domain: document.domain,
+          document_type: document.document_type,
+        },
+        { status: 422 },
+      );
+    }
     // ── 3. Load facts (with derived layer) ───────────────────────────────
     const { facts, derived_facts, extraction_row_count } =
       await loadFactsWithDerived({

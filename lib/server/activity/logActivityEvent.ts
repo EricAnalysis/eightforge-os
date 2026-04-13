@@ -2,25 +2,52 @@
 // Server-only: inserts a row into public.activity_events using the service role client.
 // Designed for use inside API routes after a successful mutation.
 //
-// Real DB schema (columns): id, organization_id, entity_type, entity_id,
-// event_type, old_value, new_value, changed_by, created_at.
+// Real DB schema (columns): id, organization_id, project_id, entity_type,
+// entity_id, event_type, old_value, new_value, changed_by, created_at.
 //
 // CHECK constraints enforced by the database:
-//   entity_type IN ('decision', 'workflow_task')
-//   event_type  IN ('created', 'status_changed', 'assignment_changed', 'due_date_changed')
+//   entity_type IN (
+//     'decision',
+//     'workflow_task',
+//     'document',
+//     'project',
+//     'project_validation_run'
+//   )
+//   event_type  IN (
+//     'created',
+//     'status_changed',
+//     'assignment_changed',
+//     'due_date_changed',
+//     'document_removed_from_project',
+//     'document_moved_to_project',
+//     'project_archived',
+//     'project_deleted',
+//     'validation_run_completed'
+//   )
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
-export type ActivityEntityType = 'decision' | 'workflow_task';
+export type ActivityEntityType =
+  | 'decision'
+  | 'workflow_task'
+  | 'document'
+  | 'project'
+  | 'project_validation_run';
 
 export type ActivityEventType =
   | 'created'
   | 'status_changed'
   | 'assignment_changed'
-  | 'due_date_changed';
+  | 'due_date_changed'
+  | 'document_removed_from_project'
+  | 'document_moved_to_project'
+  | 'project_archived'
+  | 'project_deleted'
+  | 'validation_run_completed';
 
 export type ActivityInput = {
   organization_id: string;
+  project_id?: string | null;
   entity_type: ActivityEntityType;
   entity_id: string;
   event_type: ActivityEventType;
@@ -52,6 +79,7 @@ export async function logActivityEvent(
     .from('activity_events')
     .insert({
       organization_id: input.organization_id,
+      project_id: input.project_id ?? null,
       entity_type: input.entity_type,
       entity_id: input.entity_id,
       event_type: input.event_type,

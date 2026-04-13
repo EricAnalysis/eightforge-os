@@ -18,9 +18,9 @@ const CARDS = [
     href: '/platform/decisions',
   },
   {
-    title: 'Flow',
-    description: 'Workflow orchestration — tasks, approvals, escalations, and assignments.',
-    href: '/platform/workflows',
+    title: 'Execution',
+    description: 'Remediation work is handled inside Decision Queue and decision detail.',
+    href: '/platform/decisions',
   },
   {
     title: 'Review',

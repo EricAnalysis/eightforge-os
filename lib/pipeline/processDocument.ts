@@ -21,6 +21,10 @@ import { evaluateDocument } from '@/lib/server/ruleEngine';
 import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
+import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
+import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
+import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -41,6 +45,22 @@ async function markFailed(
 ): Promise<void> {
   await updateJobStatus({ jobId, status: 'failed', errorMessage });
   await setDocumentStatus({ documentId, status: 'failed' });
+}
+
+async function markExtractedFailure(
+  jobId: string,
+  documentId: string,
+  errorMessage: string,
+  resultExtractionId?: string | null,
+): Promise<void> {
+  await updateJobStatus({
+    jobId,
+    status: 'failed',
+    completedAt: new Date().toISOString(),
+    errorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+  });
+  await setDocumentStatus({ documentId, status: 'extracted' });
 }
 
 export async function processDocument(params: {
@@ -64,7 +84,7 @@ export async function processDocument(params: {
     // ── 1. Load document row (include domain for deterministic engine) ───────
     const { data: docRow, error: docError } = await admin
       .from('documents')
-      .select('id, title, name, document_type, domain, status, storage_path, organization_id')
+      .select('id, title, name, document_type, domain, status, storage_path, organization_id, project_id')
       .eq('id', params.documentId)
       .eq('organization_id', params.organizationId)
       .single();
@@ -75,6 +95,9 @@ export async function processDocument(params: {
     }
 
     const storagePath = docRow.storage_path as string | null;
+    const documentType = (docRow.document_type as string | null) ?? null;
+    const projectId = (docRow.project_id as string | null) ?? null;
+    const canonicalPersistenceRequired = isContractInvoicePrimaryDocumentType(documentType);
     if (!storagePath) {
       await markFailed(job.id, params.documentId, 'storage_path missing');
       return { success: false, error: 'Storage path missing', jobId: job.id };
@@ -106,7 +129,7 @@ export async function processDocument(params: {
     };
 
     // ── 4. Extract text and fields ───────────────────────────────────────────
-    let payload = (await extractDocument(
+    const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
@@ -136,6 +159,34 @@ export async function processDocument(params: {
       });
     }
 
+    const extractionDebug =
+      process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1' ||
+      process.env.EIGHTFORGE_OCR_DEBUG === '1' ||
+      process.env.EIGHTFORGE_EVIDENCE_DEBUG === '1';
+    if (extractionDebug) {
+      const extraction = (payload.extraction ?? {}) as Record<string, unknown>;
+      const evidence = (extraction.evidence_v1 ?? {}) as Record<string, unknown>;
+      const contentLayers = (extraction.content_layers_v1 ?? {}) as Record<string, unknown>;
+      const pdfLayers = (contentLayers.pdf ?? {}) as Record<string, unknown>;
+      const pageText =
+        Array.isArray(evidence.page_text) ? evidence.page_text as Array<Record<string, unknown>> : [];
+      const pdfText = (pdfLayers.text ?? {}) as Record<string, unknown>;
+      const pdfTables = (pdfLayers.tables ?? {}) as Record<string, unknown>;
+      const pdfForms = (pdfLayers.forms ?? {}) as Record<string, unknown>;
+      console.log('[processDocument][extraction-ready]', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId: (docRow.project_id as string | null) ?? null,
+        extraction_mode: extraction.mode ?? null,
+        text_preview_length:
+          typeof extraction.text_preview === 'string' ? extraction.text_preview.length : 0,
+        evidence_page_count: pageText.length,
+        pdf_text_page_count: Array.isArray(pdfText.pages) ? pdfText.pages.length : 0,
+        pdf_table_count: Array.isArray(pdfTables.tables) ? pdfTables.tables.length : 0,
+        pdf_form_count: Array.isArray(pdfForms.fields) ? pdfForms.fields.length : 0,
+      });
+    }
+
     // ── 5. Persist raw extraction row ────────────────────────────────────────
     const { data: inserted, error: insertError } = await admin
       .from('document_extractions')
@@ -148,6 +199,17 @@ export async function processDocument(params: {
       .single();
 
     if (insertError) {
+      if (extractionDebug) {
+        console.error('[processDocument][extraction-persist-failed]', {
+          documentId: params.documentId,
+          organizationId: params.organizationId,
+          projectId: (docRow.project_id as string | null) ?? null,
+          code: insertError.code ?? null,
+          message: insertError.message,
+          details: insertError.details ?? null,
+          hint: insertError.hint ?? null,
+        });
+      }
       await markFailed(job.id, params.documentId, insertError.message);
       return { success: false, error: 'Failed to persist extraction', jobId: job.id };
     }
@@ -162,9 +224,175 @@ export async function processDocument(params: {
     // ── 7. Mark extracted — extraction is complete, decisioning starts next ──
     await setDocumentStatus({ documentId: params.documentId, status: 'extracted' });
 
+    let canonicalResult: Awaited<ReturnType<typeof generateAndPersistCanonicalIntelligence>> | null = null;
+    let canonicalPersistenceError: string | null = null;
+
+    console.log('[processDocument] canonical persistence start', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      projectId,
+      documentType,
+      extractionMode: payload.extraction?.mode ?? null,
+    });
+
+    try {
+      canonicalResult = await generateAndPersistCanonicalIntelligence({
+        admin,
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
+      });
+
+      console.log('[processDocument] canonical persistence complete', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        handled: canonicalResult.handled,
+        family: canonicalResult.family,
+        executionTracePersisted: canonicalResult.execution_trace_persisted,
+      });
+    } catch (canonicalErr) {
+      canonicalPersistenceError =
+        canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
+      console.error('[processDocument] canonical intelligence persistence failed', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        error: canonicalPersistenceError,
+      });
+    }
+
+    const canonicalPersistenceHealthy =
+      canonicalResult?.handled === true &&
+      canonicalResult.execution_trace_persisted === true;
+
+    if (canonicalPersistenceRequired && !canonicalPersistenceHealthy) {
+      const errorMessage =
+        canonicalPersistenceError ??
+        (canonicalResult?.handled !== true
+          ? `Canonical intelligence did not complete for ${documentType ?? 'document'} ${params.documentId}.`
+          : `Canonical intelligence trace did not persist for ${documentType ?? 'document'} ${params.documentId}.`);
+
+      console.error('[processDocument] blocking decisioned status after canonical persistence failure', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        handled: canonicalResult?.handled ?? false,
+        family: canonicalResult?.family ?? null,
+        executionTracePersisted: canonicalResult?.execution_trace_persisted ?? false,
+      });
+
+      await markExtractedFailure(
+        job.id,
+        params.documentId,
+        errorMessage,
+        inserted?.id ?? null,
+      );
+
+      return {
+        success: false,
+        extraction: inserted,
+        jobId: job.id,
+        processing_status: 'extracted',
+        error: errorMessage,
+      };
+    }
+
+    if (canonicalResult?.handled) {
+      // ── 7b. Project-context rerun targeting (supported families only) ───────
+      // MVP: rerun only when we have a project_id and a recognized document_type.
+      // This is synchronous, deterministic, and reuses the canonical persistence path.
+      const changedDocType = documentType;
+      if (changedDocType && projectId) {
+        try {
+          // Current pipeline only has coarse triggers (upload/manual/system). For MVP, treat
+          // successful processing as an "uploaded/updated" context-change event.
+          const targetTypes = getProjectRerunStoredDocTypes({
+            changedDocumentType: changedDocType,
+            trigger: 'document_uploaded',
+          });
+
+          if (targetTypes.length > 0) {
+            const { data: siblings } = await admin
+              .from('documents')
+              .select('id, document_type')
+              .eq('organization_id', params.organizationId)
+              .eq('project_id', projectId)
+              .in('document_type', targetTypes)
+              .neq('id', params.documentId);
+
+            for (const s of siblings ?? []) {
+              const siblingId = (s as { id: string }).id;
+              await generateAndPersistCanonicalIntelligence({
+                admin,
+                documentId: siblingId,
+                organizationId: params.organizationId,
+                projectId,
+              });
+            }
+          }
+        } catch {
+          // Best-effort: never fail the main document pipeline on rerun issues.
+        }
+      }
+
+      try {
+        await logActivityEvent({
+          organization_id: params.organizationId,
+          entity_type: 'decision',
+          entity_id: params.documentId,
+          event_type: 'created',
+          changed_by: null,
+          new_value: {
+            action: 'pipeline_processing_canonical_intelligence',
+            family: canonicalResult.family,
+            decisions_created: canonicalResult.decisions_created,
+            decisions_updated: canonicalResult.decisions_updated,
+            decisions_preserved: canonicalResult.decisions_preserved,
+            tasks_created: canonicalResult.tasks_created,
+            tasks_updated: canonicalResult.tasks_updated,
+            tasks_preserved: canonicalResult.tasks_preserved,
+          },
+        });
+      } catch {
+        // Activity logging is best-effort â€” never fail the pipeline
+      }
+
+      await updateJobStatus({
+        jobId: job.id,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        resultExtractionId: inserted?.id ?? null,
+      });
+      await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+      if (projectId) {
+        // Fire-and-forget so project validation never blocks document processing.
+        void triggerProjectValidation(projectId, 'document_processed');
+      }
+
+      return {
+        success: true,
+        extraction: inserted,
+        jobId: job.id,
+        processing_status: 'decisioned',
+      };
+    }
+
     // ── 8. Run deterministic rule engine (if domain + document_type are set) ─
+    console.log('[processDocument] continuing after canonical persistence', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      handled: canonicalResult?.handled ?? false,
+    });
+
     const domain = (docRow.domain as string | null) ?? null;
-    const documentType = (docRow.document_type as string | null) ?? null;
 
     if (domain && documentType) {
       try {
@@ -179,6 +407,7 @@ export async function processDocument(params: {
           const deterministicResult = await createDecisionsFromRules({
             documentId: params.documentId,
             organizationId: params.organizationId,
+            projectId,
             matchedResults: matched,
             facts,
           });
@@ -188,6 +417,7 @@ export async function processDocument(params: {
           if (deterministicResult.decisions.length > 0) {
             const taskResult = await createTasksFromDecisions({
               organizationId: params.organizationId,
+              projectId,
               decisions: deterministicResult.decisions,
             });
             tasksCreated = taskResult?.created ?? 0;
@@ -233,6 +463,7 @@ export async function processDocument(params: {
       admin,
       documentId: params.documentId,
       organizationId: params.organizationId,
+      projectId,
       documentType,
       extraction: payload as unknown as {
         fields: Record<string, unknown>;
@@ -246,6 +477,7 @@ export async function processDocument(params: {
       admin,
       documentId: params.documentId,
       organizationId: params.organizationId,
+      projectId,
       decisions: heuristicDecisions,
     });
 
@@ -257,6 +489,10 @@ export async function processDocument(params: {
       resultExtractionId: inserted?.id ?? null,
     });
     await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+    if (projectId) {
+      // Fire-and-forget so project validation never blocks document processing.
+      void triggerProjectValidation(projectId, 'document_processed');
+    }
 
     return {
       success: true,

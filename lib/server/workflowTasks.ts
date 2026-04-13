@@ -93,7 +93,8 @@ export async function createWorkflowTasksFromDecisions(
   admin: SupabaseClient,
   organizationId: string,
   documentId: string,
-  decisions: DecisionForWorkflow[]
+  decisions: DecisionForWorkflow[],
+  projectId?: string | null,
 ): Promise<{ created: number }> {
   if (decisions.length === 0) return { created: 0 };
 
@@ -120,6 +121,7 @@ export async function createWorkflowTasksFromDecisions(
               organization_id: organizationId,
               decision_id: d.id,
               document_id: documentId,
+              project_id: projectId ?? null,
               task_type: rule.task_type,
               title: title || 'Workflow task',
               description: description ?? '',
@@ -164,6 +166,7 @@ export async function createWorkflowTasksFromDecisions(
             organization_id: organizationId,
             decision_id: d.id,
             document_id: documentId,
+            project_id: projectId ?? null,
             task_type: FALLBACK_TASK_TYPE,
             title: 'Review critical finding',
             description: d.summary ?? d.title,

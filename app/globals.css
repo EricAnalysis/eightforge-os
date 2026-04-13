@@ -1,6 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
+  /* Legacy EightForge tokens (keep for backward compat) */
   --ef-bg: #07071A;
   --ef-surface: #0E0E2A;
   --ef-border: #1A1A3E;
@@ -15,8 +17,24 @@
   --ef-purple-accent: #A66BFF;
   --ef-purple-hover: #7A4FE8;
 
-  --background: #07071A;
-  --foreground: #F5F7FA;
+  /* Obsidian Architect surface hierarchy */
+  --ob-bg: #0B1020;
+  --ob-surface: #111827;
+  --ob-surface-secondary: #1A2333;
+  --ob-surface-tertiary: #243044;
+  --ob-border: #2F3B52;
+  --ob-text: #E5EDF7;
+  --ob-text-secondary: #C7D2E3;
+  --ob-text-muted: #94A3B8;
+  --ob-brand: #3B82F6;
+  --ob-brand-hover: #2563EB;
+  --ob-success: #22C55E;
+  --ob-warning: #F59E0B;
+  --ob-danger: #EF4444;
+  --ob-info: #38BDF8;
+
+  --background: var(--ob-bg);
+  --foreground: var(--ob-text);
 }
 
 @theme inline {
@@ -29,16 +47,32 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+.glass-panel {
+  background: rgba(26, 35, 51, 0.72);
+  backdrop-filter: blur(20px);
+}
+
+/* Obsidian scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--ob-bg); }
+::-webkit-scrollbar-thumb { background: var(--ob-surface-tertiary); }
+::-webkit-scrollbar-thumb:hover { background: var(--ob-brand); }
+
 ::selection {
-  background: rgba(139, 92, 255, 0.3);
-  color: #F5F7FA;
+  background: rgba(59, 130, 246, 0.3);
+  color: var(--ob-text);
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.6);
+}
+
+.glass-panel {
+  background: rgba(26, 35, 51, 0.82);
+  backdrop-filter: blur(18px);
 }

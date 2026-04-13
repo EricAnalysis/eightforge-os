@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DocumentDecision } from '@/lib/types/decisions';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 
 /** Normalized shape for one decision to persist (before rule lookup). */
 export type PersistedDecisionInput = {
@@ -82,6 +83,7 @@ export function documentDecisionsToPersisted(
 export type PersistDecisionsParams = {
   organization_id: string;
   document_id: string;
+  project_id?: string | null;
   decisions: PersistedDecisionInput[];
   source?: string;
 };
@@ -195,29 +197,46 @@ export async function persistDecisions(
       }
       persisted += 1;
     } else {
-      const { error } = await admin.from('decisions').insert({
-        organization_id: params.organization_id,
-        document_id: params.document_id,
-        decision_rule_id,
-        decision_type: d.decision_type,
-        title: d.title,
-        summary: d.summary,
-        severity: d.severity,
-        status: 'open',
-        confidence: d.confidence,
-        details: d.details,
-        source,
-        first_detected_at: now,
-        last_detected_at: now,
-        created_at: now,
-        updated_at: now,
-      });
+      const { data: inserted, error } = await admin
+        .from('decisions')
+        .insert({
+          organization_id: params.organization_id,
+          document_id: params.document_id,
+          project_id: params.project_id ?? null,
+          decision_rule_id,
+          decision_type: d.decision_type,
+          title: d.title,
+          summary: d.summary,
+          severity: d.severity,
+          status: 'open',
+          confidence: d.confidence,
+          details: d.details,
+          source,
+          first_detected_at: now,
+          last_detected_at: now,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
 
       if (error) {
         errors += 1;
         continue;
       }
       persisted += 1;
+
+      // Log creation event for audit trail. Non-blocking — decision row is
+      // already committed. Pipeline decisions have no human actor, so changed_by is null.
+      if (inserted?.id) {
+        await logActivityEvent({
+          organization_id: params.organization_id,
+          entity_type: 'decision',
+          entity_id: (inserted as { id: string }).id,
+          event_type: 'created',
+          changed_by: null,
+        });
+      }
     }
   }
 

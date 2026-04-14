@@ -15,8 +15,12 @@ export function useCurrentOrg() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchOrganization = async () => {
-      setLoading(true);
+    // showLoadingSpinner=true only for the initial mount fetch so that
+    // PlatformLayout shows "Checking session…" once.  Subsequent refetches
+    // triggered by TOKEN_REFRESHED or SIGNED_IN are silent — they update org
+    // data in the background without unmounting the page children.
+    const fetchOrganization = async (showLoadingSpinner: boolean) => {
+      if (showLoadingSpinner) setLoading(true);
       try {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
@@ -53,16 +57,18 @@ export function useCurrentOrg() {
         setOrganization(null);
         setRole(null);
       } finally {
-        setLoading(false);
+        if (showLoadingSpinner) setLoading(false);
       }
     };
 
-    fetchOrganization();
+    fetchOrganization(true);
 
-    // Re-fetch when auth state changes (sign-in from another tab, token refresh)
+    // Re-fetch when auth state changes (sign-in from another tab, token refresh).
+    // Use silent mode so TOKEN_REFRESHED does not flip loading=true and unmount
+    // page children through PlatformLayout's loading gate.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        fetchOrganization();
+        fetchOrganization(false);
       }
       if (event === 'SIGNED_OUT') {
         setOrganization(null);

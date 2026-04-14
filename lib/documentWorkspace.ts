@@ -53,7 +53,9 @@ export type DocumentWorkspaceDocRow = {
   processed_at: string | null;
   domain: string | null;
   project_id: string | null;
-  intelligence_trace: DocumentExecutionTrace | Record<string, unknown> | null;
+  // Optional: not selected on the list view to avoid fetching large JSONB for
+  // every document. Present on the detail page only.
+  intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
   projects:
     | DocumentWorkspaceProjectRelation
     | DocumentWorkspaceProjectRelation[]

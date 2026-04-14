@@ -588,6 +588,7 @@ export default function DocumentDetailPage({
   const loadingBackHref = fallbackProjectHref ?? '/platform/documents';
 
   const loadAllData = useCallback(async () => {
+    // Reset to loading state — one cheap synchronous render before any awaits.
     setDoc(null);
     setRelatedDocs([]);
     setSignedUrl(null);
@@ -618,6 +619,7 @@ export default function DocumentDetailPage({
         ? { Authorization: `Bearer ${authSession.access_token}` }
         : {};
 
+      // ── Phase 1: primary data (parallel) ────────────────────────────────────
       const [docResult, extractionsResult, decisionsResult, persistentResult, tasksResult] =
         await Promise.all([
           (async () => {
@@ -637,129 +639,147 @@ export default function DocumentDetailPage({
             }
             return { data: body as DocumentDetail, error: null };
           })(),
-        supabase
-          .from('document_extractions')
-          .select('id, data, created_at')
-          .eq('document_id', id)
-          // IMPORTANT: only blob extraction rows; normalized fact rows share the same table.
-          .is('field_key', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('document_decisions')
-          .select('id, decision_type, decision_value, confidence, source, created_at')
-          .eq('document_id', id)
-          .order('created_at', { ascending: true }),
-        supabase
-          .from('decisions')
-          .select('id, decision_type, title, summary, severity, status, confidence, details, created_at')
-          .eq('document_id', id)
-          .order('created_at', { ascending: true }),
-        supabase
-          .from('workflow_tasks')
-          .select('id, task_type, title, description, priority, status, decision_id, source, source_metadata, details, created_at')
-          .eq('document_id', id)
-          .order('created_at', { ascending: true }),
+          supabase
+            .from('document_extractions')
+            .select('id, data, created_at')
+            .eq('document_id', id)
+            // IMPORTANT: only blob extraction rows; normalized fact rows share the same table.
+            .is('field_key', null)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('document_decisions')
+            .select('id, decision_type, decision_value, confidence, source, created_at')
+            .eq('document_id', id)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('decisions')
+            .select('id, decision_type, title, summary, severity, status, confidence, details, created_at')
+            .eq('document_id', id)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('workflow_tasks')
+            .select('id, task_type, title, description, priority, status, decision_id, source, source_metadata, details, created_at')
+            .eq('document_id', id)
+            .order('created_at', { ascending: true }),
+        ]);
+
+      if (docResult.error || !docResult.data) {
+        if (docResult.error?.status === 404) {
+          setNotFound(true);
+        } else {
+          setError(docResult.error?.message ?? 'Failed to load document');
+        }
+        setLoading(false);
+        setExtractionsLoading(false);
+        setDecisionsLoading(false);
+        setPersistentDecisionsLoading(false);
+        setWorkflowTasksLoading(false);
+        return;
+      }
+
+      const docData = docResult.data as DocumentDetail;
+      const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
+      const loadedPersistentDecisions = (persistentResult.data ?? []) as PersistentDecisionRow[];
+
+      // Compute feedback IDs from phase-1 results (needs decision rows).
+      const generatedPersistentDecisionIds = loadedPersistentDecisions
+        .filter((decision) => isCurrentV2GeneratedRecord(decision))
+        .map((decision) => decision.id);
+      const feedbackDecisionIds = isContractInvoicePrimaryDocumentType(docData.document_type)
+        ? generatedPersistentDecisionIds
+        : loadedDecisions.map((decision) => decision.id);
+
+      // ── Phase 2: feedback + signed URL in parallel ───────────────────────────
+      // Running both here (instead of sequentially after setState) means all
+      // state is committed in one React batch below, so buildDocumentIntelligenceViewModel
+      // runs exactly once instead of twice.
+      const [feedbackResult, fileRes] = await Promise.all([
+        feedbackDecisionIds.length > 0
+          ? supabase
+              .from('decision_feedback')
+              .select('decision_id, is_correct, review_error_type')
+              .in('decision_id', feedbackDecisionIds)
+          : Promise.resolve({ data: [] as Array<{ decision_id: string; is_correct: boolean; review_error_type?: ReviewErrorType | null }>, error: null }),
+        docData.storage_path
+          ? fetch(
+              `/api/documents/${id}/file${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ''}`,
+              { headers: authHeaders },
+            )
+          : Promise.resolve(null as Response | null),
       ]);
 
-    if (docResult.error || !docResult.data) {
-      if (docResult.error?.status === 404) {
-        setNotFound(true);
-      } else {
-        setError(docResult.error?.message ?? 'Failed to load document');
+      // Build feedback map from phase-2 results.
+      const nextFeedbackMap: Record<string, FeedbackState> = {};
+      if (feedbackResult.data) {
+        for (const row of feedbackResult.data as Array<{
+          decision_id: string;
+          is_correct: boolean;
+          review_error_type?: ReviewErrorType | null;
+        }>) {
+          nextFeedbackMap[row.decision_id] = {
+            status: row.is_correct ? 'correct' : 'incorrect',
+            reviewErrorType: row.is_correct ? null : (row.review_error_type ?? 'edge_case'),
+          };
+        }
       }
+
+      // Parse signed URL response.
+      let resolvedSignedUrl: string | null = null;
+      let resolvedFileExt = '';
+      let resolvedFileContentType = '';
+      let resolvedFileError: string | null = null;
+
+      if (fileRes === null) {
+        resolvedFileError = 'No file attached to this document';
+      } else {
+        if (redirectIfUnauthorized(fileRes, router.replace)) return;
+        try {
+          const fileBody = await fileRes.json().catch(() => ({})) as {
+            signedUrl?: string;
+            ext?: string;
+            contentType?: string;
+            error?: string;
+          };
+          if (fileRes.ok && fileBody.signedUrl) {
+            resolvedSignedUrl = fileBody.signedUrl;
+            resolvedFileExt = fileBody.ext ?? '';
+            resolvedFileContentType = fileBody.contentType ?? '';
+          } else {
+            resolvedFileError = fileBody.error ?? 'Could not generate file link';
+          }
+        } catch {
+          resolvedFileError = 'Failed to fetch file URL';
+        }
+      }
+
+      // ── Phase 3: single state batch ──────────────────────────────────────────
+      // All setState calls below are synchronous (no awaits) so React 18 batches
+      // them into one render. buildDocumentIntelligenceViewModel runs exactly once
+      // with complete data (doc + extractions + feedback + fact records).
+      setDoc(docData);
+      setRelatedDocs(docData.relatedDocs ?? []);
+      setFactOverrides(docData.factOverrides ?? []);
+      setFactAnchors(docData.factAnchors ?? []);
+      setFactReviews(docData.factReviews ?? []);
+      if (!extractionsResult.error && extractionsResult.data) {
+        setExtractions(extractionsResult.data as ExtractionRow[]);
+      }
+      setDecisions(loadedDecisions);
+      setPersistentDecisions(loadedPersistentDecisions);
+      if (!tasksResult.error && tasksResult.data) {
+        setWorkflowTasks(tasksResult.data as WorkflowTaskRow[]);
+      }
+      setFeedbackMap(nextFeedbackMap);
+      setSignedUrl(resolvedSignedUrl);
+      setFileExt(resolvedFileExt);
+      setFileContentType(resolvedFileContentType);
+      setFileError(resolvedFileError);
       setLoading(false);
       setExtractionsLoading(false);
       setDecisionsLoading(false);
       setPersistentDecisionsLoading(false);
       setWorkflowTasksLoading(false);
-      return;
-    }
-
-    const docData = docResult.data as DocumentDetail;
-    setDoc(docData);
-    setRelatedDocs(docData.relatedDocs ?? []);
-    setFactOverrides(docData.factOverrides ?? []);
-    setFactAnchors(docData.factAnchors ?? []);
-    setFactReviews(docData.factReviews ?? []);
-    setLoading(false);
-
-    if (!extractionsResult.error && extractionsResult.data) {
-      setExtractions(extractionsResult.data as ExtractionRow[]);
-    }
-    setExtractionsLoading(false);
-
-    if (!decisionsResult.error && decisionsResult.data) {
-      setDecisions(decisionsResult.data as DecisionRow[]);
-    }
-    setDecisionsLoading(false);
-
-    if (!persistentResult.error && persistentResult.data) {
-      setPersistentDecisions(persistentResult.data as PersistentDecisionRow[]);
-    }
-    setPersistentDecisionsLoading(false);
-
-    if (!tasksResult.error && tasksResult.data) {
-      setWorkflowTasks(tasksResult.data as WorkflowTaskRow[]);
-    }
-    setWorkflowTasksLoading(false);
-
-    const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
-    const loadedPersistentDecisions = (persistentResult.data ?? []) as PersistentDecisionRow[];
-    const generatedPersistentDecisionIds = loadedPersistentDecisions
-      .filter((decision) => isCurrentV2GeneratedRecord(decision))
-      .map((decision) => decision.id);
-    const feedbackDecisionIds = isContractInvoicePrimaryDocumentType(docData.document_type)
-      ? generatedPersistentDecisionIds
-      : loadedDecisions.map((decision) => decision.id);
-
-    if (feedbackDecisionIds.length > 0) {
-      const { data: feedbackRows } = await supabase
-        .from('decision_feedback')
-        .select('decision_id, is_correct, review_error_type')
-        .in('decision_id', feedbackDecisionIds);
-
-      if (feedbackRows) {
-        const next: Record<string, FeedbackState> = {};
-        for (const row of feedbackRows as Array<{
-          decision_id: string;
-          is_correct: boolean;
-          review_error_type?: ReviewErrorType | null;
-        }>) {
-          next[row.decision_id] = {
-            status: row.is_correct ? 'correct' : 'incorrect',
-            reviewErrorType: row.is_correct ? null : (row.review_error_type ?? 'edge_case'),
-          };
-        }
-        setFeedbackMap(next);
-      }
-    }
-
-    if (docResult.data.storage_path) {
-      setFileLoading(true);
-      try {
-        const fileRes = await fetch(
-          `/api/documents/${id}/file${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ''}`,
-          { headers: authHeaders },
-        );
-        if (redirectIfUnauthorized(fileRes, router.replace)) return;
-        const fileBody = await fileRes.json().catch(() => ({}));
-        if (fileRes.ok && fileBody.signedUrl) {
-          setSignedUrl(fileBody.signedUrl);
-          setFileExt(fileBody.ext ?? '');
-          setFileContentType(fileBody.contentType ?? '');
-        } else {
-          setFileError(
-            (fileBody as { error?: string })?.error ?? 'Could not generate file link',
-          );
-        }
-      } catch {
-        setFileError('Failed to fetch file URL');
-      } finally {
-        setFileLoading(false);
-      }
-    } else {
-      setFileError('No file attached to this document');
-    }
+      setFileLoading(false);
     } catch {
       setError('Failed to load document');
     } finally {

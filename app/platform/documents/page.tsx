@@ -109,8 +109,13 @@ const RECENT_OPTIONS: Array<{
   { value: '30d', label: 'Last 30 days' },
 ];
 
+// intelligence_trace is intentionally omitted: it is a large JSONB blob that
+// would be fetched for every document in the list and parsed synchronously in
+// buildDocumentWorkspaceItems.  Counts derived from the trace (unresolved
+// findings, blocked, pending actions) fall back to 0 on the list view; the
+// full trace is available on the document detail page.
 const DOCUMENT_SELECT =
-  'id, title, name, document_type, processing_status, processing_error, created_at, processed_at, domain, project_id, intelligence_trace, projects(id, name, code)';
+  'id, title, name, document_type, processing_status, processing_error, created_at, processed_at, domain, project_id, projects(id, name, code)';
 
 function titleize(value: string | null | undefined): string {
   if (!value) return 'Unknown';

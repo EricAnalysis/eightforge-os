@@ -88,6 +88,7 @@ type DecisionWorkflowChainTask = {
   id: string;
   status: string;
   title?: string | null;
+  decision_id?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

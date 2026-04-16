@@ -1,0 +1,86 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - link "EightForge" [ref=e17] [cursor=pointer]:
+            - /url: /platform/workspace
+            - img [ref=e18]
+            - paragraph [ref=e22]: EightForge
+          - navigation [ref=e23]:
+            - link "Workspace" [ref=e24] [cursor=pointer]:
+              - /url: /platform/workspace
+            - link "Command Center" [ref=e25] [cursor=pointer]:
+              - /url: /platform
+            - link "Projects" [ref=e26] [cursor=pointer]:
+              - /url: /platform/projects
+            - link "Intelligence" [ref=e27] [cursor=pointer]:
+              - /url: /platform/reviews
+        - generic [ref=e28]:
+          - generic [ref=e31]: Development Org
+          - generic [ref=e32]:
+            - generic:
+              - img
+            - textbox [ref=e33]:
+              - /placeholder: Search intelligence...
+          - generic [ref=e34]:
+            - link "Signals" [ref=e35] [cursor=pointer]:
+              - /url: /platform/issues
+              - img [ref=e36]
+            - link "Audit history" [ref=e39] [cursor=pointer]:
+              - /url: /platform/agents
+              - img [ref=e40]
+            - link "Profile and settings" [ref=e44] [cursor=pointer]:
+              - /url: /platform/settings
+              - img [ref=e45]
+          - button "Sign out" [ref=e48]
+    - generic [ref=e49]:
+      - complementary [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - img [ref=e56]
+              - generic [ref=e60]:
+                - paragraph [ref=e61]: Operational Intelligence
+                - generic [ref=e64]: System Active
+            - link "Upload Document" [ref=e65] [cursor=pointer]:
+              - /url: /platform/documents
+              - img [ref=e66]
+              - text: Upload Document
+          - navigation [ref=e68]:
+            - generic [ref=e69]:
+              - link "Command Center" [ref=e70] [cursor=pointer]:
+                - /url: /platform
+                - img [ref=e71]
+                - generic [ref=e73]: Command Center
+              - link "Decision Queue" [ref=e74] [cursor=pointer]:
+                - /url: /platform/decisions
+                - img [ref=e75]
+                - generic [ref=e79]: Decision Queue
+              - link "My Actions" [ref=e80] [cursor=pointer]:
+                - /url: /platform/workflows
+                - img [ref=e81]
+                - generic [ref=e85]: My Actions
+              - link "Intelligence" [ref=e86] [cursor=pointer]:
+                - /url: /platform/reviews
+                - img [ref=e87]
+                - generic [ref=e90]: Intelligence
+              - link "Documents" [ref=e91] [cursor=pointer]:
+                - /url: /platform/documents
+                - img [ref=e92]
+                - generic [ref=e95]: Documents
+          - generic [ref=e97]:
+            - generic [ref=e98]:
+              - generic [ref=e99]: DO
+              - generic [ref=e100]:
+                - paragraph [ref=e101]: Development Org
+                - paragraph [ref=e102]: Platform
+            - button "Sign out" [ref=e103]
+      - main [ref=e104]:
+        - generic [ref=e105]:
+          - link "Back to workspace" [ref=e106] [cursor=pointer]:
+            - /url: /platform/workspace
+          - generic [ref=e107]: Project not found, or you no longer have access to it.
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e13]

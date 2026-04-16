@@ -1,0 +1,331 @@
+
+> eightforge-os@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.219:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 111s
+○ Compiling / ...
+ GET /login 200 in 1266ms (compile: 778ms, render: 488ms)
+ GET /login 200 in 197ms (compile: 25ms, render: 172ms)
+ GET /platform/dashboard 200 in 594ms (compile: 455ms, render: 139ms)
+ GET /platform 200 in 534ms (compile: 309ms, render: 225ms)
+ GET /platform 200 in 147ms (compile: 32ms, render: 116ms)
+ GET /api/operations 200 in 4.2s (compile: 634ms, render: 3.6s)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 5.6s (compile: 5.2s, render: 360ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 4.0s (compile: 1776ms, render: 2.3s)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 4.0s (compile: 2.7s, render: 1282ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 3.5s (compile: 2.6s, render: 861ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 911ms (compile: 68ms, render: 844ms)
+ GET / 200 in 270ms (compile: 37ms, render: 234ms)
+ GET /login 200 in 260ms (compile: 65ms, render: 194ms)
+ GET /platform/dashboard 200 in 178ms (compile: 63ms, render: 114ms)
+ GET /platform 200 in 229ms (compile: 31ms, render: 198ms)
+ GET /platform 200 in 122ms (compile: 38ms, render: 85ms)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 371ms (compile: 227ms, render: 143ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 1676ms (compile: 56ms, render: 1620ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1126ms (compile: 53ms, render: 1073ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 855ms (compile: 65ms, render: 790ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 611ms (compile: 17ms, render: 594ms)
+ GET /login 200 in 229ms (compile: 25ms, render: 204ms)
+ GET /platform/dashboard 200 in 152ms (compile: 36ms, render: 116ms)
+ GET /platform 200 in 220ms (compile: 33ms, render: 187ms)
+ GET /platform 200 in 108ms (compile: 38ms, render: 70ms)
+ GET /api/operations 200 in 76ms (compile: 26ms, render: 50ms)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 1429ms (compile: 497ms, render: 933ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 1364ms (compile: 58ms, render: 1306ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1102ms (compile: 58ms, render: 1044ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 667ms (compile: 75ms, render: 592ms)
+✓ Compiled in 475ms
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 678ms (compile: 36ms, render: 641ms)
+✓ Compiled in 806ms
+✓ Compiled in 456ms
+✓ Compiled in 312ms
+✓ Compiled in 303ms
+ GET /login 200 in 181ms (compile: 29ms, render: 152ms)
+ GET /platform/dashboard 200 in 127ms (compile: 36ms, render: 90ms)
+ GET /platform 200 in 211ms (compile: 56ms, render: 156ms)
+ GET /platform 200 in 96ms (compile: 31ms, render: 65ms)
+ GET /api/operations 200 in 64ms (compile: 26ms, render: 39ms)
+ GET /platform/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843?source=documents 200 in 1371ms (compile: 447ms, render: 924ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843?orgId=11111111-1111-1111-1111-111111111111 200 in 1799ms (compile: 75ms, render: 1724ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/review 200 in 600ms (compile: 47ms, render: 552ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/file?orgId=11111111-1111-1111-1111-111111111111 200 in 982ms (compile: 69ms, render: 913ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/review 200 in 562ms (compile: 20ms, render: 542ms)
+ GET /login 200 in 193ms (compile: 42ms, render: 151ms)
+ GET /platform/dashboard 200 in 98ms (compile: 18ms, render: 80ms)
+ GET /platform 200 in 204ms (compile: 27ms, render: 176ms)
+ GET /platform 200 in 126ms (compile: 31ms, render: 95ms)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 338ms (compile: 102ms, render: 236ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 1649ms (compile: 50ms, render: 1599ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 770ms (compile: 54ms, render: 716ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1277ms (compile: 40ms, render: 1237ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 762ms (compile: 23ms, render: 739ms)
+ GET /platform/documents/4855a648-0740-466d-b091-0625684c1c0f?source=documents 200 in 986ms (compile: 484ms, render: 502ms)
+ GET /api/documents/4855a648-0740-466d-b091-0625684c1c0f?orgId=11111111-1111-1111-1111-111111111111 200 in 1581ms (compile: 72ms, render: 1509ms)
+ GET /api/documents/4855a648-0740-466d-b091-0625684c1c0f/review 200 in 651ms (compile: 101ms, render: 550ms)
+ GET /api/documents/4855a648-0740-466d-b091-0625684c1c0f/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1055ms (compile: 69ms, render: 987ms)
+ GET /api/documents/4855a648-0740-466d-b091-0625684c1c0f/review 200 in 608ms (compile: 19ms, render: 589ms)
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 372ms (compile: 186ms, render: 186ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.1s (compile: 84ms, render: 1988ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 723ms (compile: 66ms, render: 657ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1156ms (compile: 49ms, render: 1108ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 599ms (compile: 32ms, render: 567ms)
+ GET /login 200 in 141ms (compile: 20ms, render: 121ms)
+ GET /platform/dashboard 200 in 110ms (compile: 21ms, render: 89ms)
+ GET /platform 200 in 277ms (compile: 32ms, render: 245ms)
+ GET /platform 200 in 165ms (compile: 45ms, render: 120ms)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 176ms (compile: 54ms, render: 122ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 1892ms (compile: 33ms, render: 1859ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 950ms (compile: 39ms, render: 911ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 602ms (compile: 64ms, render: 538ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 564ms (compile: 25ms, render: 538ms)
+ GET /login 200 in 188ms (compile: 38ms, render: 150ms)
+ GET /platform/dashboard 200 in 133ms (compile: 27ms, render: 106ms)
+ GET /platform 200 in 184ms (compile: 41ms, render: 143ms)
+ GET /platform 200 in 94ms (compile: 23ms, render: 71ms)
+ GET /platform/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?source=documents 200 in 288ms (compile: 53ms, render: 235ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec?orgId=11111111-1111-1111-1111-111111111111 200 in 1735ms (compile: 68ms, render: 1667ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 726ms (compile: 46ms, render: 680ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1134ms (compile: 43ms, render: 1091ms)
+ GET /api/documents/025d21e5-70e8-430d-aa0d-33425e03a5ec/review 200 in 572ms (compile: 23ms, render: 548ms)
+ GET /login 200 in 129ms (compile: 18ms, render: 112ms)
+ GET /platform/dashboard 200 in 122ms (compile: 25ms, render: 97ms)
+ GET /platform 200 in 171ms (compile: 36ms, render: 135ms)
+ GET /platform 200 in 83ms (compile: 24ms, render: 59ms)
+ GET /platform/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843?source=documents 200 in 196ms (compile: 51ms, render: 145ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843?orgId=11111111-1111-1111-1111-111111111111 200 in 1884ms (compile: 38ms, render: 1846ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/review 200 in 581ms (compile: 43ms, render: 538ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/file?orgId=11111111-1111-1111-1111-111111111111 200 in 975ms (compile: 35ms, render: 941ms)
+ GET /api/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843/review 200 in 1127ms (compile: 14ms, render: 1114ms)
+✓ Compiled in 3.2s
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 248ms (compile: 69ms, render: 179ms)
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 4.6s (compile: 1628ms, render: 3.0s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1452ms (compile: 17ms, render: 1435ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 1019ms (compile: 54ms, render: 965ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1391ms (compile: 57ms, render: 1335ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 578ms (compile: 18ms, render: 560ms)
+✓ Finished filesystem cache database compaction in 14.0s
+✓ Compiled in 519ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1661ms (compile: 49ms, render: 1612ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 613ms (compile: 56ms, render: 556ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1191ms (compile: 52ms, render: 1139ms)
+✓ Compiled in 697ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 695ms (compile: 60ms, render: 635ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1371ms (compile: 54ms, render: 1318ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 593ms (compile: 25ms, render: 568ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 832ms (compile: 16ms, render: 817ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 625ms (compile: 54ms, render: 571ms)
+✓ Compiled in 961ms
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 1298ms (compile: 474ms, render: 824ms)
+✓ Compiled in 961ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.2s (compile: 87ms, render: 2.1s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 853ms (compile: 53ms, render: 800ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 842ms (compile: 94ms, render: 748ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1592ms (compile: 21ms, render: 1572ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 612ms (compile: 15ms, render: 597ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1148ms (compile: 17ms, render: 1131ms)
+✓ Compiled in 305ms
+✓ Compiled in 319ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.1s (compile: 56ms, render: 2.1s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 882ms (compile: 58ms, render: 824ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1170ms (compile: 43ms, render: 1127ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.1s (compile: 13ms, render: 2.1s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 1252ms (compile: 13ms, render: 1239ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 825ms (compile: 13ms, render: 812ms)
+✓ Compiled in 379ms
+✓ Compiled in 631ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.6s (compile: 43ms, render: 2.6s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 929ms (compile: 54ms, render: 875ms)
+✓ Compiled in 752ms
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 2.5s (compile: 17ms, render: 2.5s)
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 1321ms (compile: 533ms, render: 788ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1377ms (compile: 61ms, render: 1317ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 925ms (compile: 77ms, render: 848ms)
+✓ Compiled in 307ms
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 1258ms (compile: 537ms, render: 721ms)
+✓ Finished filesystem cache database compaction in 14.1s
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1572ms (compile: 41ms, render: 1531ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 993ms (compile: 97ms, render: 896ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 721ms (compile: 61ms, render: 660ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 569ms (compile: 18ms, render: 551ms)
+✓ Compiled in 438ms
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 3.9s (compile: 65ms, render: 3.8s)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 723ms (compile: 59ms, render: 664ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1370ms (compile: 42ms, render: 1328ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 692ms (compile: 17ms, render: 675ms)
+ GET /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=documents 200 in 1394ms (compile: 524ms, render: 870ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?orgId=11111111-1111-1111-1111-111111111111 200 in 1684ms (compile: 37ms, render: 1647ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 499ms (compile: 43ms, render: 456ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/file?orgId=11111111-1111-1111-1111-111111111111 200 in 992ms (compile: 44ms, render: 947ms)
+ GET /api/documents/04c6cab8-d831-4abb-936d-45b0372a23ce/review 200 in 557ms (compile: 24ms, render: 532ms)
+ GET / 200 in 297ms (compile: 43ms, render: 254ms)
+ GET /platform 200 in 89ms (compile: 24ms, render: 65ms)
+ GET /api/operations 200 in 854ms (compile: 26ms, render: 828ms)
+ GET /platform/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed 200 in 2.7s (compile: 2.6s, render: 68ms)
+ GET /api/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed/document-precedence 200 in 3.5s (compile: 2.4s, render: 1088ms)
+ GET /api/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed/document-precedence 200 in 959ms (compile: 44ms, render: 914ms)
+ GET /platform/documents/1077f997-8220-4e2d-a7b3-92720626c305?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed 200 in 115ms (compile: 46ms, render: 69ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1294ms (compile: 36ms, render: 1257ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 542ms (compile: 46ms, render: 496ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 815ms (compile: 47ms, render: 768ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 536ms (compile: 16ms, render: 520ms)
+○ Compiling /api/documents/process ...
+[documents/process] resolving org {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111'
+}
+[documents/process] document lookup {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  found: true,
+  error: null
+}
+[documents/process] starting pipeline {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  analysisMode: 'deterministic'
+}
+[documentExtractions] upsertMany error: {
+  code: '23502',
+  details: 'Failing row contains (25f997f0-a5bb-4f58-a322-b1337c11e6b9, 1077f997-8220-4e2d-a7b3-92720626c305, null, 2026-03-24 20:57:22.069212+00, gpt-4o, 1.0, 0.850, active, null, null, 11111111-1111-1111-1111-111111111111, rate_section_present, null, null, null, f, boolean, evidence_v1, null).',
+  hint: null,
+  message: 'null value in column "data" of relation "document_extractions" violates not-null constraint'
+}
+[processDocument] canonical persistence start {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111'
+}
+[processDocument] canonical intelligence persistence failed, continuing {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  error: 'Failed to insert v2 decision contract_contractor_missing: new row for relation "decisions" violates check constraint "decisions_source_check"'
+}
+[processDocument] continuing after canonical persistence {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  handled: false
+}
+[documents/process] pipeline result {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  success: true,
+  jobId: '06b2415f-e032-441f-aad1-1df9c8126da5',
+  extractionId: '901121a7-ef9c-4408-93e0-fa05323b21f4',
+  error: null
+}
+ POST /api/documents/process 200 in 21.2s (compile: 8.8s, render: 12.3s)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1125ms (compile: 57ms, render: 1068ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 542ms (compile: 46ms, render: 496ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 779ms (compile: 45ms, render: 734ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 476ms (compile: 16ms, render: 460ms)
+ GET /platform/documents/1077f997-8220-4e2d-a7b3-92720626c305?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed 200 in 569ms (compile: 62ms, render: 507ms)
+ GET /login 200 in 180ms (compile: 67ms, render: 113ms)
+ GET /platform/dashboard 200 in 120ms (compile: 36ms, render: 84ms)
+ GET /platform 200 in 108ms (compile: 40ms, render: 67ms)
+ GET /platform 200 in 104ms (compile: 21ms, render: 83ms)
+ GET /api/operations 200 in 874ms (compile: 15ms, render: 859ms)
+ GET /platform/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed 200 in 185ms (compile: 58ms, render: 127ms)
+ GET /api/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed/document-precedence 200 in 1968ms (compile: 72ms, render: 1896ms)
+ GET /api/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed/document-precedence 200 in 953ms (compile: 19ms, render: 934ms)
+ GET /platform/documents/1077f997-8220-4e2d-a7b3-92720626c305?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed 200 in 113ms (compile: 50ms, render: 63ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1182ms (compile: 43ms, render: 1139ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 532ms (compile: 68ms, render: 463ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 774ms (compile: 42ms, render: 731ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 522ms (compile: 10ms, render: 512ms)
+[documents/process] resolving org {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111'
+}
+[documents/process] document lookup {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  found: true,
+  error: null
+}
+[documents/process] starting pipeline {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  analysisMode: 'deterministic'
+}
+[documentExtractions] upsertMany error: {
+  code: '23502',
+  details: 'Failing row contains (e2c9bbf7-dbe1-452a-9457-32c85a498f3b, 1077f997-8220-4e2d-a7b3-92720626c305, null, 2026-03-24 20:59:52.014451+00, gpt-4o, 1.0, 0.850, active, null, null, 11111111-1111-1111-1111-111111111111, rate_section_present, null, null, null, f, boolean, evidence_v1, null).',
+  hint: null,
+  message: 'null value in column "data" of relation "document_extractions" violates not-null constraint'
+}
+[processDocument] canonical persistence start {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111'
+}
+[processDocument] canonical intelligence persistence failed, continuing {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  error: 'Failed to insert v2 decision contract_contractor_missing: new row for relation "decisions" violates check constraint "decisions_source_check"'
+}
+[processDocument] continuing after canonical persistence {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  organizationId: '11111111-1111-1111-1111-111111111111',
+  handled: false
+}
+[documents/process] pipeline result {
+  documentId: '1077f997-8220-4e2d-a7b3-92720626c305',
+  success: true,
+  jobId: '570f1540-cf7c-4760-87c7-5d66d89d9676',
+  extractionId: '50e8fbc2-8d5c-4a54-863e-b1cdcc97811f',
+  error: null
+}
+ POST /api/documents/process 200 in 5.5s (compile: 93ms, render: 5.4s)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1102ms (compile: 53ms, render: 1049ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 550ms (compile: 64ms, render: 487ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 990ms (compile: 68ms, render: 922ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 500ms (compile: 22ms, render: 478ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 2.2s (compile: 311ms, render: 1932ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 688ms (compile: 68ms, render: 620ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1436ms (compile: 84ms, render: 1352ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 521ms (compile: 28ms, render: 492ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 4.8s (compile: 2.6s, render: 2.2s)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1398ms (compile: 312ms, render: 1087ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 988ms (compile: 205ms, render: 782ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 503ms (compile: 15ms, render: 489ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1703ms (compile: 89ms, render: 1614ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 458ms (compile: 25ms, render: 433ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 975ms (compile: 28ms, render: 947ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 458ms (compile: 9ms, render: 449ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1839ms (compile: 29ms, render: 1810ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 520ms (compile: 31ms, render: 489ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 476ms (compile: 10ms, render: 466ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1100ms (compile: 35ms, render: 1065ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1631ms (compile: 29ms, render: 1601ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 507ms (compile: 24ms, render: 484ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 479ms (compile: 8ms, render: 471ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1172ms (compile: 24ms, render: 1149ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 2.1s (compile: 92ms, render: 1977ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 516ms (compile: 39ms, render: 477ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 521ms (compile: 18ms, render: 503ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1389ms (compile: 25ms, render: 1364ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 2.5s (compile: 83ms, render: 2.4s)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 716ms (compile: 215ms, render: 502ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 510ms (compile: 19ms, render: 491ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 1543ms (compile: 147ms, render: 1396ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 1721ms (compile: 69ms, render: 1652ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 223ms (compile: 52ms, render: 171ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 282.5min (compile: 102ms, render: 282.5min)
+TypeError: fetch failed
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305?orgId=11111111-1111-1111-1111-111111111111 200 in 2.7s (compile: 342ms, render: 2.4s)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 1376ms (compile: 330ms, render: 1046ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/file?orgId=11111111-1111-1111-1111-111111111111 200 in 2.2s (compile: 295ms, render: 1921ms)
+ GET /api/documents/1077f997-8220-4e2d-a7b3-92720626c305/review 200 in 642ms (compile: 48ms, render: 594ms)

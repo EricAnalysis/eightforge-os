@@ -1,0 +1,18 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e13]
+  - generic [ref=e23]:
+    - generic [ref=e24]:
+      - img [ref=e25]
+      - generic [ref=e29]: EightForge
+    - heading "Sign in" [level=1] [ref=e30]
+    - paragraph [ref=e31]: Sign in to your EightForge workspace.
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]: Email
+        - textbox "you@company.com" [ref=e35]
+      - generic [ref=e36]:
+        - generic [ref=e37]: Password
+        - textbox "••••••••" [ref=e38]
+      - button "Sign in" [ref=e39]

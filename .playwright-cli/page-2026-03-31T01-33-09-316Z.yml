@@ -1,0 +1,10 @@
+- generic [active] [ref=e1]:
+  - paragraph [ref=e3]: Checking session...
+  - button "Open Next.js Dev Tools" [ref=e14] [cursor=pointer]:
+    - generic [ref=e17]:
+      - text: Compiling
+      - generic [ref=e18]:
+        - generic [ref=e19]: .
+        - generic [ref=e20]: .
+        - generic [ref=e21]: .
+  - alert [ref=e13]

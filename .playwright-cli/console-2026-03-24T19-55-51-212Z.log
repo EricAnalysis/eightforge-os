@@ -1,7 +1,0 @@
-[    1665ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://jpzeckefppmiujwajgvk.supabase.co/auth/v1/token?grant_type=refresh_token:0
-[    1783ms] [ERROR] AuthApiError: Invalid Refresh Token: Refresh Token Not Found
-    at handleError (http://localhost:3000/_next/static/chunks/node_modules_7e234912._.js:10589:11)
-    at async _handleRequest (http://localhost:3000/_next/static/chunks/node_modules_7e234912._.js:10639:9)
-    at async _request (http://localhost:3000/_next/static/chunks/node_modules_7e234912._.js:10619:18)
-    at async http://localhost:3000/_next/static/chunks/node_modules_7e234912._.js:14640:24
-    at async http://localhost:3000/_next/static/chunks/node_modules_7e234912._.js:10348:36 @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127

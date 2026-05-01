@@ -4066,7 +4066,13 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   const groupedBySiteType = asArray<Record<string, unknown>>(rollups?.grouped_by_site_type);
   const groupedByDisposalSite = asArray<Record<string, unknown>>(rollups?.grouped_by_disposal_site);
   const outlierRows = asArray<Record<string, unknown>>(rollups?.outlier_rows);
+  const rowLimitReached = transactionData?.row_limit_reached === true;
   const rowCount = Number(transactionData?.row_count ?? records.length ?? 0);
+  const distinctTransactionCount = new Set(
+    records
+      .map((record) => (typeof record.transaction_number === 'string' ? record.transaction_number.trim().toUpperCase() : ''))
+      .filter((value) => value.length > 0),
+  ).size;
   const summaryRecord = asRecord(transactionData?.summary) ?? {};
   const sheetNamesFromSummary = stringValues(summaryRecord?.detected_sheet_names);
   const processedSheetNames = stringValues(transactionData?.processed_sheet_names);
@@ -4090,7 +4096,6 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   const dmsFdsLifecycleSummary = asRecord(summary?.dms_fds_lifecycle_summary);
   const boundaryLocationReview = asRecord(summary?.boundary_location_review);
   const distanceFromFeatureReview = asRecord(summary?.distance_from_feature_review);
-  const debrisClassAtDisposalSiteReview = asRecord(summary?.debris_class_at_disposal_site_review);
   const mileageReview = asRecord(summary?.mileage_review);
   const loadCallReview = asRecord(summary?.load_call_review);
   const linkedMobileLoadConsistencyReview = asRecord(summary?.linked_mobile_load_consistency_review);
@@ -4121,6 +4126,15 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   addFact(
     document,
     facts,
+    'row_limit_reached',
+    'Row Limit Reached',
+    rowLimitReached,
+    workbookRefs.slice(0, 12),
+    0.9,
+  );
+  addFact(
+    document,
+    facts,
     'row_count',
     'Transaction Row Count',
     rowCount,
@@ -4138,7 +4152,7 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   addFact(document, facts, 'transaction_data_records', 'Transaction Records', records, workbookRefs, rowCount > 0 ? 0.84 : 0.36);
   addFact(document, facts, 'total_extended_cost', 'Total Extended Cost', rollups?.total_extended_cost ?? null, workbookRefs.slice(0, 24), typeof rollups?.total_extended_cost === 'number' ? 0.84 : 0.4);
   addFact(document, facts, 'total_transaction_quantity', 'Total Transaction Quantity', rollups?.total_transaction_quantity ?? null, workbookRefs.slice(0, 24), typeof rollups?.total_transaction_quantity === 'number' ? 0.82 : 0.4);
-  addFact(document, facts, 'total_tickets', 'Total Tickets', rollups?.total_tickets ?? rowCount, workbookRefs.slice(0, 24), rowCount > 0 ? 0.84 : 0.4);
+  addFact(document, facts, 'total_tickets', 'Total Tickets', rollups?.total_tickets ?? distinctTransactionCount, workbookRefs.slice(0, 24), rowCount > 0 ? 0.84 : 0.4);
   addFact(document, facts, 'total_cyd', 'Total CYD', rollups?.total_cyd ?? null, workbookRefs.slice(0, 24), typeof rollups?.total_cyd === 'number' ? 0.8 : 0.4);
   addFact(document, facts, 'invoiced_ticket_count', 'Invoiced Ticket Count', rollups?.invoiced_ticket_count ?? 0, workbookRefs.slice(0, 24), 0.8);
   addFact(document, facts, 'distinct_invoice_count', 'Distinct Invoice Count', rollups?.distinct_invoice_count ?? 0, workbookRefs.slice(0, 24), 0.8);
@@ -4146,7 +4160,6 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   addFact(document, facts, 'uninvoiced_line_count', 'Uninvoiced Line Count', rollups?.uninvoiced_line_count ?? 0, workbookRefs.slice(0, 24), 0.8);
   addFact(document, facts, 'eligible_count', 'Eligible Count', rollups?.eligible_count ?? 0, workbookRefs.slice(0, 24), 0.76);
   addFact(document, facts, 'ineligible_count', 'Ineligible Count', rollups?.ineligible_count ?? 0, workbookRefs.slice(0, 24), 0.76);
-  addFact(document, facts, 'unknown_eligibility_count', 'Unknown Eligibility Count', rollups?.unknown_eligibility_count ?? 0, workbookRefs.slice(0, 24), 0.76);
   addFact(document, facts, 'distinct_rate_codes', 'Distinct Rate Codes', asArray<string>(rollups?.distinct_rate_codes), workbookRefs.slice(0, 24), 0.8);
   addFact(document, facts, 'distinct_invoice_numbers', 'Distinct Invoice Numbers', asArray<string>(rollups?.distinct_invoice_numbers), workbookRefs.slice(0, 24), 0.8);
   addFact(document, facts, 'distinct_service_items', 'Distinct Service Items', asArray<string>(rollups?.distinct_service_items), workbookRefs.slice(0, 24), 0.76);
@@ -4164,7 +4177,6 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
   addFact(document, facts, 'dms_fds_lifecycle_summary', 'DMS / FDS Lifecycle Summary', dmsFdsLifecycleSummary ?? null, workbookRefs.slice(0, 24), dmsFdsLifecycleSummary ? 0.78 : 0.4);
   addFact(document, facts, 'boundary_location_review', 'Boundary / Location Review', boundaryLocationReview ?? null, workbookRefs.slice(0, 24), boundaryLocationReview ? 0.76 : 0.4);
   addFact(document, facts, 'distance_from_feature_review', 'Distance-from-feature Review', distanceFromFeatureReview ?? null, workbookRefs.slice(0, 24), distanceFromFeatureReview ? 0.76 : 0.4);
-  addFact(document, facts, 'debris_class_at_disposal_site_review', 'Debris Class At Disposal Site Review', debrisClassAtDisposalSiteReview ?? null, workbookRefs.slice(0, 24), debrisClassAtDisposalSiteReview ? 0.76 : 0.4);
   addFact(document, facts, 'mileage_review', 'Mileage Review', mileageReview ?? null, workbookRefs.slice(0, 24), mileageReview ? 0.76 : 0.4);
   addFact(document, facts, 'load_call_review', 'Load-call Review', loadCallReview ?? null, workbookRefs.slice(0, 24), loadCallReview ? 0.76 : 0.4);
   addFact(document, facts, 'linked_mobile_load_consistency_review', 'Linked Mobile / Load Consistency Review', linkedMobileLoadConsistencyReview ?? null, workbookRefs.slice(0, 24), linkedMobileLoadConsistencyReview ? 0.76 : 0.4);
@@ -4235,6 +4247,7 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
     extracted: {
       sourceType: transactionData?.source_type ?? 'transaction_data',
       rowCount,
+      rowLimitReached,
       sheetNames,
       headerMap,
       inferredProjectName: inferredProjectName ?? undefined,
@@ -4255,7 +4268,6 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
       dmsFdsLifecycleSummary: dmsFdsLifecycleSummary ?? undefined,
       boundaryLocationReview: boundaryLocationReview ?? undefined,
       distanceFromFeatureReview: distanceFromFeatureReview ?? undefined,
-      debrisClassAtDisposalSiteReview: debrisClassAtDisposalSiteReview ?? undefined,
       mileageReview: mileageReview ?? undefined,
       loadCallReview: loadCallReview ?? undefined,
       linkedMobileLoadConsistencyReview: linkedMobileLoadConsistencyReview ?? undefined,
@@ -4263,7 +4275,7 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
       rollups: {
         totalExtendedCost: rollups?.total_extended_cost ?? 0,
         totalTransactionQuantity: rollups?.total_transaction_quantity ?? 0,
-        totalTickets: rollups?.total_tickets ?? rowCount,
+        totalTickets: rollups?.total_tickets ?? distinctTransactionCount,
         totalCyd: rollups?.total_cyd ?? 0,
         invoicedTicketCount: rollups?.invoiced_ticket_count ?? 0,
         distinctInvoiceCount: rollups?.distinct_invoice_count ?? 0,
@@ -4271,7 +4283,6 @@ function normalizeTransactionData(document: ExtractedNodeDocument): { facts: Pip
         uninvoicedLineCount: rollups?.uninvoiced_line_count ?? 0,
         eligibleCount: rollups?.eligible_count ?? 0,
         ineligibleCount: rollups?.ineligible_count ?? 0,
-        unknownEligibilityCount: rollups?.unknown_eligibility_count ?? 0,
         distinctRateCodes: asArray<string>(rollups?.distinct_rate_codes),
         distinctInvoiceNumbers: asArray<string>(rollups?.distinct_invoice_numbers),
         distinctServiceItems: asArray<string>(rollups?.distinct_service_items),

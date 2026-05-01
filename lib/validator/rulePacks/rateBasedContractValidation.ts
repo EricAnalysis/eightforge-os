@@ -34,7 +34,7 @@ export const RATE_BASED_CONTRACT_VALIDATION_RULES = {
   pricing_applicability_unclear: {
     ruleId: 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR',
     field: 'pricing_applicability',
-    severity: 'critical' as const,
+    severity: 'warning' as const,
     message: 'Pricing schedule present but applicability is unresolved',
   },
   unit_coverage_check: {
@@ -46,7 +46,7 @@ export const RATE_BASED_CONTRACT_VALIDATION_RULES = {
   activation_gate_required: {
     ruleId: 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
     field: 'activation_trigger_type',
-    severity: 'critical' as const,
+    severity: 'warning' as const,
     message: 'Activation trigger detected but status unresolved',
   },
 } as const;

@@ -27,7 +27,7 @@ function buildDocument(
 }
 
 describe('resolveDocumentPrecedence', () => {
-  it('prefers a contract amendment over a later-uploaded base contract', () => {
+  it('keeps the base contract governing when an amendment is linked to it', () => {
     const families = resolveDocumentPrecedence({
       documents: [
         buildDocument({
@@ -35,6 +35,7 @@ describe('resolveDocumentPrecedence', () => {
           title: 'Base Contract',
           name: 'base-contract.pdf',
           created_at: '2026-03-25T00:00:00Z',
+          document_subtype: 'base_contract',
           effective_date: '2026-02-01',
         }),
         buildDocument({
@@ -42,16 +43,26 @@ describe('resolveDocumentPrecedence', () => {
           title: 'Contract Amendment 1',
           name: 'contract-amendment-1.pdf',
           created_at: '2026-03-10T00:00:00Z',
+          document_subtype: 'amendment',
           effective_date: '2026-03-15',
         }),
+      ],
+      relationships: [
+        {
+          id: 'relationship-1',
+          project_id: 'project-1',
+          source_document_id: 'contract-amendment-1',
+          target_document_id: 'base-contract',
+          relationship_type: 'amends',
+        },
       ],
     });
 
     const contractFamily = families.find((family) => family.family === 'contract');
     assert.ok(contractFamily);
-    assert.equal(contractFamily.governing_document_id, 'contract-amendment-1');
+    assert.equal(contractFamily.governing_document_id, 'base-contract');
     assert.equal(contractFamily.governing_reason, 'role_priority');
-    assert.equal(contractFamily.documents[0]?.resolved_role, 'contract_amendment');
+    assert.equal(contractFamily.documents[0]?.resolved_subtype, 'base_contract');
   });
 
   it('respects operator override precedence before automatic ordering', () => {
@@ -118,5 +129,72 @@ describe('resolveDocumentPrecedence', () => {
     assert.equal(rateSheetFamily.governing_document_id, 'rate-sheet-b');
     assert.equal(rateSheetFamily.governing_reason, 'supersedes_relationship');
     assert.match(rateSheetFamily.governing_reason_detail ?? '', /explicitly supersedes/i);
+  });
+
+  it('does not let an attached pricing schedule replace the base contract', () => {
+    const families = resolveDocumentPrecedence({
+      documents: [
+        buildDocument({
+          id: 'base-contract',
+          title: 'MVSU Draft Contract',
+          name: 'mvsu-contract.pdf',
+          document_subtype: 'base_contract',
+        }),
+        buildDocument({
+          id: 'exhibit-a',
+          title: 'Exhibit A',
+          name: 'exhibit-a.pdf',
+          document_subtype: 'pricing_schedule',
+        }),
+      ],
+      relationships: [
+        {
+          id: 'relationship-1',
+          project_id: 'project-1',
+          source_document_id: 'exhibit-a',
+          target_document_id: 'base-contract',
+          relationship_type: 'attached_to',
+        },
+      ],
+    });
+
+    const contractFamily = families.find((family) => family.family === 'contract');
+    assert.ok(contractFamily);
+    assert.equal(contractFamily.governing_document_id, 'base-contract');
+  });
+
+  it('allows a replacement contract to govern after a supersedes relationship', () => {
+    const families = resolveDocumentPrecedence({
+      documents: [
+        buildDocument({
+          id: 'base-contract',
+          title: 'Base Contract',
+          name: 'base-contract.pdf',
+          document_subtype: 'base_contract',
+          effective_date: '2026-01-01',
+        }),
+        buildDocument({
+          id: 'replacement-contract',
+          title: 'Replacement Contract',
+          name: 'replacement-contract.pdf',
+          document_subtype: 'replacement_contract',
+          effective_date: '2026-04-01',
+        }),
+      ],
+      relationships: [
+        {
+          id: 'relationship-1',
+          project_id: 'project-1',
+          source_document_id: 'replacement-contract',
+          target_document_id: 'base-contract',
+          relationship_type: 'supersedes',
+        },
+      ],
+    });
+
+    const contractFamily = families.find((family) => family.family === 'contract');
+    assert.ok(contractFamily);
+    assert.equal(contractFamily.governing_document_id, 'replacement-contract');
+    assert.equal(contractFamily.governing_reason, 'supersedes_relationship');
   });
 });

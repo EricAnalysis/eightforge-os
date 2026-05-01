@@ -188,6 +188,10 @@ function buildModel(params: {
   factOverrides?: DocumentFactOverrideRecord[];
   factAnchors?: DocumentFactAnchorRecord[];
   factReviews?: DocumentFactReviewRecord[];
+  projectValidationSummary?: Record<string, unknown> | null;
+  projectValidationStatus?: string | null;
+  transactionDatasets?: Array<Record<string, unknown>>;
+  transactionRows?: Array<Record<string, unknown>>;
   reviewedDecisionIds?: string[];
 }) {
   return buildDocumentIntelligenceViewModel({
@@ -218,6 +222,10 @@ function buildModel(params: {
     factOverrides: params.factOverrides ?? [],
     factAnchors: params.factAnchors ?? [],
     factReviews: params.factReviews ?? [],
+    projectValidationSummary: params.projectValidationSummary ?? null,
+    projectValidationStatus: params.projectValidationStatus ?? null,
+    transactionDatasets: params.transactionDatasets ?? [],
+    transactionRows: params.transactionRows ?? [],
     reviewedDecisionIds: params.reviewedDecisionIds ?? [],
   });
 }
@@ -1007,6 +1015,9 @@ describe('document intelligence view model', () => {
     assert.equal(billedAmount.overrideHistory[0]?.valueDisplay, '$10,100');
     assert.equal(billedAmount.reviewStatus, 'corrected');
     assert.equal(billedAmount.reviewedAt, '2026-03-24T11:00:00Z');
+    assert.equal(billedAmount.reviewHistory.length, 1);
+    assert.equal(billedAmount.reviewHistory[0]?.reviewStatus, 'corrected');
+    assert.equal(billedAmount.reviewHistory[0]?.reviewedValueDisplay, '$10,050');
   });
 
   it('marks facts confirmed without replacing the extracted value', () => {
@@ -1768,6 +1779,118 @@ describe('document intelligence view model', () => {
     }
   });
 
+  it('surfaces canonical contract rate rows from persisted contract analysis', () => {
+    const model = buildModel({
+      documentId: 'contract-rate-trace-doc',
+      documentType: 'contract',
+      documentName: 'rate-trace-contract.pdf',
+      documentTitle: 'Rate Trace Contract',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Acme Debris LLC',
+          },
+        },
+        extraction: {
+          content_layers_v1: {
+            pdf: {
+              evidence: [],
+            },
+          },
+          evidence_v1: {
+            structured_fields: {
+              contractor_name: 'Acme Debris LLC',
+            },
+            section_signals: {
+              rate_schedule_present: true,
+              rate_schedule_pages: [8],
+              rate_row_count: 2,
+            },
+            page_text: [],
+          },
+        },
+      },
+      executionTrace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {},
+        contract_analysis: {
+          rate_schedule_rows: [
+            {
+              row_id: 'row-1',
+              description: 'Vegetative Debris Removal',
+              unit: 'CY',
+              rate: 36.33,
+              category: 'Debris',
+              page: 8,
+              source_anchor_ids: ['anchor-1'],
+              rate_raw: '$36.33',
+              material_type: null,
+              unit_type: null,
+              rate_amount: 36.33,
+            },
+            {
+              row_id: 'row-2',
+              description: 'Construction & Demolition Debris',
+              unit: null,
+              rate: null,
+              category: null,
+              page: 9,
+              source_anchor_ids: [],
+              rate_raw: null,
+              material_type: 'C&D',
+              unit_type: 'TN',
+              rate_amount: 87.86,
+            },
+          ],
+        },
+      },
+    });
+
+    assert.deepEqual(model.contractRateRows, [
+      {
+        rowId: 'row-1',
+        description: 'Vegetative Debris Removal',
+        unit: 'CY',
+        rate: 36.33,
+        category: 'Debris',
+        page: 8,
+        sourceAnchorIds: ['anchor-1'],
+      },
+      {
+        rowId: 'row-2',
+        description: 'Construction & Demolition Debris',
+        unit: 'TN',
+        rate: 87.86,
+        category: 'C&D',
+        page: 9,
+        sourceAnchorIds: [],
+      },
+    ]);
+  });
+
+  it('does not synthesize contract rate rows from legacy extraction signals alone', () => {
+    const model = buildRateScheduleModel({
+      documentId: 'contract-rate-ui-canonical-only-doc',
+      page: 18,
+      headers: ['Item', 'Qty', 'Unit', 'Rate'],
+      headerContext: ['Exhibit A', 'Rate Schedule'],
+      rows: [
+        makeGenericTableRow({
+          tableId: 'pdf:table:p18:t1',
+          page: 18,
+          rowIndex: 1,
+          cells: ['Vegetative Debris Removal', '1000.00', 'CY', '$36.33'],
+        }),
+      ],
+    });
+
+    assert.deepEqual(model.contractRateRows, []);
+  });
+
   it('dedupes additional field sources with structured_fields precedence over typed_fields', () => {
     const model = buildModel({
       documentId: 'dedupe-doc',
@@ -2100,5 +2223,2052 @@ describe('document intelligence view model', () => {
     assert.equal(getFact(model, 'grouped_by_service_item').schemaGroup, 'grouped_review_tables');
     assert.equal(getFact(model, 'outlier_rows').schemaGroup, 'flags_outliers');
     assert.equal(getFact(model, 'transaction_data_records').schemaGroup, 'row_drilldown');
+  });
+
+  it('builds spreadsheet review data from canonical transaction rows when the persisted trace is compacted', () => {
+    const model = buildDocumentIntelligenceViewModel({
+      documentId: 'spreadsheet-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      projectName: 'Storm Debris Cleanup',
+      preferredExtraction: null,
+      relatedDocs: [],
+      normalizedDecisions: [],
+      extractionGaps: [],
+      auditNotes: [],
+      nodeTraces: [],
+      executionTrace: {
+        facts: {
+          source_type: 'transaction_data',
+          row_count: 1,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-04-18T12:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          sourceType: 'transaction_data',
+          rowCount: 1,
+          summary: {
+            row_count: 1,
+          },
+          rollups: {
+            totalTickets: 1,
+          },
+        },
+      },
+      extractionHistory: [],
+      factOverrides: [],
+      factAnchors: [],
+      factReviews: [],
+      transactionDatasets: [
+        {
+          id: 'dataset-1',
+          summary_json: {
+            row_count: 1,
+            total_tickets: 1,
+            total_cyd: 12,
+            distinct_invoice_count: 1,
+            total_invoiced_amount: 1250,
+            uninvoiced_line_count: 0,
+            eligible_count: 1,
+            ineligible_count: 0,
+            unknown_eligibility_count: 0,
+            grouped_by_rate_code: [
+              {
+                rate_code: 'RC-01',
+                billing_rate_key: 'RC01',
+                row_count: 1,
+                total_transaction_quantity: 12,
+                total_extended_cost: 1250,
+                record_ids: ['row-1'],
+              },
+            ],
+          },
+        },
+      ],
+      transactionRows: [
+        {
+          id: 'row-1',
+          record_json: {
+            id: 'row-1',
+            invoice_number: 'INV-100',
+            transaction_number: 'TX-1001',
+            rate_code: 'RC-01',
+            transaction_quantity: 12,
+            extended_cost: 1250,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 3,
+          },
+          raw_row_json: {
+            'Invoice #': 'INV-100',
+            'Transaction #': 'TX-1001',
+          },
+        },
+      ],
+      reviewedDecisionIds: [],
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.transactionDataExtraction?.records?.length ?? 0, 0);
+    assert.equal(model.spreadsheetReviewDataset?.records.length, 1);
+    assert.equal(model.spreadsheetReviewDataset?.records[0]?.invoice_number, 'INV-100');
+    assert.equal(model.spreadsheetReviewDataset?.groupedByRateCode[0]?.rate_code, 'RC-01');
+  });
+
+  it('keeps spreadsheet review KPIs and grouped rollups canonical when stale extraction summary data is also present', () => {
+    const model = buildDocumentIntelligenceViewModel({
+      documentId: 'spreadsheet-canonical-precedence-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      projectName: 'Storm Debris Cleanup',
+      preferredExtraction: null,
+      relatedDocs: [],
+      normalizedDecisions: [],
+      extractionGaps: [],
+      auditNotes: [],
+      nodeTraces: [],
+      executionTrace: {
+        facts: {
+          source_type: 'transaction_data',
+          row_count: 750,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-04-18T12:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          sourceType: 'transaction_data',
+          rowCount: 750,
+          projectOperationsOverview: {
+            project_name: 'Storm Debris Cleanup',
+            total_tickets: 750,
+            total_transaction_quantity: 0,
+            total_cyd: 0,
+            total_invoiced_amount: 0,
+            distinct_invoice_count: 0,
+            invoiced_ticket_count: 0,
+            uninvoiced_line_count: 750,
+            eligible_count: 0,
+            ineligible_count: 0,
+            unknown_eligibility_count: 750,
+            distinct_service_item_count: 0,
+            distinct_material_count: 0,
+            distinct_site_type_count: 0,
+            distinct_disposal_site_count: 0,
+            reviewed_sheet_names: ['ticket_query'],
+            record_ids: [],
+            evidence_refs: [],
+          },
+          summary: {
+            row_count: 750,
+            total_tickets: 750,
+            total_cyd: 0,
+            distinct_invoice_count: 0,
+            total_invoiced_amount: 0,
+            uninvoiced_line_count: 750,
+            eligible_count: 0,
+            ineligible_count: 0,
+            unknown_eligibility_count: 750,
+            grouped_by_rate_code: [
+              {
+                rate_code: 'STALE-RC',
+                billing_rate_key: 'STALE-RC',
+                row_count: 750,
+                total_transaction_quantity: 0,
+                total_extended_cost: 0,
+                record_ids: ['stale-row-1'],
+              },
+            ],
+          },
+          rollups: {
+            totalTickets: 750,
+            totalCyd: 0,
+            distinctInvoiceCount: 0,
+            totalInvoicedAmount: 0,
+            uninvoicedLineCount: 750,
+            groupedByRateCode: [
+              {
+                billing_rate_key: 'STALE-RC',
+                rate_code: 'STALE-RC',
+                rate_description_sample: null,
+                row_count: 750,
+                total_transaction_quantity: 0,
+                total_extended_cost: 0,
+                distinct_invoice_numbers: [],
+                distinct_materials: [],
+                distinct_service_items: [],
+              },
+            ],
+          },
+        },
+      },
+      extractionHistory: [],
+      factOverrides: [],
+      factAnchors: [],
+      factReviews: [],
+      transactionDatasets: [
+        {
+          id: 'dataset-1',
+          summary_json: {
+            row_count: 2,
+            total_tickets: 2,
+            total_cyd: 64,
+            distinct_invoice_count: 2,
+            total_invoiced_amount: 2500,
+            uninvoiced_line_count: 0,
+            eligible_count: 2,
+            ineligible_count: 0,
+            unknown_eligibility_count: 0,
+            grouped_by_rate_code: [
+              {
+                rate_code: 'RC-01',
+                billing_rate_key: 'RC01',
+                row_count: 2,
+                total_transaction_quantity: 20,
+                total_extended_cost: 2500,
+                record_ids: ['row-1', 'row-2'],
+              },
+            ],
+          },
+        },
+      ],
+      transactionRows: [
+        {
+          id: 'row-1',
+          record_json: {
+            id: 'row-1',
+            invoice_number: 'INV-100',
+            transaction_number: 'TX-1001',
+            rate_code: 'RC-01',
+            transaction_quantity: 10,
+            extended_cost: 1000,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 3,
+          },
+          raw_row_json: {
+            'Invoice #': 'INV-100',
+            'Transaction #': 'TX-1001',
+          },
+        },
+        {
+          id: 'row-2',
+          record_json: {
+            id: 'row-2',
+            invoice_number: 'INV-101',
+            transaction_number: 'TX-1002',
+            rate_code: 'RC-01',
+            transaction_quantity: 10,
+            extended_cost: 1500,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 4,
+          },
+          raw_row_json: {
+            'Invoice #': 'INV-101',
+            'Transaction #': 'TX-1002',
+          },
+        },
+      ],
+      reviewedDecisionIds: [],
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.records.length, 2);
+    assert.equal(model.spreadsheetReviewDataset?.summary?.row_count, 2);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalTickets, 2);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalCyd, 64);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoices, 2);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoicedAmount, 2500);
+    assert.equal(model.spreadsheetReviewDataset?.rollups?.totalTickets, 2);
+    assert.equal(model.spreadsheetReviewDataset?.rollups?.total_tickets, 2);
+    assert.equal(model.spreadsheetReviewDataset?.groupedByRateCode[0]?.rate_code, 'RC-01');
+    assert.equal(model.spreadsheetReviewDataset?.rollups?.groupedByRateCode?.[0]?.rate_code, 'RC-01');
+  });
+
+  it('uses canonical grouped eligibility counts when persisted group record ids no longer resolve', () => {
+    const model = buildDocumentIntelligenceViewModel({
+      documentId: 'spreadsheet-canonical-group-counts-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      projectName: 'Storm Debris Cleanup',
+      preferredExtraction: null,
+      relatedDocs: [],
+      normalizedDecisions: [],
+      extractionGaps: [],
+      auditNotes: [],
+      nodeTraces: [],
+      executionTrace: null,
+      extractionHistory: [],
+      factOverrides: [],
+      factAnchors: [],
+      factReviews: [],
+      transactionDatasets: [
+        {
+          id: 'dataset-1',
+          summary_json: {
+            row_count: 2,
+            total_tickets: 2,
+            total_cyd: 18,
+            total_extended_cost: 1800,
+            distinct_invoice_count: 2,
+            total_invoiced_amount: 1800,
+            uninvoiced_line_count: 0,
+            eligible_count: 1,
+            ineligible_count: 1,
+            grouped_by_material: [
+              {
+                material: 'Vegetative',
+                row_count: 2,
+                total_transaction_quantity: 18,
+                total_cyd: 18,
+                total_extended_cost: 1800,
+                invoiced_ticket_count: 2,
+                uninvoiced_line_count: 0,
+                eligible_count: 1,
+                ineligible_count: 1,
+                distinct_invoice_numbers: ['INV-100', 'INV-101'],
+                distinct_rate_codes: ['RC-01'],
+                record_ids: ['stale-row-1', 'stale-row-2'],
+                evidence_refs: [],
+                disposal_sites: ['North Yard'],
+                site_types: ['Reduction Site'],
+              },
+            ],
+            grouped_by_site_type: [
+              {
+                site_type: 'Reduction Site',
+                row_count: 2,
+                total_transaction_quantity: 18,
+                total_cyd: 18,
+                total_extended_cost: 1800,
+                invoiced_ticket_count: 2,
+                uninvoiced_line_count: 0,
+                eligible_count: 1,
+                ineligible_count: 1,
+                distinct_invoice_numbers: ['INV-100', 'INV-101'],
+                distinct_rate_codes: ['RC-01'],
+                record_ids: ['stale-row-1', 'stale-row-2'],
+                evidence_refs: [],
+                disposal_sites: ['North Yard'],
+                materials: ['Vegetative'],
+              },
+            ],
+            grouped_by_disposal_site: [],
+            grouped_by_service_item: [],
+            grouped_by_rate_code: [],
+            outlier_rows: [],
+          },
+        },
+      ],
+      transactionRows: [
+        {
+          id: 'db-row-1',
+          record_json: {
+            id: 'row-1',
+            invoice_number: 'INV-100',
+            transaction_number: 'T-5001',
+            eligibility: 'Eligible',
+            transaction_quantity: 10,
+            extended_cost: 1000,
+            cyd: 10,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 3,
+          },
+          raw_row_json: {
+            id: 'db-row-1',
+            'Transaction #': 'T-5001',
+          },
+        },
+        {
+          id: 'db-row-2',
+          record_json: {
+            id: 'row-2',
+            invoice_number: 'INV-101',
+            transaction_number: 'T-5002',
+            eligibility: 'Ineligible',
+            transaction_quantity: 8,
+            extended_cost: 800,
+            cyd: 8,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 4,
+          },
+          raw_row_json: {
+            id: 'db-row-2',
+            'Transaction #': 'T-5002',
+          },
+        },
+      ],
+      reviewedDecisionIds: [],
+    });
+
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.materialRows.map((row) => ({
+        label: row.label,
+        ticketCount: row.ticketCount,
+        eligibleTickets: row.eligibleTickets,
+        ineligibleTickets: row.ineligibleTickets,
+      })),
+      [
+        {
+          label: 'Vegetative',
+          ticketCount: 2,
+          eligibleTickets: 1,
+          ineligibleTickets: 1,
+        },
+      ],
+    );
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.siteTypeRows.map((row) => ({
+        label: row.label,
+        ticketCount: row.ticketCount,
+        eligibleTickets: row.eligibleTickets,
+        ineligibleTickets: row.ineligibleTickets,
+      })),
+      [
+        {
+          label: 'Reduction Site',
+          ticketCount: 2,
+          eligibleTickets: 1,
+          ineligibleTickets: 1,
+        },
+      ],
+    );
+  });
+
+  it('uses canonical project facts for spreadsheet readiness, blockers, and billed totals', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-project-facts-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                records: [],
+                summary: {
+                  row_count: 0,
+                },
+              },
+            },
+          },
+        },
+      },
+      projectValidationStatus: 'BLOCKED',
+      projectValidationSummary: {
+        validator_status: 'BLOCKED',
+        blocked_reasons: ['Missing governing contract'],
+        total_billed: 5400,
+        exposure: {
+          total_billed_amount: 5400,
+          total_contract_supported_amount: 0,
+          total_transaction_supported_amount: 0,
+          total_fully_reconciled_amount: 0,
+          total_unreconciled_amount: 5400,
+          total_at_risk_amount: 5400,
+          total_requires_verification_amount: 5400,
+          support_gap_tolerance_amount: 0,
+          at_risk_tolerance_amount: 0,
+          moderate_severity: 'warning',
+          invoices: [
+            {
+              invoice_number: 'INV-100',
+              billed_amount: 2500,
+              billed_amount_source: 'invoice_total',
+              contract_supported_amount: 0,
+              transaction_supported_amount: 0,
+              fully_reconciled_amount: 0,
+              supported_amount: 0,
+              unreconciled_amount: 2500,
+              at_risk_amount: 2500,
+              requires_verification_amount: 2500,
+              reconciliation_status: 'MISMATCH',
+            },
+            {
+              invoice_number: 'INV-101',
+              billed_amount: 2900,
+              billed_amount_source: 'invoice_total',
+              contract_supported_amount: 0,
+              transaction_supported_amount: 0,
+              fully_reconciled_amount: 0,
+              supported_amount: 0,
+              unreconciled_amount: 2900,
+              at_risk_amount: 2900,
+              requires_verification_amount: 2900,
+              reconciliation_status: 'PARTIAL',
+            },
+          ],
+        },
+      },
+      transactionDatasets: [
+        {
+          id: 'dataset-project-facts',
+          summary_json: {
+            total_tickets: 3,
+            total_cyd: 12,
+            total_invoiced_amount: 1000,
+            distinct_invoice_count: 1,
+            invoice_readiness_summary: {
+              status: 'ready',
+              total_tickets: 3,
+              invoiced_ticket_count: 1,
+              distinct_invoice_count: 1,
+              total_invoiced_amount: 1000,
+              uninvoiced_line_count: 2,
+              rows_with_missing_rate_code: 0,
+              rows_with_missing_quantity: 0,
+              rows_with_missing_extended_cost: 0,
+              rows_with_zero_cost: 0,
+              rows_with_extreme_unit_rate: 0,
+              outlier_row_count: 0,
+              blocking_reasons: [],
+              record_ids: [],
+              evidence_refs: [],
+            },
+          },
+        },
+      ],
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.invoiceReadinessSummary?.status, 'needs_review');
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.invoiceReadinessSummary?.blocking_reasons,
+      ['Missing governing contract'],
+    );
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoicedAmount, 5400);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoices, 2);
+  });
+
+  it('folds legacy unknown eligibility counts into ineligible and strips the third bucket from the spreadsheet review dataset', () => {
+    const model = buildDocumentIntelligenceViewModel({
+      documentId: 'spreadsheet-legacy-eligibility-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      projectName: 'Storm Debris Cleanup',
+      preferredExtraction: null,
+      relatedDocs: [],
+      normalizedDecisions: [],
+      extractionGaps: [],
+      auditNotes: [],
+      nodeTraces: [],
+      executionTrace: null,
+      extractionHistory: [],
+      factOverrides: [],
+      factAnchors: [],
+      factReviews: [],
+      transactionDatasets: [
+        {
+          id: 'dataset-legacy-1',
+          summary_json: {
+            row_count: 2,
+            total_tickets: 2,
+            total_cyd: 0,
+            distinct_invoice_count: 1,
+            total_invoiced_amount: 100,
+            uninvoiced_line_count: 1,
+            eligible_count: 1,
+            ineligible_count: 1,
+            unknown_eligibility_count: 2,
+            outlier_rows: [
+              {
+                record_id: 'row-2',
+                transaction_number: 'TX-1002',
+                invoice_number: null,
+                billing_rate_key: null,
+                description_match_key: null,
+                source_sheet_name: 'ticket_query',
+                source_row_number: 4,
+                severity: 'warning',
+                reasons: ['eligibility status unresolved'],
+                metrics: {
+                  transaction_quantity: 1,
+                  transaction_rate: 100,
+                  extended_cost: 100,
+                  mileage: null,
+                  cyd: null,
+                  net_tonnage: null,
+                },
+                evidence_refs: [],
+              },
+            ],
+            project_operations_overview: {
+              project_name: 'Storm Debris Cleanup',
+              total_tickets: 2,
+              total_transaction_quantity: 2,
+              total_cyd: 0,
+              total_invoiced_amount: 100,
+              distinct_invoice_count: 1,
+              invoiced_ticket_count: 1,
+              uninvoiced_line_count: 1,
+              eligible_count: 1,
+              ineligible_count: 1,
+              unknown_eligibility_count: 2,
+              distinct_service_item_count: 1,
+              distinct_material_count: 1,
+              distinct_site_type_count: 0,
+              distinct_disposal_site_count: 0,
+              reviewed_sheet_names: ['ticket_query'],
+              record_ids: ['row-1', 'row-2'],
+              evidence_refs: [],
+            },
+            grouped_by_rate_code: [],
+            grouped_by_service_item: [],
+            grouped_by_material: [],
+            grouped_by_site_type: [],
+            grouped_by_disposal_site: [],
+          },
+        },
+      ],
+      transactionRows: [
+        {
+          id: 'row-1',
+          record_json: {
+            id: 'row-1',
+            transaction_number: 'TX-1001',
+            invoice_number: 'INV-100',
+            eligibility: 'Eligible',
+            source_sheet_name: 'ticket_query',
+            source_row_number: 3,
+          },
+          raw_row_json: {
+            'Transaction #': 'TX-1001',
+            Eligibility: 'Eligible',
+          },
+        },
+        {
+          id: 'row-2',
+          record_json: {
+            id: 'row-2',
+            transaction_number: 'TX-1002',
+            invoice_number: null,
+            eligibility: null,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 4,
+          },
+          raw_row_json: {
+            'Transaction #': 'TX-1002',
+            Eligibility: '',
+          },
+        },
+      ],
+      reviewedDecisionIds: [],
+    });
+
+    assert.equal(model.spreadsheetReviewDataset?.kpis.eligible, 1);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.ineligible, 3);
+    assert.equal(
+      'unknown_eligibility_count'
+        in ((model.spreadsheetReviewDataset?.summary ?? {}) as Record<string, unknown>),
+      false,
+    );
+    assert.equal(model.spreadsheetReviewDataset?.outlierRows.length, 0);
+  });
+
+  it('prefers fresh preferred extraction transaction data over stale execution trace for spreadsheet review', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-fresh-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 2,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                header_map: {
+                  transaction_number: [
+                    {
+                      canonical_field: 'transaction_number',
+                      sheet_key: 'ticket_query',
+                      sheet_name: 'ticket_query',
+                      column_name: 'Ticket ID',
+                      column_index: 0,
+                      header_row_number: 2,
+                    },
+                  ],
+                  invoice_number: [
+                    {
+                      canonical_field: 'invoice_number',
+                      sheet_key: 'ticket_query',
+                      sheet_name: 'ticket_query',
+                      column_name: 'Invoice #',
+                      column_index: 1,
+                      header_row_number: 2,
+                    },
+                  ],
+                  rate_code: [
+                    {
+                      canonical_field: 'rate_code',
+                      sheet_key: 'ticket_query',
+                      sheet_name: 'ticket_query',
+                      column_name: 'Rate Code',
+                      column_index: 2,
+                      header_row_number: 2,
+                    },
+                  ],
+                },
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'FRESH-1001',
+                    invoice_number: 'INV-FRESH-1',
+                    rate_code: 'RC-99',
+                    transaction_quantity: 10,
+                    extended_cost: 1000,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {
+                      'Ticket ID': 'FRESH-1001',
+                      'Invoice #': 'INV-FRESH-1',
+                      'Rate Code': 'RC-99',
+                    },
+                    evidence_ref: 'sheet:ticket_query:row:3',
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'FRESH-1002',
+                    invoice_number: 'INV-FRESH-2',
+                    rate_code: 'RC-99',
+                    transaction_quantity: 10,
+                    extended_cost: 1500,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {
+                      'Ticket ID': 'FRESH-1002',
+                      'Invoice #': 'INV-FRESH-2',
+                      'Rate Code': 'RC-99',
+                    },
+                    evidence_ref: 'sheet:ticket_query:row:4',
+                  },
+                ],
+                summary: {
+                  row_count: 2,
+                  total_tickets: 2,
+                  total_cyd: 64,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 2500,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 2,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                },
+                rollups: {
+                  total_tickets: 2,
+                  total_cyd: 64,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 2500,
+                  uninvoiced_line_count: 0,
+                  grouped_by_rate_code: [
+                    {
+                      billing_rate_key: 'RC99',
+                      rate_code: 'RC99',
+                      rate_description_sample: null,
+                      row_count: 2,
+                      total_transaction_quantity: 20,
+                      total_extended_cost: 2500,
+                      distinct_invoice_numbers: ['INV-FRESH-1', 'INV-FRESH-2'],
+                      distinct_materials: ['Vegetative'],
+                      distinct_service_items: ['Hauling'],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      executionTrace: {
+        facts: {
+          source_type: 'transaction_data',
+          row_count: 750,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-04-18T12:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          sourceType: 'transaction_data',
+          rowCount: 750,
+          records: [
+            {
+              id: 'stale-row-1',
+              transaction_number: 'STALE-1001',
+              invoice_number: 'INV-STALE',
+              rate_code: 'STALE-RC',
+            },
+          ],
+          summary: {
+            row_count: 750,
+            total_tickets: 750,
+            total_cyd: 0,
+            distinct_invoice_count: 0,
+            total_invoiced_amount: 0,
+            uninvoiced_line_count: 750,
+            eligible_count: 0,
+            ineligible_count: 0,
+            unknown_eligibility_count: 750,
+          },
+          rollups: {
+            totalTickets: 750,
+            totalCyd: 0,
+            distinctInvoiceCount: 0,
+            totalInvoicedAmount: 0,
+            uninvoicedLineCount: 750,
+            groupedByRateCode: [
+              {
+                billing_rate_key: 'STALE-RC',
+                rate_code: 'STALE-RC',
+                rate_description_sample: null,
+                row_count: 750,
+                total_transaction_quantity: 0,
+                total_extended_cost: 0,
+                distinct_invoice_numbers: [],
+                distinct_materials: [],
+                distinct_service_items: [],
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    assert.ok(model.transactionDataExtraction);
+    assert.equal(model.transactionDataExtraction?.rowCount, 2);
+    assert.equal(model.transactionDataExtraction?.records?.length, 2);
+    assert.equal(model.transactionDataExtraction?.records?.[0]?.invoice_number, 'INV-FRESH-1');
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.records.length, 2);
+    assert.equal(model.spreadsheetReviewDataset?.records[0]?.invoice_number, 'INV-FRESH-1');
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalTickets, 2);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalCyd, 64);
+    assert.equal(model.spreadsheetReviewDataset?.groupedByRateCode[0]?.rate_code, 'RC99');
+  });
+
+  it('keeps spreadsheet review overview inputs explicit for unique ticket count, transaction count, invoice count, and total cost', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-overview-truth-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 5063,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [],
+                summary: {
+                  row_count: 5063,
+                  total_tickets: 2388,
+                  total_cyd: 0,
+                  total_extended_cost: 815559.35,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 815559.35,
+                  uninvoiced_line_count: 5061,
+                  eligible_count: 0,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                  grouped_by_material: [],
+                  grouped_by_disposal_site: [],
+                  grouped_by_site_type: [],
+                  grouped_by_service_item: [],
+                  invoice_readiness_summary: {
+                    status: 'partial',
+                    total_tickets: 2388,
+                    invoiced_ticket_count: 2,
+                    distinct_invoice_count: 2,
+                    total_invoiced_amount: 815559.35,
+                    uninvoiced_line_count: 5061,
+                    rows_with_missing_rate_code: 0,
+                    rows_with_missing_quantity: 0,
+                    rows_with_missing_extended_cost: 0,
+                    rows_with_zero_cost: 0,
+                    rows_with_extreme_unit_rate: 0,
+                    outlier_row_count: 0,
+                    blocking_reasons: ['uninvoiced rows remain in the dataset'],
+                    record_ids: [],
+                    evidence_refs: [],
+                  },
+                },
+                rollups: {
+                  total_tickets: 2388,
+                  total_extended_cost: 815559.35,
+                  total_invoiced_amount: 815559.35,
+                  distinct_invoice_count: 2,
+                  uninvoiced_line_count: 5061,
+                  eligible_count: 0,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.summary?.row_count, 5063);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalTickets, 2388);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoices, 2);
+    assert.equal(model.spreadsheetReviewDataset?.totalExtendedCost, 815559.35);
+  });
+
+  it('derives client-ready spreadsheet review rows with service-item diameter units, material flow, and grouped risk issues', () => {
+    const serviceItemGroups = [
+      {
+        service_item: 'Debris Hauling',
+        row_count: 2,
+        total_transaction_quantity: 25,
+        total_cyd: 45,
+        total_extended_cost: 2500,
+        invoiced_ticket_count: 2,
+        uninvoiced_line_count: 0,
+        distinct_invoice_numbers: ['INV-100', 'INV-101'],
+        distinct_rate_codes: ['HAUL'],
+        record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:4'],
+        evidence_refs: [],
+      },
+      {
+        service_item: 'Load Monitoring',
+        row_count: 1,
+        total_transaction_quantity: 0,
+        total_cyd: 0,
+        total_extended_cost: 300,
+        invoiced_ticket_count: 0,
+        uninvoiced_line_count: 1,
+        distinct_invoice_numbers: [],
+        distinct_rate_codes: ['MON'],
+        record_ids: ['transaction:ticket_query:5'],
+        evidence_refs: [],
+      },
+    ];
+    const materialGroups = [
+      {
+        material: 'Vegetative',
+        row_count: 1,
+        total_transaction_quantity: 20,
+        total_cyd: 20,
+        total_extended_cost: 1000,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 0,
+        distinct_invoice_numbers: ['INV-100'],
+        distinct_rate_codes: ['HAUL'],
+        record_ids: ['transaction:ticket_query:3'],
+        evidence_refs: [],
+        disposal_sites: ['Alpha Landfill'],
+        site_types: ['Landfill'],
+      },
+      {
+        material: 'C&D',
+        row_count: 1,
+        total_transaction_quantity: 5,
+        total_cyd: 25,
+        total_extended_cost: 1500,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 0,
+        distinct_invoice_numbers: ['INV-101'],
+        distinct_rate_codes: [],
+        record_ids: ['transaction:ticket_query:4'],
+        evidence_refs: [],
+        disposal_sites: ['Bravo DMS'],
+        site_types: ['DMS'],
+      },
+    ];
+    const disposalSiteGroups = [
+      {
+        disposal_site: 'Alpha Landfill',
+        row_count: 2,
+        total_transaction_quantity: 20,
+        total_cyd: 20,
+        total_extended_cost: 1300,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 1,
+        distinct_invoice_numbers: ['INV-100'],
+        distinct_rate_codes: ['HAUL', 'MON'],
+        record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:5'],
+        evidence_refs: [],
+        site_types: ['Landfill'],
+        materials: ['Vegetative'],
+      },
+      {
+        disposal_site: 'Bravo DMS',
+        row_count: 1,
+        total_transaction_quantity: 5,
+        total_cyd: 25,
+        total_extended_cost: 1500,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 0,
+        distinct_invoice_numbers: ['INV-101'],
+        distinct_rate_codes: [],
+        record_ids: ['transaction:ticket_query:4'],
+        evidence_refs: [],
+        site_types: ['DMS'],
+        materials: ['C&D'],
+      },
+    ];
+    const siteTypeGroups = [
+      {
+        site_type: 'Landfill',
+        row_count: 2,
+        total_transaction_quantity: 20,
+        total_cyd: 20,
+        total_extended_cost: 1300,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 1,
+        distinct_invoice_numbers: ['INV-100'],
+        distinct_rate_codes: ['HAUL', 'MON'],
+        record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:5'],
+        evidence_refs: [],
+        disposal_sites: ['Alpha Landfill'],
+        materials: ['Vegetative'],
+      },
+      {
+        site_type: 'DMS',
+        row_count: 1,
+        total_transaction_quantity: 5,
+        total_cyd: 25,
+        total_extended_cost: 1500,
+        invoiced_ticket_count: 1,
+        uninvoiced_line_count: 0,
+        distinct_invoice_numbers: ['INV-101'],
+        distinct_rate_codes: [],
+        record_ids: ['transaction:ticket_query:4'],
+        evidence_refs: [],
+        disposal_sites: ['Bravo DMS'],
+        materials: ['C&D'],
+      },
+    ];
+
+    const model = buildModel({
+      documentId: 'spreadsheet-client-review-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 3,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'T-1001',
+                    invoice_number: 'INV-100',
+                    rate_code: 'HAUL',
+                    service_item: 'Debris Hauling',
+                    material: 'Vegetative',
+                    transaction_quantity: 20,
+                    extended_cost: 1000,
+                    cyd: 20,
+                    diameter: 20,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {
+                      'Ticket Type': 'Mobile Unit',
+                      Diameter: '20',
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'T-1002',
+                    invoice_number: 'INV-101',
+                    rate_code: null,
+                    service_item: 'Debris Hauling',
+                    material: 'C&D',
+                    transaction_quantity: 5,
+                    transaction_rate: 200,
+                    extended_cost: 1500,
+                    cyd: 25,
+                    diameter: 5,
+                    eligibility: 'Ineligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {
+                      'Ticket Type': 'Mobile Unit',
+                      Diameter: 5,
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:5',
+                    transaction_number: 'T-1003',
+                    invoice_number: null,
+                    rate_code: 'MON',
+                    service_item: 'Load Monitoring',
+                    material: null,
+                    transaction_quantity: null,
+                    extended_cost: 300,
+                    cyd: null,
+                    eligibility: null,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 5,
+                    raw_row: {
+                      'Ticket Type': 'Mobile Unit',
+                    },
+                  },
+                ],
+                summary: {
+                  row_count: 3,
+                  total_tickets: 3,
+                  total_cyd: 45,
+                  total_extended_cost: 2800,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 2500,
+                  uninvoiced_line_count: 1,
+                  eligible_count: 1,
+                  ineligible_count: 2,
+                  grouped_by_service_item: serviceItemGroups,
+                  grouped_by_material: materialGroups,
+                  grouped_by_disposal_site: disposalSiteGroups,
+                  grouped_by_site_type: siteTypeGroups,
+                  outlier_rows: [
+                    {
+                      record_id: 'transaction:ticket_query:4',
+                      transaction_number: 'T-1002',
+                      invoice_number: 'INV-101',
+                      billing_rate_key: null,
+                      description_match_key: 'debris hauling',
+                      source_sheet_name: 'ticket_query',
+                      source_row_number: 4,
+                      severity: 'critical',
+                      reasons: ['missing rate code', 'transaction rate 200 deviates from 10 baseline'],
+                      metrics: {
+                        transaction_quantity: 5,
+                        transaction_rate: 200,
+                        extended_cost: 1500,
+                        mileage: null,
+                        cyd: 25,
+                        net_tonnage: null,
+                      },
+                      evidence_refs: [],
+                    },
+                    {
+                      record_id: 'transaction:ticket_query:5',
+                      transaction_number: 'T-1003',
+                      invoice_number: null,
+                      billing_rate_key: 'MON',
+                      description_match_key: 'load monitoring',
+                      source_sheet_name: 'ticket_query',
+                      source_row_number: 5,
+                      severity: 'warning',
+                      reasons: ['missing invoice number', 'Load call review'],
+                      metrics: {
+                        transaction_quantity: null,
+                        transaction_rate: null,
+                        extended_cost: 300,
+                        mileage: null,
+                        cyd: null,
+                        net_tonnage: null,
+                      },
+                      evidence_refs: [],
+                    },
+                  ],
+                  invoice_readiness_summary: {
+                    status: 'partial',
+                    total_tickets: 3,
+                    invoiced_ticket_count: 2,
+                    distinct_invoice_count: 2,
+                    total_invoiced_amount: 2500,
+                    uninvoiced_line_count: 1,
+                    rows_with_missing_rate_code: 1,
+                    rows_with_missing_quantity: 1,
+                    rows_with_missing_extended_cost: 0,
+                    rows_with_zero_cost: 0,
+                    rows_with_extreme_unit_rate: 1,
+                    outlier_row_count: 2,
+                    blocking_reasons: ['Project contains unresolved invoice linkage.'],
+                    record_ids: [],
+                    evidence_refs: [],
+                  },
+                },
+                rollups: {
+                  total_tickets: 3,
+                  total_cyd: 45,
+                  total_extended_cost: 2800,
+                  total_invoiced_amount: 2500,
+                  distinct_invoice_count: 2,
+                  uninvoiced_line_count: 1,
+                  eligible_count: 1,
+                  ineligible_count: 2,
+                  grouped_by_rate_code: [
+                    {
+                      billing_rate_key: 'HAUL',
+                      rate_code: 'HAUL',
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 20,
+                      total_extended_cost: 1000,
+                      distinct_invoice_numbers: ['INV-100'],
+                      distinct_materials: ['Vegetative'],
+                      distinct_service_items: ['Debris Hauling'],
+                    },
+                    {
+                      billing_rate_key: null,
+                      rate_code: null,
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 5,
+                      total_extended_cost: 1500,
+                      distinct_invoice_numbers: ['INV-101'],
+                      distinct_materials: ['C&D'],
+                      distinct_service_items: ['Debris Hauling'],
+                    },
+                    {
+                      billing_rate_key: 'MON',
+                      rate_code: 'MON',
+                      rate_description_sample: 'Load Monitoring',
+                      row_count: 1,
+                      total_transaction_quantity: 0,
+                      total_extended_cost: 300,
+                      distinct_invoice_numbers: [],
+                      distinct_materials: [],
+                      distinct_service_items: ['Load Monitoring'],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.volumeBasis.headerLabel, 'Volume (CYD)');
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.disposalSiteRows.map((row) => ({
+        label: row.label,
+        ticketCount: row.ticketCount,
+        eligibleTickets: row.eligibleTickets,
+        ineligibleTickets: row.ineligibleTickets,
+        volume: row.volume,
+        amount: row.amount,
+      })),
+      [
+        {
+          label: 'Bravo DMS',
+          ticketCount: 1,
+          eligibleTickets: 0,
+          ineligibleTickets: 1,
+          volume: 25,
+          amount: 1500,
+        },
+        {
+          label: 'Alpha Landfill',
+          ticketCount: 2,
+          eligibleTickets: 1,
+          ineligibleTickets: 1,
+          volume: 20,
+          amount: 1300,
+        },
+      ],
+    );
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.serviceItemRows.map((row) => ({
+        serviceItem: row.serviceItem,
+        ticketCount: row.ticketCount,
+        eligibleTickets: row.eligibleTickets,
+        ineligibleTickets: row.ineligibleTickets,
+        diameterUnits: row.diameterUnits,
+        amount: row.amount,
+      })),
+      [
+        {
+          serviceItem: 'Debris Hauling',
+          ticketCount: 2,
+          eligibleTickets: 1,
+          ineligibleTickets: 1,
+          diameterUnits: 25,
+          amount: 2500,
+        },
+        {
+          serviceItem: 'Load Monitoring',
+          ticketCount: 1,
+          eligibleTickets: 0,
+          ineligibleTickets: 1,
+          diameterUnits: null,
+          amount: 300,
+        },
+      ],
+    );
+    assert.equal(
+      'unknownTickets' in ((model.spreadsheetReviewDataset?.disposalSiteRows[0] ?? {}) as Record<string, unknown>),
+      false,
+    );
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.materialRows.map((row) => ({
+        label: row.label,
+        volume: row.volume,
+        amount: row.amount,
+      })),
+      [
+        {
+          label: 'C&D',
+          volume: 25,
+          amount: 1500,
+        },
+        {
+          label: 'Vegetative',
+          volume: 20,
+          amount: 1000,
+        },
+      ],
+    );
+    assert.equal(model.spreadsheetReviewDataset?.riskSummary?.highRiskIssues, 2);
+    assert.equal(model.spreadsheetReviewDataset?.riskSummary?.mediumRiskIssues, 2);
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.groupedRiskIssues.map((row) => ({
+        issueType: row.issueType,
+        affectedTicketPreview: row.affectedTicketPreview,
+      })),
+      [
+        {
+          issueType: 'Missing Rate Code',
+          affectedTicketPreview: 'T-1002',
+        },
+        {
+          issueType: 'Rate Review',
+          affectedTicketPreview: 'T-1002',
+        },
+        {
+          issueType: 'Load Call Review',
+          affectedTicketPreview: 'T-1003',
+        },
+        {
+          issueType: 'Missing Invoice #',
+          affectedTicketPreview: 'T-1003',
+        },
+      ],
+    );
+  });
+
+  it('prefers business ticket numbers over internal record ids in grouped risk previews', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-risk-ticket-number-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 1,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'T-9001',
+                    invoice_number: 'INV-900',
+                    rate_code: null,
+                    extended_cost: 900,
+                    cyd: 9,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {},
+                  },
+                ],
+                summary: {
+                  row_count: 1,
+                  total_tickets: 1,
+                  total_cyd: 9,
+                  total_extended_cost: 900,
+                  distinct_invoice_count: 1,
+                  total_invoiced_amount: 900,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 0,
+                  ineligible_count: 1,
+                  grouped_by_material: [],
+                  grouped_by_disposal_site: [],
+                  grouped_by_site_type: [],
+                  grouped_by_service_item: [],
+                  outlier_rows: [
+                    {
+                      record_id: 'transaction:ticket_query:3',
+                      transaction_number: 'transaction:ticket_query:3',
+                      invoice_number: 'INV-900',
+                      billing_rate_key: null,
+                      description_match_key: null,
+                      source_sheet_name: 'ticket_query',
+                      source_row_number: 3,
+                      severity: 'warning',
+                      reasons: ['missing rate code'],
+                      metrics: {
+                        transaction_quantity: 9,
+                        transaction_rate: null,
+                        extended_cost: 900,
+                        mileage: null,
+                        cyd: 9,
+                        net_tonnage: null,
+                      },
+                      evidence_refs: [],
+                    },
+                  ],
+                  invoice_readiness_summary: {
+                    status: 'needs_review',
+                    total_tickets: 1,
+                    invoiced_ticket_count: 1,
+                    distinct_invoice_count: 1,
+                    total_invoiced_amount: 900,
+                    uninvoiced_line_count: 0,
+                    rows_with_missing_rate_code: 1,
+                    rows_with_missing_quantity: 0,
+                    rows_with_missing_extended_cost: 0,
+                    rows_with_zero_cost: 0,
+                    rows_with_extreme_unit_rate: 0,
+                    outlier_row_count: 1,
+                    blocking_reasons: [],
+                    record_ids: [],
+                    evidence_refs: [],
+                  },
+                },
+                rollups: {
+                  total_tickets: 1,
+                  total_cyd: 9,
+                  total_extended_cost: 900,
+                  total_invoiced_amount: 900,
+                  distinct_invoice_count: 1,
+                  eligible_count: 0,
+                  ineligible_count: 1,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(
+      model.spreadsheetReviewDataset?.groupedRiskIssues[0]?.affectedTicketPreview,
+      'T-9001',
+    );
+  });
+
+  it('rolls up service item diameter units from unique-ticket Diameter values without double-counting duplicate rows', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-service-item-diameters-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 4,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'T-3001',
+                    invoice_number: 'INV-300',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 900,
+                    cyd: null,
+                    diameter: 12.5,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {
+                      Diameter: '12.5',
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'T-3001',
+                    invoice_number: 'INV-300',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 600,
+                    cyd: null,
+                    diameter: 12.5,
+                    eligibility: 'In Scope',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {
+                      Diameter: 12.5,
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:5',
+                    transaction_number: 'T-3002',
+                    invoice_number: 'INV-301',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 400,
+                    cyd: null,
+                    diameter: 7.5,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 5,
+                    raw_row: {
+                      Diameter: 7.5,
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:6',
+                    transaction_number: 'T-3002',
+                    invoice_number: 'INV-301',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 200,
+                    cyd: null,
+                    diameter: null,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 6,
+                    raw_row: {
+                      Diameter: '',
+                    },
+                  },
+                ],
+                summary: {
+                  row_count: 4,
+                  total_tickets: 2,
+                  total_cyd: 0,
+                  total_extended_cost: 2100,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 2100,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 4,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                  grouped_by_service_item: [
+                    {
+                      service_item: 'Mobile Grinding',
+                      row_count: 4,
+                      total_transaction_quantity: 4,
+                      total_cyd: 0,
+                      total_extended_cost: 2100,
+                      invoiced_ticket_count: 2,
+                      uninvoiced_line_count: 0,
+                      distinct_invoice_numbers: ['INV-300', 'INV-301'],
+                      distinct_rate_codes: [],
+                      record_ids: [
+                        'transaction:ticket_query:3',
+                        'transaction:ticket_query:4',
+                        'transaction:ticket_query:5',
+                        'transaction:ticket_query:6',
+                      ],
+                      evidence_refs: [],
+                    },
+                  ],
+                  grouped_by_material: [],
+                  grouped_by_disposal_site: [],
+                  grouped_by_site_type: [],
+                },
+                rollups: {
+                  total_tickets: 2,
+                  total_cyd: 0,
+                  total_extended_cost: 2100,
+                  total_invoiced_amount: 2100,
+                  distinct_invoice_count: 2,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.serviceItemRows.map((row) => ({
+        serviceItem: row.serviceItem,
+        ticketCount: row.ticketCount,
+        eligibleTickets: row.eligibleTickets,
+        ineligibleTickets: row.ineligibleTickets,
+        diameterUnits: row.diameterUnits,
+        amount: row.amount,
+      })),
+      [
+        {
+          serviceItem: 'Mobile Grinding',
+          ticketCount: 2,
+          eligibleTickets: 2,
+          ineligibleTickets: 0,
+          diameterUnits: 20,
+          amount: 2100,
+        },
+      ],
+    );
+  });
+
+  it('uses the first non-null Diameter value in source order when duplicate ticket rows disagree', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-service-item-diameter-conflict-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 2,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'T-4001',
+                    invoice_number: 'INV-400',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 500,
+                    cyd: null,
+                    diameter: 9,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {
+                      Diameter: 9,
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'T-4001',
+                    invoice_number: 'INV-400',
+                    service_item: 'Mobile Grinding',
+                    transaction_quantity: 1,
+                    extended_cost: 250,
+                    cyd: null,
+                    diameter: 11,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {
+                      Diameter: 11,
+                    },
+                  },
+                ],
+                summary: {
+                  row_count: 2,
+                  total_tickets: 1,
+                  total_cyd: 0,
+                  total_extended_cost: 750,
+                  distinct_invoice_count: 1,
+                  total_invoiced_amount: 750,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 2,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                  grouped_by_service_item: [
+                    {
+                      service_item: 'Mobile Grinding',
+                      row_count: 2,
+                      total_transaction_quantity: 2,
+                      total_cyd: 0,
+                      total_extended_cost: 750,
+                      invoiced_ticket_count: 1,
+                      uninvoiced_line_count: 0,
+                      distinct_invoice_numbers: ['INV-400'],
+                      distinct_rate_codes: [],
+                      record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:4'],
+                      evidence_refs: [],
+                    },
+                  ],
+                  grouped_by_material: [],
+                  grouped_by_disposal_site: [],
+                  grouped_by_site_type: [],
+                },
+                rollups: {
+                  total_tickets: 1,
+                  total_cyd: 0,
+                  total_extended_cost: 750,
+                  total_invoiced_amount: 750,
+                  distinct_invoice_count: 1,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(model.spreadsheetReviewDataset?.serviceItemRows[0]?.diameterUnits, 9);
+  });
+
+  it('uses tons as the project volume basis when CYD is not available', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-tons-review-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 2,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'T-2001',
+                    invoice_number: 'INV-200',
+                    service_item: 'Grinding',
+                    material: 'Vegetative',
+                    transaction_quantity: 11,
+                    extended_cost: 1000,
+                    cyd: null,
+                    net_tonnage: 11,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {
+                      Unit: 'Tons',
+                    },
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'T-2002',
+                    invoice_number: 'INV-201',
+                    service_item: 'Grinding',
+                    material: 'Vegetative',
+                    transaction_quantity: 9,
+                    extended_cost: 800,
+                    cyd: null,
+                    net_tonnage: 9,
+                    eligibility: 'Eligible',
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {
+                      Unit: 'Tons',
+                    },
+                  },
+                ],
+                summary: {
+                  row_count: 2,
+                  total_tickets: 2,
+                  total_cyd: 0,
+                  total_extended_cost: 1800,
+                  distinct_invoice_count: 2,
+                  total_invoiced_amount: 1800,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 2,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 0,
+                  grouped_by_material: [
+                    {
+                      material: 'Vegetative',
+                      row_count: 2,
+                      total_transaction_quantity: 20,
+                      total_cyd: 0,
+                      total_extended_cost: 1800,
+                      invoiced_ticket_count: 2,
+                      uninvoiced_line_count: 0,
+                      distinct_invoice_numbers: ['INV-200', 'INV-201'],
+                      distinct_rate_codes: [],
+                      record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:4'],
+                      evidence_refs: [],
+                      disposal_sites: ['North Yard'],
+                      site_types: ['Reduction Site'],
+                    },
+                  ],
+                  grouped_by_disposal_site: [
+                    {
+                      disposal_site: 'North Yard',
+                      row_count: 2,
+                      total_transaction_quantity: 20,
+                      total_cyd: 0,
+                      total_extended_cost: 1800,
+                      invoiced_ticket_count: 2,
+                      uninvoiced_line_count: 0,
+                      distinct_invoice_numbers: ['INV-200', 'INV-201'],
+                      distinct_rate_codes: [],
+                      record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:4'],
+                      evidence_refs: [],
+                      site_types: ['Reduction Site'],
+                      materials: ['Vegetative'],
+                    },
+                  ],
+                  grouped_by_site_type: [
+                    {
+                      site_type: 'Reduction Site',
+                      row_count: 2,
+                      total_transaction_quantity: 20,
+                      total_cyd: 0,
+                      total_extended_cost: 1800,
+                      invoiced_ticket_count: 2,
+                      uninvoiced_line_count: 0,
+                      distinct_invoice_numbers: ['INV-200', 'INV-201'],
+                      distinct_rate_codes: [],
+                      record_ids: ['transaction:ticket_query:3', 'transaction:ticket_query:4'],
+                      evidence_refs: [],
+                      disposal_sites: ['North Yard'],
+                      materials: ['Vegetative'],
+                    },
+                  ],
+                },
+                rollups: {
+                  total_tickets: 2,
+                  total_cyd: 0,
+                  total_extended_cost: 1800,
+                  total_invoiced_amount: 1800,
+                  distinct_invoice_count: 2,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.volumeBasis.headerLabel, 'Volume (Tons)');
+    assert.equal(model.spreadsheetReviewDataset?.materialRows[0]?.volume, 20);
+    assert.equal(model.spreadsheetReviewDataset?.disposalSiteRows[0]?.volume, 20);
+    assert.equal(model.spreadsheetReviewDataset?.siteTypeRows[0]?.percentOfTotalVolume, 100);
+  });
+
+  it('suppresses zero-value and missing-rate-code rows from cost drivers while keeping real billed rate codes', () => {
+    const model = buildModel({
+      documentId: 'spreadsheet-cost-driver-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      preferredExtraction: {
+        fields: {},
+        extraction: {
+          evidence_v1: {},
+          content_layers_v1: {
+            spreadsheet: {
+              evidence: [],
+              normalized_transaction_data: {
+                source_type: 'transaction_data',
+                row_count: 4,
+                row_limit_reached: false,
+                sheet_names: ['ticket_query'],
+                records: [
+                  {
+                    id: 'transaction:ticket_query:3',
+                    transaction_number: 'TX-4001',
+                    invoice_number: 'INV-401',
+                    rate_code: null,
+                    extended_cost: 0,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 3,
+                    raw_row: {},
+                  },
+                  {
+                    id: 'transaction:ticket_query:4',
+                    transaction_number: 'TX-4002',
+                    invoice_number: 'INV-402',
+                    rate_code: null,
+                    extended_cost: 1500,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 4,
+                    raw_row: {},
+                  },
+                  {
+                    id: 'transaction:ticket_query:5',
+                    transaction_number: 'TX-4003',
+                    invoice_number: 'INV-403',
+                    rate_code: 'RC-01',
+                    extended_cost: 2500,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 5,
+                    raw_row: {},
+                  },
+                  {
+                    id: 'transaction:ticket_query:6',
+                    transaction_number: 'TX-4004',
+                    invoice_number: 'INV-404',
+                    rate_code: 'RC-02',
+                    extended_cost: 125,
+                    source_sheet_name: 'ticket_query',
+                    source_row_number: 6,
+                    raw_row: {},
+                  },
+                ],
+                summary: {
+                  row_count: 4,
+                  total_tickets: 4,
+                  total_cyd: 0,
+                  total_extended_cost: 4125,
+                  distinct_invoice_count: 4,
+                  total_invoiced_amount: 4125,
+                  uninvoiced_line_count: 0,
+                  eligible_count: 0,
+                  ineligible_count: 0,
+                  unknown_eligibility_count: 4,
+                  grouped_by_rate_code: [
+                    {
+                      billing_rate_key: null,
+                      rate_code: null,
+                      rate_description_sample: null,
+                      row_count: 1,
+                      total_transaction_quantity: 0,
+                      total_extended_cost: 0,
+                      distinct_invoice_numbers: ['INV-401'],
+                      distinct_materials: [],
+                      distinct_service_items: [],
+                    },
+                    {
+                      billing_rate_key: null,
+                      rate_code: null,
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 10,
+                      total_extended_cost: 1500,
+                      distinct_invoice_numbers: ['INV-402'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Hauling'],
+                    },
+                    {
+                      billing_rate_key: 'RC01',
+                      rate_code: 'RC-01',
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 10,
+                      total_extended_cost: 2500,
+                      distinct_invoice_numbers: ['INV-403'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Hauling'],
+                    },
+                    {
+                      billing_rate_key: 'RC02',
+                      rate_code: 'RC-02',
+                      rate_description_sample: null,
+                      row_count: 1,
+                      total_transaction_quantity: 1,
+                      total_extended_cost: 125,
+                      distinct_invoice_numbers: ['INV-404'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Monitoring'],
+                    },
+                  ],
+                },
+                rollups: {
+                  total_tickets: 4,
+                  total_extended_cost: 4125,
+                  total_invoiced_amount: 4125,
+                  distinct_invoice_count: 4,
+                  grouped_by_rate_code: [
+                    {
+                      billing_rate_key: null,
+                      rate_code: null,
+                      rate_description_sample: null,
+                      row_count: 1,
+                      total_transaction_quantity: 0,
+                      total_extended_cost: 0,
+                      distinct_invoice_numbers: ['INV-401'],
+                      distinct_materials: [],
+                      distinct_service_items: [],
+                    },
+                    {
+                      billing_rate_key: null,
+                      rate_code: null,
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 10,
+                      total_extended_cost: 1500,
+                      distinct_invoice_numbers: ['INV-402'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Hauling'],
+                    },
+                    {
+                      billing_rate_key: 'RC01',
+                      rate_code: 'RC-01',
+                      rate_description_sample: 'Debris Hauling',
+                      row_count: 1,
+                      total_transaction_quantity: 10,
+                      total_extended_cost: 2500,
+                      distinct_invoice_numbers: ['INV-403'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Hauling'],
+                    },
+                    {
+                      billing_rate_key: 'RC02',
+                      rate_code: 'RC-02',
+                      rate_description_sample: null,
+                      row_count: 1,
+                      total_transaction_quantity: 1,
+                      total_extended_cost: 125,
+                      distinct_invoice_numbers: ['INV-404'],
+                      distinct_materials: [],
+                      distinct_service_items: ['Monitoring'],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.groupedByRateCode.length, 4);
+    assert.deepEqual(
+      model.spreadsheetReviewDataset?.rateCodeRows.map((row) => ({
+        rateCode: row.rateCode,
+        description: row.description,
+        amount: row.amount,
+      })),
+      [
+        {
+          rateCode: 'RC-01',
+          description: 'Debris Hauling',
+          amount: 2500,
+        },
+        {
+          rateCode: 'RC-02',
+          description: null,
+          amount: 125,
+        },
+      ],
+    );
+    assert.ok(model.spreadsheetReviewDataset?.rateCodeRows.every((row) => row.rateCode != null));
   });
 });

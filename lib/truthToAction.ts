@@ -3,6 +3,7 @@ import type {
   ValidationStatus,
   ValidatorStatus,
 } from '@/types/validator';
+import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 
 export type OperatorApprovalLabel =
   | 'Requires Verification'
@@ -88,8 +89,23 @@ export function approvalNextAction(label: OperatorApprovalLabel): string {
 
 type FindingTruthDescriptor = Pick<
   ValidationFinding,
-  'status' | 'severity' | 'blocked_reason' | 'decision_eligible' | 'action_eligible'
+  | 'status'
+  | 'severity'
+  | 'blocked_reason'
+  | 'decision_eligible'
+  | 'action_eligible'
+  | 'problem'
+  | 'impact'
+  | 'required_action'
+  | 'approval_gate_effect'
+  | 'finding_disposition'
 >;
+
+export function findingProblem(
+  finding: ValidationFinding,
+): string {
+  return normalizeValidationFinding(finding).problem ?? humanizeTruthToken(finding.rule_id);
+}
 
 export function findingApprovalLabel(
   finding: FindingTruthDescriptor,
@@ -102,14 +118,23 @@ export function findingApprovalLabel(
     return 'Approved with Notes';
   }
 
-  if (finding.blocked_reason || finding.severity === 'critical') {
+  const normalized = normalizeValidationFinding(finding as ValidationFinding);
+
+  if (normalized.approval_gate_effect === 'blocks_approval') {
     return 'Requires Verification';
   }
 
-  return 'Needs Review';
+  if (normalized.approval_gate_effect === 'requires_operator_review') {
+    return 'Needs Review';
+  }
+
+  return 'Approved with Notes';
 }
 
 export function findingGateImpact(finding: FindingTruthDescriptor): string {
+  const normalized = normalizeValidationFinding(finding as ValidationFinding);
+  if (normalized.impact) return normalized.impact;
+
   const label = findingApprovalLabel(finding);
 
   if (label === 'Approved') {
@@ -120,6 +145,9 @@ export function findingGateImpact(finding: FindingTruthDescriptor): string {
 }
 
 export function findingNextAction(finding: FindingTruthDescriptor): string {
+  const normalized = normalizeValidationFinding(finding as ValidationFinding);
+  if (normalized.required_action) return normalized.required_action;
+
   const label = findingApprovalLabel(finding);
 
   if (label === 'Approved') {

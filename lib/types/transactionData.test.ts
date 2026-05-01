@@ -19,6 +19,11 @@ describe('transaction_data schema', () => {
       required: false,
       nullable: true,
     });
+    assert.deepEqual(TRANSACTION_DATA_ROW_SCHEMA.diameter, {
+      type: 'number',
+      required: false,
+      nullable: true,
+    });
     assert.deepEqual(TRANSACTION_DATA_ROW_SCHEMA.source_sheet_name, {
       type: 'string',
       required: true,
@@ -174,6 +179,7 @@ describe('transaction_data schema', () => {
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.transaction_number.includes('transaction #'));
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.invoice_number.includes('invoice #'));
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.transaction_quantity.includes('quantity'));
+    assert.ok(TRANSACTION_DATA_HEADER_ALIASES.diameter.includes('diameter'));
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.transaction_rate.includes('unit rate'));
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.extended_cost.includes('line total'));
     assert.ok(TRANSACTION_DATA_HEADER_ALIASES.project_name.includes('project'));

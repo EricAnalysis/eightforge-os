@@ -39,6 +39,7 @@ describe('buildDecisionContextRows', () => {
           validator_status: 'NEEDS_REVIEW',
           exposure: {
             total_unreconciled_amount: 5000,
+            total_at_risk_amount: 5000,
           },
         },
       },
@@ -51,8 +52,8 @@ describe('buildDecisionContextRows', () => {
         'Billed to date',
         'Invoice total',
         'Remaining capacity',
-        'Requires verification amount',
-        'At risk amount',
+        'Requires Verification Amount',
+        'At Risk Amount',
         'Validator state',
         'Approval gate state',
         'Next operator move',
@@ -71,7 +72,7 @@ describe('buildDecisionContextRows', () => {
     assert.equal(rows[3]?.sourceLabel, 'Derived');
     assert.equal(rows[4]?.value, '$1,200');
     assert.equal(rows[4]?.sourceLabel, 'Queue finding');
-    assert.equal(rows[4]?.sourceHref, '/platform/workspace/projects/project-1');
+    assert.equal(rows[4]?.sourceHref, '/platform/projects/project-1#project-validator');
     assert.equal(rows[5]?.value, '$5,000');
     assert.equal(rows[5]?.sourceLabel, 'Validator finding');
     assert.equal(rows[6]?.value, 'Needs Review');

@@ -20,6 +20,10 @@ export type InvoiceLineItem = {
   line_total: number | null;
   billing_rate_key: string | null;
   description_match_key: string | null;
+  material?: string | null;
+  service_item?: string | null;
+  canonical_category?: string | null;
+  category_confidence?: number | null;
   description?: string | null; // compatibility alias
   total?: number | null; // compatibility alias
   evidence_refs?: string[];
@@ -73,11 +77,15 @@ export type ContractExtraction = {
 export type InvoiceExtraction = {
   schema_type: 'invoice';
   invoice_number: string | null;
+  invoice_number_raw?: string | null;
+  invoice_number_normalized?: string | null;
   invoice_status: string | null;
   invoice_date: string | null;
   period_start: string | null;
   period_end: string | null;
   period_through: string | null;
+  service_period_start?: string | null;
+  service_period_end?: string | null;
   vendor_name: string | null;
   client_name: string | null;
   line_items: InvoiceLineItem[];

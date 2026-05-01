@@ -3,20 +3,12 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DecisionQueue,
   FloatingCommandBar,
   IntelligenceInsightCard,
-  ProjectsPanel,
-  QueueTrustStrip,
   StatusStrip,
-  type ActionListItem,
-  type DecisionQueueItem,
-  type IntegrityAuditSummary,
   type IntelligenceInsight,
-  type ProjectPanelItem,
   type StatusStripMetric,
 } from '@/components/platform/command-center';
-import { formatDueDate } from '@/lib/dateUtils';
 import { buildOperatorGraphData } from '@/lib/operatorGraph';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
@@ -39,59 +31,6 @@ function buildProjectTabHref(params: {
     search.set(key, String(value));
   }
   return `${base}?${search.toString()}${params.hash}`;
-}
-
-function humanize(value: string | null | undefined): string {
-  if (!value) return 'Unknown';
-  return value
-    .replace(/[_-]+/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function statusTone(status: string | null | undefined): Tone {
-  switch (status) {
-    case 'blocked':
-    case 'failed':
-    case 'critical':
-      return 'danger';
-    case 'high':
-    case 'needs_review':
-    case 'attention_required':
-    case 'needs_correction':
-      return 'warning';
-    case 'approved':
-    case 'operationally_clear':
-    case 'resolved':
-    case 'active':
-      return 'success';
-    case 'open':
-    case 'in_review':
-    case 'in_progress':
-      return 'brand';
-    default:
-      return 'muted';
-  }
-}
-
-function decisionTone(params: {
-  blocked: boolean;
-  severity: string;
-  reviewStatus: string;
-  status: string;
-}): Tone {
-  if (params.blocked || params.severity === 'critical') return 'danger';
-  if (
-    params.severity === 'high' ||
-    params.reviewStatus === 'needs_correction' ||
-    params.status === 'blocked'
-  ) {
-    return 'warning';
-  }
-  if (params.status === 'in_review') return 'brand';
-  return 'muted';
 }
 
 function buildLastSyncLabel(value: string | null | undefined): string {
@@ -162,16 +101,9 @@ export default function PlatformDashboardPage() {
   const isLoading = orgLoading || loading;
 
   const counts = useMemo(() => {
-    const decisions = operationalModel?.decisions ?? [];
     const actions = operationalModel?.actions ?? [];
 
     return {
-      decisionsNeedingReview: decisions.filter((item) =>
-        item.status === 'open' ||
-        item.status === 'in_review' ||
-        item.review_status === 'in_review' ||
-        item.review_status === 'needs_correction',
-      ).length,
       assignedActions: userId
         ? actions.filter((item) => item.assigned_to === userId).length
         : actions.filter((item) => item.assigned_to != null).length,
@@ -187,12 +119,6 @@ export default function PlatformDashboardPage() {
   }, [operationalModel, userId]);
 
   const statusStripMetrics = useMemo<StatusStripMetric[]>(() => [
-    {
-      label: 'Decisions Needing Review',
-      value: isLoading ? '...' : counts.decisionsNeedingReview,
-      tone: !isLoading && counts.decisionsNeedingReview > 0 ? 'warning' : 'muted',
-      emphasize: !isLoading && counts.decisionsNeedingReview > 0,
-    },
     {
       label: 'Actions Assigned',
       value: isLoading ? '...' : counts.assignedActions,
@@ -212,186 +138,18 @@ export default function PlatformDashboardPage() {
       emphasize: !isLoading && counts.blocked > 0,
     },
     {
+      label: 'Low Trust',
+      value: isLoading ? '...' : counts.lowTrust,
+      tone: !isLoading && counts.lowTrust > 0 ? 'warning' : 'muted',
+      emphasize: !isLoading && counts.lowTrust > 0,
+    },
+    {
       label: 'Recent Docs',
       value: isLoading ? '...' : counts.recentDocuments ?? 0,
       tone: !isLoading && (counts.recentDocuments ?? 0) > 0 ? 'info' : 'muted',
       emphasize: !isLoading && (counts.recentDocuments ?? 0) > 0,
     },
   ], [counts, isLoading]);
-
-  const projectItems = useMemo<ProjectPanelItem[]>(() =>
-    (operationalModel?.project_rollups ?? []).slice(0, 4).map((item) => ({
-      id: item.project.id,
-      label: item.project.name,
-      code: item.project.code,
-      href: item.href,
-      statusLabel: item.rollup.status.label,
-      stateTone: statusTone(item.rollup.status.key),
-      primaryCount: item.rollup.unresolved_finding_count,
-      primaryLabel: 'decisions',
-      secondaryCount: item.rollup.blocked_count,
-      secondaryLabel: 'blocked',
-    })),
-  [operationalModel?.project_rollups]);
-
-  const decisionItems = useMemo<DecisionQueueItem[]>(() =>
-    (operationalModel?.decisions ?? []).slice(0, 4).map((item) => ({
-      id: item.id,
-      href: item.deep_link_target,
-      statusLabel: item.blocked ? 'Blocked' : humanize(item.status),
-      statusTone: decisionTone({
-        blocked: item.blocked,
-        severity: item.severity,
-        reviewStatus: item.review_status,
-        status: item.status,
-      }),
-      lifecycleLabel:
-        item.review_status !== 'not_reviewed'
-          ? humanize(item.review_status)
-          : item.due_at
-            ? formatDueDate(item.due_at)
-            : humanize(item.kind),
-      title: item.title,
-      reference: null,
-      reason: item.summary,
-      projectLabel: item.project_label ?? item.project_code ?? 'Project context pending',
-      projectTone: item.blocked ? 'danger' : 'muted',
-      primaryActionLabel: item.action_mode === 'document_review' ? 'Open Document' : 'Open Queue Item',
-      secondaryActionLabel: null,
-      expectedOutcome: item.evidence_summary,
-      missingAction: item.missing_action,
-      vagueAction: item.vague_action,
-    })),
-  [operationalModel?.decisions]);
-
-  const actionItems = useMemo<ActionListItem[]>(() => {
-    const actions = operationalModel?.actions ?? [];
-    const prioritized = userId
-      ? [
-          ...actions.filter((item) => item.assigned_to === userId),
-          ...actions.filter(
-            (item) =>
-              item.assigned_to !== userId &&
-              (item.is_urgent_unassigned || item.blocked),
-          ),
-        ]
-      : actions;
-
-    const seen = new Set<string>();
-    return prioritized
-      .filter((item) => {
-        if (seen.has(item.id)) return false;
-        seen.add(item.id);
-        return true;
-      })
-      .slice(0, 4)
-      .map((item) => ({
-        id: item.id,
-        href: item.deep_link_target,
-        title: item.title,
-        projectLabel: item.project_label ?? item.project_code ?? 'Project context pending',
-        projectTone: item.blocked ? 'danger' : 'muted',
-        dueLabel: item.due_at ? formatDueDate(item.due_at) : null,
-        overdue: item.is_overdue,
-        priorityLabel: humanize(item.priority),
-        priorityTone: statusTone(item.priority),
-        assignmentLabel:
-          item.assigned_to_name ??
-          item.assigned_to ??
-          item.suggested_owner ??
-          'Unassigned',
-        isUnassigned: item.assigned_to == null && item.assigned_to_name == null,
-        isVague: item.is_vague,
-        relatedLabel: item.source_document_title ?? item.source_document_type ?? null,
-      }));
-  }, [operationalModel?.actions, userId]);
-
-  const criticalDecisionCount = useMemo(
-    () =>
-      (operationalModel?.decisions ?? []).filter(
-        (item) => item.blocked || item.severity === 'critical',
-      ).length,
-    [operationalModel?.decisions],
-  );
-
-  const integritySummary = useMemo<IntegrityAuditSummary>(() => {
-    const decisions = operationalModel?.decisions ?? [];
-    const actions = operationalModel?.actions ?? [];
-    const decisionsWithAction = decisions.filter((item) => !item.missing_action).length;
-    const queueWithProjectContext =
-      decisions.filter((item) => item.project_label || item.project_code).length +
-      actions.filter((item) => item.project_label || item.project_code).length;
-    const totalQueueRecords = decisions.length + actions.length;
-    const specificActionCopy = actions.filter((item) => !item.is_vague).length;
-
-    const findings = [];
-    if (decisions.some((item) => item.missing_action)) {
-      const count = decisions.filter((item) => item.missing_action).length;
-      findings.push({
-        id: 'missing-action',
-        label: 'Missing decision actions',
-        detail: `${count} open decision${count === 1 ? '' : 's'} still need a concrete next step.`,
-        tone: 'danger' as const,
-      });
-    }
-    if (decisions.some((item) => item.vague_action)) {
-      const count = decisions.filter((item) => item.vague_action).length;
-      findings.push({
-        id: 'vague-decision',
-        label: 'Decision copy needs tightening',
-        detail: `${count} decision${count === 1 ? '' : 's'} still need clearer operator wording.`,
-        tone: 'warning' as const,
-      });
-    }
-    if (actions.some((item) => item.is_vague)) {
-      const count = actions.filter((item) => item.is_vague).length;
-      findings.push({
-        id: 'vague-action',
-        label: 'Action copy needs tightening',
-        detail: `${count} action${count === 1 ? '' : 's'} still read like placeholders.`,
-        tone: 'warning' as const,
-      });
-    }
-    if (counts.hiddenRows > 0) {
-      findings.push({
-        id: 'hidden-rows',
-        label: 'Hidden stale rows',
-        detail: `${counts.hiddenRows} superseded generated row${counts.hiddenRows === 1 ? '' : 's'} are being filtered from the active workspace.`,
-        tone: 'brand' as const,
-      });
-    }
-
-    return {
-      highlights: [
-        {
-          id: 'concrete-next-steps',
-          label: 'Concrete Next Steps',
-          value: `${decisionsWithAction}/${decisions.length}`,
-          tone: decisions.length > 0 && decisionsWithAction !== decisions.length ? 'warning' : 'success',
-        },
-        {
-          id: 'project-context',
-          label: 'Project Context',
-          value: `${queueWithProjectContext}/${totalQueueRecords}`,
-          tone: totalQueueRecords > 0 && queueWithProjectContext !== totalQueueRecords ? 'warning' : 'success',
-        },
-        {
-          id: 'specific-task-copy',
-          label: 'Specific Task Copy',
-          value: `${specificActionCopy}/${actions.length}`,
-          tone: actions.length > 0 && specificActionCopy !== actions.length ? 'warning' : 'success',
-        },
-        {
-          id: 'hidden-stale-rows',
-          label: 'Hidden State Rows',
-          value: String(counts.hiddenRows),
-          tone: counts.hiddenRows > 0 ? 'brand' : 'success',
-        },
-      ],
-      findings,
-      note: 'Shared operational resolver state is feeding the queue, actions, intelligence, and project rollups together.',
-    };
-  }, [counts.hiddenRows, operationalModel]);
 
   const intelligenceInsight = useMemo<IntelligenceInsight>(() => {
     if (isLoading) {
@@ -406,11 +164,11 @@ export default function PlatformDashboardPage() {
 
     if (counts.highRisk > 0) {
       return {
-        title: 'High-risk decisions need attention',
-        body: `${counts.highRisk} high-risk decision${counts.highRisk === 1 ? '' : 's'} are currently open in the shared queue and should be reviewed first.`,
+        title: 'High-risk work needs attention',
+        body: `${counts.highRisk} high-risk item${counts.highRisk === 1 ? '' : 's'} are currently open across the portfolio and should be reviewed first.`,
         tone: 'danger',
         href: '/platform/decisions?severity=high',
-        ctaLabel: 'Review decision queue',
+        ctaLabel: 'Open Decision Queue',
       };
     }
 
@@ -435,8 +193,8 @@ export default function PlatformDashboardPage() {
     }
 
     return {
-      title: 'Decision coverage is currently stable',
-      body: 'Current queue records are carrying explicit next steps and visible project context. The command center can stay focused on prioritization rather than cleanup.',
+      title: 'Portfolio signals are currently stable',
+      body: 'Current rollups and operational diagnostics look healthy, so the command center can stay focused on prioritization and routing.',
       tone: 'success',
       href: '/platform/reviews',
       ctaLabel: 'Review intelligence',
@@ -451,8 +209,12 @@ export default function PlatformDashboardPage() {
   const isEmpty =
     !isLoading &&
     (operationalModel?.recent_documents_count ?? 0) === 0 &&
-    (operationalModel?.decisions.length ?? 0) === 0 &&
-    (operationalModel?.actions.length ?? 0) === 0;
+    (operationalModel?.project_rollups.length ?? 0) === 0 &&
+    (operationalModel?.actions.length ?? 0) === 0 &&
+    counts.highRisk === 0 &&
+    counts.blocked === 0 &&
+    counts.lowTrust === 0 &&
+    counts.feedbackExceptions === 0;
 
   return (
     <div className="space-y-6 pb-24">
@@ -494,7 +256,7 @@ export default function PlatformDashboardPage() {
           <div>
             <p className="text-[12px] font-semibold text-[#E5EDF7]">Get started</p>
             <p className="mt-1 text-[11px] text-[#94A3B8]">
-              Upload a document to begin generating decisions, actions, and shared operational rollups.
+              Upload a document to begin generating project rollups, actions, and shared operational context.
             </p>
           </div>
           <Link
@@ -592,7 +354,7 @@ export default function PlatformDashboardPage() {
                       })}
                       className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
                     >
-                      {item.rollup.needs_review_document_count} docs
+                      {item.rollup.linked_document_count ?? item.rollup.processed_document_count} docs
                     </Link>
                     <Link
                       href={buildProjectTabHref({
@@ -667,20 +429,7 @@ export default function PlatformDashboardPage() {
         </section>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr,0.9fr] xl:items-start">
-        <div className="space-y-3">
-          <QueueTrustStrip summary={integritySummary} />
-          <DecisionQueue
-            items={decisionItems}
-            criticalCount={criticalDecisionCount}
-            loading={isLoading}
-          />
-        </div>
-
-        <div className="space-y-6">
-          <IntelligenceInsightCard insight={intelligenceInsight} />
-        </div>
-      </section>
+      <IntelligenceInsightCard insight={intelligenceInsight} />
 
       {organization && (
         <PortfolioTeaserCard organizationId={organization.id} />

@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { buildValidatorFindingAction } from '@/lib/validator/queueFindingActions';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
+import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type ProjectContextRow = {
@@ -75,9 +76,17 @@ function formatProjectLabel(project: ProjectContextRow): string {
 }
 
 function resolvePriority(finding: ValidationFinding): string {
-  if (finding.severity === 'critical') return 'critical';
-  if (finding.severity === 'warning') return 'high';
-  return 'medium';
+  const normalized = normalizeValidationFinding(finding);
+  switch (normalized.business_severity) {
+    case 'critical':
+      return 'critical';
+    case 'high':
+      return 'high';
+    case 'medium':
+    case 'low':
+    default:
+      return 'medium';
+  }
 }
 
 function buildTaskDescription(
@@ -127,6 +136,7 @@ export async function createFindingAction(
   const documentId = loadPrimaryDocumentId(evidence);
   const now = new Date().toISOString();
   const description = buildTaskDescription(project, finding, routing.routing_reason);
+  const normalized = normalizeValidationFinding(finding);
 
   const { data, error } = await admin
     .from('workflow_tasks')
@@ -147,6 +157,8 @@ export async function createFindingAction(
         rule_id: finding.rule_id,
         category: finding.category,
         severity: finding.severity,
+        business_severity: normalized.business_severity,
+        approval_gate_effect: normalized.approval_gate_effect,
         subject_type: finding.subject_type,
         subject_id: finding.subject_id,
         routing_reason: routing.routing_reason,
@@ -159,6 +171,10 @@ export async function createFindingAction(
         variance: finding.variance,
         variance_unit: finding.variance_unit,
         blocked_reason: finding.blocked_reason,
+        problem: normalized.problem,
+        impact: normalized.impact,
+        required_action: normalized.required_action,
+        affected_amount: normalized.affected_amount,
       },
       created_at: now,
       updated_at: now,

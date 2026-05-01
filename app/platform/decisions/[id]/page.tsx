@@ -84,6 +84,13 @@ function isNotFoundError(error: { code?: string; details?: string } | null): boo
   return typeof error.details === 'string' && error.details.includes('0 rows');
 }
 
+function stringArrayValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  );
+}
+
 export default function DecisionDetailPage({
   params,
 }: {
@@ -98,6 +105,7 @@ export default function DecisionDetailPage({
   const [decision, setDecision] = useState<DecisionDetail | null>(null);
   const [projectValidation, setProjectValidation] = useState<DecisionProjectValidationRow>(null);
   const [queueFindingAction, setQueueFindingAction] = useState<DecisionQueueFindingActionContext | null>(null);
+  const [validatorEvidence, setValidatorEvidence] = useState<ValidationEvidence[]>([]);
   const [relatedTasks, setRelatedTasks] = useState<DecisionDetailTask[]>([]);
   const [executionStatus, setExecutionStatus] = useState<DecisionWorkflowExecutionStatus | null>(null);
   const [feedback, setFeedback] = useState<DecisionDetailFeedback[]>([]);
@@ -158,6 +166,7 @@ export default function DecisionDetailPage({
       setDecision(null);
       setProjectValidation(null);
       setQueueFindingAction(null);
+      setValidatorEvidence([]);
       setRelatedTasks([]);
       setExecutionStatus(null);
       setFeedback([]);
@@ -197,10 +206,17 @@ export default function DecisionDetailPage({
         decisionData.details && typeof decisionData.details === 'object' && !Array.isArray(decisionData.details)
           ? decisionData.details as Record<string, unknown>
           : null;
-      const validatorFindingId =
+      const validatorFindingIds = stringArrayValue(decisionDetails?.validator_finding_ids);
+      const fallbackValidatorFindingId =
         typeof decisionDetails?.validator_finding_id === 'string'
           ? decisionDetails.validator_finding_id
           : null;
+      const linkedValidatorFindingIds =
+        validatorFindingIds.length > 0
+          ? validatorFindingIds
+          : fallbackValidatorFindingId
+            ? [fallbackValidatorFindingId]
+            : [];
 
       if (decisionProjectId) {
         const { data: projectData } = await supabase
@@ -213,26 +229,33 @@ export default function DecisionDetailPage({
         setProjectValidation((projectData ?? null) as DecisionProjectValidationRow);
       }
 
-      if (validatorFindingId) {
+      if (linkedValidatorFindingIds.length > 0) {
         const [findingResult, evidenceResult] = await Promise.all([
           supabase
             .from('project_validation_findings')
             .select('*')
-            .eq('id', validatorFindingId)
-            .maybeSingle(),
+            .in('id', linkedValidatorFindingIds),
           supabase
             .from('project_validation_evidence')
             .select('id, finding_id, evidence_type, source_document_id, source_page, fact_id, record_id, field_name, field_value, note, created_at')
-            .eq('finding_id', validatorFindingId),
+            .in('finding_id', linkedValidatorFindingIds),
         ]);
 
-        const finding = (findingResult.data ?? null) as ValidationFinding | null;
+        const findings = (findingResult.data ?? []) as ValidationFinding[];
         const evidence = (evidenceResult.data ?? []) as ValidationEvidence[];
+        setValidatorEvidence(evidence);
 
-        if (finding) {
+        const primaryFinding = findings.find(
+          (finding) => finding.id === linkedValidatorFindingIds[0],
+        ) ?? findings[0] ?? null;
+        const primaryEvidence = primaryFinding
+          ? evidence.filter((item) => item.finding_id === primaryFinding.id)
+          : [];
+
+        if (primaryFinding) {
           const action = buildValidatorFindingAction({
-            finding,
-            evidence,
+            finding: primaryFinding,
+            evidence: primaryEvidence,
           });
 
           setQueueFindingAction(
@@ -516,6 +539,9 @@ export default function DecisionDetailPage({
     severity: decision.severity,
     source: decision.source,
     documentLabel: documentRef ? documentLabel : null,
+    projectId: decision.project_id,
+    decisionId: decision.id,
+    validatorEvidence,
   });
 
   const summary = resolveDecisionExecutiveSummary({

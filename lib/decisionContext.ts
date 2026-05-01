@@ -3,6 +3,8 @@ import {
   buildDocumentsDocumentHref,
   buildProjectDocumentHref,
 } from '@/lib/documentNavigation';
+import { PROJECT_TERM_AT_RISK_AMOUNT } from '@/lib/projectTerminology';
+import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
 import {
   approvalGateImpact,
   operatorApprovalLabel,
@@ -193,100 +195,30 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function parseExposureInvoices(
-  exposure: Record<string, unknown> | null,
-): ProjectValidationSnapshot['exposureInvoices'] {
-  if (!Array.isArray(exposure?.invoices)) return [];
-
-  return exposure.invoices.flatMap((entry) => {
-    if (!isRecord(entry)) return [];
-
-    return [{
-      invoiceNumber:
-        stringValue(entry.invoice_number)
-        ?? stringValue(entry.invoiceNumber)
-        ?? null,
-      billedAmount:
-        numericValue(entry.billed_amount)
-        ?? numericValue(entry.billedAmount)
-        ?? null,
-      atRiskAmount:
-        numericValue(entry.unreconciled_amount)
-        ?? numericValue(entry.unreconciledAmount)
-        ?? null,
-      requiresVerificationAmount:
-        numericValue(entry.requires_verification_amount)
-        ?? numericValue(entry.requiresVerificationAmount)
-        ?? numericValue(entry.at_risk_amount)
-        ?? numericValue(entry.atRiskAmount)
-        ?? null,
-    }];
-  });
-}
-
 function parseProjectValidationSnapshot(
   projectValidation: DecisionProjectValidationContext,
 ): ProjectValidationSnapshot {
-  const summary = isRecord(projectValidation?.validationSummary)
-    ? projectValidation.validationSummary
-    : null;
-  const exposure = isRecord(summary?.exposure) ? summary.exposure : null;
-  const contractContext = isRecord(summary?.contractValidationContext)
-    ? summary.contractValidationContext
-    : isRecord(summary?.contract_validation_context)
-      ? summary.contract_validation_context
-      : null;
-  const exposureInvoices = parseExposureInvoices(exposure);
+  const snapshot = resolveCanonicalProjectValidationSnapshot({
+    validationStatus: projectValidation?.validationStatus ?? null,
+    validationSummary: projectValidation?.validationSummary,
+  });
+  const facts = snapshot.facts;
+  const exposureInvoices = snapshot.invoice_summaries.map((invoice) => ({
+    invoiceNumber: invoice.invoice_number ?? null,
+    billedAmount: invoice.billed_amount ?? null,
+    atRiskAmount: invoice.at_risk_amount,
+    requiresVerificationAmount: invoice.requires_verification_amount,
+  }));
 
   return {
-    approvalGateRaw:
-      stringValue(projectValidation?.validationStatus)
-      ?? stringValue(summary?.status)
-      ?? null,
-    validatorStateRaw:
-      stringValue(summary?.validator_status)
-      ?? stringValue(summary?.validator_readiness)
-      ?? null,
-    contractCeiling:
-      numericValue(summary?.nte_amount)
-      ?? numericValue(summary?.nteAmount)
-      ?? null,
-    billedToDateRollup:
-      numericValue(summary?.total_billed)
-      ?? numericValue(summary?.totalBilled)
-      ?? null,
-    aggregateBilledAmount:
-      exposure
-        ? numericValue(exposure.total_billed_amount)
-          ?? numericValue(exposure.totalBilledAmount)
-          ?? null
-        : null,
-    atRiskAmount:
-      numericValue(summary?.total_unreconciled_amount)
-      ?? numericValue(summary?.totalUnreconciledAmount)
-      ?? (exposure
-        ? numericValue(exposure.total_unreconciled_amount)
-          ?? numericValue(exposure.totalUnreconciledAmount)
-          ?? null
-        : null)
-      ?? null,
-    requiresVerificationAmount:
-      numericValue(summary?.requires_verification_amount)
-      ?? numericValue(summary?.requiresVerificationAmount)
-      ?? (exposure
-        ? numericValue(exposure.total_requires_verification_amount)
-          ?? numericValue(exposure.totalRequiresVerificationAmount)
-          ?? numericValue(exposure.total_at_risk_amount)
-          ?? numericValue(exposure.totalAtRiskAmount)
-          ?? null
-        : null)
-      ?? null,
-    contractDocumentId:
-      stringValue(summary?.contract_document_id)
-      ?? stringValue(summary?.contractDocumentId)
-      ?? stringValue(contractContext?.document_id)
-      ?? stringValue(contractContext?.documentId)
-      ?? null,
+    approvalGateRaw: facts.status,
+    validatorStateRaw: facts.validator_status,
+    contractCeiling: facts.nte_amount,
+    billedToDateRollup: facts.total_billed,
+    aggregateBilledAmount: facts.exposure_total_billed,
+    atRiskAmount: facts.total_at_risk,
+    requiresVerificationAmount: facts.requires_verification_amount,
+    contractDocumentId: facts.contract_document_id,
     exposureInvoices,
   };
 }
@@ -405,7 +337,7 @@ function validatorSourceHref(projectId: string | null): string | null {
 }
 
 function queueSourceHref(projectId: string | null): string {
-  return projectId ? `/platform/workspace/projects/${projectId}` : '/platform/workspace';
+  return projectId ? `/platform/projects/${projectId}#project-validator` : '/platform/projects';
 }
 
 function approvalLabelFromRaw(raw: string | null): OperatorApprovalLabel {
@@ -1007,7 +939,7 @@ export function buildDecisionContextRows(params: {
           : 'Will complete validation',
     },
     {
-      label: 'Requires verification amount',
+      label: 'Requires Verification Amount',
       value:
         requiresVerificationAmount != null
           ? formatCurrency(requiresVerificationAmount)
@@ -1040,7 +972,7 @@ export function buildDecisionContextRows(params: {
             : 'Will allow invoice processing',
     },
     {
-      label: 'At risk amount',
+      label: PROJECT_TERM_AT_RISK_AMOUNT,
       value:
         atRiskAmount != null
           ? formatCurrency(atRiskAmount)
@@ -1299,7 +1231,7 @@ export function buildDecisionCausalChain(params: {
   const workflowHref = selectedWorkflowTask
     ? selectedWorkflowTask.decision_id
       ? `/platform/decisions/${selectedWorkflowTask.decision_id}`
-      : '/platform/decisions'
+      : `/platform/decisions/${decisionId}`
     : '#decision-workflow';
 
   const workflowStep = workflowStepDescriptor({

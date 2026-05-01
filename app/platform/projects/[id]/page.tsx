@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { use, useMemo } from 'react';
-import { ValidatorTab } from '@/app/platform/workspace/projects/[id]/ValidatorTab';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
+import { ValidatorTab } from '@/components/projects/ValidatorTab';
 import { buildProjectOverviewModel } from '@/lib/projectOverview';
 import { useProjectWorkspaceData } from '@/lib/useProjectWorkspaceData';
 
@@ -25,6 +25,7 @@ export default function ProjectDetailPage({
       tasks: data.tasks,
       activityEvents: data.activityEvents,
       members: data.members,
+      validationFindings: data.validationFindings,
     });
   }, [
     data.activityEvents,
@@ -34,6 +35,7 @@ export default function ProjectDetailPage({
     data.members,
     data.project,
     data.tasks,
+    data.validationFindings,
   ]);
 
   if (data.loading || data.orgLoading) {
@@ -77,11 +79,21 @@ export default function ProjectDetailPage({
     <ProjectOverview
       model={model}
       documents={data.documents}
+      documentRelationships={data.documentRelationships}
+      transactionDatasets={data.transactionDatasets}
+      validationFindings={data.validationFindings}
       decisions={data.decisions}
       tasks={data.tasks}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}
-      validatorTab={<ValidatorTab projectId={id} />}
+      validatorTab={
+        <ValidatorTab
+          projectId={id}
+          documents={data.documents}
+          transactionDatasets={data.transactionDatasets}
+          onProjectRefresh={data.refetch}
+        />
+      }
     />
   );
 }

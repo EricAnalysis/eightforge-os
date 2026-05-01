@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { withStageTimeout } from '@/lib/server/stageTimeout';
+
+const TRANSACTION_DATA_DELETE_TIMEOUT_MS = 60_000;
+const TRANSACTION_DATA_DATASET_INSERT_TIMEOUT_MS = 60_000;
+const TRANSACTION_DATA_ROW_BATCH_TIMEOUT_MS = 60_000;
+const TRANSACTION_DATA_ROW_INSERT_BATCH_SIZE = 150;
 
 type TableError = {
   code?: string | null;
@@ -62,6 +68,11 @@ export type ProjectTransactionData = {
   datasets: PersistedTransactionDataDataset[];
   rows: PersistedTransactionDataRow[];
 };
+
+const TRANSACTION_DATASET_SELECT =
+  'id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, date_range_start, date_range_end, summary_json, created_at';
+const TRANSACTION_DATA_ROW_SELECT =
+  'id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -126,22 +137,33 @@ function firstDate(...values: unknown[]): string | null {
   return null;
 }
 
-function isTransactionDataTableUnavailableError(error: TableError): boolean {
+export function isTransactionDataTableUnavailableError(error: TableError): boolean {
   if (!error) return false;
 
   const code = error.code ?? '';
   const message = (error.message ?? '').toLowerCase();
 
-  if (code === '42P01' || code === 'PGRST205' || code === '42703' || code === 'PGRST204') {
+  if (code === '42P01' || code === 'PGRST205') {
     return true;
   }
 
   return (
-    message.includes('transaction_data_datasets') ||
-    message.includes('transaction_data_rows') ||
     message.includes('could not find the table') ||
-    message.includes('schema cache') ||
-    message.includes('does not exist')
+    /(?:relation|table)\s+"?(?:public\.)?(transaction_data_datasets|transaction_data_rows)"?\s+does not exist/.test(message)
+  );
+}
+
+function isMissingColumnError(error: TableError, columnName: string): boolean {
+  if (!error) return false;
+
+  const message = (error.message ?? '').toLowerCase();
+  const normalizedColumn = columnName.toLowerCase();
+
+  return (
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    message.includes(`'${normalizedColumn}'`) ||
+    message.includes(normalizedColumn)
   );
 }
 
@@ -203,9 +225,10 @@ function mapDatasetInsert(
 function mapRowInsert(
   documentId: string,
   projectId: string,
+  organizationId: string | null | undefined,
   record: Record<string, unknown>,
 ): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     document_id: documentId,
     project_id: projectId,
     invoice_number: asString(record.invoice_number),
@@ -223,16 +246,26 @@ function mapRowInsert(
     record_json: record,
     raw_row_json: asRecord(record.raw_row) ?? {},
   };
+
+  if (organizationId) {
+    row.organization_id = organizationId;
+  }
+
+  return row;
 }
 
 async function deleteExistingTransactionData(
   admin: SupabaseClient,
   documentId: string,
 ): Promise<{ skipped: boolean }> {
-  const { error: rowsDeleteError } = await admin
-    .from('transaction_data_rows')
-    .delete()
-    .eq('document_id', documentId);
+  const { error: rowsDeleteError } = await withStageTimeout(
+    admin
+      .from('transaction_data_rows')
+      .delete()
+      .eq('document_id', documentId),
+    'transaction_data_rows delete',
+    TRANSACTION_DATA_DELETE_TIMEOUT_MS,
+  );
 
   if (isTransactionDataTableUnavailableError(rowsDeleteError)) {
     return { skipped: true };
@@ -241,10 +274,14 @@ async function deleteExistingTransactionData(
     throw new Error(`Failed to delete transaction_data_rows for ${documentId}: ${rowsDeleteError.message}`);
   }
 
-  const { error: datasetsDeleteError } = await admin
-    .from('transaction_data_datasets')
-    .delete()
-    .eq('document_id', documentId);
+  const { error: datasetsDeleteError } = await withStageTimeout(
+    admin
+      .from('transaction_data_datasets')
+      .delete()
+      .eq('document_id', documentId),
+    'transaction_data_datasets delete',
+    TRANSACTION_DATA_DELETE_TIMEOUT_MS,
+  );
 
   if (isTransactionDataTableUnavailableError(datasetsDeleteError)) {
     return { skipped: true };
@@ -260,16 +297,43 @@ async function cleanupOnInsertFailure(
   admin: SupabaseClient,
   documentId: string,
 ): Promise<void> {
-  await admin.from('transaction_data_rows').delete().eq('document_id', documentId);
-  await admin.from('transaction_data_datasets').delete().eq('document_id', documentId);
+  try {
+    await withStageTimeout(
+      admin.from('transaction_data_rows').delete().eq('document_id', documentId),
+      'transaction_data_rows cleanup',
+      TRANSACTION_DATA_DELETE_TIMEOUT_MS,
+    );
+  } catch (err) {
+    console.error('[documents/process][spreadsheet] transaction_data_rows cleanup failed', {
+      documentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
+    await withStageTimeout(
+      admin.from('transaction_data_datasets').delete().eq('document_id', documentId),
+      'transaction_data_datasets cleanup',
+      TRANSACTION_DATA_DELETE_TIMEOUT_MS,
+    );
+  } catch (err) {
+    console.error('[documents/process][spreadsheet] transaction_data_datasets cleanup failed', {
+      documentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function persistTransactionDataForDocument(params: {
   admin?: SupabaseClient | null;
   documentId: string;
   projectId?: string | null;
+  organizationId?: string | null;
   extracted: Record<string, unknown> | null | undefined;
 }): Promise<PersistTransactionDataResult> {
+  console.log('[documents/process][spreadsheet] transaction_data persistence start', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+  });
   const admin = params.admin ?? getSupabaseAdmin();
   if (!admin) {
     return { persisted: false, skipped: true, reason: 'missing_admin', rowCount: 0 };
@@ -289,9 +353,18 @@ export async function persistTransactionDataForDocument(params: {
     return { persisted: false, skipped: true, reason: 'missing_table', rowCount: 0 };
   }
 
-  const { error: datasetInsertError } = await admin
-    .from('transaction_data_datasets')
-    .insert(mapDatasetInsert(params.documentId, params.projectId, persistable));
+  console.log('[documents/process][spreadsheet] transaction_data_datasets persistence start', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+    rowCount: persistable.rowCount,
+  });
+  const { error: datasetInsertError } = await withStageTimeout(
+    admin
+      .from('transaction_data_datasets')
+      .insert(mapDatasetInsert(params.documentId, params.projectId, persistable)),
+    'transaction_data_datasets insert',
+    TRANSACTION_DATA_DATASET_INSERT_TIMEOUT_MS,
+  );
 
   if (isTransactionDataTableUnavailableError(datasetInsertError)) {
     return { persisted: false, skipped: true, reason: 'missing_table', rowCount: 0 };
@@ -299,17 +372,42 @@ export async function persistTransactionDataForDocument(params: {
   if (datasetInsertError) {
     throw new Error(`Failed to insert transaction_data_datasets for ${params.documentId}: ${datasetInsertError.message}`);
   }
+  console.log('[documents/process][spreadsheet] transaction_data_datasets persistence complete', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+  });
 
   const rowInserts = persistable.records.map((record) =>
-    mapRowInsert(params.documentId, params.projectId as string, record),
+    mapRowInsert(params.documentId, params.projectId as string, params.organizationId, record),
   );
+  const rowInsertBatches = chunk(rowInserts, TRANSACTION_DATA_ROW_INSERT_BATCH_SIZE);
 
+  console.log('[documents/process][spreadsheet] transaction_data_rows persistence start', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+    rowInsertCount: rowInserts.length,
+    batchSize: TRANSACTION_DATA_ROW_INSERT_BATCH_SIZE,
+    batchCount: rowInsertBatches.length,
+  });
   try {
-    for (const batch of chunk(rowInserts, 500)) {
+    let batchIndex = 0;
+    for (const batch of rowInsertBatches) {
       if (batch.length === 0) continue;
-      const { error } = await admin
-        .from('transaction_data_rows')
-        .insert(batch);
+      console.log('[documents/process][spreadsheet] transaction_data_rows batch insert start', {
+        documentId: params.documentId,
+        projectId: params.projectId ?? null,
+        batchIndex,
+        batchNumber: batchIndex + 1,
+        batchCount: rowInsertBatches.length,
+        batchSize: batch.length,
+      });
+      const { error } = await withStageTimeout(
+        admin
+          .from('transaction_data_rows')
+          .insert(batch),
+        `transaction_data_rows insert batch ${batchIndex}`,
+        TRANSACTION_DATA_ROW_BATCH_TIMEOUT_MS,
+      );
 
       if (isTransactionDataTableUnavailableError(error)) {
         await cleanupOnInsertFailure(admin, params.documentId);
@@ -318,11 +416,31 @@ export async function persistTransactionDataForDocument(params: {
       if (error) {
         throw new Error(`Failed to insert transaction_data_rows for ${params.documentId}: ${error.message}`);
       }
+      console.log('[documents/process][spreadsheet] transaction_data_rows batch insert complete', {
+        documentId: params.documentId,
+        projectId: params.projectId ?? null,
+        batchIndex,
+        batchNumber: batchIndex + 1,
+        batchCount: rowInsertBatches.length,
+        batchSize: batch.length,
+      });
+      batchIndex += 1;
     }
   } catch (error) {
     await cleanupOnInsertFailure(admin, params.documentId);
     throw error;
   }
+  console.log('[documents/process][spreadsheet] transaction_data_rows persistence complete', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+    rowInsertCount: rowInserts.length,
+  });
+
+  console.log('[documents/process][spreadsheet] transaction_data persistence complete', {
+    documentId: params.documentId,
+    projectId: params.projectId ?? null,
+    rowCount: rowInserts.length,
+  });
 
   return {
     persisted: true,
@@ -369,46 +487,132 @@ function mapPersistedRow(row: Record<string, unknown>): PersistedTransactionData
   };
 }
 
-export async function getTransactionDataForProject(
-  projectId: string,
-  adminParam?: SupabaseClient | null,
-): Promise<ProjectTransactionData> {
-  const admin = adminParam ?? getSupabaseAdmin();
+async function loadDatasetsByDocumentIds(
+  admin: SupabaseClient,
+  documentIds: readonly string[],
+): Promise<{ data: unknown; error: TableError }> {
+  if (documentIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  return admin
+    .from('transaction_data_datasets')
+    .select(TRANSACTION_DATASET_SELECT)
+    .in('document_id', [...documentIds])
+    .order('created_at', { ascending: false });
+}
+
+async function loadRowsByDocumentIds(
+  admin: SupabaseClient,
+  documentIds: readonly string[],
+): Promise<{ data: unknown; error: TableError }> {
+  if (documentIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  return admin
+    .from('transaction_data_rows')
+    .select(TRANSACTION_DATA_ROW_SELECT)
+    .in('document_id', [...documentIds])
+    .order('invoice_date', { ascending: true })
+    .order('source_sheet_name', { ascending: true })
+    .order('source_row_number', { ascending: true });
+}
+
+export async function getCanonicalTransactionDataForProject(params: {
+  projectId: string;
+  documentIds?: readonly string[];
+  admin?: SupabaseClient | null;
+}): Promise<ProjectTransactionData> {
+  const admin = params.admin ?? getSupabaseAdmin();
   if (!admin) {
     return { datasets: [], rows: [] };
   }
 
-  const [datasetsResult, rowsResult] = await Promise.all([
+  const documentIds = params.documentIds ?? [];
+
+  const [projectDatasetsResult, projectRowsResult] = await Promise.all([
     admin
       .from('transaction_data_datasets')
-      .select('id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, date_range_start, date_range_end, summary_json, created_at')
-      .eq('project_id', projectId)
+      .select(TRANSACTION_DATASET_SELECT)
+      .eq('project_id', params.projectId)
       .order('created_at', { ascending: false }),
     admin
       .from('transaction_data_rows')
-      .select('id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at')
-      .eq('project_id', projectId)
+      .select(TRANSACTION_DATA_ROW_SELECT)
+      .eq('project_id', params.projectId)
       .order('invoice_date', { ascending: true })
       .order('source_sheet_name', { ascending: true })
       .order('source_row_number', { ascending: true }),
   ]);
 
   if (
-    isTransactionDataTableUnavailableError(datasetsResult.error) ||
-    isTransactionDataTableUnavailableError(rowsResult.error)
+    isTransactionDataTableUnavailableError(projectDatasetsResult.error) ||
+    isTransactionDataTableUnavailableError(projectRowsResult.error)
   ) {
     return { datasets: [], rows: [] };
   }
 
+  const shouldFallbackDatasets =
+    documentIds.length > 0 &&
+    (
+      (
+        projectDatasetsResult.error != null &&
+        isMissingColumnError(projectDatasetsResult.error, 'project_id')
+      ) ||
+      (
+        projectDatasetsResult.error == null &&
+        asRecordArray(projectDatasetsResult.data).length === 0
+      )
+    );
+  const shouldFallbackRows =
+    documentIds.length > 0 &&
+    (
+      (
+        projectRowsResult.error != null &&
+        isMissingColumnError(projectRowsResult.error, 'project_id')
+      ) ||
+      (
+        projectRowsResult.error == null &&
+        asRecordArray(projectRowsResult.data).length === 0
+      )
+    );
+
+  const [datasetsResult, rowsResult] = await Promise.all([
+    shouldFallbackDatasets
+      ? loadDatasetsByDocumentIds(admin, documentIds)
+      : Promise.resolve(projectDatasetsResult),
+    shouldFallbackRows
+      ? loadRowsByDocumentIds(admin, documentIds)
+      : Promise.resolve(projectRowsResult),
+  ]);
+
+  if (datasetsResult.error && isTransactionDataTableUnavailableError(datasetsResult.error)) {
+    return { datasets: [], rows: [] };
+  }
+  if (rowsResult.error && isTransactionDataTableUnavailableError(rowsResult.error)) {
+    return { datasets: [], rows: [] };
+  }
+
   if (datasetsResult.error) {
-    throw new Error(`Failed to load transaction_data_datasets for ${projectId}: ${datasetsResult.error.message}`);
+    throw new Error(`Failed to load transaction_data_datasets for ${params.projectId}: ${datasetsResult.error.message}`);
   }
   if (rowsResult.error) {
-    throw new Error(`Failed to load transaction_data_rows for ${projectId}: ${rowsResult.error.message}`);
+    throw new Error(`Failed to load transaction_data_rows for ${params.projectId}: ${rowsResult.error.message}`);
   }
 
   return {
     datasets: asRecordArray(datasetsResult.data).map(mapPersistedDataset),
     rows: asRecordArray(rowsResult.data).map(mapPersistedRow),
   };
+}
+
+export async function getTransactionDataForProject(
+  projectId: string,
+  adminParam?: SupabaseClient | null,
+): Promise<ProjectTransactionData> {
+  return getCanonicalTransactionDataForProject({
+    projectId,
+    admin: adminParam,
+  });
 }

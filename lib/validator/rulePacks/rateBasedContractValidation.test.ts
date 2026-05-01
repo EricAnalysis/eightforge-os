@@ -265,11 +265,18 @@ function buildInput(params: {
 
   return {
     project,
+    validationPhase: 'contract_setup',
     documents: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,
     governingDocumentIds: familyDocumentIds,
+    truthCategoryDocumentIds: {
+      contract_identity: [CONTRACT_DOCUMENT_ID],
+      pricing: [CONTRACT_DOCUMENT_ID],
+      compliance: [],
+      amendments: [],
+    },
     ruleStateByRuleId: new Map(),
     factsByDocumentId: new Map(),
     allFacts: [],
@@ -286,7 +293,7 @@ function buildInput(params: {
 }
 
 describe('rate-based contract validator rules', () => {
-  it('keeps the Williamson baseline blocked on activation and pricing, not on a missing ceiling', () => {
+  it('keeps the Williamson baseline in review for activation and pricing, not blocked on a missing ceiling', () => {
     const input = buildInput({
       contractCeilingType: 'rate_based',
       rateSchedulePresent: true,
@@ -304,22 +311,30 @@ describe('rate-based contract validator rules', () => {
     const ruleIds = findings.map((finding) => finding.rule_id);
 
     assert.deepEqual(ruleIds, [
-      'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
       'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR',
+      'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
     ]);
     assert.equal(ruleIds.includes('FINANCIAL_NTE_FACT_MISSING'), false);
     assert.equal(
       findings.every((finding) => finding.evidence.some((evidence) => evidence.source_page != null)),
       true,
     );
+    assert.deepEqual(
+      findings.map((finding) => finding.severity),
+      ['warning', 'warning'],
+    );
 
     const summary = buildValidationSummary(findings, 'FINDINGS_OPEN');
-    assert.equal(summary.validator_status, 'BLOCKED');
+    assert.equal(summary.validator_status, 'NEEDS_REVIEW');
+    assert.equal(summary.blocker_count, 0);
+    assert.equal(summary.requires_review_count, 1);
+    assert.equal(summary.warning_count, 1);
+    assert.deepEqual(summary.validator_blockers, []);
     assert.deepEqual(
-      summary.validator_blockers.map((item) => item.message),
+      summary.validator_open_items.map((item) => item.message),
       [
-        'Activation trigger detected but status unresolved',
-        'Pricing schedule present but applicability is unresolved',
+        'The contract has pricing language, but the governing pricing basis for the billed work is still unresolved.',
+        'The contract includes activation language, but it is still unclear whether a separate authorization document is required for approval.',
       ],
     );
   });

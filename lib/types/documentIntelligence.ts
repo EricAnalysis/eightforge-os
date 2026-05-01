@@ -303,23 +303,39 @@ export interface ContractExtraction {
 
 export interface InvoiceExtraction {
   invoiceNumber?: string;
+  invoice_number?: string | null;
+  invoice_number_raw?: string | null;
+  invoice_number_normalized?: string | null;
   projectCode?: string;
   contractorName?: string;
+  vendor_name?: string | null;
   ownerName?: string;
   clientName?: string;
+  client_name?: string | null;
   invoiceStatus?: string;
+  invoice_status?: string | null;
   invoiceDate?: string;
+  invoice_date?: string | null;
   periodFrom?: string;
   periodTo?: string;
   periodThrough?: string;
+  period_start?: string | null;
+  period_end?: string | null;
+  period_through?: string | null;
+  service_period_start?: string | null;
+  service_period_end?: string | null;
   subtotalAmount?: number;
   totalAmount?: number;
   currentPaymentDue?: number;
+  subtotal_amount?: number | null;
+  total_amount?: number | null;
+  current_amount_due?: number | null;
   previousCertificatesPaid?: number;
   totalEarnedLessRetainage?: number;
   retainageAmount?: number;
   originalContractSum?: number;
   lineItemCount?: number;
+  line_item_count?: number | null;
   lineItemCodes?: string[];
   lineItems?: Array<{
     lineCode?: string;
@@ -330,6 +346,16 @@ export interface InvoiceExtraction {
     lineTotal?: number;
     billingRateKey?: string;
     descriptionMatchKey?: string;
+  }>;
+  line_items?: Array<{
+    line_code?: string | null;
+    line_description?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+    unit_price?: number | null;
+    line_total?: number | null;
+    billing_rate_key?: string | null;
+    description_match_key?: string | null;
   }>;
 }
 
@@ -373,6 +399,7 @@ export interface SpreadsheetSupportExtraction {
 export interface TransactionDataExtraction {
   sourceType?: 'transaction_data';
   rowCount?: number;
+  rowLimitReached?: boolean;
   sheetNames?: string[];
   headerMap?: Partial<Record<TransactionDataFieldKey, TransactionDataHeaderMatch[]>>;
   inferredProjectName?: string;
@@ -394,7 +421,6 @@ export interface TransactionDataExtraction {
     uninvoicedLineCount?: number;
     eligibleCount?: number;
     ineligibleCount?: number;
-    unknownEligibilityCount?: number;
     rowsWithMissingRateCode?: number;
     rowsWithMissingInvoiceNumber?: number;
     rowsWithMissingQuantity?: number;

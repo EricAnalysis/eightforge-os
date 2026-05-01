@@ -23,7 +23,13 @@ import {
   contractCeilingSummary,
   isRatePriceNoCeilingMachineClassification,
 } from '@/lib/contracts/contractCeiling';
+import type { ContractRateScheduleRow } from '@/lib/contracts/types';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
+import {
+  resolveCanonicalProjectFacts,
+  spreadsheetReviewReadinessStatusForProjectFacts,
+} from '@/lib/projectFacts';
+import { normalizeCanonicalInvoiceNumber } from '@/lib/invoices/invoiceParser';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -37,12 +43,23 @@ import type {
   TransactionDataExtraction,
 } from '@/lib/types/documentIntelligence';
 import type {
+  TransactionDataDisposalSiteGroup,
+  TransactionDataDmsFdsLifecycleSummary,
+  TransactionDataInvoiceGroup,
+  TransactionDataInvoiceReadinessSummary,
+  TransactionDataMaterialGroup,
+  TransactionDataOutlierRow,
   TransactionDataProjectOperationsOverview,
+  TransactionDataRateCodeGroup,
   TransactionDataRecord,
+  TransactionDataServiceItemGroup,
+  TransactionDataSiteMaterialGroup,
+  TransactionDataSiteTypeGroup,
 } from '@/lib/types/transactionData';
+import type { ValidationFinding } from '@/types/validator';
 import {
-  buildSpreadsheetFactWorkspaceDatasetSummary,
-  type SpreadsheetFactWorkspaceDatasetSummary,
+  normalizeSpreadsheetEligibility,
+  ticketTypeBucketFromRawRow,
 } from '@/lib/spreadsheetDocumentReview';
 
 export type DocumentFactState =
@@ -127,6 +144,17 @@ export type DocumentFactReviewSummary = {
   notes: string | null;
 };
 
+export type DocumentFactReviewHistoryItem = {
+  id: string;
+  fieldKey: string;
+  reviewStatus: DocumentFactReviewStatus;
+  reviewedValueJson: unknown;
+  reviewedValueDisplay: string | null;
+  reviewedBy: string;
+  reviewedAt: string;
+  notes: string | null;
+};
+
 export type DocumentFact = {
   id: string;
   documentId: string;
@@ -166,6 +194,7 @@ export type DocumentFact = {
   reviewedBy: string | null;
   reviewedAt: string | null;
   reviewNotes: string | null;
+  reviewHistory: DocumentFactReviewHistoryItem[];
   humanDefinedSchedule: boolean;
   overrideHistory: DocumentFactOverrideHistoryItem[];
   /** Pipeline normalizeNode resolution path (undefined for adapter-only facts). */
@@ -208,6 +237,119 @@ export type DiagnosticsDrawerModel = {
     description?: string;
     content: string;
   }>;
+};
+
+export type SpreadsheetReviewKpis = {
+  totalTickets: number;
+  totalCyd: number | null;
+  totalNetTonnage: number | null;
+  invoicedTickets: number;
+  totalInvoices: number;
+  totalInvoicedAmount: number;
+  uninvoicedLines: number;
+  eligible: number;
+  ineligible: number;
+};
+
+export type SpreadsheetReviewVolumeBasis = {
+  metric: 'cyd' | 'net_tonnage' | null;
+  unitLabel: 'CYD' | 'Tons' | null;
+  headerLabel: string;
+};
+
+export type SpreadsheetReviewRateCodeRow = {
+  rateCode: string | null;
+  description: string | null;
+  ticketCount: number;
+  amount: number | null;
+};
+
+export type SpreadsheetReviewFlowRow = {
+  label: string;
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+  volume: number | null;
+  percentOfTotalVolume: number | null;
+  amount: number | null;
+  percentOfTotalCost: number | null;
+};
+
+export type SpreadsheetReviewServiceItemRow = {
+  serviceItem: string;
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+  diameterUnits: number | null;
+  amount: number | null;
+  percentOfTotalServiceCost: number | null;
+};
+
+export type SpreadsheetReviewRiskSummary = {
+  highRiskIssues: number;
+  mediumRiskIssues: number;
+  lowRiskIssues: number;
+  ticketsAffected: number;
+  invoicesAffected: number;
+  estimatedAmountAtRisk: number | null;
+};
+
+export type SpreadsheetReviewRiskIssueRow = {
+  issueType: string;
+  severity: 'High' | 'Medium' | 'Low';
+  ticketCount: number;
+  affectedTicketPreview: string | null;
+  invoiceCount: number;
+  amountImpact: number | null;
+  whyItMatters: string;
+  actionNeeded: string;
+};
+
+export type SpreadsheetReviewRiskDrilldownRow = {
+  ticketNumber: string | null;
+  invoiceNumber: string | null;
+  issueType: string;
+  severity: 'High' | 'Medium' | 'Low';
+  materialOrServiceItem: string | null;
+  site: string | null;
+  amount: number | null;
+  reason: string;
+};
+
+export type SpreadsheetReviewDataset = {
+  records: TransactionDataRecord[];
+  summary: TransactionDataExtraction['summary'] | null;
+  rollups: TransactionDataExtraction['rollups'] | null;
+  projectOperationsOverview: TransactionDataProjectOperationsOverview | null;
+  groupedByRateCode: TransactionDataRateCodeGroup[];
+  groupedByServiceItemMobileOnly: TransactionDataServiceItemGroup[];
+  groupedByMaterialMobileOnly: TransactionDataMaterialGroup[];
+  groupedByDisposalSite: TransactionDataDisposalSiteGroup[];
+  groupedBySiteType: TransactionDataSiteTypeGroup[];
+  outlierRows: TransactionDataOutlierRow[];
+  invoiceReadinessSummary: TransactionDataInvoiceReadinessSummary | null;
+  dmsFdsLifecycleSummary: TransactionDataDmsFdsLifecycleSummary | null;
+  kpis: SpreadsheetReviewKpis;
+  totalExtendedCost: number | null;
+  volumeBasis: SpreadsheetReviewVolumeBasis;
+  rateCodeRows: SpreadsheetReviewRateCodeRow[];
+  serviceItemRows: SpreadsheetReviewServiceItemRow[];
+  materialRows: SpreadsheetReviewFlowRow[];
+  disposalSiteRows: SpreadsheetReviewFlowRow[];
+  siteTypeRows: SpreadsheetReviewFlowRow[];
+  riskSummary: SpreadsheetReviewRiskSummary | null;
+  groupedRiskIssues: SpreadsheetReviewRiskIssueRow[];
+  riskDrilldownRows: SpreadsheetReviewRiskDrilldownRow[];
+};
+
+export type DocumentContractRateRow = {
+  rowId: string;
+  description: string | null;
+  unit: string | null;
+  rate: number | null;
+  category: string | null;
+  page: number | null;
+  sourceAnchorIds: string[];
 };
 
 export type DocumentIntelligenceViewModel = {
@@ -254,13 +396,11 @@ export type DocumentIntelligenceViewModel = {
   invoiceExtraction: InvoiceExtraction | null;
   /**
    * Typed extraction for transaction_data spreadsheets. Populated when family === 'spreadsheet'
-   * and document_type includes 'transaction_data'. Used by TransactionDataSurface.
+   * and document_type includes 'transaction_data'.
    */
   transactionDataExtraction: TransactionDataExtraction | null;
-  /**
-   * Read-only operational rollups for Fact Workspace dataset summary (ticket-query spreadsheets).
-   */
-  spreadsheetFactWorkspaceDatasetSummary: SpreadsheetFactWorkspaceDatasetSummary | null;
+  spreadsheetReviewDataset: SpreadsheetReviewDataset | null;
+  contractRateRows?: DocumentContractRateRow[];
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -271,6 +411,58 @@ type FlattenedField = {
   value: SupportedScalar | SupportedScalar[];
   source: 'typed_fields' | 'structured_fields' | 'section_signals' | 'trace_facts' | 'extracted';
 };
+
+function toDocumentContractRateRows(
+  rows: ContractRateScheduleRow[] | null | undefined,
+): DocumentContractRateRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row): DocumentContractRateRow | null => {
+      const rowId = typeof row.row_id === 'string' ? row.row_id.trim() : '';
+      if (!rowId) return null;
+
+      const description =
+        typeof row.description === 'string' && row.description.trim().length > 0
+          ? row.description.trim()
+          : null;
+      const unit =
+        typeof row.unit === 'string' && row.unit.trim().length > 0
+          ? row.unit.trim()
+          : typeof row.unit_type === 'string' && row.unit_type.trim().length > 0
+            ? row.unit_type.trim()
+            : null;
+      const category =
+        typeof row.category === 'string' && row.category.trim().length > 0
+          ? row.category.trim()
+          : typeof row.material_type === 'string' && row.material_type.trim().length > 0
+            ? row.material_type.trim()
+            : null;
+      const rate =
+        typeof row.rate === 'number' && Number.isFinite(row.rate)
+          ? row.rate
+          : typeof row.rate_amount === 'number' && Number.isFinite(row.rate_amount)
+            ? row.rate_amount
+            : null;
+      const page =
+        typeof row.page === 'number' && Number.isFinite(row.page) && row.page > 0 ? row.page : null;
+
+      return {
+        rowId,
+        description,
+        unit,
+        rate,
+        category,
+        page,
+        sourceAnchorIds: Array.isArray(row.source_anchor_ids)
+          ? row.source_anchor_ids.filter(
+              (anchorId): anchorId is string =>
+                typeof anchorId === 'string' && anchorId.trim().length > 0,
+            )
+          : [],
+      };
+    })
+    .filter((row): row is DocumentContractRateRow => row != null);
+}
 
 type GeometryCandidate = {
   id: string;
@@ -304,8 +496,1367 @@ type BuildParams = {
   factOverrides?: DocumentFactOverrideRecord[];
   factAnchors?: DocumentFactAnchorRecord[];
   factReviews?: DocumentFactReviewRecord[];
+  projectValidationSummary?: Record<string, unknown> | null;
+  projectValidationStatus?: string | null;
+  projectValidationFindings?: readonly ValidationFinding[];
+  transactionDatasets?: Array<Record<string, unknown>>;
+  transactionRows?: Array<Record<string, unknown>>;
   reviewedDecisionIds?: Iterable<string>;
 };
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function asLooseNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/,/g, '').trim();
+    if (cleaned.length === 0) return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function hasMeaningfulGroupLabel(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== 'unset' && normalized !== 'unknown';
+}
+
+type SpreadsheetReviewTicketSummary = {
+  ticketCount: number;
+  eligibleTickets: number;
+  ineligibleTickets: number;
+};
+
+type SpreadsheetReviewRiskDescriptor = {
+  issueType: string;
+  whyItMatters: string;
+  actionNeeded: string;
+};
+
+function findRawRowValue(rawRow: Record<string, unknown>, fieldName: string): unknown {
+  const normalizedFieldName = fieldName.trim().toLowerCase();
+  for (const [key, value] of Object.entries(rawRow)) {
+    if (key.trim().toLowerCase() === normalizedFieldName) return value;
+  }
+  return null;
+}
+
+function findFirstRawRowValue(rawRow: Record<string, unknown>, fieldNames: readonly string[]): unknown {
+  for (const fieldName of fieldNames) {
+    const value = findRawRowValue(rawRow, fieldName);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function compareTransactionRecordOrder(left: TransactionDataRecord, right: TransactionDataRecord): number {
+  const sheetDelta = left.source_sheet_name.localeCompare(right.source_sheet_name, 'en-US');
+  if (sheetDelta !== 0) return sheetDelta;
+  const rowDelta = left.source_row_number - right.source_row_number;
+  if (rowDelta !== 0) return rowDelta;
+  return left.id.localeCompare(right.id, 'en-US');
+}
+
+function diameterValueForRecord(record: TransactionDataRecord): number | null {
+  const normalizedDiameter = asLooseNumber(record.diameter);
+  if (normalizedDiameter != null) return normalizedDiameter;
+  return asLooseNumber(findFirstRawRowValue(record.raw_row ?? {}, ['Diameter', 'Diameters']));
+}
+
+function selectTicketDiameter(records: readonly TransactionDataRecord[]): number | null {
+  const orderedRecords = [...records].sort(compareTransactionRecordOrder);
+  for (const record of orderedRecords) {
+    const value = diameterValueForRecord(record);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function sumServiceItemDiameters(records: readonly TransactionDataRecord[]): number | null {
+  const recordsByTicket = new Map<string, TransactionDataRecord[]>();
+  for (const record of records) {
+    const ticketKey = normalizeTicketIdentity(record.transaction_number, `record:${record.id}`);
+    const ticketRecords = recordsByTicket.get(ticketKey) ?? [];
+    ticketRecords.push(record);
+    recordsByTicket.set(ticketKey, ticketRecords);
+  }
+
+  let sum: number | null = null;
+  for (const ticketRecords of recordsByTicket.values()) {
+    const value = selectTicketDiameter(ticketRecords);
+    if (value == null) continue;
+    sum = (sum ?? 0) + value;
+  }
+
+  return sum;
+}
+
+function normalizeTicketIdentity(ticketNumber: string | null | undefined, fallback: string): string {
+  if (typeof ticketNumber !== 'string') return fallback;
+  const trimmed = ticketNumber.trim();
+  return trimmed.length > 0 ? trimmed.toUpperCase() : fallback;
+}
+
+function preferredTicketNumber(
+  candidates: Array<string | null | undefined>,
+  disallowedIdentities: readonly string[] = [],
+): string | null {
+  const blocked = new Set(
+    disallowedIdentities
+      .map((value) => (typeof value === 'string' ? value.trim().toUpperCase() : ''))
+      .filter((value) => value.length > 0),
+  );
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed.length === 0) continue;
+    if (blocked.has(trimmed.toUpperCase())) continue;
+    return trimmed;
+  }
+
+  return null;
+}
+
+function normalizeInvoiceIdentity(invoiceNumber: string | null | undefined): string | null {
+  if (typeof invoiceNumber !== 'string') return null;
+  const trimmed = invoiceNumber.trim();
+  return trimmed.length > 0 ? trimmed.toUpperCase() : null;
+}
+
+function normalizeEligibilityBucket(value: string | null | undefined): 'eligible' | 'ineligible' {
+  return normalizeSpreadsheetEligibility(value);
+}
+
+function readLegacyUnknownEligibilityCount(value: unknown): number {
+  const source = asRecord(value);
+  if (!source) return 0;
+  return (
+    asLooseNumber(source.unknown_eligibility_count)
+    ?? asLooseNumber(source.unknownEligibilityCount)
+    ?? 0
+  );
+}
+
+function coerceSpreadsheetEligibilityCounts(params: {
+  eligibleCount: number | null | undefined;
+  ineligibleCount: number | null | undefined;
+  legacyUnknownCount?: number | null | undefined;
+}): {
+  eligibleCount: number | null;
+  ineligibleCount: number | null;
+} {
+  const eligibleCount = params.eligibleCount ?? null;
+  const ineligibleBase = params.ineligibleCount ?? null;
+  const legacyUnknownCount = params.legacyUnknownCount ?? null;
+  const ineligibleCount =
+    ineligibleBase != null || legacyUnknownCount != null
+      ? (ineligibleBase ?? 0) + (legacyUnknownCount ?? 0)
+      : null;
+
+  return {
+    eligibleCount,
+    ineligibleCount,
+  };
+}
+
+function stripLegacyUnknownEligibilityFields<T extends object>(value: T): T {
+  const clone = { ...value } as Record<string, unknown>;
+  delete clone.unknown_eligibility_count;
+  delete clone.unknownEligibilityCount;
+  return clone as T;
+}
+
+function sumRecordNumberField(
+  records: readonly TransactionDataRecord[],
+  field: 'cyd' | 'net_tonnage' | 'extended_cost' | 'transaction_quantity',
+): number | null {
+  return records.reduce<number | null>((sum, record) => {
+    const value = asFiniteNumber(record[field]);
+    if (value == null) return sum;
+    return (sum ?? 0) + value;
+  }, null);
+}
+
+function summarizeTickets(records: readonly TransactionDataRecord[]): SpreadsheetReviewTicketSummary {
+  const buckets = new Map<string, { hasEligible: boolean; hasIneligible: boolean }>();
+  for (const record of records) {
+    const ticketKey = normalizeTicketIdentity(record.transaction_number, `record:${record.id}`);
+    const states = buckets.get(ticketKey) ?? { hasEligible: false, hasIneligible: false };
+    if (normalizeEligibilityBucket(record.eligibility) === 'eligible') {
+      states.hasEligible = true;
+    } else {
+      states.hasIneligible = true;
+    }
+    buckets.set(ticketKey, states);
+  }
+
+  let eligibleTickets = 0;
+  let ineligibleTickets = 0;
+
+  for (const states of buckets.values()) {
+    if (states.hasIneligible) {
+      ineligibleTickets += 1;
+    } else if (states.hasEligible) {
+      eligibleTickets += 1;
+    } else {
+      ineligibleTickets += 1;
+    }
+  }
+
+  return {
+    ticketCount: buckets.size,
+    eligibleTickets,
+    ineligibleTickets,
+  };
+}
+
+function percentOf(value: number | null, total: number | null): number | null {
+  if (value == null || total == null || total === 0) return null;
+  return (value / total) * 100;
+}
+
+function shouldSurfaceRateCodeCostDriverRow(group: TransactionDataRateCodeGroup): boolean {
+  const hasRateCode = hasMeaningfulGroupLabel(group.rate_code);
+  const amount = asLooseNumber(group.total_extended_cost);
+  const hasMeaningfulCostSignal = amount != null && Math.abs(amount) > 0;
+  return hasRateCode && hasMeaningfulCostSignal;
+}
+
+function buildRecordMap(records: readonly TransactionDataRecord[]): Map<string, TransactionDataRecord> {
+  const mapped = new Map<string, TransactionDataRecord>();
+
+  for (const record of records) {
+    mapped.set(record.id, record);
+
+    const rawRow = asRecord(record.raw_row);
+    const rawId = typeof rawRow?.id === 'string' ? rawRow.id.trim() : '';
+    if (rawId.length > 0 && !mapped.has(rawId)) mapped.set(rawId, record);
+  }
+
+  return mapped;
+}
+
+function groupTicketCounts(group: {
+  row_count: number;
+  eligible_count?: number | null;
+  ineligible_count?: number | null;
+}): {
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+} {
+  const eligibleTickets = asLooseNumber(group.eligible_count);
+  const ineligibleTickets = asLooseNumber(group.ineligible_count);
+
+  return {
+    ticketCount: eligibleTickets != null || ineligibleTickets != null
+      ? Math.max(
+        group.row_count,
+        (eligibleTickets ?? 0) + (ineligibleTickets ?? 0),
+      )
+      : group.row_count,
+    eligibleTickets,
+    ineligibleTickets,
+  };
+}
+
+function resolveGroupRecords(
+  recordIds: readonly string[] | null | undefined,
+  recordsById: ReadonlyMap<string, TransactionDataRecord>,
+): TransactionDataRecord[] {
+  if (!Array.isArray(recordIds) || recordIds.length === 0) return [];
+  return recordIds.flatMap((recordId) => {
+    const record = recordsById.get(recordId);
+    return record ? [record] : [];
+  });
+}
+
+function buildRecordLabelMap<TGroup>(
+  groups: readonly TGroup[],
+  getLabel: (group: TGroup) => string | null | undefined,
+  getRecordIds: (group: TGroup) => readonly string[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const group of groups) {
+    const label = getLabel(group);
+    if (!hasMeaningfulGroupLabel(label)) continue;
+    for (const recordId of getRecordIds(group)) {
+      if (!labels.has(recordId)) labels.set(recordId, label.trim());
+    }
+  }
+  return labels;
+}
+
+function determineVolumeBasis(params: {
+  summary: TransactionDataExtraction['summary'] | null;
+  projectOperationsOverview: TransactionDataProjectOperationsOverview | null;
+  rollups: TransactionDataExtraction['rollups'] | null;
+  records: readonly TransactionDataRecord[];
+  groupedByMaterial: readonly TransactionDataMaterialGroup[];
+  groupedByDisposalSite: readonly TransactionDataDisposalSiteGroup[];
+  groupedBySiteType: readonly TransactionDataSiteTypeGroup[];
+}): SpreadsheetReviewVolumeBasis {
+  const totalCyd =
+    asLooseNumber(params.summary?.total_cyd)
+    ?? asLooseNumber(params.projectOperationsOverview?.total_cyd)
+    ?? asLooseNumber(params.rollups?.total_cyd)
+    ?? asLooseNumber(params.rollups?.totalCyd)
+    ?? sumRecordNumberField(params.records, 'cyd');
+  const totalNetTonnage = sumRecordNumberField(params.records, 'net_tonnage');
+  const hasGroupedCyd =
+    params.groupedByMaterial.some((group) => Math.abs(group.total_cyd) > 0)
+    || params.groupedByDisposalSite.some((group) => Math.abs(group.total_cyd) > 0)
+    || params.groupedBySiteType.some((group) => Math.abs(group.total_cyd) > 0);
+
+  if ((totalCyd != null && Math.abs(totalCyd) > 0) || hasGroupedCyd) {
+    return {
+      metric: 'cyd',
+      unitLabel: 'CYD',
+      headerLabel: 'Volume (CYD)',
+    };
+  }
+
+  if (totalNetTonnage != null && Math.abs(totalNetTonnage) > 0) {
+    return {
+      metric: 'net_tonnage',
+      unitLabel: 'Tons',
+      headerLabel: 'Volume (Tons)',
+    };
+  }
+
+  return {
+    metric: totalCyd != null ? 'cyd' : (totalNetTonnage != null ? 'net_tonnage' : null),
+    unitLabel: totalCyd != null ? 'CYD' : (totalNetTonnage != null ? 'Tons' : null),
+    headerLabel:
+      totalCyd != null
+        ? 'Volume (CYD)'
+        : (totalNetTonnage != null ? 'Volume (Tons)' : 'Volume'),
+  };
+}
+
+function getGroupVolume<TGroup extends { total_cyd: number; record_ids: string[] }>(
+  group: TGroup,
+  records: readonly TransactionDataRecord[],
+  volumeBasis: SpreadsheetReviewVolumeBasis,
+): number | null {
+  if (volumeBasis.metric === 'cyd') return asLooseNumber(group.total_cyd);
+  if (volumeBasis.metric === 'net_tonnage') return sumRecordNumberField(records, 'net_tonnage');
+  return null;
+}
+
+function buildFlowRows<TGroup extends {
+  total_cyd: number;
+  total_extended_cost: number;
+  row_count: number;
+  record_ids: string[];
+  eligible_count?: number | null;
+  ineligible_count?: number | null;
+}>(params: {
+  groups: readonly TGroup[];
+  getLabel: (group: TGroup) => string | null | undefined;
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+  volumeBasis: SpreadsheetReviewVolumeBasis;
+  totalVolume: number | null;
+  totalCost: number | null;
+}): SpreadsheetReviewFlowRow[] {
+  return params.groups
+    .map((group) => {
+      const label = params.getLabel(group);
+      if (!hasMeaningfulGroupLabel(label)) return null;
+
+      const memberRecords = resolveGroupRecords(group.record_ids, params.recordsById);
+      const ticketSummary = memberRecords.length > 0 ? summarizeTickets(memberRecords) : null;
+      const fallbackTicketCounts = groupTicketCounts(group);
+      const volume = getGroupVolume(group, memberRecords, params.volumeBasis);
+      const amount = asLooseNumber(group.total_extended_cost);
+
+      return {
+        label: label.trim(),
+        ticketCount: ticketSummary?.ticketCount ?? fallbackTicketCounts.ticketCount,
+        eligibleTickets: ticketSummary?.eligibleTickets ?? fallbackTicketCounts.eligibleTickets,
+        ineligibleTickets: ticketSummary?.ineligibleTickets ?? fallbackTicketCounts.ineligibleTickets,
+        volume,
+        percentOfTotalVolume: percentOf(volume, params.totalVolume),
+        amount,
+        percentOfTotalCost: percentOf(amount, params.totalCost),
+      } satisfies SpreadsheetReviewFlowRow;
+    })
+    .filter((row): row is SpreadsheetReviewFlowRow => row != null)
+    .sort((left, right) => {
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      const volumeDelta = (right.volume ?? 0) - (left.volume ?? 0);
+      if (volumeDelta !== 0) return volumeDelta;
+      return left.label.localeCompare(right.label, 'en-US');
+    });
+}
+
+function buildServiceItemRows(params: {
+  groups: readonly TransactionDataServiceItemGroup[];
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+}): Array<Omit<SpreadsheetReviewServiceItemRow, 'percentOfTotalServiceCost'>> {
+  const rows: Array<Omit<SpreadsheetReviewServiceItemRow, 'percentOfTotalServiceCost'>> = [];
+
+  for (const group of params.groups) {
+    if (!hasMeaningfulGroupLabel(group.service_item)) continue;
+
+    const memberRecords = resolveGroupRecords(group.record_ids, params.recordsById);
+    const fallbackTicketCounts = groupTicketCounts(group);
+    if (memberRecords.length === 0) {
+      rows.push({
+        serviceItem: group.service_item.trim(),
+        ticketCount: fallbackTicketCounts.ticketCount,
+        eligibleTickets: fallbackTicketCounts.eligibleTickets,
+        ineligibleTickets: fallbackTicketCounts.ineligibleTickets,
+        diameterUnits: null,
+        amount: asLooseNumber(group.total_extended_cost),
+      });
+      continue;
+    }
+
+    const ticketSummary = summarizeTickets(memberRecords);
+    rows.push({
+      serviceItem: group.service_item.trim(),
+      ticketCount: ticketSummary.ticketCount,
+      eligibleTickets: ticketSummary.eligibleTickets,
+      ineligibleTickets: ticketSummary.ineligibleTickets,
+      diameterUnits: sumServiceItemDiameters(memberRecords),
+      amount: sumRecordNumberField(memberRecords, 'extended_cost'),
+    });
+  }
+
+  return rows.sort((left, right) => {
+    const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+    if (amountDelta !== 0) return amountDelta;
+    const serviceDelta = left.serviceItem.localeCompare(right.serviceItem, 'en-US');
+    return serviceDelta;
+  });
+}
+
+function describeRiskReason(reason: string): SpreadsheetReviewRiskDescriptor {
+  const normalized = reason.trim().toLowerCase();
+
+  if (normalized.includes('missing invoice number')) {
+    return {
+      issueType: 'Missing Invoice #',
+      whyItMatters: 'Rows without an invoice link cannot be reconciled to a bill.',
+      actionNeeded: 'Add or confirm the Invoice # before invoice review.',
+    };
+  }
+  if (normalized.includes('missing rate code')) {
+    return {
+      issueType: 'Missing Rate Code',
+      whyItMatters: 'Rows without a rate code cannot be matched to contract pricing.',
+      actionNeeded: 'Assign or confirm the rate code for the affected tickets.',
+    };
+  }
+  if (normalized.includes('missing quantity')) {
+    return {
+      issueType: 'Missing Quantity',
+      whyItMatters: 'Missing quantity prevents unit and amount validation.',
+      actionNeeded: 'Populate Quantity and confirm the billing unit.',
+    };
+  }
+  if (normalized.includes('missing extended cost')) {
+    return {
+      issueType: 'Missing Amount',
+      whyItMatters: 'Missing amount prevents invoice reconciliation and rollup validation.',
+      actionNeeded: 'Populate the billed amount before invoice review.',
+    };
+  }
+  if (normalized.includes('zero extended cost')) {
+    return {
+      issueType: 'Zero Cost Rows',
+      whyItMatters: 'Zero-amount rows can indicate incomplete billing or data issues.',
+      actionNeeded: 'Confirm whether the row is informational or requires corrected billing.',
+    };
+  }
+  if (normalized.includes('mileage review')) {
+    return {
+      issueType: 'Mileage Review',
+      whyItMatters: 'Mileage-driven charges need route and distance support.',
+      actionNeeded: 'Verify the cited mileage and confirm supporting documentation.',
+    };
+  }
+  if (normalized.includes('distance from feature review')) {
+    return {
+      issueType: 'Distance from Feature Review',
+      whyItMatters: 'Location-based charges need distance support to remain billable.',
+      actionNeeded: 'Confirm the measured distance and source evidence.',
+    };
+  }
+  if (normalized.includes('load call review')) {
+    return {
+      issueType: 'Load Call Review',
+      whyItMatters: 'Load-call support affects whether monitored work is fully auditable.',
+      actionNeeded: 'Confirm the load call documentation for the affected tickets.',
+    };
+  }
+  if (normalized.includes('duplicate')) {
+    return {
+      issueType: 'Duplicate Ticket / Invoice Review',
+      whyItMatters: 'Duplicate billing patterns can lead to overpayment risk.',
+      actionNeeded: 'Verify whether the duplicate represents a valid separate billable event.',
+    };
+  }
+  if (normalized.includes('baseline') || normalized.includes('deviates from')) {
+    return {
+      issueType: 'Rate Review',
+      whyItMatters: 'Rate outliers can indicate billing or mapping errors.',
+      actionNeeded: 'Confirm the billed rate against the expected contract rate.',
+    };
+  }
+
+  return {
+    issueType: titleize(reason),
+    whyItMatters: 'This row needs review before the project can be considered invoice-ready.',
+    actionNeeded: 'Review the affected tickets and confirm the supporting detail.',
+  };
+}
+
+function toRiskSeverity(severity: 'warning' | 'critical'): 'High' | 'Medium' | 'Low' {
+  return severity === 'critical' ? 'High' : 'Medium';
+}
+
+function riskSeverityRank(severity: 'High' | 'Medium' | 'Low'): number {
+  if (severity === 'High') return 0;
+  if (severity === 'Medium') return 1;
+  return 2;
+}
+
+function sumUniqueAmounts(values: Iterable<[string, number | null]>): number | null {
+  const seen = new Set<string>();
+  let sum: number | null = null;
+  for (const [key, value] of values) {
+    if (seen.has(key) || value == null) continue;
+    seen.add(key);
+    sum = (sum ?? 0) + value;
+  }
+  return sum;
+}
+
+function buildCompactTicketPreview(
+  ticketNumbers: readonly string[],
+  previewLimit = 3,
+): string | null {
+  if (ticketNumbers.length === 0) return null;
+  const preview = ticketNumbers.slice(0, previewLimit);
+  const overflow = ticketNumbers.length - preview.length;
+  return overflow > 0
+    ? `${preview.join(', ')} + ${overflow} more`
+    : preview.join(', ');
+}
+
+function sanitizeSpreadsheetOutlierRows(
+  outlierRows: readonly TransactionDataOutlierRow[],
+): TransactionDataOutlierRow[] {
+  return outlierRows.flatMap((row) => {
+    const reasons = row.reasons.filter((reason) => {
+      const normalized = reason.trim().toLowerCase();
+      return normalized !== 'eligibility status unresolved';
+    });
+
+    if (reasons.length === 0) return [];
+    return [{ ...row, reasons }];
+  });
+}
+
+function buildRiskPresentation(params: {
+  outlierRows: readonly TransactionDataOutlierRow[];
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+  siteByRecordId: ReadonlyMap<string, string>;
+}): {
+  riskSummary: SpreadsheetReviewRiskSummary | null;
+  groupedRiskIssues: SpreadsheetReviewRiskIssueRow[];
+  riskDrilldownRows: SpreadsheetReviewRiskDrilldownRow[];
+} {
+  type FlatIssue = {
+    recordId: string;
+    ticketKey: string;
+    invoiceKey: string | null;
+    ticketNumber: string | null;
+    invoiceNumber: string | null;
+    issueType: string;
+    severity: 'High' | 'Medium' | 'Low';
+    amount: number | null;
+    whyItMatters: string;
+    actionNeeded: string;
+    reason: string;
+    materialOrServiceItem: string | null;
+    site: string | null;
+  };
+
+  const flatIssues: FlatIssue[] = [];
+
+  for (const row of params.outlierRows) {
+    const record = params.recordsById.get(row.record_id) ?? null;
+    const materialOrServiceItem = record?.material ?? record?.service_item ?? null;
+    const ticketNumber = preferredTicketNumber(
+      [row.transaction_number, record?.transaction_number],
+      [row.record_id],
+    );
+    const amount =
+      asLooseNumber(row.metrics.extended_cost)
+      ?? asFiniteNumber(record?.extended_cost ?? null);
+
+    for (const reason of [...new Set(row.reasons.map((value) => value.trim()).filter((value) => value.length > 0))]) {
+      const descriptor = describeRiskReason(reason);
+      flatIssues.push({
+        recordId: row.record_id,
+        ticketKey: normalizeTicketIdentity(ticketNumber, `record:${row.record_id}`),
+        invoiceKey: normalizeInvoiceIdentity(row.invoice_number),
+        ticketNumber,
+        invoiceNumber: row.invoice_number,
+        issueType: descriptor.issueType,
+        severity: toRiskSeverity(row.severity),
+        amount,
+        whyItMatters: descriptor.whyItMatters,
+        actionNeeded: descriptor.actionNeeded,
+        reason,
+        materialOrServiceItem,
+        site: params.siteByRecordId.get(row.record_id) ?? null,
+      });
+    }
+  }
+
+  const groupedRiskIssues = Array.from(
+    flatIssues.reduce((map, issue) => {
+      const existing = map.get(issue.issueType) ?? {
+        issueType: issue.issueType,
+        severity: issue.severity,
+        ticketKeys: new Set<string>(),
+        ticketNumbers: [] as string[],
+        ticketNumberKeys: new Set<string>(),
+        invoiceKeys: new Set<string>(),
+        amounts: new Map<string, number | null>(),
+        whyItMatters: issue.whyItMatters,
+        actionNeeded: issue.actionNeeded,
+      };
+
+      if (riskSeverityRank(issue.severity) < riskSeverityRank(existing.severity)) {
+        existing.severity = issue.severity;
+      }
+      existing.ticketKeys.add(issue.ticketKey);
+      if (typeof issue.ticketNumber === 'string' && issue.ticketNumber.trim().length > 0) {
+        const ticketNumber = issue.ticketNumber.trim();
+        const ticketNumberKey = ticketNumber.toUpperCase();
+        if (!existing.ticketNumberKeys.has(ticketNumberKey)) {
+          existing.ticketNumberKeys.add(ticketNumberKey);
+          existing.ticketNumbers.push(ticketNumber);
+        }
+      }
+      if (issue.invoiceKey) existing.invoiceKeys.add(issue.invoiceKey);
+      existing.amounts.set(issue.recordId, issue.amount);
+      map.set(issue.issueType, existing);
+      return map;
+    }, new Map<string, {
+      issueType: string;
+      severity: 'High' | 'Medium' | 'Low';
+      ticketKeys: Set<string>;
+      ticketNumbers: string[];
+      ticketNumberKeys: Set<string>;
+      invoiceKeys: Set<string>;
+      amounts: Map<string, number | null>;
+      whyItMatters: string;
+      actionNeeded: string;
+    }>()),
+  )
+    .map(([, issue]) => ({
+      issueType: issue.issueType,
+      severity: issue.severity,
+      ticketCount: issue.ticketKeys.size,
+      affectedTicketPreview: buildCompactTicketPreview(issue.ticketNumbers),
+      invoiceCount: issue.invoiceKeys.size,
+      amountImpact: sumUniqueAmounts(issue.amounts.entries()),
+      whyItMatters: issue.whyItMatters,
+      actionNeeded: issue.actionNeeded,
+    }))
+    .sort((left, right) => {
+      const severityDelta = riskSeverityRank(left.severity) - riskSeverityRank(right.severity);
+      if (severityDelta !== 0) return severityDelta;
+      const ticketDelta = right.ticketCount - left.ticketCount;
+      if (ticketDelta !== 0) return ticketDelta;
+      return left.issueType.localeCompare(right.issueType, 'en-US');
+    });
+
+  const riskDrilldownRows = Array.from(
+    flatIssues.reduce((map, issue) => {
+      const key = `${issue.issueType}|${issue.ticketKey}|${issue.invoiceKey ?? 'no-invoice'}`;
+      const existing = map.get(key) ?? {
+        ticketNumber: issue.ticketNumber,
+        invoiceNumber: issue.invoiceNumber,
+        issueType: issue.issueType,
+        severity: issue.severity,
+        materialOrServiceItem: issue.materialOrServiceItem,
+        site: issue.site,
+        amountByRecord: new Map<string, number | null>(),
+        reasons: new Set<string>(),
+      };
+
+      if (riskSeverityRank(issue.severity) < riskSeverityRank(existing.severity)) {
+        existing.severity = issue.severity;
+      }
+      if (existing.materialOrServiceItem == null && issue.materialOrServiceItem != null) {
+        existing.materialOrServiceItem = issue.materialOrServiceItem;
+      }
+      if (existing.site == null && issue.site != null) {
+        existing.site = issue.site;
+      }
+      existing.amountByRecord.set(issue.recordId, issue.amount);
+      existing.reasons.add(issue.reason);
+      map.set(key, existing);
+      return map;
+    }, new Map<string, {
+      ticketNumber: string | null;
+      invoiceNumber: string | null;
+      issueType: string;
+      severity: 'High' | 'Medium' | 'Low';
+      materialOrServiceItem: string | null;
+      site: string | null;
+      amountByRecord: Map<string, number | null>;
+      reasons: Set<string>;
+    }>()),
+  )
+    .map(([, issue]) => ({
+      ticketNumber: issue.ticketNumber,
+      invoiceNumber: issue.invoiceNumber,
+      issueType: issue.issueType,
+      severity: issue.severity,
+      materialOrServiceItem: issue.materialOrServiceItem,
+      site: issue.site,
+      amount: sumUniqueAmounts(issue.amountByRecord.entries()),
+      reason: Array.from(issue.reasons).sort((left, right) => left.localeCompare(right, 'en-US')).join('; '),
+    }))
+    .sort((left, right) => {
+      const severityDelta = riskSeverityRank(left.severity) - riskSeverityRank(right.severity);
+      if (severityDelta !== 0) return severityDelta;
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      return (left.ticketNumber ?? '').localeCompare(right.ticketNumber ?? '', 'en-US');
+    });
+
+  if (groupedRiskIssues.length === 0) {
+    return {
+      riskSummary: null,
+      groupedRiskIssues,
+      riskDrilldownRows,
+    };
+  }
+
+  const ticketKeys = new Set(flatIssues.map((issue) => issue.ticketKey));
+  const invoiceKeys = new Set(
+    flatIssues
+      .map((issue) => issue.invoiceKey)
+      .filter((value): value is string => value != null),
+  );
+
+  return {
+    riskSummary: {
+      highRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'High').length,
+      mediumRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'Medium').length,
+      lowRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'Low').length,
+      ticketsAffected: ticketKeys.size,
+      invoicesAffected: invoiceKeys.size,
+      estimatedAmountAtRisk: sumUniqueAmounts(flatIssues.map((issue) => [issue.recordId, issue.amount] as const)),
+    },
+    groupedRiskIssues,
+    riskDrilldownRows,
+  };
+}
+
+function sanitizeProjectOperationsOverview(
+  overview: TransactionDataProjectOperationsOverview | null | undefined,
+): TransactionDataProjectOperationsOverview | null {
+  if (!overview) return null;
+  const legacyUnknownCount = readLegacyUnknownEligibilityCount(overview);
+  const eligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount: asLooseNumber(overview.eligible_count),
+    ineligibleCount: asLooseNumber(overview.ineligible_count),
+    legacyUnknownCount,
+  });
+
+  return {
+    ...stripLegacyUnknownEligibilityFields(overview),
+    eligible_count: eligibilityCounts.eligibleCount ?? 0,
+    ineligible_count: eligibilityCounts.ineligibleCount ?? 0,
+  };
+}
+
+function toCanonicalConsistentRollups(
+  canonicalSummary: Record<string, unknown> | null,
+  extractionRollups: TransactionDataExtraction['rollups'] | null,
+): TransactionDataExtraction['rollups'] | null {
+  if (!canonicalSummary) return extractionRollups ?? null;
+
+  const legacyExtractionRollups = extractionRollups as (TransactionDataExtraction['rollups'] & {
+    distinctInvoiceNumbers?: string[];
+    distinctRateCodes?: string[];
+    distinctServiceItems?: string[];
+    distinctMaterials?: string[];
+  }) | null;
+
+  const totalTickets =
+    asLooseNumber(canonicalSummary.total_tickets)
+    ?? asLooseNumber(extractionRollups?.total_tickets)
+    ?? asLooseNumber(extractionRollups?.totalTickets);
+  const totalCyd =
+    asLooseNumber(canonicalSummary.total_cyd)
+    ?? asLooseNumber(extractionRollups?.total_cyd)
+    ?? asLooseNumber(extractionRollups?.totalCyd);
+  const totalExtendedCost =
+    asLooseNumber(canonicalSummary.total_extended_cost)
+    ?? asLooseNumber(extractionRollups?.total_extended_cost)
+    ?? asLooseNumber(extractionRollups?.totalExtendedCost);
+  const totalTransactionQuantity =
+    asLooseNumber(canonicalSummary.total_transaction_quantity)
+    ?? asLooseNumber(extractionRollups?.total_transaction_quantity)
+    ?? asLooseNumber(extractionRollups?.totalTransactionQuantity);
+  const invoicedTicketCount =
+    asLooseNumber(canonicalSummary.invoiced_ticket_count)
+    ?? asLooseNumber(extractionRollups?.invoiced_ticket_count)
+    ?? asLooseNumber(extractionRollups?.invoicedTicketCount);
+  const distinctInvoiceCount =
+    asLooseNumber(canonicalSummary.distinct_invoice_count)
+    ?? asLooseNumber(extractionRollups?.distinct_invoice_count)
+    ?? asLooseNumber(extractionRollups?.distinctInvoiceCount);
+  const totalInvoicedAmount =
+    asLooseNumber(canonicalSummary.total_invoiced_amount)
+    ?? asLooseNumber(extractionRollups?.total_invoiced_amount)
+    ?? asLooseNumber(extractionRollups?.totalInvoicedAmount);
+  const uninvoicedLineCount =
+    asLooseNumber(canonicalSummary.uninvoiced_line_count)
+    ?? asLooseNumber(extractionRollups?.uninvoiced_line_count)
+    ?? asLooseNumber(extractionRollups?.uninvoicedLineCount);
+  const eligibleCount =
+    asLooseNumber(canonicalSummary.eligible_count)
+    ?? asLooseNumber(extractionRollups?.eligible_count)
+    ?? asLooseNumber(extractionRollups?.eligibleCount);
+  const ineligibleCount =
+    asLooseNumber(canonicalSummary.ineligible_count)
+    ?? asLooseNumber(extractionRollups?.ineligible_count)
+    ?? asLooseNumber(extractionRollups?.ineligibleCount);
+  const eligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount,
+    ineligibleCount,
+    legacyUnknownCount:
+      readLegacyUnknownEligibilityCount(canonicalSummary)
+      + readLegacyUnknownEligibilityCount(extractionRollups),
+  });
+  const rowsWithMissingRateCode =
+    asLooseNumber(canonicalSummary.rows_with_missing_rate_code)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_rate_code)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingRateCode);
+  const rowsWithMissingInvoiceNumber =
+    asLooseNumber(canonicalSummary.rows_with_missing_invoice_number)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_invoice_number)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingInvoiceNumber);
+  const rowsWithMissingQuantity =
+    asLooseNumber(canonicalSummary.rows_with_missing_quantity)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_quantity)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingQuantity);
+  const rowsWithMissingExtendedCost =
+    asLooseNumber(canonicalSummary.rows_with_missing_extended_cost)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_extended_cost)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingExtendedCost);
+  const rowsWithZeroCost =
+    asLooseNumber(canonicalSummary.rows_with_zero_cost)
+    ?? asLooseNumber(extractionRollups?.rows_with_zero_cost)
+    ?? asLooseNumber(extractionRollups?.rowsWithZeroCost);
+  const rowsWithExtremeUnitRate =
+    asLooseNumber(canonicalSummary.rows_with_extreme_unit_rate)
+    ?? asLooseNumber(extractionRollups?.rows_with_extreme_unit_rate)
+    ?? asLooseNumber(extractionRollups?.rowsWithExtremeUnitRate);
+  const distinctInvoiceNumbers = Array.isArray(canonicalSummary.distinct_invoice_numbers)
+    ? (canonicalSummary.distinct_invoice_numbers as string[])
+    : (extractionRollups?.distinct_invoice_numbers ?? legacyExtractionRollups?.distinctInvoiceNumbers);
+  const distinctRateCodes = Array.isArray(canonicalSummary.distinct_rate_codes)
+    ? (canonicalSummary.distinct_rate_codes as string[])
+    : (extractionRollups?.distinct_rate_codes ?? legacyExtractionRollups?.distinctRateCodes);
+  const distinctServiceItems = Array.isArray(canonicalSummary.distinct_service_items)
+    ? (canonicalSummary.distinct_service_items as string[])
+    : (extractionRollups?.distinct_service_items ?? legacyExtractionRollups?.distinctServiceItems);
+  const distinctMaterials = Array.isArray(canonicalSummary.distinct_materials)
+    ? (canonicalSummary.distinct_materials as string[])
+    : (extractionRollups?.distinct_materials ?? legacyExtractionRollups?.distinctMaterials);
+  const groupedByRateCode = Array.isArray(canonicalSummary.grouped_by_rate_code)
+    ? (canonicalSummary.grouped_by_rate_code as TransactionDataRateCodeGroup[])
+    : (extractionRollups?.groupedByRateCode ?? extractionRollups?.grouped_by_rate_code);
+  const groupedByInvoice = Array.isArray(canonicalSummary.grouped_by_invoice)
+    ? (canonicalSummary.grouped_by_invoice as TransactionDataInvoiceGroup[])
+    : (extractionRollups?.groupedByInvoice ?? extractionRollups?.grouped_by_invoice);
+  const groupedBySiteMaterial = Array.isArray(canonicalSummary.grouped_by_site_material)
+    ? (canonicalSummary.grouped_by_site_material as TransactionDataSiteMaterialGroup[])
+    : (extractionRollups?.groupedBySiteMaterial ?? extractionRollups?.grouped_by_site_material);
+  const groupedByServiceItem = Array.isArray(canonicalSummary.grouped_by_service_item)
+    ? (canonicalSummary.grouped_by_service_item as TransactionDataServiceItemGroup[])
+    : (extractionRollups?.groupedByServiceItem ?? extractionRollups?.grouped_by_service_item);
+  const groupedByMaterial = Array.isArray(canonicalSummary.grouped_by_material)
+    ? (canonicalSummary.grouped_by_material as TransactionDataMaterialGroup[])
+    : (extractionRollups?.groupedByMaterial ?? extractionRollups?.grouped_by_material);
+  const groupedBySiteType = Array.isArray(canonicalSummary.grouped_by_site_type)
+    ? (canonicalSummary.grouped_by_site_type as TransactionDataSiteTypeGroup[])
+    : (extractionRollups?.groupedBySiteType ?? extractionRollups?.grouped_by_site_type);
+  const groupedByDisposalSite = Array.isArray(canonicalSummary.grouped_by_disposal_site)
+    ? (canonicalSummary.grouped_by_disposal_site as TransactionDataDisposalSiteGroup[])
+    : (extractionRollups?.groupedByDisposalSite ?? extractionRollups?.grouped_by_disposal_site);
+  const outlierRows = Array.isArray(canonicalSummary.outlier_rows)
+    ? (canonicalSummary.outlier_rows as TransactionDataOutlierRow[])
+    : (extractionRollups?.outlierRows ?? extractionRollups?.outlier_rows);
+  const sanitizedOutlierRows = sanitizeSpreadsheetOutlierRows(outlierRows ?? []);
+
+  return {
+    ...stripLegacyUnknownEligibilityFields(extractionRollups ?? {}),
+    total_tickets: totalTickets,
+    totalTickets,
+    total_cyd: totalCyd,
+    totalCyd,
+    total_extended_cost: totalExtendedCost,
+    totalExtendedCost,
+    total_transaction_quantity: totalTransactionQuantity,
+    totalTransactionQuantity,
+    invoiced_ticket_count: invoicedTicketCount,
+    invoicedTicketCount,
+    distinct_invoice_count: distinctInvoiceCount,
+    distinctInvoiceCount,
+    total_invoiced_amount: totalInvoicedAmount,
+    totalInvoicedAmount,
+    uninvoiced_line_count: uninvoicedLineCount,
+    uninvoicedLineCount,
+    eligible_count: eligibilityCounts.eligibleCount,
+    eligibleCount: eligibilityCounts.eligibleCount,
+    ineligible_count: eligibilityCounts.ineligibleCount,
+    ineligibleCount: eligibilityCounts.ineligibleCount,
+    rows_with_missing_rate_code: rowsWithMissingRateCode,
+    rowsWithMissingRateCode,
+    rows_with_missing_invoice_number: rowsWithMissingInvoiceNumber,
+    rowsWithMissingInvoiceNumber,
+    rows_with_missing_quantity: rowsWithMissingQuantity,
+    rowsWithMissingQuantity,
+    rows_with_missing_extended_cost: rowsWithMissingExtendedCost,
+    rowsWithMissingExtendedCost,
+    rows_with_zero_cost: rowsWithZeroCost,
+    rowsWithZeroCost,
+    rows_with_extreme_unit_rate: rowsWithExtremeUnitRate,
+    rowsWithExtremeUnitRate,
+    distinct_invoice_numbers: distinctInvoiceNumbers,
+    distinctInvoiceNumbers: distinctInvoiceNumbers,
+    distinct_rate_codes: distinctRateCodes,
+    distinctRateCodes: distinctRateCodes,
+    distinct_service_items: distinctServiceItems,
+    distinctServiceItems: distinctServiceItems,
+    distinct_materials: distinctMaterials,
+    distinctMaterials: distinctMaterials,
+    grouped_by_rate_code: groupedByRateCode,
+    groupedByRateCode,
+    grouped_by_invoice: groupedByInvoice,
+    groupedByInvoice,
+    grouped_by_site_material: groupedBySiteMaterial,
+    groupedBySiteMaterial,
+    grouped_by_service_item: groupedByServiceItem,
+    groupedByServiceItem,
+    grouped_by_material: groupedByMaterial,
+    groupedByMaterial,
+    grouped_by_site_type: groupedBySiteType,
+    groupedBySiteType,
+    grouped_by_disposal_site: groupedByDisposalSite,
+    groupedByDisposalSite,
+    outlier_rows: sanitizedOutlierRows,
+    outlierRows: sanitizedOutlierRows,
+  } as TransactionDataExtraction['rollups'];
+}
+
+function toSpreadsheetReviewDataset(
+  extraction: TransactionDataExtraction | null,
+  canonical?: {
+    projectValidationSummary?: Record<string, unknown> | null;
+    projectValidationStatus?: string | null;
+    projectValidationFindings?: readonly ValidationFinding[];
+    transactionDatasets?: Array<Record<string, unknown>>;
+    transactionRows?: Array<Record<string, unknown>>;
+  },
+): SpreadsheetReviewDataset | null {
+  const canonicalSummary =
+    (canonical?.transactionDatasets ?? [])
+      .map((dataset) => asRecord(dataset.summary_json))
+      .find((summaryRow): summaryRow is Record<string, unknown> => summaryRow != null)
+    ?? null;
+  const canonicalRecords = (canonical?.transactionRows ?? []).flatMap((row) => {
+    const rowRecord = asRecord(row);
+    if (!rowRecord) return [];
+    const recordJson = asRecord(rowRecord.record_json);
+    if (!recordJson) return [];
+    const rawRowJson = asRecord(rowRecord.raw_row_json);
+    const mergedRecord =
+      rawRowJson && asRecord(recordJson.raw_row) == null
+        ? { ...recordJson, raw_row: rawRowJson }
+        : recordJson;
+    return [mergedRecord as unknown as TransactionDataRecord];
+  });
+
+  const hasCanonicalDatasetData = canonicalSummary != null || canonicalRecords.length > 0;
+  if (!extraction && !hasCanonicalDatasetData) return null;
+
+  const records = canonicalRecords.length > 0 ? canonicalRecords : (extraction?.records ?? []);
+  const rawSummary =
+    (canonicalSummary as TransactionDataExtraction['summary'] | null)
+    ?? extraction?.summary
+    ?? null;
+  const rollups = toCanonicalConsistentRollups(canonicalSummary, extraction?.rollups ?? null);
+  const projectOperationsOverview = sanitizeProjectOperationsOverview(
+    (asRecord(canonicalSummary?.project_operations_overview) as TransactionDataProjectOperationsOverview | null)
+    ?? extraction?.projectOperationsOverview
+    ?? null,
+  );
+  const summaryEligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount:
+      asLooseNumber(rawSummary?.eligible_count)
+      ?? asLooseNumber(projectOperationsOverview?.eligible_count)
+      ?? asLooseNumber(rollups?.eligible_count)
+      ?? asLooseNumber(rollups?.eligibleCount),
+    ineligibleCount:
+      asLooseNumber(rawSummary?.ineligible_count)
+      ?? asLooseNumber(projectOperationsOverview?.ineligible_count)
+      ?? asLooseNumber(rollups?.ineligible_count)
+      ?? asLooseNumber(rollups?.ineligibleCount),
+    legacyUnknownCount: readLegacyUnknownEligibilityCount(rawSummary),
+  });
+  const baseInvoiceReadinessSummary =
+    (asRecord(canonicalSummary?.invoice_readiness_summary) as TransactionDataInvoiceReadinessSummary | null)
+    ?? extraction?.invoiceReadinessSummary
+    ?? null;
+  const dmsFdsLifecycleSummary =
+    (asRecord(canonicalSummary?.dms_fds_lifecycle_summary) as TransactionDataDmsFdsLifecycleSummary | null)
+    ?? extraction?.dmsFdsLifecycleSummary
+    ?? null;
+
+  const groupedByRateCode =
+    (Array.isArray(canonicalSummary?.grouped_by_rate_code)
+      ? (canonicalSummary.grouped_by_rate_code as TransactionDataRateCodeGroup[])
+      : null)
+    ?? extraction?.summary?.grouped_by_rate_code
+    ?? rollups?.groupedByRateCode
+    ?? rollups?.grouped_by_rate_code
+    ?? [];
+  const groupedByServiceItem =
+    (Array.isArray(canonicalSummary?.grouped_by_service_item)
+      ? (canonicalSummary.grouped_by_service_item as TransactionDataServiceItemGroup[])
+      : null)
+    ?? extraction?.groupedByServiceItem
+    ?? extraction?.summary?.grouped_by_service_item
+    ?? rollups?.groupedByServiceItem
+    ?? rollups?.grouped_by_service_item
+    ?? [];
+  const groupedByMaterial =
+    (Array.isArray(canonicalSummary?.grouped_by_material)
+      ? (canonicalSummary.grouped_by_material as TransactionDataMaterialGroup[])
+      : null)
+    ?? extraction?.groupedByMaterial
+    ?? extraction?.summary?.grouped_by_material
+    ?? rollups?.groupedByMaterial
+    ?? rollups?.grouped_by_material
+    ?? [];
+  const groupedByDisposalSite =
+    (Array.isArray(canonicalSummary?.grouped_by_disposal_site)
+      ? (canonicalSummary.grouped_by_disposal_site as TransactionDataDisposalSiteGroup[])
+      : null)
+    ?? extraction?.groupedByDisposalSite
+    ?? extraction?.summary?.grouped_by_disposal_site
+    ?? rollups?.groupedByDisposalSite
+    ?? rollups?.grouped_by_disposal_site
+    ?? [];
+  const groupedBySiteType =
+    (Array.isArray(canonicalSummary?.grouped_by_site_type)
+      ? (canonicalSummary.grouped_by_site_type as TransactionDataSiteTypeGroup[])
+      : null)
+    ?? extraction?.groupedBySiteType
+    ?? extraction?.summary?.grouped_by_site_type
+    ?? rollups?.groupedBySiteType
+    ?? rollups?.grouped_by_site_type
+    ?? [];
+  const outlierRows =
+    (Array.isArray(canonicalSummary?.outlier_rows)
+      ? (canonicalSummary.outlier_rows as TransactionDataOutlierRow[])
+      : null)
+    ?? extraction?.outlierRows
+    ?? extraction?.summary?.outlier_rows
+    ?? rollups?.outlierRows
+    ?? rollups?.outlier_rows
+    ?? [];
+  const sanitizedOutlierRows = sanitizeSpreadsheetOutlierRows(outlierRows);
+  const summary = rawSummary
+    ? ({
+        ...stripLegacyUnknownEligibilityFields(rawSummary),
+        eligible_count: summaryEligibilityCounts.eligibleCount ?? 0,
+        ineligible_count: summaryEligibilityCounts.ineligibleCount ?? 0,
+        outlier_rows: sanitizedOutlierRows,
+        project_operations_overview: projectOperationsOverview,
+      } as TransactionDataExtraction['summary'])
+    : null;
+
+  const ticketTypeByRecordId = new Map<string, string>();
+  for (const record of records) {
+    const bucket = ticketTypeBucketFromRawRow(record.raw_row ?? {});
+    ticketTypeByRecordId.set(record.id, bucket);
+  }
+
+  const groupedByServiceItemMobileOnly = groupedByServiceItem.filter((group) => {
+    if (!hasMeaningfulGroupLabel(group.service_item)) return false;
+    if (group.record_ids.length === 0) return false;
+    return group.record_ids.some((recordId) => ticketTypeByRecordId.get(recordId) === 'mobile_unit');
+  });
+
+  const groupedByMaterialMobileOnly = groupedByMaterial.filter((group) => {
+    if (!hasMeaningfulGroupLabel(group.material)) return false;
+    if (group.record_ids.length === 0) return false;
+    return group.record_ids.some((recordId) => ticketTypeByRecordId.get(recordId) === 'mobile');
+  });
+
+  const totalNetTonnage = records.reduce<number | null>((sum, record) => {
+    const value = asFiniteNumber(record.net_tonnage);
+    if (value == null) return sum;
+    return (sum ?? 0) + value;
+  }, null);
+  const distinctTransactionCount = new Set(
+    records
+      .map((record) => (typeof record.transaction_number === 'string' ? record.transaction_number.trim().toUpperCase() : ''))
+      .filter((value) => value.length > 0),
+  ).size;
+
+  const projectFacts = resolveCanonicalProjectFacts({
+    validationStatus: canonical?.projectValidationStatus,
+    validationSummary: canonical?.projectValidationSummary,
+    validationFindings: canonical?.projectValidationFindings,
+  });
+  const projectBlockedReasons = projectFacts.blocked_reasons;
+  const projectTotalInvoicedAmount =
+    projectFacts.total_billed
+    ?? projectFacts.exposure_total_billed;
+  const projectTotalInvoices = projectFacts.exposure?.invoices.length ?? null;
+
+  const invoiceReadinessStatus = spreadsheetReviewReadinessStatusForProjectFacts({
+    facts: projectFacts,
+    fallback: baseInvoiceReadinessSummary?.status ?? null,
+  });
+
+  const invoiceReadinessSummary = baseInvoiceReadinessSummary
+    ? {
+        ...baseInvoiceReadinessSummary,
+        status: invoiceReadinessStatus ?? baseInvoiceReadinessSummary.status,
+        blocking_reasons:
+          projectBlockedReasons.length > 0
+            ? projectBlockedReasons
+            : baseInvoiceReadinessSummary.blocking_reasons,
+      }
+    : (
+      invoiceReadinessStatus != null || projectBlockedReasons.length > 0
+        ? {
+            status: invoiceReadinessStatus ?? 'needs_review',
+            total_tickets: 0,
+            invoiced_ticket_count: 0,
+            distinct_invoice_count: 0,
+            total_invoiced_amount: 0,
+            uninvoiced_line_count: 0,
+            rows_with_missing_rate_code: 0,
+            rows_with_missing_quantity: 0,
+            rows_with_missing_extended_cost: 0,
+            rows_with_zero_cost: 0,
+            rows_with_extreme_unit_rate: 0,
+            outlier_row_count: 0,
+            blocking_reasons: projectBlockedReasons,
+            record_ids: [],
+            evidence_refs: [],
+          }
+        : null
+    );
+
+  const kpis: SpreadsheetReviewKpis = {
+    totalTickets:
+      summary?.total_tickets ??
+      projectOperationsOverview?.total_tickets ??
+      rollups?.totalTickets ??
+      distinctTransactionCount,
+    totalCyd:
+      summary?.total_cyd ??
+      projectOperationsOverview?.total_cyd ??
+      rollups?.totalCyd ??
+      null,
+    totalNetTonnage,
+    invoicedTickets:
+      summary?.invoiced_ticket_count ??
+      projectOperationsOverview?.invoiced_ticket_count ??
+      rollups?.invoicedTicketCount ??
+      0,
+    totalInvoices:
+      projectTotalInvoices ??
+      summary?.distinct_invoice_count ??
+      projectOperationsOverview?.distinct_invoice_count ??
+      rollups?.distinctInvoiceCount ??
+      0,
+    totalInvoicedAmount:
+      projectTotalInvoicedAmount ??
+      summary?.total_invoiced_amount ??
+      projectOperationsOverview?.total_invoiced_amount ??
+      rollups?.totalInvoicedAmount ??
+      0,
+    uninvoicedLines:
+      summary?.uninvoiced_line_count ??
+      projectOperationsOverview?.uninvoiced_line_count ??
+      rollups?.uninvoicedLineCount ??
+      0,
+    eligible:
+      summary?.eligible_count ??
+      projectOperationsOverview?.eligible_count ??
+      rollups?.eligibleCount ??
+      0,
+    ineligible:
+      summary?.ineligible_count ??
+      projectOperationsOverview?.ineligible_count ??
+      rollups?.ineligibleCount ??
+      0,
+  };
+
+  const recordsById = buildRecordMap(records);
+  const totalExtendedCost =
+    asLooseNumber(summary?.total_extended_cost)
+    ?? asLooseNumber(rollups?.total_extended_cost)
+    ?? asLooseNumber(rollups?.totalExtendedCost)
+    ?? sumRecordNumberField(records, 'extended_cost')
+    ?? projectTotalInvoicedAmount
+    ?? asLooseNumber(projectOperationsOverview?.total_invoiced_amount);
+  const volumeBasis = determineVolumeBasis({
+    summary,
+    projectOperationsOverview,
+    rollups,
+    records,
+    groupedByMaterial,
+    groupedByDisposalSite,
+    groupedBySiteType,
+  });
+  const totalProjectVolume =
+    volumeBasis.metric === 'cyd'
+      ? (
+        asLooseNumber(summary?.total_cyd)
+        ?? asLooseNumber(projectOperationsOverview?.total_cyd)
+        ?? asLooseNumber(rollups?.total_cyd)
+        ?? asLooseNumber(rollups?.totalCyd)
+        ?? sumRecordNumberField(records, 'cyd')
+      )
+      : (
+        volumeBasis.metric === 'net_tonnage'
+          ? totalNetTonnage
+          : null
+      );
+  const rateCodeRows = groupedByRateCode
+    .filter(shouldSurfaceRateCodeCostDriverRow)
+    .map((group) => ({
+      rateCode: group.rate_code,
+      description: group.rate_description_sample,
+      ticketCount: group.row_count,
+      amount: asLooseNumber(group.total_extended_cost),
+    }))
+    .sort((left, right) => {
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      return (left.rateCode ?? left.description ?? '').localeCompare(
+        right.rateCode ?? right.description ?? '',
+        'en-US',
+      );
+    });
+
+  const rawServiceItemRows = buildServiceItemRows({
+    groups: groupedByServiceItem,
+    recordsById,
+  });
+  const totalServiceCost = rawServiceItemRows.reduce<number | null>((sum, row) => {
+    if (row.amount == null) return sum;
+    return (sum ?? 0) + row.amount;
+  }, null);
+  const serviceItemRows = rawServiceItemRows.map((row) => ({
+    ...row,
+    percentOfTotalServiceCost: percentOf(row.amount, totalServiceCost),
+  }));
+  const materialRows = buildFlowRows({
+    groups: groupedByMaterial,
+    getLabel: (group) => group.material,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const disposalSiteRows = buildFlowRows({
+    groups: groupedByDisposalSite,
+    getLabel: (group) => group.disposal_site,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const siteTypeRows = buildFlowRows({
+    groups: groupedBySiteType,
+    getLabel: (group) => group.site_type,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const disposalSiteByRecordId = buildRecordLabelMap(
+    groupedByDisposalSite,
+    (group) => group.disposal_site,
+    (group) => group.record_ids,
+  );
+  const siteTypeByRecordId = buildRecordLabelMap(
+    groupedBySiteType,
+    (group) => group.site_type,
+    (group) => group.record_ids,
+  );
+  const siteByRecordId = new Map(disposalSiteByRecordId);
+  for (const [recordId, siteType] of siteTypeByRecordId.entries()) {
+    if (!siteByRecordId.has(recordId)) siteByRecordId.set(recordId, siteType);
+  }
+  const {
+    riskSummary,
+    groupedRiskIssues,
+    riskDrilldownRows,
+  } = buildRiskPresentation({
+    outlierRows: sanitizedOutlierRows,
+    recordsById,
+    siteByRecordId,
+  });
+
+  return {
+    records,
+    summary,
+    rollups,
+    projectOperationsOverview,
+    groupedByRateCode,
+    groupedByServiceItemMobileOnly,
+    groupedByMaterialMobileOnly,
+    groupedByDisposalSite,
+    groupedBySiteType,
+    outlierRows: sanitizedOutlierRows,
+    invoiceReadinessSummary,
+    dmsFdsLifecycleSummary,
+    kpis,
+    totalExtendedCost,
+    volumeBasis,
+    rateCodeRows,
+    serviceItemRows,
+    materialRows,
+    disposalSiteRows,
+    siteTypeRows,
+    riskSummary,
+    groupedRiskIssues,
+    riskDrilldownRows,
+  };
+}
 
 type DecisionMeta = {
   ids: string[];
@@ -327,6 +1878,7 @@ type BaseDocumentFact = Omit<
   | 'reviewedBy'
   | 'reviewedAt'
   | 'reviewNotes'
+  | 'reviewHistory'
   | 'humanDefinedSchedule'
   | 'overrideHistory'
   | 'anchorCount'
@@ -435,7 +1987,6 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
     'uninvoiced_line_count',
     'eligible_count',
     'ineligible_count',
-    'unknown_eligibility_count',
     'distinct_invoice_numbers',
     'distinct_rate_codes',
     'distinct_service_items',
@@ -700,7 +2251,6 @@ const GROUP_DEFINITIONS: Record<
         /^uninvoiced_line_count$/i,
         /^eligible_count$/i,
         /^ineligible_count$/i,
-        /^unknown_eligibility_count$/i,
         /header_map/i,
         /sheet_names/i,
         /inferred_date_range/i,
@@ -807,6 +2357,18 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function asTransactionDataExtraction(value: unknown): TransactionDataExtraction | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const hasUsableShape =
+    record.sourceType === 'transaction_data'
+    || typeof record.rowCount === 'number'
+    || Array.isArray(record.records)
+    || asRecord(record.summary) != null
+    || asRecord(record.rollups) != null;
+  return hasUsableShape ? (record as unknown as TransactionDataExtraction) : null;
 }
 
 function titleize(value: string): string {
@@ -986,6 +2548,7 @@ function withDisplayMetadata(fact: BaseDocumentFact): DocumentFact {
     reviewedBy: null,
     reviewedAt: null,
     reviewNotes: null,
+    reviewHistory: [],
     humanDefinedSchedule: false,
     overrideHistory: [],
   };
@@ -1074,6 +2637,31 @@ function reviewStatusLabel(status: DocumentFactReviewStatus): string {
   }
 }
 
+function toReviewHistoryItem(
+  fieldKey: string,
+  valueType: DocumentFactValueType,
+  review: DocumentFactReviewRecord,
+): DocumentFactReviewHistoryItem {
+  const reviewedValueDisplay =
+    review.reviewedValueJson == null
+      ? null
+      : formatFactValue(
+          review.reviewedValueJson,
+          resolvedValueTypeForDisplay(fieldKey, valueType, review.reviewedValueJson),
+        );
+
+  return {
+    id: review.id,
+    fieldKey,
+    reviewStatus: review.reviewStatus,
+    reviewedValueJson: review.reviewedValueJson,
+    reviewedValueDisplay,
+    reviewedBy: review.reviewedBy,
+    reviewedAt: review.reviewedAt,
+    notes: review.notes,
+  };
+}
+
 function applyFactReviews(
   fact: DocumentFact,
   reviews: DocumentFactReviewRecord[],
@@ -1081,6 +2669,9 @@ function applyFactReviews(
   if (reviews.length === 0) return fact;
 
   const latest = reviews[0];
+  const reviewHistory = reviews.map((review) =>
+    toReviewHistoryItem(fact.fieldKey, fact.valueType, review),
+  );
   const note = latest.notes && latest.notes.trim().length > 0
     ? `Fact review: ${latest.notes.trim()}`
     : `Fact review status: ${reviewStatusLabel(latest.reviewStatus)}.`;
@@ -1090,6 +2681,7 @@ function applyFactReviews(
     reviewedBy: latest.reviewedBy,
     reviewedAt: latest.reviewedAt,
     reviewNotes: latest.notes,
+    reviewHistory,
     normalizationNotes: fact.normalizationNotes.includes(note)
       ? fact.normalizationNotes
       : [note, ...fact.normalizationNotes],
@@ -2586,6 +4178,191 @@ function computeAnchorCoverage(facts: DocumentFact[]): DocumentIntelligenceViewM
   };
 }
 
+function readLooseString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeInvoiceSurfaceLineItem(
+  value: unknown,
+): NonNullable<InvoiceExtraction['lineItems']>[number] | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const lineCode =
+    readLooseString(record.line_code)
+    ?? readLooseString(record.lineCode)
+    ?? readLooseString(record.rate_code);
+  const lineDescription =
+    readLooseString(record.line_description)
+    ?? readLooseString(record.lineDescription)
+    ?? readLooseString(record.description);
+  const quantity = asLooseNumber(record.quantity);
+  const unit = readLooseString(record.unit);
+  const unitPrice = asLooseNumber(record.unit_price ?? record.unitPrice ?? record.rate);
+  const lineTotal = asLooseNumber(record.line_total ?? record.lineTotal ?? record.total ?? record.amount);
+  const billingRateKey =
+    readLooseString(record.billing_rate_key)
+    ?? readLooseString(record.billingRateKey);
+  const descriptionMatchKey =
+    readLooseString(record.description_match_key)
+    ?? readLooseString(record.descriptionMatchKey);
+
+  if (
+    !lineCode
+    && !lineDescription
+    && quantity == null
+    && unitPrice == null
+    && lineTotal == null
+  ) {
+    return null;
+  }
+
+  return {
+    lineCode: lineCode ?? undefined,
+    lineDescription: lineDescription ?? undefined,
+    quantity: quantity ?? undefined,
+    unit: unit ?? undefined,
+    unitPrice: unitPrice ?? undefined,
+    lineTotal: lineTotal ?? undefined,
+    billingRateKey: billingRateKey ?? undefined,
+    descriptionMatchKey: descriptionMatchKey ?? undefined,
+  };
+}
+
+function toInvoiceSurfaceExtraction(params: {
+  typedFields: Record<string, unknown>;
+  extracted: Record<string, unknown>;
+}): InvoiceExtraction | null {
+  const source = {
+    ...params.extracted,
+    ...params.typedFields,
+  };
+
+  const invoiceNumberRaw =
+    readLooseString(source.invoice_number_raw)
+    ?? readLooseString(source.invoice_number)
+    ?? readLooseString(source.invoiceNumber);
+  const invoiceNumber =
+    normalizeCanonicalInvoiceNumber(invoiceNumberRaw)
+    ?? invoiceNumberRaw;
+  const invoiceStatus =
+    readLooseString(source.invoice_status)
+    ?? readLooseString(source.invoiceStatus);
+  const invoiceDate =
+    readLooseString(source.invoice_date)
+    ?? readLooseString(source.invoiceDate);
+  const periodFrom =
+    readLooseString(source.service_period_start)
+    ?? readLooseString(source.period_start)
+    ?? readLooseString(source.periodFrom);
+  const periodTo =
+    readLooseString(source.service_period_end)
+    ?? readLooseString(source.period_end)
+    ?? readLooseString(source.periodTo);
+  const periodThrough =
+    readLooseString(source.period_through)
+    ?? readLooseString(source.periodThrough);
+  const vendorName =
+    readLooseString(source.vendor_name)
+    ?? readLooseString(source.contractorName);
+  const clientName =
+    readLooseString(source.client_name)
+    ?? readLooseString(source.clientName)
+    ?? readLooseString(source.ownerName)
+    ?? readLooseString(source.bill_to_name);
+  const subtotalAmount =
+    asLooseNumber(source.subtotal_amount)
+    ?? asLooseNumber(source.subtotalAmount);
+  const totalAmount =
+    asLooseNumber(source.total_amount)
+    ?? asLooseNumber(source.totalAmount)
+    ?? asLooseNumber(source.billed_amount)
+    ?? asLooseNumber(source.current_amount_due)
+    ?? asLooseNumber(source.currentPaymentDue);
+  const currentPaymentDue =
+    asLooseNumber(source.current_amount_due)
+    ?? asLooseNumber(source.currentPaymentDue)
+    ?? totalAmount;
+
+  const lineItems = asArray<unknown>(source.line_items ?? source.lineItems)
+    .map((line) => normalizeInvoiceSurfaceLineItem(line))
+    .filter((line): line is NonNullable<InvoiceExtraction['lineItems']>[number] => line != null);
+  const lineItemCount =
+    asLooseNumber(source.line_item_count)
+    ?? asLooseNumber(source.lineItemCount)
+    ?? (lineItems.length > 0 ? lineItems.length : null);
+
+  if (
+    !invoiceNumber
+    && !vendorName
+    && !clientName
+    && invoiceDate == null
+    && totalAmount == null
+    && lineItems.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    invoiceNumber: invoiceNumber ?? undefined,
+    invoice_number: invoiceNumber ?? null,
+    invoice_number_raw: invoiceNumberRaw ?? null,
+    invoice_number_normalized: invoiceNumber ?? null,
+    contractorName: vendorName ?? undefined,
+    vendor_name: vendorName ?? null,
+    ownerName: clientName ?? undefined,
+    clientName: clientName ?? undefined,
+    client_name: clientName ?? null,
+    invoiceStatus: invoiceStatus ?? undefined,
+    invoice_status: invoiceStatus ?? null,
+    invoiceDate: invoiceDate ?? undefined,
+    invoice_date: invoiceDate ?? null,
+    periodFrom: periodFrom ?? undefined,
+    periodTo: periodTo ?? undefined,
+    periodThrough: periodThrough ?? undefined,
+    period_start: periodFrom ?? null,
+    period_end: periodTo ?? null,
+    period_through: periodThrough ?? null,
+    service_period_start: periodFrom ?? null,
+    service_period_end: (periodTo ?? periodThrough) ?? null,
+    subtotalAmount: subtotalAmount ?? undefined,
+    subtotal_amount: subtotalAmount ?? null,
+    totalAmount: totalAmount ?? undefined,
+    total_amount: totalAmount ?? null,
+    currentPaymentDue: currentPaymentDue ?? undefined,
+    current_amount_due: currentPaymentDue ?? null,
+    lineItemCount: lineItemCount ?? undefined,
+    line_item_count: lineItemCount ?? null,
+    lineItems,
+    line_items: lineItems.map((line) => ({
+      line_code: line.lineCode ?? null,
+      line_description: line.lineDescription ?? null,
+      quantity: line.quantity ?? null,
+      unit: line.unit ?? null,
+      unit_price: line.unitPrice ?? null,
+      line_total: line.lineTotal ?? null,
+      billing_rate_key: line.billingRateKey ?? null,
+      description_match_key: line.descriptionMatchKey ?? null,
+    })),
+  };
+}
+
+function dedupePipelineAliasFacts<T extends { fieldKey: string }>(
+  facts: readonly T[],
+  family: DocumentFamily,
+): T[] {
+  const canonicalCounts = facts.reduce((map, fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, family);
+    map.set(key, (map.get(key) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
+
+  return facts.filter((fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, family);
+    return fact.fieldKey === key || (canonicalCounts.get(key) ?? 0) === 1;
+  });
+}
+
 export function buildDocumentIntelligenceViewModel(params: BuildParams): DocumentIntelligenceViewModel {
   const extractionData = params.preferredExtraction?.data ?? null;
   const extraction = asRecord(extractionData?.extraction);
@@ -2637,7 +4414,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     ) ?? null;
   const evidenceById = new Map(normalizedNodeForFacts.evidence.map((evidence) => [evidence.id, evidence] as const));
 
-  const pipelineFacts = primaryDocument.facts.map((fact) => {
+  const pipelineFacts = dedupePipelineAliasFacts(primaryDocument.facts.map((fact) => {
     const anchors = dedupeAnchors(
       fact.evidence_refs
         .map((ref) => evidenceById.get(ref) ?? null)
@@ -2725,7 +4502,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     }
 
     return baseFact;
-  });
+  }), family);
 
   const existingKeys = new Set(pipelineFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)));
   const additionalFacts = buildAdditionalFacts({
@@ -2864,39 +4641,34 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   const hasExtractedKeys = Object.keys(extracted).length > 0;
   const isTransactionDataType = (params.documentType ?? '').toLowerCase().includes('transaction_data');
   const invoiceExtraction: InvoiceExtraction | null =
-    family === 'invoice' && hasExtractedKeys ? (extracted as unknown as InvoiceExtraction) : null;
-  const transactionDataExtraction: TransactionDataExtraction | null =
-    family === 'spreadsheet' && isTransactionDataType && hasExtractedKeys
-      ? (extracted as unknown as TransactionDataExtraction)
-      : null;
-
-  // Fallback: for spreadsheets whose data was stored via the pre-v2 pipeline path
-  // (preferredExtraction.data.extraction.evidence_v1.structured_fields) rather than
-  // executionTrace.extracted, read records and ops directly from structuredFields.
-  const spreadsheetStructuredRecords =
-    transactionDataExtraction == null &&
-    family === 'spreadsheet' &&
-    Array.isArray(structuredFields.transaction_data_records)
-      ? (structuredFields.transaction_data_records as TransactionDataRecord[])
-      : null;
-  const spreadsheetStructuredOps =
-    spreadsheetStructuredRecords != null &&
-    structuredFields.project_operations_overview != null
-      ? (structuredFields.project_operations_overview as TransactionDataProjectOperationsOverview)
-      : null;
-
-  const spreadsheetFactWorkspaceDatasetSummary =
-    transactionDataExtraction
-      ? buildSpreadsheetFactWorkspaceDatasetSummary({
-          ops: transactionDataExtraction.projectOperationsOverview ?? null,
-          records: transactionDataExtraction.records ?? [],
+    family === 'invoice'
+      ? toInvoiceSurfaceExtraction({
+          typedFields,
+          extracted,
         })
-      : spreadsheetStructuredRecords != null
-        ? buildSpreadsheetFactWorkspaceDatasetSummary({
-            ops: spreadsheetStructuredOps,
-            records: spreadsheetStructuredRecords,
-          })
-        : null;
+      : null;
+  const preferredTransactionDataExtraction: TransactionDataExtraction | null =
+    family === 'spreadsheet' && isTransactionDataType
+      ? asTransactionDataExtraction(normalizedNode.extracted)
+      : null;
+  const traceTransactionDataExtraction: TransactionDataExtraction | null =
+    family === 'spreadsheet' && isTransactionDataType && hasExtractedKeys
+      ? asTransactionDataExtraction(extracted)
+      : null;
+  const transactionDataExtraction: TransactionDataExtraction | null =
+    preferredTransactionDataExtraction
+    ?? traceTransactionDataExtraction;
+  const contractRateRows =
+    family === 'contract'
+      ? toDocumentContractRateRows(params.executionTrace?.contract_analysis?.rate_schedule_rows)
+      : [];
+  const spreadsheetReviewDataset = toSpreadsheetReviewDataset(transactionDataExtraction, {
+    projectValidationSummary: params.projectValidationSummary ?? null,
+    projectValidationStatus: params.projectValidationStatus ?? null,
+    projectValidationFindings: params.projectValidationFindings,
+    transactionDatasets: params.transactionDatasets ?? [],
+    transactionRows: params.transactionRows ?? [],
+  });
 
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_ANCHOR_COVERAGE_LOG === '1') {
     console.info('[EightForge anchor coverage]', {
@@ -2945,6 +4717,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     }),
     invoiceExtraction,
     transactionDataExtraction,
-    spreadsheetFactWorkspaceDatasetSummary,
+    spreadsheetReviewDataset,
+    contractRateRows,
   };
 }

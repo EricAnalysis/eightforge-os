@@ -3,6 +3,15 @@ import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
+import { syncValidatorDecisions } from '@/lib/validator/validatorDecisionSync';
+import {
+  blockerFindingCount,
+  infoFindingCount,
+  isBlockingFinding,
+  normalizeValidationFinding,
+  requiresReviewFindingCount,
+  warningFindingCount,
+} from '@/lib/validator/findingSemantics';
 import type {
   ValidationEvidence,
   ValidationFinding,
@@ -24,6 +33,8 @@ type ExistingOpenFindingRow = {
 type ProjectValidationActivityContext = {
   id: string;
   organization_id: string;
+  name: string | null;
+  code: string | null;
 };
 
 type PreviousRunRow = {
@@ -69,9 +80,9 @@ function buildEvidenceInserts(
 function summarizeFindings(findings: readonly ValidationFinding[]) {
   return {
     findings_count: findings.length,
-    critical_count: findings.filter((finding) => finding.severity === 'critical').length,
-    warning_count: findings.filter((finding) => finding.severity === 'warning').length,
-    info_count: findings.filter((finding) => finding.severity === 'info').length,
+    critical_count: blockerFindingCount(findings),
+    warning_count: warningFindingCount(findings) + requiresReviewFindingCount(findings),
+    info_count: infoFindingCount(findings),
   };
 }
 
@@ -170,7 +181,7 @@ async function loadProjectValidationActivityContext(
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('projects')
-    .select('id, organization_id')
+    .select('id, organization_id, name, code')
     .eq('id', projectId)
     .single();
 
@@ -465,6 +476,7 @@ export async function persistValidationRun(
   inputsSnapshotHash?: string | null,
 ): Promise<{ runId: string }> {
   const findings = (result.findings as PersistableValidationFinding[]).map(applyFindingRouting);
+  const persistedFindings: PersistableValidationFinding[] = [];
   let runId: string | null = null;
 
   try {
@@ -511,9 +523,27 @@ export async function persistValidationRun(
           check_key: finding.check_key,
         });
       }
+
+      persistedFindings.push({
+        ...finding,
+        id: persistedFindingId,
+      });
     }
 
     await markRunComplete(runId, findings);
+    await syncValidatorDecisions({
+      admin: requireAdminClient(),
+      projectId,
+      organizationId: project.organization_id,
+      projectContext: {
+        label: project.name ?? project.code ?? project.id,
+        project_id: project.id,
+        project_code: project.code ?? null,
+      },
+      runId,
+      result,
+      findings: persistedFindings,
+    });
     await createValidationRunActivityEvent({
       project,
       runId,
@@ -535,23 +565,25 @@ export async function persistValidationRun(
 
     const pendingActions = findings
       .filter((f) => f.decision_eligible && f.status === 'open')
-      .map((f, index) => ({
+      .map((f, index) => {
+        const normalized = normalizeValidationFinding(f);
+        return ({
         id: `finding-${f.check_key}`,
-        title: f.blocked_reason || f.category,
-        description: f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category,
-        status_label: f.severity === 'critical' ? 'Blocked' : 'Needs Review',
-        due_tone: f.severity === 'critical' ? 'danger' : 'warning',
-        impacted_amount: null,
-        at_risk_amount: null,
+        title: normalized.problem || f.blocked_reason || f.category,
+        description: normalized.impact || (f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category),
+        status_label: isBlockingFinding(f) ? 'Blocked' : 'Needs Review',
+        due_tone: isBlockingFinding(f) ? 'danger' : 'warning',
+        impacted_amount: normalized.affected_amount ?? null,
+        at_risk_amount: normalized.affected_amount ?? null,
         blocked_amount: null,
-        next_step: `Review finding: ${f.check_key}`,
+        next_step: normalized.required_action || `Review finding: ${f.check_key}`,
         href: `/platform/projects/${projectId}#validator`,
         invoice_number: null,
         approval_status: null,
         decision_id: f.rule_id || f.check_key,
         entity_type: 'finding',
         index,
-      }));
+      })});
 
     const rollup = {
       status: rollupStatus,
@@ -559,7 +591,7 @@ export async function persistValidationRun(
       pending_actions: pendingActions,
       needs_review_document_count: 0,
       unresolved_finding_count: findings.filter((f) => f.status === 'open').length,
-      blocked_count: findings.filter((f) => f.severity === 'critical' && f.status === 'open').length,
+      blocked_count: findings.filter((f) => f.status === 'open' && isBlockingFinding(f)).length,
       open_document_action_count: 0,
     };
 

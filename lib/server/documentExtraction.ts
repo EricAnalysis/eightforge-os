@@ -1829,16 +1829,40 @@ export async function extractDocument(
   }
 
   if (isSpreadsheet(fileName, mimeType)) {
+    console.log('[documents/process][spreadsheet] workbook parse start', {
+      documentId: metadata.id,
+      fileName,
+      mimeType,
+    });
     const workbook = await parseWorkbook(cloneArrayBuffer(fileBytes));
+    console.log('[documents/process][spreadsheet] workbook parse complete', {
+      documentId: metadata.id,
+      sheetCount: workbook.sheet_count,
+      parsedSheets: workbook.sheets.length,
+      rowLimitReached: workbook.row_limit_reached === true,
+    });
     const detectedSheets = detectSheets(workbook);
     const explicitDocumentType = (metadata.document_type ?? '').trim().toLowerCase();
     const transactionDataRequested = explicitDocumentType === 'transaction_data';
+    if (transactionDataRequested) {
+      console.log('[documents/process][spreadsheet] normalizeTransactionData start', {
+        documentId: metadata.id,
+        detectedSheets: detectedSheets.sheets.length,
+      });
+    }
     const transactionData = transactionDataRequested
       ? normalizeTransactionData({
           workbook,
           detectedSheets,
         })
       : null;
+    if (transactionDataRequested) {
+      console.log('[documents/process][spreadsheet] normalizeTransactionData complete', {
+        documentId: metadata.id,
+        rowCount: transactionData?.row_count ?? 0,
+        processedSheets: transactionData?.processed_sheet_names?.length ?? 0,
+      });
+    }
     const ticketExport = transactionDataRequested
       ? null
       : normalizeTicketExport({
@@ -1907,7 +1931,6 @@ export async function extractDocument(
           uninvoiced_line_count: transactionData.rollups.uninvoiced_line_count,
           eligible_count: transactionData.rollups.eligible_count,
           ineligible_count: transactionData.rollups.ineligible_count,
-          unknown_eligibility_count: transactionData.rollups.unknown_eligibility_count,
           distinct_rate_codes: transactionData.rollups.distinct_rate_codes,
           distinct_invoice_numbers: transactionData.rollups.distinct_invoice_numbers,
           distinct_service_items: transactionData.rollups.distinct_service_items,

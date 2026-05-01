@@ -38,6 +38,8 @@ function buildCanonicalResult(overrides: Record<string, unknown> = {}) {
     family: 'contract',
     intelligence: null,
     execution_trace_persisted: true,
+    transaction_data_persisted: true,
+    canonical_persistence_error: null,
     decisions_created: 0,
     decisions_updated: 0,
     decisions_deleted: 0,
@@ -338,6 +340,56 @@ describe('processDocument canonical persistence gating', () => {
       }),
     );
     expect(spies.evaluateDocument).not.toHaveBeenCalled();
+    expect(spies.generateAndPersistDecisions).not.toHaveBeenCalled();
+    expect(spies.orchestrateWorkflows).not.toHaveBeenCalled();
+  });
+
+  it('fails spreadsheet transaction_data reprocesses when canonical persistence returns a trace failure', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentId: 'spreadsheet-doc',
+      documentType: 'transaction_data',
+      extractionMode: 'spreadsheet',
+      canonicalResult: {
+        family: 'spreadsheet',
+        execution_trace_persisted: false,
+        transaction_data_persisted: true,
+        canonical_persistence_error: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+      },
+    });
+
+    const result = await processDocument({
+      documentId: 'spreadsheet-doc',
+      organizationId: 'org-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      jobId: 'job-1',
+      processing_status: 'failed',
+      error: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+    });
+    expect(spies.updateJobStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        status: 'failed',
+        completedAt: expect.any(String),
+        errorMessage: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+        resultExtractionId: null,
+      }),
+    );
+    expect(spies.setDocumentStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'spreadsheet-doc',
+        status: 'failed',
+        processingError: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+        processedAt: expect.any(String),
+      }),
+    );
+    expect(spies.setDocumentStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'decisioned' }),
+    );
     expect(spies.generateAndPersistDecisions).not.toHaveBeenCalled();
     expect(spies.orchestrateWorkflows).not.toHaveBeenCalled();
   });

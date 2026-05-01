@@ -2,6 +2,8 @@ import type {
   DecisionAction,
   ReviewErrorType,
 } from './types/documentIntelligence';
+import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
+import type { ValidationEvidence } from '@/types/validator';
 
 export type DecisionDetailDocumentRef = {
   id: string;
@@ -64,6 +66,15 @@ export type DecisionEvidenceReference = {
   detail: string;
 };
 
+export type DecisionEvidenceTarget = {
+  id: string;
+  label: string;
+  detail: string;
+  href: string | null;
+  exactTarget: boolean;
+  missingReason: string | null;
+};
+
 export type DecisionEvidenceNote = {
   id: string;
   label: string;
@@ -74,6 +85,8 @@ export type DecisionEvidencePayload = {
   metrics: DecisionEvidenceMetric[];
   references: DecisionEvidenceReference[];
   notes: DecisionEvidenceNote[];
+  targets: DecisionEvidenceTarget[];
+  missingEvidenceMessage: string | null;
   hasStructuredEvidence: boolean;
 };
 
@@ -348,6 +361,9 @@ type ResolveEvidenceParams = {
   severity?: string | null;
   source?: string | null;
   documentLabel?: string | null;
+  projectId?: string | null;
+  decisionId?: string | null;
+  validatorEvidence?: readonly ValidationEvidence[];
 };
 
 export function resolveDecisionEvidence(
@@ -364,6 +380,7 @@ export function resolveDecisionEvidence(
   const metrics: DecisionEvidenceMetric[] = [];
   const references: DecisionEvidenceReference[] = [];
   const notes: DecisionEvidenceNote[] = [];
+  const targets: DecisionEvidenceTarget[] = [];
   const seenReferences = new Set<string>();
   let structuredEvidenceCount = 0;
 
@@ -502,10 +519,54 @@ export function resolveDecisionEvidence(
     });
   }
 
+  const projectId = stringValue(params.projectId);
+  const decisionId = stringValue(params.decisionId);
+  if (projectId && Array.isArray(params.validatorEvidence)) {
+    const seenTargets = new Set<string>();
+    for (const evidence of params.validatorEvidence) {
+      const target = buildEvidenceTarget({
+        projectId,
+        evidence,
+        action: evidence.fact_id || evidence.field_name ? 'review' : 'inspect',
+        decisionId,
+      });
+      const key = [
+        target.documentId ?? 'none',
+        target.page ?? 'none',
+        target.factId ?? 'none',
+        target.fieldKey ?? 'none',
+        target.recordId ?? 'none',
+        target.rateRowId ?? 'none',
+      ].join(':');
+      if (seenTargets.has(key)) continue;
+      seenTargets.add(key);
+      targets.push({
+        id: evidence.id,
+        label: target.label,
+        detail: target.detail,
+        href: target.href,
+        exactTarget: target.exactTarget,
+        missingReason: target.missingReason,
+      });
+    }
+    if (targets.some((target) => target.exactTarget)) {
+      structuredEvidenceCount += 1;
+    }
+  }
+
+  const missingEvidenceMessage =
+    targets.length > 0 && !targets.some((target) => target.exactTarget)
+      ? 'Validator linked this decision to evidence, but the persisted evidence does not include an exact document page, fact, or row target yet.'
+      : targets.length === 0 && !stringValue(documentLabel)
+        ? 'No validator-backed evidence target is attached to this decision yet.'
+        : null;
+
   return {
     metrics: metrics.slice(0, 3),
     references: references.slice(0, 6),
     notes: notes.slice(0, 2),
+    targets: targets.slice(0, 6),
+    missingEvidenceMessage,
     hasStructuredEvidence: structuredEvidenceCount > 0,
   };
 }

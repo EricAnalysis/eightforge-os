@@ -6,6 +6,7 @@ import type {
   ApprovalExecutionGroup,
   ApprovalActionLogEntry,
 } from '@/lib/server/approvalActionHistory';
+import { supabase } from '@/lib/supabaseClient';
 
 // ---------------------------------------------------------------------------
 // Display mappings — match Phase 8 language rules (blocked → "Requires Verification")
@@ -46,16 +47,6 @@ function statusDotClass(status: string): string {
     case 'approved_with_exceptions': return 'bg-[#F59E0B]';
     case 'approved':              return 'bg-[#22C55E]';
     default:                      return 'bg-[#2F3B52]';
-  }
-}
-
-function statusTextClass(status: string): string {
-  switch (status) {
-    case 'blocked':               return 'text-[#EF4444]';
-    case 'needs_review':
-    case 'approved_with_exceptions': return 'text-[#F59E0B]';
-    case 'approved':              return 'text-[#22C55E]';
-    default:                      return 'text-[#94A3B8]';
   }
 }
 
@@ -289,6 +280,16 @@ type ApprovalActionTimelineProps = {
   projectId: string;
 };
 
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}` }
+    : {};
+}
+
 export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProps) {
   const [history, setHistory] = useState<ApprovalActionHistoryResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -302,8 +303,20 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`/api/projects/${projectId}/approval-action-history`);
+        const headers = await getAuthHeaders();
+        if (!('Authorization' in headers)) {
+          if (!cancelled) setHistory(null);
+          return;
+        }
+
+        const res = await fetch(`/api/projects/${projectId}/approval-action-history`, {
+          headers,
+        });
         if (!res.ok) {
+          if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 503) {
+            if (!cancelled) setHistory(null);
+            return;
+          }
           throw new Error(`${res.status}`);
         }
         const data: ApprovalActionHistoryResult = await res.json();
@@ -311,6 +324,7 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load');
+          setHistory(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -335,13 +349,7 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
   }
 
   if (error) {
-    return (
-      <div className="mt-4 rounded-xl border border-[#2F3B52]/40 bg-[#111827] px-5 py-4">
-        <p className="text-[11px] text-[#F87171]">
-          Could not load approval action history.
-        </p>
-      </div>
-    );
+    return null;
   }
 
   // No history yet — render nothing (engine hasn't run for this project)

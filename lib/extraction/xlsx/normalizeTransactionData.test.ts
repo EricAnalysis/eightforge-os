@@ -163,8 +163,8 @@ describe('normalizeTransactionData', () => {
     assert.equal(normalized.rollups.total_invoiced_amount, 350);
     assert.equal(normalized.rollups.uninvoiced_line_count, 1);
     assert.equal(normalized.rollups.eligible_count, 0);
-    assert.equal(normalized.rollups.ineligible_count, 0);
-    assert.equal(normalized.rollups.unknown_eligibility_count, 4);
+    assert.equal(normalized.rollups.ineligible_count, 4);
+    assert.ok(!('unknown_eligibility_count' in (normalized.rollups as unknown as Record<string, unknown>)));
     assert.deepEqual(normalized.rollups.distinct_rate_codes, ['RC-01']);
     assert.deepEqual(normalized.rollups.distinct_invoice_numbers, ['INV-100', 'INV-101']);
     assert.deepEqual(normalized.rollups.distinct_service_items, ['Hauling', 'Monitoring']);
@@ -263,6 +263,8 @@ describe('normalizeTransactionData', () => {
         distinct_invoice_numbers: ['INV-100', 'INV-101'],
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 3,
+        eligible_count: 0,
+        ineligible_count: 3,
         record_ids: [
           'transaction:ticket_query:3',
           'transaction:ticket_query:4',
@@ -284,6 +286,8 @@ describe('normalizeTransactionData', () => {
         distinct_invoice_numbers: [],
         uninvoiced_line_count: 1,
         invoiced_ticket_count: 0,
+        eligible_count: 0,
+        ineligible_count: 1,
         record_ids: ['transaction:ticket_query:5'],
         evidence_refs: ['sheet:ticket_query:row:5'],
       },
@@ -301,6 +305,8 @@ describe('normalizeTransactionData', () => {
         disposal_sites: [],
         uninvoiced_line_count: 1,
         invoiced_ticket_count: 0,
+        eligible_count: 0,
+        ineligible_count: 1,
         record_ids: ['transaction:ticket_query:5'],
         evidence_refs: ['sheet:ticket_query:row:5'],
       },
@@ -316,6 +322,8 @@ describe('normalizeTransactionData', () => {
         disposal_sites: ['Alpha Landfill'],
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 3,
+        eligible_count: 0,
+        ineligible_count: 3,
         record_ids: [
           'transaction:ticket_query:3',
           'transaction:ticket_query:4',
@@ -341,6 +349,8 @@ describe('normalizeTransactionData', () => {
         disposal_sites: ['Alpha Landfill'],
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 3,
+        eligible_count: 0,
+        ineligible_count: 3,
         record_ids: [
           'transaction:ticket_query:3',
           'transaction:ticket_query:4',
@@ -364,6 +374,8 @@ describe('normalizeTransactionData', () => {
         disposal_sites: [],
         uninvoiced_line_count: 1,
         invoiced_ticket_count: 0,
+        eligible_count: 0,
+        ineligible_count: 1,
         record_ids: ['transaction:ticket_query:5'],
         evidence_refs: ['sheet:ticket_query:row:5'],
       },
@@ -381,6 +393,8 @@ describe('normalizeTransactionData', () => {
         materials: ['C&D'],
         uninvoiced_line_count: 1,
         invoiced_ticket_count: 0,
+        eligible_count: 0,
+        ineligible_count: 1,
         record_ids: ['transaction:ticket_query:5'],
         evidence_refs: ['sheet:ticket_query:row:5'],
       },
@@ -396,6 +410,8 @@ describe('normalizeTransactionData', () => {
         materials: ['Vegetative'],
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 3,
+        eligible_count: 0,
+        ineligible_count: 3,
         record_ids: [
           'transaction:ticket_query:3',
           'transaction:ticket_query:4',
@@ -418,7 +434,9 @@ describe('normalizeTransactionData', () => {
     assert.equal(normalized.summary.distinct_invoice_count, 2);
     assert.equal(normalized.summary.total_invoiced_amount, 350);
     assert.equal(normalized.summary.uninvoiced_line_count, 1);
-    assert.equal(normalized.summary.unknown_eligibility_count, 4);
+    assert.equal(normalized.summary.eligible_count, 0);
+    assert.equal(normalized.summary.ineligible_count, 4);
+    assert.ok(!('unknown_eligibility_count' in (normalized.summary as unknown as Record<string, unknown>)));
     assert.deepEqual(normalized.summary.grouped_by_service_item, normalized.rollups.grouped_by_service_item);
     assert.deepEqual(normalized.summary.grouped_by_material, normalized.rollups.grouped_by_material);
     assert.deepEqual(normalized.summary.grouped_by_site_type, normalized.rollups.grouped_by_site_type);
@@ -442,8 +460,7 @@ describe('normalizeTransactionData', () => {
       distinct_site_type_count: 1,
       distinct_disposal_site_count: 1,
       eligible_count: 0,
-      ineligible_count: 0,
-      unknown_eligibility_count: 4,
+      ineligible_count: 4,
       reviewed_sheet_names: ['ticket_query', 'Summary'],
       record_ids: [
         'transaction:ticket_query:3',
@@ -493,7 +510,7 @@ describe('normalizeTransactionData', () => {
     assert.equal(normalized.summary.boundary_location_review.status, 'ok');
     assert.equal(normalized.summary.boundary_location_review.flagged_row_count, 0);
     assert.equal(normalized.summary.distance_from_feature_review.status, 'unavailable');
-    assert.equal(normalized.summary.debris_class_at_disposal_site_review.status, 'ok');
+    assert.equal(normalized.summary.debris_class_at_disposal_site_review.status, 'unavailable');
     assert.equal(normalized.summary.mileage_review.status, 'unavailable');
     assert.equal(normalized.summary.load_call_review.status, 'unavailable');
     assert.equal(normalized.summary.linked_mobile_load_consistency_review.status, 'unavailable');
@@ -621,5 +638,267 @@ describe('normalizeTransactionData', () => {
         ],
       },
     ]);
+  });
+
+  it('maps the spreadsheet Diameter header into the normalized diameter field', async () => {
+    const workbook = await parseWorkbook(
+      workbookBytes([
+        {
+          name: 'ticket_query',
+          rows: [
+            ['Diameter Mapping Export'],
+            [
+              'Transaction #',
+              'Invoice #',
+              'Service Item',
+              'Quantity',
+              'Line Total',
+              'Diameter',
+            ],
+            ['TX-2001', 'INV-200', 'Hauling', 1, 100, 12.5],
+            ['TX-2001', 'INV-200', 'Hauling', 1, 100, 12.5],
+            ['TX-2002', 'INV-201', 'Hauling', 1, 100, ''],
+          ],
+        },
+      ]),
+    );
+
+    const detectedSheets = detectSheets(workbook);
+    const normalized = normalizeTransactionData({
+      workbook,
+      detectedSheets,
+    });
+
+    assert.equal(normalized.header_map.diameter?.[0]?.column_name, 'Diameter');
+    assert.ok(normalized.detected_metric_columns.includes('Diameter'));
+    assert.equal(normalized.records[0]?.diameter, 12.5);
+    assert.equal(normalized.records[1]?.diameter, 12.5);
+    assert.equal(normalized.records[2]?.diameter, null);
+  });
+
+  it('dedupes invoiced ticket completeness when one ticket spans multiple transaction rows', async () => {
+    const workbook = await parseWorkbook(
+      workbookBytes([
+        {
+          name: 'ticket_query',
+          rows: [
+            ['Transaction #', 'Invoice #', 'Rate Code', 'Quantity', 'Unit Rate', 'Line Total', 'Material', 'Service Item'],
+            ['TX-2001', 'INV-200', 'RC-01', 4, 10, 40, 'Vegetative', 'Hauling'],
+            ['TX-2001', 'INV-200', 'RC-02', 6, 5, 30, 'Vegetative', 'Hauling'],
+            ['TX-2002', '', 'RC-03', 2, 5, 10, 'C&D', 'Monitoring'],
+          ],
+        },
+      ]),
+    );
+
+    const normalized = normalizeTransactionData({
+      workbook,
+      detectedSheets: detectSheets(workbook),
+    });
+
+    assert.equal(normalized.rollups.total_tickets, 2);
+    assert.equal(normalized.rollups.invoiced_ticket_count, 1);
+    assert.equal(normalized.rollups.total_invoiced_amount, 70);
+    assert.equal(normalized.rollups.uninvoiced_line_count, 1);
+    assert.equal(normalized.summary.invoice_readiness_summary.total_tickets, 2);
+    assert.equal(normalized.summary.invoice_readiness_summary.invoiced_ticket_count, 1);
+    assert.equal(normalized.summary.invoice_readiness_summary.uninvoiced_line_count, 1);
+    assert.equal(normalized.rollups.grouped_by_service_item[0]?.service_item, 'Hauling');
+    assert.equal(normalized.rollups.grouped_by_service_item[0]?.invoiced_ticket_count, 1);
+    assert.equal(normalized.rollups.grouped_by_service_item[0]?.total_transaction_quantity, 10);
+    assert.equal(normalized.rollups.grouped_by_material[1]?.material, 'Vegetative');
+    assert.equal(normalized.rollups.grouped_by_material[1]?.invoiced_ticket_count, 1);
+    assert.equal(normalized.rollups.grouped_by_material[1]?.total_extended_cost, 70);
+  });
+
+  it('does not bind discrepancy or ticket numbers into cyd or ticket notes when those headers are absent', async () => {
+    const workbook = await parseWorkbook(
+      workbookBytes([
+        {
+          name: 'ticket_query',
+          rows: [
+            ['Current Workbook Export'],
+            [
+              'Ticket ID',
+              'Ticket No',
+              'Discrepancy',
+              'Invoice #',
+              'Rate Code',
+              'Service Item',
+              'Material',
+              'Disposal Site',
+              'Site Type',
+              'Quantity',
+              'Line Total',
+            ],
+            [
+              'TID-1001',
+              'TK-1001',
+              3,
+              'INV-100',
+              'RC-01',
+              'Hauling',
+              'Vegetative',
+              'Alpha DMS',
+              'DMS',
+              10,
+              250,
+            ],
+          ],
+        },
+      ]),
+    );
+
+    const detectedSheets = detectSheets(workbook);
+    const normalized = normalizeTransactionData({
+      workbook,
+      detectedSheets,
+    });
+
+    assert.equal(normalized.header_map.cyd, undefined);
+    assert.equal(normalized.header_map.ticket_notes, undefined);
+    assert.equal(normalized.records[0]?.transaction_number, 'TID-1001');
+    assert.equal(normalized.records[0]?.invoice_number, 'INV-100');
+    assert.equal(normalized.records[0]?.rate_code, 'RC-01');
+    assert.equal(normalized.records[0]?.service_item, 'Hauling');
+    assert.equal(normalized.records[0]?.material, 'Vegetative');
+    assert.equal(normalized.records[0]?.cyd, null);
+    assert.equal(normalized.records[0]?.ticket_notes, null);
+    assert.equal(normalized.rollups.total_cyd, 0);
+    assert.deepEqual(
+      normalized.rollups.grouped_by_disposal_site.map((group) => group.disposal_site),
+      ['Alpha DMS'],
+    );
+    assert.deepEqual(
+      normalized.rollups.grouped_by_site_type.map((group) => group.site_type),
+      ['DMS'],
+    );
+  });
+
+  it('prefers the actual CYD header over discrepancy while preserving core mappings', async () => {
+    const workbook = await parseWorkbook(
+      workbookBytes([
+        {
+          name: 'ticket_query',
+          rows: [
+            ['Current Workbook Export'],
+            [
+              'Ticket ID',
+              'Ticket No',
+              'Discrepancy',
+              'CYD',
+              'Invoice #',
+              'Rate Code',
+              'Service Item',
+              'Material',
+              'Disposal Site',
+              'Site Type',
+              'Quantity',
+              'Line Total',
+            ],
+            [
+              'TID-2001',
+              'TK-2001',
+              3,
+              42,
+              'INV-204',
+              'RC-77',
+              'Debris Pickup',
+              'Neighborhood Veg',
+              'Alpha DMS',
+              'DMS',
+              12,
+              1250.75,
+            ],
+          ],
+        },
+      ]),
+    );
+
+    const detectedSheets = detectSheets(workbook);
+    const normalized = normalizeTransactionData({
+      workbook,
+      detectedSheets,
+    });
+
+    assert.equal(normalized.header_map.cyd?.[0]?.column_name, 'CYD');
+    assert.equal(normalized.header_map.invoice_number?.[0]?.column_name, 'Invoice #');
+    assert.equal(normalized.header_map.rate_code?.[0]?.column_name, 'Rate Code');
+    assert.equal(normalized.header_map.service_item?.[0]?.column_name, 'Service Item');
+    assert.equal(normalized.header_map.material?.[0]?.column_name, 'Material');
+    assert.ok(normalized.detected_metric_columns.includes('CYD'));
+    assert.equal(normalized.records[0]?.cyd, 42);
+    assert.equal(normalized.records[0]?.invoice_number, 'INV-204');
+    assert.equal(normalized.records[0]?.rate_code, 'RC-77');
+    assert.equal(normalized.records[0]?.service_item, 'Debris Pickup');
+    assert.equal(normalized.records[0]?.material, 'Neighborhood Veg');
+    assert.equal(normalized.rollups.total_cyd, 42);
+    assert.deepEqual(
+      normalized.rollups.grouped_by_disposal_site.map((group) => group.disposal_site),
+      ['Alpha DMS'],
+    );
+    assert.deepEqual(
+      normalized.rollups.grouped_by_site_type.map((group) => group.site_type),
+      ['DMS'],
+    );
+  });
+
+  it('maps eligibility variants deterministically into the eligible and ineligible buckets only', async () => {
+    const workbook = await parseWorkbook(
+      workbookBytes([
+        {
+          name: 'ticket_query',
+          rows: [
+            ['Eligibility Export'],
+            [
+              'Transaction #',
+              'Invoice #',
+              'Rate Code',
+              'Quantity',
+              'Line Total',
+              'Eligibility',
+              'Project Name',
+            ],
+            ['TX-3001', 'INV-301', 'RC-01', 1, 100, 'Eligible', 'Williamson County'],
+            ['TX-3002', 'INV-302', 'RC-01', 1, 100, 'in_scope', 'Williamson County'],
+            ['TX-3003', 'INV-303', 'RC-01', 1, 100, 'out-of-scope', 'Williamson County'],
+            ['TX-3004', 'INV-304', 'RC-01', 1, 100, 'VOID', 'Williamson County'],
+            ['TX-3005', 'INV-305', 'RC-01', 1, 100, 'unset', 'Williamson County'],
+            ['TX-3006', 'INV-306', 'RC-01', 1, 100, 'Pending Review', 'Williamson County'],
+            ['TX-3007', 'INV-307', 'RC-01', 1, 100, null, 'Williamson County'],
+          ],
+        },
+      ]),
+    );
+
+    const detectedSheets = detectSheets(workbook);
+    const normalized = normalizeTransactionData({
+      workbook,
+      detectedSheets,
+    });
+
+    assert.equal(normalized.records[0]?.eligibility, 'Eligible');
+    assert.equal(normalized.records[1]?.eligibility, 'in_scope');
+    assert.equal(normalized.records[2]?.eligibility, 'out-of-scope');
+    assert.equal(normalized.records[3]?.eligibility, 'VOID');
+
+    assert.equal(normalized.rollups.eligible_count, 2);
+    assert.equal(normalized.rollups.ineligible_count, 5);
+    assert.equal(normalized.summary.eligible_count, 2);
+    assert.equal(normalized.summary.ineligible_count, 5);
+    assert.equal(normalized.summary.project_operations_overview?.eligible_count, 2);
+    assert.equal(normalized.summary.project_operations_overview?.ineligible_count, 5);
+    assert.ok(!('unknown_eligibility_count' in (normalized.rollups as unknown as Record<string, unknown>)));
+    assert.ok(!('unknown_eligibility_count' in (normalized.summary as unknown as Record<string, unknown>)));
+    assert.ok(
+      !('unknown_eligibility_count'
+        in (normalized.summary.project_operations_overview as unknown as Record<string, unknown>)),
+    );
+    assert.deepEqual(
+      normalized.summary.outlier_rows
+        .filter((row) => row.reasons.includes('eligibility status unresolved'))
+        .map((row) => row.transaction_number),
+      [],
+    );
   });
 });

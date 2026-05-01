@@ -10,6 +10,7 @@ import {
   deriveBillingKeysForInvoiceLine,
   deriveInvoiceRateKey,
 } from '@/lib/validator/billingKeys';
+import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 
 type InvoiceContentLayers = {
   pdf?: {
@@ -186,6 +187,14 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function restoreOcrWordSpacing(value: string): string {
+  return normalizeWhitespace(
+    value
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2'),
+  );
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -298,13 +307,232 @@ function matchAnyPhraseAlias(label: string, aliases: readonly string[]): boolean
 
 function cleanPartyName(value: string | null | undefined): string | null {
   if (!value) return null;
-  const normalized = normalizeWhitespace(value)
+  let normalized = restoreOcrWordSpacing(value)
     .replace(/^(?:vendor|contractor|from|bill to|client|customer|owner)\s*[:\-]\s*/i, '')
+    .replace(/^(?:make all checks payable to)\s*/i, '')
+    .replace(/\b(?:thank you for your business|invoice no|fein|job due date)\b[\s\S]*$/i, '')
+    .replace(/\b\d{3}[- ]\d{3}[- ]\d{4}\b/g, ' ')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ')
+    .replace(/\b\d{4}-\d{3,4}\b/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
   if (normalized.length < 3) return null;
   if (/^\$?[\d,]+(?:\.\d+)?$/.test(normalized)) return null;
+  if (normalized === normalized.toUpperCase()) {
+    normalized = normalized
+      .split(' ')
+      .filter((token) => token.length > 0)
+      .map((token) => {
+        const bare = token.replace(/[^A-Z]/g, '');
+        if (bare === 'LLC' || bare === 'LP' || bare === 'LLP' || bare === 'PLC' || bare === 'PC') {
+          return token.toUpperCase();
+        }
+        if (bare === 'INC') {
+          return token.endsWith('.') ? 'Inc.' : 'Inc.';
+        }
+        return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+      })
+      .join(' ');
+  }
   return normalized.length > 180 ? normalized.slice(0, 180).trim() : normalized;
+}
+
+export function normalizeCanonicalInvoiceNumber(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+
+  const cleaned = restoreOcrWordSpacing(value)
+    .toUpperCase()
+    .replace(/[–—]/g, '-')
+    .replace(/[_/\\]+/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9-]+/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .trim();
+
+  if (!cleaned) return null;
+
+  const yearDashNumber = cleaned.match(/^(\d{4})-0*(\d{1,3})$/);
+  if (yearDashNumber) {
+    return `${yearDashNumber[1]}-${yearDashNumber[2].padStart(3, '0')}`;
+  }
+
+  const compactYearNumber = cleaned.match(/^(\d{4})0*(\d{1,3})$/);
+  if (compactYearNumber) {
+    return `${compactYearNumber[1]}-${compactYearNumber[2].padStart(3, '0')}`;
+  }
+
+  const alphaNumber = cleaned.match(/^([A-Z]+)-?0*(\d+)$/);
+  if (alphaNumber) {
+    return `${alphaNumber[1]}-${alphaNumber[2]}`;
+  }
+
+  return cleaned;
+}
+
+function nonEmptyStringCandidate(
+  value: string | null,
+  score: number,
+  evidence_refs: string[] = [],
+): ScalarCandidate<string> | null {
+  return value
+    ? {
+        value,
+        raw_text: value,
+        evidence_refs,
+        score,
+      }
+    : null;
+}
+
+function lineCodeLikeValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = restoreOcrWordSpacing(value);
+  if (!trimmed) return null;
+  if (!/[A-Za-z]/.test(trimmed)) return null;
+  return /^[A-Za-z0-9][A-Za-z0-9 .\-\/]{0,20}$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
+function cleanFlattenedLineDescription(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = restoreOcrWordSpacing(value)
+    .replace(/\bINVOICE\s+Description\b[\s\S]*$/i, '')
+    .replace(/\bMake all checks payable to\b[\s\S]*$/i, '')
+    .replace(/\bTHANK YOU FOR YOUR BUSINESS!?[\s\S]*$/i, '')
+    .replace(/\b\d{3}[- ]\d{3}[- ]\d{4}\b/g, ' ')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ')
+    .replace(/\b\d{4}-\d{3,4}\b/g, ' ')
+    .replace(/[>"“”]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (!normalized || !/[A-Za-z]/.test(normalized)) return null;
+  return normalized.length > 220 ? normalized.slice(0, 220).trim() : normalized;
+}
+
+function compareInvoiceLineCodes(left: string, right: string): number {
+  const leftMatch = left.match(/^(\d+)([A-Z]+)$/i);
+  const rightMatch = right.match(/^(\d+)([A-Z]+)$/i);
+  if (leftMatch && rightMatch) {
+    const leftNumber = Number(leftMatch[1]);
+    const rightNumber = Number(rightMatch[1]);
+    if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+    return leftMatch[2].localeCompare(rightMatch[2]);
+  }
+  return left.localeCompare(right, undefined, { numeric: true });
+}
+
+function extractClientFromUnlabeledText(text: string): string | null {
+  const agencyMatches = Array.from(
+    text.matchAll(
+      /\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*\s+(?:County|City|Town|Village)\s+[A-Za-z][A-Za-z &]+(?:Dept|Department|Office|Authority|District|Public Works))\b/g,
+    ),
+  )
+    .map((match) => cleanPartyName(match[1] ?? null))
+    .filter((value): value is string => value != null);
+
+  if (agencyMatches.length > 0) {
+    return agencyMatches.sort((left, right) => right.length - left.length)[0] ?? null;
+  }
+
+  const fallbackMatches = Array.from(
+    text.matchAll(
+      /\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*\s+(?:County|City|Town|Village)(?:,\s*[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)?)\b/g,
+    ),
+  )
+    .map((match) => cleanPartyName(match[1] ?? null))
+    .filter((value): value is string => value != null);
+
+  return fallbackMatches[0] ?? null;
+}
+
+function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
+  const amountRegion = text.split(/subtotal/i)[0] ?? text;
+  const amountMatches = Array.from(
+    amountRegion.matchAll(
+      /(\d[\d,]*(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/g,
+    ),
+  ).flatMap((match) => {
+    const quantity = toAmount(match[1]);
+    const unit_price = toAmount(match[2]);
+    const line_total = toAmount(match[3]);
+    if (quantity == null || unit_price == null || line_total == null) return [];
+
+    const expectedTotal = quantity * unit_price;
+    if (Math.abs(expectedTotal - line_total) > Math.max(1, line_total * 0.01)) {
+      return [];
+    }
+
+    return [{
+      quantity,
+      unit_price,
+      line_total,
+      raw_text: normalizeWhitespace(match[0] ?? ''),
+    }];
+  });
+
+  const descriptionRegionMatch = text.match(
+    /(?:Emergency\s+Agmt[\s\S]*?)((?:\b\d+[A-Z]\s*-\s*[\s\S]+))(?:Make all checks payable to|THANK YOU FOR YOUR BUSINESS|$)/i,
+  );
+  const descriptionRegion = descriptionRegionMatch?.[1] ?? text;
+  const descriptionMatches = Array.from(
+    descriptionRegion.matchAll(
+      /\b(\d+[A-Z])\s*-\s*([\s\S]*?)(?=(?:\b\d+[A-Z]\s*-\s*)|Make all checks payable to|THANK YOU FOR YOUR BUSINESS|$)/gi,
+    ),
+  ).flatMap((match) => {
+    const line_code = lineCodeLikeValue(match[1] ?? null);
+    const line_description = cleanFlattenedLineDescription(match[2] ?? null);
+    if (!line_code || !line_description) return [];
+    return [{
+      line_code,
+      line_description,
+      raw_text: normalizeWhitespace(match[0] ?? ''),
+    }];
+  });
+
+  const uniqueDescriptions = Array.from(
+    descriptionMatches.reduce((map, item) => {
+      if (!map.has(item.line_code)) {
+        map.set(item.line_code, item);
+      }
+      return map;
+    }, new Map<string, { line_code: string; line_description: string; raw_text: string }>()),
+  )
+    .map(([, item]) => item)
+    .sort((left, right) => compareInvoiceLineCodes(left.line_code, right.line_code));
+
+  if (amountMatches.length === 0 || uniqueDescriptions.length === 0) return [];
+  if (amountMatches.length !== uniqueDescriptions.length) return [];
+
+  return uniqueDescriptions.map((description, index) => {
+    const amount = amountMatches[index]!;
+    const billingKeys = deriveBillingKeysForInvoiceLine({
+      rate_code: description.line_code,
+      description: description.line_description,
+      service_item: description.line_description,
+      material: null,
+    });
+
+    return {
+      line_code: description.line_code,
+      line_description: description.line_description,
+      quantity: amount.quantity,
+      unit: null,
+      unit_price: amount.unit_price,
+      line_total: amount.line_total,
+      billing_rate_key: billingKeys.billing_rate_key,
+      description_match_key: billingKeys.description_match_key,
+      description: description.line_description,
+      total: amount.line_total,
+      evidence_refs: [],
+      raw_text: `${description.raw_text} ${amount.raw_text}`.trim(),
+    };
+  });
 }
 
 function formatIsoDate(year: number, month: number, day: number): string | null {
@@ -717,12 +945,7 @@ function looksLikeLineItemTable(table: PdfTable): boolean {
 }
 
 function codeLikeValue(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = normalizeWhitespace(value);
-  if (!trimmed) return null;
-  return /^[A-Za-z0-9][A-Za-z0-9 .\-\/]{0,20}$/.test(trimmed)
-    ? trimmed
-    : null;
+  return lineCodeLikeValue(value);
 }
 
 function cellText(row: PdfTableRow, index: number | null): string | null {
@@ -1247,6 +1470,12 @@ export function extractInvoiceTypedFields(params: {
       86,
       cleanPartyName,
     ),
+    evidenceCandidateByRegex(
+      context.evidence,
+      /make all checks payable to\s+([A-Z][A-Za-z0-9 &.,'()\/\-]{2,180})/i,
+      84,
+      cleanPartyName,
+    ),
     (() => {
       const match = text.match(
         /(?:vendor|contractor|from|seller|payee)\s*[:\-]?\s*([A-Z][A-Za-z0-9 &.,'()\/\-]{2,180})/i,
@@ -1254,6 +1483,13 @@ export function extractInvoiceTypedFields(params: {
       const value = cleanPartyName(match?.[1] ?? null);
       return value
         ? { value, raw_text: match?.[0] ?? value, evidence_refs: [], score: 68 }
+        : null;
+    })(),
+    (() => {
+      const match = text.match(/make all checks payable to\s+([A-Z][A-Za-z0-9 &.,'()\/\-]{2,180})/i);
+      const value = cleanPartyName(match?.[1] ?? null);
+      return value
+        ? { value, raw_text: match?.[0] ?? value, evidence_refs: [], score: 66 }
         : null;
     })(),
   ]);
@@ -1275,6 +1511,7 @@ export function extractInvoiceTypedFields(params: {
         ? { value, raw_text: match?.[0] ?? value, evidence_refs: [], score: 68 }
         : null;
     })(),
+    nonEmptyStringCandidate(extractClientFromUnlabeledText(text), 62),
   ]);
 
   const servicePeriod = extractServicePeriod({
@@ -1284,8 +1521,17 @@ export function extractInvoiceTypedFields(params: {
   });
 
   const tableLineItems = extractLineItemsFromTables(context.tables);
-  const fallbackLineItems = tableLineItems.length > 0 ? [] : extractLineItemsFromText(text);
-  const resolvedLineItems = tableLineItems.length > 0 ? tableLineItems : fallbackLineItems;
+  const fallbackTextLineItems = tableLineItems.length > 0 ? [] : extractLineItemsFromText(text);
+  const flattenedTextLineItems =
+    tableLineItems.length > 0 || fallbackTextLineItems.length > 0
+      ? []
+      : extractFlattenedLineItemsFromText(text);
+  const resolvedLineItems =
+    tableLineItems.length > 0
+      ? tableLineItems
+      : fallbackTextLineItems.length > 0
+        ? fallbackTextLineItems
+        : flattenedTextLineItems;
 
   const { subtotalCandidates, totalCandidates, currentDueCandidates } = extractAmountCandidates({
     text,
@@ -1323,12 +1569,16 @@ export function extractInvoiceTypedFields(params: {
 
   return {
     schema_type: 'invoice',
-    invoice_number: invoiceNumberCandidate?.value ?? null,
+    invoice_number: normalizeCanonicalInvoiceNumber(invoiceNumberCandidate?.value ?? null),
+    invoice_number_raw: invoiceNumberCandidate?.value ?? null,
+    invoice_number_normalized: normalizeCanonicalInvoiceNumber(invoiceNumberCandidate?.value ?? null),
     invoice_status: invoiceStatusCandidate?.value ?? null,
     invoice_date: invoiceDateCandidate?.value ?? null,
     period_start: servicePeriod.period_start,
     period_end: servicePeriod.period_end,
     period_through: servicePeriod.period_through,
+    service_period_start: servicePeriod.period_start,
+    service_period_end: servicePeriod.period_end ?? servicePeriod.period_through,
     vendor_name: vendorCandidate?.value ?? null,
     client_name: clientCandidate?.value ?? null,
     line_items: resolvedLineItems,
@@ -1374,13 +1624,21 @@ function normalizeTypedInvoiceLine(
   if (!record) return null;
 
   const line_code =
-    recordString(record.line_code)
-    ?? recordString(record.rate_code)
-    ?? recordString(record.code);
+    lineCodeLikeValue(recordString(record.line_code))
+    ?? lineCodeLikeValue(recordString(record.rate_code))
+    ?? lineCodeLikeValue(recordString(record.code));
   const line_description =
     recordString(record.line_description)
     ?? recordString(record.description)
     ?? recordString(record.item_description);
+  const material =
+    recordString(record.material)
+    ?? recordString(record.material_type)
+    ?? recordString(record.debris_type);
+  const service_item =
+    recordString(record.service_item)
+    ?? recordString(record.service_item_code)
+    ?? line_description;
   const quantity = recordNumber(record.quantity ?? record.qty);
   const unit = recordString(record.unit ?? record.uom);
   const unit_price = recordNumber(record.unit_price ?? record.price ?? record.rate);
@@ -1393,8 +1651,18 @@ function normalizeTypedInvoiceLine(
   const billingKeys = deriveBillingKeysForInvoiceLine({
     rate_code: line_code,
     description: line_description,
-    service_item: line_description,
-    material: recordString(record.material),
+    service_item,
+    material,
+  });
+  const categoryResolution = resolveCanonicalRateCategory({
+    sourceCategory: material,
+    sourceDescriptors: [service_item, line_description, line_code],
+    existingCanonicalCategory:
+      recordString(record.canonical_category)
+      ?? recordString(record.canonicalCategory),
+    existingConfidence:
+      recordNumber(record.category_confidence)
+      ?? recordNumber(record.categoryConfidence),
   });
 
   return {
@@ -1407,6 +1675,8 @@ function normalizeTypedInvoiceLine(
     rate_code: line_code,
     description: line_description,
     line_description,
+    material,
+    service_item,
     quantity,
     unit,
     unit_price,
@@ -1419,6 +1689,8 @@ function normalizeTypedInvoiceLine(
       invoiceNumber,
       recordString(record.billing_rate_key) ?? billingKeys.billing_rate_key,
     ),
+    canonical_category: categoryResolution.canonical_category,
+    category_confidence: categoryResolution.category_confidence,
     evidence_refs: asArray<string>(record.evidence_refs),
     raw_text: recordString(record.raw_text),
   };
@@ -1432,20 +1704,28 @@ export function buildCanonicalInvoiceRowsFromTypedFields(params: {
   invoiceLines: Record<string, unknown>[];
 } {
   const typed = params.typedFields ?? {};
-  const invoice_number = recordString(typed.invoice_number) ?? recordString(typed.invoiceNumber);
+  const invoice_number_raw =
+    recordString(typed.invoice_number_raw)
+    ?? recordString(typed.invoice_number)
+    ?? recordString(typed.invoiceNumber);
+  const invoice_number = normalizeCanonicalInvoiceNumber(invoice_number_raw) ?? invoice_number_raw;
   const invoice_date =
     normalizeDate(recordString(typed.invoice_date))
     ?? normalizeDate(recordString(typed.invoiceDate))
     ?? recordString(typed.invoice_date)
     ?? recordString(typed.invoiceDate);
   const period_start =
-    normalizeDate(recordString(typed.period_start))
+    normalizeDate(recordString(typed.service_period_start))
+    ?? normalizeDate(recordString(typed.period_start))
     ?? normalizeDate(recordString(typed.periodFrom))
+    ?? recordString(typed.service_period_start)
     ?? recordString(typed.period_start)
     ?? recordString(typed.periodFrom);
   const period_end =
-    normalizeDate(recordString(typed.period_end))
+    normalizeDate(recordString(typed.service_period_end))
+    ?? normalizeDate(recordString(typed.period_end))
     ?? normalizeDate(recordString(typed.periodTo))
+    ?? recordString(typed.service_period_end)
     ?? recordString(typed.period_end)
     ?? recordString(typed.periodTo);
   const period_through =
@@ -1484,17 +1764,22 @@ export function buildCanonicalInvoiceRowsFromTypedFields(params: {
     source_document_id: params.documentId,
     document_id: params.documentId,
     invoice_number,
+    invoice_number_raw,
+    invoice_number_normalized: invoice_number,
     invoice_status,
     invoice_date,
     period_start,
     period_end,
     period_through,
+    service_period_start: period_start,
+    service_period_end: period_end ?? period_through,
     vendor_name,
     client_name,
     subtotal_amount,
     total_amount,
     billed_amount: total_amount,
     line_item_count,
+    line_items: invoiceLines,
     raw_sections: asRecord(typed.raw_sections),
     evidence_anchors: asRecord(typed.evidence_anchors),
   } : null;

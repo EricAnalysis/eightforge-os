@@ -9,13 +9,26 @@ import type {
   TransactionDataRateCodeGroup,
   TransactionDataSiteMaterialGroup,
 } from '@/lib/types/transactionData';
+import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
+import {
+  blockerFindingCount,
+  infoFindingCount,
+  isBlockingFinding,
+  isReviewFinding,
+  normalizeValidationFinding,
+  requiresReviewFindingCount,
+  severityRankForFinding,
+  warningFindingCount,
+} from '@/lib/validator/findingSemantics';
 import {
   normalizeCurrency,
   normalizeString,
 } from '@/lib/validation/normalizeValidationValues';
 import type {
   ContractInvoiceReconciliationSummary,
+  CrossDocumentRateVerificationSummary,
   InvoiceTransactionReconciliationSummary,
+  ProjectValidationPhase,
   ProjectExposureSummary,
   ProjectReconciliationSummary,
   ValidationEvidence,
@@ -39,6 +52,7 @@ export type ValidatorProjectRow = {
   code: string | null;
   validation_status?: string | null;
   validation_summary_json?: unknown;
+  validation_phase?: ProjectValidationPhase | null;
 };
 
 export type ValidatorDocumentRow = {
@@ -48,9 +62,11 @@ export type ValidatorDocumentRow = {
   title: string | null;
   name: string;
   document_type: string | null;
+  document_subtype?: string | null;
   created_at: string;
   processing_status?: string | null;
   processed_at?: string | null;
+  intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
 };
 
 export type ValidatorExtractionFactRow = {
@@ -85,7 +101,17 @@ export type ValidatorDocumentIdsByFamily = {
   ticket_support: string[];
 };
 
+export type ValidatorTruthCategoryDocumentIds = {
+  contract_identity: string[];
+  pricing: string[];
+  compliance: string[];
+  amendments: string[];
+};
+
 export type ValidatorFactSource =
+  | 'human_override'
+  | 'human_review'
+  | 'canonical_contract_intelligence'
   | 'normalized_row'
   | 'legacy_typed_field'
   | 'legacy_structured_field'
@@ -113,6 +139,9 @@ export type RateScheduleItem = {
   material_type: string | null;
   description: string | null;
   service_item?: string | null;
+  source_category?: string | null;
+  canonical_category?: string | null;
+  category_confidence?: number | null;
   raw_value: unknown;
   /** Derived: canonical pricing key for reconciliation (see billingKeys). */
   billing_rate_key?: string | null;
@@ -151,7 +180,9 @@ export type ValidatorTransactionDataRow = {
   transaction_number: string | null;
   rate_code: string | null;
   billing_rate_key: string | null;
+  description_match_key?: string | null;
   site_material_key: string | null;
+  invoice_rate_key?: string | null;
   transaction_quantity: number | null;
   extended_cost: number | null;
   invoice_date: string | null;
@@ -243,11 +274,13 @@ export type ValidatorFactLookups = {
 
 export type ProjectValidatorInput = {
   project: ValidatorProjectRow;
+  validationPhase: ProjectValidationPhase;
   documents: ValidatorDocumentRow[];
   documentRelationships: DocumentRelationshipRecord[];
   precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
   familyDocumentIds: ValidatorDocumentIdsByFamily;
   governingDocumentIds: ValidatorDocumentIdsByFamily;
+  truthCategoryDocumentIds: ValidatorTruthCategoryDocumentIds;
   ruleStateByRuleId: Map<string, ValidationRuleState>;
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   allFacts: ValidatorFactRecord[];
@@ -653,53 +686,70 @@ export function makeFinding(params: {
   }));
 
   return {
+    ...normalizeValidationFinding({
+      id,
+      run_id: PURE_VALIDATOR_RUN_ID,
+      project_id: params.projectId,
+      rule_id: params.ruleId,
+      check_key: checkKey,
+      category: params.category,
+      severity: params.severity,
+      status: params.status ?? 'open',
+      subject_type: params.subjectType,
+      subject_id: params.subjectId,
+      field: params.field ?? null,
+      expected: stringifyValue(params.expected),
+      actual: stringifyValue(params.actual),
+      variance: params.variance ?? null,
+      variance_unit: params.varianceUnit ?? null,
+      blocked_reason: params.blockedReason ?? null,
+      evidence_refs: evidence.map((entry) => (
+        [
+          entry.evidence_type,
+          entry.source_document_id ?? 'no-document',
+          entry.record_id ?? entry.field_name ?? 'no-record',
+        ].join(':')
+      )),
+      decision_eligible: params.decisionEligible ?? false,
+      action_eligible: params.actionEligible ?? false,
+      linked_decision_id: null,
+      linked_action_id: null,
+      resolved_by_user_id: null,
+      resolved_at: null,
+      created_at: PURE_VALIDATOR_TIMESTAMP,
+      updated_at: PURE_VALIDATOR_TIMESTAMP,
+    }),
     id,
-    run_id: PURE_VALIDATOR_RUN_ID,
-    project_id: params.projectId,
-    rule_id: params.ruleId,
-    check_key: checkKey,
-    category: params.category,
-    severity: params.severity,
-    status: params.status ?? 'open',
-    subject_type: params.subjectType,
-    subject_id: params.subjectId,
-    field: params.field ?? null,
-    expected: stringifyValue(params.expected),
-    actual: stringifyValue(params.actual),
-    variance: params.variance ?? null,
-    variance_unit: params.varianceUnit ?? null,
-    blocked_reason: params.blockedReason ?? null,
-    decision_eligible: params.decisionEligible ?? false,
-    action_eligible: params.actionEligible ?? false,
-    linked_decision_id: null,
-    linked_action_id: null,
-    resolved_by_user_id: null,
-    resolved_at: null,
-    created_at: PURE_VALIDATOR_TIMESTAMP,
-    updated_at: PURE_VALIDATOR_TIMESTAMP,
     evidence,
   };
+}
+
+function isBlockingFindingsOpenOrRelevant(finding: ValidationFinding): boolean {
+  return finding.status === 'open' && isBlockingFinding(finding);
+}
+
+function unsupportedAmountFromExposure(
+  exposure: ProjectExposureSummary | null | undefined,
+): number | null {
+  if (!exposure) return null;
+
+  const unsupported = exposure.total_billed_amount - exposure.total_fully_reconciled_amount;
+  return Number.isFinite(unsupported) ? Math.max(0, unsupported) : null;
 }
 
 export function blockingReasons(findings: readonly ValidationFinding[]): string[] {
   return uniqueStrings(
     findings
-      .filter((finding) => finding.category === 'required_sources')
-      .map((finding) => finding.blocked_reason),
+      .filter((finding) => isBlockingFindingsOpenOrRelevant(finding))
+      .map((finding) => normalizeValidationFinding(finding).problem ?? finding.blocked_reason),
   );
 }
 
 export function hasBlockingFindings(findings: readonly ValidationFinding[]): boolean {
-  return blockingReasons(findings).length > 0;
+  return findings.some((finding) => isBlockingFindingsOpenOrRelevant(finding));
 }
 
 export function sortFindings<T extends ValidationFinding>(findings: readonly T[]): T[] {
-  const severityRank: Record<ValidationSeverity, number> = {
-    critical: 0,
-    warning: 1,
-    info: 2,
-  };
-
   const categoryRank: Record<ValidationCategory, number> = {
     required_sources: 0,
     identity_consistency: 1,
@@ -711,7 +761,7 @@ export function sortFindings<T extends ValidationFinding>(findings: readonly T[]
     const categoryDelta = categoryRank[left.category] - categoryRank[right.category];
     if (categoryDelta !== 0) return categoryDelta;
 
-    const severityDelta = severityRank[left.severity] - severityRank[right.severity];
+    const severityDelta = severityRankForFinding(left) - severityRankForFinding(right);
     if (severityDelta !== 0) return severityDelta;
 
     const ruleDelta = left.rule_id.localeCompare(right.rule_id, 'en-US');
@@ -792,6 +842,7 @@ const FINDING_FACT_KEYS_BY_RULE_ID: Record<string, string[]> = {
   FINANCIAL_NTE_APPROACHING: ['billed_total', 'nte_amount', 'contract_ceiling'],
   SOURCES_NO_CONTRACT: ['contract_document'],
   SOURCES_NO_RATE_SCHEDULE: ['rate_schedule'],
+  SOURCES_NO_INVOICE_DATA: ['invoice_data'],
   SOURCES_NO_TICKET_DATA: ['ticket_data', 'transaction_data'],
 };
 
@@ -821,6 +872,8 @@ const FINDING_MESSAGE_BY_RULE_ID: Record<string, string> = {
     'Invoice service period falls outside governing contract term',
   FINANCIAL_INVOICE_SERVICE_PERIOD_MISSING:
     'Invoice service period could not be extracted for governing contract comparison',
+  SOURCES_NO_INVOICE_DATA:
+    'Invoice data is required for the current validation phase',
   FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS:
     'Invoice totals do not reconcile to billed line items',
   INVOICE_DUPLICATE_BILLED_LINE:
@@ -841,6 +894,9 @@ function humanizeRuleId(ruleId: string): string {
 }
 
 export function messageForFinding(finding: ValidationFinding): string {
+  const normalized = normalizeValidationFinding(finding);
+  if (normalized.problem) return normalized.problem;
+
   const explicit = FINDING_MESSAGE_BY_RULE_ID[finding.rule_id];
   if (explicit) return explicit;
 
@@ -871,6 +927,7 @@ export function factKeysForFinding(finding: ValidationFinding): string[] {
 export function toValidatorSummaryItem(
   finding: ValidationFinding,
 ): ValidatorSummaryItem {
+  const normalized = normalizeValidationFinding(finding);
   return {
     rule_id: finding.rule_id,
     severity: finding.severity,
@@ -879,6 +936,15 @@ export function toValidatorSummaryItem(
     field: finding.field,
     fact_keys: factKeysForFinding(finding),
     message: messageForFinding(finding),
+    finding_disposition: normalized.finding_disposition ?? null,
+    business_severity: normalized.business_severity ?? null,
+    problem: normalized.problem ?? null,
+    impact: normalized.impact ?? null,
+    required_action: normalized.required_action ?? null,
+    evidence_refs: normalized.evidence_refs ?? [],
+    source_family: normalized.source_family ?? null,
+    affected_amount: normalized.affected_amount ?? null,
+    approval_gate_effect: normalized.approval_gate_effect ?? null,
   };
 }
 
@@ -886,7 +952,7 @@ export function deriveValidatorStatus(
   findings: readonly ValidationFinding[],
 ): ValidatorStatus {
   const openFindings = findings.filter((finding) => finding.status === 'open');
-  if (openFindings.some((finding) => finding.severity === 'critical')) {
+  if (openFindings.some((finding) => isBlockingFinding(finding))) {
     return 'BLOCKED';
   }
   if (openFindings.length === 0) {
@@ -901,20 +967,33 @@ export function buildValidationSummary(
   options: {
     contractInvoiceReconciliation?: ContractInvoiceReconciliationSummary | null;
     invoiceTransactionReconciliation?: InvoiceTransactionReconciliationSummary | null;
+    crossDocumentRateVerification?: CrossDocumentRateVerificationSummary | null;
     reconciliation?: ProjectReconciliationSummary | null;
     exposure?: ProjectExposureSummary | null;
     nte_amount?: number | null;
     total_billed?: number | null;
+    contractDocumentId?: string | null;
+    contractValidationContext?: ValidatorContractAnalysisContext | null;
+    validationPhase?: ProjectValidationPhase | null;
   } = {},
 ): ValidationSummary {
-  const criticalCount = findings.filter((finding) => finding.severity === 'critical').length;
-  const warningCount = findings.filter((finding) => finding.severity === 'warning').length;
-  const infoCount = findings.filter((finding) => finding.severity === 'info').length;
+  const normalizedFindings = findings.map((finding) => normalizeValidationFinding(finding));
+  const criticalCount = blockerFindingCount(normalizedFindings);
+  const warningCount = warningFindingCount(normalizedFindings);
+  const requiresReviewCount = requiresReviewFindingCount(normalizedFindings);
+  const infoCount = infoFindingCount(normalizedFindings);
   const openFindings = findings.filter((finding) => finding.status === 'open');
   const validatorOpenItems = openFindings.map(toValidatorSummaryItem);
   const validatorBlockers = openFindings
-    .filter((finding) => finding.severity === 'critical')
+    .filter((finding) => isBlockingFinding(finding))
     .map(toValidatorSummaryItem);
+  const unsupportedAmount = unsupportedAmountFromExposure(options.exposure ?? null);
+  const atRiskAmount =
+    options.exposure != null && Number.isFinite(options.exposure.total_at_risk_amount)
+      ? options.exposure.total_at_risk_amount
+      : null;
+  const requiresVerificationAmount =
+    options.exposure?.total_requires_verification_amount ?? null;
 
   return {
     status,
@@ -922,33 +1001,60 @@ export function buildValidationSummary(
     critical_count: criticalCount,
     warning_count: warningCount,
     info_count: infoCount,
+    blocker_count: criticalCount,
+    requires_review_count: requiresReviewCount,
     open_count: openFindings.length,
     blocked_reasons: blockingReasons(findings),
     trigger_source: null,
     validator_status: deriveValidatorStatus(findings),
+    readiness:
+      status === 'NOT_READY'
+        ? 'NOT_READY'
+        : deriveValidatorStatus(findings),
+    validation_phase: options.validationPhase ?? 'contract_setup',
     validator_open_items: validatorOpenItems,
     validator_blockers: validatorBlockers,
     contract_invoice_reconciliation:
       options.contractInvoiceReconciliation ?? null,
     invoice_transaction_reconciliation:
       options.invoiceTransactionReconciliation ?? null,
+    cross_document_rate_verification:
+      options.crossDocumentRateVerification ?? null,
     reconciliation:
       options.reconciliation ?? null,
     exposure:
       options.exposure ?? null,
     nte_amount: options.nte_amount ?? null,
     total_billed: options.total_billed ?? null,
-    requires_verification_amount:
-      options.exposure?.total_requires_verification_amount ?? null,
+    requires_verification_amount: requiresVerificationAmount,
+    requires_verification:
+      requiresVerificationAmount == null
+        ? null
+        : requiresVerificationAmount > 0,
+    at_risk_amount: atRiskAmount,
+    unsupported_amount: unsupportedAmount,
+    contract_document_id:
+      options.contractDocumentId
+      ?? options.contractValidationContext?.document_id
+      ?? null,
+    contract_validation_context: options.contractValidationContext
+      ? {
+        document_id: options.contractValidationContext.document_id,
+        analysis: options.contractValidationContext.analysis,
+      }
+      : null,
   };
 }
 
 function compareFactPriority(left: ValidatorFactRecord, right: ValidatorFactRecord): number {
   const priority: Record<ValidatorFactSource, number> = {
-    normalized_row: 0,
-    legacy_structured_field: 1,
-    legacy_typed_field: 2,
-    legacy_section_signal: 3,
+    human_override: 0,
+    human_review: 1,
+    canonical_contract_intelligence: 2,
+    normalized_row: 3,
+    legacy_structured_field: 4,
+    legacy_typed_field: 5,
+    legacy_section_signal: 6,
   };
 
   const priorityDelta = priority[left.source] - priority[right.source];

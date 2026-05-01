@@ -15,6 +15,7 @@ const BILLED_FIELD_KEYS = new Set([
   'invoice_total',
   'total_amount',
   'current_amount_due',
+  'total_billed',
 ]);
 const CONTRACTOR_FIELD_KEYS = new Set(['contractor_name', 'vendor_name']);
 
@@ -77,6 +78,14 @@ function chooseBestFact(facts: StructuredFact[]): StructuredFact | null {
 
 function sumBilledFacts(facts: StructuredFact[]): number | null {
   if (facts.length === 0) return null;
+
+  const canonicalProjectTotal = chooseBestFact(
+    facts.filter((fact) => factKey(fact) === 'total_billed'),
+  );
+  const totalBilled = canonicalProjectTotal ? numericValue(canonicalProjectTotal.value) : null;
+  if (totalBilled != null) {
+    return totalBilled;
+  }
 
   const bestByDocument = new Map<string, StructuredFact>();
 

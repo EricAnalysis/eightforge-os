@@ -3,6 +3,10 @@
 import Link from 'next/link';
 import type { ProjectDocumentRow, ProjectOverviewModel } from '@/lib/projectOverview';
 import {
+  PROJECT_TERM_AT_RISK_AMOUNT,
+  PROJECT_TERM_INVOICE_BILLED_AMOUNT,
+} from '@/lib/projectTerminology';
+import {
   approvalGateImpact,
   approvalNextAction,
   operatorApprovalLabel,
@@ -142,7 +146,7 @@ export function ProjectIntelligenceSnapshot({
         : 'Link the governing contract or record the contract ceiling.',
     },
     {
-      label: 'Billed total',
+      label: PROJECT_TERM_INVOICE_BILLED_AMOUNT,
       value: billedValue,
       sourceLabel: 'Validator exposure math (invoice totals)',
       sourceHref: null,
@@ -153,7 +157,7 @@ export function ProjectIntelligenceSnapshot({
         : 'Process invoice totals so billed exposure can be validated.',
     },
     {
-      label: 'Requires verification',
+      label: 'Requires Verification',
       value: hasAtRisk ? atRiskValue : fmtCurrency(0),
       sourceLabel: 'Validator exposure math (unreconciled / unsupported)',
       sourceHref: null,
@@ -169,7 +173,7 @@ export function ProjectIntelligenceSnapshot({
         : 'No verification follow-up is currently required.',
     },
     {
-      label: 'At risk amount',
+      label: PROJECT_TERM_AT_RISK_AMOUNT,
       value: atRiskValue,
       sourceLabel: 'Validator exposure math (at-risk dollars)',
       sourceHref: null,

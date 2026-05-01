@@ -8,9 +8,11 @@ import {
 } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
+import type { CanonicalProjectTransactionDatasetInput } from '@/lib/projectFacts';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
+import type { ValidationFinding } from '@/types/validator';
 import {
   dedupeById,
   matchesProjectDecision,
@@ -18,6 +20,7 @@ import {
   type ProjectActivityEventRow,
   type ProjectDecisionRow,
   type ProjectDocumentRow,
+  type ProjectDocumentRelationshipRow,
   type ProjectDocumentReviewRow,
   type ProjectMember,
   type ProjectRecord,
@@ -25,11 +28,21 @@ import {
 } from '@/lib/projectOverview';
 
 const BASE_DECISION_SELECT =
-  'id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
+  'id, document_id, source, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const BASE_TASK_SELECT =
   'id, decision_id, document_id, task_type, title, description, priority, status, created_at, updated_at, due_at, assigned_to, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
+const DOCUMENT_SELECT_WITH_PRECEDENCE =
+  'id, title, name, document_type, document_subtype, domain, processing_status, processing_error, created_at, processed_at, project_id, document_role, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
+const DOCUMENT_SELECT_LEGACY =
+  'id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, intelligence_trace';
+const DOCUMENT_RELATIONSHIP_SELECT =
+  'id, project_id, source_document_id, target_document_id, relationship_type, created_by, created_at';
 
-function collectError(messageParts: string[], label: string, error: { message?: string } | null | undefined) {
+function collectError(
+  messageParts: string[],
+  label: string,
+  error: { message?: string | null } | null | undefined,
+) {
   if (error?.message) {
     messageParts.push(`${label}: ${error.message}`);
   }
@@ -42,6 +55,54 @@ type ProjectDocumentExtractionRow = {
   created_at: string;
 };
 
+type ProjectTransactionDatasetRow = CanonicalProjectTransactionDatasetInput;
+
+type ProjectRowsQueryResult = {
+  data: unknown[] | null;
+  error: { code?: string | null; message?: string | null } | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isMissingDocumentPrecedenceColumnError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  const message = (error?.message ?? '').toLowerCase();
+  if (error?.code !== '42703' && error?.code !== 'PGRST204') {
+    return false;
+  }
+  return [
+    'document_role',
+    'document_subtype',
+    'authority_status',
+    'effective_date',
+    'precedence_rank',
+    'operator_override_precedence',
+  ].some((column) => message.includes(column));
+}
+
+function isMissingDocumentRelationshipsTableError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (error?.message ?? '').toLowerCase().includes('document_relationships');
+}
+
+function isMissingProjectValidationPhaseColumnError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  const message = (error?.message ?? '').toLowerCase();
+  return (
+    (error?.code === '42703' || error?.code === 'PGRST204')
+    && message.includes('validation_phase')
+  );
+}
+
 function parseExecutionTrace(
   raw: ProjectDocumentRow['intelligence_trace'],
 ): DocumentExecutionTrace | null {
@@ -50,6 +111,38 @@ function parseExecutionTrace(
   if (!candidate.facts || typeof candidate.facts !== 'object') return null;
   if (!Array.isArray(candidate.decisions) || !Array.isArray(candidate.flow_tasks)) return null;
   return candidate as DocumentExecutionTrace;
+}
+
+function hydrateDocumentTraceWithPreferredExtraction(
+  document: ProjectDocumentRow,
+  extractionData: Record<string, unknown> | null | undefined,
+): ProjectDocumentRow {
+  const typedFields = asRecord(asRecord(extractionData)?.fields)?.typed_fields;
+  if (!typedFields) return document;
+
+  const rawTrace = asRecord(document.intelligence_trace);
+  const existingExtracted = asRecord(rawTrace?.extracted);
+  const hydratedTrace = rawTrace
+    ? {
+        ...rawTrace,
+        extracted: {
+          ...(existingExtracted ?? {}),
+          ...typedFields,
+        },
+      }
+    : {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        extracted: {
+          ...typedFields,
+        },
+      };
+
+  return {
+    ...document,
+    intelligence_trace: hydratedTrace,
+  };
 }
 
 /**
@@ -140,6 +233,9 @@ async function fetchDecisionsAndTasksViaDocumentScope(
 export type ProjectWorkspaceDataState = {
   project: ProjectRecord | null;
   documents: ProjectDocumentRow[];
+  documentRelationships: ProjectDocumentRelationshipRow[];
+  transactionDatasets: ProjectTransactionDatasetRow[];
+  validationFindings: ValidationFinding[];
   documentReviews: ProjectDocumentReviewRow[];
   generatedDecisions: ForgeGeneratedDecision[];
   decisions: ProjectDecisionRow[];
@@ -167,6 +263,9 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [documents, setDocuments] = useState<ProjectDocumentRow[]>([]);
+  const [documentRelationships, setDocumentRelationships] = useState<ProjectDocumentRelationshipRow[]>([]);
+  const [transactionDatasets, setTransactionDatasets] = useState<ProjectTransactionDatasetRow[]>([]);
+  const [validationFindings, setValidationFindings] = useState<ValidationFinding[]>([]);
   const [documentReviews, setDocumentReviews] = useState<ProjectDocumentReviewRow[]>([]);
   const [generatedDecisions, setGeneratedDecisions] = useState<ForgeGeneratedDecision[]>([]);
   const [decisions, setDecisions] = useState<ProjectDecisionRow[]>([]);
@@ -176,14 +275,13 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
   const [notFound, setNotFound] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
-  const [refetchTick, setRefetchTick] = useState(0);
+  const [refetchState, setRefetchState] = useState({ projectId, tick: 0 });
 
   const refetch = useCallback(() => {
-    setRefetchTick((n) => n + 1);
-  }, []);
-
-  useEffect(() => {
-    setRefetchTick(0);
+    setRefetchState((current) => ({
+      projectId,
+      tick: current.projectId === projectId ? current.tick + 1 : 1,
+    }));
   }, [projectId]);
 
   useEffect(() => {
@@ -194,7 +292,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     let cancelled = false;
 
     const load = async () => {
-      const silentRefetch = refetchTick > 0;
+      const silentRefetch = refetchState.projectId === projectId && refetchState.tick > 0;
       if (!silentRefetch) {
         setLoading(true);
       }
@@ -204,43 +302,116 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       const issues: string[] = [];
 
-      const [projectResult, documentsResult] = await Promise.all([
+      const [
+        projectResult,
+        documentsWithPrecedenceResult,
+        transactionDatasetsResult,
+        validationFindingsResult,
+        documentRelationshipsResult,
+      ] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, code, status, created_at, validation_status, validation_summary_json')
+          .select('id, name, code, status, created_at, validation_status, validation_summary_json, validation_phase')
           .eq('organization_id', organizationId)
           .eq('id', projectId)
           .maybeSingle(),
         supabase
           .from('documents')
-          .select('id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, intelligence_trace')
+          .select(DOCUMENT_SELECT_WITH_PRECEDENCE)
+          .eq('organization_id', organizationId)
+          .eq('project_id', projectId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('transaction_data_datasets')
+          .select('document_id, row_count, date_range_start, date_range_end, summary_json, created_at')
+          .eq('project_id', projectId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('project_validation_findings')
+          .select('*')
+          .eq('project_id', projectId)
+          .eq('status', 'open'),
+        supabase
+          .from('document_relationships')
+          .select(DOCUMENT_RELATIONSHIP_SELECT)
           .eq('organization_id', organizationId)
           .eq('project_id', projectId)
           .order('created_at', { ascending: false }),
       ]);
+      collectError(issues, 'Transaction datasets', transactionDatasetsResult.error);
+      collectError(issues, 'Validation findings', validationFindingsResult.error);
+
+      let resolvedProjectResult = projectResult;
+      if (projectResult.error && isMissingProjectValidationPhaseColumnError(projectResult.error)) {
+        issues.push(
+          'Project validation phase is not available yet; using the default contract setup phase until that field is migrated.',
+        );
+        resolvedProjectResult = await supabase
+          .from('projects')
+          .select('id, name, code, status, created_at, validation_status, validation_summary_json')
+          .eq('organization_id', organizationId)
+          .eq('id', projectId)
+          .maybeSingle();
+      }
+
+      let documentsResult = documentsWithPrecedenceResult as ProjectRowsQueryResult;
+      if (documentsWithPrecedenceResult.error && isMissingDocumentPrecedenceColumnError(documentsWithPrecedenceResult.error)) {
+        issues.push(
+          'Document precedence columns are not available yet; using legacy document records until those fields are migrated.',
+        );
+        documentsResult = await supabase
+          .from('documents')
+          .select(DOCUMENT_SELECT_LEGACY)
+          .eq('organization_id', organizationId)
+          .eq('project_id', projectId)
+          .order('created_at', { ascending: false }) as ProjectRowsQueryResult;
+      }
 
       collectError(issues, 'Documents', documentsResult.error);
 
-      if (projectResult.error) {
+      if (resolvedProjectResult.error) {
         if (!cancelled) {
           setPageError('Failed to load this project.');
+          setDocumentRelationships([]);
+          setValidationFindings([]);
           setGeneratedDecisions([]);
           setLoading(false);
         }
         return;
       }
 
-      if (!projectResult.data) {
+      if (!resolvedProjectResult.data) {
         if (!cancelled) {
           setNotFound(true);
+          setDocumentRelationships([]);
+          setValidationFindings([]);
           setGeneratedDecisions([]);
           setLoading(false);
         }
         return;
       }
 
-      const projectRow = projectResult.data as ProjectRecord;
+      const projectRow = resolvedProjectResult.data as ProjectRecord;
       const projectDocuments = (documentsResult.data ?? []) as ProjectDocumentRow[];
+      let projectDocumentRelationships: ProjectDocumentRelationshipRow[] = [];
+      if (documentRelationshipsResult.error) {
+        if (isMissingDocumentRelationshipsTableError(documentRelationshipsResult.error)) {
+          issues.push(
+            'Document relationship records are not available yet; project truth is falling back to document heuristics.',
+          );
+        } else {
+          collectError(issues, 'Document relationships', documentRelationshipsResult.error);
+        }
+      } else {
+        projectDocumentRelationships =
+          (documentRelationshipsResult.data ?? []) as ProjectDocumentRelationshipRow[];
+      }
+      const projectTransactionDatasets = !transactionDatasetsResult.error
+        ? ((transactionDatasetsResult.data ?? []) as ProjectTransactionDatasetRow[])
+        : [];
+      const projectValidationFindings = !validationFindingsResult.error
+        ? ((validationFindingsResult.data ?? []) as ValidationFinding[])
+        : [];
       const projectDocumentIds = projectDocuments.map((document) => document.id);
       const reviewsResult = projectDocumentIds.length > 0
         ? await supabase
@@ -273,7 +444,17 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         extractionRowsByDocumentId.set(row.document_id, current);
       }
 
-      const generated = projectDocuments
+      const hydratedProjectDocuments = projectDocuments.map((document) => {
+        const preferredExtraction = pickPreferredExtractionBlob(
+          extractionRowsByDocumentId.get(document.id) ?? [],
+        );
+        return hydrateDocumentTraceWithPreferredExtraction(
+          document,
+          preferredExtraction?.data ?? null,
+        );
+      });
+
+      const generated = hydratedProjectDocuments
         .filter((document) => document.processing_status === 'extracted' || document.processing_status === 'decisioned')
         .flatMap((document) => {
           const preferredExtraction = pickPreferredExtractionBlob(
@@ -414,7 +595,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       if (cancelled) return;
 
       setProject(projectRow);
-      setDocuments(projectDocuments);
+      setDocuments(hydratedProjectDocuments);
+      setDocumentRelationships(projectDocumentRelationships);
+      setTransactionDatasets(projectTransactionDatasets);
+      setValidationFindings(projectValidationFindings);
       setDocumentReviews(projectDocumentReviews);
       setGeneratedDecisions(generated);
       setDecisions(projectDecisions);
@@ -427,6 +611,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     load().catch((error) => {
       if (cancelled) return;
       setPageError(error instanceof Error ? error.message : 'Failed to load this project.');
+      setDocumentRelationships([]);
+      setValidationFindings([]);
       setGeneratedDecisions([]);
       setLoading(false);
     });
@@ -434,11 +620,14 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     return () => {
       cancelled = true;
     };
-  }, [projectId, organizationId, orgLoading, refetchTick]);
+  }, [projectId, organizationId, orgLoading, refetchState]);
 
   return {
     project,
     documents,
+    documentRelationships,
+    transactionDatasets,
+    validationFindings,
     documentReviews,
     generatedDecisions,
     decisions,

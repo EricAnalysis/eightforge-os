@@ -1507,7 +1507,7 @@ export async function loadOperationalQueueModel(params: {
       .order('created_at', { ascending: false }),
     admin
       .from('projects')
-      .select('id, name, code, status, created_at')
+      .select('id, name, code, status, created_at, validation_status, validation_summary_json')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false }),
     admin

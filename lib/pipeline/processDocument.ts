@@ -25,6 +25,7 @@ import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligen
 import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
 import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
 import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
+import { withStageTimeout as sharedWithStageTimeout } from '@/lib/server/stageTimeout';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 
@@ -38,13 +39,128 @@ export type ProcessDocumentResult = {
   error?: string;
 };
 
+const withStageTimeout = sharedWithStageTimeout;
+
+// Canonical persistence does multiple database round-trips (transaction data,
+// execution trace, decisions, tasks). Budget it generously but still bound.
+const CANONICAL_PERSISTENCE_TIMEOUT_MS = 300_000;
+
+function sanitizeProcessingErrorMessage(rawMessage: string): string {
+  const message = rawMessage.trim();
+  if (/<\/?(?:html|body|head|title|div|script)\b/i.test(message)) {
+    if (/error code 520/i.test(message) || /\b520:\s*web server is returning an unknown error/i.test(message)) {
+      return 'Upstream database service returned HTTP 520 while persisting processing results. Please retry.';
+    }
+    return 'Upstream database service returned an unexpected HTML error response while processing.';
+  }
+  const maxLength = 1200;
+  return message.length > maxLength ? `${message.slice(0, maxLength)}...` : message;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function jsonByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function compactSpreadsheetExtractionPayloadForInsert(
+  payload: ExtractionPayload & { ai_enrichment?: unknown },
+): Record<string, unknown> {
+  const root = payload as unknown as Record<string, unknown>;
+  const extraction = asRecord(root.extraction);
+  if (!extraction || extraction.mode !== 'spreadsheet') return root;
+
+  const evidence = asRecord(extraction.evidence_v1);
+  const structuredFields = asRecord(evidence?.structured_fields);
+  const compactStructuredFields: Record<string, unknown> = {};
+  if (typeof structuredFields?.source_type === 'string') {
+    compactStructuredFields.source_type = structuredFields.source_type;
+  }
+  if (typeof structuredFields?.row_count === 'number') {
+    compactStructuredFields.row_count = structuredFields.row_count;
+  }
+  if (typeof structuredFields?.row_limit_reached === 'boolean') {
+    compactStructuredFields.row_limit_reached = structuredFields.row_limit_reached;
+  }
+  if (structuredFields?.transaction_data_summary != null) {
+    compactStructuredFields.transaction_data_summary = structuredFields.transaction_data_summary;
+  }
+  if (structuredFields?.transaction_data_rollups != null) {
+    compactStructuredFields.transaction_data_rollups = structuredFields.transaction_data_rollups;
+  }
+
+  const contentLayers = asRecord(extraction.content_layers_v1);
+  const spreadsheetLayer = asRecord(contentLayers?.spreadsheet);
+  const normalizedTransactionData = asRecord(spreadsheetLayer?.normalized_transaction_data);
+  const compactNormalizedTransactionData: Record<string, unknown> = {};
+  if (typeof normalizedTransactionData?.source_type === 'string') {
+    compactNormalizedTransactionData.source_type = normalizedTransactionData.source_type;
+  }
+  if (typeof normalizedTransactionData?.row_count === 'number') {
+    compactNormalizedTransactionData.row_count = normalizedTransactionData.row_count;
+  }
+  if (typeof normalizedTransactionData?.row_limit_reached === 'boolean') {
+    compactNormalizedTransactionData.row_limit_reached = normalizedTransactionData.row_limit_reached;
+  }
+  if (normalizedTransactionData?.summary != null) {
+    compactNormalizedTransactionData.summary = normalizedTransactionData.summary;
+  }
+  if (normalizedTransactionData?.rollups != null) {
+    compactNormalizedTransactionData.rollups = normalizedTransactionData.rollups;
+  }
+
+  const compactPayload: Record<string, unknown> = {
+    ...root,
+    extraction: {
+      ...extraction,
+      evidence_v1: evidence
+        ? {
+            ...evidence,
+            structured_fields: compactStructuredFields,
+          }
+        : extraction.evidence_v1,
+      content_layers_v1: contentLayers
+        ? {
+            ...contentLayers,
+            spreadsheet: spreadsheetLayer
+              ? {
+                  normalized_transaction_data: compactNormalizedTransactionData,
+                }
+              : contentLayers.spreadsheet,
+          }
+        : extraction.content_layers_v1,
+    },
+  };
+
+  return compactPayload;
+}
+
 async function markFailed(
   jobId: string,
   documentId: string,
   errorMessage: string,
 ): Promise<void> {
-  await updateJobStatus({ jobId, status: 'failed', errorMessage });
-  await setDocumentStatus({ documentId, status: 'failed' });
+  const normalizedErrorMessage = sanitizeProcessingErrorMessage(errorMessage);
+  console.error('[documents/process] failure path start', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+  });
+  await updateJobStatus({ jobId, status: 'failed', errorMessage: normalizedErrorMessage });
+  await setDocumentStatus({
+    documentId,
+    status: 'failed',
+    processingError: normalizedErrorMessage,
+    processedAt: null,
+  });
+  console.error('[documents/process] failure path persisted', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+  });
 }
 
 async function markExtractedFailure(
@@ -53,14 +169,71 @@ async function markExtractedFailure(
   errorMessage: string,
   resultExtractionId?: string | null,
 ): Promise<void> {
+  const normalizedErrorMessage = sanitizeProcessingErrorMessage(errorMessage);
+  console.error('[documents/process] failure path start', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+    terminalStatus: 'extracted',
+  });
   await updateJobStatus({
     jobId,
     status: 'failed',
     completedAt: new Date().toISOString(),
-    errorMessage,
+    errorMessage: normalizedErrorMessage,
     resultExtractionId: resultExtractionId ?? null,
   });
-  await setDocumentStatus({ documentId, status: 'extracted' });
+  await setDocumentStatus({
+    documentId,
+    status: 'extracted',
+    processingError: normalizedErrorMessage,
+    processedAt: null,
+  });
+  console.error('[documents/process] failure path persisted', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+    terminalStatus: 'extracted',
+  });
+}
+
+async function markCompletedFailure(
+  jobId: string,
+  documentId: string,
+  errorMessage: string,
+  resultExtractionId?: string | null,
+): Promise<void> {
+  const normalizedErrorMessage = sanitizeProcessingErrorMessage(errorMessage);
+  const completedAt = new Date().toISOString();
+  console.error('[documents/process] failure path start', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+    terminalStatus: 'failed',
+  });
+  await updateJobStatus({
+    jobId,
+    status: 'failed',
+    completedAt,
+    errorMessage: normalizedErrorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+  });
+  await setDocumentStatus({
+    documentId,
+    status: 'failed',
+    processingError: normalizedErrorMessage,
+    processedAt: completedAt,
+  });
+  console.error('[documents/process] failure path persisted', {
+    jobId,
+    documentId,
+    errorMessage: normalizedErrorMessage,
+    resultExtractionId: resultExtractionId ?? null,
+    terminalStatus: 'failed',
+  });
 }
 
 export async function processDocument(params: {
@@ -105,7 +278,16 @@ export async function processDocument(params: {
 
     // ── 2. Mark processing ───────────────────────────────────────────────────
     await updateJobStatus({ jobId: job.id, status: 'running', startedAt: new Date().toISOString() });
-    await setDocumentStatus({ documentId: params.documentId, status: 'processing' });
+    console.log('[documents/process] document status set to processing', {
+      documentId: params.documentId,
+      jobId: job.id,
+    });
+    await setDocumentStatus({
+      documentId: params.documentId,
+      status: 'processing',
+      clearProcessingError: true,
+      processedAt: null,
+    });
 
     // ── 3. Download file ─────────────────────────────────────────────────────
     const { data: fileData, error: downloadError } = await admin.storage
@@ -187,31 +369,63 @@ export async function processDocument(params: {
       });
     }
 
-    // ── 5. Persist raw extraction row ────────────────────────────────────────
-    const { data: inserted, error: insertError } = await admin
-      .from('document_extractions')
-      .insert({
-        document_id: params.documentId,
-        organization_id: params.organizationId,
-        data: payload,
-      })
-      .select('id, data, created_at')
-      .single();
+    // ── 5. Persist raw extraction row (non-spreadsheet docs only) ───────────
+    const isSpreadsheetTransactionDataDocument =
+      payload.extraction?.mode === 'spreadsheet' &&
+      (documentType ?? '').toLowerCase().includes('transaction_data');
+    let inserted: ProcessDocumentResult['extraction'] | undefined;
 
-    if (insertError) {
-      if (extractionDebug) {
-        console.error('[processDocument][extraction-persist-failed]', {
-          documentId: params.documentId,
-          organizationId: params.organizationId,
-          projectId: (docRow.project_id as string | null) ?? null,
-          code: insertError.code ?? null,
-          message: insertError.message,
-          details: insertError.details ?? null,
-          hint: insertError.hint ?? null,
-        });
+    if (isSpreadsheetTransactionDataDocument) {
+      console.log('[documents/process] skipped document_extractions insert for spreadsheet', {
+        documentId: params.documentId,
+        jobId: job.id,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+      });
+    } else {
+      const payloadForInsert = compactSpreadsheetExtractionPayloadForInsert(payload);
+      console.log('[documents/process] document_extractions insert start', {
+        documentId: params.documentId,
+        jobId: job.id,
+        extractionMode: payload.extraction?.mode ?? null,
+        payloadBytesBefore: jsonByteLength(payload),
+        payloadBytesAfter: jsonByteLength(payloadForInsert),
+      });
+      const { data: insertedRow, error: insertError } = await withStageTimeout(
+        admin
+          .from('document_extractions')
+          .insert({
+            document_id: params.documentId,
+            organization_id: params.organizationId,
+            data: payloadForInsert,
+          })
+          .select('id, data, created_at')
+          .single(),
+        'document_extractions insert',
+      );
+
+      if (insertError) {
+        if (extractionDebug) {
+          console.error('[processDocument][extraction-persist-failed]', {
+            documentId: params.documentId,
+            organizationId: params.organizationId,
+            projectId: (docRow.project_id as string | null) ?? null,
+            code: insertError.code ?? null,
+            message: insertError.message,
+            details: insertError.details ?? null,
+            hint: insertError.hint ?? null,
+          });
+        }
+        await markFailed(job.id, params.documentId, insertError.message);
+        return { success: false, error: 'Failed to persist extraction', jobId: job.id };
       }
-      await markFailed(job.id, params.documentId, insertError.message);
-      return { success: false, error: 'Failed to persist extraction', jobId: job.id };
+
+      inserted = insertedRow as ProcessDocumentResult['extraction'];
+      console.log('[documents/process] document_extractions insert complete', {
+        documentId: params.documentId,
+        jobId: job.id,
+        extractionId: inserted?.id ?? null,
+      });
     }
 
     // ── 6. Normalize into document_extractions field rows ────────────────────
@@ -236,13 +450,17 @@ export async function processDocument(params: {
     });
 
     try {
-      canonicalResult = await generateAndPersistCanonicalIntelligence({
-        admin,
-        documentId: params.documentId,
-        organizationId: params.organizationId,
-        projectId,
-        extractionData: (inserted?.data ?? payload) as Record<string, unknown>,
-      });
+      canonicalResult = await withStageTimeout(
+        generateAndPersistCanonicalIntelligence({
+          admin,
+          documentId: params.documentId,
+          organizationId: params.organizationId,
+          projectId,
+          extractionData: payload as unknown as Record<string, unknown>,
+        }),
+        'generateAndPersistCanonicalIntelligence',
+        CANONICAL_PERSISTENCE_TIMEOUT_MS,
+      );
 
       console.log('[processDocument] canonical persistence complete', {
         documentId: params.documentId,
@@ -270,10 +488,16 @@ export async function processDocument(params: {
     const canonicalPersistenceHealthy =
       canonicalResult?.handled === true &&
       canonicalResult.execution_trace_persisted === true;
+    const spreadsheetCanonicalPersistenceHealthy =
+      canonicalResult?.handled === true &&
+      canonicalResult.execution_trace_persisted === true &&
+      canonicalResult.transaction_data_persisted === true &&
+      canonicalResult.canonical_persistence_error == null;
 
     if (canonicalPersistenceRequired && !canonicalPersistenceHealthy) {
       const errorMessage =
         canonicalPersistenceError ??
+        canonicalResult?.canonical_persistence_error ??
         (canonicalResult?.handled !== true
           ? `Canonical intelligence did not complete for ${documentType ?? 'document'} ${params.documentId}.`
           : `Canonical intelligence trace did not persist for ${documentType ?? 'document'} ${params.documentId}.`);
@@ -301,6 +525,44 @@ export async function processDocument(params: {
         extraction: inserted,
         jobId: job.id,
         processing_status: 'extracted',
+        error: errorMessage,
+      };
+    }
+
+    if (isSpreadsheetTransactionDataDocument && !spreadsheetCanonicalPersistenceHealthy) {
+      const errorMessage =
+        canonicalPersistenceError ??
+        canonicalResult?.canonical_persistence_error ??
+        (canonicalResult?.transaction_data_persisted !== true
+          ? `Transaction data persistence did not complete for ${documentType ?? 'document'} ${params.documentId}.`
+          : canonicalResult?.handled !== true
+            ? `Canonical intelligence did not complete for ${documentType ?? 'document'} ${params.documentId}.`
+            : `Canonical intelligence trace did not persist for ${documentType ?? 'document'} ${params.documentId}.`);
+
+      console.error('[processDocument] blocking decisioned status after spreadsheet canonical persistence failure', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId,
+        documentType,
+        extractionMode: payload.extraction?.mode ?? null,
+        handled: canonicalResult?.handled ?? false,
+        family: canonicalResult?.family ?? null,
+        executionTracePersisted: canonicalResult?.execution_trace_persisted ?? false,
+        transactionDataPersisted: canonicalResult?.transaction_data_persisted ?? null,
+      });
+
+      await markCompletedFailure(
+        job.id,
+        params.documentId,
+        errorMessage,
+        inserted?.id ?? null,
+      );
+
+      return {
+        success: false,
+        extraction: inserted,
+        jobId: job.id,
+        processing_status: 'failed',
         error: errorMessage,
       };
     }
@@ -371,7 +633,22 @@ export async function processDocument(params: {
         completedAt: new Date().toISOString(),
         resultExtractionId: inserted?.id ?? null,
       });
-      await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+      console.log('[documents/process] final status update start', {
+        documentId: params.documentId,
+        jobId: job.id,
+        status: 'decisioned',
+      });
+      await setDocumentStatus({
+        documentId: params.documentId,
+        status: 'decisioned',
+        clearProcessingError: true,
+        processedAt: new Date().toISOString(),
+      });
+      console.log('[documents/process] final status update complete', {
+        documentId: params.documentId,
+        jobId: job.id,
+        status: 'decisioned',
+      });
       if (projectId) {
         // Fire-and-forget so project validation never blocks document processing.
         void triggerProjectValidation(projectId, 'document_processed');
@@ -488,7 +765,22 @@ export async function processDocument(params: {
       completedAt: new Date().toISOString(),
       resultExtractionId: inserted?.id ?? null,
     });
-    await setDocumentStatus({ documentId: params.documentId, status: 'decisioned' });
+    console.log('[documents/process] final status update start', {
+      documentId: params.documentId,
+      jobId: job.id,
+      status: 'decisioned',
+    });
+    await setDocumentStatus({
+      documentId: params.documentId,
+      status: 'decisioned',
+      clearProcessingError: true,
+      processedAt: new Date().toISOString(),
+    });
+    console.log('[documents/process] final status update complete', {
+      documentId: params.documentId,
+      jobId: job.id,
+      status: 'decisioned',
+    });
     if (projectId) {
       // Fire-and-forget so project validation never blocks document processing.
       void triggerProjectValidation(projectId, 'document_processed');
@@ -502,6 +794,11 @@ export async function processDocument(params: {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Processing failed';
+    console.error('[documents/process] failure path start', {
+      documentId: params.documentId,
+      jobId: job.id,
+      error: message,
+    });
     await markFailed(job.id, params.documentId, message);
     return { success: false, error: message, jobId: job.id };
   }

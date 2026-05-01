@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
+import { buildDecisionContextHref } from '@/lib/decisionNavigation';
 import {
   resolveDocumentDetailContext,
   type DocumentDetailContextMode,
@@ -39,6 +40,7 @@ import type {
   ReviewErrorType,
   TriggeredWorkflowTask,
 } from '@/lib/types/documentIntelligence';
+import type { ValidationFinding } from '@/types/validator';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,45 @@ type DocumentDetail = {
   factOverrides?: DocumentFactOverrideRecord[];
   factAnchors?: DocumentFactAnchorRecord[];
   factReviews?: DocumentFactReviewRecord[];
+};
+
+type ProjectValidationRow = {
+  validation_summary_json: Record<string, unknown> | null;
+  validation_status: string | null;
+};
+
+type TransactionDatasetRow = {
+  id: string;
+  document_id: string;
+  project_id: string;
+  row_count: number;
+  total_extended_cost: number;
+  total_transaction_quantity: number;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  summary_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type TransactionRow = {
+  id: string;
+  document_id: string;
+  project_id: string;
+  invoice_number: string | null;
+  transaction_number: string | null;
+  rate_code: string | null;
+  billing_rate_key: string | null;
+  description_match_key: string | null;
+  site_material_key: string | null;
+  invoice_rate_key: string | null;
+  transaction_quantity: number | null;
+  extended_cost: number | null;
+  invoice_date: string | null;
+  source_sheet_name: string;
+  source_row_number: number;
+  record_json: Record<string, unknown> | null;
+  raw_row_json: Record<string, unknown> | null;
+  created_at: string;
 };
 
 type EvaluateResponse = {
@@ -151,7 +192,7 @@ function buildDocumentBreadcrumbs(params: {
 
   if (mode === 'project' && project) {
     return [
-      { label: 'Workspace', href: '/platform/workspace' },
+      { label: 'Platform', href: '/platform' },
       { label: 'Projects', href: '/platform/projects' },
       { label: project.name, href: `/platform/projects/${project.id}` },
       { label: 'Documents', href: `/platform/projects/${project.id}#project-documents` },
@@ -160,7 +201,7 @@ function buildDocumentBreadcrumbs(params: {
   }
 
   return [
-    { label: 'Workspace', href: '/platform/workspace' },
+    { label: 'Platform', href: '/platform' },
     { label: 'Documents', href: '/platform/documents' },
     { label: title },
   ];
@@ -551,8 +592,11 @@ export default function DocumentDetailPage({
   const [factOverrides, setFactOverrides] = useState<DocumentFactOverrideRecord[]>([]);
   const [factAnchors, setFactAnchors] = useState<DocumentFactAnchorRecord[]>([]);
   const [factReviews, setFactReviews] = useState<DocumentFactReviewRecord[]>([]);
+  const [projectValidation, setProjectValidation] = useState<ProjectValidationRow | null>(null);
+  const [projectValidationFindings, setProjectValidationFindings] = useState<ValidationFinding[]>([]);
+  const [transactionDatasets, setTransactionDatasets] = useState<TransactionDatasetRow[]>([]);
+  const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackState>>({});
-  const [feedbackErrorById, setFeedbackErrorById] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
@@ -562,19 +606,25 @@ export default function DocumentDetailPage({
   const requestedEvidencePage = parseRequestedPage(searchParams.get('page'));
   const requestedEvidenceFactId = searchParams.get('factId');
   const requestedEvidenceFieldKey = searchParams.get('fieldKey');
+  const requestedRecordId = searchParams.get('recordId');
+  const requestedRateRowId = searchParams.get('rateRowId');
+  const requestedAction = searchParams.get('action');
+  const requestedDecisionId = searchParams.get('decisionId');
   const evidenceNavigationKey = useMemo(
     () => {
       if (
         requestedEvidencePage == null &&
         !requestedEvidenceFactId &&
-        !requestedEvidenceFieldKey
+        !requestedEvidenceFieldKey &&
+        !requestedRecordId &&
+        !requestedRateRowId
       ) {
         return null;
       }
 
-      return `${requestedEvidencePage ?? 'none'}:${requestedEvidenceFactId ?? 'none'}:${requestedEvidenceFieldKey ?? 'none'}`;
+      return `${requestedEvidencePage ?? 'none'}:${requestedEvidenceFactId ?? 'none'}:${requestedEvidenceFieldKey ?? 'none'}:${requestedRecordId ?? 'none'}:${requestedRateRowId ?? 'none'}:${requestedAction ?? 'none'}`;
     },
-    [requestedEvidenceFactId, requestedEvidenceFieldKey, requestedEvidencePage],
+    [requestedAction, requestedEvidenceFactId, requestedEvidenceFieldKey, requestedEvidencePage, requestedRateRowId, requestedRecordId],
   );
   const linkedProject = doc ? resolveProject(doc.projects) : null;
   const detailContext = resolveDocumentDetailContext(
@@ -600,10 +650,13 @@ export default function DocumentDetailPage({
     setPersistentDecisions([]);
     setWorkflowTasks([]);
     setFeedbackMap({});
-    setFeedbackErrorById({});
     setFactOverrides([]);
     setFactAnchors([]);
     setFactReviews([]);
+    setProjectValidation(null);
+    setProjectValidationFindings([]);
+    setTransactionDatasets([]);
+    setTransactionRows([]);
     setNotFound(false);
     setError(null);
     setLoading(true);
@@ -618,7 +671,7 @@ export default function DocumentDetailPage({
         ? { Authorization: `Bearer ${authSession.access_token}` }
         : {};
 
-      const [docResult, extractionsResult, decisionsResult, persistentResult, tasksResult] =
+      const [docResult, extractionsResult, decisionsResult, persistentResult, tasksResult, datasetResult, transactionRowsResult] =
         await Promise.all([
           (async () => {
             const res = await fetch(
@@ -659,6 +712,18 @@ export default function DocumentDetailPage({
           .select('id, task_type, title, description, priority, status, decision_id, source, source_metadata, details, created_at')
           .eq('document_id', id)
           .order('created_at', { ascending: true }),
+        supabase
+          .from('transaction_data_datasets')
+          .select('id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, date_range_start, date_range_end, summary_json, created_at')
+          .eq('document_id', id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('transaction_data_rows')
+          .select('id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at')
+          .eq('document_id', id)
+          .order('invoice_date', { ascending: true })
+          .order('source_sheet_name', { ascending: true })
+          .order('source_row_number', { ascending: true }),
       ]);
 
     if (docResult.error || !docResult.data) {
@@ -702,6 +767,35 @@ export default function DocumentDetailPage({
       setWorkflowTasks(tasksResult.data as WorkflowTaskRow[]);
     }
     setWorkflowTasksLoading(false);
+
+    if (!datasetResult.error && datasetResult.data) {
+      setTransactionDatasets(datasetResult.data as TransactionDatasetRow[]);
+    }
+
+    if (!transactionRowsResult.error && transactionRowsResult.data) {
+      setTransactionRows(transactionRowsResult.data as TransactionRow[]);
+    }
+
+    const linkedProjectId = resolveProject(docData.projects)?.id ?? docData.project_id ?? null;
+    if (linkedProjectId) {
+      const [projectValidationResult, projectValidationFindingsResult] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('validation_summary_json, validation_status')
+          .eq('id', linkedProjectId)
+          .maybeSingle(),
+        supabase
+          .from('project_validation_findings')
+          .select('*')
+          .eq('project_id', linkedProjectId)
+          .eq('status', 'open'),
+      ]);
+
+      setProjectValidation((projectValidationResult.data as ProjectValidationRow | null) ?? null);
+      setProjectValidationFindings(
+        (projectValidationFindingsResult.data as ValidationFinding[] | null) ?? [],
+      );
+    }
 
     const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
     const loadedPersistentDecisions = (persistentResult.data ?? []) as PersistentDecisionRow[];
@@ -775,50 +869,6 @@ export default function DocumentDetailPage({
     if (orgLoading) return;
     loadAllData();
   }, [orgLoading, loadAllData, refreshKey]);
-
-  const handleDecisionFeedback = async (
-    decisionId: string,
-    input: {
-      isCorrect: boolean;
-      reviewErrorType?: ReviewErrorType | null;
-    },
-  ) => {
-    setFeedbackErrorById((prev) => ({ ...prev, [decisionId]: '' }));
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const reviewErrorType = input.isCorrect ? null : (input.reviewErrorType ?? 'edge_case');
-
-      const res = await fetch(`/api/decisions/${decisionId}/feedback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          is_correct: input.isCorrect,
-          review_error_type: reviewErrorType,
-        }),
-      });
-      if (redirectIfUnauthorized(res, router.replace)) return;
-
-      if (res.ok) {
-        setFeedbackMap((prev) => ({
-          ...prev,
-          [decisionId]: {
-            status: input.isCorrect ? 'correct' : 'incorrect',
-            reviewErrorType,
-          },
-        }));
-      } else {
-        const body = await res.json().catch(() => ({}));
-        const msg = (body as { error?: string })?.error ?? 'Failed to save feedback';
-        setFeedbackErrorById((prev) => ({ ...prev, [decisionId]: msg }));
-      }
-    } catch {
-      setFeedbackErrorById((prev) => ({ ...prev, [decisionId]: 'Failed to save feedback' }));
-    }
-  };
 
   const handleFactOverride = async (input: {
     fieldKey: string;
@@ -1398,6 +1448,11 @@ export default function DocumentDetailPage({
       factOverrides,
       factAnchors,
       factReviews,
+      projectValidationSummary: projectValidation?.validation_summary_json ?? null,
+      projectValidationStatus: projectValidation?.validation_status ?? null,
+      projectValidationFindings,
+      transactionDatasets,
+      transactionRows,
       reviewedDecisionIds,
     });
   }, [
@@ -1412,9 +1467,13 @@ export default function DocumentDetailPage({
     factAnchors,
     factOverrides,
     factReviews,
+    projectValidation,
+    projectValidationFindings,
     preferredExtraction,
     relatedDocs,
     reviewedDecisionIds,
+    transactionDatasets,
+    transactionRows,
   ]);
 
   const derivedDocumentStatus = useMemo(() => {
@@ -1518,6 +1577,13 @@ export default function DocumentDetailPage({
     project,
   });
   const projectHref = project ? `/platform/projects/${project.id}` : null;
+  const navigationDecisionHref = requestedDecisionId
+    ? buildDecisionContextHref(requestedDecisionId)
+    : null;
+  const navigationValidatorHref =
+    requestedSource === 'project' && requestedProjectId
+      ? `/platform/projects/${requestedProjectId}#project-validator`
+      : null;
   const projectDocumentsHref = project ? `${projectHref}#project-documents` : null;
   const backToDocumentsHref = '/platform/documents';
   const primaryBackHref =
@@ -1621,7 +1687,6 @@ export default function DocumentDetailPage({
         breadcrumbs={breadcrumbs}
         contextLabel={documentContextBadgeLabel(detailContext.mode)}
         contextDescription={documentContextDescription(detailContext.mode, project)}
-        projectId={project?.id ?? doc.project_id ?? null}
         projectName={project?.name ?? null}
         documentType={doc.document_type}
         displayTitle={displayTitle}
@@ -1664,9 +1729,6 @@ export default function DocumentDetailPage({
             ? contractInvoicePrimaryUnavailableMessage ?? undefined
             : undefined
         }
-        feedbackById={contractInvoicePrimaryMode ? feedbackMap : undefined}
-        feedbackErrorById={contractInvoicePrimaryMode ? feedbackErrorById : undefined}
-        onReviewDecision={contractInvoicePrimaryMode ? handleDecisionFeedback : undefined}
         documentId={id}
         orgId={orgId ?? undefined}
         comparisons={intelligence?.comparisons ?? []}
@@ -1685,6 +1747,13 @@ export default function DocumentDetailPage({
         initialSelectedFieldKey={requestedEvidenceFieldKey}
         initialPage={requestedEvidencePage}
         navigationKey={evidenceNavigationKey}
+        selectedRecordId={requestedRecordId}
+        selectedRateRowId={requestedRateRowId}
+        navigationAction={requestedAction}
+        navigationSource={requestedSource}
+        navigationProjectId={requestedProjectId}
+        navigationDecisionHref={navigationDecisionHref}
+        navigationValidatorHref={navigationValidatorHref}
         evaluationNode={evaluationSection}
         managementNode={(
           <DocumentProjectControls

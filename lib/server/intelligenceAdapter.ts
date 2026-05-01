@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import type { RelatedDocInput } from '../documentIntelligence';
+import type { ContractAnalysisResult, ContractFieldAnalysis } from '../contracts/types';
 import type {
   DocumentExecutionTrace,
   DocumentIntelligenceOutput,
@@ -143,6 +144,90 @@ function extractRelatedDocumentIds(sourceRefs: string[] | undefined): string[] {
   return [...relatedDocumentIds];
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || Array.isArray(value) || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
+}
+
+function readContractFieldValue(
+  analysis: ContractAnalysisResult | null | undefined,
+  family: 'pricing_model',
+  fieldId: 'rate_schedule_present' | 'rate_schedule_pages' | 'pricing_applicability',
+): unknown {
+  const familyMap = analysis?.[family] as Record<string, ContractFieldAnalysis | undefined> | undefined;
+  return familyMap?.[fieldId]?.value;
+}
+
+function canonicalizeContractFacts(params: {
+  facts: Record<string, unknown> | undefined;
+  contractAnalysis: ContractAnalysisResult | null | undefined;
+}): Record<string, unknown> {
+  const facts = { ...(params.facts ?? {}) };
+  const contractAnalysis = params.contractAnalysis ?? null;
+  if (!contractAnalysis) {
+    return facts;
+  }
+
+  const rateSchedulePresent = readContractFieldValue(
+    contractAnalysis,
+    'pricing_model',
+    'rate_schedule_present',
+  );
+  const rateSchedulePages = readContractFieldValue(
+    contractAnalysis,
+    'pricing_model',
+    'rate_schedule_pages',
+  );
+  const pricingApplicability = readContractFieldValue(
+    contractAnalysis,
+    'pricing_model',
+    'pricing_applicability',
+  );
+  const rateScheduleRows = Array.isArray(contractAnalysis.rate_schedule_rows)
+    ? contractAnalysis.rate_schedule_rows
+    : [];
+
+  if (facts.rate_schedule_present == null && typeof rateSchedulePresent === 'boolean') {
+    facts.rate_schedule_present = rateSchedulePresent;
+  }
+  if (facts.rate_schedule_pages == null && rateSchedulePages != null) {
+    facts.rate_schedule_pages = rateSchedulePages;
+  }
+  if (facts.pricing_applicability == null && typeof pricingApplicability === 'string') {
+    facts.pricing_applicability = pricingApplicability;
+  }
+  if (facts.rate_table == null && rateScheduleRows.length > 0) {
+    facts.rate_table = rateScheduleRows;
+  }
+  if (facts.rate_row_count == null && rateScheduleRows.length > 0) {
+    facts.rate_row_count = rateScheduleRows.length;
+  }
+
+  const governingRateTables = asRecord(facts.governing_rate_tables);
+  if (governingRateTables) {
+    facts.governing_rate_tables = {
+      ...governingRateTables,
+      ...(governingRateTables.rate_schedule_present == null && typeof rateSchedulePresent === 'boolean'
+        ? { rate_schedule_present: rateSchedulePresent }
+        : {}),
+      ...(governingRateTables.rate_schedule_pages == null && rateSchedulePages != null
+        ? { rate_schedule_pages: rateSchedulePages }
+        : {}),
+      ...(governingRateTables.pricing_applicability == null && typeof pricingApplicability === 'string'
+        ? { pricing_applicability: pricingApplicability }
+        : {}),
+      ...(rateScheduleRows.length > 0
+        ? {
+            rate_schedule_rows: rateScheduleRows,
+            rate_row_count: rateScheduleRows.length,
+          }
+        : {}),
+    };
+  }
+
+  return facts;
+}
+
 function deriveGoverningContext(params: {
   sourceRefs: string[] | undefined;
   relatedDocs: RelatedDocInput[];
@@ -275,9 +360,13 @@ function buildDocumentExecutionTrace(params: {
   extractionSnapshotId?: string;
 }): DocumentExecutionTrace {
   const { intelligence, extractionSnapshotId } = params;
+  const contractAnalysis = intelligence.contractAnalysis ?? null;
   return {
     extraction_snapshot_id: extractionSnapshotId,
-    facts: intelligence.facts ?? {},
+    facts: canonicalizeContractFacts({
+      facts: intelligence.facts,
+      contractAnalysis,
+    }),
     decisions: intelligence.normalizedDecisions ?? [],
     flow_tasks: intelligence.flowTasks ?? [],
     generated_at: new Date().toISOString(),
@@ -292,7 +381,7 @@ function buildDocumentExecutionTrace(params: {
     extraction_gaps: intelligence.extractionGaps,
     audit_notes: intelligence.auditNotes,
     node_traces: intelligence.nodeTraces,
-    contract_analysis: intelligence.contractAnalysis ?? null,
+    contract_analysis: contractAnalysis,
   };
 }
 

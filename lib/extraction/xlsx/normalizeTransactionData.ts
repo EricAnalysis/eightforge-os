@@ -37,6 +37,7 @@ import {
   normalizeInvoiceNumber,
   normalizeRateCode,
 } from '@/lib/validator/billingKeys';
+import { normalizeSpreadsheetEligibility } from '@/lib/spreadsheetDocumentReview';
 
 export interface NormalizedTransactionDataRecord extends TransactionDataRecord {
   id: string;
@@ -58,7 +59,6 @@ export interface TransactionDataRollups {
   uninvoiced_line_count: number;
   eligible_count: number;
   ineligible_count: number;
-  unknown_eligibility_count: number;
   distinct_rate_codes: string[];
   distinct_invoice_numbers: string[];
   distinct_service_items: string[];
@@ -82,6 +82,7 @@ export interface TransactionDataRollups {
 export interface TransactionDataNormalizationResult {
   source_type: 'transaction_data';
   row_count: number;
+  row_limit_reached: boolean;
   sheet_names: string[];
   processed_sheet_names: string[];
   header_map: Partial<Record<TransactionDataFieldKey, TransactionDataHeaderMatch[]>>;
@@ -108,6 +109,10 @@ function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
 
 function normalizeHeader(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function compactNormalizedHeader(value: string): string {
+  return value.replace(/\s+/g, '');
 }
 
 const RAW_DISPOSAL_SITE_HEADER_ALIASES = [
@@ -316,15 +321,26 @@ function rawHeaderMatchesAliases(
   aliases: readonly string[],
 ): boolean {
   const normalizedHeader = normalizeHeader(header);
+  const compactHeader = compactNormalizedHeader(normalizedHeader);
   return aliases.some((alias) => {
     const normalizedAlias = normalizeHeader(alias);
+    const compactAlias = compactNormalizedHeader(normalizedAlias);
+    if (!normalizedAlias) return false;
     return (
-      normalizedHeader === normalizedAlias ||
-      normalizedHeader.startsWith(`${normalizedAlias} `) ||
-      normalizedHeader.endsWith(` ${normalizedAlias}`) ||
-      normalizedHeader.includes(normalizedAlias)
+      normalizedHeader === normalizedAlias
+      || (compactAlias.length > 0 && compactHeader === compactAlias)
+      || headerWordBoundaryMatch(normalizedHeader, normalizedAlias)
     );
   });
+}
+
+function headerWordBoundaryMatch(
+  normalizedHeader: string,
+  normalizedAlias: string,
+): boolean {
+  if (!normalizedHeader || !normalizedAlias) return false;
+  const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'i').test(normalizedHeader);
 }
 
 function findRawRowText(
@@ -378,27 +394,8 @@ function normalizeLooseText(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeEligibility(value: string | null | undefined): 'eligible' | 'ineligible' | 'unknown' {
-  const normalized = normalizeLooseText(value);
-  if (!normalized) return 'unknown';
-  if (
-    normalized.includes('ineligible') ||
-    normalized.includes('not eligible') ||
-    normalized.includes('not approved') ||
-    normalized === 'no' ||
-    normalized.includes('denied')
-  ) {
-    return 'ineligible';
-  }
-  if (
-    normalized.includes('eligible') ||
-    normalized.includes('approved') ||
-    normalized === 'yes' ||
-    normalized.includes('allow')
-  ) {
-    return 'eligible';
-  }
-  return 'unknown';
+function normalizeEligibility(value: string | null | undefined): 'eligible' | 'ineligible' {
+  return normalizeSpreadsheetEligibility(value);
 }
 
 function normalizeSiteType(value: string | null | undefined): string | null {
@@ -470,19 +467,22 @@ function bestHeaderMatch(
     if (takenHeaders.has(header)) continue;
 
     const normalized = normalizeHeader(header);
+    const compact = compactNormalizedHeader(normalized);
     let score = 0;
     for (const alias of aliases) {
       const normalizedAlias = normalizeHeader(alias);
+      const compactAlias = compactNormalizedHeader(normalizedAlias);
+      if (!normalizedAlias) continue;
       if (normalized === normalizedAlias) {
         score = Math.max(score, 100);
         continue;
       }
-      if (normalized.startsWith(normalizedAlias) || normalized.endsWith(normalizedAlias)) {
-        score = Math.max(score, 94);
+      if (compactAlias.length > 0 && compact === compactAlias) {
+        score = Math.max(score, 99);
         continue;
       }
-      if (normalized.includes(normalizedAlias) || normalizedAlias.includes(normalized)) {
-        score = Math.max(score, 84);
+      if (headerWordBoundaryMatch(normalized, normalizedAlias)) {
+        score = Math.max(score, normalizedAlias.includes(' ') ? 90 : 88);
       }
     }
 
@@ -491,7 +491,7 @@ function bestHeaderMatch(
     }
   }
 
-  return best && best.score >= 84 ? best : null;
+  return best && best.score >= 88 ? best : null;
 }
 
 export function transactionDataCellEvidenceId(
@@ -608,6 +608,7 @@ function parseRecordValue(
     case 'mileage':
     case 'cyd':
     case 'net_tonnage':
+    case 'diameter':
     case 'load_latitude':
     case 'load_longitude':
     case 'disposal_latitude':
@@ -897,8 +898,10 @@ type ReviewGroupAccumulator = {
   total_qty: number;
   total_cyd: number;
   total_cost: number;
-  invoiced_ticket_count: number;
+  invoiced_ticket_ids: Set<string>;
   uninvoiced_line_count: number;
+  eligible_ticket_ids: Set<string>;
+  ineligible_ticket_ids: Set<string>;
   invoice_numbers: Set<string>;
   rate_codes: Set<string>;
   record_ids: string[];
@@ -911,13 +914,19 @@ function createReviewGroupAccumulator(): ReviewGroupAccumulator {
     total_qty: 0,
     total_cyd: 0,
     total_cost: 0,
-    invoiced_ticket_count: 0,
+    invoiced_ticket_ids: new Set<string>(),
     uninvoiced_line_count: 0,
+    eligible_ticket_ids: new Set<string>(),
+    ineligible_ticket_ids: new Set<string>(),
     invoice_numbers: new Set<string>(),
     rate_codes: new Set<string>(),
     record_ids: [],
     evidence_refs: [],
   };
+}
+
+function reviewGroupTicketKey(record: NormalizedTransactionDataRecord): string {
+  return normalizeLooseText(record.transaction_number) ?? `record:${record.id}`;
 }
 
 function pushReviewGroupRecord(
@@ -931,7 +940,7 @@ function pushReviewGroupRecord(
 
   const invoiceNumber = invoiceRawForDistinct(record);
   if (invoiceNumber) {
-    accumulator.invoiced_ticket_count += 1;
+    accumulator.invoiced_ticket_ids.add(reviewGroupTicketKey(record));
     accumulator.invoice_numbers.add(invoiceNumber);
   } else {
     accumulator.uninvoiced_line_count += 1;
@@ -939,6 +948,14 @@ function pushReviewGroupRecord(
 
   const rateCode = normalizeRateCode(record.rate_code);
   if (rateCode) accumulator.rate_codes.add(rateCode);
+
+  const ticketKey = reviewGroupTicketKey(record);
+  if (normalizeSpreadsheetEligibility(record.eligibility) === 'eligible') {
+    accumulator.eligible_ticket_ids.add(ticketKey);
+    accumulator.ineligible_ticket_ids.delete(ticketKey);
+  } else if (!accumulator.eligible_ticket_ids.has(ticketKey)) {
+    accumulator.ineligible_ticket_ids.add(ticketKey);
+  }
 
   accumulator.record_ids.push(record.id);
   accumulator.evidence_refs.push(record.evidence_ref);
@@ -954,6 +971,8 @@ function finalizeReviewGroupBase(
   | 'total_extended_cost'
   | 'invoiced_ticket_count'
   | 'uninvoiced_line_count'
+  | 'eligible_count'
+  | 'ineligible_count'
   | 'distinct_invoice_numbers'
   | 'distinct_rate_codes'
   | 'record_ids'
@@ -964,8 +983,10 @@ function finalizeReviewGroupBase(
     total_transaction_quantity: roundNumber(accumulator.total_qty, 3),
     total_cyd: roundNumber(accumulator.total_cyd, 3),
     total_extended_cost: roundNumber(accumulator.total_cost, 2),
-    invoiced_ticket_count: accumulator.invoiced_ticket_count,
+    invoiced_ticket_count: accumulator.invoiced_ticket_ids.size,
     uninvoiced_line_count: accumulator.uninvoiced_line_count,
+    eligible_count: accumulator.eligible_ticket_ids.size,
+    ineligible_count: accumulator.ineligible_ticket_ids.size,
     distinct_invoice_numbers: sortDistinctStrings(accumulator.invoice_numbers),
     distinct_rate_codes: sortDistinctStrings(accumulator.rate_codes),
     record_ids: accumulator.record_ids.sort((left, right) => left.localeCompare(right, 'en-US')),
@@ -1161,6 +1182,7 @@ function buildProjectOperationsOverview(params: {
   groupedBySiteType: readonly TransactionDataSiteTypeGroup[];
   groupedByDisposalSite: readonly TransactionDataDisposalSiteGroup[];
   totalTransactionQuantity: number;
+  totalTickets: number;
   totalCyd: number;
   totalInvoicedAmount: number;
   distinctInvoiceCount: number;
@@ -1168,11 +1190,10 @@ function buildProjectOperationsOverview(params: {
   uninvoicedLineCount: number;
   eligibleCount: number;
   ineligibleCount: number;
-  unknownEligibilityCount: number;
 }): TransactionDataProjectOperationsOverview {
   return {
     project_name: params.inferredProjectName,
-    total_tickets: params.records.length,
+    total_tickets: params.totalTickets,
     total_transaction_quantity: roundNumber(params.totalTransactionQuantity, 3),
     total_cyd: roundNumber(params.totalCyd, 3),
     total_invoiced_amount: roundNumber(params.totalInvoicedAmount, 2),
@@ -1181,7 +1202,6 @@ function buildProjectOperationsOverview(params: {
     uninvoiced_line_count: params.uninvoicedLineCount,
     eligible_count: params.eligibleCount,
     ineligible_count: params.ineligibleCount,
-    unknown_eligibility_count: params.unknownEligibilityCount,
     distinct_service_item_count: params.distinctServiceItems.length,
     distinct_material_count: params.distinctMaterials.length,
     distinct_site_type_count: params.groupedBySiteType.filter((group) => group.site_type != null).length,
@@ -1196,6 +1216,7 @@ function buildInvoiceReadinessSummary(params: {
   records: readonly NormalizedTransactionDataRecord[];
   rollups: Pick<
     TransactionDataRollups,
+    | 'total_tickets'
     | 'invoiced_ticket_count'
     | 'distinct_invoice_count'
     | 'total_invoiced_amount'
@@ -1226,7 +1247,7 @@ function buildInvoiceReadinessSummary(params: {
 
   return {
     status,
-    total_tickets: params.records.length,
+    total_tickets: params.rollups.total_tickets,
     invoiced_ticket_count: params.rollups.invoiced_ticket_count,
     distinct_invoice_count: params.rollups.distinct_invoice_count,
     total_invoiced_amount: roundNumber(params.rollups.total_invoiced_amount, 2),
@@ -1475,67 +1496,6 @@ function buildDistanceFromFeatureReview(
   });
 }
 
-function buildDebrisClassAtDisposalSiteReview(
-  records: readonly NormalizedTransactionDataRecord[],
-): TransactionDataOpsReviewBucket {
-  const supportingColumns = sortDistinctStrings([
-    ...collectMatchingHeaders(records, TRANSACTION_DATA_HEADER_ALIASES.material),
-    ...collectMatchingHeaders(records, RAW_DISPOSAL_SITE_HEADER_ALIASES),
-    ...collectMatchingHeaders(records, RAW_SITE_TYPE_HEADER_ALIASES),
-  ]);
-
-  const siteMaterials = new Map<string, Set<string>>();
-  const flaggedSignals: ReviewRowSignal[] = [];
-
-  for (const record of records) {
-    const siteKey =
-      normalizeLooseText(extractDisposalSiteRaw(record))
-      ?? normalizeLooseText(recordSiteType(record))
-      ?? '__unknown_site__';
-    const material = normalizeLooseText(effectiveMaterial(record));
-    const materials = siteMaterials.get(siteKey) ?? new Set<string>();
-    if (material) materials.add(material);
-    siteMaterials.set(siteKey, materials);
-
-    if (!material || siteKey === '__unknown_site__') {
-      flaggedSignals.push({
-        recordId: record.id,
-        evidenceRef: record.evidence_ref,
-        reason: 'material or disposal-site context is missing',
-        severity: 'warning',
-      });
-    }
-  }
-
-  for (const record of records) {
-    const siteKey =
-      normalizeLooseText(extractDisposalSiteRaw(record))
-      ?? normalizeLooseText(recordSiteType(record))
-      ?? '__unknown_site__';
-    const materials = siteMaterials.get(siteKey) ?? new Set<string>();
-    if (materials.size > 1) {
-      flaggedSignals.push({
-        recordId: record.id,
-        evidenceRef: record.evidence_ref,
-        reason: 'disposal site carries multiple debris classes',
-        severity: 'warning',
-      });
-    }
-  }
-
-  return buildReviewBucket({
-    reviewKey: 'debris_class_at_disposal_site_review',
-    label: 'Debris class at disposal site review',
-    records,
-    available: supportingColumns.length > 0,
-    supportingColumns,
-    flaggedSignals,
-    unavailableSummary: 'No disposal-site or material columns were detected in the workbook.',
-    okSummary: 'Debris class signals are consistent within the detected disposal-site groupings.',
-    flaggedSummary: `${sortDistinctStrings(flaggedSignals.map((signal) => signal.recordId)).length} row(s) need debris-class / disposal-site review.`,
-  });
-}
-
 function buildMileageReview(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataOpsReviewBucket {
@@ -1760,9 +1720,6 @@ function buildOutlierRows(params: {
   reviewBuckets: readonly TransactionDataOpsReviewBucket[];
 }): TransactionDataOutlierRow[] {
   const reasonsByRecordId = new Map<string, Array<{ reason: string; severity: 'warning' | 'critical' }>>();
-  const hasEligibilitySignals =
-    params.records.some((record) => parseText(record.eligibility) != null)
-    || collectMatchingHeaders(params.records, TRANSACTION_DATA_HEADER_ALIASES.eligibility).length > 0;
 
   const pushReason = (
     record: NormalizedTransactionDataRecord,
@@ -1782,9 +1739,6 @@ function buildOutlierRows(params: {
     if (record.transaction_quantity == null) pushReason(record, 'missing quantity', 'warning');
     if (record.extended_cost == null) pushReason(record, 'missing extended cost', 'warning');
     if (record.extended_cost === 0) pushReason(record, 'zero extended cost', 'warning');
-    if (hasEligibilitySignals && normalizeEligibility(record.eligibility) === 'unknown') {
-      pushReason(record, 'eligibility status unresolved', 'warning');
-    }
   }
 
   for (const signal of params.extremeRateSignals.values()) {
@@ -1855,10 +1809,21 @@ function buildRecord(
     parsedValues.set(field, parseRecordValue(field, row.values[header] ?? null));
   }
 
+  const parseByAlias = (field: TransactionDataFieldKey): string | number | null => {
+    const rawValue = findRawRowValue(row.values, TRANSACTION_DATA_HEADER_ALIASES[field]);
+    return parseRecordValue(field, rawValue);
+  };
+
+  const readField = <T extends string | number | null>(field: TransactionDataFieldKey): T => {
+    const parsed = parsedValues.get(field);
+    if (parsed != null) return parsed as T;
+    return parseByAlias(field) as T;
+  };
+
   const missingFields = [
-    parsedValues.get('rate_code') == null ? 'rate_code' : null,
-    parsedValues.get('transaction_quantity') == null ? 'transaction_quantity' : null,
-    parsedValues.get('extended_cost') == null ? 'extended_cost' : null,
+    readField('rate_code') == null ? 'rate_code' : null,
+    readField('transaction_quantity') == null ? 'transaction_quantity' : null,
+    readField('extended_cost') == null ? 'extended_cost' : null,
   ].filter((field): field is string => Boolean(field));
 
   const populatedFieldCount = [...parsedValues.values()].filter((value) => value != null).length;
@@ -1869,11 +1834,11 @@ function buildRecord(
     - (missingFields.length * 0.03)
   ).toFixed(3));
 
-  const invoiceNumber = (parsedValues.get('invoice_number') as string | null) ?? null;
-  const rateCode = (parsedValues.get('rate_code') as string | null) ?? null;
-  const rateDescription = (parsedValues.get('rate_description') as string | null) ?? null;
-  const material = (parsedValues.get('material') as string | null) ?? null;
-  const serviceItem = (parsedValues.get('service_item') as string | null) ?? null;
+  const invoiceNumber = (readField('invoice_number') as string | null) ?? null;
+  const rateCode = (readField('rate_code') as string | null) ?? null;
+  const rateDescription = (readField('rate_description') as string | null) ?? null;
+  const material = (readField('material') as string | null) ?? null;
+  const serviceItem = (readField('service_item') as string | null) ?? null;
   const materialResolved =
     material ?? findRawRowText(row.values, TRANSACTION_DATA_HEADER_ALIASES.material);
 
@@ -1894,29 +1859,30 @@ function buildRecord(
 
   return {
     id: `transaction:${analysis.sheet.key}:${row.row_number}`,
-    transaction_number: (parsedValues.get('transaction_number') as string | null) ?? null,
+    transaction_number: (readField('transaction_number') as string | null) ?? null,
     invoice_number: invoiceNumber,
-    invoice_date: (parsedValues.get('invoice_date') as string | null) ?? null,
+    invoice_date: (readField('invoice_date') as string | null) ?? null,
     rate_code: rateCode,
     rate_description: rateDescription,
-    transaction_quantity: (parsedValues.get('transaction_quantity') as number | null) ?? null,
-    transaction_rate: (parsedValues.get('transaction_rate') as number | null) ?? null,
-    extended_cost: (parsedValues.get('extended_cost') as number | null) ?? null,
-    net_quantity: (parsedValues.get('net_quantity') as number | null) ?? null,
-    mileage: (parsedValues.get('mileage') as number | null) ?? null,
-    cyd: (parsedValues.get('cyd') as number | null) ?? null,
-    net_tonnage: (parsedValues.get('net_tonnage') as number | null) ?? null,
+    transaction_quantity: (readField('transaction_quantity') as number | null) ?? null,
+    transaction_rate: (readField('transaction_rate') as number | null) ?? null,
+    extended_cost: (readField('extended_cost') as number | null) ?? null,
+    net_quantity: (readField('net_quantity') as number | null) ?? null,
+    mileage: (readField('mileage') as number | null) ?? null,
+    cyd: (readField('cyd') as number | null) ?? null,
+    net_tonnage: (readField('net_tonnage') as number | null) ?? null,
+    diameter: (readField('diameter') as number | null) ?? null,
     material,
     service_item: serviceItem,
-    ticket_notes: (parsedValues.get('ticket_notes') as string | null) ?? null,
-    eligibility: (parsedValues.get('eligibility') as string | null) ?? null,
-    eligibility_internal_comments: (parsedValues.get('eligibility_internal_comments') as string | null) ?? null,
-    eligibility_external_comments: (parsedValues.get('eligibility_external_comments') as string | null) ?? null,
-    load_latitude: (parsedValues.get('load_latitude') as number | null) ?? null,
-    load_longitude: (parsedValues.get('load_longitude') as number | null) ?? null,
-    disposal_latitude: (parsedValues.get('disposal_latitude') as number | null) ?? null,
-    disposal_longitude: (parsedValues.get('disposal_longitude') as number | null) ?? null,
-    project_name: (parsedValues.get('project_name') as string | null) ?? null,
+    ticket_notes: (readField('ticket_notes') as string | null) ?? null,
+    eligibility: (readField('eligibility') as string | null) ?? null,
+    eligibility_internal_comments: (readField('eligibility_internal_comments') as string | null) ?? null,
+    eligibility_external_comments: (readField('eligibility_external_comments') as string | null) ?? null,
+    load_latitude: (readField('load_latitude') as number | null) ?? null,
+    load_longitude: (readField('load_longitude') as number | null) ?? null,
+    disposal_latitude: (readField('disposal_latitude') as number | null) ?? null,
+    disposal_longitude: (readField('disposal_longitude') as number | null) ?? null,
+    project_name: (readField('project_name') as string | null) ?? null,
     billing_rate_key,
     description_match_key,
     site_material_key,
@@ -1996,6 +1962,14 @@ export function normalizeTransactionData(params: {
   const groupedByDisposalSite = buildDisposalSiteGroups(records);
   const extremeRateSignals = findExtremeUnitRateSignals(records);
   const rowsWithExtremeUnitRate = extremeRateSignals.size;
+  const normalizedTransactionNumberSet = new Set<string>();
+  const normalizedInvoicedTransactionNumberSet = new Set<string>();
+  for (const record of records) {
+    const transactionNumber = normalizeLooseText(record.transaction_number);
+    if (!transactionNumber) continue;
+    normalizedTransactionNumberSet.add(transactionNumber);
+    if (hasInvoiceLink(record)) normalizedInvoicedTransactionNumberSet.add(transactionNumber);
+  }
 
   const totalExtendedCost = roundNumber(
     records.reduce((sum, record) => sum + (record.extended_cost ?? 0), 0),
@@ -2013,7 +1987,8 @@ export function normalizeTransactionData(params: {
     records.reduce((sum, record) => sum + (hasInvoiceLink(record) ? (record.extended_cost ?? 0) : 0), 0),
     2,
   );
-  const invoicedTicketCount = records.filter((record) => hasInvoiceLink(record)).length;
+  const distinctTicketCount = normalizedTransactionNumberSet.size;
+  const invoicedTicketCount = normalizedInvoicedTransactionNumberSet.size;
   const distinctInvoiceCount = new Set(
     records
       .map((record) => normalizeInvoiceNumber(record.invoice_number))
@@ -2024,14 +1999,23 @@ export function normalizeTransactionData(params: {
   const eligibilityCounts = records.reduce((accumulator, record) => {
     const status = normalizeEligibility(record.eligibility);
     if (status === 'eligible') accumulator.eligible += 1;
-    else if (status === 'ineligible') accumulator.ineligible += 1;
-    else accumulator.unknown += 1;
+    else accumulator.ineligible += 1;
     return accumulator;
-  }, { eligible: 0, ineligible: 0, unknown: 0 });
+  }, { eligible: 0, ineligible: 0 });
 
   const boundaryLocationReview = buildBoundaryLocationReview(records);
   const distanceFromFeatureReview = buildDistanceFromFeatureReview(records);
-  const debrisClassAtDisposalSiteReview = buildDebrisClassAtDisposalSiteReview(records);
+  const debrisClassAtDisposalSiteReview = buildReviewBucket({
+    reviewKey: 'debris_class_at_disposal_site_review',
+    label: 'Debris class at disposal site review',
+    records,
+    available: false,
+    supportingColumns: [],
+    flaggedSignals: [],
+    unavailableSummary: 'Debris-class disposal-site review is disabled.',
+    okSummary: 'Debris-class disposal-site review is disabled.',
+    flaggedSummary: 'Debris-class disposal-site review is disabled.',
+  });
   const mileageReview = buildMileageReview(records);
   const loadCallReview = buildLoadCallReview(records);
   const linkedMobileLoadConsistencyReview = buildLinkedMobileLoadConsistencyReview(records);
@@ -2039,7 +2023,6 @@ export function normalizeTransactionData(params: {
   const reviewBuckets = [
     boundaryLocationReview,
     distanceFromFeatureReview,
-    debrisClassAtDisposalSiteReview,
     mileageReview,
     loadCallReview,
     linkedMobileLoadConsistencyReview,
@@ -2054,7 +2037,7 @@ export function normalizeTransactionData(params: {
   const rollups: TransactionDataRollups = {
     total_extended_cost: totalExtendedCost,
     total_transaction_quantity: totalTransactionQuantity,
-    total_tickets: records.length,
+    total_tickets: distinctTicketCount,
     total_cyd: totalCyd,
     invoiced_ticket_count: invoicedTicketCount,
     distinct_invoice_count: distinctInvoiceCount,
@@ -2062,7 +2045,6 @@ export function normalizeTransactionData(params: {
     uninvoiced_line_count: records.filter((record) => !hasInvoiceLink(record)).length,
     eligible_count: eligibilityCounts.eligible,
     ineligible_count: eligibilityCounts.ineligible,
-    unknown_eligibility_count: eligibilityCounts.unknown,
     distinct_rate_codes: uniqueStrings(records.map((record) => record.rate_code)),
     distinct_invoice_numbers: invoiceNumbers,
     distinct_service_items: distinctServiceItems,
@@ -2092,6 +2074,7 @@ export function normalizeTransactionData(params: {
     groupedBySiteType,
     groupedByDisposalSite,
     totalTransactionQuantity,
+    totalTickets: rollups.total_tickets,
     totalCyd,
     totalInvoicedAmount,
     distinctInvoiceCount,
@@ -2099,7 +2082,6 @@ export function normalizeTransactionData(params: {
     uninvoicedLineCount: rollups.uninvoiced_line_count,
     eligibleCount: rollups.eligible_count,
     ineligibleCount: rollups.ineligible_count,
-    unknownEligibilityCount: rollups.unknown_eligibility_count,
   });
   const invoiceReadinessSummary = buildInvoiceReadinessSummary({
     records,
@@ -2123,7 +2105,6 @@ export function normalizeTransactionData(params: {
     uninvoiced_line_count: rollups.uninvoiced_line_count,
     eligible_count: rollups.eligible_count,
     ineligible_count: rollups.ineligible_count,
-    unknown_eligibility_count: rollups.unknown_eligibility_count,
     rows_with_missing_rate_code: rollups.rows_with_missing_rate_code,
     rows_with_missing_invoice_number: rollups.rows_with_missing_invoice_number,
     rows_with_missing_quantity: rollups.rows_with_missing_quantity,
@@ -2162,6 +2143,7 @@ export function normalizeTransactionData(params: {
   return {
     source_type: 'transaction_data',
     row_count: records.length,
+    row_limit_reached: params.workbook.row_limit_reached === true,
     sheet_names: params.workbook.sheets.map((sheet) => sheet.name),
     processed_sheet_names: processedAnalyses.map((analysis) => analysis.sheet.name),
     header_map: headerMap,

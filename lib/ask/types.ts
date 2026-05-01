@@ -225,7 +225,7 @@ export interface RetrievalResult {
     project?: AskProjectRecord;
     matchedLayer?: RetrievalUsed;
     validatorContext?: ValidatorContext;
-    structuredFactsSource?: 'document_facts' | 'document_extractions';
+    structuredFactsSource?: 'canonical_project_facts' | 'document_facts' | 'document_extractions';
     totalDocumentCount?: number;
     processedDocumentCount?: number;
     openDecisionCount?: number;

@@ -171,7 +171,10 @@ export function DecisionContextPanel(props: {
   });
 
   return (
-    <section className="mb-8 overflow-hidden rounded-2xl border border-[#2F3B52] bg-[#111827]">
+    <section
+      id="decision-context"
+      className="mb-8 overflow-hidden rounded-2xl border border-[#2F3B52] bg-[#111827]"
+    >
       <div className="border-l-4 border-[#3B82F6] p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -252,6 +255,57 @@ export function DecisionContextPanel(props: {
             </div>
           </div>
         ) : null}
+
+        <div className="mt-5 rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+                Evidence routing
+              </p>
+              <p className="mt-2 text-sm text-[#C7D2E3]">
+                Inspect evidence from decision context first, then open the exact source document, fact, or spreadsheet row for review and correction.
+              </p>
+            </div>
+            <span className="rounded border border-[#2F3B52] bg-[#111827] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+              {evidence.targets.length} target{evidence.targets.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {evidence.targets.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {evidence.targets.map((target) => (
+                <div
+                  key={target.id}
+                  className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#E5EDF7]">{target.label}</p>
+                      <p className="mt-1 text-[12px] text-[#94A3B8]">{target.detail}</p>
+                    </div>
+                    {target.href ? (
+                      <Link
+                        href={target.href}
+                        className="rounded-md border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[11px] font-medium text-[#CFE4FF] transition-colors hover:bg-[#3B82F6]/15"
+                      >
+                        {target.exactTarget ? 'Open exact evidence' : 'Open source document'}
+                      </Link>
+                    ) : null}
+                  </div>
+                  {target.missingReason ? (
+                    <p className="mt-3 rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2 text-[12px] text-[#FDE68A]">
+                      {target.missingReason}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-3 text-sm text-[#FDE68A]">
+              {evidence.missingEvidenceMessage ?? 'No validator-backed evidence target is attached to this decision yet.'}
+            </div>
+          )}
+        </div>
 
         <ul className="mt-5 divide-y divide-[#1E2B3D]/60">
           {rows.map((row) => (

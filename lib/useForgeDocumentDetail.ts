@@ -37,6 +37,8 @@ type DocumentApiDetail = {
   factOverrides?: DocumentFactOverrideRecord[];
   factAnchors?: DocumentFactAnchorRecord[];
   factReviews?: DocumentFactReviewRecord[];
+  transactionDatasets?: Array<Record<string, unknown>>;
+  transactionRows?: Array<Record<string, unknown>>;
 };
 
 export type ForgeDocumentDetailState = {
@@ -229,6 +231,8 @@ export function useForgeDocumentDetail(
         factOverrides: doc.factOverrides ?? [],
         factAnchors: doc.factAnchors ?? [],
         factReviews: doc.factReviews ?? [],
+        transactionDatasets: doc.transactionDatasets ?? [],
+        transactionRows: doc.transactionRows ?? [],
         reviewedDecisionIds: [],
       });
     } catch (err) {

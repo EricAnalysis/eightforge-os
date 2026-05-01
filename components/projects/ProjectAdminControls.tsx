@@ -16,7 +16,7 @@ type ProjectAdminControlsProps = {
   variant?: 'header' | 'panel';
 };
 
-async function getAuthHeaders(): Promise<HeadersInit> {
+async function getAuthHeaders(): Promise<Record<string, string>> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -42,10 +42,24 @@ export function ProjectAdminControls({
   const [dismissedBanner, setDismissedBanner] = useState(false);
 
   useEffect(() => {
+    if (loading || !hasProjectAdminRole(role)) {
+      return;
+    }
+
     const loadApprovalStatus = async () => {
       try {
-        const response = await fetch(`/api/projects/${project.id}/approval-status`);
+        const headers = await getAuthHeaders();
+        if (!('Authorization' in headers)) {
+          return;
+        }
+
+        const response = await fetch(`/api/projects/${project.id}/approval-status`, {
+          headers,
+        });
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            return;
+          }
           console.error('[ProjectAdminControls] Failed to fetch approval status:', response.status);
           return;
         }
@@ -58,7 +72,7 @@ export function ProjectAdminControls({
     };
 
     loadApprovalStatus();
-  }, [project.id]);
+  }, [loading, project.id, role]);
 
   if (loading || !hasProjectAdminRole(role)) {
     return null;

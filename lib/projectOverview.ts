@@ -6,6 +6,22 @@ import {
 } from '@/lib/decisionActions';
 import { buildProjectDocumentHref } from '@/lib/documentNavigation';
 import { formatDueDate } from '@/lib/dateUtils';
+import type { DocumentRelationshipRecord } from '@/lib/documentPrecedence';
+import {
+  PROJECT_TERM_AT_RISK_AMOUNT,
+  PROJECT_TERM_INVOICE_BILLED_AMOUNT,
+} from '@/lib/projectTerminology';
+import {
+  approvalBlockerCountForProjectFacts,
+  approvalStatusLabelForProjectFacts,
+  blockedAmountForProjectFacts,
+  deriveCanonicalProjectInvoiceFallbackSummary,
+  resolveCanonicalProjectValidationSnapshot,
+} from '@/lib/projectFacts';
+import {
+  isProjectPrimaryApprovalDecisionRow,
+  resolveProjectPrimaryApprovalDecision,
+} from '@/lib/validator/primaryApprovalDecision';
 import { DECISION_OPEN_STATUSES, TASK_OPEN_STATUSES } from '@/lib/overdue';
 import type {
   DocumentExecutionTrace,
@@ -13,12 +29,19 @@ import type {
   NormalizedDecision,
 } from '@/lib/types/documentIntelligence';
 import type {
+  ValidationFinding,
   ValidationStatus,
   ValidationTriggerSource,
   ValidatorStatus,
 } from '@/types/validator';
 
 type Relation<T> = T | T[] | null | undefined;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 export type ProjectRecord = {
   id: string;
@@ -28,6 +51,7 @@ export type ProjectRecord = {
   created_at: string;
   validation_status?: ValidationStatus | null;
   validation_summary_json?: unknown;
+  validation_phase?: string | null;
 };
 
 export type ProjectDocumentRelation = {
@@ -54,12 +78,21 @@ export type ProjectDocumentRow = {
   created_at: string;
   processed_at: string | null;
   project_id: string | null;
+  document_role?: string | null;
+  document_subtype?: string | null;
+  authority_status?: string | null;
+  effective_date?: string | null;
+  precedence_rank?: number | null;
+  operator_override_precedence?: boolean | null;
   intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
 };
+
+export type ProjectDocumentRelationshipRow = DocumentRelationshipRecord;
 
 export type ProjectDecisionRow = {
   id: string;
   document_id: string | null;
+  source?: string | null;
   decision_type: string;
   title: string;
   summary: string | null;
@@ -165,8 +198,10 @@ export type ProjectValidatorSummarySnapshot = {
   status: ValidationStatus;
   critical_count: number;
   warning_count: number;
+  requires_review_count: number;
   info_count: number;
   open_count: number;
+  required_review_total: number;
   blocked_reasons: string[];
   trigger_source: ValidationTriggerSource | null;
   nte_amount: number | null;
@@ -175,11 +210,15 @@ export type ProjectValidatorSummarySnapshot = {
   total_at_risk: number | null;
   /** Total dollars tied to blocked or needs-review findings. */
   requires_verification_amount: number | null;
+  /** Unsupported billed amount from the primary approval decision or canonical exposure truth. */
+  unsupported_amount: number | null;
   /** READY / BLOCKED / NEEDS_REVIEW from persisted validation summary when present. */
   validator_readiness: ValidatorStatus | null;
   reconciliation_overall: string | null;
   /** Per-invoice approval breakdown parsed from validation_summary_json.exposure.invoices. */
   invoice_summaries: ProjectOverviewInvoiceItem[];
+  /** Canonical approval blocker count resolved from validator-backed project facts. */
+  approval_blocker_count: number;
   /** Sum of billed_amount for invoices with approval_status === 'blocked'. Null when no blocked invoices. */
   blocked_amount: number | null;
 };
@@ -201,11 +240,22 @@ export type ProjectOverviewDecisionCard = {
   id: string;
   href: string;
   title: string;
+  status_key: string;
   status_label: string;
   status_tone: OverviewTone;
   freshness_label: string;
   reason: string;
+  problem: string;
+  impact: string;
+  required_action: string;
   assignees: string[];
+  owner_label: string;
+  due_at: string | null;
+  due_label: string | null;
+  evidence_refs: string[];
+  source_document_title: string | null;
+  source_document_href: string | null;
+  source_evidence_label: string;
   metadata: string[];
   primary_action: string | null;
   border_tone: OverviewTone;
@@ -261,6 +311,9 @@ export type ProjectOverviewAuditItem = {
   id: string;
   label: string;
   detail: string;
+  object_label: string | null;
+  source_label: string | null;
+  timestamp_at: string;
   timestamp_label: string;
   tone: OverviewTone;
   href: string | null;
@@ -294,6 +347,7 @@ export type ProjectOverviewModel = {
   action_total: number;
   action_empty_state: string;
   documents: ProjectOverviewDocumentItem[];
+  document_status_by_id?: ProjectOperationalRollup['document_status_by_id'];
   document_total: number;
   document_empty_state: string;
   audit: ProjectOverviewAuditItem[];
@@ -302,6 +356,7 @@ export type ProjectOverviewModel = {
 
 export type ProjectOperationalRollup = {
   status: ProjectOverviewStatus;
+  linked_document_count?: number;
   processed_document_count: number;
   needs_review_document_count: number;
   open_document_action_count: number;
@@ -405,10 +460,12 @@ function relativeTime(value: string | null | undefined): string {
 
 function formatCurrency(value: number | null): string {
   if (value == null || Number.isNaN(value)) return 'Awaiting data';
+  const hasCents = Math.abs(value - Math.round(value)) >= 0.005;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: value >= 1000 ? 0 : 2,
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: hasCents ? 2 : 0,
   }).format(value);
 }
 
@@ -419,158 +476,164 @@ function formatCompactNumber(value: number): string {
   }).format(value);
 }
 
-function parseNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'string') return null;
-  const cleaned = value.replace(/[$,]/g, '').trim();
-  if (!cleaned) return null;
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function isValidationStatus(value: unknown): value is ValidationStatus {
-  return (
-    value === 'NOT_READY' ||
-    value === 'BLOCKED' ||
-    value === 'VALIDATED' ||
-    value === 'FINDINGS_OPEN'
-  );
-}
-
-function isValidationTriggerSource(value: unknown): value is ValidationTriggerSource {
-  return (
-    value === 'document_processed' ||
-    value === 'fact_override' ||
-    value === 'relationship_change' ||
-    value === 'manual'
-  );
-}
-
-function isValidatorStatus(value: unknown): value is ValidatorStatus {
-  return value === 'READY' || value === 'BLOCKED' || value === 'NEEDS_REVIEW';
-}
-
-function deriveOverviewInvoiceApprovalStatus(
-  reconciliationStatus: string,
-  requiresVerificationAmount: number,
-): ProjectOverviewInvoiceItem['approval_status'] {
-  if (reconciliationStatus === 'MISMATCH' || reconciliationStatus === 'MISSING') {
-    return 'blocked';
-  }
-  if (reconciliationStatus === 'PARTIAL') {
-    return requiresVerificationAmount > 0 ? 'needs_review' : 'approved_with_exceptions';
-  }
-  return 'approved';
-}
-
-function parseOverviewInvoiceSummaries(rawInvoices: unknown[]): ProjectOverviewInvoiceItem[] {
-  return rawInvoices.flatMap((entry) => {
-    if (typeof entry !== 'object' || entry === null) return [];
-    const e = entry as Record<string, unknown>;
-    const reconciliation_status =
-      typeof e.reconciliation_status === 'string' && e.reconciliation_status.trim()
-        ? e.reconciliation_status.trim()
-        : null;
-    if (!reconciliation_status) return [];
-    const at_risk_raw = parseNumber(e.unreconciled_amount);
-    const requires_verification_raw =
-      parseNumber(e.requires_verification_amount)
-      ?? parseNumber(e.at_risk_amount);
-    const requires_verification_amount = requires_verification_raw ?? 0;
-    return [{
-      invoice_number:
-        typeof e.invoice_number === 'string' && e.invoice_number.trim()
-          ? e.invoice_number.trim()
-          : null,
-      approval_status: deriveOverviewInvoiceApprovalStatus(
-        reconciliation_status,
-        requires_verification_amount,
-      ),
-      billed_amount: parseNumber(e.billed_amount) ?? null,
-      supported_amount: parseNumber(e.supported_amount) ?? null,
-      at_risk_amount: at_risk_raw ?? null,
-      requires_verification_amount: requires_verification_raw ?? null,
-      reconciliation_status,
-    }];
-  });
-}
-
 export function resolveProjectValidatorSummary(
   project: ProjectRecord,
+  documents: readonly ProjectDocumentRow[] = [],
+  validationFindings?: readonly ValidationFinding[],
+  decisions: readonly ProjectDecisionRow[] = [],
 ): ProjectValidatorSummarySnapshot {
-  const raw =
-    project.validation_summary_json &&
-    typeof project.validation_summary_json === 'object' &&
-    !Array.isArray(project.validation_summary_json)
-      ? (project.validation_summary_json as Record<string, unknown>)
-      : null;
-
-  const status = isValidationStatus(project.validation_status)
-    ? project.validation_status
-    : raw && isValidationStatus(raw.status)
-      ? raw.status
-      : 'NOT_READY';
-
-  const rawExposure =
-    raw?.exposure && typeof raw.exposure === 'object' && !Array.isArray(raw.exposure)
-      ? (raw.exposure as Record<string, unknown>)
-      : null;
-  const rawReconciliation =
-    raw?.reconciliation && typeof raw.reconciliation === 'object' && !Array.isArray(raw.reconciliation)
-      ? (raw.reconciliation as Record<string, unknown>)
-      : null;
-
-  const nte_amount = parseNumber(raw?.nteAmount ?? raw?.nte_amount) ?? null;
-  const total_billed =
-    parseNumber(raw?.totalBilled ?? raw?.total_billed)
-    ?? (rawExposure ? parseNumber(rawExposure.total_billed_amount) : null)
-    ?? null;
-  const total_at_risk =
-    rawExposure ? parseNumber(rawExposure.total_unreconciled_amount) : null;
-  const requires_verification_amount =
-    parseNumber(raw?.requires_verification_amount)
-    ?? (rawExposure
-      ? parseNumber(rawExposure.total_requires_verification_amount)
-        ?? parseNumber(rawExposure.total_at_risk_amount)
-      : null)
-    ?? null;
-
-  const invoice_summaries = parseOverviewInvoiceSummaries(
-    rawExposure && Array.isArray(rawExposure.invoices) ? rawExposure.invoices : [],
-  );
-  const blocked_total = invoice_summaries
-    .filter((i) => i.approval_status === 'blocked')
-    .reduce((sum, i) => sum + (i.billed_amount ?? 0), 0);
-  const blocked_amount = blocked_total > 0 ? blocked_total : null;
+  const projectPrimaryDecision = resolveProjectPrimaryApprovalDecision(decisions);
+  const snapshot = resolveCanonicalProjectValidationSnapshot({
+    validationStatus: project.validation_status ?? null,
+    validationSummary: project.validation_summary_json,
+    validationFindings,
+    decisions,
+  });
+  const facts = snapshot.facts;
+  const documentInvoiceFallback = deriveCanonicalProjectInvoiceFallbackSummary({
+    documents,
+  });
+  const unsupportedAmount =
+    facts.unsupported_amount
+    ?? (
+      facts.total_billed != null
+      && facts.exposure?.total_fully_reconciled_amount != null
+        ? Math.max(0, facts.total_billed - facts.exposure.total_fully_reconciled_amount)
+        : null
+    );
+  const openDecisionCount = decisions.filter((decision) => DECISION_OPEN_STATUSES.includes(decision.status)).length;
 
   return {
-    status,
-    critical_count: parseNumber(raw?.critical_count) ?? 0,
-    warning_count: parseNumber(raw?.warning_count) ?? 0,
-    info_count: parseNumber(raw?.info_count) ?? 0,
-    open_count: parseNumber(raw?.open_count) ?? 0,
-    blocked_reasons: Array.isArray(raw?.blocked_reasons)
-      ? raw.blocked_reasons.filter(
-          (value): value is string => typeof value === 'string' && value.trim().length > 0,
-        )
-      : [],
-    trigger_source: isValidationTriggerSource(raw?.trigger_source)
-      ? raw.trigger_source
-      : null,
-    nte_amount,
-    total_billed,
-    total_at_risk,
-    requires_verification_amount,
-    validator_readiness: raw && isValidatorStatus(raw.validator_status)
-      ? raw.validator_status
-      : null,
-    reconciliation_overall:
-      typeof rawReconciliation?.overall_reconciliation_status === 'string'
-        ? rawReconciliation.overall_reconciliation_status
-        : null,
-    invoice_summaries,
-    blocked_amount,
+    status: facts.status,
+    critical_count: facts.critical_count,
+    warning_count: facts.warning_count,
+    requires_review_count: facts.requires_review_count,
+    info_count: facts.info_count,
+    open_count: facts.open_count,
+    required_review_total:
+      projectPrimaryDecision?.required_reviews
+      ?? (facts.open_count > 0 ? facts.open_count : openDecisionCount),
+    blocked_reasons: facts.blocked_reasons,
+    trigger_source: facts.trigger_source,
+    nte_amount: facts.nte_amount,
+    total_billed: facts.total_billed ?? documentInvoiceFallback.total_billed,
+    total_at_risk: facts.total_at_risk,
+    requires_verification_amount: facts.requires_verification_amount,
+    unsupported_amount: unsupportedAmount,
+    validator_readiness: facts.validator_status,
+    reconciliation_overall: facts.reconciliation_overall,
+    invoice_summaries:
+      snapshot.invoice_summaries.length > 0
+        ? snapshot.invoice_summaries
+        : documentInvoiceFallback.invoice_summaries,
+    approval_blocker_count: approvalBlockerCountForProjectFacts(facts),
+    blocked_amount: blockedAmountForProjectFacts(facts, snapshot.blocked_amount),
   };
+}
+
+function formatOpenApprovalFindingSummary(
+  blockerCount: number,
+  warningCount: number,
+): string {
+  if (blockerCount <= 0 && warningCount <= 0) {
+    return 'No open approval findings for this project';
+  }
+
+  const parts: string[] = [];
+  if (blockerCount > 0) {
+    parts.push(`${blockerCount} blocker${blockerCount === 1 ? '' : 's'}`);
+  }
+  if (warningCount > 0) {
+    parts.push(`${warningCount} warning/review finding${warningCount === 1 ? '' : 's'}`);
+  }
+
+  const totalCount = blockerCount + warningCount;
+  return `${parts.join(' and ')} ${totalCount === 1 ? 'is' : 'are'} open`;
+}
+
+function resolveProjectStatus(
+  project: ProjectRecord,
+  rollup: ProjectOperationalRollup,
+  validatorSummary: ProjectValidatorSummarySnapshot,
+  openDecisionCount: number,
+): ProjectOverviewStatus {
+  const approvalStatus = approvalStatusLabelForProjectFacts({
+    status: validatorSummary.status,
+    validator_status: validatorSummary.validator_readiness,
+  });
+  const approvalBlockerCount = validatorSummary.approval_blocker_count;
+  const requiredReviewCount = Math.max(
+    validatorSummary.required_review_total,
+    openDecisionCount,
+  );
+
+  if (approvalBlockerCount > 0 || approvalStatus === 'Blocked') {
+    return {
+      key: 'blocked',
+      label: 'Blocked',
+      tone: 'danger',
+      detail:
+        approvalBlockerCount > 0
+          ? `${approvalBlockerCount} approval blocker${approvalBlockerCount === 1 ? '' : 's'} are preventing payment. Resolve mismatches or missing support to unblock.`
+          : (validatorSummary.blocked_reasons[0]
+            ? `Approval is blocked. ${validatorSummary.blocked_reasons[0]}`
+            : 'Approval is blocked pending validator-backed review.'),
+      is_clear: false,
+    };
+  }
+
+  if (approvalStatus === 'Needs Review' || rollup.needs_review_document_count > 0) {
+    const needsReviewCount = Math.max(
+      rollup.needs_review_document_count,
+      requiredReviewCount,
+      1,
+    );
+    return {
+      key: 'needs_review',
+      label: 'Needs Review',
+      tone: 'warning',
+      detail: `${needsReviewCount} linked document${needsReviewCount === 1 ? '' : 's'} have at-risk amounts or open findings that require operator confirmation.`,
+      is_clear: false,
+    };
+  }
+
+  if (approvalStatus === 'Not Evaluated') {
+    return {
+      key: 'attention_required',
+      label: 'Attention Required',
+      tone: processedDocumentCountForStatus(rollup) > 0 ? 'info' : 'muted',
+      detail:
+        processedDocumentCountForStatus(rollup) > 0
+          ? 'Approval analysis is pending — canonical project truth has not resolved readiness yet.'
+          : `No processed documents are linked to ${shortProjectId(project)} yet. Upload and process to begin approval analysis.`,
+      is_clear: false,
+    };
+  }
+
+  if (requiredReviewCount > 0 || rollup.unresolved_finding_count > 0 || rollup.anomaly_count > 0) {
+    const openDecisionCount = requiredReviewCount;
+    return {
+      key: 'attention_required',
+      label: 'Attention Required',
+      tone: 'info',
+      detail: `${openDecisionCount} required review${openDecisionCount === 1 ? '' : 's'} and ${rollup.unresolved_finding_count} unresolved finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are pending review — no payment blockers.`,
+      is_clear: false,
+    };
+  }
+
+  return {
+    key: 'operationally_clear',
+    label: 'Approved',
+    tone: 'success',
+    detail: processedDocumentCountForStatus(rollup) > 0
+      ? 'Invoice claims are supported by contract and transaction data. No open approval blockers.'
+      : `No processed documents are linked to ${shortProjectId(project)} yet. Upload and process to begin approval analysis.`,
+    is_clear: processedDocumentCountForStatus(rollup) > 0,
+  };
+}
+
+function processedDocumentCountForStatus(rollup: ProjectOperationalRollup): number {
+  return rollup.processed_document_count;
 }
 
 function getFactValue(
@@ -1283,7 +1346,7 @@ export function buildProjectOperationalRollup(params: {
       key: 'attention_required',
       label: 'Attention Required',
       tone: 'info',
-      detail: `${openDocumentActionCount} open action${openDocumentActionCount === 1 ? '' : 's'} and ${unresolvedFindingCount} unresolved finding${unresolvedFindingCount === 1 ? '' : 's'} are pending review — no payment blockers.`,
+      detail: `${openDocumentActionCount} required review item${openDocumentActionCount === 1 ? '' : 's'} and ${unresolvedFindingCount} unresolved finding${unresolvedFindingCount === 1 ? '' : 's'} are pending review — no payment blockers.`,
       is_clear: false,
     };
   } else {
@@ -1300,6 +1363,7 @@ export function buildProjectOperationalRollup(params: {
 
   return {
     status,
+    linked_document_count: documents.length,
     processed_document_count: processedDocuments.length,
     needs_review_document_count: needsReviewDocumentCount,
     open_document_action_count: openDocumentActionCount,
@@ -1336,7 +1400,7 @@ export function resolveProjectExposure(
             ? 'Needs Review'
             : null;
       const detailParts = [
-        'Total billed comes from invoice exposure analysis.',
+        'Invoice billed amount comes from canonical invoice truth.',
         validatorSummary.reconciliation_overall
           ? `Reconciliation: ${validatorSummary.reconciliation_overall}.`
           : null,
@@ -1393,7 +1457,7 @@ export function resolveProjectExposure(
     percent_label: `${percent}%`,
     limit_label: `LIMIT: ${formatCurrency(limitAmount)}`,
     actual_label: `ACTUAL: ${formatCurrency(actualAmount)}`,
-    detail: `NTE utilization from invoice exposure analysis.${reconNote}${approvalNote}`.trim(),
+    detail: `NTE utilization from canonical invoice truth.${reconNote}${approvalNote}`.trim(),
     help_href: null,
     help_label: null,
     tone,
@@ -1406,9 +1470,11 @@ function resolveProjectMetrics(
   rollup: ProjectOperationalRollup,
   validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewMetric[] {
-  const anomalyCount = validatorSummary.critical_count + validatorSummary.warning_count;
+  const blockerCount = validatorSummary.approval_blocker_count;
+  const warningCount = validatorSummary.warning_count + validatorSummary.requires_review_count;
+  const anomalyCount = blockerCount + warningCount;
   const anomalyTone: OverviewTone =
-    validatorSummary.critical_count > 0
+    blockerCount > 0
       ? 'danger'
       : anomalyCount > 0
         ? 'warning'
@@ -1417,7 +1483,10 @@ function resolveProjectMetrics(
 
   if (hasExposureData) {
     const atRisk = validatorSummary.total_at_risk;
+    const blockedAmount = validatorSummary.blocked_amount;
     const requiresVerification = validatorSummary.requires_verification_amount;
+    const requiresVerificationCount = blockerCount + warningCount;
+    const requiredReviewCount = validatorSummary.required_review_total;
     const atRiskTone: OverviewTone =
       atRisk != null && atRisk > 0 ? 'warning' : 'success';
     const readiness = validatorSummary.validator_readiness;
@@ -1433,14 +1502,24 @@ function resolveProjectMetrics(
     return [
       {
         key: 'total-billed',
-        label: 'Total Billed',
+        label: PROJECT_TERM_INVOICE_BILLED_AMOUNT,
         value: formatCurrency(validatorSummary.total_billed),
-        supporting: `Invoice billed total from exposure analysis across all linked claims`,
+        supporting: 'Invoice billed total from canonical invoice truth across all linked claims',
         tone: 'neutral',
       },
       {
+        key: 'blocked-amount',
+        label: 'Blocked Amount',
+        value: formatCurrency(blockedAmount ?? 0),
+        supporting:
+          (blockedAmount ?? 0) > 0
+            ? 'Validator-backed approval blockers are currently stopping these billed dollars'
+            : 'No billed dollars are currently blocked from approval',
+        tone: (blockedAmount ?? 0) > 0 ? 'danger' : 'success',
+      },
+      {
         key: 'at-risk',
-        label: 'At Risk',
+        label: PROJECT_TERM_AT_RISK_AMOUNT,
         value: atRisk != null ? formatCurrency(atRisk) : '—',
         supporting: atRisk != null && atRisk > 0
           ? 'Exposure variance is still awaiting confirmation'
@@ -1450,26 +1529,39 @@ function resolveProjectMetrics(
       {
         key: 'requires-verification',
         label: 'Requires Verification',
-        value: requiresVerification != null ? formatCurrency(requiresVerification) : '—',
-        supporting: requiresVerification != null && requiresVerification > 0
-          ? 'Blocked or needs-review findings are carrying approval-gated dollars'
-          : 'No approval-gated verification dollars are currently open',
-        tone: requiresVerification != null && requiresVerification > 0 ? 'danger' : 'success',
+        value:
+          requiresVerification != null
+            ? formatCurrency(requiresVerification)
+            : requiresVerificationCount > 0
+              ? `${formatCompactNumber(requiresVerificationCount)} finding${requiresVerificationCount === 1 ? '' : 's'}`
+              : '—',
+        supporting:
+          requiresVerification != null && requiresVerification > 0
+            ? 'Blocked or needs-review findings are carrying approval-gated dollars'
+            : requiresVerificationCount > 0
+              ? 'Approval findings are still open even though validator dollars are not yet quantified'
+              : 'No approval-gated verification dollars are currently open',
+        tone:
+          requiresVerification != null && requiresVerification > 0
+            ? 'danger'
+            : requiresVerificationCount > 0
+              ? 'warning'
+              : 'success',
       },
       {
-        key: 'open-actions',
-        label: 'Open Actions',
-        value: formatCompactNumber(rollup.open_document_action_count),
-        supporting: `${rollup.unresolved_finding_count} open finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are driving the current queue`,
-        tone: rollup.open_document_action_count > 0 ? 'warning' : 'muted',
+        key: 'required-reviews',
+        label: 'Required Reviews',
+        value: formatCompactNumber(requiredReviewCount),
+        supporting: requiredReviewCount > 0
+          ? `${requiredReviewCount} validator-backed review${requiredReviewCount === 1 ? '' : 's'} are unresolved and ready for operator action`
+          : 'No validator-backed reviews are currently open',
+        tone: requiredReviewCount > 0 ? 'warning' : 'muted',
       },
       {
         key: 'approval-status',
         label: 'Approval Status',
         value: approvalLabel,
-        supporting: anomalyCount > 0
-          ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning finding${anomalyCount === 1 ? '' : 's'} are open`
-          : 'No open approval findings for this project',
+        supporting: formatOpenApprovalFindingSummary(blockerCount, warningCount),
         tone: readinessTone,
       },
     ];
@@ -1495,19 +1587,19 @@ function resolveProjectMetrics(
       tone: rollup.needs_review_document_count > 0 ? 'warning' : 'success',
     },
     {
-      key: 'open-actions',
-      label: 'Open Actions',
-      value: formatCompactNumber(rollup.open_document_action_count),
-      supporting: `${rollup.unresolved_finding_count} open finding${rollup.unresolved_finding_count === 1 ? '' : 's'} are driving the current queue`,
-      tone: rollup.open_document_action_count > 0 ? 'warning' : 'muted',
+      key: 'required-reviews',
+      label: 'Required Reviews',
+      value: formatCompactNumber(validatorSummary.required_review_total),
+      supporting: validatorSummary.required_review_total > 0
+        ? `${validatorSummary.required_review_total} validator-backed review${validatorSummary.required_review_total === 1 ? '' : 's'} are unresolved and ready for operator action`
+        : 'No validator-backed reviews are currently open',
+      tone: validatorSummary.required_review_total > 0 ? 'warning' : 'muted',
     },
     {
       key: 'approval-findings',
       label: 'Approval Findings',
       value: formatCompactNumber(anomalyCount),
-      supporting: anomalyCount > 0
-        ? `${validatorSummary.critical_count} critical and ${validatorSummary.warning_count} warning finding${anomalyCount === 1 ? '' : 's'} are open`
-        : 'No open approval findings',
+      supporting: formatOpenApprovalFindingSummary(blockerCount, warningCount),
       tone: anomalyTone,
     },
   ];
@@ -1515,21 +1607,18 @@ function resolveProjectMetrics(
 
 function resolveProjectFacts(
   project: ProjectRecord,
-  rollup: ProjectOperationalRollup,
   validatorSummary: ProjectValidatorSummarySnapshot,
 ): ProjectOverviewFact[] {
-  const readiness = validatorSummary.validator_readiness;
-  const approvalStatusLabel =
-    readiness === 'READY' ? 'Approved'
-    : readiness === 'BLOCKED' ? 'Blocked'
-    : readiness === 'NEEDS_REVIEW' ? 'Needs Review'
-    : 'Not Evaluated';
-
+  const approvalStatusLabel = approvalStatusLabelForProjectFacts({
+    status: validatorSummary.status,
+    validator_status: validatorSummary.validator_readiness,
+  });
   return [
     { label: 'Project Code', value: shortProjectId(project) },
     { label: 'Approval Status', value: approvalStatusLabel },
-    { label: 'Open Findings', value: formatCompactNumber(validatorSummary.open_count) },
-    { label: 'Approval Blockers', value: formatCompactNumber(rollup.blocked_count) },
+    { label: 'Blocked Amount', value: formatCurrency(validatorSummary.blocked_amount ?? 0) },
+    { label: 'Required Reviews', value: formatCompactNumber(validatorSummary.required_review_total) },
+    { label: 'Approval Blockers', value: formatCompactNumber(validatorSummary.approval_blocker_count) },
   ];
 }
 
@@ -1549,24 +1638,197 @@ function decisionStatusTone(decision: ProjectDecisionRow): OverviewTone {
   return 'neutral';
 }
 
+function detailString(
+  details: Record<string, unknown> | null | undefined,
+  keys: string[],
+): string | null {
+  if (!details) return null;
+
+  for (const key of keys) {
+    const value = details[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function detailStringArray(
+  details: Record<string, unknown> | null | undefined,
+  keys: string[],
+): string[] {
+  if (!details) return [];
+
+  for (const key of keys) {
+    const value = details[key];
+    if (!Array.isArray(value)) continue;
+    const entries = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry.length > 0);
+    if (entries.length > 0) return entries;
+  }
+
+  return [];
+}
+
+function decisionOrigin(decision: ProjectDecisionRow): string | null {
+  const explicitOrigin = detailString(decision.details ?? null, ['origin']);
+  if (explicitOrigin) return explicitOrigin;
+
+  return typeof decision.source === 'string' && decision.source.trim().length > 0
+    ? decision.source.trim()
+    : null;
+}
+
+export function isValidatorManagedDecision(decision: ProjectDecisionRow): boolean {
+  const origin = decisionOrigin(decision);
+  if (origin === 'project_validator') return true;
+
+  const detailRecord = asRecord(decision.details);
+  if (Array.isArray(detailRecord?.validator_finding_ids) && detailRecord.validator_finding_ids.length > 0) {
+    return true;
+  }
+
+  return decision.decision_type.startsWith('validator_');
+}
+
+function decisionSourceLabel(decision: ProjectDecisionRow): string {
+  const explicit = detailString(decision.details ?? null, ['source_label']);
+  if (explicit) return explicit;
+
+  const origin = decisionOrigin(decision);
+  if (origin === 'project_validator') return 'Validator output';
+
+  if (decision.source === 'deterministic') {
+    const family = detailString(decision.details ?? null, ['document_family', 'source_family']);
+    if (family === 'contract') return 'Legacy contract intelligence';
+    if (family === 'invoice') return 'Legacy invoice intelligence';
+    return 'Legacy document intelligence';
+  }
+
+  if (decision.source === 'rule_engine') return 'Legacy rule engine';
+  if (decision.source === 'system') return 'System decision';
+  return 'Project decision record';
+}
+
+function hasValidatorDecisionContext(summary: ProjectValidatorSummarySnapshot): boolean {
+  return summary.status !== 'NOT_READY'
+    || summary.trigger_source != null
+    || summary.open_count > 0
+    || summary.approval_blocker_count > 0
+    || summary.warning_count > 0
+    || summary.requires_review_count > 0
+    || summary.total_at_risk != null
+    || summary.requires_verification_amount != null
+    || summary.blocked_amount != null;
+}
+
+function resolveForgeDecisions(
+  decisions: ProjectDecisionRow[],
+): ProjectDecisionRow[] {
+  return decisions.filter(isValidatorManagedDecision);
+}
+
+function countOpenForgeDecisions(decisions: readonly ProjectDecisionRow[]): number {
+  return decisions.filter((decision) => DECISION_OPEN_STATUSES.includes(decision.status)).length;
+}
+
+function resolveDecisionEmptyState(params: {
+  visibleDecisions: ProjectDecisionRow[];
+  rawDecisions: ProjectDecisionRow[];
+  documents: ProjectDocumentRow[];
+  validatorSummary: ProjectValidatorSummarySnapshot;
+}): string {
+  const { visibleDecisions, rawDecisions, documents, validatorSummary } = params;
+  if (visibleDecisions.length > 0) {
+    return 'All validator-backed decisions are resolved, dismissed, or suppressed.';
+  }
+
+  const hasLegacyDecisions = rawDecisions.some((decision) => !isValidatorManagedDecision(decision));
+  if (!hasValidatorDecisionContext(validatorSummary)) {
+    return hasLegacyDecisions
+      ? 'Validator has not produced decision outputs yet. Legacy document-intelligence decisions remain supporting context only until validation runs.'
+      : 'Validator has not produced decision outputs yet. Run validation after project truth is ready to generate approval decisions.';
+  }
+
+  if (documents.length === 0) {
+    return 'No project documents yet. Upload and process documents to generate validator-backed approval decisions.';
+  }
+
+  return hasLegacyDecisions
+    ? 'No open validator-backed decisions are driving approval right now. Legacy document-intelligence records remain supporting context only.'
+    : 'No validator-backed project decisions are linked right now.';
+}
+
+function sortDecisionTasks(tasks: ProjectTaskRow[]): ProjectTaskRow[] {
+  return [...tasks].sort((left, right) => {
+    const leftOpenRank = TASK_OPEN_STATUSES.includes(left.status) ? 0 : 1;
+    const rightOpenRank = TASK_OPEN_STATUSES.includes(right.status) ? 0 : 1;
+    if (leftOpenRank !== rightOpenRank) return leftOpenRank - rightOpenRank;
+
+    const leftPriorityRank = TASK_PRIORITY_RANK[left.priority] ?? 9;
+    const rightPriorityRank = TASK_PRIORITY_RANK[right.priority] ?? 9;
+    if (leftPriorityRank !== rightPriorityRank) return leftPriorityRank - rightPriorityRank;
+
+    const leftDueRank = left.due_at ? new Date(left.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const rightDueRank = right.due_at ? new Date(right.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (leftDueRank !== rightDueRank) return leftDueRank - rightDueRank;
+
+    const leftUpdated = new Date(left.updated_at ?? left.created_at).getTime();
+    const rightUpdated = new Date(right.updated_at ?? right.created_at).getTime();
+    return rightUpdated - leftUpdated;
+  });
+}
+
+function fallbackDecisionImpact(decision: ProjectDecisionRow): string {
+  if (decision.status === 'resolved') {
+    return 'This decision is closed and retained for approval history.';
+  }
+  if (decision.severity === 'critical') {
+    return 'Approval risk remains open until this decision is resolved.';
+  }
+  if (decision.status === 'in_review') {
+    return 'Operator review is in progress before this item can be cleared.';
+  }
+  return 'Operator review is still required before this item can be closed.';
+}
+
+function normalizeSourceFamilyLabel(value: string | null): string | null {
+  if (!value) return null;
+  if (value === 'cross_document') return 'Cross-document';
+  return titleize(value);
+}
+
 export function resolveProjectDecisionSummary(
   decisions: ProjectDecisionRow[],
   tasks: ProjectTaskRow[],
   members: ProjectMember[],
+  projectId?: string,
 ): ProjectOverviewDecisionCard[] {
   const relatedTaskCountByDecisionId = new Map<string, number>();
+  const relatedTasksByDecisionId = new Map<string, ProjectTaskRow[]>();
   for (const task of tasks) {
     if (!task.decision_id) continue;
     relatedTaskCountByDecisionId.set(
       task.decision_id,
       (relatedTaskCountByDecisionId.get(task.decision_id) ?? 0) + 1,
     );
+    const current = relatedTasksByDecisionId.get(task.decision_id) ?? [];
+    current.push(task);
+    relatedTasksByDecisionId.set(task.decision_id, current);
   }
 
   const sorted = [...decisions].sort((left, right) => {
     const leftCurrent = DECISION_OPEN_STATUSES.includes(left.status) ? 0 : 1;
     const rightCurrent = DECISION_OPEN_STATUSES.includes(right.status) ? 0 : 1;
     if (leftCurrent !== rightCurrent) return leftCurrent - rightCurrent;
+
+    const leftPrimaryProjectRank = isProjectPrimaryApprovalDecisionRow(left) ? 0 : 1;
+    const rightPrimaryProjectRank = isProjectPrimaryApprovalDecisionRow(right) ? 0 : 1;
+    if (leftPrimaryProjectRank !== rightPrimaryProjectRank) {
+      return leftPrimaryProjectRank - rightPrimaryProjectRank;
+    }
 
     const leftStatusRank = DECISION_STATUS_RANK[left.status] ?? 9;
     const rightStatusRank = DECISION_STATUS_RANK[right.status] ?? 9;
@@ -1582,26 +1844,85 @@ export function resolveProjectDecisionSummary(
   });
 
   return sorted.slice(0, 6).map((decision) => {
+    const relatedDecisionTasks = sortDecisionTasks(relatedTasksByDecisionId.get(decision.id) ?? []);
+    const primaryTask = relatedDecisionTasks[0] ?? null;
     const reason = resolveDecisionReason(decision.details ?? null, decision.summary);
     const primaryAction = resolveDecisionPrimaryAction(decision.details ?? null);
     const metadata: string[] = [];
     if (decision.document_id) metadata.push('1 linked file');
-    const relatedTasks = relatedTaskCountByDecisionId.get(decision.id) ?? 0;
-    if (relatedTasks > 0) metadata.push(`${relatedTasks} pending action${relatedTasks === 1 ? '' : 's'}`);
+    const relatedTaskCount = relatedTaskCountByDecisionId.get(decision.id) ?? 0;
+    if (relatedTaskCount > 0) metadata.push(`${relatedTaskCount} pending action${relatedTaskCount === 1 ? '' : 's'}`);
     if (decision.confidence != null) metadata.push(`${Math.round(decision.confidence * 100)}% confidence`);
 
     const assignee = firstRelation(decision.assignee);
-    const assigneeLabel = assignee?.display_name?.trim() || memberName(members, decision.assigned_to);
+    const taskAssignee = primaryTask ? firstRelation(primaryTask.assignee) : null;
+    const assigneeLabel =
+      assignee?.display_name?.trim()
+      || taskAssignee?.display_name?.trim()
+      || memberName(members, decision.assigned_to ?? primaryTask?.assigned_to ?? null);
+    const sourceDocument = decisionDocument(decision) ?? (primaryTask ? taskDocument(primaryTask) : null);
+    const sourceDocumentTitle = sourceDocument ? documentTitle(sourceDocument) : null;
+    const sourceDocumentHref =
+      sourceDocument?.id && projectId
+        ? buildProjectDocumentHref(sourceDocument.id, projectId)
+        : null;
+    const sourceLabel = decisionSourceLabel(decision);
+    const evidenceRefs = [
+      ...detailStringArray(decision.details ?? null, ['evidence_refs', 'fact_refs', 'source_refs']),
+      ...detailStringArray(primaryTask?.details ?? null, ['evidence_refs', 'fact_refs', 'source_refs']),
+    ];
+    const uniqueEvidenceRefs = [...new Set(evidenceRefs)];
+    const sourceFamilyLabel = normalizeSourceFamilyLabel(
+      detailString(decision.details ?? null, ['source_family'])
+      ?? detailString(primaryTask?.details ?? null, ['source_family'])
+      ?? detailString(primaryTask?.source_metadata ?? null, ['origin']),
+    );
+    const problem = (
+      detailString(decision.details ?? null, ['problem'])
+      ?? detailString(primaryTask?.details ?? null, ['problem'])
+      ?? reason
+    ) || 'Decision detail is available in the full record.';
+    const impact =
+      detailString(decision.details ?? null, ['impact'])
+      ?? detailString(primaryTask?.details ?? null, ['impact'])
+      ?? fallbackDecisionImpact(decision);
+    const requiredAction =
+      detailString(decision.details ?? null, ['required_action'])
+      ?? primaryAction?.description
+      ?? detailString(primaryTask?.details ?? null, ['required_action'])
+      ?? primaryTask?.title
+      ?? primaryTask?.description
+      ?? 'Review the decision context and determine the next disposition.';
+    const dueAt = decision.due_at ?? primaryTask?.due_at ?? null;
+    const sourceEvidenceLabelParts = [
+      sourceLabel,
+      sourceDocumentTitle ?? 'Project decision record',
+      uniqueEvidenceRefs.length > 0
+        ? `${uniqueEvidenceRefs.length} evidence ref${uniqueEvidenceRefs.length === 1 ? '' : 's'}`
+        : null,
+      sourceFamilyLabel,
+    ].filter(Boolean);
 
     return {
       id: decision.id,
       href: `/platform/decisions/${decision.id}`,
       title: decision.title || titleize(decision.decision_type),
+      status_key: decision.status,
       status_label: DECISION_STATUS_LABELS[decision.status] ?? titleize(decision.status),
       status_tone: decisionStatusTone(decision),
       freshness_label: relativeTime(decision.last_detected_at ?? decision.created_at),
       reason: reason || 'Decision detail is available in the full record.',
+      problem,
+      impact,
+      required_action: requiredAction,
       assignees: assigneeLabel === 'Unassigned' ? [] : [assigneeLabel],
+      owner_label: assigneeLabel,
+      due_at: dueAt,
+      due_label: dueAt ? formatDueDate(dueAt) : null,
+      evidence_refs: uniqueEvidenceRefs,
+      source_document_title: sourceDocumentTitle,
+      source_document_href: sourceDocumentHref,
+      source_evidence_label: sourceEvidenceLabelParts.join(' · ') || 'Project decision record',
       metadata,
       primary_action: primaryAction?.description ?? null,
       border_tone: decisionBorderTone(decision),
@@ -1823,15 +2144,20 @@ export function resolveProjectAuditEvents(
 ): ProjectOverviewAuditItem[] {
   const decisionTitleById = new Map(decisions.map((decision) => [decision.id, decision.title]));
   const taskTitleById = new Map(tasks.map((task) => [task.id, task.title]));
+  const documentTitleById = new Map(documents.map((document) => [document.id, documentTitle(document)]));
 
   const documentEvents = documents.flatMap((document) => {
+    const title = documentTitle(document);
     const events: Array<ProjectOverviewAuditItem & { sort_at: string }> = [
       {
         id: `document-created-${document.id}`,
         label: 'Document added',
-        detail: document.title ?? document.name,
+        detail: 'Linked into the project document record.',
+        object_label: title,
+        source_label: 'Document record',
+        timestamp_at: document.created_at,
         timestamp_label: relativeTime(document.created_at),
-        tone: 'muted',
+        tone: 'info',
         href: buildProjectDocumentHref(document.id, project.id),
         sort_at: document.created_at,
       },
@@ -1840,7 +2166,13 @@ export function resolveProjectAuditEvents(
       events.push({
         id: `document-processed-${document.id}`,
         label: document.processing_status === 'failed' ? 'Document processing failed' : 'Document processed',
-        detail: document.title ?? document.name,
+        detail:
+          document.processing_status === 'failed'
+            ? 'Processing ended with an error and needs operator attention.'
+            : 'Extraction and project intelligence processing completed.',
+        object_label: title,
+        source_label: 'Processing record',
+        timestamp_at: document.processed_at,
         timestamp_label: relativeTime(document.processed_at),
         tone: auditToneForStatus(document.processing_status),
         href: buildProjectDocumentHref(document.id, project.id),
@@ -1874,7 +2206,17 @@ export function resolveProjectAuditEvents(
       return {
         id: event.id,
         label: 'Validation run',
-        detail: 'Project validator completed and recorded a new consistency snapshot.',
+        detail:
+          status === 'BLOCKED'
+            ? 'Validator recorded blocking findings against the current project truth.'
+            : status === 'VALIDATED'
+              ? 'Validator confirmed the current project truth snapshot.'
+              : status === 'FINDINGS_OPEN'
+                ? 'Validator recorded open findings that still need review.'
+                : 'Validator recorded a new project consistency snapshot.',
+        object_label: project.name,
+        source_label: 'Validator snapshot',
+        timestamp_at: event.created_at,
         timestamp_label: relativeTime(event.created_at),
         tone,
         href: null,
@@ -1894,8 +2236,23 @@ export function resolveProjectAuditEvents(
     const isDecision = event.entity_type === 'decision';
     const isTask = event.entity_type === 'workflow_task';
     const isProject = event.entity_type === 'project';
+    const oldStatus = extractStatus(event.old_value);
+    const fieldKey = extractStringValue(event.new_value, 'field_key')
+      ?? extractStringValue(event.old_value, 'field_key');
+    const reason = extractStringValue(event.new_value, 'reason');
+    const reviewStatus = extractStringValue(event.new_value, 'review_status');
+    const notes = extractStringValue(event.new_value, 'notes');
+    const familyLabel = extractStringValue(event.new_value, 'family_label')
+      ?? extractStringValue(event.old_value, 'family_label');
+    const governingDocumentTitle = extractStringValue(event.new_value, 'governing_document_title');
+    const previousGoverningDocumentTitle = extractStringValue(event.old_value, 'governing_document_title');
+    const authorityStatus = extractStringValue(event.new_value, 'authority_status');
+    const relationshipType = extractStringValue(event.new_value, 'relationship_type');
+    const relationshipTargetTitle = extractStringValue(event.new_value, 'target_document_title');
+    const sourceDocumentTitle = extractStringValue(event.new_value, 'source_document_title');
+    const precedenceMode = extractStringValue(event.new_value, 'precedence_mode');
     const entityTitle = isDecision
-      ? decisionTitleById.get(event.entity_id) ?? 'Decision'
+      ? decisionTitleById.get(event.entity_id) ?? documentTitleById.get(event.entity_id) ?? 'Decision'
       : isTask
         ? taskTitleById.get(event.entity_id) ?? 'Action'
         : isProject
@@ -1906,11 +2263,16 @@ export function resolveProjectAuditEvents(
             extractStringValue(event.old_value, 'document_title') ??
             'Document';
     const nextStatus = extractStatus(event.new_value);
-    const actor = memberName(members, event.changed_by);
+    const nextAssigneeId = extractStringValue(event.new_value, 'assigned_to');
+    const nextAssigneeLabel = nextAssigneeId ? memberName(members, nextAssigneeId) : null;
+    const previousDueAt = extractStringValue(event.old_value, 'due_at');
+    const nextDueAt = extractStringValue(event.new_value, 'due_at');
 
     let label = 'Record updated';
-    let detail = entityTitle;
+    let detail = `${entityTitle} changed.`;
     let tone: OverviewTone = 'info';
+    let objectLabel: string | null = entityTitle;
+    let sourceLabel: string | null = 'Activity log';
     let href: string | null = isDecision
       ? `/platform/decisions/${event.entity_id}`
       : isTask
@@ -1922,49 +2284,205 @@ export function resolveProjectAuditEvents(
     switch (event.event_type) {
       case 'created':
         label = isDecision ? 'Decision created' : isTask ? 'Action created' : 'Record created';
+        detail = isDecision
+          ? 'A new decision entered the project workflow.'
+          : isTask
+            ? 'A new action entered the workflow queue.'
+            : `${entityTitle} was created.`;
+        sourceLabel = isDecision ? 'Decision record' : isTask ? 'Workflow record' : 'Activity log';
+        break;
+      case 'updated':
+        label = isDecision ? 'Decision updated' : 'Record updated';
+        detail = isDecision
+          ? 'Primary approval decision details were refreshed from the latest validator output.'
+          : `${entityTitle} was updated.`;
+        tone = 'info';
+        sourceLabel = isDecision ? 'Validator decision sync' : 'Activity log';
+        break;
+      case 'validation_run_requested':
+        label = 'Validation rerun requested';
+        detail = 'Project truth changed and a validator rerun was requested to refresh approval status.';
+        tone = 'info';
+        sourceLabel = 'Validator request';
+        href = `/platform/projects/${event.entity_id}#project-validator`;
         break;
       case 'status_changed':
-        label = isDecision ? 'Decision status changed' : isTask ? 'Action status changed' : 'Status changed';
-        detail = nextStatus ? `${entityTitle} -> ${titleize(nextStatus)}` : entityTitle;
+        if (isDecision && nextStatus === 'in_review') {
+          label = 'Decision moved to review';
+          detail = 'Decision now requires operator review.';
+        } else if (isDecision && nextStatus === 'resolved') {
+          label = 'Decision resolved';
+          detail = 'Decision was resolved and removed from the open queue.';
+        } else if (isTask && (nextStatus === 'resolved' || nextStatus === 'completed')) {
+          label = 'Action completed';
+          detail = 'Workflow action was completed.';
+        } else {
+          label = isDecision ? 'Decision status changed' : isTask ? 'Action status changed' : 'Status changed';
+          detail = oldStatus && nextStatus
+            ? `Moved from ${titleize(oldStatus)} to ${titleize(nextStatus)}.`
+            : nextStatus
+              ? `Status updated to ${titleize(nextStatus)}.`
+              : 'Status was updated.';
+        }
         tone = auditToneForStatus(nextStatus);
+        sourceLabel = isDecision ? 'Decision workflow' : isTask ? 'Action workflow' : 'Activity log';
         break;
       case 'assignment_changed':
         label = isDecision ? 'Decision reassigned' : isTask ? 'Action reassigned' : 'Assignment changed';
-        detail = `${entityTitle} / ${actor}`;
+        detail = nextAssigneeLabel ? `Assigned to ${nextAssigneeLabel}.` : 'Assignment was cleared.';
         tone = 'warning';
+        sourceLabel = 'Workflow assignment';
         break;
       case 'due_date_changed':
         label = isDecision ? 'Decision due date adjusted' : isTask ? 'Action due date adjusted' : 'Due date adjusted';
+        detail = nextDueAt
+          ? `Due date set to ${formatDueDate(nextDueAt)}.`
+          : previousDueAt
+            ? 'Due date was cleared.'
+            : 'Due date was updated.';
         tone = 'muted';
+        sourceLabel = 'Workflow schedule';
         break;
       case 'document_removed_from_project':
         label = 'Document removed from project';
-        detail = entityTitle;
+        detail = 'Removed from the project document set.';
         tone = 'warning';
+        sourceLabel = 'Project link';
         href = `/platform/documents/${event.entity_id}`;
         break;
       case 'document_moved_to_project': {
         const fromProject = extractStringValue(event.old_value, 'project_name');
         const toProject = extractStringValue(event.new_value, 'project_name');
         label = 'Document moved to project';
-        detail = [entityTitle, fromProject && toProject ? `${fromProject} -> ${toProject}` : toProject]
-          .filter(Boolean)
-          .join(' / ');
+        detail =
+          fromProject && toProject
+            ? `Moved from ${fromProject} to ${toProject}.`
+            : toProject
+              ? `Moved into ${toProject}.`
+              : 'Project link changed.';
         tone = 'info';
+        sourceLabel = 'Project link';
         href = `/platform/documents/${event.entity_id}`;
         break;
       }
       case 'project_archived':
         label = 'Project archived';
-        detail = entityTitle;
+        detail = 'Project was archived and removed from default active views.';
         tone = 'muted';
+        sourceLabel = 'Project record';
         href = `/platform/projects/${event.entity_id}`;
         break;
       case 'project_deleted':
         label = 'Project deleted';
-        detail = entityTitle;
+        detail = 'Project record was deleted.';
         tone = 'danger';
+        sourceLabel = 'Project record';
         href = null;
+        break;
+      case 'override_applied':
+        label = 'Override applied';
+        detail = fieldKey
+          ? `${titleize(fieldKey)} was updated by manual override.${reason ? ` Reason: ${reason}` : ''}`
+          : `Manual override applied.${reason ? ` Reason: ${reason}` : ''}`;
+        tone = 'warning';
+        objectLabel = entityTitle;
+        sourceLabel = fieldKey ? `Fact override / ${titleize(fieldKey)}` : 'Fact override';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'review_recorded':
+        label =
+          reviewStatus === 'confirmed'
+            ? 'Fact review confirmed'
+            : reviewStatus === 'needs_followup'
+              ? 'Fact review flagged'
+              : reviewStatus === 'missing_confirmed'
+                ? 'Missing fact confirmed'
+                : 'Fact review recorded';
+        detail =
+          reviewStatus === 'confirmed'
+            ? `${fieldKey ? titleize(fieldKey) : 'Fact'} was confirmed during review.`
+            : reviewStatus === 'needs_followup'
+              ? `${fieldKey ? titleize(fieldKey) : 'Fact'} needs follow-up verification.${notes ? ` Notes: ${notes}` : ''}`
+              : reviewStatus === 'missing_confirmed'
+                ? `${fieldKey ? titleize(fieldKey) : 'Fact'} was confirmed missing.${notes ? ` Notes: ${notes}` : ''}`
+                : `Review recorded for ${fieldKey ? titleize(fieldKey) : 'fact'}.${notes ? ` Notes: ${notes}` : ''}`;
+        tone =
+          reviewStatus === 'confirmed'
+            ? 'success'
+            : reviewStatus === 'needs_followup' || reviewStatus === 'missing_confirmed'
+              ? 'warning'
+              : 'info';
+        objectLabel = entityTitle;
+        sourceLabel = fieldKey ? `Fact review / ${titleize(fieldKey)}` : 'Fact review';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'review_correction_applied':
+        label = 'Review correction applied';
+        detail = `${fieldKey ? titleize(fieldKey) : 'Fact'} was corrected during review.${notes ? ` Notes: ${notes}` : ''}`;
+        tone = 'warning';
+        objectLabel = entityTitle;
+        sourceLabel = fieldKey ? `Fact review / ${titleize(fieldKey)}` : 'Fact review';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'governing_document_changed':
+        label = 'Governing document changed';
+        detail =
+          governingDocumentTitle && previousGoverningDocumentTitle && governingDocumentTitle !== previousGoverningDocumentTitle
+            ? `${familyLabel ?? 'Document family'} now governed by ${governingDocumentTitle} (was ${previousGoverningDocumentTitle}).`
+            : governingDocumentTitle
+              ? `${familyLabel ?? 'Document family'} now governed by ${governingDocumentTitle}.`
+              : 'Governing document changed.';
+        tone = 'warning';
+        objectLabel = governingDocumentTitle ?? entityTitle;
+        sourceLabel = 'Document precedence';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'document_precedence_changed':
+        label = 'Document precedence changed';
+        detail =
+          authorityStatus
+            ? `${entityTitle} authority set to ${titleize(authorityStatus)}.`
+            : precedenceMode === 'automatic'
+              ? `${familyLabel ?? 'Document family'} reverted to automatic precedence ordering.`
+              : `${entityTitle} moved within ${familyLabel ?? 'document'} precedence.`;
+        tone = authorityStatus === 'superseded' ? 'warning' : 'info';
+        objectLabel = isProject ? familyLabel ?? entityTitle : entityTitle;
+        sourceLabel = 'Document precedence';
+        href = isProject ? `/platform/projects/${event.entity_id}#project-documents` : `/platform/documents/${event.entity_id}`;
+        break;
+      case 'document_relationship_created':
+      case 'document_relationship_changed':
+        label = 'Document relationship recorded';
+        detail =
+          relationshipType && relationshipTargetTitle
+            ? `${sourceDocumentTitle ?? entityTitle} now ${relationshipType.replace(/_/g, ' ')} ${relationshipTargetTitle}.`
+            : 'Document relationship updated.';
+        tone = 'info';
+        objectLabel = sourceDocumentTitle ?? entityTitle;
+        sourceLabel = 'Document relationship';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'document_subtype_updated':
+        label = 'Document subtype updated';
+        detail =
+          typeof event.new_value?.document_subtype === 'string'
+            ? `${entityTitle} is now classified as ${titleize(String(event.new_value.document_subtype))}.`
+            : 'Document subtype updated.';
+        tone = 'info';
+        objectLabel = entityTitle;
+        sourceLabel = 'Document classification';
+        href = `/platform/documents/${event.entity_id}`;
+        break;
+      case 'project_validation_phase_changed':
+        label = 'Validation phase changed';
+        detail =
+          typeof event.old_value?.validation_phase === 'string' && typeof event.new_value?.validation_phase === 'string'
+            ? `Validation moved from ${titleize(String(event.old_value.validation_phase))} to ${titleize(String(event.new_value.validation_phase))}.`
+            : 'Project validation phase updated.';
+        tone = 'info';
+        objectLabel = entityTitle;
+        sourceLabel = 'Validator phase';
+        href = `/platform/projects/${event.entity_id}`;
         break;
       default:
         break;
@@ -1974,6 +2492,9 @@ export function resolveProjectAuditEvents(
       id: event.id,
       label,
       detail,
+      object_label: objectLabel,
+      source_label: sourceLabel,
+      timestamp_at: event.created_at,
       timestamp_label: relativeTime(event.created_at),
       tone,
       href,
@@ -1984,11 +2505,14 @@ export function resolveProjectAuditEvents(
 
   return [...documentEvents, ...derivedActivityEvents]
     .sort((left, right) => new Date(right.sort_at).getTime() - new Date(left.sort_at).getTime())
-    .slice(0, 8)
+    .slice(0, 20)
     .map((event) => ({
       id: event.id,
       label: event.label,
       detail: event.detail,
+      object_label: event.object_label ?? null,
+      source_label: event.source_label ?? null,
+      timestamp_at: event.timestamp_at,
       timestamp_label: event.timestamp_label,
       tone: event.tone,
       href: event.href,
@@ -2004,6 +2528,7 @@ export function buildProjectOverviewModel(params: {
   documentReviews?: ProjectDocumentReviewRow[];
   activityEvents: ProjectActivityEventRow[];
   members: ProjectMember[];
+  validationFindings?: readonly ValidationFinding[];
 }): ProjectOverviewModel {
   const {
     project,
@@ -2013,18 +2538,21 @@ export function buildProjectOverviewModel(params: {
     documentReviews = [],
     activityEvents,
     members,
+    validationFindings,
   } = params;
-  const validatorSummary = resolveProjectValidatorSummary(project);
+  const validatorSummary = resolveProjectValidatorSummary(project, documents, validationFindings, decisions);
+  const forgeDecisions = resolveForgeDecisions(decisions);
+  const openDecisionCount = countOpenForgeDecisions(forgeDecisions);
   const rollup = buildProjectOperationalRollup({
     project,
     documents,
-    decisions,
+    decisions: forgeDecisions,
     tasks,
     documentReviews,
     members,
   });
   const exposure = resolveProjectExposure(project, documents, validatorSummary);
-  const decisionCards = resolveProjectDecisionSummary(decisions, tasks, members);
+  const decisionCards = resolveProjectDecisionSummary(forgeDecisions, tasks, members, project.id);
   const actionItems = resolveProjectPendingActions(rollup, validatorSummary, project.id);
   const processedDocuments = resolveProjectProcessedDocs(project, documents, rollup);
   const auditItems = resolveProjectAuditEvents(project, documents, decisions, tasks, activityEvents, members);
@@ -2035,33 +2563,35 @@ export function buildProjectOverviewModel(params: {
     title: project.name,
     project_id_label: shortProjectId(project),
     tags: resolveProjectTags(project, documents),
-    status: rollup.status,
+    status: resolveProjectStatus(project, rollup, validatorSummary, openDecisionCount),
     validator_status: validatorSummary.status,
     validator_summary: validatorSummary,
     exposure,
     metrics: resolveProjectMetrics(project, rollup, validatorSummary),
-    facts: resolveProjectFacts(project, rollup, validatorSummary),
+    facts: resolveProjectFacts(project, validatorSummary),
     decisions: decisionCards,
-    decision_total: decisions.length,
-    decision_empty_state: decisions.length === 0
-      ? (documents.length === 0
-          ? 'No project documents yet. Upload and process documents to generate a project record.'
-          : 'No persisted project decisions are linked right now.')
-      : 'All decisions are resolved, dismissed, or superseded.',
+    decision_total: forgeDecisions.length,
+    decision_empty_state: resolveDecisionEmptyState({
+      visibleDecisions: forgeDecisions,
+      rawDecisions: decisions,
+      documents,
+      validatorSummary,
+    }),
     actions: actionItems,
     action_total: rollup.open_document_action_count,
     action_empty_state: documents.length === 0
       ? 'No pending actions because the project has no linked operational records yet.'
       : 'No pending actions remain in the project rollup.',
     documents: processedDocuments,
+    document_status_by_id: rollup.document_status_by_id,
     document_total: rollup.processed_document_count,
     document_empty_state: documents.length === 0
       ? 'No documents are linked to this project yet.'
       : 'Documents are linked, but none have completed processing yet.',
     audit: auditItems,
     audit_empty_state: documents.length === 0
-      ? 'Audit history will appear once project activity starts.'
-      : 'Recent audit activity is not available yet for this project.',
+      ? 'Project history will appear once documents, validation, or workflow activity starts.'
+      : 'No canonical project events are recorded yet.',
   };
 }
 

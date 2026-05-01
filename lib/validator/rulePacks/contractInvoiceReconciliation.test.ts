@@ -175,11 +175,18 @@ function buildInput(params?: {
 
   return {
     project,
+    validationPhase: 'billing_review',
     documents: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,
     governingDocumentIds: familyDocumentIds,
+    truthCategoryDocumentIds: {
+      contract_identity: [CONTRACT_DOCUMENT_ID],
+      pricing: [CONTRACT_DOCUMENT_ID],
+      compliance: [],
+      amendments: [],
+    },
     ruleStateByRuleId: new Map(),
     factsByDocumentId,
     allFacts: [...factsByDocumentId.values()].flat(),

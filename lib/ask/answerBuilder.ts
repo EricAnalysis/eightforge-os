@@ -23,6 +23,7 @@ const BILLED_FIELD_KEYS = new Set([
   'invoice_total',
   'total_amount',
   'current_amount_due',
+  'total_billed',
 ]);
 const CONTRACTOR_FIELD_KEYS = new Set(['contractor_name', 'vendor_name']);
 
@@ -91,13 +92,19 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function isProjectScopedSourceId(value: string | null | undefined): boolean {
+  return (value ?? '').startsWith('project:');
+}
+
 function factSource(fact: StructuredFact): Source {
+  const documentId = isProjectScopedSourceId(fact.extractedFrom) ? undefined : fact.extractedFrom;
+
   return {
     type: 'fact',
     label: fact.page
       ? `${fact.documentName ?? 'Document'} · Page ${fact.page}`
-      : fact.documentName ?? 'Structured fact',
-    documentId: fact.extractedFrom,
+      : fact.documentName ?? (documentId ? 'Structured fact' : 'Project truth'),
+    documentId,
     documentName: fact.documentName,
     page: fact.page,
     snippet: `${fact.label}: ${formatValue(fact.value, fact.label)}`.slice(0, 50),
@@ -276,6 +283,11 @@ function buildCeilingVsBilledAnswer(params: {
   const ceilingFact = bestFactByConfidence(
     reasoningFacts.filter((fact) => isFactInSet(fact, CEILING_FIELD_KEYS)),
   );
+  const canonicalTotalBilledFact = bestFactByConfidence(
+    reasoningFacts.filter(
+      (fact) => canonicalFieldKey(fact.fieldKey ?? fact.label) === 'total_billed',
+    ),
+  );
   const billedFactsByDocument = new Map<string, StructuredFact>();
 
   for (const fact of reasoningFacts.filter((candidate) => isFactInSet(candidate, BILLED_FIELD_KEYS))) {
@@ -286,9 +298,11 @@ function buildCeilingVsBilledAnswer(params: {
     }
   }
 
-  const billedFactSources = Array.from(billedFactsByDocument.values())
-    .slice(0, 2)
-    .map(factSource);
+  const billedFactSources = canonicalTotalBilledFact
+    ? [factSource(canonicalTotalBilledFact)]
+    : Array.from(billedFactsByDocument.values())
+        .slice(0, 2)
+        .map(factSource);
   const billedDecisionSources =
     billedFactSources.length > 0
       ? []
@@ -457,12 +471,15 @@ function buildSuggestedActions(params: {
   intent: ClassifiedQuestion['intent'];
 }): SuggestedAction[] {
   const actions: SuggestedAction[] = [];
+  const primaryDocumentFact = params.facts.find(
+    (fact) => fact.extractedFrom && !isProjectScopedSourceId(fact.extractedFrom),
+  );
 
-  if (params.facts[0]?.extractedFrom) {
+  if (primaryDocumentFact?.extractedFrom) {
     actions.push({
       type: 'view_document',
       label: 'View source document',
-      target: params.facts[0].extractedFrom,
+      target: primaryDocumentFact.extractedFrom,
     });
   }
 

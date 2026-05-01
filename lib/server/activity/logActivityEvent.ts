@@ -15,6 +15,7 @@
 //   )
 //   event_type  IN (
 //     'created',
+//     'updated',
 //     'status_changed',
 //     'assignment_changed',
 //     'due_date_changed',
@@ -22,7 +23,17 @@
 //     'document_moved_to_project',
 //     'project_archived',
 //     'project_deleted',
-//     'validation_run_completed'
+//     'validation_run_requested',
+//     'validation_run_completed',
+//     'override_applied',
+//     'review_recorded',
+//     'review_correction_applied',
+//     'governing_document_changed',
+//     'document_relationship_created',
+//     'document_relationship_changed',
+//     'document_precedence_changed',
+//     'document_subtype_updated',
+//     'project_validation_phase_changed'
 //   )
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -36,6 +47,7 @@ export type ActivityEntityType =
 
 export type ActivityEventType =
   | 'created'
+  | 'updated'
   | 'status_changed'
   | 'assignment_changed'
   | 'due_date_changed'
@@ -43,7 +55,17 @@ export type ActivityEventType =
   | 'document_moved_to_project'
   | 'project_archived'
   | 'project_deleted'
-  | 'validation_run_completed';
+  | 'validation_run_requested'
+  | 'validation_run_completed'
+  | 'override_applied'
+  | 'review_recorded'
+  | 'review_correction_applied'
+  | 'governing_document_changed'
+  | 'document_relationship_created'
+  | 'document_relationship_changed'
+  | 'document_precedence_changed'
+  | 'document_subtype_updated'
+  | 'project_validation_phase_changed';
 
 export type ActivityInput = {
   organization_id: string;

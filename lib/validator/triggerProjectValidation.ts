@@ -1,9 +1,15 @@
+import { createHash } from 'node:crypto';
 import {
   isDocumentFactOverridesTableUnavailableError,
 } from '@/lib/documentFactOverrides';
 import {
   isDocumentFactReviewsTableUnavailableError,
 } from '@/lib/documentFactReviews';
+import {
+  loadProjectDocumentPrecedenceSnapshot,
+  type ProjectDocumentPrecedenceSnapshot,
+} from '@/lib/server/documentPrecedence';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { persistValidationRun } from '@/lib/validator/persistValidationRun';
 import { validateProject } from '@/lib/validator/projectValidator';
@@ -118,6 +124,92 @@ async function loadProjectDocumentIds(projectId: string): Promise<string[]> {
   return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
 }
 
+async function loadProjectOrganizationId(projectId: string): Promise<string | null> {
+  const admin = requireAdminClient();
+  const { data, error } = await admin
+    .from('projects')
+    .select('organization_id')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load project organization: ${error.message}`);
+  }
+
+  return typeof data?.organization_id === 'string' ? data.organization_id : null;
+}
+
+async function loadProjectValidationPhase(projectId: string): Promise<string | null> {
+  const admin = requireAdminClient();
+  const { data, error } = await admin
+    .from('projects')
+    .select('validation_phase')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  if (error && isMissingColumnError(error, 'validation_phase')) {
+    return 'contract_setup';
+  }
+  if (error) {
+    throw new Error(`Failed to load project validation phase: ${error.message}`);
+  }
+
+  return typeof data?.validation_phase === 'string' ? data.validation_phase : 'contract_setup';
+}
+
+export function buildDocumentPrecedenceSnapshotFingerprint(
+  snapshot: ProjectDocumentPrecedenceSnapshot,
+): string {
+  const relationships = [...snapshot.relationships]
+    .map((relationship) => ({
+      source_document_id: relationship.source_document_id,
+      target_document_id: relationship.target_document_id,
+      relationship_type: relationship.relationship_type,
+    }))
+    .sort((left, right) => {
+      const leftKey = `${left.source_document_id}:${left.relationship_type}:${left.target_document_id}`;
+      const rightKey = `${right.source_document_id}:${right.relationship_type}:${right.target_document_id}`;
+      return leftKey.localeCompare(rightKey, 'en-US');
+    });
+
+  const families = snapshot.families.map((family) => ({
+    family: family.family,
+    governing_document_id: family.governing_document_id ?? null,
+    governing_reason: family.governing_reason ?? null,
+    has_operator_override: family.has_operator_override,
+    documents: family.documents.map((document) => ({
+      id: document.id,
+      document_subtype: document.document_subtype ?? null,
+      authority_status: document.authority_status ?? null,
+      effective_date: document.effective_date ?? null,
+      precedence_rank: document.precedence_rank ?? null,
+      operator_override_precedence: Boolean(document.operator_override_precedence),
+      resolved_order: document.resolved_order,
+      resolved_role: document.resolved_role,
+      resolved_subtype: document.resolved_subtype,
+      is_governing: document.is_governing,
+      governing_document_id: document.governing_document_id ?? null,
+    })),
+  }));
+
+  return createHash('sha1')
+    .update(JSON.stringify({ families, relationships }))
+    .digest('hex');
+}
+
+async function loadDocumentPrecedenceFingerprint(projectId: string): Promise<string> {
+  const admin = requireAdminClient();
+  const organizationId = await loadProjectOrganizationId(projectId);
+  if (!organizationId) return 'none';
+
+  const snapshot = await loadProjectDocumentPrecedenceSnapshot(admin, {
+    organizationId,
+    projectId,
+  });
+
+  return buildDocumentPrecedenceSnapshotFingerprint(snapshot);
+}
+
 async function countProjectScopedRows(
   table: 'mobile_tickets' | 'load_tickets' | 'document_relationships',
   projectId: string,
@@ -222,6 +314,21 @@ type ValidationTriggerMetrics = {
   relevantRecordCount: number;
 };
 
+export type TriggerProjectValidationResult =
+  | {
+      status: 'triggered';
+      mode: 'sync' | 'background';
+      inputsSnapshotHash: string;
+    }
+  | {
+      status: 'skipped';
+      reason: 'in_flight' | 'unchanged';
+    }
+  | {
+      status: 'failed';
+      error: string;
+    };
+
 async function loadValidationTriggerMetrics(
   projectId: string,
 ): Promise<ValidationTriggerMetrics> {
@@ -236,6 +343,8 @@ async function loadValidationTriggerMetrics(
     overrideCount,
     reviewCount,
     relationshipCount,
+    precedenceFingerprint,
+    validationPhase,
   ] = await Promise.all([
     countProjectScopedRows('mobile_tickets', projectId),
     countProjectScopedRows('load_tickets', projectId),
@@ -244,6 +353,8 @@ async function loadValidationTriggerMetrics(
     countDocumentFactOverrides(documentIds),
     countDocumentFactReviews(documentIds),
     countProjectScopedRows('document_relationships', projectId),
+    loadDocumentPrecedenceFingerprint(projectId),
+    loadProjectValidationPhase(projectId),
   ]);
 
   const ticketCount = mobileTicketCount + loadTicketCount;
@@ -254,7 +365,7 @@ async function loadValidationTriggerMetrics(
     relationshipCount;
 
   return {
-    inputsSnapshotHash: `${ticketCount}:${factCount}:${documentCount}`,
+    inputsSnapshotHash: `${ticketCount}:${factCount}:${documentCount}:${precedenceFingerprint}:${validationPhase ?? 'contract_setup'}`,
     relevantRecordCount: ticketCount + invoiceLineCount,
   };
 }
@@ -273,6 +384,39 @@ async function runValidationFlow(params: {
     params.userId,
     params.inputsSnapshotHash,
   );
+}
+
+async function logValidationRunRequested(params: {
+  projectId: string;
+  source: ValidationTriggerSource;
+  userId?: string;
+  inputsSnapshotHash: string;
+  mode: 'sync' | 'background';
+}): Promise<void> {
+  const organizationId = await loadProjectOrganizationId(params.projectId);
+  if (!organizationId) return;
+
+  const activityResult = await logActivityEvent({
+    organization_id: organizationId,
+    project_id: params.projectId,
+    entity_type: 'project',
+    entity_id: params.projectId,
+    event_type: 'validation_run_requested',
+    changed_by: params.userId ?? null,
+    new_value: {
+      trigger_source: params.source,
+      request_mode: params.mode,
+      inputs_snapshot_hash: params.inputsSnapshotHash,
+    },
+  });
+
+  if (!activityResult.ok) {
+    console.error('[triggerProjectValidation] failed to log validation request', {
+      projectId: params.projectId,
+      source: params.source,
+      error: activityResult.error,
+    });
+  }
 }
 
 function startBackgroundValidation(params: {
@@ -303,10 +447,13 @@ export async function triggerProjectValidation(
   projectId: string,
   source: ValidationTriggerSource,
   userId?: string,
-): Promise<void> {
+): Promise<TriggerProjectValidationResult> {
   try {
     if (await hasRecentInFlightRun(projectId)) {
-      return;
+      return {
+        status: 'skipped',
+        reason: 'in_flight',
+      };
     }
 
     const triggerMetrics = await loadValidationTriggerMetrics(projectId);
@@ -316,25 +463,51 @@ export async function triggerProjectValidation(
       lastCompletedSnapshotHash != null &&
       lastCompletedSnapshotHash === triggerMetrics.inputsSnapshotHash
     ) {
-      return;
+      return {
+        status: 'skipped',
+        reason: 'unchanged',
+      };
     }
 
     if (triggerMetrics.relevantRecordCount > LARGE_PROJECT_RECORD_THRESHOLD) {
+      await logValidationRunRequested({
+        projectId,
+        source,
+        userId,
+        inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+        mode: 'background',
+      });
       startBackgroundValidation({
         projectId,
         source,
         userId,
         inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
       });
-      return;
+      return {
+        status: 'triggered',
+        mode: 'background',
+        inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+      };
     }
 
+    await logValidationRunRequested({
+      projectId,
+      source,
+      userId,
+      inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+      mode: 'sync',
+    });
     await runValidationFlow({
       projectId,
       source,
       userId,
       inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
     });
+    return {
+      status: 'triggered',
+      mode: 'sync',
+      inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+    };
   } catch (error) {
     console.error('[triggerProjectValidation] validation trigger failed', {
       projectId,
@@ -342,5 +515,9 @@ export async function triggerProjectValidation(
       userId: userId ?? null,
       error,
     });
+    return {
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Unknown validation trigger error',
+    };
   }
 }

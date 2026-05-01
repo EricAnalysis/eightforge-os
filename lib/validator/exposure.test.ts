@@ -160,11 +160,18 @@ function buildInput(params?: {
 
   return {
     project,
+    validationPhase: 'billing_review',
     documents: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,
     governingDocumentIds: familyDocumentIds,
+    truthCategoryDocumentIds: {
+      contract_identity: [CONTRACT_DOCUMENT_ID],
+      pricing: [CONTRACT_DOCUMENT_ID],
+      compliance: [],
+      amendments: [],
+    },
     ruleStateByRuleId: new Map(),
     factsByDocumentId: new Map(),
     allFacts: [],
@@ -311,5 +318,71 @@ describe('project exposure math', () => {
     assert.equal(summary.exposure?.total_fully_reconciled_amount, 250);
     assert.equal(summary.exposure?.invoices[1]?.at_risk_amount, 200);
     assert.equal(summary.exposure?.total_requires_verification_amount, 200);
+  });
+
+  it('uses transaction quantities and contract rates to derive supported dollars across split transaction rows', () => {
+    const input = buildInput({
+      invoiceRows: [
+        {
+          id: 'invoice-row-300',
+          source_document_id: 'invoice-doc-300',
+          invoice_number: 'INV-300',
+          total_amount: 500,
+        },
+      ],
+      invoiceLines: [
+        {
+          id: 'line-300-1',
+          source_document_id: 'invoice-doc-300',
+          invoice_id: 'invoice-row-300',
+          invoice_number: 'INV-300',
+          rate_code: 'RC-03',
+          quantity: 10,
+          unit_price: 50,
+          line_total: 500,
+        },
+      ],
+      transactionRows: [
+        makeTransactionRow({
+          id: 'tx-300-1',
+          invoiceNumber: 'INV-300',
+          rateCode: 'RC-03',
+          quantity: 4,
+          cost: 200,
+        }),
+        makeTransactionRow({
+          id: 'tx-300-2',
+          invoiceNumber: 'INV-300',
+          rateCode: 'RC-03',
+          quantity: 6,
+          cost: 300,
+        }),
+      ],
+      rateScheduleItems: [
+        makeRateItem('RC-03', 40),
+      ],
+    });
+
+    const result = evaluateProjectExposure(input, []);
+
+    assert.deepEqual(result.summary?.invoices, [
+      {
+        invoice_number: 'INV-300',
+        billed_amount: 500,
+        billed_amount_source: 'invoice_total',
+        contract_supported_amount: 400,
+        transaction_supported_amount: 400,
+        fully_reconciled_amount: 400,
+        supported_amount: 400,
+        unreconciled_amount: 100,
+        at_risk_amount: 0,
+        requires_verification_amount: 0,
+        reconciliation_status: 'PARTIAL',
+      },
+    ]);
+    assert.equal(result.summary?.total_contract_supported_amount, 400);
+    assert.equal(result.summary?.total_transaction_supported_amount, 400);
+    assert.equal(result.summary?.total_fully_reconciled_amount, 400);
+    assert.equal(result.summary?.total_unreconciled_amount, 100);
   });
 });

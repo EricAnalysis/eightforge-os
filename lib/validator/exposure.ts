@@ -188,6 +188,9 @@ type GroupContext = {
   quantity: number | null;
   line_ids: string[];
   transaction_supported: boolean;
+  contract_supported_amount: number;
+  transaction_supported_amount: number;
+  fully_reconciled_amount: number;
 };
 
 type CanonicalTransactionRow = {
@@ -420,6 +423,37 @@ function transactionTotals(rows: readonly CanonicalTransactionRow[]): {
   };
 }
 
+function lineContractSupportedAmount(line: LineContext): number {
+  if (line.schedule_item?.rate_amount != null && line.quantity != null) {
+    return roundCurrency(Math.max(0, line.schedule_item.rate_amount * line.quantity));
+  }
+
+  if (line.contract_supported && line.line_total != null) {
+    return roundCurrency(Math.max(0, line.line_total));
+  }
+
+  return 0;
+}
+
+function groupScheduleRate(
+  group: GroupContext,
+  lineContexts: ReadonlyMap<string, LineContext>,
+): number | null {
+  for (const lineId of group.line_ids) {
+    const rate = lineContexts.get(lineId)?.schedule_item?.rate_amount;
+    if (rate != null && Number.isFinite(rate)) return rate;
+  }
+
+  return null;
+}
+
+function capGroupSupportedAmount(groupAmount: number, amount: number): number {
+  const normalizedAmount = roundCurrency(Math.max(0, amount));
+  return groupAmount > 0
+    ? roundCurrency(Math.min(groupAmount, normalizedAmount))
+    : normalizedAmount;
+}
+
 function statusForInvoiceExposure(params: {
   billedAmount: number | null;
   supportedAmount: number;
@@ -620,6 +654,9 @@ export function evaluateProjectExposure(
       quantity: 0,
       line_ids: [] as string[],
       transaction_supported: false,
+      contract_supported_amount: 0,
+      transaction_supported_amount: 0,
+      fully_reconciled_amount: 0,
     };
     existingGroup.line_ids.push(lineId);
     if (lineTotal != null) {
@@ -697,6 +734,16 @@ export function evaluateProjectExposure(
   }
 
   for (const group of groupContexts.values()) {
+    const scheduleRate = groupScheduleRate(group, lineContexts);
+    const contractSupportedAmount = capGroupSupportedAmount(
+      group.amount,
+      sumNumbers(
+        group.line_ids.map((lineId) => {
+          const line = lineContexts.get(lineId);
+          return line ? lineContractSupportedAmount(line) : 0;
+        }),
+      ),
+    );
     const matchedRows =
       (group.invoice_rate_key
         ? transactionByInvoiceRateKey.get(group.invoice_rate_key) ?? []
@@ -706,10 +753,19 @@ export function evaluateProjectExposure(
         .filter((row) => row.meaningful_data);
     if (matchedRows.length === 0 || !(group.amount > 0)) {
       group.transaction_supported = false;
+      group.contract_supported_amount = contractSupportedAmount;
+      group.transaction_supported_amount = 0;
+      group.fully_reconciled_amount = 0;
       continue;
     }
 
     const totals = transactionTotals(matchedRows);
+    const transactionSupportedAmount = capGroupSupportedAmount(
+      group.amount,
+      scheduleRate != null && totals.totalQuantity != null
+        ? scheduleRate * totals.totalQuantity
+        : totals.totalCost ?? 0,
+    );
     const costSupported =
       totals.totalCost != null
       && Math.abs(group.amount - totals.totalCost) <= transactionCostTolerance;
@@ -721,6 +777,12 @@ export function evaluateProjectExposure(
         && Math.abs(group.quantity - totals.totalQuantity) <= transactionQuantityTolerance
       );
     group.transaction_supported = costSupported && quantitySupported;
+    group.contract_supported_amount = contractSupportedAmount;
+    group.transaction_supported_amount = transactionSupportedAmount;
+    group.fully_reconciled_amount = capGroupSupportedAmount(
+      group.amount,
+      Math.min(contractSupportedAmount, transactionSupportedAmount),
+    );
   }
 
   const wholeInvoiceAtRisk = new Set<string>();
@@ -822,25 +884,17 @@ export function evaluateProjectExposure(
       const invoiceLines = [...invoice.line_ids]
         .map((lineId) => lineContexts.get(lineId))
         .filter((line): line is LineContext => line != null);
+      const invoiceGroups = [...invoice.group_internal_keys]
+        .map((groupKey) => groupContexts.get(groupKey))
+        .filter((group): group is GroupContext => group != null);
       const contractSupportedAmount = roundCurrency(sumNumbers(
-        invoiceLines
-          .filter((line) => line.contract_supported && line.line_total != null)
-          .map((line) => line.line_total as number),
+        invoiceGroups.map((group) => group.contract_supported_amount),
       ));
       const transactionSupportedAmount = roundCurrency(sumNumbers(
-        [...invoice.group_internal_keys]
-          .map((groupKey) => groupContexts.get(groupKey))
-          .filter((group): group is GroupContext => group != null && group.transaction_supported)
-          .map((group) => group.amount),
+        invoiceGroups.map((group) => group.transaction_supported_amount),
       ));
       const fullyReconciledAmount = roundCurrency(sumNumbers(
-        invoiceLines
-          .filter((line) => (
-            line.contract_supported
-            && groupContexts.get(line.internal_group_key)?.transaction_supported
-            && line.line_total != null
-          ))
-          .map((line) => line.line_total as number),
+        invoiceGroups.map((group) => group.fully_reconciled_amount),
       ));
       const cappedContractSupported =
         invoice.billed_amount != null
@@ -986,10 +1040,14 @@ export function evaluateProjectExposure(
       && invoiceSummary.unreconciled_amount != null
       && invoiceSummary.unreconciled_amount > supportGapTolerance
     ) {
-      const unsupportedLines = invoiceLines.filter((line) => !(
-        line.contract_supported
-        && groupContexts.get(line.internal_group_key)?.transaction_supported
-      ));
+      const unsupportedGroupKeys = new Set(
+        [...invoiceContext?.group_internal_keys ?? []].filter((groupKey) => {
+          const group = groupContexts.get(groupKey);
+          if (!group) return false;
+          return roundCurrency(Math.max(0, group.amount - group.fully_reconciled_amount)) > supportGapTolerance;
+        }),
+      );
+      const unsupportedLines = invoiceLines.filter((line) => unsupportedGroupKeys.has(line.internal_group_key));
       exposureFindings.push(
         makeFinding({
           projectId: input.project.id,

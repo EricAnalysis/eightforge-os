@@ -338,6 +338,7 @@ describe('invoiceParser', () => {
     assert.equal(canonical.invoiceLines[0]?.rate_code, '1A');
     assert.equal(canonical.invoiceLines[0]?.billing_rate_key, '1A');
     assert.equal(canonical.invoiceLines[0]?.invoice_rate_key, '2026002::1A');
+    assert.equal(canonical.invoiceLines[0]?.canonical_category, 'vegetative_removal');
     assert.equal(canonical.invoiceLines[5]?.line_total, 259);
   });
 
@@ -348,10 +349,31 @@ describe('invoiceParser', () => {
     });
 
     assert.equal(typed.invoice_number, '2026-002');
+    assert.equal(typed.invoice_number_raw, '2026-002');
+    assert.equal(typed.invoice_number_normalized, '2026-002');
     assert.equal(typed.invoice_date, '2026-04-03');
+    assert.equal(typed.vendor_name, WILLIAMSON_VENDOR);
+    assert.equal(typed.client_name, 'Williamson County Highway Dept');
+    assert.equal(typed.service_period_start, '2026-02-23');
+    assert.equal(typed.service_period_end, '2026-03-18');
     assert.equal(typed.subtotal_amount, 534_757.1);
     assert.equal(typed.total_amount, 534_757.1);
     assert.equal(typed.current_amount_due, 534_757.1);
+    assert.equal(typed.line_item_count, 6);
+    assert.deepEqual(
+      typed.line_items.map((line) => line.line_code),
+      ['1A', '1B', '1E', '1F', '5A', '6A'],
+    );
+    assert.equal(
+      typed.line_items.every((line) => line.line_code == null || /[A-Za-z]/.test(line.line_code)),
+      true,
+    );
+    assert.equal(typed.line_items[0]?.quantity, 43_894);
+    assert.equal(typed.line_items[0]?.unit_price, 6.9);
+    assert.equal(typed.line_items[0]?.line_total, 302_868.6);
+    assert.equal(typed.line_items[5]?.quantity, 994);
+    assert.equal(typed.line_items[5]?.unit_price, 80);
+    assert.equal(typed.line_items[5]?.line_total, 79_520);
     assert.deepEqual(typed.evidence_anchors?.invoice_totals_section, [
       'pdf:text:p1:b9',
       'pdf:text:p1:b10',
@@ -367,10 +389,25 @@ describe('invoiceParser', () => {
     });
 
     assert.equal(typed.invoice_number, '2026-003');
+    assert.equal(typed.invoice_number_raw, '2026-003');
+    assert.equal(typed.invoice_number_normalized, '2026-003');
     assert.equal(typed.invoice_date, '2026-04-03');
+    assert.equal(typed.vendor_name, WILLIAMSON_VENDOR);
+    assert.equal(typed.client_name, 'Williamson County Solid Waste Dept');
+    assert.equal(typed.service_period_start, '2026-02-23');
+    assert.equal(typed.service_period_end, '2026-03-22');
     assert.equal(typed.subtotal_amount, 280_802.25);
     assert.equal(typed.total_amount, 280_802.25);
     assert.equal(typed.current_amount_due, 280_802.25);
+    assert.equal(typed.line_item_count, 4);
+    assert.deepEqual(
+      typed.line_items.map((line) => line.line_code),
+      ['2A', '2B', '3B', '3C'],
+    );
+    assert.equal(
+      typed.line_items.every((line) => line.line_code == null || /[A-Za-z]/.test(line.line_code)),
+      true,
+    );
     assert.deepEqual(typed.evidence_anchors?.invoice_totals_section, ['pdf:text:p1:b5']);
     assert.deepEqual(typed.evidence_anchors?.invoice_number, ['pdf:text:p1:b1']);
     assert.equal(typed.raw_sections?.invoice_totals_text, 'TOTAL $ 280,802.25');

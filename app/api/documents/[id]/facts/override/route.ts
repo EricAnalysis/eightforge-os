@@ -4,9 +4,11 @@ import {
   mapDocumentFactOverrideRow,
   type DocumentFactOverrideRow,
 } from '@/lib/documentFactOverrides';
+import { buildDocumentOverrideActivityInput } from '@/lib/documentFactActivity';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
+import { requestFactOverrideRevalidation } from '@/lib/validator/revalidationRequests';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -58,7 +60,7 @@ export async function POST(
 
   const { data: document, error: documentError } = await admin
     .from('documents')
-    .select('id, organization_id, project_id')
+    .select('id, organization_id, project_id, title, name')
     .eq('id', documentId)
     .maybeSingle();
 
@@ -69,7 +71,7 @@ export async function POST(
 
   const { data: activeOverrides, error: activeOverridesError } = await admin
     .from('document_fact_overrides')
-    .select('id')
+    .select('id, field_key, value_json, raw_value, action_type, reason')
     .eq('organization_id', organizationId)
     .eq('document_id', documentId)
     .eq('field_key', fieldKey)
@@ -79,7 +81,9 @@ export async function POST(
   if (activeOverridesError) return jsonError(activeOverridesError.message, 500);
 
   const supersedesOverrideId =
-    (activeOverrides as Array<{ id: string }> | null)?.[0]?.id ?? null;
+    (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0]?.id ?? null;
+  const previousOverride =
+    (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0] ?? null;
 
   if ((activeOverrides?.length ?? 0) > 0) {
     const { error: deactivateError } = await admin
@@ -119,8 +123,45 @@ export async function POST(
       ? document.project_id
       : null;
   if (projectId) {
+    const activityResult = await logActivityEvent(
+      buildDocumentOverrideActivityInput({
+        organizationId,
+        actorId,
+        projectId,
+        document: {
+          id: documentId,
+          title: document.title,
+          name: document.name,
+        },
+        previousOverride,
+        insertedOverride: {
+          id: inserted.id,
+          field_key: inserted.field_key,
+          value_json: inserted.value_json,
+          raw_value: inserted.raw_value,
+          action_type: inserted.action_type,
+          reason: inserted.reason,
+          supersedes_override_id: inserted.supersedes_override_id,
+        },
+      }),
+    );
+
+    if (!activityResult.ok) {
+      console.error('[document-fact-override] failed to log activity event', {
+        documentId,
+        projectId,
+        fieldKey,
+        error: activityResult.error,
+      });
+    }
+  }
+
+  if (projectId) {
     // Fire-and-forget so validation never blocks fact override saves.
-    void triggerProjectValidation(projectId, 'fact_override', actorId);
+    void requestFactOverrideRevalidation({
+      projectId,
+      actorId,
+    });
   }
 
   return NextResponse.json({

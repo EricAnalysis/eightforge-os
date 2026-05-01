@@ -47,6 +47,50 @@ describe('ask answer builder', () => {
     assert.ok(response.confidenceScore >= 80);
   });
 
+  it('does not suggest opening a document for project-scoped canonical facts', () => {
+    const response = buildAskResponse({
+      question: {
+        intent: 'fact_question',
+        confidence: 'high',
+        keywords: ['billed', 'total'],
+        originalQuestion: 'How much has been billed so far?',
+      },
+      retrieval: {
+        facts: [
+          {
+            id: 'project-1:total_billed',
+            label: 'Total billed',
+            value: 125000,
+            extractedFrom: 'project:project-1',
+            documentName: 'Example Project project truth',
+            confidence: 96,
+            timestamp: '2026-04-22T12:00:00.000Z',
+            factId: 'project:project-1:total_billed',
+            fieldKey: 'total_billed',
+          },
+        ],
+        validatorFindings: [],
+        decisions: [],
+        documents: [],
+        relationships: [],
+        rawData: {
+          matchedLayer: 'facts',
+          structuredFactsSource: 'canonical_project_facts',
+        },
+      },
+      project: {
+        id: 'project-1',
+        name: 'Example Project',
+      },
+      projectId: 'project-1',
+      orgId: 'org-1',
+    });
+
+    assert.match(response.answer, /\$125,000/);
+    assert.ok(!response.suggestedActions?.some((action) => action.type === 'view_document'));
+    assert.equal(response.sources[0]?.documentId, undefined);
+  });
+
   it('returns validator-backed blocker answer', () => {
     const response = buildAskResponse({
       question: {

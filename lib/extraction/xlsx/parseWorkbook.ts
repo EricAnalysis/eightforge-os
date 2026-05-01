@@ -23,6 +23,7 @@ export interface WorkbookSheetModel {
 export interface WorkbookParseResult {
   parser_version: 'workbook_v1';
   sheet_count: number;
+  row_limit_reached?: boolean;
   sheets: WorkbookSheetModel[];
   workbook_text_preview: string;
   confidence: number;
@@ -30,8 +31,7 @@ export interface WorkbookParseResult {
 }
 
 const MAX_SHEETS = 8;
-const MAX_ROWS_PER_SHEET = 750;
-const MAX_COLUMNS = 40;
+const MAX_COLUMNS = 128;
 
 function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
   return {
@@ -138,7 +138,7 @@ export async function parseWorkbook(bytes: ArrayBuffer): Promise<WorkbookParseRe
       const headerCandidates = rawRows[headerRowIndex]?.slice(0, MAX_COLUMNS) ?? [];
       const headers = uniqueHeaders(headerCandidates.map((header, index) => normalizeHeader(header, index)));
       const dataRows = rawRows
-        .slice(headerRowIndex + 1, headerRowIndex + 1 + MAX_ROWS_PER_SHEET)
+        .slice(headerRowIndex + 1)
         .map((row, index) => {
           const trimmed = row.slice(0, MAX_COLUMNS);
           const values = Object.fromEntries(
@@ -151,15 +151,6 @@ export async function parseWorkbook(bytes: ArrayBuffer): Promise<WorkbookParseRe
           } satisfies WorkbookRow;
         })
         .filter((row) => Object.values(row.values).some((value) => value !== null));
-
-      if (rawRows.length - headerRowIndex - 1 > MAX_ROWS_PER_SHEET) {
-        gaps.push(buildGap({
-          category: 'row_limit_applied',
-          severity: 'warning',
-          message: `Sheet contains ${rawRows.length - headerRowIndex - 1} data rows; only the first ${MAX_ROWS_PER_SHEET} were parsed.`,
-          sheet: sheetName,
-        }));
-      }
 
       if (headers.every((header) => header.startsWith('Column '))) {
         gaps.push(buildGap({
@@ -195,6 +186,7 @@ export async function parseWorkbook(bytes: ArrayBuffer): Promise<WorkbookParseRe
     return {
       parser_version: 'workbook_v1',
       sheet_count: workbook.SheetNames.length,
+      row_limit_reached: false,
       sheets,
       workbook_text_preview: workbookTextPreview,
       confidence,
@@ -204,6 +196,7 @@ export async function parseWorkbook(bytes: ArrayBuffer): Promise<WorkbookParseRe
     return {
       parser_version: 'workbook_v1',
       sheet_count: 0,
+      row_limit_reached: false,
       sheets: [],
       workbook_text_preview: '',
       confidence: 0,

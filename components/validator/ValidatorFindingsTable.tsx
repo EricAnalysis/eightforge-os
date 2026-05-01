@@ -4,6 +4,7 @@ import {
   findingApprovalLabel,
   findingGateImpact,
   findingNextAction,
+  findingProblem,
   type OperatorApprovalLabel,
 } from '@/lib/truthToAction';
 import type {
@@ -92,23 +93,7 @@ function formatVariance(finding: ValidationFinding): string {
 }
 
 function findingValue(finding: ValidationFinding): string {
-  if (finding.blocked_reason?.trim()) {
-    return finding.blocked_reason;
-  }
-
-  if (finding.actual?.trim()) {
-    return finding.actual;
-  }
-
-  if (finding.expected?.trim()) {
-    return finding.expected;
-  }
-
-  if (finding.variance != null) {
-    return `Variance ${formatVariance(finding)}`;
-  }
-
-  return 'See the finding details in the evidence drawer.';
+  return findingProblem(finding);
 }
 
 function filterOptionClassName(): string {

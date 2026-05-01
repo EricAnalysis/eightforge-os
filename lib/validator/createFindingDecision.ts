@@ -128,7 +128,7 @@ export async function createFindingDecision(
         blocked_reason: finding.blocked_reason,
         routing_reason: routing.routing_reason,
       },
-      source: 'system',
+      source: 'project_validator',
       first_detected_at: now,
       last_detected_at: now,
       created_at: now,

@@ -55,7 +55,7 @@ describe('normalizeNode transaction_data', () => {
     assert.equal(facts.distinct_invoice_count?.value, 2);
     assert.equal(facts.total_invoiced_amount?.value, 100.5);
     assert.equal(facts.uninvoiced_line_count?.value, 0);
-    assert.equal(facts.unknown_eligibility_count?.value, 2);
+    assert.equal(facts.ineligible_count?.value, 2);
     assert.equal(facts.rows_with_missing_rate_code?.value, 1);
     assert.equal(facts.rows_with_missing_invoice_number?.value, 0);
     assert.equal(facts.rows_with_missing_quantity?.value, 1);
@@ -205,20 +205,15 @@ describe('normalizeNode transaction_data', () => {
       reasons: string[];
       metrics: { extended_cost: number | null; transaction_quantity: number | null };
     }>;
-    assert.equal(outlierRows.length, 2);
-    assert.equal(outlierRows[0]?.record_id, 'transaction:ticket_query:3');
-    assert.equal(outlierRows[0]?.source_row_number, 3);
-    assert.deepEqual(outlierRows[0]?.reasons, ['Debris class at disposal site review']);
-    assert.equal(outlierRows[0]?.metrics.extended_cost, 100.5);
-    assert.equal(outlierRows[1]?.record_id, 'transaction:ticket_query:4');
-    assert.equal(outlierRows[1]?.source_row_number, 4);
-    assert.deepEqual(outlierRows[1]?.reasons, [
-      'Debris class at disposal site review',
+    assert.equal(outlierRows.length, 1);
+    assert.equal(outlierRows[0]?.record_id, 'transaction:ticket_query:4');
+    assert.equal(outlierRows[0]?.source_row_number, 4);
+    assert.deepEqual(outlierRows[0]?.reasons, [
       'missing extended cost',
       'missing quantity',
       'missing rate code',
     ]);
-    assert.equal(outlierRows[1]?.metrics.extended_cost, null);
+    assert.equal(outlierRows[0]?.metrics.extended_cost, null);
     assert.ok(Array.isArray(facts.transaction_data_records?.value));
     assert.equal((facts.transaction_data_records?.value as Array<unknown>).length, 2);
     assert.deepEqual(normalized.extracted.sheetNames, ['ticket_query']);

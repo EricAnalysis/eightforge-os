@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
@@ -9,10 +9,8 @@ import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceVi
 import { DocumentIntelligenceStrip } from '@/components/document-intelligence/DocumentIntelligenceStrip';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
 import { InvoiceSurface } from '@/components/document-intelligence/InvoiceSurface';
-import { TransactionDataSurface } from '@/components/document-intelligence/TransactionDataSurface';
+import { SpreadsheetReviewSurface } from '@/components/document-intelligence/SpreadsheetReviewSurface';
 import { DiagnosticsDrawer } from '@/components/document-intelligence/DiagnosticsDrawer';
-import { DecisionsSection } from '@/components/document-intelligence/DecisionsSection';
-import { FlowSection } from '@/components/document-intelligence/FlowSection';
 import { ReviewSection } from '@/components/document-intelligence/ReviewSection';
 import { AuditSection } from '@/components/document-intelligence/AuditSection';
 import { AskDocumentSection } from '@/components/document-intelligence/AskDocumentSection';
@@ -24,7 +22,6 @@ import type {
   DocumentSummary,
   GeneratedDecision,
   PipelineTraceNode,
-  ReviewErrorType,
   SuggestedQuestion,
   TriggeredWorkflowTask,
 } from '@/lib/types/documentIntelligence';
@@ -34,10 +31,7 @@ type BreadcrumbItem = {
   href?: string;
 };
 
-type DecisionFeedbackState = {
-  status: 'correct' | 'incorrect';
-  reviewErrorType?: ReviewErrorType | null;
-};
+type ContractRateRow = NonNullable<DocumentIntelligenceViewModel['contractRateRows']>[number];
 
 function statusClass(status: string): string {
   switch (status) {
@@ -66,11 +60,253 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+function countOpenActionTasks(tasks: TriggeredWorkflowTask[]): number {
+  return tasks.filter((task) => task.status === 'open' || task.status === 'in_progress').length;
+}
+
+function countHighPriorityActionTasks(tasks: TriggeredWorkflowTask[]): number {
+  return tasks.filter(
+    (task) => (task.status === 'open' || task.status === 'in_progress') && task.priority === 'P1',
+  ).length;
+}
+
+function countCriticalDecisions(decisions: GeneratedDecision[]): number {
+  return decisions.filter(
+    (decision) =>
+      decision.normalized_severity === 'critical' ||
+      decision.severity === 'critical' ||
+      decision.status === 'mismatch',
+  ).length;
+}
+
+function pluralize(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function DocumentImpactContext({
+  decisions,
+  tasks,
+  reviewableDecisionIds,
+  summary,
+  unavailableMessage,
+  projectContextLabel,
+}: {
+  decisions: GeneratedDecision[];
+  tasks: TriggeredWorkflowTask[];
+  reviewableDecisionIds: string[];
+  summary: DocumentSummary | null;
+  unavailableMessage?: string | null;
+  projectContextLabel?: string;
+}) {
+  const openActionCount = countOpenActionTasks(tasks);
+  const highPriorityActionCount = countHighPriorityActionTasks(tasks);
+  const criticalDecisionCount = countCriticalDecisions(decisions);
+  const decisionCount = decisions.length;
+  const reviewCount = reviewableDecisionIds.length;
+  const showImpactContext =
+    Boolean(unavailableMessage) ||
+    decisionCount > 0 ||
+    openActionCount > 0 ||
+    reviewCount > 0 ||
+    Boolean(summary?.nextAction);
+
+  if (!showImpactContext) {
+    return null;
+  }
+
+  const decisionValue = unavailableMessage
+    ? 'Pending'
+    : decisionCount > 0
+      ? `${pluralize(decisionCount, 'open finding', 'open findings')}`
+      : 'No open findings';
+  const decisionDetail = unavailableMessage
+    ? unavailableMessage
+    : criticalDecisionCount > 0
+      ? `${pluralize(criticalDecisionCount, 'critical issue', 'critical issues')} still reference this document.`
+      : 'This document contributes evidence to project-level decisions when findings are raised.';
+  const actionValue = unavailableMessage
+    ? 'Pending'
+    : openActionCount > 0
+      ? `${pluralize(openActionCount, 'open action', 'open actions')}`
+      : 'No open actions';
+  const actionDetail = unavailableMessage
+    ? 'Workflow context will populate when the linked project refresh completes.'
+    : highPriorityActionCount > 0
+      ? `${pluralize(highPriorityActionCount, 'high-priority action', 'high-priority actions')} still depend on this document.`
+      : 'Project actions stay in the Forge; this page keeps only document-level impact context.';
+  const reviewValue = reviewCount > 0
+    ? `${pluralize(reviewCount, 'approval review', 'approval reviews')}`
+    : summary?.nextAction
+      ? 'Project follow-up queued'
+      : unavailableMessage
+        ? 'Pending'
+        : 'No approval follow-up';
+  const reviewDetail = reviewCount > 0
+    ? `Use ${projectContextLabel ?? 'the linked project'} to resolve approval-facing findings tied to this document.`
+    : summary?.nextAction
+      ? summary.nextAction
+      : 'Approval flow and action completion stay in the project workspace.';
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-[#0B1220]">
+      <div className="border-b border-white/8 px-5 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+          Project Impact
+        </p>
+        <p className="mt-1 text-[12px] text-[#8FA1BC]">
+          This document informs project decisions and actions, but detailed workflow stays in the Forge.
+        </p>
+      </div>
+      <div className="grid gap-3 px-5 py-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+            Decisions
+          </p>
+          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{decisionValue}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#8FA1BC]">{decisionDetail}</p>
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+            Next Actions
+          </p>
+          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{actionValue}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#8FA1BC]">{actionDetail}</p>
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+            Approval Flow
+          </p>
+          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{reviewValue}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#8FA1BC]">{reviewDetail}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function formatRateValue(rate: number | null): string {
+  if (rate == null) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(rate);
+}
+
+function buildRateRowHref(params: {
+  documentId: string;
+  row: ContractRateRow;
+  navigationSource?: string | null;
+  navigationProjectId?: string | null;
+}): string {
+  const query = new URLSearchParams();
+  if (params.navigationSource) query.set('source', params.navigationSource);
+  if (params.navigationProjectId) query.set('projectId', params.navigationProjectId);
+  query.set('fieldKey', 'rate_schedule_pages');
+  query.set('rateRowId', params.row.rowId);
+  if (params.row.page != null) query.set('page', String(params.row.page));
+  return `/platform/documents/${params.documentId}?${query.toString()}`;
+}
+
+function ContractRateTablePanel({
+  documentId,
+  rows,
+  selectedRateRowId,
+  navigationSource,
+  navigationProjectId,
+}: {
+  documentId: string;
+  rows: ContractRateRow[];
+  selectedRateRowId?: string | null;
+  navigationSource?: string | null;
+  navigationProjectId?: string | null;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-[#0B1220]">
+      <div className="border-b border-white/8 px-5 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+          Rate Table
+        </p>
+        <p className="mt-1 text-[12px] text-[#8FA1BC]">
+          Canonical contract rate rows from the persisted contract analysis. Select a row to inspect its source context.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="hidden min-w-[760px] border-b border-white/8 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA] md:grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.6fr)] md:gap-3">
+          <span>Description</span>
+          <span>Unit</span>
+          <span>Rate</span>
+          <span>Category</span>
+          <span>Page</span>
+        </div>
+
+        <div className="min-w-[760px] divide-y divide-white/8">
+          {rows.map((row) => {
+            const isSelected = selectedRateRowId === row.rowId;
+            const href = buildRateRowHref({
+              documentId,
+              row,
+              navigationSource,
+              navigationProjectId,
+            });
+
+            return (
+              <Link
+                key={row.rowId}
+                href={href}
+                scroll={false}
+                className={`block px-5 py-3 transition ${
+                  isSelected ? 'bg-[#3B82F6]/10' : 'hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="grid gap-3 md:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.6fr)] md:items-start">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-[#F5F7FA]">
+                        {row.description ?? 'Untitled rate row'}
+                      </p>
+                      {isSelected ? (
+                        <span className="rounded-full border border-[#3B82F6]/30 bg-[#3B82F6]/12 px-2 py-0.5 text-[10px] font-medium text-[#CFE4FF]">
+                          Selected
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#8FA1BC]">
+                      <span className="font-mono text-[10px] text-[#7F90AA]">{row.rowId}</span>
+                      {row.sourceAnchorIds.length > 0 ? (
+                        <span>
+                          {row.sourceAnchorIds.length} source anchor{row.sourceAnchorIds.length === 1 ? '' : 's'}
+                        </span>
+                      ) : (
+                        <span>Page-level source context</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-sm text-[#D9E3F3]">{row.unit ?? '—'}</div>
+                  <div className="text-sm font-medium text-[#F5F7FA]">{formatRateValue(row.rate)}</div>
+                  <div className="text-sm text-[#D9E3F3]">{row.category ?? '—'}</div>
+                  <div className="text-sm text-[#D9E3F3]">
+                    {row.page != null ? `Page ${row.page}` : 'Context'}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function DocumentDetailExperience({
   breadcrumbs,
   contextLabel,
   contextDescription,
-  projectId,
   projectName,
   documentType,
   displayTitle,
@@ -98,9 +334,6 @@ export function DocumentDetailExperience({
   projectContextLabel,
   reviewableDecisionIds,
   unavailableMessage,
-  feedbackById,
-  feedbackErrorById,
-  onReviewDecision,
   documentId,
   orgId,
   comparisons,
@@ -121,11 +354,17 @@ export function DocumentDetailExperience({
   initialSelectedFieldKey,
   initialPage,
   navigationKey,
+  selectedRecordId,
+  selectedRateRowId,
+  navigationAction,
+  navigationSource,
+  navigationProjectId,
+  navigationDecisionHref,
+  navigationValidatorHref,
 }: {
   breadcrumbs: BreadcrumbItem[];
   contextLabel: string;
   contextDescription: string;
-  projectId: string | null;
   projectName: string | null;
   documentType: string | null;
   displayTitle: string;
@@ -153,12 +392,6 @@ export function DocumentDetailExperience({
   projectContextLabel?: string;
   reviewableDecisionIds: string[];
   unavailableMessage?: string | null;
-  feedbackById?: Record<string, DecisionFeedbackState>;
-  feedbackErrorById?: Record<string, string>;
-  onReviewDecision?: (decisionId: string, input: {
-    isCorrect: boolean;
-    reviewErrorType?: ReviewErrorType | null;
-  }) => void;
   documentId: string;
   orgId?: string;
   comparisons: ComparisonResult[];
@@ -209,6 +442,13 @@ export function DocumentDetailExperience({
   initialSelectedFieldKey?: string | null;
   initialPage?: number | null;
   navigationKey?: string | null;
+  selectedRecordId?: string | null;
+  selectedRateRowId?: string | null;
+  navigationAction?: string | null;
+  navigationSource?: string | null;
+  navigationProjectId?: string | null;
+  navigationDecisionHref?: string | null;
+  navigationValidatorHref?: string | null;
 }) {
   const headerEntities = entities.slice(0, 6);
   const hasAuditData =
@@ -219,6 +459,20 @@ export function DocumentDetailExperience({
     tasksCreatedAt != null;
   const hasRightRail = comparisons.length > 0;
   const showAskThisDocument = suggestedQuestions.length > 0;
+  const isSpreadsheetDocument = Boolean(intelligenceViewModel?.transactionDataExtraction);
+  const operatorNote = fileLoading
+    ? 'Generating secure source access.'
+    : fileError
+      ? fileError
+      : navigationAction === 'manual_override' && !isSpreadsheetDocument
+        ? 'Selected fact is focused for manual override in the evidence panel.'
+        : navigationAction != null && !isSpreadsheetDocument
+          ? 'Selected fact is focused in the evidence panel for confirmation or correction.'
+          : selectedRateRowId
+            ? 'Selected contract rate row is highlighted below.'
+            : isSpreadsheetDocument && selectedRecordId
+              ? 'Selected spreadsheet row is highlighted below for exact evidence review.'
+              : 'Select a fact to jump directly into its source evidence.';
 
   return (
     <div className="space-y-5">
@@ -404,11 +658,7 @@ export function DocumentDetailExperience({
             <div className="max-w-xs rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] text-[#8FA1BC] xl:text-right">
               <p className="font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Operator Note</p>
               <p className="mt-2 leading-relaxed">
-                {fileLoading
-                  ? 'Generating secure source access.'
-                  : fileError
-                    ? fileError
-                  : 'Select a fact to jump directly into its source evidence.'}
+                {operatorNote}
               </p>
             </div>
 
@@ -425,39 +675,54 @@ export function DocumentDetailExperience({
 
       {hasIntelligenceWorkspace && intelligenceViewModel ? (
         <>
-          <DocumentIntelligenceStrip items={intelligenceViewModel.strip} />
+          {isSpreadsheetDocument ? (
+            intelligenceViewModel.spreadsheetReviewDataset ? (
+              <SpreadsheetReviewSurface
+                dataset={intelligenceViewModel.spreadsheetReviewDataset}
+                selectedRecordId={selectedRecordId}
+                navigationAction={navigationAction}
+                decisionContextHref={navigationDecisionHref}
+                validatorHref={navigationValidatorHref}
+              />
+            ) : null
+          ) : (
+            <>
+              <DocumentIntelligenceStrip items={intelligenceViewModel.strip} />
 
-          {/* Type-specific inspection surfaces — rendered before the fact ledger.
-              Contracts intentionally render nothing here; their UX is the fact ledger itself. */}
-          {intelligenceViewModel.invoiceExtraction ? (
-            <InvoiceSurface extraction={intelligenceViewModel.invoiceExtraction} />
-          ) : null}
-          {intelligenceViewModel.transactionDataExtraction ? (
-            <TransactionDataSurface
-              extraction={intelligenceViewModel.transactionDataExtraction}
-              projectId={projectId}
-              documentId={documentId}
-              comparisons={comparisons}
-            />
-          ) : null}
+              {intelligenceViewModel.family === 'contract' &&
+              (intelligenceViewModel.contractRateRows?.length ?? 0) > 0 ? (
+                <ContractRateTablePanel
+                  documentId={documentId}
+                  rows={intelligenceViewModel.contractRateRows ?? []}
+                  selectedRateRowId={selectedRateRowId}
+                  navigationSource={navigationSource}
+                  navigationProjectId={navigationProjectId}
+                />
+              ) : null}
 
-          {/* Fact workspace — always available as evidence drilldown for all document types */}
-          <DocumentIntelligenceWorkspace
-            model={intelligenceViewModel}
-            signedUrl={signedUrl}
-            fileExt={fileExt}
-            filename={filename}
-            initialSelectedFactId={initialSelectedFactId}
-            initialSelectedFieldKey={initialSelectedFieldKey}
-            initialPage={initialPage}
-            navigationKey={navigationKey}
-            onSaveFactOverride={onSaveFactOverride}
-            onSaveFactReview={onSaveFactReview}
-            onSaveFactAnchor={onSaveFactAnchor}
-            onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
-            projectId={projectId}
-            documentId={documentId}
-          />
+              {/* Type-specific inspection surfaces — rendered before the fact ledger.
+                  Contracts intentionally render nothing here; their UX is the fact ledger itself. */}
+              {intelligenceViewModel.invoiceExtraction ? (
+                <InvoiceSurface extraction={intelligenceViewModel.invoiceExtraction} />
+              ) : null}
+
+              {/* Fact workspace — always available as evidence drilldown for supported document types */}
+              <DocumentIntelligenceWorkspace
+                model={intelligenceViewModel}
+                signedUrl={signedUrl}
+                fileExt={fileExt}
+                filename={filename}
+                initialSelectedFactId={initialSelectedFactId}
+                initialSelectedFieldKey={initialSelectedFieldKey}
+                initialPage={initialPage}
+                navigationKey={navigationKey}
+                onSaveFactOverride={onSaveFactOverride}
+                onSaveFactReview={onSaveFactReview}
+                onSaveFactAnchor={onSaveFactAnchor}
+                onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
+              />
+            </>
+          )}
         </>
       ) : (
         <section className="rounded-3xl border border-amber-400/20 bg-amber-400/10 px-5 py-5">
@@ -471,21 +736,18 @@ export function DocumentDetailExperience({
         </section>
       )}
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
-        <DecisionsSection
+      {isSpreadsheetDocument ? null : (
+        <DocumentImpactContext
           decisions={decisions}
-          projectContextLabel={projectContextLabel}
+          tasks={tasks}
           reviewableDecisionIds={reviewableDecisionIds}
-          unavailableMessage={unavailableMessage ?? undefined}
-          feedbackById={feedbackById}
-          feedbackErrorById={feedbackErrorById}
-          onReviewDecision={onReviewDecision}
+          summary={summary}
+          unavailableMessage={unavailableMessage}
+          projectContextLabel={projectContextLabel}
         />
+      )}
 
-        <FlowSection tasks={tasks} unavailableMessage={unavailableMessage ?? undefined} />
-      </section>
-
-      {hasRightRail ? (
+      {isSpreadsheetDocument ? null : hasRightRail ? (
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
           <ReviewSection documentId={documentId} orgId={orgId} />
           <div className="space-y-4">
@@ -496,6 +758,7 @@ export function DocumentDetailExperience({
         <ReviewSection documentId={documentId} orgId={orgId} />
       )}
 
+      {isSpreadsheetDocument ? null : (
       <section className="space-y-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
@@ -545,8 +808,9 @@ export function DocumentDetailExperience({
           </details>
         ) : null}
       </section>
+      )}
 
-      {evaluationNode}
+      {isSpreadsheetDocument ? null : evaluationNode}
     </div>
   );
 }

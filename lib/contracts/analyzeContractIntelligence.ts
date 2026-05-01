@@ -4,6 +4,7 @@ import {
   classifyContractCeiling,
   contractCeilingSummary,
 } from '@/lib/contracts/contractCeiling';
+import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
   CLAUSE_PATTERN_LIBRARY_VERSION_V1,
@@ -75,6 +76,37 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
     out.push(trimmed);
   }
   return out;
+}
+
+function numberArray(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === 'number' && Number.isFinite(entry)) return entry;
+        if (typeof entry === 'string' && entry.trim().length > 0) {
+          const parsed = Number.parseInt(entry.trim(), 10);
+          return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+      })
+      .filter((entry): entry is number => entry != null);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(/[,\s]+/)
+      .map((entry) => {
+        const parsed = Number.parseInt(entry.trim(), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      })
+      .filter((entry): entry is number => entry != null);
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return [value];
+  }
+
+  return [];
 }
 
 function evidenceText(evidence: EvidenceObject): string {
@@ -511,6 +543,7 @@ function stateFromFact(
   derivationStatus: string | undefined,
   _fallbackCriticality: ContractCriticality,
 ): ContractFieldState {
+  void _fallbackCriticality;
   if (value == null || value === '') return 'missing_critical';
   if (derivationStatus === 'calculated') return 'derived';
   return 'explicit';
@@ -964,6 +997,23 @@ export function analyzeContractIntelligence(
     patterns,
     profile,
   );
+  const rateSchedulePages = uniqueStrings([
+    ...numberArray(input.primaryDocument.fact_map.rate_schedule_pages?.value ?? null).map(String),
+    ...numberArray(input.primaryDocument.section_signals.rate_section_pages ?? null).map(String),
+  ]).map((value) => Number.parseInt(value, 10));
+  const rateScheduleRows = buildContractRateScheduleRows({
+    rateTable: input.primaryDocument.typed_fields.rate_table,
+    rateSchedulePages,
+    sourceEntries: input.primaryDocument.evidence.map((evidence) => ({
+      id: evidence.id,
+      page: evidence.location.page ?? null,
+      text: evidenceText(evidence),
+    })),
+    defaultAnchorIds: uniqueStrings([
+      ...(input.primaryDocument.fact_map.rate_schedule_present?.evidence_refs ?? []),
+      ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
+    ]),
+  });
 
   const analysisWithoutIssues: Omit<ContractAnalysisResult, 'coverage_status' | 'issues' | 'trace_summary'> = {
     document_id: input.primaryDocument.document_id,
@@ -980,6 +1030,7 @@ export function analyzeContractIntelligence(
     documentation_model: families.documentation_model,
     compliance_model: families.compliance_model,
     payment_model: families.payment_model,
+    rate_schedule_rows: rateScheduleRows,
     clause_patterns_detected: patterns,
   };
 

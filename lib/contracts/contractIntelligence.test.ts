@@ -231,6 +231,49 @@ describe('contract intelligence analysis', () => {
     );
   });
 
+  it('extracts structured rate schedule rows into canonical contract analysis', () => {
+    const analysis = runContractAnalysis({
+      textPreview:
+        'Emergency debris removal unit rates are set forth in Exhibit A. '
+        + 'Vegetative debris haul and reduction is billed by the cubic yard.',
+      typedFields: {
+        rate_table: [
+          {
+            material_type: 'Vegetative',
+            unit: 'per cubic yard',
+            rate_amount: 6.9,
+            rate_raw: 'Vegetative debris haul and reduction $6.90 per cubic yard',
+          },
+          {
+            material_type: 'Mixed C&D',
+            unit: 'per ton',
+            rate_amount: 12.5,
+            rate_raw: 'Mixed C&D disposal $12.50 per ton',
+          },
+        ],
+      },
+      sectionSignals: {
+        rate_section_present: true,
+        rate_section_pages: [2],
+      },
+      pageText: [
+        'Agreement cover page.',
+        [
+          'EXHIBIT A',
+          'Vegetative debris haul and reduction $6.90 per cubic yard',
+          'Mixed C&D disposal $12.50 per ton',
+        ].join('\n'),
+      ],
+    });
+
+    assert.equal(analysis.rate_schedule_rows?.length, 2);
+    assert.equal(analysis.rate_schedule_rows?.[0]?.category, 'Vegetative');
+    assert.equal(analysis.rate_schedule_rows?.[0]?.unit, 'per cubic yard');
+    assert.equal(analysis.rate_schedule_rows?.[0]?.rate, 6.9);
+    assert.equal(analysis.rate_schedule_rows?.[0]?.page, 2);
+    assert.ok((analysis.rate_schedule_rows?.[0]?.source_anchor_ids.length ?? 0) > 0);
+  });
+
   it('resolves Williamson-style OCR contractor drift when one role-grounded candidate is dominant', () => {
     const openingPage = [
       'CONTRACT BETWEEN WILLIAMSON COUNTY, TENNESSEE AND ARTERMATH DISASTER RECOVERY, INC.',

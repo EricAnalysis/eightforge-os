@@ -7,6 +7,7 @@ import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
+import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
 const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
 
@@ -33,7 +34,7 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('decisions')
-      .select('id, organization_id, status, severity')
+      .select('id, organization_id, project_id, status, severity')
       .eq('id', decisionId)
       .single();
 
@@ -77,6 +78,7 @@ export async function PATCH(
     if (previousStatus !== newStatus) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
+        project_id: typeof existing.project_id === 'string' ? existing.project_id : null,
         entity_type: 'decision',
         entity_id: decisionId,
         event_type: 'status_changed',
@@ -112,6 +114,12 @@ export async function PATCH(
           to: newStatus,
           severity: existing.severity as string | null,
         },
+      });
+
+      void requestDecisionStatusRevalidation({
+        projectId: typeof existing.project_id === 'string' ? existing.project_id : null,
+        actorId,
+        newStatus,
       });
     }
 

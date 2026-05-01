@@ -30,7 +30,6 @@ type IconName =
 type NavKey = 'command' | 'decisions' | 'actions' | 'intelligence' | 'documents' | 'portfolio';
 
 const TOP_NAV_ITEMS = [
-  { href: '/platform/workspace', label: 'Workspace', key: 'workspace' },
   { href: '/platform/portfolio', label: 'Portfolio', key: 'portfolio' },
   { href: '/platform', label: 'Command Center', key: 'commandCenter' },
   { href: '/platform/projects', label: 'Projects', key: 'projects' },
@@ -56,7 +55,6 @@ function normalizeWorkspaceName(workspaceName: string): string {
 }
 
 function isTopNavActive(pathname: string, key: (typeof TOP_NAV_ITEMS)[number]['key']): boolean {
-  if (key === 'workspace') return pathname.startsWith('/platform/workspace');
   if (key === 'portfolio') return pathname.startsWith('/platform/portfolio');
   if (key === 'commandCenter') return pathname === '/platform';
   if (key === 'projects') {
@@ -229,7 +227,7 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[#2F3B52]/80 bg-[#0B1020]/92 backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-5 lg:gap-8">
-          <Link href="/platform/workspace" className="flex min-w-0 items-center gap-3">
+          <Link href="/platform" className="flex min-w-0 items-center gap-3">
             <EightForgeLogo size={24} />
             <p className="truncate text-[13px] font-semibold uppercase tracking-[0.22em] text-[#3B82F6]">
               EightForge

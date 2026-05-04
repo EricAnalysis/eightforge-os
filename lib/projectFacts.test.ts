@@ -1409,6 +1409,122 @@ describe('resolveCanonicalProjectFacts', () => {
     assert.equal(invoiceRows.find((row) => row.key === 'support_coverage')?.source_label, 'Document relationships');
   });
 
+  it('uses attached, supplemental, and amendment relationships as contract context without replacing governing identity', () => {
+    const sections = resolveCanonicalProjectTruthSections({
+      validationStatus: 'FINDINGS_OPEN',
+      validationSummary: {
+        contract_validation_context: {
+          document_id: 'base-contract',
+          analysis: {
+            contract_identity: {
+              effective_date: {
+                value: '2026-04-01',
+                state: 'explicit',
+                source_fact_ids: ['effective_date'],
+              },
+            },
+            term_model: {
+              expiration_date: {
+                value: '2026-12-31',
+                state: 'explicit',
+                source_fact_ids: ['expiration_date'],
+              },
+            },
+            pricing_model: {},
+          },
+        },
+      },
+      documents: [
+        {
+          id: 'base-contract',
+          project_id: 'project-1',
+          title: 'MVSU Draft Contract',
+          name: 'mvsu-draft-contract.pdf',
+          created_at: '2026-04-01T09:00:00Z',
+          document_type: 'contract',
+          document_role: 'base_contract',
+          authority_status: 'active',
+          intelligence_trace: {
+            classification: { family: 'contract' },
+            facts: {
+              effective_date: '2026-04-01',
+            },
+          },
+        },
+        {
+          id: 'exhibit-a',
+          project_id: 'project-1',
+          title: 'Exhibit A',
+          name: 'exhibit-a.pdf',
+          created_at: '2026-04-02T09:00:00Z',
+          document_type: 'Attachment',
+          intelligence_trace: {
+            facts: {
+              rate_schedule_present: true,
+              rate_schedule_pages: 4,
+              rate_row_count: 12,
+              pricing_applicability: 'Exhibit rates apply to debris hauling',
+            },
+          },
+        },
+        {
+          id: 'federal-guidance',
+          project_id: 'project-1',
+          title: 'Federal Guidance Requirements',
+          name: 'federal-guidance-requirements.pdf',
+          created_at: '2026-04-03T09:00:00Z',
+          document_type: 'Specification',
+        },
+        {
+          id: 'amendment-1',
+          project_id: 'project-1',
+          title: 'Amendment 1',
+          name: 'amendment-1.pdf',
+          created_at: '2026-04-04T09:00:00Z',
+          document_type: 'contract',
+          document_role: 'contract_amendment',
+        },
+      ],
+      documentRelationships: [
+        {
+          id: 'rel-1',
+          project_id: 'project-1',
+          source_document_id: 'exhibit-a',
+          target_document_id: 'base-contract',
+          relationship_type: 'attached_to',
+        },
+        {
+          id: 'rel-2',
+          project_id: 'project-1',
+          source_document_id: 'federal-guidance',
+          target_document_id: 'base-contract',
+          relationship_type: 'supplements',
+        },
+        {
+          id: 'rel-3',
+          project_id: 'project-1',
+          source_document_id: 'amendment-1',
+          target_document_id: 'base-contract',
+          relationship_type: 'amends',
+        },
+      ],
+    });
+
+    const contractRows = sections.find((section) => section.key === 'contract')?.rows ?? [];
+    assert.equal(contractRows.find((row) => row.key === 'governing_contract')?.value, 'MVSU Draft Contract');
+    assert.equal(
+      contractRows.find((row) => row.key === 'rate_schedule')?.value,
+      'Present (4 pages); Exhibit rates apply to debris hauling',
+    );
+    assert.equal(contractRows.find((row) => row.key === 'rate_schedule')?.source_label, 'Exhibit A');
+    assert.equal(contractRows.find((row) => row.key === 'pricing_context')?.value, 'Exhibit A');
+    assert.equal(
+      contractRows.find((row) => row.key === 'requirements_context')?.value,
+      'Federal Guidance Requirements',
+    );
+    assert.equal(contractRows.find((row) => row.key === 'amendment_context')?.value, 'Amendment 1');
+  });
+
   it('marks supporting data as not expected during contract setup', () => {
     const workspace = resolveCanonicalProjectValidatorWorkspace({
       validationStatus: 'NOT_READY',

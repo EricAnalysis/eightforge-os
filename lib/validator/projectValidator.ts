@@ -450,6 +450,7 @@ export function buildPersistedContractValidationContextFromProjectSummary(
         ? rawContext.documentId.trim()
         : null;
   const analysis = asRecord(rawContext?.analysis);
+  const relationshipContext = asRecord(rawContext?.relationship_context);
 
   if (!documentId || !analysis) {
     return null;
@@ -459,6 +460,13 @@ export function buildPersistedContractValidationContextFromProjectSummary(
     document_id: documentId,
     analysis: analysis as unknown as ContractAnalysisResult,
     evidence_by_id: new Map(),
+    relationship_context: relationshipContext
+      ? {
+          pricing_document_ids: factValueAsStringArray(relationshipContext.pricing_document_ids),
+          compliance_document_ids: factValueAsStringArray(relationshipContext.compliance_document_ids),
+          amendment_document_ids: factValueAsStringArray(relationshipContext.amendment_document_ids),
+        }
+      : undefined,
   };
 }
 
@@ -1350,6 +1358,22 @@ function firstStringArrayFactValue(fact: ValidatorFactRecord | null): string[] {
   return fact ? factValueAsStringArray(fact.value) : [];
 }
 
+function buildContractRelationshipContext(
+  truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'],
+): NonNullable<ValidatorContractAnalysisContext['relationship_context']> {
+  const contractIdentitySet = new Set(truthCategoryDocumentIds.contract_identity);
+  const excludeIdentityDocuments = (documentIds: readonly string[]): string[] =>
+    uniqueDocumentIds(
+      documentIds.filter((documentId) => !contractIdentitySet.has(documentId)),
+    );
+
+  return {
+    pricing_document_ids: excludeIdentityDocuments(truthCategoryDocumentIds.pricing),
+    compliance_document_ids: excludeIdentityDocuments(truthCategoryDocumentIds.compliance),
+    amendment_document_ids: excludeIdentityDocuments(truthCategoryDocumentIds.amendments),
+  };
+}
+
 function buildContractValidationContext(params: {
   projectValidationSummary?: unknown;
   documents: readonly ValidatorDocumentRow[];
@@ -1357,11 +1381,17 @@ function buildContractValidationContext(params: {
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
 }): ValidatorContractAnalysisContext | null {
+  const relationshipContext = buildContractRelationshipContext(
+    params.truthCategoryDocumentIds,
+  );
   const persistedProjectContext = buildPersistedContractValidationContextFromProjectSummary(
     params.projectValidationSummary,
   );
   if (persistedProjectContext) {
-    return persistedProjectContext;
+    return {
+      ...persistedProjectContext,
+      relationship_context: relationshipContext,
+    };
   }
 
   const contractDocumentId = params.truthCategoryDocumentIds.contract_identity[0] ?? null;
@@ -1372,7 +1402,10 @@ function buildContractValidationContext(params: {
 
   const persistedContext = buildPersistedContractValidationContextFromTrace(document);
   if (persistedContext) {
-    return persistedContext;
+    return {
+      ...persistedContext,
+      relationship_context: relationshipContext,
+    };
   }
 
   const syntheticDocument = buildSyntheticContractDocument({
@@ -1394,6 +1427,7 @@ function buildContractValidationContext(params: {
     evidence_by_id: new Map(
       syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
     ),
+    relationship_context: relationshipContext,
   };
 }
 
@@ -1494,6 +1528,22 @@ function buildFactLookups(params: {
     contractProjectCodeFacts,
     invoiceProjectCodeFacts,
     contractPartyNameFacts,
+    contractIdentityDocumentIds,
+    pricingContextDocumentIds: uniqueDocumentIds(
+      params.truthCategoryDocumentIds.pricing.filter((documentId) =>
+        !contractIdentityDocumentIds.includes(documentId),
+      ),
+    ),
+    complianceContextDocumentIds: uniqueDocumentIds(
+      params.truthCategoryDocumentIds.compliance.filter((documentId) =>
+        !contractIdentityDocumentIds.includes(documentId),
+      ),
+    ),
+    amendmentContextDocumentIds: uniqueDocumentIds(
+      params.truthCategoryDocumentIds.amendments.filter((documentId) =>
+        !contractIdentityDocumentIds.includes(documentId),
+      ),
+    ),
     nteFact,
     contractDocumentId: params.contractValidationContext?.document_id ?? contractIdentityDocumentIds[0] ?? null,
     contractCeilingTypeFact,

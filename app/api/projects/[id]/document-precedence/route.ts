@@ -5,6 +5,7 @@ import {
   DOCUMENT_SUBTYPE_VALUES,
   GOVERNING_DOCUMENT_FAMILIES,
   canonicalizeRelationshipType,
+  getDocumentRelationshipLabel,
   type AuthorityStatus,
   type DocumentRelationshipType,
   type DocumentSubtype,
@@ -38,6 +39,17 @@ function assertPrecedenceRank(value: unknown): asserts value is number | null {
   if (value !== null && (typeof value !== 'number' || !Number.isFinite(value))) {
     throw new Error('precedence_rank must be a number or null');
   }
+}
+
+function coercePrecedenceRank(value: unknown): number | null {
+  const safePrecedenceRank =
+    value === true ? 1
+      : value === false ? null
+        : typeof value === 'number' && Number.isFinite(value) ? value
+          : null;
+
+  assertPrecedenceRank(safePrecedenceRank);
+  return safePrecedenceRank;
 }
 
 async function logTruthMutationActivity(params: {
@@ -133,14 +145,20 @@ async function persistManualFamilyOrder(params: {
   if (!admin) return { ok: false as const, error: 'Server not configured', status: 503 as const };
 
   for (const [index, documentId] of params.orderedDocumentIds.entries()) {
-    const precedence_rank = index === 0 ? 1 : 2;
-    assertPrecedenceRank(precedence_rank);
+    const precedence_rank = coercePrecedenceRank(index === 0 ? 1 : 2);
+    const payload = {
+      operator_override_precedence: true,
+      precedence_rank,
+    } as const;
+
+    console.log('[document-precedence update]', {
+      action: 'persist_manual_family_order',
+      documentId,
+      payload,
+    });
     const { error } = await admin
       .from('documents')
-      .update({
-        operator_override_precedence: true,
-        precedence_rank,
-      })
+      .update(payload)
       .eq('id', documentId)
       .eq('organization_id', params.organizationId);
 
@@ -160,14 +178,20 @@ async function clearManualFamilyOrder(params: {
   if (!admin) return { ok: false as const, error: 'Server not configured', status: 503 as const };
 
   for (const documentId of params.documentIds) {
-    const precedence_rank = null;
-    assertPrecedenceRank(precedence_rank);
+    const precedence_rank = coercePrecedenceRank(null);
+    const payload = {
+      operator_override_precedence: false,
+      precedence_rank,
+    } as const;
+
+    console.log('[document-precedence update]', {
+      action: 'clear_manual_family_order',
+      documentId,
+      payload,
+    });
     const { error } = await admin
       .from('documents')
-      .update({
-        operator_override_precedence: false,
-        precedence_rank,
-      })
+      .update(payload)
       .eq('id', documentId)
       .eq('organization_id', params.organizationId);
 
@@ -243,6 +267,8 @@ export async function GET(
     });
     return NextResponse.json({
       ok: true,
+      documents: snapshot.documents,
+      relationships: snapshot.relationships,
       families: snapshot.families,
     });
   } catch (error) {
@@ -267,6 +293,11 @@ export async function PATCH(
   const body = await request.json().catch(() => ({}));
   const action = typeof body?.action === 'string' ? body.action : null;
   if (!action) return jsonError('action is required', 400);
+
+  console.log('[document-precedence PATCH]', {
+    action,
+    body,
+  });
 
   const snapshot = await loadProjectDocumentPrecedenceSnapshot(projectResult.admin, {
     organizationId: ctx.actor.organizationId,
@@ -301,6 +332,13 @@ export async function PATCH(
       }
     | {
         kind: 'link_relationship';
+        sourceDocumentId: string;
+        targetDocumentId: string;
+        relationshipType: CanonicalRelationshipType;
+      }
+    | {
+        kind: 'delete_relationship';
+        relationshipId: string;
         sourceDocumentId: string;
         targetDocumentId: string;
         relationshipType: CanonicalRelationshipType;
@@ -353,15 +391,21 @@ export async function PATCH(
         }
 
         for (const contractDocumentId of contractDocumentIds) {
-          const precedence_rank = contractDocumentId === documentId ? 1 : 2;
-          assertPrecedenceRank(precedence_rank);
+          const precedence_rank = coercePrecedenceRank(contractDocumentId === documentId ? 1 : 2);
+          const payload = {
+            operator_override_precedence: true,
+            precedence_rank,
+          } as const;
+
+          console.log('[document-precedence update]', {
+            action,
+            documentId: contractDocumentId,
+            payload,
+          });
 
           const { error } = await projectResult.admin
             .from('documents')
-            .update({
-              operator_override_precedence: true,
-              precedence_rank,
-            })
+            .update(payload)
             .eq('id', contractDocumentId)
             .eq('organization_id', ctx.actor.organizationId);
 
@@ -445,17 +489,24 @@ export async function PATCH(
       const projectDocument = snapshot.documents.find((document) => document.id === documentId);
       if (!projectDocument) return jsonError('Document not found', 404);
 
-      const precedence_rank =
-        authorityStatus === 'superseded' ? null : projectDocument.precedence_rank ?? null;
-      assertPrecedenceRank(precedence_rank);
+      const precedence_rank = coercePrecedenceRank(
+        authorityStatus === 'superseded' ? null : projectDocument.precedence_rank ?? null,
+      );
+      const payload = {
+        authority_status: authorityStatus,
+        operator_override_precedence: authorityStatus === 'superseded' ? false : projectDocument.operator_override_precedence ?? false,
+        precedence_rank,
+      } as const;
+
+      console.log('[document-precedence update]', {
+        action,
+        documentId,
+        payload,
+      });
 
       const { error } = await projectResult.admin
         .from('documents')
-        .update({
-          authority_status: authorityStatus,
-          operator_override_precedence: authorityStatus === 'superseded' ? false : projectDocument.operator_override_precedence ?? false,
-          precedence_rank,
-        })
+        .update(payload)
         .eq('id', documentId)
         .eq('organization_id', ctx.actor.organizationId);
 
@@ -485,8 +536,14 @@ export async function PATCH(
 
       const { error } = await projectResult.admin
         .from('documents')
-        .update({
-          document_subtype: documentSubtype,
+        .update(() => {
+          const payload = { document_subtype: documentSubtype } as const;
+          console.log('[document-precedence update]', {
+            action,
+            documentId,
+            payload,
+          });
+          return payload;
         })
         .eq('id', documentId)
         .eq('organization_id', ctx.actor.organizationId);
@@ -558,6 +615,39 @@ export async function PATCH(
       }
 
       // Fire-and-forget so validation never blocks relationship saves.
+      shouldRefreshValidator = true;
+    } else if (action === 'delete_relationship') {
+      const relationshipId = typeof body.relationshipId === 'string' ? body.relationshipId : null;
+      if (!relationshipId) {
+        return jsonError('relationshipId is required', 400);
+      }
+
+      const relationship = snapshot.relationships.find((candidate) => candidate.id === relationshipId) ?? null;
+      if (!relationship?.id) {
+        return jsonError('Relationship not found', 404);
+      }
+
+      const relationshipType = canonicalizeRelationshipType(relationship.relationship_type);
+      if (!relationshipType) {
+        return jsonError('Relationship type is invalid', 400);
+      }
+
+      const { error } = await projectResult.admin
+        .from('document_relationships')
+        .delete()
+        .eq('id', relationshipId)
+        .eq('organization_id', ctx.actor.organizationId)
+        .eq('project_id', projectId);
+
+      if (error) return jsonError(error.message, 500);
+
+      truthMutationAuditPlan = {
+        kind: 'delete_relationship',
+        relationshipId,
+        sourceDocumentId: relationship.source_document_id,
+        targetDocumentId: relationship.target_document_id,
+        relationshipType,
+      };
       shouldRefreshValidator = true;
     } else {
       return jsonError('Unsupported action', 400);
@@ -719,8 +809,34 @@ export async function PATCH(
             target_document_id: auditPlan.targetDocumentId,
             target_document_title: documentLabel(targetDocument),
             relationship_type: auditPlan.relationshipType,
-            relationship_label: titleize(auditPlan.relationshipType),
+            relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
           },
+        });
+      } else if (auditPlan.kind === 'delete_relationship') {
+        const sourceDocument = documentById.get(auditPlan.sourceDocumentId)
+          ?? previousDocumentById.get(auditPlan.sourceDocumentId)
+          ?? null;
+        const targetDocument = documentById.get(auditPlan.targetDocumentId)
+          ?? previousDocumentById.get(auditPlan.targetDocumentId)
+          ?? null;
+
+        await logTruthMutationActivity({
+          organizationId: ctx.actor.organizationId,
+          projectId,
+          entityType: 'document',
+          entityId: auditPlan.sourceDocumentId,
+          eventType: 'document_relationship_changed',
+          actorId: ctx.actor.actorId,
+          oldValue: {
+            relationship_id: auditPlan.relationshipId,
+            source_document_id: auditPlan.sourceDocumentId,
+            source_document_title: documentLabel(sourceDocument),
+            target_document_id: auditPlan.targetDocumentId,
+            target_document_title: documentLabel(targetDocument),
+            relationship_type: auditPlan.relationshipType,
+            relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
+          },
+          newValue: null,
         });
       } else if (auditPlan.kind === 'set_document_subtype') {
         const nextDocument = documentById.get(auditPlan.documentId)
@@ -762,6 +878,8 @@ export async function PATCH(
 
     return NextResponse.json({
       ok: true,
+      documents: refreshed.documents,
+      relationships: refreshed.relationships,
       families: refreshed.families,
     });
   } catch (error) {

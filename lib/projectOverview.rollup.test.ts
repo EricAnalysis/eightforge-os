@@ -880,8 +880,8 @@ describe('project operational rollup', () => {
         event_type: 'document_relationship_changed',
         old_value: null,
         new_value: {
-          source_document_title: 'Master Contract',
-          target_document_title: 'Amendment 2',
+          source_document_title: 'Amendment 2',
+          target_document_title: 'Master Contract',
           relationship_type: 'amends',
         },
         changed_by: 'member-1',
@@ -962,8 +962,9 @@ describe('project operational rollup', () => {
       [],
     );
 
-    assert.equal(audit[0]?.label, 'Document relationship changed');
+    assert.equal(audit[0]?.label, 'Document relationship recorded');
     assert.equal(audit[0]?.source_label, 'Document relationship');
+    assert.equal(audit[0]?.detail, 'Amendment 2 now has the "Modifies Contract" link to Master Contract.');
     assert.equal(audit[1]?.label, 'Document precedence changed');
     assert.equal(audit[1]?.detail, 'Invoice reverted to automatic precedence ordering.');
     assert.equal(audit[2]?.label, 'Governing document changed');

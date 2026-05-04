@@ -15,7 +15,7 @@ const PROJECT_ID = 'project-1';
 
 function buildInput(
   transactionData: ValidatorProjectTransactionData,
-  overrides: Partial<Pick<ProjectValidatorInput, 'validationPhase'>> = {},
+  overrides: Partial<Pick<ProjectValidatorInput, 'validationPhase' | 'truthCategoryDocumentIds' | 'factLookups'>> = {},
 ): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: PROJECT_ID,
@@ -36,6 +36,10 @@ function buildInput(
     contractProjectCodeFacts: [],
     invoiceProjectCodeFacts: [],
     contractPartyNameFacts: [],
+    contractIdentityDocumentIds: ['contract-doc-1'],
+    pricingContextDocumentIds: [],
+    complianceContextDocumentIds: [],
+    amendmentContextDocumentIds: [],
     nteFact: null,
     contractDocumentId: 'contract-doc-1',
     contractCeilingTypeFact: null,
@@ -71,7 +75,7 @@ function buildInput(
     precedenceFamilies: [],
     familyDocumentIds,
     governingDocumentIds: familyDocumentIds,
-    truthCategoryDocumentIds: {
+    truthCategoryDocumentIds: overrides.truthCategoryDocumentIds ?? {
       contract_identity: ['contract-doc-1'],
       pricing: [],
       compliance: [],
@@ -87,7 +91,7 @@ function buildInput(
     mobileToLoadsMap: new Map(),
     invoiceLineToRateMap: new Map(),
     projectTotals,
-    factLookups,
+    factLookups: overrides.factLookups ?? factLookups,
     contractValidationContext: null,
     transactionData,
     reconciliationContext: null,
@@ -217,6 +221,58 @@ describe('required source validator rules', () => {
     assert.equal(
       findings.some((finding) => finding.rule_id === 'SOURCES_NO_TICKET_DATA'),
       true,
+    );
+  });
+
+  it('does not treat a linked attached pricing exhibit as missing rate-schedule support', () => {
+    const findings = runRequiredSourcesRules(
+      buildInput({
+        datasets: [],
+        rows: [],
+        rollups: {
+          grouped_by_rate_code: [],
+          grouped_by_invoice: [],
+          grouped_by_site_material: [],
+        },
+      }, {
+        truthCategoryDocumentIds: {
+          contract_identity: ['contract-doc-1'],
+          pricing: ['exhibit-a', 'contract-doc-1'],
+          compliance: [],
+          amendments: [],
+        },
+        factLookups: {
+          contractProjectCodeFacts: [],
+          invoiceProjectCodeFacts: [],
+          contractPartyNameFacts: [],
+          contractIdentityDocumentIds: ['contract-doc-1'],
+          pricingContextDocumentIds: ['exhibit-a'],
+          complianceContextDocumentIds: [],
+          amendmentContextDocumentIds: [],
+          nteFact: null,
+          contractDocumentId: 'contract-doc-1',
+          contractCeilingTypeFact: null,
+          contractCeilingType: 'rate_based',
+          rateSchedulePresentFact: null,
+          rateSchedulePresent: false,
+          rateRowCountFact: null,
+          rateRowCount: null,
+          rateSchedulePagesFact: null,
+          rateSchedulePagesDisplay: null,
+          rateUnitsDetectedFact: null,
+          rateUnitsDetected: [],
+          timeAndMaterialsPresentFact: null,
+          timeAndMaterialsPresent: false,
+          rateScheduleFacts: [],
+          rateScheduleItems: [],
+          hasRateScheduleFacts: true,
+        },
+      }),
+    );
+
+    assert.equal(
+      findings.some((finding) => finding.rule_id === 'SOURCES_NO_RATE_SCHEDULE'),
+      false,
     );
   });
 });

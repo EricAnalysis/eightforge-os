@@ -20,6 +20,7 @@ import type {
 import {
   canonicalizeRelationshipType,
   resolveDocumentPrecedence,
+  resolveDocumentTruthCategoryIds,
   type DocumentRelationshipRecord,
   type GoverningDocumentFamily,
   type ResolvedDocumentPrecedenceFamily,
@@ -180,6 +181,7 @@ export type CanonicalProjectTruthDocumentInput = {
   project_id?: string | null;
   document_type?: string | null;
   document_role?: string | null;
+  document_subtype?: string | null;
   authority_status?: string | null;
   effective_date?: string | null;
   precedence_rank?: number | null;
@@ -1515,6 +1517,21 @@ function readFirstNumberFromRecords(
   return null;
 }
 
+function readFirstBooleanFromRecords(
+  records: ReadonlyArray<Record<string, unknown> | null | undefined>,
+  keys: readonly string[],
+): boolean | null {
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      if (typeof record[key] === 'boolean') {
+        return record[key] as boolean;
+      }
+    }
+  }
+  return null;
+}
+
 function normalizeTruthIdentifier(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
@@ -1622,6 +1639,7 @@ function resolveProjectDocumentPrecedenceContext(params: {
     title: document.title,
     name: document.name,
     document_type: document.document_type ?? null,
+    document_subtype: document.document_subtype ?? null,
     created_at: document.created_at ?? '1970-01-01T00:00:00.000Z',
     document_role: document.document_role ?? null,
     authority_status: document.authority_status ?? null,
@@ -1689,6 +1707,53 @@ function governingFamilyDocument(
   return documentId ? context.documentsById.get(documentId) ?? null : null;
 }
 
+type ContractRelationshipContextDocuments = {
+  pricing: CanonicalProjectTruthDocumentInput[];
+  compliance: CanonicalProjectTruthDocumentInput[];
+  amendments: CanonicalProjectTruthDocumentInput[];
+};
+
+function resolveContractRelationshipContextDocuments(
+  context: ProjectDocumentPrecedenceContext,
+): ContractRelationshipContextDocuments {
+  const truthCategoryDocumentIds = resolveDocumentTruthCategoryIds({
+    families: [...context.familiesByKey.values()],
+    relationships: context.relationships,
+  });
+  const contractIdentitySet = new Set(truthCategoryDocumentIds.contract_identity);
+  const resolveDocumentsForRelationshipType = (
+    relationshipType: 'attached_to' | 'supplements' | 'amends',
+  ): CanonicalProjectTruthDocumentInput[] =>
+    context.relationships
+      .flatMap((relationship) => {
+        if (canonicalizeRelationshipType(relationship.relationship_type) !== relationshipType) {
+          return [];
+        }
+
+        const sourceIsContractIdentity = contractIdentitySet.has(relationship.source_document_id);
+        const targetIsContractIdentity = contractIdentitySet.has(relationship.target_document_id);
+        if (!sourceIsContractIdentity && !targetIsContractIdentity) {
+          return [];
+        }
+
+        return [
+          targetIsContractIdentity ? relationship.source_document_id : null,
+          sourceIsContractIdentity ? relationship.target_document_id : null,
+        ].filter((documentId): documentId is string => documentId != null && !contractIdentitySet.has(documentId));
+      })
+      .map((documentId) => context.documentsById.get(documentId) ?? null)
+      .filter((document): document is CanonicalProjectTruthDocumentInput => document != null)
+      .filter((document, index, documents) =>
+        documents.findIndex((candidate) => candidate.id === document.id) === index,
+      );
+
+  return {
+    pricing: resolveDocumentsForRelationshipType('attached_to'),
+    compliance: resolveDocumentsForRelationshipType('supplements'),
+    amendments: resolveDocumentsForRelationshipType('amends'),
+  };
+}
+
 function readContractField(
   analysis: ContractAnalysisResult | null,
   family: 'contract_identity' | 'term_model' | 'pricing_model',
@@ -1740,6 +1805,87 @@ function contractSourceLabel(
   const sourceFactIds = field?.source_fact_ids ?? [];
   if (sourceFactIds.length > 0) return documentSourceLabel(document, 'Project truth');
   return documentSourceLabel(document, 'Validator-backed project facts');
+}
+
+function relationshipContextValue(
+  documents: readonly CanonicalProjectTruthDocumentInput[],
+): string | null {
+  if (documents.length === 0) return null;
+  return documents.map((document) => documentDisplayLabel(document)).join(', ');
+}
+
+function resolvePricingContextTruth(
+  documents: readonly CanonicalProjectTruthDocumentInput[],
+): {
+  present: boolean | null;
+  pages: number | null;
+  applicability: string | null;
+  sourceDocument: CanonicalProjectTruthDocumentInput | null;
+} {
+  let fallback = {
+    present: null as boolean | null,
+    pages: null as number | null,
+    applicability: null as string | null,
+    sourceDocument: null as CanonicalProjectTruthDocumentInput | null,
+  };
+
+  for (const document of documents) {
+    const analysis = readDocumentContractAnalysis(document);
+    const facts = readDocumentFacts(document);
+    const extracted = readDocumentExtracted(document);
+    const presentFromAnalysis = readContractBoolean(
+      readContractField(analysis, 'pricing_model', 'rate_schedule_present'),
+    );
+    const pagesFromAnalysis = readContractNumber(
+      readContractField(analysis, 'pricing_model', 'rate_schedule_pages'),
+    );
+    const applicabilityFromAnalysis = readContractString(
+      readContractField(analysis, 'pricing_model', 'pricing_applicability'),
+    );
+    const presentFromFacts = readFirstBooleanFromRecords(
+      [facts, extracted],
+      ['rate_schedule_present', 'rate_section_present', 'unit_price_structure_present'],
+    );
+    const rowCount = readFirstNumberFromRecords(
+      [facts, extracted],
+      ['rate_row_count', 'rate_items_detected'],
+    );
+    const pagesFromFacts = readFirstNumberFromRecords(
+      [facts, extracted],
+      ['rate_schedule_pages', 'rate_section_pages'],
+    );
+    const applicabilityFromFacts = readFirstStringFromRecords(
+      [facts, extracted],
+      ['pricing_applicability'],
+    );
+    const present =
+      presentFromAnalysis
+      ?? presentFromFacts
+      ?? ((rowCount ?? 0) > 0 || (pagesFromAnalysis ?? pagesFromFacts ?? 0) > 0 ? true : null);
+    const candidate = {
+      present,
+      pages: pagesFromAnalysis ?? pagesFromFacts,
+      applicability: applicabilityFromAnalysis ?? applicabilityFromFacts,
+      sourceDocument: document,
+    };
+
+    if (present === true) {
+      return candidate;
+    }
+
+    if (
+      fallback.sourceDocument == null
+      && (
+        candidate.present != null
+        || candidate.pages != null
+        || candidate.applicability != null
+      )
+    ) {
+      fallback = candidate;
+    }
+  }
+
+  return fallback;
 }
 
 function documentLabelById(
@@ -2446,11 +2592,21 @@ function resolveContractTruthRows(params: {
   documents: readonly CanonicalProjectTruthDocumentInput[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
 }): CanonicalProjectTruthRow[] {
+  const precedenceContext = resolveProjectDocumentPrecedenceContext({
+    documents: params.documents,
+    documentRelationships: params.documentRelationships,
+  });
   const contractDocument = selectContractTruthDocument({
     facts: params.facts,
     documents: params.documents,
     documentRelationships: params.documentRelationships,
   });
+  const relationshipContextDocuments = resolveContractRelationshipContextDocuments(
+    precedenceContext,
+  );
+  const pricingContextTruth = resolvePricingContextTruth(
+    relationshipContextDocuments.pricing,
+  );
   const analysis = readContractAnalysis(params.validationSummary) ?? readDocumentContractAnalysis(contractDocument);
   const ceilingTypeField = readContractField(analysis, 'pricing_model', 'contract_ceiling_type');
   const rateScheduleField = readContractField(analysis, 'pricing_model', 'rate_schedule_present');
@@ -2471,11 +2627,24 @@ function resolveContractTruthRows(params: {
     ['contract_ceiling', 'contractCeiling', 'nte_amount', 'nteAmount'],
   );
   const ceilingType = readContractString(ceilingTypeField);
-  const rateSchedulePresent = readContractBoolean(rateScheduleField);
-  const rateSchedulePages = readContractNumber(rateSchedulePagesField);
-  const pricingApplicability = readContractString(pricingApplicabilityField);
+  const rateSchedulePresentFromContract = readContractBoolean(rateScheduleField);
+  const rateSchedulePresent =
+    rateSchedulePresentFromContract === true
+      ? true
+      : pricingContextTruth.present === true
+        ? true
+        : rateSchedulePresentFromContract;
+  const rateSchedulePages =
+    readContractNumber(rateSchedulePagesField)
+    ?? pricingContextTruth.pages;
+  const pricingApplicability =
+    readContractString(pricingApplicabilityField)
+    ?? pricingContextTruth.applicability;
   const effectiveDate = readContractString(effectiveDateField);
   const expirationDate = readContractString(expirationDateField);
+  const pricingContextValue = relationshipContextValue(relationshipContextDocuments.pricing);
+  const requirementsContextValue = relationshipContextValue(relationshipContextDocuments.compliance);
+  const amendmentContextValue = relationshipContextValue(relationshipContextDocuments.amendments);
 
   const rows: CanonicalProjectTruthRow[] = [
     governingContractValue
@@ -2535,14 +2704,57 @@ function resolveContractTruthRows(params: {
             rateSchedulePresent
               ? `Present${rateSchedulePages != null && rateSchedulePages > 0 ? ` (${formatCount(rateSchedulePages)} pages)` : ''}${pricingApplicability ? `; ${pricingApplicability}` : ''}`
               : 'Missing',
-          source_label: contractSourceLabel(rateScheduleField ?? pricingApplicabilityField, contractDocument),
+          source_label:
+            rateSchedulePresentFromContract === true || rateSchedulePresent === false
+              ? contractSourceLabel(rateScheduleField ?? pricingApplicabilityField, contractDocument)
+              : documentSourceLabel(pricingContextTruth.sourceDocument, 'Document relationships'),
           state:
             rateSchedulePresent
-              ? truthStateFromContractField(rateScheduleField ?? pricingApplicabilityField)
+              ? (
+                rateSchedulePresentFromContract === true
+                  ? truthStateFromContractField(rateScheduleField ?? pricingApplicabilityField)
+                  : 'derived'
+              )
               : 'requires_review',
         })
       : unavailableTruthRow('rate_schedule', 'Rate Schedule', 'Project truth'),
   ];
+
+  if (pricingContextValue) {
+    rows.push(
+      truthRow({
+        key: 'pricing_context',
+        label: 'Pricing Context',
+        value: pricingContextValue,
+        source_label: 'Document relationships',
+        state: 'derived',
+      }),
+    );
+  }
+
+  if (requirementsContextValue) {
+    rows.push(
+      truthRow({
+        key: 'requirements_context',
+        label: 'Requirements Context',
+        value: requirementsContextValue,
+        source_label: 'Document relationships',
+        state: 'derived',
+      }),
+    );
+  }
+
+  if (amendmentContextValue) {
+    rows.push(
+      truthRow({
+        key: 'amendment_context',
+        label: 'Amendment Context',
+        value: amendmentContextValue,
+        source_label: 'Document relationships',
+        state: 'derived',
+      }),
+    );
+  }
 
   if (effectiveDate || expirationDate) {
     rows.push(

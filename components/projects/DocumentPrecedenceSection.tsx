@@ -3,9 +3,17 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useState } from 'react';
 import type {
+  CanonicalDocumentRelationshipType,
+  DocumentPrecedenceRecord,
+  DocumentRelationshipRecord,
   DocumentRelationshipType,
   GoverningDocumentFamily,
   ResolvedDocumentPrecedenceFamily,
+  ResolvedDocumentPrecedenceRecord,
+} from '@/lib/documentPrecedence';
+import {
+  canonicalizeRelationshipType,
+  getDocumentRelationshipLabel,
 } from '@/lib/documentPrecedence';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
@@ -17,7 +25,7 @@ type DocumentPrecedenceSectionProps = {
 type RelationshipFormState = {
   sourceDocumentId: string;
   targetDocumentId: string;
-  relationshipType: Extract<DocumentRelationshipType, 'amends' | 'supersedes'>;
+  relationshipType: CanonicalDocumentRelationshipType;
 };
 
 type SupportRelationshipFormState = {
@@ -29,17 +37,41 @@ type SupportRelationshipFormState = {
 type PrecedenceResponse = {
   ok?: boolean;
   error?: string;
+  documents?: DocumentPrecedenceRecord[];
+  relationships?: DocumentRelationshipRecord[];
   families?: ResolvedDocumentPrecedenceFamily[];
+};
+
+type RelationshipCandidate = DocumentPrecedenceRecord & {
+  resolvedRecord: ResolvedDocumentPrecedenceRecord | null;
+};
+
+type RelationshipSuggestion = {
+  sourceDocumentId: string;
+  targetDocumentId: string;
+  relationshipType: CanonicalDocumentRelationshipType;
+  reason: string;
+  needsReview: boolean;
+};
+
+type SavedRelationshipRow = {
+  id: string;
+  sourceDocumentId: string;
+  targetDocumentId: string;
+  relationshipType: CanonicalDocumentRelationshipType;
+  summary: string;
 };
 
 type GovernanceRoleKey = 'contract' | 'invoice' | 'transaction_data' | 'support';
 
 const RELATIONSHIP_OPTIONS: Array<{
-  value: Extract<DocumentRelationshipType, 'amends' | 'supersedes'>;
+  value: CanonicalDocumentRelationshipType;
   label: string;
 }> = [
-  { value: 'amends', label: 'Amends' },
-  { value: 'supersedes', label: 'Supersedes' },
+  { value: 'attached_to', label: 'Attached To' },
+  { value: 'supplements', label: 'Adds Requirements' },
+  { value: 'amends', label: 'Modifies Contract' },
+  { value: 'supersedes', label: 'Replaces Contract' },
 ];
 
 const SUPPORT_RELATIONSHIP_OPTIONS: Array<{
@@ -47,7 +79,7 @@ const SUPPORT_RELATIONSHIP_OPTIONS: Array<{
   label: string;
 }> = [
   { value: 'attached_to', label: 'Attached To' },
-  { value: 'supplements', label: 'Supplements' },
+  { value: 'supplements', label: 'Adds Requirements' },
 ];
 
 const GOVERNANCE_ROLE_GROUPS: Array<{
@@ -92,14 +124,196 @@ function titleize(value: string | null | undefined): string {
     .join(' ');
 }
 
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function isInactiveAuthorityStatus(value: string | null | undefined): boolean {
+  const normalized = normalizeText(value);
+  return normalized === 'superseded' || normalized === 'archived';
+}
+
+function buildResolvedDocumentMap(
+  families: readonly ResolvedDocumentPrecedenceFamily[],
+): Map<string, ResolvedDocumentPrecedenceRecord> {
+  const resolvedById = new Map<string, ResolvedDocumentPrecedenceRecord>();
+  for (const family of families) {
+    for (const document of family.documents) {
+      resolvedById.set(document.id, document);
+    }
+  }
+  return resolvedById;
+}
+
+function buildRelationshipCandidates(
+  documents: readonly DocumentPrecedenceRecord[],
+  resolvedById: ReadonlyMap<string, ResolvedDocumentPrecedenceRecord>,
+): RelationshipCandidate[] {
+  return documents.map((document) => ({
+    ...document,
+    resolvedRecord: resolvedById.get(document.id) ?? null,
+  }));
+}
+
+function relationshipCandidateLabel(candidate: RelationshipCandidate): string {
+  const meta = candidate.resolvedRecord?.family
+    ? titleize(candidate.resolvedRecord.family)
+    : candidate.document_type
+      ? titleize(candidate.document_type)
+      : candidate.document_subtype
+        ? titleize(candidate.document_subtype)
+        : null;
+
+  return meta ? `${documentLabel(candidate)} (${meta})` : documentLabel(candidate);
+}
+
+function classifyContractRelationshipSuggestion(
+  candidate: RelationshipCandidate,
+): CanonicalDocumentRelationshipType | null {
+  const normalizedType = normalizeText(candidate.document_type);
+  const normalizedSubtype = normalizeText(candidate.document_subtype);
+  const normalizedResolvedSubtype = normalizeText(candidate.resolvedRecord?.resolved_subtype);
+  const normalizedRole = normalizeText(candidate.document_role);
+  const normalizedResolvedFamily = normalizeText(candidate.resolvedRecord?.family);
+  const combinedText = normalizeText(`${candidate.title ?? ''} ${candidate.name}`);
+  const isSupportFlowDocument =
+    normalizedResolvedFamily === 'permit'
+    || normalizedResolvedFamily === 'ticket support'
+    || normalizedRole === 'ticket export'
+    || normalizedRole === 'supporting attachment';
+
+  if (
+    normalizedSubtype === 'replacement contract'
+    || normalizedResolvedSubtype === 'replacement contract'
+  ) {
+    return 'supersedes';
+  }
+
+  if (
+    normalizedSubtype === 'amendment'
+    || normalizedResolvedSubtype === 'amendment'
+    || combinedText.includes('amendment')
+  ) {
+    return 'amends';
+  }
+
+  if (
+    normalizedSubtype === 'pricing schedule'
+    || normalizedResolvedSubtype === 'pricing schedule'
+    || combinedText.includes('exhibit')
+    || combinedText.includes('pricing schedule')
+    || combinedText.includes('rate schedule')
+  ) {
+    return 'attached_to';
+  }
+
+  if (
+    normalizedSubtype === 'compliance requirements'
+    || normalizedResolvedSubtype === 'compliance requirements'
+    || normalizedSubtype === 'requirements doc'
+  ) {
+    return 'supplements';
+  }
+
+  if (isSupportFlowDocument) return null;
+
+  if (
+    normalizedType === 'specification'
+    || normalizedType === 'policy'
+    || normalizedType === 'procedure'
+    || normalizedType === 'report'
+    || normalizedType === 'compliance'
+  ) {
+    return 'supplements';
+  }
+
+  return null;
+}
+
+function relationshipSuggestionReason(relationshipType: CanonicalDocumentRelationshipType): string {
+  switch (relationshipType) {
+    case 'attached_to':
+      return 'Exhibit-style and pricing schedule documents usually attach to the governing base contract.';
+    case 'supplements':
+      return 'Requirement-style documents usually add requirements to the governing base contract.';
+    case 'amends':
+      return 'Amendment documents usually modify the governing base contract without replacing it.';
+    case 'supersedes':
+      return 'Replacement contracts usually replace the prior governing contract.';
+    default:
+      return 'Review and confirm this relationship before saving it.';
+  }
+}
+
+function buildContractRelationshipSuggestions(params: {
+  candidates: readonly RelationshipCandidate[];
+  relationships: readonly DocumentRelationshipRecord[];
+  contractFamily: ResolvedDocumentPrecedenceFamily | null;
+}): RelationshipSuggestion[] {
+  const { candidates, relationships, contractFamily } = params;
+  if (!contractFamily) return [];
+
+  const baseContractCandidates = contractFamily.documents.filter(
+    (document) =>
+      document.resolved_subtype === 'base_contract'
+      && !isInactiveAuthorityStatus(document.authority_status),
+  );
+  const governingBaseContract = baseContractCandidates.find(
+    (document) => document.is_governing,
+  ) ?? null;
+  const hasSingleBaseContract = governingBaseContract != null && baseContractCandidates.length === 1;
+  const linkedDocumentIds = new Set<string>();
+
+  for (const relationship of relationships) {
+    linkedDocumentIds.add(relationship.source_document_id);
+    linkedDocumentIds.add(relationship.target_document_id);
+  }
+
+  const suggestions: RelationshipSuggestion[] = [];
+  for (const candidate of candidates) {
+    if (linkedDocumentIds.has(candidate.id)) continue;
+
+    const relationshipType = classifyContractRelationshipSuggestion(candidate);
+    if (!relationshipType) continue;
+
+    if (hasSingleBaseContract && governingBaseContract) {
+      if (candidate.id === governingBaseContract.id) continue;
+      suggestions.push({
+        sourceDocumentId: candidate.id,
+        targetDocumentId: governingBaseContract.id,
+        relationshipType,
+        reason: relationshipSuggestionReason(relationshipType),
+        needsReview: false,
+      });
+      continue;
+    }
+
+    if (baseContractCandidates.length > 1) {
+      suggestions.push({
+        sourceDocumentId: candidate.id,
+        targetDocumentId: '',
+        relationshipType,
+        reason: 'Multiple possible base contracts exist, so this document needs relationship review before linking.',
+        needsReview: true,
+      });
+    }
+  }
+
+  return suggestions;
+}
+
 function reasonLabel(family: ResolvedDocumentPrecedenceFamily): string {
   switch (family.governing_reason) {
     case 'operator_override':
       return 'Operator Override';
     case 'supersedes_relationship':
-      return 'Supersedes';
+      return 'Replaces Contract';
     case 'amends_relationship':
-      return 'Amends';
+      return 'Modifies Contract';
     case 'role_priority':
       return 'Role Priority';
     case 'effective_date':
@@ -131,7 +345,11 @@ function defaultSupportRelationshipForm(
   families: readonly ResolvedDocumentPrecedenceFamily[],
 ): SupportRelationshipFormState {
   const supportSourceDocuments = families
-    .filter((family) => family.family === 'permit' || family.family === 'ticket_support')
+    .filter((family) =>
+      family.family === 'rate_sheet'
+      || family.family === 'permit'
+      || family.family === 'ticket_support',
+    )
     .flatMap((family) => family.documents);
   const supportTargetDocuments = families
     .filter((family) => family.family === 'contract' || family.family === 'invoice')
@@ -148,32 +366,80 @@ function documentLabel(document: { title: string | null; name: string }): string
   return document.title ?? document.name;
 }
 
-function relationshipSummaryLines(family: ResolvedDocumentPrecedenceFamily): string[] {
-  return [
-    ...new Set(
-      family.documents.flatMap((document) =>
-        document.relationship_summary
-          .filter((summary) => /^(amends|supersedes)\b/i.test(summary))
-          .map((summary) => `${documentLabel(document)} ${summary}`),
-      ),
-    ),
-  ];
+function buildSavedRelationshipRows(params: {
+  documents: readonly DocumentPrecedenceRecord[];
+  relationships: readonly DocumentRelationshipRecord[];
+  include: (
+    relationship: DocumentRelationshipRecord,
+    relationshipType: CanonicalDocumentRelationshipType,
+  ) => boolean;
+}): SavedRelationshipRow[] {
+  const documentsById = new Map(
+    params.documents.map((document) => [document.id, document] as const),
+  );
+
+  return params.relationships.flatMap((relationship) => {
+    if (!relationship.id) return [];
+
+    const relationshipType = canonicalizeRelationshipType(relationship.relationship_type);
+    if (!relationshipType || !params.include(relationship, relationshipType)) return [];
+
+    const sourceDocument = documentsById.get(relationship.source_document_id);
+    const targetDocument = documentsById.get(relationship.target_document_id);
+    if (!sourceDocument || !targetDocument) return [];
+
+    return [{
+      id: relationship.id,
+      sourceDocumentId: relationship.source_document_id,
+      targetDocumentId: relationship.target_document_id,
+      relationshipType,
+      summary: `${documentLabel(sourceDocument)} ${(getDocumentRelationshipLabel(relationshipType) ?? titleize(relationshipType))} ${documentLabel(targetDocument)}`,
+    }];
+  });
 }
 
-function supportRelationshipSummaryLines(
-  families: readonly ResolvedDocumentPrecedenceFamily[],
-): string[] {
-  return [
-    ...new Set(
-      families.flatMap((family) =>
-        family.documents.flatMap((document) =>
-          document.relationship_summary
-            .filter((summary) => /^(supports|applies to)\b/i.test(summary))
-            .map((summary) => `${documentLabel(document)} ${summary}`),
-        ),
+function buildFamilyRelationshipRows(params: {
+  family: ResolvedDocumentPrecedenceFamily;
+  documents: readonly DocumentPrecedenceRecord[];
+  relationships: readonly DocumentRelationshipRecord[];
+}): SavedRelationshipRow[] {
+  const familyDocumentIds = new Set(params.family.documents.map((document) => document.id));
+  const allowedRelationshipTypes = new Set<CanonicalDocumentRelationshipType>(
+    params.family.family === 'contract'
+      ? ['attached_to', 'supplements', 'amends', 'supersedes']
+      : ['amends', 'supersedes'],
+  );
+
+  return buildSavedRelationshipRows({
+    documents: params.documents,
+    relationships: params.relationships,
+    include: (relationship, relationshipType) =>
+      allowedRelationshipTypes.has(relationshipType)
+      && (
+        familyDocumentIds.has(relationship.source_document_id)
+        || familyDocumentIds.has(relationship.target_document_id)
       ),
-    ),
-  ];
+  });
+}
+
+function buildSupportRelationshipRows(params: {
+  documents: readonly DocumentPrecedenceRecord[];
+  relationships: readonly DocumentRelationshipRecord[];
+}): SavedRelationshipRow[] {
+  return buildSavedRelationshipRows({
+    documents: params.documents,
+    relationships: params.relationships,
+    include: (_relationship, relationshipType) =>
+      relationshipType === 'attached_to' || relationshipType === 'supplements',
+  });
+}
+
+function formatRelationshipSummary(summary: string): string {
+  return summary
+    .replace(/\battached to\b/gi, 'Attached To')
+    .replace(/\bsupplements\b/gi, 'Adds Requirements')
+    .replace(/\bamends\b/gi, 'Modifies Contract')
+    .replace(/\bsupersedes\b/gi, 'Replaces Contract');
 }
 
 function createdAtTimestamp(value: string | null | undefined): number {
@@ -334,7 +600,7 @@ function GovernanceFamilyCard({
                     </p>
                     {document.relationship_summary.length > 0 ? (
                       <p className="mt-2 text-[11px] text-[#94A3B8]">
-                        {document.relationship_summary.join(' / ')}
+                        {document.relationship_summary.map(formatRelationshipSummary).join(' / ')}
                       </p>
                     ) : null}
                   </div>
@@ -417,20 +683,50 @@ function GovernanceFamilyCard({
 
 function RelationshipFamilyCard({
   family,
+  candidateDocuments,
+  existingRelationships,
   form,
   saving,
+  suggestions,
   setRelationshipForms,
   mutate,
 }: {
   family: ResolvedDocumentPrecedenceFamily;
+  candidateDocuments: readonly RelationshipCandidate[];
+  existingRelationships: readonly SavedRelationshipRow[];
   form: RelationshipFormState;
   saving: boolean;
+  suggestions: readonly RelationshipSuggestion[];
   setRelationshipForms: Dispatch<
     SetStateAction<Partial<Record<GoverningDocumentFamily, RelationshipFormState>>>
   >;
   mutate: (payload: Record<string, unknown>, successMessage: string) => Promise<void>;
 }) {
-  const relationshipLines = relationshipSummaryLines(family);
+  const relationshipOptions =
+    family.family === 'contract'
+      ? RELATIONSHIP_OPTIONS
+      : RELATIONSHIP_OPTIONS.filter(
+          (option) => option.value === 'amends' || option.value === 'supersedes',
+        );
+  const selectedRelationshipType = relationshipOptions.some(
+    (option) => option.value === form.relationshipType,
+  )
+    ? form.relationshipType
+    : relationshipOptions[0]?.value ?? 'amends';
+  const selectedSourceDocumentId = candidateDocuments.some(
+    (document) => document.id === form.sourceDocumentId,
+  )
+    ? form.sourceDocumentId
+    : candidateDocuments[0]?.id ?? '';
+  const fallbackTargetDocumentId =
+    candidateDocuments.find((document) => document.id !== selectedSourceDocumentId)?.id
+    ?? candidateDocuments[0]?.id
+    ?? '';
+  const selectedTargetDocumentId = candidateDocuments.some(
+    (document) => document.id === form.targetDocumentId,
+  )
+    ? form.targetDocumentId
+    : fallbackTargetDocumentId;
 
   return (
     <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4">
@@ -441,7 +737,7 @@ function RelationshipFamilyCard({
         <p className="mt-2 text-[11px] text-[#94A3B8]">
           {family.family === 'invoice'
             ? 'Track invoice revisions and billing sequence across related invoice files.'
-            : 'Preserve amends and supersedes links inside the same project document family.'}
+            : 'Preserve relationship links inside the same project document family without changing governing selection unless the link truly replaces the contract.'}
         </p>
       </div>
 
@@ -450,25 +746,104 @@ function RelationshipFamilyCard({
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
             {family.family === 'invoice' ? 'Invoice Relationships' : 'Existing Links'}
           </p>
-          {relationshipLines.length === 0 ? (
+          {existingRelationships.length === 0 ? (
             <p className="mt-2 text-sm text-[#94A3B8]">
               {family.family === 'invoice'
                 ? 'No billing sequence or revision links have been recorded for this invoice set yet.'
-                : 'No amends or supersedes links have been recorded for this role yet.'}
+                : 'No relationship links have been recorded for this role yet.'}
             </p>
           ) : (
             <div className="mt-2 space-y-2">
-              {relationshipLines.map((line) => (
-                <p
-                  key={line}
-                  className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-2 text-[11px] text-[#C7D2E3]"
+              {existingRelationships.map((relationship) => (
+                <div
+                  key={relationship.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-2"
                 >
-                  {line}
-                </p>
+                  <p className="text-[11px] text-[#C7D2E3]">
+                    {relationship.summary}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => mutate(
+                      {
+                        action: 'delete_relationship',
+                        relationshipId: relationship.id,
+                      },
+                      `Removed ${(getDocumentRelationshipLabel(relationship.relationshipType) ?? relationship.relationshipType).toLowerCase()} relationship.`,
+                    )}
+                    className="rounded-sm border border-[#7F1D1D]/60 bg-[#450A0A]/30 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#FCA5A5] transition-colors hover:bg-[#5F1111]/40 disabled:cursor-default disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </div>
+
+        {suggestions.length > 0 ? (
+          <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+              Suggested Links
+            </p>
+            <div className="mt-3 space-y-2">
+              {suggestions.map((suggestion) => {
+                const sourceDocument = candidateDocuments.find(
+                  (document) => document.id === suggestion.sourceDocumentId,
+                ) ?? null;
+                const targetDocument = candidateDocuments.find(
+                  (document) => document.id === suggestion.targetDocumentId,
+                ) ?? null;
+                const suggestionLabel = getDocumentRelationshipLabel(suggestion.relationshipType)
+                  ?? suggestion.relationshipType;
+
+                return (
+                  <div
+                    key={`${suggestion.sourceDocumentId}:${suggestion.relationshipType}:${suggestion.targetDocumentId || 'review'}`}
+                    className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm text-[#E5EDF7]">
+                          {sourceDocument ? relationshipCandidateLabel(sourceDocument) : 'Document'}
+                          {' '}
+                          {suggestion.needsReview
+                            ? `may need "${suggestionLabel}" review`
+                            : `${suggestionLabel} ${targetDocument ? relationshipCandidateLabel(targetDocument) : 'governing base contract'}`}
+                        </p>
+                        <p className="text-[11px] text-[#94A3B8]">
+                          {suggestion.reason}
+                        </p>
+                      </div>
+                      {suggestion.needsReview ? (
+                        <span className="rounded-sm border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#FBBF24]">
+                          Needs Relationship Review
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={saving || !sourceDocument || !targetDocument}
+                          onClick={() => setRelationshipForms((current) => ({
+                            ...current,
+                            [family.family]: {
+                              sourceDocumentId: suggestion.sourceDocumentId,
+                              targetDocumentId: suggestion.targetDocumentId,
+                              relationshipType: suggestion.relationshipType,
+                            },
+                          }))}
+                          className="rounded-sm border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20 disabled:cursor-default disabled:opacity-50"
+                        >
+                          Use Suggestion
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
 
         <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] p-3">
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
@@ -476,7 +851,7 @@ function RelationshipFamilyCard({
           </p>
           <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)_auto]">
             <select
-              value={form.sourceDocumentId}
+              value={selectedSourceDocumentId}
               onChange={(event) => setRelationshipForms((current) => ({
                 ...current,
                 [family.family]: {
@@ -486,14 +861,14 @@ function RelationshipFamilyCard({
               }))}
               className="rounded-sm border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm text-[#E5EDF7] outline-none"
             >
-              {family.documents.map((document) => (
+              {candidateDocuments.map((document) => (
                 <option key={document.id} value={document.id}>
-                  {documentLabel(document)}
+                  {relationshipCandidateLabel(document)}
                 </option>
               ))}
             </select>
             <select
-              value={form.relationshipType}
+              value={selectedRelationshipType}
               onChange={(event) => setRelationshipForms((current) => ({
                 ...current,
                 [family.family]: {
@@ -503,14 +878,14 @@ function RelationshipFamilyCard({
               }))}
               className="rounded-sm border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm text-[#E5EDF7] outline-none"
             >
-              {RELATIONSHIP_OPTIONS.map((option) => (
+              {relationshipOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
             <select
-              value={form.targetDocumentId}
+              value={selectedTargetDocumentId}
               onChange={(event) => setRelationshipForms((current) => ({
                 ...current,
                 [family.family]: {
@@ -520,23 +895,28 @@ function RelationshipFamilyCard({
               }))}
               className="rounded-sm border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm text-[#E5EDF7] outline-none"
             >
-              {family.documents.map((document) => (
+              {candidateDocuments.map((document) => (
                 <option key={document.id} value={document.id}>
-                  {documentLabel(document)}
+                  {relationshipCandidateLabel(document)}
                 </option>
               ))}
             </select>
             <button
               type="button"
-              disabled={saving || !form.sourceDocumentId || !form.targetDocumentId || form.sourceDocumentId === form.targetDocumentId}
+              disabled={
+                saving
+                || !selectedSourceDocumentId
+                || !selectedTargetDocumentId
+                || selectedSourceDocumentId === selectedTargetDocumentId
+              }
               onClick={() => mutate(
                 {
                   action: 'link_relationship',
-                  sourceDocumentId: form.sourceDocumentId,
-                  targetDocumentId: form.targetDocumentId,
-                  relationshipType: form.relationshipType,
+                  sourceDocumentId: selectedSourceDocumentId,
+                  targetDocumentId: selectedTargetDocumentId,
+                  relationshipType: selectedRelationshipType,
                 },
-                `Recorded ${form.relationshipType.replace(/_/g, ' ')} relationship for ${family.label.toLowerCase()} documents.`,
+                `Recorded ${(getDocumentRelationshipLabel(selectedRelationshipType) ?? selectedRelationshipType).toLowerCase()} relationship for ${family.label.toLowerCase()} documents.`,
               )}
               className="rounded-sm border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20 disabled:cursor-default disabled:opacity-50"
             >
@@ -550,12 +930,16 @@ function RelationshipFamilyCard({
 }
 
 function SupportRelationshipCard({
+  allDocuments,
+  allRelationships,
   families,
   form,
   saving,
   setSupportRelationshipForm,
   mutate,
 }: {
+  allDocuments: readonly DocumentPrecedenceRecord[];
+  allRelationships: readonly DocumentRelationshipRecord[];
   families: readonly ResolvedDocumentPrecedenceFamily[];
   form: SupportRelationshipFormState;
   saving: boolean;
@@ -563,7 +947,10 @@ function SupportRelationshipCard({
   mutate: (payload: Record<string, unknown>, successMessage: string) => Promise<void>;
 }) {
   const supportSourceFamilies = families.filter(
-    (family) => family.family === 'permit' || family.family === 'ticket_support',
+    (family) =>
+      family.family === 'rate_sheet'
+      || family.family === 'permit'
+      || family.family === 'ticket_support',
   );
   const supportTargetFamilies = families.filter(
     (family) => family.family === 'contract' || family.family === 'invoice',
@@ -580,7 +967,10 @@ function SupportRelationshipCard({
       familyLabel: family.label,
     })),
   );
-  const relationshipLines = supportRelationshipSummaryLines(families);
+  const existingRelationships = buildSupportRelationshipRows({
+    documents: allDocuments,
+    relationships: allRelationships,
+  });
 
   return (
     <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4">
@@ -589,7 +979,7 @@ function SupportRelationshipCard({
           Support Attachments
         </h3>
         <p className="mt-2 text-[11px] text-[#94A3B8]">
-          Attach permit, ticket, and support records to the active invoice or governing contract so downstream facts and validation can stop guessing.
+          Attach exhibits, pricing schedules, permits, ticket exports, and support records to the active invoice or governing contract so downstream facts and validation can stop guessing.
         </p>
       </div>
 
@@ -598,19 +988,35 @@ function SupportRelationshipCard({
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
             Existing Support Links
           </p>
-          {relationshipLines.length === 0 ? (
+          {existingRelationships.length === 0 ? (
             <p className="mt-2 text-sm text-[#94A3B8]">
               No support relationships have been recorded yet.
             </p>
           ) : (
             <div className="mt-2 space-y-2">
-              {relationshipLines.map((line) => (
-                <p
-                  key={line}
-                  className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-2 text-[11px] text-[#C7D2E3]"
+              {existingRelationships.map((relationship) => (
+                <div
+                  key={relationship.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-2"
                 >
-                  {line}
-                </p>
+                  <p className="text-[11px] text-[#C7D2E3]">
+                    {relationship.summary}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => mutate(
+                      {
+                        action: 'delete_relationship',
+                        relationshipId: relationship.id,
+                      },
+                      `Removed ${(getDocumentRelationshipLabel(relationship.relationshipType) ?? relationship.relationshipType).toLowerCase()} relationship.`,
+                    )}
+                    className="rounded-sm border border-[#7F1D1D]/60 bg-[#450A0A]/30 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#FCA5A5] transition-colors hover:bg-[#5F1111]/40 disabled:cursor-default disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -618,7 +1024,7 @@ function SupportRelationshipCard({
 
         {supportSourceDocuments.length === 0 || supportTargetDocuments.length === 0 ? (
           <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] px-3 py-3 text-sm text-[#94A3B8]">
-            Add support or invoice/contract documents to this project before recording support attachments.
+            Add attachment/support documents and invoice or contract documents to this project before recording support links.
           </div>
         ) : (
           <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] p-3">
@@ -678,7 +1084,7 @@ function SupportRelationshipCard({
                     targetDocumentId: form.targetDocumentId,
                     relationshipType: form.relationshipType,
                   },
-                  'Recorded support attachment for canonical project truth.',
+                  `Recorded ${(getDocumentRelationshipLabel(form.relationshipType) ?? form.relationshipType).toLowerCase()} link for canonical project truth.`,
                 )}
                 className="rounded-sm border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20 disabled:cursor-default disabled:opacity-50"
               >
@@ -696,6 +1102,8 @@ export function DocumentPrecedenceSection({
   projectId,
 }: DocumentPrecedenceSectionProps) {
   const [families, setFamilies] = useState<ResolvedDocumentPrecedenceFamily[]>([]);
+  const [allDocuments, setAllDocuments] = useState<DocumentPrecedenceRecord[]>([]);
+  const [allRelationships, setAllRelationships] = useState<DocumentRelationshipRecord[]>([]);
   const [relationshipForms, setRelationshipForms] = useState<
     Partial<Record<GoverningDocumentFamily, RelationshipFormState>>
   >({});
@@ -747,7 +1155,11 @@ export function DocumentPrecedenceSection({
 
         if (!cancelled) {
           const nextFamilies = body.families ?? [];
+          const nextDocuments = body.documents ?? [];
+          const nextRelationships = body.relationships ?? [];
           setFamilies(nextFamilies);
+          setAllDocuments(nextDocuments);
+          setAllRelationships(nextRelationships);
           setRelationshipForms((current) => {
             const nextForms = { ...current };
             for (const family of nextFamilies) {
@@ -822,13 +1234,18 @@ export function DocumentPrecedenceSection({
         throw new Error(body.error ?? 'Failed to update document precedence.');
       }
 
-      setFamilies(body.families ?? []);
+      const nextFamilies = body.families ?? [];
+      const nextDocuments = body.documents ?? [];
+      const nextRelationships = body.relationships ?? [];
+      setFamilies(nextFamilies);
+      setAllDocuments(nextDocuments);
+      setAllRelationships(nextRelationships);
       setSupportRelationshipForm((current) => {
-        const nextDefault = defaultSupportRelationshipForm(body.families ?? []);
-        const sourceStillExists = (body.families ?? []).some((family) =>
+        const nextDefault = defaultSupportRelationshipForm(nextFamilies);
+        const sourceStillExists = nextFamilies.some((family) =>
           family.documents.some((document) => document.id === current.sourceDocumentId),
         );
-        const targetStillExists = (body.families ?? []).some((family) =>
+        const targetStillExists = nextFamilies.some((family) =>
           family.documents.some((document) => document.id === current.targetDocumentId),
         );
 
@@ -850,7 +1267,19 @@ export function DocumentPrecedenceSection({
     ...group,
     resolvedFamilies: families.filter((family) => group.families.includes(family.family)),
   })).filter((group) => group.resolvedFamilies.length > 0);
-  const relationshipFamilies = families.filter((family) => family.documents.length > 1);
+  const resolvedById = buildResolvedDocumentMap(families);
+  const relationshipCandidates = buildRelationshipCandidates(allDocuments, resolvedById);
+  const contractFamily = families.find((family) => family.family === 'contract') ?? null;
+  const contractRelationshipSuggestions = buildContractRelationshipSuggestions({
+    candidates: relationshipCandidates,
+    relationships: allRelationships,
+    contractFamily,
+  });
+  const relationshipFamilies = families.filter((family) =>
+    family.family === 'contract'
+      ? family.documents.length > 0 && relationshipCandidates.length > 1
+      : family.documents.length > 1,
+  );
 
   if (loading) {
     return (
@@ -932,7 +1361,7 @@ export function DocumentPrecedenceSection({
             Document Relationships
           </p>
           <p className="mt-2 text-sm text-[#C7D2E3]">
-            Preserve amendment chains, superseded records, and support attachments in one dedicated place without duplicating the governing controls.
+            Preserve attachment, requirement, amendment, and replacement links in one dedicated place without duplicating the governing controls.
           </p>
         </div>
 
@@ -942,15 +1371,25 @@ export function DocumentPrecedenceSection({
           </div>
         ) : relationshipFamilies.length === 0 ? (
           <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
-            At least two candidate documents in the same role are needed before amends or supersedes links can be recorded.
+            Add enough project documents to review relationships before recording links here.
           </div>
         ) : (
           relationshipFamilies.map((family) => (
             <RelationshipFamilyCard
               key={family.family}
               family={family}
+              candidateDocuments={family.family === 'contract' ? relationshipCandidates : family.documents.map((document) => ({
+                ...document,
+                resolvedRecord: document,
+              }))}
+              existingRelationships={buildFamilyRelationshipRows({
+                family,
+                documents: allDocuments,
+                relationships: allRelationships,
+              })}
               form={relationshipForms[family.family] ?? defaultRelationshipForm(family)}
               saving={saving}
+              suggestions={family.family === 'contract' ? contractRelationshipSuggestions : []}
               setRelationshipForms={setRelationshipForms}
               mutate={mutate}
             />
@@ -958,6 +1397,8 @@ export function DocumentPrecedenceSection({
         )}
 
         <SupportRelationshipCard
+          allDocuments={allDocuments}
+          allRelationships={allRelationships}
           families={families}
           form={supportRelationshipForm}
           saving={saving}

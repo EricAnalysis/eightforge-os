@@ -247,12 +247,21 @@ export type ValidatorContractAnalysisContext = {
   document_id: string;
   analysis: ContractAnalysisResult;
   evidence_by_id: Map<string, EvidenceObject>;
+  relationship_context?: {
+    pricing_document_ids: string[];
+    compliance_document_ids: string[];
+    amendment_document_ids: string[];
+  };
 };
 
 export type ValidatorFactLookups = {
   contractProjectCodeFacts: ValidatorFactRecord[];
   invoiceProjectCodeFacts: ValidatorFactRecord[];
   contractPartyNameFacts: ValidatorFactRecord[];
+  contractIdentityDocumentIds: string[];
+  pricingContextDocumentIds: string[];
+  complianceContextDocumentIds: string[];
+  amendmentContextDocumentIds: string[];
   nteFact: ValidatorFactRecord | null;
   contractDocumentId: string | null;
   contractCeilingTypeFact: ValidatorFactRecord | null;
@@ -1041,6 +1050,7 @@ export function buildValidationSummary(
       ? {
         document_id: options.contractValidationContext.document_id,
         analysis: options.contractValidationContext.analysis,
+        relationship_context: options.contractValidationContext.relationship_context ?? null,
       }
       : null,
   };

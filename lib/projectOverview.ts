@@ -6,7 +6,10 @@ import {
 } from '@/lib/decisionActions';
 import { buildProjectDocumentHref } from '@/lib/documentNavigation';
 import { formatDueDate } from '@/lib/dateUtils';
-import type { DocumentRelationshipRecord } from '@/lib/documentPrecedence';
+import {
+  getDocumentRelationshipLabel,
+  type DocumentRelationshipRecord,
+} from '@/lib/documentPrecedence';
 import {
   PROJECT_TERM_AT_RISK_AMOUNT,
   PROJECT_TERM_INVOICE_BILLED_AMOUNT,
@@ -2248,6 +2251,9 @@ export function resolveProjectAuditEvents(
     const previousGoverningDocumentTitle = extractStringValue(event.old_value, 'governing_document_title');
     const authorityStatus = extractStringValue(event.new_value, 'authority_status');
     const relationshipType = extractStringValue(event.new_value, 'relationship_type');
+    const relationshipLabel =
+      extractStringValue(event.new_value, 'relationship_label')
+      ?? getDocumentRelationshipLabel(relationshipType);
     const relationshipTargetTitle = extractStringValue(event.new_value, 'target_document_title');
     const sourceDocumentTitle = extractStringValue(event.new_value, 'source_document_title');
     const precedenceMode = extractStringValue(event.new_value, 'precedence_mode');
@@ -2454,8 +2460,8 @@ export function resolveProjectAuditEvents(
       case 'document_relationship_changed':
         label = 'Document relationship recorded';
         detail =
-          relationshipType && relationshipTargetTitle
-            ? `${sourceDocumentTitle ?? entityTitle} now ${relationshipType.replace(/_/g, ' ')} ${relationshipTargetTitle}.`
+          relationshipLabel && relationshipTargetTitle
+            ? `${sourceDocumentTitle ?? entityTitle} now has the "${relationshipLabel}" link to ${relationshipTargetTitle}.`
             : 'Document relationship updated.';
         tone = 'info';
         objectLabel = sourceDocumentTitle ?? entityTitle;

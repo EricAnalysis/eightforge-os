@@ -165,4 +165,113 @@ describe('project validator input loading', () => {
     assert.deepEqual(ids.familyDocumentIds.invoice, ['invoice-doc-active']);
     assert.deepEqual(ids.truthCategoryDocumentIds.contract_identity, []);
   });
+
+  it('routes attached, supplemental, and amendment relationship docs into canonical validator truth categories', () => {
+    const precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [
+      {
+        family: 'contract',
+        label: 'Contract',
+        governing_document_id: 'base-contract',
+        governing_reason: 'role_priority',
+        governing_reason_detail: 'Selected because its contract role outranks the other candidate documents.',
+        has_operator_override: false,
+        considered_document_ids: ['base-contract'],
+        documents: [
+          {
+            id: 'base-contract',
+            project_id: 'project-1',
+            title: 'MVSU Draft Contract',
+            name: 'mvsu-draft-contract.pdf',
+            document_type: 'contract',
+            created_at: '2026-04-01T12:00:00Z',
+            document_role: 'base_contract',
+            authority_status: 'active',
+            effective_date: '2026-04-01',
+            precedence_rank: null,
+            operator_override_precedence: false,
+            family: 'contract',
+            resolved_role: 'base_contract',
+            resolved_subtype: 'base_contract',
+            resolved_order: 0,
+            is_governing: true,
+            governing_document_id: 'base-contract',
+            governing_reason: 'role_priority',
+            governing_reason_detail: 'Selected because its contract role outranks the other candidate documents.',
+            considered_document_ids: ['base-contract'],
+            relationship_summary: [],
+          },
+        ],
+      },
+    ];
+
+    const ids = buildDocumentIdsByFamily(
+      [
+        {
+          id: 'base-contract',
+          project_id: 'project-1',
+          organization_id: 'org-1',
+          title: 'MVSU Draft Contract',
+          name: 'mvsu-draft-contract.pdf',
+          document_type: 'contract',
+          created_at: '2026-04-01T12:00:00Z',
+        },
+        {
+          id: 'exhibit-a',
+          project_id: 'project-1',
+          organization_id: 'org-1',
+          title: 'Exhibit A',
+          name: 'exhibit-a.pdf',
+          document_type: 'Attachment',
+          created_at: '2026-04-02T12:00:00Z',
+        },
+        {
+          id: 'federal-guidance',
+          project_id: 'project-1',
+          organization_id: 'org-1',
+          title: 'Federal Guidance Requirements',
+          name: 'federal-guidance-requirements.pdf',
+          document_type: 'Specification',
+          created_at: '2026-04-03T12:00:00Z',
+        },
+        {
+          id: 'contract-amendment-1',
+          project_id: 'project-1',
+          organization_id: 'org-1',
+          title: 'Amendment 1',
+          name: 'amendment-1.pdf',
+          document_type: 'contract',
+          created_at: '2026-04-04T12:00:00Z',
+        },
+      ],
+      precedenceFamilies,
+      [
+        {
+          id: 'rel-1',
+          project_id: 'project-1',
+          source_document_id: 'exhibit-a',
+          target_document_id: 'base-contract',
+          relationship_type: 'attached_to',
+        },
+        {
+          id: 'rel-2',
+          project_id: 'project-1',
+          source_document_id: 'federal-guidance',
+          target_document_id: 'base-contract',
+          relationship_type: 'supplements',
+        },
+        {
+          id: 'rel-3',
+          project_id: 'project-1',
+          source_document_id: 'contract-amendment-1',
+          target_document_id: 'base-contract',
+          relationship_type: 'amends',
+        },
+      ],
+    );
+
+    assert.deepEqual(ids.truthCategoryDocumentIds.contract_identity, ['base-contract']);
+    assert.deepEqual(ids.truthCategoryDocumentIds.pricing.slice(0, 2), ['exhibit-a', 'base-contract']);
+    assert.deepEqual(ids.truthCategoryDocumentIds.compliance.slice(0, 2), ['federal-guidance', 'base-contract']);
+    assert.deepEqual(ids.truthCategoryDocumentIds.amendments.slice(0, 2), ['contract-amendment-1', 'base-contract']);
+  });
 });

@@ -41,6 +41,13 @@ export const DOCUMENT_RELATIONSHIP_TYPES = [
   'applies_to',
 ] as const;
 
+export const CANONICAL_DOCUMENT_RELATIONSHIP_TYPES = [
+  'attached_to',
+  'supplements',
+  'amends',
+  'supersedes',
+] as const;
+
 export const GOVERNING_DOCUMENT_FAMILIES = [
   'contract',
   'rate_sheet',
@@ -53,6 +60,8 @@ export type DocumentRole = (typeof DOCUMENT_ROLE_VALUES)[number];
 export type DocumentSubtype = (typeof DOCUMENT_SUBTYPE_VALUES)[number];
 export type AuthorityStatus = (typeof AUTHORITY_STATUS_VALUES)[number];
 export type DocumentRelationshipType = (typeof DOCUMENT_RELATIONSHIP_TYPES)[number];
+export type CanonicalDocumentRelationshipType =
+  (typeof CANONICAL_DOCUMENT_RELATIONSHIP_TYPES)[number];
 export type GoverningDocumentFamily = (typeof GOVERNING_DOCUMENT_FAMILIES)[number];
 export type DocumentPrecedenceReason =
   | 'operator_override'
@@ -142,9 +151,15 @@ const FAMILY_LABELS: Record<GoverningDocumentFamily, string> = {
   ticket_support: 'Ticket Support',
 };
 
-const PRECEDENCE_RELATIONSHIP_WEIGHTS: Partial<Record<DocumentRelationshipType, number>> = {
+export const DOCUMENT_RELATIONSHIP_LABELS: Record<CanonicalDocumentRelationshipType, string> = {
+  attached_to: 'Attached To',
+  supplements: 'Adds Requirements',
+  amends: 'Modifies Contract',
+  supersedes: 'Replaces Contract',
+};
+
+const PRECEDENCE_RELATIONSHIP_WEIGHTS: Partial<Record<CanonicalDocumentRelationshipType, number>> = {
   supersedes: 4,
-  replaces: 4,
 };
 
 function normalizeText(value: string | null | undefined): string {
@@ -175,7 +190,7 @@ function normalizeAuthorityStatus(value: string | null | undefined): AuthoritySt
 
 export function canonicalizeRelationshipType(
   value: string | null | undefined,
-): 'attached_to' | 'supplements' | 'amends' | 'supersedes' | null {
+): CanonicalDocumentRelationshipType | null {
   const normalized = DOCUMENT_RELATIONSHIP_TYPES.includes(value as DocumentRelationshipType)
     ? (value as DocumentRelationshipType)
     : null;
@@ -196,6 +211,13 @@ export function canonicalizeRelationshipType(
     default:
       return null;
   }
+}
+
+export function getDocumentRelationshipLabel(
+  value: string | null | undefined,
+): string | null {
+  const canonicalType = canonicalizeRelationshipType(value);
+  return canonicalType ? DOCUMENT_RELATIONSHIP_LABELS[canonicalType] : null;
 }
 
 function parseTimestamp(value: string | null | undefined): number | null {
@@ -533,7 +555,7 @@ function buildRelationshipStats(
 
 function relationshipSummary(
   document: EnrichedDocument,
-  documentsById: Map<string, EnrichedDocument>,
+  documentLabelsById: Map<string, Pick<DocumentPrecedenceRecord, 'title' | 'name'>>,
   relationships: DocumentRelationshipRecord[],
 ): string[] {
   const summary: string[] = [];
@@ -543,13 +565,13 @@ function relationshipSummary(
     if (!type) continue;
 
     if (relationship.source_document_id === document.id) {
-      const target = documentsById.get(relationship.target_document_id);
+      const target = documentLabelsById.get(relationship.target_document_id);
       if (!target) continue;
       summary.push(`${type.replace(/_/g, ' ')} ${target.title ?? target.name}`);
     }
 
     if (relationship.target_document_id === document.id) {
-      const source = documentsById.get(relationship.source_document_id);
+      const source = documentLabelsById.get(relationship.source_document_id);
       if (!source) continue;
       summary.push(`${source.title ?? source.name} ${type.replace(/_/g, ' ')} this document`);
     }
@@ -657,12 +679,32 @@ function selectGoverningDocument(params: {
   family: GoverningDocumentFamily;
   sortedDocuments: EnrichedDocument[];
   relationshipStats: Map<string, RelationshipStats>;
+  relationships: DocumentRelationshipRecord[];
 }): EnrichedDocument | null {
-  const { family, sortedDocuments, relationshipStats } = params;
+  const { family, sortedDocuments, relationshipStats, relationships } = params;
   if (sortedDocuments.length === 0) return null;
-  if (family !== 'contract') return sortedDocuments[0] ?? null;
 
-  const candidates = sortedDocuments.filter((document) =>
+  // Attached documents are contextual and must not become governing over the
+  // document they are attached to (when that target is available and active).
+  const activeDocumentIds = new Set(
+    sortedDocuments
+      .filter((document) => document.authority_tier === 0)
+      .map((document) => document.id),
+  );
+  const blockedByAttachment = new Set<string>();
+  for (const relationship of relationships) {
+    const canonicalType = canonicalizeRelationshipType(relationship.relationship_type);
+    if (canonicalType !== 'attached_to') continue;
+    if (!activeDocumentIds.has(relationship.target_document_id)) continue;
+    blockedByAttachment.add(relationship.source_document_id);
+  }
+
+  const eligibleDocuments = sortedDocuments.filter((document) => !blockedByAttachment.has(document.id));
+  if (eligibleDocuments.length === 0) return null;
+
+  if (family !== 'contract') return eligibleDocuments[0] ?? null;
+
+  const candidates = eligibleDocuments.filter((document) =>
     isContractGoverningCandidate(document, relationshipStats),
   );
 
@@ -712,16 +754,36 @@ export function resolveDocumentTruthCategoryIds(params: {
   ]));
 
   const contractIdentitySet = new Set(contractIdentity);
-  const prioritizeByRelationship = (candidateIds: readonly string[]): string[] =>
-    Array.from(new Set(
+  const relationshipLinkedDocumentIds = (
+    relationshipTypes: readonly CanonicalDocumentRelationshipType[],
+  ): string[] => {
+    const allowedTypes = new Set(relationshipTypes);
+    return Array.from(new Set(
+      relationships.flatMap((relationship) => {
+        const relationshipType = canonicalizeRelationshipType(relationship.relationship_type);
+        if (!relationshipType || !allowedTypes.has(relationshipType)) return [];
+
+        const sourceIsContractIdentity = contractIdentitySet.has(relationship.source_document_id);
+        const targetIsContractIdentity = contractIdentitySet.has(relationship.target_document_id);
+        if (!sourceIsContractIdentity && !targetIsContractIdentity) return [];
+
+        return [
+          targetIsContractIdentity ? relationship.source_document_id : null,
+          sourceIsContractIdentity ? relationship.target_document_id : null,
+        ].filter((value): value is string => value != null && value.length > 0);
+      }),
+    ));
+  };
+  const prioritizeByRelationship = (
+    candidateIds: readonly string[],
+    relationshipTypes: readonly CanonicalDocumentRelationshipType[],
+  ): string[] => {
+    const allowedTypes = new Set(relationshipTypes);
+    return Array.from(new Set(
       relationships
         .filter((relationship) => {
           const relationshipType = canonicalizeRelationshipType(relationship.relationship_type);
-          if (
-            relationshipType !== 'attached_to' &&
-            relationshipType !== 'supplements' &&
-            relationshipType !== 'amends'
-          ) {
+          if (!relationshipType || !allowedTypes.has(relationshipType)) {
             return false;
           }
           return contractIdentitySet.has(relationship.target_document_id)
@@ -729,21 +791,28 @@ export function resolveDocumentTruthCategoryIds(params: {
         })
         .map((relationship) => relationship.source_document_id),
     ));
+  };
+  const linkedPricingIds = relationshipLinkedDocumentIds(['attached_to']);
+  const linkedComplianceIds = relationshipLinkedDocumentIds(['supplements']);
+  const linkedAmendmentIds = relationshipLinkedDocumentIds(['amends']);
 
   return {
     contract_identity: contractIdentity,
     pricing: Array.from(new Set([
-      ...prioritizeByRelationship(pricingIds),
+      ...linkedPricingIds,
+      ...prioritizeByRelationship(pricingIds, ['attached_to']),
       ...pricingIds,
       ...contractIdentity,
     ])),
     compliance: Array.from(new Set([
-      ...prioritizeByRelationship(complianceIds),
+      ...linkedComplianceIds,
+      ...prioritizeByRelationship(complianceIds, ['supplements']),
       ...complianceIds,
       ...contractIdentity,
     ])),
     amendments: Array.from(new Set([
-      ...prioritizeByRelationship(amendmentIds),
+      ...linkedAmendmentIds,
+      ...prioritizeByRelationship(amendmentIds, ['amends']),
       ...amendmentIds,
       ...contractIdentity,
     ])),
@@ -755,6 +824,15 @@ export function resolveDocumentPrecedence(params: {
   relationships?: DocumentRelationshipRecord[];
 }): ResolvedDocumentPrecedenceFamily[] {
   const { documents, relationships = [] } = params;
+  const documentLabelsById = new Map(
+    documents.map((document) => [
+      document.id,
+      {
+        title: document.title,
+        name: document.name,
+      },
+    ] as const),
+  );
   const documentsById = new Map<string, EnrichedDocument>();
   const familyBuckets = new Map<GoverningDocumentFamily, EnrichedDocument[]>();
 
@@ -785,11 +863,19 @@ export function resolveDocumentPrecedence(params: {
   return GOVERNING_DOCUMENT_FAMILIES.flatMap((family) => {
     const familyDocuments = familyBuckets.get(family) ?? [];
     if (familyDocuments.length === 0) return [];
+    const familyDocumentIds = new Set(familyDocuments.map((document) => document.id));
 
     const familyRelationships = relationships.filter((relationship) => {
       if (relationship.project_id == null) return false;
       if (relationship.project_id !== familyDocuments[0]?.project_id) return false;
-      return documentsById.has(relationship.source_document_id) && documentsById.has(relationship.target_document_id);
+      if (
+        !documentLabelsById.has(relationship.source_document_id)
+        || !documentLabelsById.has(relationship.target_document_id)
+      ) {
+        return false;
+      }
+      return familyDocumentIds.has(relationship.source_document_id)
+        || familyDocumentIds.has(relationship.target_document_id);
     });
     const relationshipStats = buildRelationshipStats(familyDocuments, familyRelationships);
     const hasOperatorOverride = familyDocuments.some((document) => document.operator_override_precedence);
@@ -852,6 +938,7 @@ export function resolveDocumentPrecedence(params: {
       family,
       sortedDocuments,
       relationshipStats,
+      relationships: familyRelationships,
     });
     const governingReason = winner
       ? determineReason({
@@ -889,7 +976,7 @@ export function resolveDocumentPrecedence(params: {
         governing_reason: governingReason,
         governing_reason_detail: governingReasonDetail,
         considered_document_ids: consideredDocumentIds,
-        relationship_summary: relationshipSummary(document, documentsById, familyRelationships),
+        relationship_summary: relationshipSummary(document, documentLabelsById, familyRelationships),
       })),
     }];
   });

@@ -96,6 +96,8 @@ Use these focused reviewers when a change is domain-specific:
 • `eightforge-performance-reviewer` for large spreadsheets, extraction scale, rendering cost, memory, timeouts, caching, and Supabase query performance.
 • `eightforge-execution-reviewer` for execution items, outcomes, sync and reconciliation with decisions/validators, APIs, suppression/override semantics, and execution audit trails.
 • `eightforge-cross-document-reviewer` for cross-document relationships, governing precedence, amendment chains, exhibit resolution, contradiction handling, and contract-family truth propagation.
+• `eightforge-migration-reviewer` for SQL migrations, backfills, constraints, indexes, deployment sequencing, RLS alignment, and canonical truth preservation.
+• `eightforge-audit-reviewer` for `activity_events`, provenance chains, immutable history, compliance traceability, overrides, and decision/execution evidence.
 
 ## Future Agent Unlocks
 

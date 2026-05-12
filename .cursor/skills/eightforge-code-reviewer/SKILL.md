@@ -95,6 +95,20 @@ Use these focused reviewers when a change is domain-specific:
 • `eightforge-document-intelligence-reviewer` for OCR, extraction, evidence anchors, spreadsheet ingestion, normalization, and rate schedule assembly.
 • `eightforge-performance-reviewer` for large spreadsheets, extraction scale, rendering cost, memory, timeouts, caching, and Supabase query performance.
 • `eightforge-execution-reviewer` for execution items, outcomes, sync and reconciliation with decisions/validators, APIs, suppression/override semantics, and execution audit trails.
+• `eightforge-cross-document-reviewer` for cross-document relationships, governing precedence, amendment chains, exhibit resolution, contradiction handling, and contract-family truth propagation.
+
+## Future Agent Unlocks
+
+These reviewer skills should eventually support:
+
+- PR reviewers
+- Automated architecture guards
+- Execution safety validators
+- Migration inspectors
+- Operational copilots
+- Autonomous code review agents
+
+These are future capabilities, not current runtime features. Treat them as architectural direction only.
 
 ---
 

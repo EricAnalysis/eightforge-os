@@ -58,6 +58,28 @@ describe('validator finding semantics', () => {
     ]);
   });
 
+  it('renders legacy invoice vendor contractor findings with contractor field semantics', () => {
+    const finding = makeFinding({
+      projectId: PROJECT_ID,
+      ruleId: 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+      category: 'financial_integrity',
+      severity: 'critical',
+      subjectType: 'invoice',
+      subjectId: '2026-003',
+      field: 'vendor_name',
+      expected: 'Aftermath Disaster Recovery',
+      actual: 'Aftermath Services',
+    });
+    const normalized = normalizeValidationFinding(finding);
+
+    assert.equal(normalized.field, 'contractor_name');
+    assert.equal(
+      normalized.problem,
+      'Contractor Name does not match the expected project truth.',
+    );
+    assert.match(normalized.required_action ?? '', /contractor/i);
+  });
+
   it('builds summary counts from blocker, warning, review, and info findings', () => {
     const findings = [
       makeFinding({

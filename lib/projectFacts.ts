@@ -3624,7 +3624,7 @@ function contractInvoiceRelationshipBlock(
     reconciliation.vendor_identity_status !== 'MATCH'
       ? {
           key: 'vendor_identity',
-          label: 'Vendor identity',
+          label: 'Contractor identity',
           expected_value: 'Contract and invoice identify the same counterparty.',
           actual_value: formatReconciliationStatus(reconciliation.vendor_identity_status),
           impact: 'Identity mismatches weaken confidence in who is being billed and paid.',

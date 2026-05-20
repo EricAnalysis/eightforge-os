@@ -260,6 +260,62 @@ describe('contract invoice reconciliation validator', () => {
     assert.equal(result.summary.vendor_identity_status, 'MATCH');
   });
 
+  it('uses confirmed contractor_name before stale vendor_name alias facts', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        vendor_name: 'Wrong Machine Vendor LLC',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[1], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'invoice_number', '2026-003'),
+      makeFactRecord(
+        INVOICE_DOCUMENT_IDS[1],
+        'vendor_name',
+        'Wrong Machine Vendor LLC',
+        'normalized_row',
+      ),
+      makeFactRecord(
+        INVOICE_DOCUMENT_IDS[1],
+        'contractor_name',
+        'Aftermath Disaster Recovery',
+        'human_override',
+      ),
+    ]);
+
+    const result = evaluateContractInvoiceReconciliation(input);
+
+    assert.equal(
+      result.findings.some((finding) =>
+        finding.rule_id === 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+      ),
+      false,
+    );
+    assert.equal(result.summary.vendor_identity_status, 'MATCH');
+  });
+
+  it('keeps vendor_name as a backward-compatible contractor alias', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[1], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'invoice_number', '2026-003'),
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'vendor_name', 'Aftermath Disaster Recovery'),
+    ]);
+
+    const result = evaluateContractInvoiceReconciliation(input);
+
+    assert.equal(result.summary.vendor_identity_status, 'MATCH');
+  });
+
   it('falls back to machine invoice row vendor when no reviewed canonical fact exists', () => {
     const input = buildInput({
       invoiceRows: [{
@@ -301,6 +357,7 @@ describe('contract invoice reconciliation validator', () => {
 
     assert.equal(result.summary.vendor_identity_status, 'MISMATCH');
     assert.equal(finding?.severity, 'critical');
+    assert.equal(finding?.field, 'contractor_name');
   });
 
   it('reconciles Williamson invoices 2026-002 and 2026-003 against the governing contract schedule', () => {

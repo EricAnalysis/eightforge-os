@@ -10,7 +10,7 @@ import {
   type ResolvedDocumentPrecedenceRecord,
 } from '@/lib/documentPrecedence';
 
-const DOCUMENT_PRECEDENCE_SELECT = [
+export const DOCUMENT_PRECEDENCE_SELECT = [
   'id',
   'project_id',
   'title',
@@ -18,7 +18,6 @@ const DOCUMENT_PRECEDENCE_SELECT = [
   'document_type',
   'created_at',
   'document_role',
-  'document_subtype',
   'authority_status',
   'effective_date',
   'precedence_rank',

@@ -46,9 +46,10 @@ const INVOICE_IDENTITY_KEYS = [
   'invoice_no',
   'number',
 ] as const;
-const INVOICE_VENDOR_KEYS = [
-  'vendor_name',
+const INVOICE_CONTRACTOR_KEYS = [
   'contractor_name',
+  'vendor_name',
+  'invoice_vendor',
   'vendor',
   'contractor',
   'payee_name',
@@ -521,7 +522,7 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
     metadata.source_document_id = sourceDocumentId ?? metadata.source_document_id;
     metadata.invoice_number = invoiceNumber ?? metadata.invoice_number;
     if (!metadata.vendor_name) {
-      metadata.vendor_name = readRowString(row, INVOICE_VENDOR_KEYS);
+      metadata.vendor_name = readRowString(row, INVOICE_CONTRACTOR_KEYS);
       metadata.vendor_name_source = metadata.vendor_name ? 'machine_fallback' : null;
     }
     metadata.client_name = readRowString(row, INVOICE_CLIENT_KEYS) ?? metadata.client_name;
@@ -722,7 +723,7 @@ export function evaluateContractInvoiceReconciliation(
             severity: 'critical',
             subjectType: 'invoice',
             subjectId: invoice.subject_id,
-            field: 'vendor_name',
+            field: 'contractor_name',
             expected: contractVendor,
             actual: invoice.vendor_name,
             evidence: [
@@ -731,9 +732,9 @@ export function evaluateContractInvoiceReconciliation(
                   structuredRowEvidenceInput({
                     evidenceType: 'invoice',
                     row: invoice.row,
-                    fieldName: 'vendor_name',
+                    fieldName: 'contractor_name',
                     fieldValue: invoice.vendor_name,
-                    note: `Invoice vendor resolved for contractor identity comparison from ${vendorSourceLabel(invoice.vendor_name_source)}.`,
+                    note: `Invoice contractor resolved for governing contract comparison from ${vendorSourceLabel(invoice.vendor_name_source)}.`,
                   }),
                 ]
                 : evidenceFromFacts(invoice.vendor_facts)),
@@ -743,7 +744,7 @@ export function evaluateContractInvoiceReconciliation(
                 record_id: invoice.source_document_id,
                 field_name: 'contractor_name_source',
                 field_value: vendorSourceLabel(invoice.vendor_name_source),
-                note: 'Resolved invoice contractor source used for vendor identity comparison.',
+                note: 'Resolved invoice contractor source used for contractor identity comparison.',
               }),
               ...evidenceFromFacts(contractVendorFacts),
             ],

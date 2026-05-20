@@ -105,8 +105,8 @@ const PROJECT_SELECT =
   'id, organization_id, name, code, validation_status, validation_summary_json, validation_phase';
 const LEGACY_PROJECT_SELECT =
   'id, organization_id, name, code, validation_status, validation_summary_json';
-const DOCUMENT_SELECT =
-  'id, project_id, organization_id, title, name, document_type, document_subtype, created_at, processing_status, processed_at, intelligence_trace';
+export const VALIDATOR_DOCUMENT_SELECT =
+  'id, project_id, organization_id, title, name, document_type, created_at, processing_status, processed_at, intelligence_trace';
 const EXTRACTION_FACT_SELECT =
   'document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, confidence';
 const LEGACY_EXTRACTION_SELECT = 'document_id, created_at, data';
@@ -650,7 +650,7 @@ async function loadProjectDocuments(
 
   const { data, error } = await admin
     .from('documents')
-    .select(DOCUMENT_SELECT)
+    .select(VALIDATOR_DOCUMENT_SELECT)
     .eq('organization_id', project.organization_id)
     .eq('project_id', project.id)
     .order('created_at', { ascending: false });

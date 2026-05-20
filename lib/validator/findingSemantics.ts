@@ -118,7 +118,7 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
   FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR: {
     source_family: 'invoice',
     required_action:
-      'Confirm the payee on the invoice matches the governing contract contractor before payment is released.',
+      'Confirm the contractor on the invoice matches the governing contract contractor before payment is released.',
   },
   FINANCIAL_INVOICE_CLIENT_MISSING_FOR_CONTRACT_COMPARISON: {
     business_severity: 'medium',
@@ -324,6 +324,7 @@ const CONTRACT_RATE_MATCH_RULE_IDS = new Set([
   'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
   'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
 ]);
+const INVOICE_CONTRACTOR_MATCH_RULE_ID = 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR';
 
 function isContractRateMatchFinding(finding: ValidationFinding): boolean {
   return CONTRACT_RATE_MATCH_RULE_IDS.has(finding.rule_id);
@@ -343,6 +344,14 @@ function semanticActualValue(finding: ValidationFinding): string | null {
   }
 
   return finding.actual;
+}
+
+function semanticFieldName(finding: ValidationFinding): string | null {
+  if (finding.rule_id === INVOICE_CONTRACTOR_MATCH_RULE_ID && finding.field === 'vendor_name') {
+    return 'contractor_name';
+  }
+
+  return finding.field;
 }
 
 function humanizeToken(value: string): string {
@@ -592,7 +601,7 @@ function defaultRequiredAction(finding: ValidationFinding): string {
   if (finding.field?.includes('service_period')) {
     return 'Confirm the service dates and correct the invoice or term context used for approval.';
   }
-  if (finding.field?.includes('vendor') || finding.field?.includes('client')) {
+  if (finding.field?.includes('contractor') || finding.field?.includes('vendor') || finding.field?.includes('client')) {
     return 'Confirm the party identity on the invoice and correct the canonical record used for approval.';
   }
   if (finding.field?.includes('ticket') || finding.subject_type.includes('ticket')) {
@@ -619,28 +628,32 @@ function buildEvidenceRefs(finding: ValidationFinding): string[] {
 export function normalizeValidationFinding(
   finding: ValidationFinding,
 ): ValidationFinding {
-  const businessSeverity = finding.business_severity ?? defaultBusinessSeverity(finding);
+  const semanticField = semanticFieldName(finding);
+  const semanticFinding = semanticField === finding.field
+    ? finding
+    : { ...finding, field: semanticField };
+  const businessSeverity = semanticFinding.business_severity ?? defaultBusinessSeverity(semanticFinding);
   const approvalGateEffect =
-    finding.approval_gate_effect
-    ?? RULE_SEMANTIC_OVERRIDES[finding.rule_id]?.approval_gate_effect
+    semanticFinding.approval_gate_effect
+    ?? RULE_SEMANTIC_OVERRIDES[semanticFinding.rule_id]?.approval_gate_effect
     ?? approvalGateEffectForSeverity(businessSeverity);
-  const affectedAmount = deriveAffectedAmount(finding);
+  const affectedAmount = deriveAffectedAmount(semanticFinding);
 
   return {
-    ...finding,
-    expected: semanticExpectedValue(finding),
-    actual: semanticActualValue(finding),
+    ...semanticFinding,
+    expected: semanticExpectedValue(semanticFinding),
+    actual: semanticActualValue(semanticFinding),
     finding_disposition:
-      finding.finding_disposition ?? findingDispositionForSeverity(businessSeverity),
+      semanticFinding.finding_disposition ?? findingDispositionForSeverity(businessSeverity),
     business_severity: businessSeverity,
-    problem: finding.problem ?? defaultProblem(finding),
-    impact: finding.impact ?? defaultImpact(finding, approvalGateEffect, affectedAmount),
-    required_action: finding.required_action ?? defaultRequiredAction(finding),
-    evidence_refs: buildEvidenceRefs(finding),
-    source_family: finding.source_family ?? inferSourceFamily(finding),
+    problem: semanticFinding.problem ?? defaultProblem(semanticFinding),
+    impact: semanticFinding.impact ?? defaultImpact(semanticFinding, approvalGateEffect, affectedAmount),
+    required_action: semanticFinding.required_action ?? defaultRequiredAction(semanticFinding),
+    evidence_refs: buildEvidenceRefs(semanticFinding),
+    source_family: semanticFinding.source_family ?? inferSourceFamily(semanticFinding),
     affected_amount: affectedAmount,
     approval_gate_effect: approvalGateEffect,
-    exposure_type: finding.exposure_type ?? inferExposureType(finding),
+    exposure_type: semanticFinding.exposure_type ?? inferExposureType(semanticFinding),
   };
 }
 

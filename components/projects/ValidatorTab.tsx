@@ -56,6 +56,21 @@ type ValidatorRunRow = Pick<
   'id' | 'run_at' | 'completed_at' | 'triggered_by' | 'rules_applied' | 'status'
 >;
 
+type RevalidateTriggerResult =
+  | {
+      status: 'triggered';
+      mode: 'sync' | 'background';
+      inputsSnapshotHash: string;
+    }
+  | {
+      status: 'skipped';
+      reason: 'in_flight' | 'unchanged';
+    }
+  | {
+      status: 'failed';
+      error: string;
+    };
+
 type GateTone = 'critical' | 'warning' | 'success';
 
 const EMPTY_SUMMARY: ValidationSummary = {
@@ -385,10 +400,11 @@ function findingSeverityClass(severity: ValidationFinding['severity']): string {
 }
 
 function findingSourceReference(finding: ValidationFinding): string {
+  const normalized = normalizeValidationFinding(finding);
   return [
     finding.rule_id,
     `${finding.subject_type}:${finding.subject_id}`,
-    finding.field,
+    normalized.field,
   ]
     .filter((value): value is string => Boolean(value))
     .join(' | ');
@@ -977,15 +993,68 @@ export function ValidatorTab({
     setError(null);
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/revalidate`, { method: 'POST' });
-      const body = await res.json().catch(() => null) as { ok?: boolean; error?: string; result?: unknown } | null;
-      if (!res.ok || !body?.ok) {
-        throw new Error(body?.error ?? 'Failed to trigger revalidation.');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('Not signed in. Please refresh and sign in again.');
       }
 
-      setNotice('Revalidation requested. Validator decisions will refresh when the run completes.');
+      const res = await fetch(`/api/projects/${projectId}/revalidate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const body = await res.json().catch(() => null) as {
+        ok?: boolean;
+        code?: string;
+        error?: string;
+        result?: RevalidateTriggerResult;
+      } | null;
+      if (!res.ok || !body?.ok) {
+        if (res.status === 401 || body?.code === 'UNAUTHORIZED') {
+          throw new Error('Not signed in. Please refresh and sign in again.');
+        }
+        if (res.status === 403 || body?.code === 'PROJECT_ACCESS_DENIED') {
+          throw new Error('You are not authorized to revalidate this project.');
+        }
+        throw new Error(body?.error ?? 'Validation failed. Please try again.');
+      }
+
+      const result = body.result;
+      if (!result) {
+        throw new Error('Validation response was missing a trigger result.');
+      }
+
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'Validation failed. Please try again.');
+      }
+
       await loadValidatorState(false);
       await onProjectRefresh?.();
+
+      if (result.status === 'skipped') {
+        setNotice(
+          result.reason === 'unchanged'
+            ? 'Validation skipped: project inputs have not changed since the last completed run.'
+            : 'Validation skipped: a validation run is already in progress.',
+        );
+        return;
+      }
+
+      if (result.mode === 'background') {
+        setNotice('Validation started in the background. Validator state will refresh as the run completes.');
+        window.setTimeout(() => {
+          void loadValidatorState(false).catch((refreshError) => {
+            setError(refreshError instanceof Error ? refreshError.message : 'Failed to refresh validator data.');
+          });
+        }, 5_000);
+        return;
+      }
+
+      setNotice('Validation completed and validator state refreshed.');
     } catch (revalidateError) {
       setError(revalidateError instanceof Error ? revalidateError.message : 'Failed to trigger revalidation.');
     } finally {

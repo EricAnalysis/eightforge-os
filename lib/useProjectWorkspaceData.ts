@@ -1,18 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
-import {
-  generateForgeDecisionsForDocument,
-  type ForgeGeneratedDecision,
-} from '@/lib/forgeDecisionGenerator';
+import type { ForgeGeneratedDecision } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import type { CanonicalProjectTransactionDatasetInput } from '@/lib/projectFacts';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
-import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 import {
   dedupeById,
@@ -33,7 +28,7 @@ const BASE_DECISION_SELECT =
 const BASE_TASK_SELECT =
   'id, decision_id, document_id, task_type, title, description, priority, status, created_at, updated_at, due_at, assigned_to, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const DOCUMENT_SELECT_WITH_PRECEDENCE =
-  'id, title, name, document_type, document_subtype, domain, processing_status, processing_error, created_at, processed_at, project_id, document_role, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
+  'id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, document_role, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
 const DOCUMENT_SELECT_LEGACY =
   'id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, intelligence_trace';
 const DOCUMENT_RELATIONSHIP_SELECT =
@@ -49,12 +44,16 @@ function collectError(
   }
 }
 
-type ProjectDocumentExtractionRow = {
-  id: string;
-  document_id: string;
-  data: Record<string, unknown> | null;
-  created_at: string;
-};
+function logDeveloperSchemaFallback(
+  message: string,
+  migration: string,
+  error: { message?: string | null } | null | undefined,
+) {
+  console.warn(`[project workspace schema fallback] ${message}`, {
+    migration,
+    error: error?.message ?? null,
+  });
+}
 
 type ProjectTransactionDatasetRow = CanonicalProjectTransactionDatasetInput;
 
@@ -62,12 +61,6 @@ type ProjectRowsQueryResult = {
   data: unknown[] | null;
   error: { code?: string | null; message?: string | null } | null;
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value != null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
 
 function isMissingDocumentPrecedenceColumnError(
   error: { code?: string | null; message?: string | null } | null | undefined,
@@ -78,7 +71,6 @@ function isMissingDocumentPrecedenceColumnError(
   }
   return [
     'document_role',
-    'document_subtype',
     'authority_status',
     'effective_date',
     'precedence_rank',
@@ -110,48 +102,6 @@ function isMissingExecutionItemsTableError(
   return error?.code === '42P01'
     || error?.code === 'PGRST205'
     || (error?.message ?? '').toLowerCase().includes('execution_items');
-}
-
-function parseExecutionTrace(
-  raw: ProjectDocumentRow['intelligence_trace'],
-): DocumentExecutionTrace | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const candidate = raw as Partial<DocumentExecutionTrace>;
-  if (!candidate.facts || typeof candidate.facts !== 'object') return null;
-  if (!Array.isArray(candidate.decisions) || !Array.isArray(candidate.flow_tasks)) return null;
-  return candidate as DocumentExecutionTrace;
-}
-
-function hydrateDocumentTraceWithPreferredExtraction(
-  document: ProjectDocumentRow,
-  extractionData: Record<string, unknown> | null | undefined,
-): ProjectDocumentRow {
-  const typedFields = asRecord(asRecord(extractionData)?.fields)?.typed_fields;
-  if (!typedFields) return document;
-
-  const rawTrace = asRecord(document.intelligence_trace);
-  const existingExtracted = asRecord(rawTrace?.extracted);
-  const hydratedTrace = rawTrace
-    ? {
-        ...rawTrace,
-        extracted: {
-          ...(existingExtracted ?? {}),
-          ...typedFields,
-        },
-      }
-    : {
-        facts: {},
-        decisions: [],
-        flow_tasks: [],
-        extracted: {
-          ...typedFields,
-        },
-      };
-
-  return {
-    ...document,
-    intelligence_trace: hydratedTrace,
-  };
 }
 
 /**
@@ -362,8 +312,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       let resolvedProjectResult = projectResult;
       if (projectResult.error && isMissingProjectValidationPhaseColumnError(projectResult.error)) {
-        issues.push(
-          'Project validation phase is not available yet; using the default contract setup phase until that field is migrated.',
+        logDeveloperSchemaFallback(
+          'projects.validation_phase is unavailable; defaulting to contract_setup for this workspace load.',
+          'supabase/migrations/20260430000000_document_truth_governance_phase.sql',
+          projectResult.error,
         );
         resolvedProjectResult = await supabase
           .from('projects')
@@ -375,8 +327,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       let documentsResult = documentsWithPrecedenceResult as ProjectRowsQueryResult;
       if (documentsWithPrecedenceResult.error && isMissingDocumentPrecedenceColumnError(documentsWithPrecedenceResult.error)) {
-        issues.push(
-          'Document precedence columns are not available yet; using legacy document records until those fields are migrated.',
+        logDeveloperSchemaFallback(
+          'Document precedence columns are unavailable; using legacy document records for this workspace load.',
+          'supabase/migrations/20260323000000_document_precedence.sql',
+          documentsWithPrecedenceResult.error,
         );
         documentsResult = await supabase
           .from('documents')
@@ -455,68 +409,11 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
             .eq('organization_id', organizationId)
             .in('document_id', projectDocumentIds)
         : { data: [], error: null };
-      const extractionsResult = projectDocumentIds.length > 0
-        ? await supabase
-            .from('document_extractions')
-            .select('id, document_id, data, created_at')
-            .eq('organization_id', organizationId)
-            .in('document_id', projectDocumentIds)
-            .is('field_key', null)
-            .order('created_at', { ascending: false })
-        : { data: [], error: null };
       const projectDocumentReviews = !reviewsResult.error
         ? ((reviewsResult.data ?? []) as ProjectDocumentReviewRow[])
         : [];
-      collectError(issues, 'Extraction blobs', extractionsResult.error);
-
-      const extractionRows = !extractionsResult.error
-        ? ((extractionsResult.data ?? []) as ProjectDocumentExtractionRow[])
-        : [];
-      const extractionRowsByDocumentId = new Map<string, ProjectDocumentExtractionRow[]>();
-      for (const row of extractionRows) {
-        const current = extractionRowsByDocumentId.get(row.document_id) ?? [];
-        current.push(row);
-        extractionRowsByDocumentId.set(row.document_id, current);
-      }
-
-      const hydratedProjectDocuments = projectDocuments.map((document) => {
-        const preferredExtraction = pickPreferredExtractionBlob(
-          extractionRowsByDocumentId.get(document.id) ?? [],
-        );
-        return hydrateDocumentTraceWithPreferredExtraction(
-          document,
-          preferredExtraction?.data ?? null,
-        );
-      });
-
-      const generated = hydratedProjectDocuments
-        .filter((document) => document.processing_status === 'extracted' || document.processing_status === 'decisioned')
-        .flatMap((document) => {
-          const preferredExtraction = pickPreferredExtractionBlob(
-            extractionRowsByDocumentId.get(document.id) ?? [],
-          );
-          const executionTrace = parseExecutionTrace(document.intelligence_trace ?? null);
-          if (!preferredExtraction?.data) return [];
-
-          try {
-            return generateForgeDecisionsForDocument({
-              documentId: document.id,
-              documentName: document.name,
-              documentTitle: document.title,
-              documentType: document.document_type,
-              projectName: projectRow.name,
-              preferredExtractionData: preferredExtraction.data,
-              executionTrace,
-            });
-          } catch (error) {
-            issues.push(
-              `Forge decisions (${document.title || document.name}): ${
-                error instanceof Error ? error.message : 'failed to derive decision prompts'
-              }`,
-            );
-            return [];
-          }
-        });
+      const hydratedProjectDocuments = projectDocuments;
+      const generated: ForgeGeneratedDecision[] = [];
 
       // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
       // If columns are missing, fall back to document_id / decision_id scoping only.

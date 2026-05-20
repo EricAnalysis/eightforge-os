@@ -27,6 +27,7 @@ import type {
 } from '@/types/validator';
 
 const RULE_VERSION = '1.0.0';
+const UUID_PREFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type PersistableValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
@@ -72,21 +73,39 @@ function requireAdminClient() {
   return admin;
 }
 
-function buildEvidenceInserts(
+export function extractUuidPrefix(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const firstSegment = value.split(':')[0]?.trim() ?? '';
+  return UUID_PREFIX_PATTERN.test(firstSegment) ? firstSegment : null;
+}
+
+function firstSemanticAnchor(row: ValidationEvidence): string | null {
+  for (const value of [row.fact_id, row.source_document_id, row.record_id]) {
+    if (typeof value === 'string' && value.includes(':')) return value;
+  }
+
+  return null;
+}
+
+export function buildEvidenceInserts(
   findingId: string,
   evidence: readonly ValidationEvidence[],
 ) {
-  return evidence.map((row) => ({
-    finding_id: findingId,
-    evidence_type: row.evidence_type,
-    source_document_id: row.source_document_id,
-    source_page: row.source_page,
-    fact_id: row.fact_id,
-    record_id: row.record_id,
-    field_name: row.field_name,
-    field_value: row.field_value,
-    note: row.note,
-  }));
+  return evidence.map((row) => {
+    const semanticAnchor = firstSemanticAnchor(row);
+
+    return {
+      finding_id: findingId,
+      evidence_type: row.evidence_type,
+      source_document_id: extractUuidPrefix(row.source_document_id),
+      source_page: row.source_page,
+      fact_id: extractUuidPrefix(row.fact_id),
+      record_id: row.record_id ?? semanticAnchor,
+      field_name: row.field_name,
+      field_value: row.field_value,
+      note: row.note,
+    };
+  });
 }
 
 function summarizeFindings(findings: readonly ValidationFinding[]) {
@@ -666,6 +685,36 @@ async function markRunFailed(runId: string): Promise<void> {
   }
 }
 
+function logValidationSideEffectFailure(
+  sideEffect: string,
+  context: {
+    projectId: string;
+    runId: string;
+  },
+  error: unknown,
+) {
+  console.error('[persistValidationRun] non-core side effect failed', {
+    ...context,
+    sideEffect,
+    error,
+  });
+}
+
+async function runValidationSideEffect(
+  sideEffect: string,
+  context: {
+    projectId: string;
+    runId: string;
+  },
+  action: () => Promise<void>,
+) {
+  try {
+    await action();
+  } catch (error) {
+    logValidationSideEffectFailure(sideEffect, context, error);
+  }
+}
+
 export async function persistValidationRun(
   projectId: string,
   result: ValidatorResult,
@@ -732,17 +781,10 @@ export async function persistValidationRun(
       });
     }
 
-    const executionItemSync = await syncExecutionItems({
-      admin: requireAdminClient(),
-      projectId,
-      organizationId: project.organization_id,
-      actorId: triggeredByUserId,
-      findings: persistedFindings,
-    });
     const effectivePersistedFindings = buildEffectivePersistedFindings({
       findings: persistedFindings,
-      suppressedFindingIds: executionItemSync.suppressedFindingIds,
-      executionItemIdsBySourceKey: executionItemSync.executionItemIdsBySourceKey,
+      suppressedFindingIds: new Set<string>(),
+      executionItemIdsBySourceKey: new Map<string, string>(),
     });
     const effectiveResult = buildEffectiveValidatorResult({
       result,
@@ -767,29 +809,68 @@ export async function persistValidationRun(
     });
 
     await markRunComplete(runId, effectivePersistedFindings);
-    await syncValidatorDecisions({
-      admin: requireAdminClient(),
-      projectId,
-      organizationId: project.organization_id,
-      projectContext: {
-        label: project.name ?? project.code ?? project.id,
-        project_id: project.id,
-        project_code: project.code ?? null,
-      },
-      runId,
-      result: effectiveResult,
-      findings: effectivePersistedFindings,
-    });
-    await createValidationRunActivityEvent({
-      project,
-      runId,
-      triggerSource,
-      triggeredByUserId,
-      result: effectiveResult,
-      findingSummary,
-      findingDiff,
-    });
     await updateProjectValidationState(projectId, effectiveResult);
+
+    const completedRunId = runId;
+    const sideEffectContext = { projectId, runId: completedRunId };
+
+    await runValidationSideEffect('syncExecutionItems', sideEffectContext, async () => {
+      const executionItemSync = await syncExecutionItems({
+        admin: requireAdminClient(),
+        projectId,
+        organizationId: project.organization_id,
+        actorId: triggeredByUserId,
+        findings: persistedFindings,
+      });
+
+      if (executionItemSync.executionItemIdsBySourceKey.size === 0) return;
+
+      const linkedFindings = applyExecutionItemLinksToFindings({
+        findings: persistedFindings,
+        executionItemIdsBySourceKey: executionItemSync.executionItemIdsBySourceKey,
+      });
+
+      for (const finding of linkedFindings) {
+        if (!finding.id || !finding.linked_action_id) continue;
+
+        const { error } = await requireAdminClient()
+          .from('project_validation_findings')
+          .update({ linked_action_id: finding.linked_action_id })
+          .eq('id', finding.id);
+
+        if (error) {
+          throw new Error(`Failed to link execution item for finding ${finding.check_key}: ${error.message}`);
+        }
+      }
+    });
+
+    await runValidationSideEffect('syncValidatorDecisions', sideEffectContext, async () => {
+      await syncValidatorDecisions({
+        admin: requireAdminClient(),
+        projectId,
+        organizationId: project.organization_id,
+        projectContext: {
+          label: project.name ?? project.code ?? project.id,
+          project_id: project.id,
+          project_code: project.code ?? null,
+        },
+        runId: completedRunId,
+        result: effectiveResult,
+        findings: effectivePersistedFindings,
+      });
+    });
+
+    await runValidationSideEffect('createValidationRunActivityEvent', sideEffectContext, async () => {
+      await createValidationRunActivityEvent({
+        project,
+        runId: completedRunId,
+        triggerSource,
+        triggeredByUserId,
+        result: effectiveResult,
+        findingSummary,
+        findingDiff,
+      });
+    });
 
     // Persist approval snapshot for audit trail (Phase 6)
     // Construct a minimal ProjectOperationalRollup from validation findings
@@ -831,26 +912,19 @@ export async function persistValidationRun(
       open_document_action_count: 0,
     };
 
-    let approvalSnapshot = null;
-    try {
+    let approvalSnapshot: Awaited<ReturnType<typeof persistApprovalSnapshot>> | null = null;
+    await runValidationSideEffect('persistApprovalSnapshot', sideEffectContext, async () => {
       approvalSnapshot = await persistApprovalSnapshot(
         projectId,
         (effectiveResult.summary as unknown as ProjectValidatorSummarySnapshot) || null,
         (rollup as unknown as ProjectOperationalRollup),
       );
-    } catch (snapshotError) {
-      console.error('[persistValidationRun] failed to persist approval snapshot', {
-        projectId,
-        runId,
-        error: snapshotError,
-      });
-      // Don't throw - snapshot failure shouldn't block validation completion
-    }
+    });
 
     // Phase 10: Execute operator graph actions from approval decision
     // Run after snapshot persists so executeApprovalActions can use the fresh snapshot.
     // Non-blocking: action execution failure must not fail the validation run.
-    try {
+    await runValidationSideEffect('executeApprovalActions', sideEffectContext, async () => {
       const actionResult = await executeApprovalActions({
         projectId,
         organizationId: project.organization_id,
@@ -861,27 +935,20 @@ export async function persistValidationRun(
       if (actionResult.errors.length > 0) {
         console.warn('[persistValidationRun] approval action engine completed with errors', {
           projectId,
-          runId,
+          runId: completedRunId,
           errors: actionResult.errors,
         });
       } else {
         console.info('[persistValidationRun] approval actions executed', {
           projectId,
-          runId,
+          runId: completedRunId,
           approval_status: actionResult.approval_status,
           tasks_created: actionResult.tasks_created,
           tasks_updated: actionResult.tasks_updated,
         });
       }
-    } catch (actionError) {
-      console.error('[persistValidationRun] approval action engine threw unexpectedly', {
-        projectId,
-        runId,
-        error: actionError,
-      });
+    });
       // Never throw — action execution is a side effect, not part of validation correctness
-    }
-
     return { runId };
   } catch (error) {
     if (runId) {

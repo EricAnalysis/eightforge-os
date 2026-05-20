@@ -5,11 +5,18 @@ import {
   buildDocumentIdsByFamily,
   buildPersistedContractValidationContextFromProjectSummary,
   synthesizeInvoicesFromLegacyExtractions,
+  VALIDATOR_DOCUMENT_SELECT,
 } from '@/lib/validator/projectValidator';
+import { DOCUMENT_PRECEDENCE_SELECT } from '@/lib/server/documentPrecedence';
 import type { ValidatorLegacyExtractionRow } from '@/lib/validator/shared';
 import type { ResolvedDocumentPrecedenceFamily } from '@/lib/documentPrecedence';
 
 describe('project validator input loading', () => {
+  it('does not select deprecated document_subtype from documents', () => {
+    assert.equal(VALIDATOR_DOCUMENT_SELECT.includes('document_subtype'), false);
+    assert.equal(DOCUMENT_PRECEDENCE_SELECT.includes('document_subtype'), false);
+  });
+
   it('reads contract validation context from projects.validation_summary_json when available', () => {
     const context = buildPersistedContractValidationContextFromProjectSummary({
       contract_validation_context: {

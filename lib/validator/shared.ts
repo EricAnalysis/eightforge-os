@@ -883,7 +883,7 @@ const FINDING_MESSAGE_BY_RULE_ID: Record<string, string> = {
   FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE:
     'Invoice unit price does not match governing contract rate',
   FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR:
-    'Invoice vendor does not match contract contractor',
+    'Invoice contractor does not match contract contractor',
   FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT:
     'Invoice client does not match governing contract client',
   FINANCIAL_INVOICE_CLIENT_MISSING_FOR_CONTRACT_COMPARISON:

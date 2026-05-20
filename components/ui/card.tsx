@@ -7,7 +7,7 @@ import type { HTMLAttributes } from 'react';
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-2xl border border-[#2F3B52]/80 bg-[#111827] shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)] ${className ?? ''}`}
+      className={`rounded-2xl border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] shadow-[0_24px_90px_-64px_var(--ef-shadow-ambient)] ${className ?? ''}`}
       {...props}
     />
   );
@@ -24,7 +24,7 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={`text-[15px] font-semibold tracking-tight text-[#E5EDF7] ${className ?? ''}`}
+      className={`text-[15px] font-semibold tracking-tight text-[var(--ef-text-primary)] ${className ?? ''}`}
       {...props}
     />
   );

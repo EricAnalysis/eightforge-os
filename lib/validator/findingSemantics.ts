@@ -149,8 +149,12 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
   },
   FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT: {
     source_family: 'invoice',
+    problem:
+      'Invoice line is missing a confirmed contract rate match.',
+    impact:
+      'The governing contract can exist while this billed line still lacks a confident match to a specific contract schedule row.',
     required_action:
-      'Map the billed line to a governed contract rate or remove the unsupported line from approval.',
+      'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
   },
   FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE: {
     source_family: 'invoice',
@@ -212,8 +216,12 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
   },
   CROSS_DOCUMENT_CONTRACT_RATE_EXISTS: {
     source_family: 'contract',
+    problem:
+      'Invoice line is missing a confirmed contract rate match.',
+    impact:
+      'This invoice line has a billed rate or category, but EightForge could not confirm the matching governing contract schedule row.',
     required_action:
-      'Add or identify the governing contract rate row for this billed category before approval.',
+      'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
   },
   CROSS_DOCUMENT_TICKET_SUPPORT_EXISTS: {
     business_severity: 'medium',
@@ -311,6 +319,31 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
       'Link the load ticket to the correct mobile ticket or remove it from approval support.',
   },
 };
+
+const CONTRACT_RATE_MATCH_RULE_IDS = new Set([
+  'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+  'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+]);
+
+function isContractRateMatchFinding(finding: ValidationFinding): boolean {
+  return CONTRACT_RATE_MATCH_RULE_IDS.has(finding.rule_id);
+}
+
+function semanticExpectedValue(finding: ValidationFinding): string | null {
+  if (isContractRateMatchFinding(finding)) {
+    return 'Confirmed contract schedule row for this billed line';
+  }
+
+  return finding.expected;
+}
+
+function semanticActualValue(finding: ValidationFinding): string | null {
+  if (isContractRateMatchFinding(finding)) {
+    return 'No confident contract rate-row match found';
+  }
+
+  return finding.actual;
+}
 
 function humanizeToken(value: string): string {
   return value
@@ -433,7 +466,8 @@ function inferExposureType(
     case 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED':
     case 'FINANCIAL_RATE_BASED_ROWS_REQUIRED':
     case 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS':
-      return 'missing_governing_contract';
+    case 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT':
+      return 'rate_mismatch';
     case 'SOURCES_NO_INVOICE_DATA':
       return 'missing_support';
     case 'SOURCES_NO_TICKET_DATA':
@@ -594,6 +628,8 @@ export function normalizeValidationFinding(
 
   return {
     ...finding,
+    expected: semanticExpectedValue(finding),
+    actual: semanticActualValue(finding),
     finding_disposition:
       finding.finding_disposition ?? findingDispositionForSeverity(businessSeverity),
     business_severity: businessSeverity,

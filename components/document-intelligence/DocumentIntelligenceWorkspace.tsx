@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type {
   DocumentAnchorCaptureMode,
   DocumentFactAnchorRecord,
@@ -125,8 +125,23 @@ export function DocumentIntelligenceWorkspace({
   navigationKey?: string | null;
   variant?: 'default' | 'workspace';
 }) {
-  const [selectedFactId, setSelectedFactId] = useState<string | null>(model.defaultFactId);
-  const [manualAnchorId, setManualAnchorId] = useState<string | null>(null);
+  const requestedFactId = useMemo(
+    () =>
+      resolveRequestedFactId({
+        model,
+        factId: initialSelectedFactId,
+        fieldKey: initialSelectedFieldKey,
+      }),
+    [initialSelectedFactId, initialSelectedFieldKey, model],
+  );
+
+  const requestedAnchorId = useMemo(() => {
+    const requestedFact = requestedFactId ? model.factById.get(requestedFactId) ?? null : null;
+    return findAnchorIdForPage(requestedFact, initialPage ?? null);
+  }, [initialPage, model.factById, requestedFactId]);
+
+  const [selectedFactId, setSelectedFactId] = useState<string | null>(requestedFactId);
+  const [manualAnchorId, setManualAnchorId] = useState<string | null>(requestedAnchorId);
   const [captureMode, setCaptureMode] = useState<DocumentAnchorCaptureMode | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const isWorkspace = variant === 'workspace';
@@ -152,30 +167,6 @@ export function DocumentIntelligenceWorkspace({
     () => selectedFact?.anchors.find((anchor) => anchor.id === activeAnchorId) ?? selectedFact?.anchors[0] ?? null,
     [activeAnchorId, selectedFact],
   );
-
-  const requestedFactId = useMemo(
-    () =>
-      resolveRequestedFactId({
-        model,
-        factId: initialSelectedFactId,
-        fieldKey: initialSelectedFieldKey,
-      }),
-    [initialSelectedFactId, initialSelectedFieldKey, model],
-  );
-
-  const requestedAnchorId = useMemo(() => {
-    const requestedFact = requestedFactId ? model.factById.get(requestedFactId) ?? null : null;
-    return findAnchorIdForPage(requestedFact, initialPage ?? null);
-  }, [initialPage, model.factById, requestedFactId]);
-
-  useEffect(() => {
-    if (!navigationKey) return;
-
-    setSelectedFactId(requestedFactId);
-    setManualAnchorId(requestedAnchorId);
-    setCaptureMode(null);
-    setFocusToken((value) => value + 1);
-  }, [navigationKey, requestedAnchorId, requestedFactId]);
 
   const canMarkRateSchedule = useMemo(
     () =>
@@ -234,9 +225,9 @@ export function DocumentIntelligenceWorkspace({
 
   if (isWorkspace) {
     return (
-      <section className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#08101D]">
+      <section className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--ef-background-primary)]">
         <div className="grid min-h-0 min-w-0 flex-1 gap-0 lg:grid-cols-[minmax(15rem,28%)_minmax(0,48%)_minmax(14rem,24%)]">
-          <aside className="min-h-0 border-r border-white/8 bg-[#09111F]">
+          <aside className="min-h-0 border-r border-white/8 bg-[var(--ef-background-primary)]">
             <FactLedger
               groups={model.groups}
               documentFamily={model.family}
@@ -246,11 +237,12 @@ export function DocumentIntelligenceWorkspace({
             />
           </aside>
 
-          <div className="min-h-0 min-w-0 border-r border-white/8 bg-[#050A14]">
+          <div className="min-h-0 min-w-0 border-r border-white/8 bg-[var(--ef-background-primary)]">
             <DocumentSourceViewer
               signedUrl={signedUrl}
               fileExt={fileExt}
               filename={filename}
+              sourceTextPages={model.sourceTextPages}
               fact={selectedFact}
               anchors={selectedFact?.anchors ?? []}
               activeAnchor={activeAnchor}
@@ -268,7 +260,7 @@ export function DocumentIntelligenceWorkspace({
             />
           </div>
 
-          <aside className="min-h-0 bg-[#09111F]">
+          <aside className="min-h-0 bg-[var(--ef-background-primary)]">
             <FactEvidencePanel
               key={selectedFact?.id ?? 'no-fact-selected'}
               fact={selectedFact}
@@ -277,8 +269,8 @@ export function DocumentIntelligenceWorkspace({
               onSaveFactOverride={onSaveFactOverride}
               onSaveFactReview={onSaveFactReview}
               captureMode={captureMode}
-              canAttachAnchors={false}
-              canMarkRateSchedule={false}
+              canAttachAnchors={fileExt === 'pdf' && Boolean(signedUrl)}
+              canMarkRateSchedule={canMarkRateSchedule}
               onStartAnchorCapture={setCaptureMode}
               onCancelAnchorCapture={() => setCaptureMode(null)}
               variant="workspace"
@@ -290,27 +282,27 @@ export function DocumentIntelligenceWorkspace({
   }
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+    <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">
               Fact Workspace
             </p>
-            <h3 className="mt-2 text-lg font-semibold text-[#F5F7FA]">
+            <h3 className="mt-2 text-lg font-semibold text-[var(--ef-text-primary)]">
               Structured facts with inspectable provenance
             </h3>
-            <p className="mt-1 text-[12px] text-[#8FA1BC]">
+            <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
               The left pane is the machine-usable ledger. The right pane is the proof surface.
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-right">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#7F90AA]">Coverage</p>
-            <p className="mt-1 text-sm font-semibold text-[#E5EDF7]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-3 text-right">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">Coverage</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">
               {model.counts.totalFacts} facts across {model.groups.length} groups
             </p>
             {model.rateSchedulePages ? (
-              <p className="mt-1 text-[11px] text-[#8FA1BC]">
+              <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">
                 Rate schedule: {model.rateSchedulePages}
                 {model.rateScheduleSource === 'human' ? ' | human' : ''}
               </p>
@@ -351,6 +343,7 @@ export function DocumentIntelligenceWorkspace({
             signedUrl={signedUrl}
             fileExt={fileExt}
             filename={filename}
+            sourceTextPages={model.sourceTextPages}
             fact={selectedFact}
             anchors={selectedFact?.anchors ?? []}
             activeAnchor={activeAnchor}

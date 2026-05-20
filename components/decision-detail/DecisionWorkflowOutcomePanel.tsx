@@ -35,17 +35,17 @@ const ACTION_TYPE_LABEL: Record<string, string> = {
 };
 
 const TASK_STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  open:        { label: 'Open',        color: 'text-[#60A5FA]' },
-  in_progress: { label: 'In progress', color: 'text-[#FBBF24]' },
-  resolved:    { label: 'Completed',   color: 'text-[#34D399]' },
-  cancelled:   { label: 'Cancelled',   color: 'text-[#94A3B8]' },
-  blocked:     { label: 'Blocked',     color: 'text-[#F87171]' },
+  open:        { label: 'Open',        color: 'text-[var(--ef-purple-glow)]' },
+  in_progress: { label: 'In progress', color: 'text-[var(--ef-warning-soft)]' },
+  resolved:    { label: 'Completed',   color: 'text-[var(--ef-success-soft)]' },
+  cancelled:   { label: 'Cancelled',   color: 'text-[var(--ef-text-muted)]' },
+  blocked:     { label: 'Blocked',     color: 'text-[var(--ef-critical-soft)]' },
 };
 
 const OUTCOME_LABEL: Record<string, { label: string; color: string }> = {
-  created: { label: 'Created', color: 'text-[#34D399]' },
-  updated: { label: 'Updated', color: 'text-[#FBBF24]' },
-  failed:  { label: 'Failed',  color: 'text-[#F87171]' },
+  created: { label: 'Created', color: 'text-[var(--ef-success-soft)]' },
+  updated: { label: 'Updated', color: 'text-[var(--ef-warning-soft)]' },
+  failed:  { label: 'Failed',  color: 'text-[var(--ef-critical-soft)]' },
 };
 
 // ---------------------------------------------------------------------------
@@ -99,35 +99,35 @@ type TriggeredTask = WorkflowOutcomesResult['triggered_tasks'][number];
 type ApprovalAction = WorkflowOutcomesResult['approval_engine_actions'][number];
 
 function TriggeredTaskRow({ task }: { task: TriggeredTask }) {
-  const statusInfo = TASK_STATUS_LABEL[task.status] ?? { label: task.status, color: 'text-[#94A3B8]' };
+  const statusInfo = TASK_STATUS_LABEL[task.status] ?? { label: task.status, color: 'text-[var(--ef-text-muted)]' };
 
   return (
-    <div className="group flex items-start gap-3 rounded-lg border border-[#2F3B52]/60 bg-[#0B1020]/60 px-3 py-2.5">
+    <div className="group flex items-start gap-3 rounded-lg border border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-primary-a60)] px-3 py-2.5">
       {/* Outcome dot */}
       <div className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-        task.status === 'resolved' ? 'bg-[#22C55E]' :
-        task.status === 'blocked'  ? 'bg-[#EF4444]' :
-        task.status === 'in_progress' ? 'bg-[#F59E0B]' :
-                                    'bg-[#3B82F6]'
+        task.status === 'resolved' ? 'bg-[var(--ef-success)]' :
+        task.status === 'blocked'  ? 'bg-[var(--ef-critical)]' :
+        task.status === 'in_progress' ? 'bg-[var(--ef-warning)]' :
+                                    'bg-[var(--ef-purple-primary)]'
       }`} />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="text-[12px] font-semibold text-[#C7D2E3] group-hover:text-[#E5EDF7]">
+          <span className="text-[12px] font-semibold text-[var(--ef-text-secondary)] group-hover:text-[var(--ef-text-primary)]">
             {taskLabel(task.task_type)}
           </span>
           <span className={`text-[10px] font-medium ${statusInfo.color}`}>
             {statusInfo.label}
           </span>
         </div>
-        <p className="mt-0.5 text-[10px] text-[#475569]" title={fmtAbsolute(task.created_at)}>
+        <p className="mt-0.5 text-[10px] text-[var(--ef-text-faint)]" title={fmtAbsolute(task.created_at)}>
           Triggered {fmtRelative(task.created_at)}
         </p>
       </div>
 
       {/* Link chevron */}
       <svg
-        className="mt-0.5 h-3 w-3 shrink-0 text-[#2F3B52]"
+        className="mt-0.5 h-3 w-3 shrink-0 text-[var(--ef-border-subtle)]"
         fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
         aria-hidden
       >
@@ -138,31 +138,31 @@ function TriggeredTaskRow({ task }: { task: TriggeredTask }) {
 }
 
 function ApprovalActionRow({ action }: { action: ApprovalAction }) {
-  const outcomeInfo = OUTCOME_LABEL[action.task_outcome] ?? { label: action.task_outcome, color: 'text-[#94A3B8]' };
+  const outcomeInfo = OUTCOME_LABEL[action.task_outcome] ?? { label: action.task_outcome, color: 'text-[var(--ef-text-muted)]' };
   const isFailed = action.task_outcome === 'failed';
   const amountStr = fmtCents(action.amount);
 
   return (
     <div className={`flex items-start gap-3 rounded-lg px-3 py-2.5 ${
-      isFailed ? 'border border-[#EF4444]/20 bg-[#EF4444]/5' : 'border border-[#2F3B52]/40 bg-[#0B1020]/40'
+      isFailed ? 'border border-[var(--ef-critical-a20)] bg-[var(--ef-critical-a05)]' : 'border border-[var(--ef-border-subtle-a40)] bg-[var(--ef-background-primary-a40)]'
     }`}>
       <div className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-        isFailed ? 'bg-[#EF4444]' :
-        action.task_outcome === 'updated' ? 'bg-[#F59E0B]' : 'bg-[#22C55E]'
+        isFailed ? 'bg-[var(--ef-critical)]' :
+        action.task_outcome === 'updated' ? 'bg-[var(--ef-warning)]' : 'bg-[var(--ef-success)]'
       }`} />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="text-[12px] font-semibold text-[#C7D2E3]">
+          <span className="text-[12px] font-semibold text-[var(--ef-text-secondary)]">
             {actionLabel(action.action_type)}
           </span>
           {action.invoice_number && (
-            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[9px] text-[#8FA1BC]">
+            <span className="rounded border border-[var(--ef-border-white-10)] bg-[var(--ef-border-white-06)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--ef-text-soft)]">
               {action.invoice_number}
             </span>
           )}
           {amountStr && (
-            <span className="font-mono text-[10px] tabular-nums text-[#94A3B8]">
+            <span className="font-mono text-[10px] tabular-nums text-[var(--ef-text-muted)]">
               {amountStr}
             </span>
           )}
@@ -171,12 +171,12 @@ function ApprovalActionRow({ action }: { action: ApprovalAction }) {
           </span>
         </div>
         {action.reason && !isFailed && (
-          <p className="mt-0.5 text-[10px] text-[#475569]">{action.reason}</p>
+          <p className="mt-0.5 text-[10px] text-[var(--ef-text-faint)]">{action.reason}</p>
         )}
         {isFailed && action.error && (
-          <p className="mt-0.5 text-[10px] text-[#F87171]">{action.error}</p>
+          <p className="mt-0.5 text-[10px] text-[var(--ef-critical-soft)]">{action.error}</p>
         )}
-        <p className="mt-0.5 text-[10px] text-[#334155]" title={fmtAbsolute(action.executed_at)}>
+        <p className="mt-0.5 text-[10px] text-[var(--ef-border-strong)]" title={fmtAbsolute(action.executed_at)}>
           {fmtRelative(action.executed_at)}
         </p>
       </div>
@@ -220,11 +220,11 @@ export function DecisionWorkflowOutcomePanel({ decisionId }: Props) {
   // Render nothing while loading or if there's genuinely nothing to show
   if (loading) {
     return (
-      <div className="animate-pulse rounded-xl border border-[#2F3B52]/40 bg-[#0B1020]/60 px-4 py-3">
-        <div className="h-2 w-28 rounded bg-[#2F3B52]/60" />
+      <div className="animate-pulse rounded-xl border border-[var(--ef-border-subtle-a40)] bg-[var(--ef-background-primary-a60)] px-4 py-3">
+        <div className="h-2 w-28 rounded bg-[var(--ef-border-subtle-a60)]" />
         <div className="mt-2.5 space-y-1.5">
-          <div className="h-2 w-full rounded bg-[#2F3B52]/40" />
-          <div className="h-2 w-2/3 rounded bg-[#2F3B52]/30" />
+          <div className="h-2 w-full rounded bg-[var(--ef-border-subtle-a40)]" />
+          <div className="h-2 w-2/3 rounded bg-[var(--ef-border-subtle-a30)]" />
         </div>
       </div>
     );
@@ -233,15 +233,15 @@ export function DecisionWorkflowOutcomePanel({ decisionId }: Props) {
   if (!hasTasks && !hasActions) return null;
 
   return (
-    <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+    <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         Execution outcomes
       </p>
 
       {/* Section 1: Tasks triggered directly from this decision */}
       {hasTasks && (
         <div className="mt-3 space-y-2">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#334155]">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-border-strong)]">
             Triggered by this decision
           </p>
           {data!.triggered_tasks.map((task) => (
@@ -253,7 +253,7 @@ export function DecisionWorkflowOutcomePanel({ decisionId }: Props) {
       {/* Section 2: Approval engine actions that ran for this project */}
       {hasActions && (
         <div className={`space-y-2 ${hasTasks ? 'mt-4' : 'mt-3'}`}>
-          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#334155]">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-border-strong)]">
             Approval engine · {data!.approval_engine_actions.length} action
             {data!.approval_engine_actions.length === 1 ? '' : 's'}
           </p>

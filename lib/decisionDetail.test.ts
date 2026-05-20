@@ -62,4 +62,37 @@ describe('decisionDetail evidence resolution', () => {
       'Validator linked this decision to evidence, but the persisted evidence does not include an exact document page, fact, or row target yet.',
     );
   });
+
+  it('turns human invoice-line evidence refs into decision references', () => {
+    const evidence = resolveDecisionEvidence({
+      details: {
+        evidence_refs: ['Invoice 2026-002 · Line 1F · Contract rate match'],
+      },
+    });
+
+    assert.ok(
+      evidence.references.some((reference) =>
+        reference.detail.includes('Invoice 2026-002'),
+      ),
+    );
+  });
+
+  it('shows resolved actual value source for string mismatches', () => {
+    const evidence = resolveDecisionEvidence({
+      severity: 'critical',
+      details: {
+        field_key: 'vendor_name',
+        expected_value: 'AFTERMATH DISASTER RECOVERY, INC',
+        actual_value: 'Other Debris LLC',
+        actual_value_source: 'human override',
+      },
+    });
+
+    assert.equal(evidence.metrics[0]?.label, 'Vendor Name');
+    assert.equal(evidence.metrics[0]?.value, 'Other Debris LLC');
+    assert.equal(
+      evidence.metrics[0]?.detail,
+      'Expected AFTERMATH DISASTER RECOVERY, INC. Source: human override.',
+    );
+  });
 });

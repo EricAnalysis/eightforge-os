@@ -264,3 +264,49 @@ export async function loadExtractionRows(
   if (error || !data) return [];
   return data as ExtractionRowForFacts[];
 }
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export async function loadCanonicalInspectionSnapshots(
+  documentId: string,
+): Promise<{
+  canonicalContractRateScheduleAssembly?: unknown;
+  canonicalOperationalTableRowAssembly?: unknown;
+  canonicalOperationalRateDiff?: unknown;
+  inspection_snapshot_shape?: unknown;
+} | null> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+
+  const { data, error } = await admin
+    .from('document_extractions')
+    .select('data, created_at')
+    .eq('document_id', documentId)
+    .is('field_key', null)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (error || !data) return null;
+
+  for (const row of data as Array<{ data?: unknown }>) {
+    const extraction = asRecord(asRecord(row.data)?.extraction);
+    const diagnostics = asRecord(extraction?.diagnostics);
+    if (!diagnostics) continue;
+    const contract = diagnostics.canonicalContractRateScheduleAssembly;
+    const invoice = diagnostics.canonicalOperationalTableRowAssembly;
+    const diff = diagnostics.canonicalOperationalRateDiff;
+    if (contract == null && invoice == null && diff == null) continue;
+    return {
+      canonicalContractRateScheduleAssembly: contract,
+      canonicalOperationalTableRowAssembly: invoice,
+      canonicalOperationalRateDiff: diff,
+      inspection_snapshot_shape: diagnostics.inspection_snapshot_shape,
+    };
+  }
+
+  return null;
+}

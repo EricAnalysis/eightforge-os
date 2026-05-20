@@ -45,13 +45,13 @@ const STATUS_OPTIONS = ['open', 'in_progress', 'blocked', 'resolved', 'cancelled
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    open: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    in_progress: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
-    blocked: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    resolved: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    cancelled: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    open: 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+    in_progress: 'bg-[var(--ef-purple-primary-a20)] text-[var(--ef-purple-glow)] border border-[var(--ef-purple-primary-a40)]',
+    blocked: 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
+    resolved: 'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]',
+    cancelled: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
   };
-  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[status] ?? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {status.replace(/_/g, ' ')}
@@ -61,12 +61,12 @@ function StatusBadge({ status }: { status: string }) {
 
 function PriorityBadge({ priority }: { priority: string }) {
   const map: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    high: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    medium: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-    low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    critical: 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
+    high: 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+    medium: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
+    low: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
   };
-  const cls = map[priority] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[priority] ?? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {priority}
@@ -88,8 +88,8 @@ function titleize(s: string): string {
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 text-[11px]">
-      <span className="w-36 shrink-0 text-[#8B94A3]">{label}</span>
-      <span className="text-[#F5F7FA]">{children}</span>
+      <span className="w-36 shrink-0 text-[var(--ef-text-muted)]">{label}</span>
+      <span className="text-[var(--ef-text-primary)]">{children}</span>
     </div>
   );
 }
@@ -273,10 +273,10 @@ export default function WorkflowTaskDetailPage({
   if (loading || orgLoading) {
     return (
       <div className="space-y-3">
-        <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+        <Link href="/platform/workflows" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           ← Workflow Tasks
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
       </div>
     );
   }
@@ -286,10 +286,10 @@ export default function WorkflowTaskDetailPage({
   if (notFound || !task) {
     return (
       <div className="space-y-3">
-        <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+        <Link href="/platform/workflows" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           ← Workflow Tasks
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Workflow task not found.</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Workflow task not found.</p>
       </div>
     );
   }
@@ -303,11 +303,11 @@ export default function WorkflowTaskDetailPage({
       {/* Header */}
       <section className="flex items-start justify-between gap-4">
         <div>
-          <Link href="/platform/workflows" className="text-[11px] text-[#8B5CFF] hover:underline">
+          <Link href="/platform/workflows" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
             ← Workflow Tasks
           </Link>
-          <h2 className="mt-1 text-sm font-semibold text-[#F5F7FA]">{task.title || '—'}</h2>
-          <p className="text-xs text-[#8B94A3]">
+          <h2 className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">{task.title || '—'}</h2>
+          <p className="text-xs text-[var(--ef-text-muted)]">
             {titleize(task.task_type)} · <PriorityBadge priority={task.priority} /> · <StatusBadge status={task.status} />
             {isTaskOverdue(task.due_at, task.status) && <> · <OverdueBadge /></>}
           </p>
@@ -319,15 +319,15 @@ export default function WorkflowTaskDetailPage({
               value={STATUS_OPTIONS.includes(task.status as (typeof STATUS_OPTIONS)[number]) ? task.status : STATUS_OPTIONS[0]}
               onChange={(e) => updateStatus(e.target.value)}
               disabled={updatingStatus}
-              className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
+              className="rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
             >
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
               ))}
             </select>
-            {updatingStatus && <span className="ml-2 text-[10px] text-[#8B94A3]">Saving…</span>}
-            {statusSaved && <span className="ml-2 text-[10px] text-emerald-400">Saved</span>}
-            {updateError && <span className="ml-2 text-[10px] text-red-400">Save failed</span>}
+            {updatingStatus && <span className="ml-2 text-[10px] text-[var(--ef-text-muted)]">Saving…</span>}
+            {statusSaved && <span className="ml-2 text-[10px] text-[var(--ef-success)]">Saved</span>}
+            {updateError && <span className="ml-2 text-[10px] text-[var(--ef-critical)]">Save failed</span>}
           </div>
           <div>
             <select
@@ -335,47 +335,47 @@ export default function WorkflowTaskDetailPage({
               value={task.assigned_to ?? ''}
               onChange={(e) => assignTask(e.target.value || null)}
               disabled={assigning}
-              className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
+              className="rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
             >
               <option value="">Unassigned</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.display_name ?? m.id.slice(0, 8)}</option>
               ))}
             </select>
-            {assigning && <span className="ml-2 text-[10px] text-[#8B94A3]">Saving…</span>}
-            {assignSaved && <span className="ml-2 text-[10px] text-emerald-400">Saved</span>}
-            {assignError && <span className="ml-2 text-[10px] text-red-400">Save failed</span>}
+            {assigning && <span className="ml-2 text-[10px] text-[var(--ef-text-muted)]">Saving…</span>}
+            {assignSaved && <span className="ml-2 text-[10px] text-[var(--ef-success)]">Saved</span>}
+            {assignError && <span className="ml-2 text-[10px] text-[var(--ef-critical)]">Save failed</span>}
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-[10px] text-[#8B94A3]">Due</label>
+            <label className="text-[10px] text-[var(--ef-text-muted)]">Due</label>
             <input
               type="date"
               aria-label="Set due date"
               value={task.due_at ? dueDateInputValue(task.due_at) : ''}
               onChange={(e) => updateDueDate(dueDateToISO(e.target.value))}
               disabled={updatingDueDate}
-              className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
+              className="rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
             />
             {task.due_at && (
               <button
                 type="button"
                 onClick={() => updateDueDate(null)}
                 disabled={updatingDueDate}
-                className="text-[10px] text-[#8B94A3] hover:text-[#F5F7FA] disabled:opacity-60"
+                className="text-[10px] text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)] disabled:opacity-60"
               >
                 Clear
               </button>
             )}
-            {updatingDueDate && <span className="text-[10px] text-[#8B94A3]">Saving…</span>}
-            {dueDateSaved && <span className="text-[10px] text-emerald-400">Saved</span>}
-            {dueDateError && <span className="text-[10px] text-red-400">Save failed</span>}
+            {updatingDueDate && <span className="text-[10px] text-[var(--ef-text-muted)]">Saving…</span>}
+            {dueDateSaved && <span className="text-[10px] text-[var(--ef-success)]">Saved</span>}
+            {dueDateError && <span className="text-[10px] text-[var(--ef-critical)]">Save failed</span>}
           </div>
         </div>
       </section>
 
       {/* Task details */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details</div>
+      <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Details</div>
         <div className="space-y-2">
           <MetaRow label="Title">{task.title || '—'}</MetaRow>
           <MetaRow label="Task type">{titleize(task.task_type)}</MetaRow>
@@ -392,7 +392,7 @@ export default function WorkflowTaskDetailPage({
                 {isTaskOverdue(task.due_at, task.status) && <OverdueBadge />}
               </span>
             ) : (
-              <span className="text-[#8B94A3]">No due date</span>
+              <span className="text-[var(--ef-text-muted)]">No due date</span>
             )}
           </MetaRow>
           <MetaRow label="Completed at">{formatDate(task.completed_at)}</MetaRow>
@@ -402,7 +402,7 @@ export default function WorkflowTaskDetailPage({
             {task.decision_id ? (
               <Link
                 href={`/platform/decisions/${task.decision_id}`}
-                className="text-[#8B5CFF] hover:underline"
+                className="text-[var(--ef-purple-primary)] hover:underline"
               >
                 View decision
               </Link>
@@ -414,7 +414,7 @@ export default function WorkflowTaskDetailPage({
             {task.document_id ? (
               <Link
                 href={`/platform/documents/${task.document_id}`}
-                className="text-[#8B5CFF] hover:underline"
+                className="text-[var(--ef-purple-primary)] hover:underline"
               >
                 {docLabel}
               </Link>
@@ -430,9 +430,9 @@ export default function WorkflowTaskDetailPage({
 
       {/* Details JSON */}
       {task.details != null && Object.keys(task.details).length > 0 && (
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-          <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Details (JSON)</div>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[#1A1A3E] bg-[#0A0A20] p-3 text-[10px] text-[#F5F7FA]">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+          <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Details (JSON)</div>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-3 text-[10px] text-[var(--ef-text-primary)]">
             {JSON.stringify(task.details, null, 2)}
           </pre>
         </section>
@@ -440,9 +440,9 @@ export default function WorkflowTaskDetailPage({
 
       {/* Source metadata */}
       {task.source_metadata != null && Object.keys(task.source_metadata).length > 0 && (
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-          <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Source metadata</div>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[#1A1A3E] bg-[#0A0A20] p-3 text-[10px] text-[#F5F7FA]">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+          <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Source metadata</div>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-3 text-[10px] text-[var(--ef-text-primary)]">
             {JSON.stringify(task.source_metadata, null, 2)}
           </pre>
         </section>

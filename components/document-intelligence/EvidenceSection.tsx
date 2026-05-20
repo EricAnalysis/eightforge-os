@@ -35,9 +35,9 @@ function evidenceSnippet(evidence: EvidenceObject): string | null {
 }
 
 function gapToneClass(gap: ExtractionGap): string {
-  if (gap.severity === 'critical') return 'border-red-500/25 bg-red-500/10 text-red-300';
-  if (gap.severity === 'warning') return 'border-amber-500/25 bg-amber-500/10 text-amber-200';
-  return 'border-[#2F3B52] bg-[#111827] text-[#C5CAD4]';
+  if (gap.severity === 'critical') return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]';
+  if (gap.severity === 'warning') return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
+  return 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)]';
 }
 
 function gapLocationLabel(gap: ExtractionGap): string | null {
@@ -59,16 +59,16 @@ export function EvidenceSection({ evidence, gaps }: EvidenceSectionProps) {
   if (evidence.length === 0 && gaps.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0F1117]">
+    <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
             Evidence
           </h3>
-          <span className="text-[10px] text-[#5B6578]">
+          <span className="text-[10px] text-[var(--ef-text-faint)]">
             {evidence.length} cited
           </span>
-          <span className="text-[10px] text-[#5B6578]">
+          <span className="text-[10px] text-[var(--ef-text-faint)]">
             {gaps.length} gap{gaps.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -81,23 +81,23 @@ export function EvidenceSection({ evidence, gaps }: EvidenceSectionProps) {
               return (
                 <div key={item.id} className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-[#C5CAD4]">
+                    <span className="rounded border border-[var(--ef-border-white-10)] bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--ef-text-secondary)]">
                       {locationLabel(item)}
                     </span>
-                    <span className="text-[10px] text-[#5B6578]">
+                    <span className="text-[10px] text-[var(--ef-text-faint)]">
                       {Math.round(item.confidence * 100)}%
                     </span>
                     {item.weak && (
-                      <span className="rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                      <span className="rounded border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--ef-warning-soft)]">
                         weak extraction
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 text-sm font-medium text-[#F5F7FA]">
+                  <p className="mt-2 text-sm font-medium text-[var(--ef-text-primary)]">
                     {item.description}
                   </p>
                   {snippet && (
-                    <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-[#8B94A3]">
+                    <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-[var(--ef-text-muted)]">
                       {snippet}
                     </p>
                   )}
@@ -109,7 +109,7 @@ export function EvidenceSection({ evidence, gaps }: EvidenceSectionProps) {
 
         {gaps.length > 0 && (
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
               Extraction Gaps
             </p>
             {gaps.slice(0, 6).map((gap) => (
@@ -119,7 +119,7 @@ export function EvidenceSection({ evidence, gaps }: EvidenceSectionProps) {
                     {gap.category}
                   </span>
                   {gapLocationLabel(gap) && (
-                    <span className="text-[10px] text-[#5B6578]">
+                    <span className="text-[10px] text-[var(--ef-text-faint)]">
                       {gapLocationLabel(gap)}
                     </span>
                   )}
@@ -128,7 +128,7 @@ export function EvidenceSection({ evidence, gaps }: EvidenceSectionProps) {
                   {gap.message}
                 </p>
                 {gap.nearby_text && (
-                  <p className="mt-1 line-clamp-2 text-[10px] text-[#5B6578]">
+                  <p className="mt-1 line-clamp-2 text-[10px] text-[var(--ef-text-faint)]">
                     {gap.nearby_text}
                   </p>
                 )}

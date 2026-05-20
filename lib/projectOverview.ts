@@ -95,6 +95,7 @@ export type ProjectDocumentRelationshipRow = DocumentRelationshipRecord;
 export type ProjectDecisionRow = {
   id: string;
   document_id: string | null;
+  project_id?: string | null;
   source?: string | null;
   decision_type: string;
   title: string;
@@ -104,6 +105,7 @@ export type ProjectDecisionRow = {
   confidence: number | null;
   last_detected_at: string | null;
   created_at: string;
+  updated_at?: string | null;
   due_at: string | null;
   assigned_to: string | null;
   details?: Record<string, unknown> | null;
@@ -241,8 +243,27 @@ export type ProjectOverviewFact = {
 
 export type ProjectOverviewDecisionCard = {
   id: string;
+  decision_type: string;
+  lifecycle_state: ProjectDecisionLifecycleState;
+  lifecycle_label: string;
+  source_identity_key: string | null;
+  source_finding_ids: string[];
+  exposure_amount: number | null;
+  updated_at: string | null;
+  operator_status: string;
+  assigned_operator: string;
+  last_operator_action: string | null;
+  resolution_status: string;
+  escalation_state: string | null;
+  audit_summary: string;
+  linked_execution_label: string | null;
+  linked_finding_label: string | null;
+  linked_evidence_label: string | null;
+  evidence_href: string;
+  execution_href: string;
   href: string;
   title: string;
+  decision_question: string;
   status_key: string;
   status_label: string;
   status_tone: OverviewTone;
@@ -256,12 +277,30 @@ export type ProjectOverviewDecisionCard = {
   due_at: string | null;
   due_label: string | null;
   evidence_refs: string[];
+  evidence_summaries: ProjectEvidenceSummary[];
   source_document_title: string | null;
   source_document_href: string | null;
   source_evidence_label: string;
   metadata: string[];
   primary_action: string | null;
   border_tone: OverviewTone;
+};
+
+export type ProjectDecisionLifecycleState =
+  | 'blocked'
+  | 'needs_verification'
+  | 'ready_for_authorization'
+  | 'resolved'
+  | 'overridden'
+  | 'escalated';
+
+export type ProjectEvidenceSummary = {
+  id: string;
+  label: string;
+  document_title: string | null;
+  page_label: string | null;
+  field_label: string | null;
+  anchor_summary: string;
 };
 
 export type ProjectOverviewActionItem = {
@@ -314,12 +353,20 @@ export type ProjectOverviewAuditItem = {
   id: string;
   label: string;
   detail: string;
+  event_type: string;
+  entity_type: string;
+  system_area: string;
+  result_label: string;
   object_label: string | null;
   source_label: string | null;
   timestamp_at: string;
   timestamp_label: string;
   tone: OverviewTone;
   href: string | null;
+  changed_by_label: string | null;
+  reason_context: string | null;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
   validation_run?: {
     status: ValidationStatus;
     critical_count: number;
@@ -698,9 +745,14 @@ export function parseDocumentExecutionTrace(
   trace: DocumentExecutionTrace | Record<string, unknown> | null | undefined,
 ): DocumentExecutionTrace | null {
   if (!trace || typeof trace !== 'object') return null;
-  const candidate = trace as Partial<DocumentExecutionTrace>;
+  const candidate = trace as Partial<DocumentExecutionTrace> & Record<string, unknown>;
   if (!candidate.facts || typeof candidate.facts !== 'object') return null;
   if (!Array.isArray(candidate.decisions) || !Array.isArray(candidate.flow_tasks)) return null;
+  const extractionGaps = Array.isArray(candidate.extraction_gaps) ? candidate.extraction_gaps : undefined;
+  const extracted =
+    candidate.extracted != null && typeof candidate.extracted === 'object' && !Array.isArray(candidate.extracted)
+      ? (candidate.extracted as Record<string, unknown>)
+      : undefined;
   return {
     extraction_snapshot_id:
       typeof candidate.extraction_snapshot_id === 'string'
@@ -711,7 +763,136 @@ export function parseDocumentExecutionTrace(
     flow_tasks: candidate.flow_tasks,
     generated_at: typeof candidate.generated_at === 'string' ? candidate.generated_at : '',
     engine_version: typeof candidate.engine_version === 'string' ? candidate.engine_version : '',
+    ...(candidate.classification ? { classification: candidate.classification } : {}),
+    ...(extracted ? { extracted } : {}),
+    ...(extractionGaps ? { extraction_gaps: extractionGaps } : {}),
+    ...(candidate.summary && typeof candidate.summary === 'object'
+      ? { summary: candidate.summary as DocumentExecutionTrace['summary'] }
+      : {}),
   };
+}
+
+function readLooseTraceString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function mergedTraceFactBuckets(trace: DocumentExecutionTrace): {
+  facts: Record<string, unknown>;
+  extracted: Record<string, unknown>;
+} {
+  const facts = trace.facts ?? {};
+  const extractedBase =
+    trace.extracted != null && typeof trace.extracted === 'object' && !Array.isArray(trace.extracted)
+      ? (trace.extracted as Record<string, unknown>)
+      : {};
+  return { facts, extracted: extractedBase };
+}
+
+/** First non-empty scalar string from trace.facts (flat keys) then trace.extracted aliases. */
+export function readInvoicePartyHint(
+  trace: DocumentExecutionTrace | null,
+  bucket: 'contractor' | 'client',
+): string | null {
+  if (!trace) return null;
+  const { facts, extracted } = mergedTraceFactBuckets(trace);
+  const typedFields =
+    facts.typed_fields != null && typeof facts.typed_fields === 'object' && !Array.isArray(facts.typed_fields)
+      ? (facts.typed_fields as Record<string, unknown>)
+      : null;
+
+  const factKeysFlat =
+    bucket === 'contractor'
+      ? (['contractor_name', 'vendor_name', 'billed_entity_name'] as const)
+      : (['client_name', 'owner_name', 'customer_name', 'bill_to_name'] as const);
+  const typedKeys =
+    bucket === 'contractor'
+      ? (['vendor_name', 'contractor_name', 'contractorName'] as const)
+      : (['client_name', 'owner_name', 'customer_name', 'clientName'] as const);
+
+  for (const key of factKeysFlat) {
+    const direct = readLooseTraceString(facts[key]);
+    if (direct) return direct;
+  }
+  if (typedFields) {
+    for (const key of typedKeys) {
+      const nested = readLooseTraceString(typedFields[key]);
+      if (nested) return nested;
+    }
+  }
+  const extractedKeys =
+    bucket === 'contractor'
+      ? ([
+          'contractor_name',
+          'vendor_name',
+          'contractorName',
+          'vendorName',
+        ] as const)
+      : ([
+          'client_name',
+          'owner_name',
+          'clientName',
+          'ownerName',
+          'bill_to_name',
+        ] as const);
+  for (const key of extractedKeys) {
+    const nested = readLooseTraceString(extracted[key]);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function documentTypeLooksInvoice(documentType: string | null | undefined): boolean {
+  const normalized = (documentType ?? '').toLowerCase();
+  return normalized.includes('invoice') || normalized.includes('g702') || normalized.includes('pay app');
+}
+
+function traceClassificationFamily(trace: DocumentExecutionTrace | null): string | null {
+  const classification = trace?.classification;
+  if (!classification || typeof classification !== 'object' || Array.isArray(classification)) return null;
+  const family = (classification as unknown as Record<string, unknown>).family;
+  return typeof family === 'string' ? family : null;
+}
+
+function isInvoiceOperationalDocument(
+  document: ProjectDocumentRow,
+  trace: DocumentExecutionTrace | null,
+): boolean {
+  if (traceClassificationFamily(trace) === 'invoice') return true;
+  if ((document.document_role ?? '').toLowerCase().includes('invoice')) return true;
+  return documentTypeLooksInvoice(document.document_type);
+}
+
+/** True when persisted gaps include operator-visible warning/critical extraction issues. */
+export function traceExtractionGapsNeedAttention(trace: DocumentExecutionTrace | null): boolean {
+  const gaps = trace?.extraction_gaps;
+  if (!Array.isArray(gaps)) return false;
+  return gaps.some((gap) => {
+    if (!gap || typeof gap !== 'object' || Array.isArray(gap)) return false;
+    const severity = (gap as unknown as Record<string, unknown>).severity;
+    return severity === 'warning' || severity === 'critical';
+  });
+}
+
+/** Invoice documents missing contractor or client hints in persisted trace output need ledger follow-up before "clear". */
+export function invoiceTraceMissingPartyParties(document: ProjectDocumentRow, trace: DocumentExecutionTrace | null): boolean {
+  if (!trace || !isInvoiceOperationalDocument(document, trace)) return false;
+  const contractor = readInvoicePartyHint(trace, 'contractor');
+  const client = readInvoicePartyHint(trace, 'client');
+  return contractor == null || client == null;
+}
+
+/**
+ * Signals that normalization still expects operator verification even when Forge queue rows are quiet.
+ */
+export function documentNeedsExtractionFollowUp(
+  document: ProjectDocumentRow,
+  trace: DocumentExecutionTrace | null,
+): boolean {
+  if (!trace) return false;
+  if (traceExtractionGapsNeedAttention(trace)) return true;
+  return invoiceTraceMissingPartyParties(document, trace);
 }
 
 export function dedupeById<T extends { id: string }>(rows: T[]): T[] {
@@ -727,6 +908,7 @@ export function matchesProjectDecision(
   decision: ProjectDecisionRow,
   project: ProjectRecord,
 ): boolean {
+  if (decision.project_id && decision.project_id === project.id) return true;
   const document = decisionDocument(decision);
   if (document?.project_id && document.project_id === project.id) return true;
   const embeddedContext = resolveDecisionProjectContext(decision.details ?? null);
@@ -1217,16 +1399,26 @@ export function buildProjectOperationalRollup(params: {
       persistedDocumentDecisions.filter(isMissingSupportPersistedDecision).length +
       traceDecisions.filter(isMissingSupportTraceDecision).length;
     const reviewStatus = reviewStatusByDocumentId.get(document.id) ?? 'not_reviewed';
-    const documentNeedsReview =
-      reviewStatus !== 'approved' &&
-      (
-        reviewStatus === 'needs_correction' ||
-        reviewStatus === 'in_review' ||
-        documentBlockedCount > 0 ||
-        documentMissingSupportCount > 0 ||
-        documentUnresolvedFindingCount > 0 ||
-        documentPendingActionCount > 0
-      );
+    const extractionFollowUpRequired = documentNeedsExtractionFollowUp(document, trace);
+    const openOperatorDocumentReview =
+      reviewStatus === 'needs_correction' || reviewStatus === 'in_review';
+    const unresolvedForgeWorkRemaining =
+      documentUnresolvedFindingCount > 0 ||
+      documentPendingActionCount > 0 ||
+      documentMissingSupportCount > 0 ||
+      documentBlockedCount > 0;
+    /** Operator-facing extraction / normalization debt (parties gaps, OCR gaps). */
+    const documentNeedsLedgerReview =
+      openOperatorDocumentReview ||
+      extractionFollowUpRequired ||
+      (reviewStatus !== 'approved' && unresolvedForgeWorkRemaining);
+    /** Document marked approved despite linked queue/trace work remaining (non-blocking escalation). */
+    const approvedWhileQueueIncomplete =
+      reviewStatus === 'approved' &&
+      unresolvedForgeWorkRemaining &&
+      !documentNeedsLedgerReview;
+
+    const documentNeedsReview = documentNeedsLedgerReview;
 
     unresolvedFindingCount += documentUnresolvedFindingCount;
     blockedCount += documentBlockedCount;
@@ -1247,7 +1439,7 @@ export function buildProjectOperationalRollup(params: {
       continue;
     }
 
-    if (documentPendingActionCount > 0 || documentUnresolvedFindingCount > 0) {
+    if (approvedWhileQueueIncomplete) {
       documentStatusById[document.id] = { label: 'Attention required', tone: 'info' };
       continue;
     }
@@ -1675,6 +1867,17 @@ function detailStringArray(
   return [];
 }
 
+function hasDetailArrayEntries(
+  details: Record<string, unknown> | null | undefined,
+  keys: string[],
+): boolean {
+  if (!details) return false;
+  return keys.some((key) => {
+    const value = details[key];
+    return Array.isArray(value) && value.some((entry) => String(entry ?? '').trim().length > 0);
+  });
+}
+
 function decisionOrigin(decision: ProjectDecisionRow): string | null {
   const explicitOrigin = detailString(decision.details ?? null, ['origin']);
   if (explicitOrigin) return explicitOrigin;
@@ -1713,6 +1916,116 @@ function decisionSourceLabel(decision: ProjectDecisionRow): string {
   if (decision.source === 'rule_engine') return 'Legacy rule engine';
   if (decision.source === 'system') return 'System decision';
   return 'Project decision record';
+}
+
+function statusLooksBlocked(value: string | null): boolean {
+  return ['blocked', 'approval_blocked', 'hold', 'payment_hold'].includes((value ?? '').toLowerCase());
+}
+
+function isOperationallyBlockedDecision(decision: ProjectDecisionRow): boolean {
+  const details = decision.details ?? null;
+  const family = decisionFamilyFromPersisted(decision);
+  if (family === 'mismatch') return true;
+  if (statusLooksBlocked(detailString(details, ['approval_status', 'gate_status', 'gate_approval_status', 'validator_status']))) {
+    return true;
+  }
+  if (hasDetailArrayEntries(details, ['blocking_reason_codes', 'blocked_reasons', 'validator_blockers'])) return true;
+  return detailNumber(details, ['blocked_amount', 'unsupported_amount']) != null;
+}
+
+function latestDecisionActivity(
+  decisionId: string,
+  events: readonly ProjectActivityEventRow[],
+): ProjectActivityEventRow | null {
+  let latest: ProjectActivityEventRow | null = null;
+  for (const event of events) {
+    if (event.entity_type !== 'decision' || event.entity_id !== decisionId) continue;
+    if (!latest || new Date(event.created_at).getTime() > new Date(latest.created_at).getTime()) {
+      latest = event;
+    }
+  }
+  return latest;
+}
+
+function operatorActionFromActivity(event: ProjectActivityEventRow | null): string | null {
+  const next = event?.new_value ?? null;
+  const explicitAction = extractStringValue(next, 'operator_action');
+  if (explicitAction) return titleize(explicitAction);
+  const feedbackType = extractStringValue(next, 'feedback_type');
+  const disposition = extractStringValue(next, 'disposition');
+  const nextStatus = extractStatus(next);
+  if (feedbackType === 'override') return 'Override';
+  if (disposition === 'escalate') return 'Escalate';
+  if (nextStatus === 'resolved') return 'Approve';
+  if (feedbackType === 'needs_review') return 'Verify';
+  return event ? titleize(event.event_type) : null;
+}
+
+function lifecycleLabel(state: ProjectDecisionLifecycleState): string {
+  switch (state) {
+    case 'blocked':
+      return 'Blocked';
+    case 'needs_verification':
+      return 'Needs verification';
+    case 'ready_for_authorization':
+      return 'Ready for authorization';
+    case 'resolved':
+      return 'Resolved';
+    case 'overridden':
+      return 'Overridden';
+    case 'escalated':
+      return 'Escalated';
+  }
+}
+
+function lifecycleFromDecision(
+  decision: ProjectDecisionRow,
+  latestActivity: ProjectActivityEventRow | null,
+): ProjectDecisionLifecycleState {
+  const next = latestActivity?.new_value ?? null;
+  const operatorAction = extractStringValue(next, 'operator_action');
+  const feedbackType = extractStringValue(next, 'feedback_type');
+  const disposition = extractStringValue(next, 'disposition');
+  const statusAfterFeedback = extractStringValue(next, 'status_after_feedback');
+  const latestStatus = extractStatus(next);
+
+  if (operatorAction === 'override' || feedbackType === 'override' || decision.status === 'suppressed') return 'overridden';
+  if (operatorAction === 'escalate' || disposition === 'escalate') return 'escalated';
+  if (decision.status === 'resolved' || latestStatus === 'resolved') return 'resolved';
+  if (
+    decision.status === 'in_review'
+    || decision.status === 'needs_review'
+    || decision.status === 'flagged'
+    || statusAfterFeedback === 'in_review'
+    || operatorAction === 'correct'
+    || operatorAction === 'verify'
+  ) {
+    return 'needs_verification';
+  }
+  if (decision.status === 'dismissed') return 'resolved';
+  if (isOperationallyBlockedDecision(decision)) return 'blocked';
+  return 'ready_for_authorization';
+}
+
+function evidenceSummaryForRef(
+  ref: string,
+  index: number,
+  sourceDocumentTitle: string | null,
+): ProjectEvidenceSummary {
+  const pageMatch = ref.match(/(?:page|p)[\s:_-]*(\d+)/i);
+  const fieldMatch = ref.match(/(?:field|fact|key)[\s:_-]*([a-z0-9_.-]+)/i);
+  const parts = ref.split(/[:|]/).map((part) => part.trim()).filter(Boolean);
+  const labelBase = parts[0] ? titleize(parts[0]) : 'Evidence ref';
+  const anchor = parts.length > 1 ? parts.slice(1).join(' / ') : ref;
+
+  return {
+    id: `${index}:${ref}`,
+    label: `${labelBase} evidence`,
+    document_title: sourceDocumentTitle,
+    page_label: pageMatch ? `Page ${pageMatch[1]}` : null,
+    field_label: fieldMatch ? titleize(fieldMatch[1]) : null,
+    anchor_summary: anchor,
+  };
 }
 
 function hasValidatorDecisionContext(summary: ProjectValidatorSummarySnapshot): boolean {
@@ -1803,11 +2116,108 @@ function normalizeSourceFamilyLabel(value: string | null): string | null {
   return titleize(value);
 }
 
+function isMissingRateRowDecision(details: Record<string, unknown> | null | undefined): boolean {
+  const primaryRuleId = detailString(details, ['primary_rule_id', 'rule_id']);
+  if (
+    primaryRuleId === 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS' ||
+    primaryRuleId === 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT'
+  ) {
+    return true;
+  }
+  const field = detailString(details, ['field']);
+  return field === 'contract_rate' || field === 'rate_code';
+}
+
+function firstInvoiceLineContext(
+  details: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const contexts = details?.invoice_line_contexts;
+  if (!Array.isArray(contexts)) return null;
+  const first = contexts.find((entry) => entry != null && typeof entry === 'object' && !Array.isArray(entry));
+  return first ? first as Record<string, unknown> : null;
+}
+
+function contextString(context: Record<string, unknown> | null, key: string): string | null {
+  const value = context?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function contextNumber(context: Record<string, unknown> | null, key: string): number | null {
+  const value = context?.[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const parsed = Number(value.replace(/[$,\s]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatInvoiceContextNumber(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function formatInvoiceContextCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function invoiceLineContextLabels(context: Record<string, unknown> | null): string[] {
+  if (!context) return [];
+  const invoiceNumber = contextString(context, 'invoice_number');
+  const rateCode = contextString(context, 'rate_code');
+  const description = contextString(context, 'line_description');
+  const quantity = contextNumber(context, 'quantity');
+  const unitPrice = contextNumber(context, 'unit_price');
+  const lineTotal = contextNumber(context, 'line_total');
+
+  return [
+    invoiceNumber ? `Invoice ${invoiceNumber}` : null,
+    rateCode || description ? `Line ${[rateCode, description].filter(Boolean).join(' - ')}` : null,
+    quantity != null ? `Quantity ${formatInvoiceContextNumber(quantity)}` : null,
+    unitPrice != null ? `Unit price ${formatInvoiceContextCurrency(unitPrice)}` : null,
+    lineTotal != null ? `Line total ${formatInvoiceContextCurrency(lineTotal)}` : null,
+  ].filter((value): value is string => value != null);
+}
+
+function invoiceLineContextEvidenceRef(context: Record<string, unknown> | null): string | null {
+  if (!context) return null;
+  const invoiceNumber = contextString(context, 'invoice_number');
+  const rateCode = contextString(context, 'rate_code');
+  if (!invoiceNumber && !rateCode) return null;
+  return [
+    invoiceNumber ? `Invoice ${invoiceNumber}` : 'Invoice line',
+    rateCode ? `Line ${rateCode}` : null,
+    'Contract rate match',
+  ].filter(Boolean).join(' · ');
+}
+
+function detailNumber(
+  details: Record<string, unknown> | null | undefined,
+  keys: string[],
+): number | null {
+  if (!details) return null;
+
+  for (const key of keys) {
+    const value = details[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 export function resolveProjectDecisionSummary(
   decisions: ProjectDecisionRow[],
   tasks: ProjectTaskRow[],
   members: ProjectMember[],
   projectId?: string,
+  activityEvents: readonly ProjectActivityEventRow[] = [],
 ): ProjectOverviewDecisionCard[] {
   const relatedTaskCountByDecisionId = new Map<string, number>();
   const relatedTasksByDecisionId = new Map<string, ProjectTaskRow[]>();
@@ -1846,13 +2256,16 @@ export function resolveProjectDecisionSummary(
     return rightTimestamp - leftTimestamp;
   });
 
-  return sorted.slice(0, 6).map((decision) => {
+  return sorted.map((decision) => {
     const relatedDecisionTasks = sortDecisionTasks(relatedTasksByDecisionId.get(decision.id) ?? []);
     const primaryTask = relatedDecisionTasks[0] ?? null;
     const reason = resolveDecisionReason(decision.details ?? null, decision.summary);
     const primaryAction = resolveDecisionPrimaryAction(decision.details ?? null);
+    const invoiceLineContext = firstInvoiceLineContext(decision.details ?? null);
+    const invoiceLineLabels = invoiceLineContextLabels(invoiceLineContext);
     const metadata: string[] = [];
     if (decision.document_id) metadata.push('1 linked file');
+    metadata.push(...invoiceLineLabels);
     const relatedTaskCount = relatedTaskCountByDecisionId.get(decision.id) ?? 0;
     if (relatedTaskCount > 0) metadata.push(`${relatedTaskCount} pending action${relatedTaskCount === 1 ? '' : 's'}`);
     if (decision.confidence != null) metadata.push(`${Math.round(decision.confidence * 100)}% confidence`);
@@ -1874,7 +2287,24 @@ export function resolveProjectDecisionSummary(
       ...detailStringArray(decision.details ?? null, ['evidence_refs', 'fact_refs', 'source_refs']),
       ...detailStringArray(primaryTask?.details ?? null, ['evidence_refs', 'fact_refs', 'source_refs']),
     ];
+    const humanInvoiceLineRef = invoiceLineContextEvidenceRef(invoiceLineContext);
+    if (humanInvoiceLineRef) evidenceRefs.unshift(humanInvoiceLineRef);
     const uniqueEvidenceRefs = [...new Set(evidenceRefs)];
+    const sourceFindingIds = detailStringArray(decision.details ?? null, ['source_finding_ids', 'validator_finding_ids']);
+    const sourceIdentityKey =
+      detailString(decision.details ?? null, ['identity_key', 'check_key', 'primary_rule_id'])
+      ?? (sourceFindingIds[0] ? `finding:${sourceFindingIds[0]}` : null);
+    const exposureAmount = detailNumber(decision.details ?? null, [
+      'requires_verification_amount',
+      'blocked_amount',
+      'unsupported_amount',
+      'at_risk_amount',
+      'affected_amount',
+      'total_billed_amount',
+    ]);
+    const evidenceHref = sourceDocumentHref
+      ? `${sourceDocumentHref}${sourceDocumentHref.includes('?') ? '&' : '?'}decisionId=${decision.id}${sourceFindingIds[0] ? `&findingId=${sourceFindingIds[0]}` : ''}#evidence`
+      : `/platform/decisions/${decision.id}#decision-context`;
     const sourceFamilyLabel = normalizeSourceFamilyLabel(
       detailString(decision.details ?? null, ['source_family'])
       ?? detailString(primaryTask?.details ?? null, ['source_family'])
@@ -1896,7 +2326,17 @@ export function resolveProjectDecisionSummary(
       ?? primaryTask?.title
       ?? primaryTask?.description
       ?? 'Review the decision context and determine the next disposition.';
+    const decisionQuestion = isMissingRateRowDecision(decision.details ?? null)
+      ? 'This invoice line has a billed rate/category, but EightForge could not confirm the matching governing contract schedule row.'
+      : requiredAction;
     const dueAt = decision.due_at ?? primaryTask?.due_at ?? null;
+    const latestActivity = latestDecisionActivity(decision.id, activityEvents);
+    const lifecycleState = lifecycleFromDecision(decision, latestActivity);
+    const lastOperatorAction = operatorActionFromActivity(latestActivity);
+    const updatedAt = decision.updated_at ?? decision.last_detected_at ?? decision.created_at;
+    const evidenceSummaries = uniqueEvidenceRefs.map((ref, index) =>
+      evidenceSummaryForRef(ref, index, sourceDocumentTitle),
+    );
     const sourceEvidenceLabelParts = [
       sourceLabel,
       sourceDocumentTitle ?? 'Project decision record',
@@ -1908,8 +2348,35 @@ export function resolveProjectDecisionSummary(
 
     return {
       id: decision.id,
+      decision_type: decision.decision_type,
+      lifecycle_state: lifecycleState,
+      lifecycle_label: lifecycleLabel(lifecycleState),
+      source_identity_key: sourceIdentityKey,
+      source_finding_ids: sourceFindingIds,
+      exposure_amount: exposureAmount,
+      updated_at: updatedAt,
+      operator_status: decision.status,
+      assigned_operator: assigneeLabel,
+      last_operator_action: lastOperatorAction,
+      resolution_status: lifecycleState === 'resolved' ? 'Resolved' : DECISION_STATUS_LABELS[decision.status] ?? titleize(decision.status),
+      escalation_state: lifecycleState === 'escalated' ? 'Escalated' : null,
+      audit_summary: latestActivity
+        ? `${operatorActionFromActivity(latestActivity) ?? titleize(latestActivity.event_type)} recorded ${relativeTime(latestActivity.created_at)}.`
+        : 'No operator workflow event has been recorded for this decision yet.',
+      linked_execution_label: relatedTaskCount > 0
+        ? `${relatedTaskCount} linked execution item${relatedTaskCount === 1 ? '' : 's'}`
+        : null,
+      linked_finding_label: sourceFindingIds[0] ? `Validator finding ${sourceFindingIds[0]}` : null,
+      linked_evidence_label: uniqueEvidenceRefs.length > 0
+        ? `${uniqueEvidenceRefs.length} linked evidence ref${uniqueEvidenceRefs.length === 1 ? '' : 's'}`
+        : null,
+      evidence_href: evidenceHref,
+      execution_href: projectId
+        ? `/platform/projects/${projectId}?decisionId=${decision.id}${sourceFindingIds[0] ? `&findingId=${sourceFindingIds[0]}` : ''}#project-decisions`
+        : `/platform/decisions/${decision.id}`,
       href: `/platform/decisions/${decision.id}`,
       title: decision.title || titleize(decision.decision_type),
+      decision_question: decisionQuestion,
       status_key: decision.status,
       status_label: DECISION_STATUS_LABELS[decision.status] ?? titleize(decision.status),
       status_tone: decisionStatusTone(decision),
@@ -1923,6 +2390,7 @@ export function resolveProjectDecisionSummary(
       due_at: dueAt,
       due_label: dueAt ? formatDueDate(dueAt) : null,
       evidence_refs: uniqueEvidenceRefs,
+      evidence_summaries: evidenceSummaries,
       source_document_title: sourceDocumentTitle,
       source_document_href: sourceDocumentHref,
       source_evidence_label: sourceEvidenceLabelParts.join(' · ') || 'Project decision record',
@@ -2088,6 +2556,100 @@ function auditToneForStatus(value: string | null | undefined): OverviewTone {
   return 'info';
 }
 
+function resolveAuditSystemArea(params: {
+  eventType: string;
+  entityType: string;
+  sourceLabel: string | null;
+}): string {
+  const source = params.sourceLabel?.toLowerCase() ?? '';
+
+  if (
+    params.entityType === 'project_validation_run'
+    || params.entityType === 'project_validation_finding'
+    || params.eventType === 'validation_run_requested'
+    || params.eventType === 'validation_finding_generated'
+    || params.eventType === 'project_validation_phase_changed'
+    || source.includes('validator')
+  ) {
+    return 'Validator Forge';
+  }
+
+  if (
+    params.entityType === 'execution_item'
+    || params.eventType.startsWith('execution_item_')
+    || params.entityType === 'decision'
+    || params.entityType === 'workflow_task'
+    || source.includes('workflow')
+    || source.includes('decision')
+  ) {
+    return 'Execution Forge';
+  }
+
+  if (
+    params.eventType === 'override_applied'
+    || params.eventType === 'review_recorded'
+    || params.eventType === 'review_correction_applied'
+    || source.includes('fact')
+  ) {
+    return 'Facts Forge';
+  }
+
+  if (
+    params.entityType === 'document'
+    || params.eventType.startsWith('document_')
+    || source.includes('document')
+    || source.includes('processing')
+    || source.includes('classification')
+    || source.includes('precedence')
+    || source.includes('relationship')
+  ) {
+    return 'Documents Forge';
+  }
+
+  return 'Audit Forge';
+}
+
+function resolveAuditResultLabel(params: {
+  tone: OverviewTone;
+  validationStatus?: ValidationStatus | null;
+  reviewStatus?: string | null;
+  nextStatus?: string | null;
+  eventType: string;
+}): string {
+  if (params.validationStatus === 'BLOCKED') return 'Blocked';
+  if (params.validationStatus === 'VALIDATED') return 'Confirmed';
+  if (params.validationStatus === 'FINDINGS_OPEN') return 'Needs Review';
+
+  if (params.eventType === 'validation_finding_generated') return 'Generated';
+  if (params.eventType === 'execution_item_created') return 'Created';
+  if (params.eventType === 'execution_item_approved') return 'Confirmed';
+  if (params.eventType === 'execution_item_corrected') return 'Resolved';
+  if (params.eventType === 'execution_item_overridden') return 'Override';
+  if (params.eventType === 'override_applied') return 'Override';
+  if (params.eventType === 'review_correction_applied') return 'Correction';
+  if (params.reviewStatus === 'confirmed') return 'Confirmed';
+  if (params.reviewStatus === 'needs_followup' || params.reviewStatus === 'missing_confirmed') {
+    return 'Needs Review';
+  }
+  if (params.nextStatus === 'resolved' || params.nextStatus === 'completed') return 'Resolved';
+  if (params.nextStatus === 'blocked') return 'Blocked';
+  if (params.nextStatus === 'in_review') return 'In Review';
+
+  switch (params.tone) {
+    case 'danger':
+      return 'Critical';
+    case 'warning':
+      return 'Review';
+    case 'success':
+      return 'Confirmed';
+    case 'info':
+      return 'Recorded';
+    case 'muted':
+    default:
+      return 'Logged';
+  }
+}
+
 function extractStatus(value: Record<string, unknown> | null | undefined): string | null {
   const status = value?.status;
   return typeof status === 'string' ? status : null;
@@ -2156,12 +2718,20 @@ export function resolveProjectAuditEvents(
         id: `document-created-${document.id}`,
         label: 'Document added',
         detail: 'Linked into the project document record.',
+        event_type: 'document_added',
+        entity_type: 'document',
+        system_area: 'Documents Forge',
+        result_label: 'Recorded',
         object_label: title,
         source_label: 'Document record',
         timestamp_at: document.created_at,
         timestamp_label: relativeTime(document.created_at),
         tone: 'info',
         href: buildProjectDocumentHref(document.id, project.id),
+        changed_by_label: null,
+        reason_context: null,
+        old_value: null,
+        new_value: null,
         sort_at: document.created_at,
       },
     ];
@@ -2173,12 +2743,20 @@ export function resolveProjectAuditEvents(
           document.processing_status === 'failed'
             ? 'Processing ended with an error and needs operator attention.'
             : 'Extraction and project intelligence processing completed.',
+        event_type: document.processing_status === 'failed' ? 'document_processing_failed' : 'document_processed',
+        entity_type: 'document',
+        system_area: 'Documents Forge',
+        result_label: document.processing_status === 'failed' ? 'Failed' : 'Processed',
         object_label: title,
         source_label: 'Processing record',
         timestamp_at: document.processed_at,
         timestamp_label: relativeTime(document.processed_at),
         tone: auditToneForStatus(document.processing_status),
         href: buildProjectDocumentHref(document.id, project.id),
+        changed_by_label: null,
+        reason_context: document.processing_error ?? null,
+        old_value: null,
+        new_value: null,
         sort_at: document.processed_at,
       });
     }
@@ -2215,14 +2793,30 @@ export function resolveProjectAuditEvents(
             : status === 'VALIDATED'
               ? 'Validator confirmed the current project truth snapshot.'
               : status === 'FINDINGS_OPEN'
-                ? 'Validator recorded open findings that still need review.'
+              ? 'Validator recorded open findings that still need review.'
                 : 'Validator recorded a new project consistency snapshot.',
+        event_type: event.event_type,
+        entity_type: event.entity_type,
+        system_area: resolveAuditSystemArea({
+          eventType: event.event_type,
+          entityType: event.entity_type,
+          sourceLabel: 'Validator snapshot',
+        }),
+        result_label: resolveAuditResultLabel({
+          tone,
+          validationStatus: status,
+          eventType: event.event_type,
+        }),
         object_label: project.name,
         source_label: 'Validator snapshot',
         timestamp_at: event.created_at,
         timestamp_label: relativeTime(event.created_at),
         tone,
         href: null,
+        changed_by_label: event.changed_by ? memberName(members, event.changed_by) : null,
+        reason_context: ruleVersion,
+        old_value: event.old_value ?? null,
+        new_value: event.new_value ?? null,
         sort_at: event.created_at,
         validation_run: {
           status,
@@ -2490,6 +3084,46 @@ export function resolveProjectAuditEvents(
         sourceLabel = 'Validator phase';
         href = `/platform/projects/${event.entity_id}`;
         break;
+      case 'validation_finding_generated':
+        label = 'Validator finding generated';
+        detail = 'Validator recorded a new approval-impacting finding for this project.';
+        tone = 'warning';
+        objectLabel = entityTitle;
+        sourceLabel = 'Validator finding';
+        href = `/platform/projects/${project.id}#project-validator`;
+        break;
+      case 'execution_item_created':
+        label = 'Execution item created';
+        detail = 'A validator finding was added to the execution queue for operator resolution.';
+        tone = 'warning';
+        objectLabel = entityTitle;
+        sourceLabel = 'Execution queue';
+        href = `/platform/projects/${project.id}?executionItemId=${event.entity_id}#project-decisions`;
+        break;
+      case 'execution_item_approved':
+        label = 'Execution item approved';
+        detail = 'An operator confirmed the current truth and closed the execution item.';
+        tone = 'success';
+        objectLabel = entityTitle;
+        sourceLabel = 'Execution queue';
+        href = `/platform/projects/${project.id}?executionItemId=${event.entity_id}#project-decisions`;
+        break;
+      case 'execution_item_corrected':
+        label = 'Execution item corrected';
+        detail = 'An operator applied a correction and closed the execution item.';
+        tone = 'warning';
+        objectLabel = entityTitle;
+        sourceLabel = 'Execution queue';
+        href = `/platform/projects/${project.id}?executionItemId=${event.entity_id}#project-decisions`;
+        break;
+      case 'execution_item_overridden':
+        label = 'Execution item overridden';
+        detail = 'An operator applied an override and recorded a reason for the execution item.';
+        tone = 'danger';
+        objectLabel = entityTitle;
+        sourceLabel = 'Execution queue';
+        href = `/platform/projects/${project.id}?executionItemId=${event.entity_id}#project-decisions`;
+        break;
       default:
         break;
     }
@@ -2498,12 +3132,29 @@ export function resolveProjectAuditEvents(
       id: event.id,
       label,
       detail,
+      event_type: event.event_type,
+      entity_type: event.entity_type,
+      system_area: resolveAuditSystemArea({
+        eventType: event.event_type,
+        entityType: event.entity_type,
+        sourceLabel,
+      }),
+      result_label: resolveAuditResultLabel({
+        tone,
+        reviewStatus,
+        nextStatus,
+        eventType: event.event_type,
+      }),
       object_label: objectLabel,
       source_label: sourceLabel,
       timestamp_at: event.created_at,
       timestamp_label: relativeTime(event.created_at),
       tone,
       href,
+      changed_by_label: event.changed_by ? memberName(members, event.changed_by) : null,
+      reason_context: reason ?? notes ?? null,
+      old_value: event.old_value ?? null,
+      new_value: event.new_value ?? null,
       sort_at: event.created_at,
       validation_run: null,
     };
@@ -2516,12 +3167,20 @@ export function resolveProjectAuditEvents(
       id: event.id,
       label: event.label,
       detail: event.detail,
+      event_type: event.event_type,
+      entity_type: event.entity_type,
+      system_area: event.system_area,
+      result_label: event.result_label,
       object_label: event.object_label ?? null,
       source_label: event.source_label ?? null,
       timestamp_at: event.timestamp_at,
       timestamp_label: event.timestamp_label,
       tone: event.tone,
       href: event.href,
+      changed_by_label: event.changed_by_label ?? null,
+      reason_context: event.reason_context ?? null,
+      old_value: event.old_value ?? null,
+      new_value: event.new_value ?? null,
       validation_run: event.validation_run ?? null,
     }));
 }
@@ -2558,7 +3217,7 @@ export function buildProjectOverviewModel(params: {
     members,
   });
   const exposure = resolveProjectExposure(project, documents, validatorSummary);
-  const decisionCards = resolveProjectDecisionSummary(forgeDecisions, tasks, members, project.id);
+  const decisionCards = resolveProjectDecisionSummary(forgeDecisions, tasks, members, project.id, activityEvents);
   const actionItems = resolveProjectPendingActions(rollup, validatorSummary, project.id);
   const processedDocuments = resolveProjectProcessedDocs(project, documents, rollup);
   const auditItems = resolveProjectAuditEvents(project, documents, decisions, tasks, activityEvents, members);

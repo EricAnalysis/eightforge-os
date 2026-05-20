@@ -3,8 +3,14 @@ import { describe, it } from 'vitest';
 
 import {
   buildDocumentIntelligenceViewModel,
+  buildInvoiceLedgerLineDisplay,
   compareDocumentFactsForLedger,
+  formatInvoiceServicePeriodRangeFromEndpoints,
+  invoiceSurfaceLineItemToLedgerRecord,
+  isPlausibleEmbeddedInvoiceRateCode,
+  splitEmbeddedInvoiceRateCode,
 } from './documentIntelligenceViewModel';
+import { deriveLedgerInsightSignals } from './invoiceLedgerInsights';
 import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
 import type { DocumentFactReviewRecord } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideRecord } from '@/lib/documentFactOverrides';
@@ -326,6 +332,48 @@ function getFact(model: ReturnType<typeof buildModel>, fieldKey: string) {
 }
 
 describe('document intelligence view model', () => {
+  it('exposes content-layer page text for OCR-backed PDF viewer fallback', () => {
+    const model = buildModel({
+      documentId: 'ocr-contract',
+      documentType: 'contract',
+      documentName: 'ocr-contract.pdf',
+      documentTitle: 'OCR Contract',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            vendor_name: 'Aftermath Disaster Recovery, Inc.',
+          },
+        },
+        extraction: {
+          text_preview: 'OCR recovered contract text',
+          content_layers_v1: {
+            source_kind: 'ocr',
+            pdf: {
+              evidence: [],
+              text: {
+                pages: [
+                  { page_number: 2, source_method: 'ocr', text: 'Second page OCR text' },
+                  { page_number: 1, source_method: 'ocr', text: 'First page OCR text' },
+                  { page_number: 1, source_method: 'ocr', text: 'Duplicate page should not win' },
+                ],
+              },
+            },
+          },
+          evidence_v1: {
+            structured_fields: {},
+            section_signals: {},
+            page_text: [],
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(model.sourceTextPages, [
+      { pageNumber: 1, sourceMethod: 'ocr', text: 'First page OCR text' },
+      { pageNumber: 2, sourceMethod: 'ocr', text: 'Second page OCR text' },
+    ]);
+  });
+
   it('normalizes contract facts with grouping, dedupe, raw values, and geometry fallback', () => {
     const documentId = 'contract-doc';
     const evidence = [
@@ -483,6 +531,10 @@ describe('document intelligence view model', () => {
     });
 
     assert.equal(model.family, 'contract');
+    assert.deepEqual(model.sourceTextPages, [
+      { pageNumber: 1, sourceMethod: 'pdf_text', text: 'Contractor and effective date text' },
+      { pageNumber: 2, sourceMethod: 'pdf_text', text: 'Not to exceed amount text' },
+    ]);
     assert.equal(model.groups.at(-1)?.key, 'additional_fields');
     assert.ok(model.groups.some((group) => group.key === 'parties'));
     assert.ok(model.groups.some((group) => group.key === 'dates'));
@@ -1889,6 +1941,144 @@ describe('document intelligence view model', () => {
     });
 
     assert.deepEqual(model.contractRateRows, []);
+  });
+
+  it('renders contract rate shadow assembly diagnostics from normalized extracted output', () => {
+    const model = buildRateScheduleModel({
+      documentId: 'contract-shadow-diagnostics-doc',
+      page: 18,
+      headers: ['Category', 'Description', 'Unit', 'Rate'],
+      headerContext: ['Exhibit A', 'EMERGENCY DEBRIS REMOVAL UNIT RATES'],
+      rows: [
+        makeGenericTableRow({
+          tableId: 'pdf:table:p18:t1',
+          page: 18,
+          rowIndex: 1,
+          cells: ['Vegetative', '0-15 Miles from ROW to DMS', 'Cubic Yard', '$6.90'],
+        }),
+        makeGenericTableRow({
+          tableId: 'pdf:table:p18:t1',
+          page: 18,
+          rowIndex: 2,
+          cells: ['Vegetative', '16-30 Miles from ROW to DMS', 'Cubic Yard', '$7.90'],
+        }),
+      ],
+    });
+
+    const diagnostic = model.diagnostics.find((drawer) => drawer.id === 'canonical_contract_rate_schedule_assembly');
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.title, 'Contract Rate Assembly');
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Rows reconstructed: 2/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Evidence refs: present/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Shadow mode: active — parser authoritative/);
+    assert.equal(diagnostic.rowInspection?.label, 'Inspect rows');
+    assert.equal(diagnostic.rowInspection?.rows.length, 2);
+  });
+
+  it('renders invoice operational row assembly diagnostics from trace extracted output', () => {
+    const model = buildModel({
+      documentId: 'invoice-shadow-diagnostics-doc',
+      documentType: 'invoice',
+      documentName: 'invoice-shadow.pdf',
+      documentTitle: 'Invoice Shadow',
+      preferredExtraction: {
+        fields: { typed_fields: {} },
+        extraction: {
+          content_layers_v1: { pdf: { evidence: [] } },
+          evidence_v1: { structured_fields: {}, page_text: [] },
+        },
+      },
+      executionTrace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          canonicalOperationalTableRowAssembly: {
+            rows: [
+              {
+                row_id: 'invoice-row-1',
+                rate_code: '1A',
+                row_role: 'line_item',
+                confidence: 1,
+                warnings: [],
+                evidence_refs: [{ raw_text: '1A', field_assigned: 'rate_code' }],
+              },
+            ],
+            rejected_rows: [],
+            unclassified_rows: [],
+            assembly_warnings: [],
+          },
+        },
+      },
+    });
+
+    const diagnostic = model.diagnostics.find((drawer) => drawer.id === 'canonical_operational_table_row_assembly');
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.title, 'Invoice Operational Row Assembly');
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Rows reconstructed: 1/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Evidence refs: present/);
+    assert.equal(diagnostic.rowInspection?.rows[0]?.rate_code, '1A');
+  });
+
+  it('renders cross-document rate diff diagnostics from trace extracted output', () => {
+    const model = buildModel({
+      documentId: 'invoice-rate-diff-diagnostics-doc',
+      documentType: 'invoice',
+      documentName: 'invoice-rate-diff.pdf',
+      documentTitle: 'Invoice Rate Diff',
+      preferredExtraction: {
+        fields: { typed_fields: {} },
+        extraction: {
+          content_layers_v1: { pdf: { evidence: [] } },
+          evidence_v1: { structured_fields: {}, page_text: [] },
+        },
+      },
+      executionTrace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          canonicalOperationalRateDiff: {
+            project_id: null,
+            invoice_document_id: 'invoice-rate-diff-diagnostics-doc',
+            contract_document_id: 'contract-rate-diff-diagnostics-doc',
+            generated_at: '2026-05-13T12:00:00.000Z',
+            summary: {
+              matched_rows: 1,
+              ambiguous_rows: 0,
+              unmatched_rows: 0,
+              low_confidence_matches: 0,
+              rows_exceeding_contract_ceiling: 1,
+              passthrough_rows: 0,
+              tm_rows: 0,
+            },
+            rows: [
+              {
+                invoice_row_id: 'invoice:r1',
+                contract_row_id: 'contract:r1',
+                variance_status: 'exceeds_ceiling',
+                match_confidence: 0.92,
+                mismatch_reasons: ['invoice rate exceeds contract rate'],
+                candidate_matches: [{ contract_row_id: 'contract:r1' }],
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const diagnostic = model.diagnostics.find((drawer) => drawer.id === 'canonical_operational_rate_diff');
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.title, 'Cross Document Rate Diff');
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Matched rows: 1/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Low-confidence matches: 0/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Rows exceeding contract ceiling: 1/);
+    assert.match(diagnostic.textBlocks?.[0]?.content ?? '', /Shadow mode: active - no approval or payment gating/);
+    assert.equal(diagnostic.rowInspection?.rows[0]?.row_role, 'exceeds_ceiling');
   });
 
   it('dedupes additional field sources with structured_fields precedence over typed_fields', () => {
@@ -4270,5 +4460,1225 @@ describe('document intelligence view model', () => {
       ],
     );
     assert.ok(model.spreadsheetReviewDataset?.rateCodeRows.every((row) => row.rateCode != null));
+  });
+});
+
+describe('invoice rate line helpers', () => {
+  it('splits embedded alphanumeric rate codes from leading description tokens', () => {
+    const parsed = splitEmbeddedInvoiceRateCode(
+      '1A- Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+    );
+    assert.equal(parsed.rateCode, '1A');
+    assert.ok(parsed.remainder.includes('Vegetative Collect'));
+  });
+
+  it('splits rate codes when the table uses spaced hyphens', () => {
+    const parsed = splitEmbeddedInvoiceRateCode(
+      '1B - Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+    );
+    assert.equal(parsed.rateCode, '1B');
+    assert.ok(parsed.remainder.includes('Vegetative'));
+  });
+
+  it('keeps descriptions without a delimiter prefix intact', () => {
+    const parsed = splitEmbeddedInvoiceRateCode('Vegetative hauling line item');
+    assert.equal(parsed.rateCode, null);
+    assert.equal(parsed.remainder, 'Vegetative hauling line item');
+  });
+
+  it('splits space-delimited leading rate codes (Williamson raw row)', () => {
+    const parsed = splitEmbeddedInvoiceRateCode(
+      '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894 CYD 6.90',
+    );
+    assert.equal(parsed.rateCode, '1A');
+    assert.ok(parsed.remainder.includes('Vegetative Collect'));
+  });
+
+  it('splits colon-separated leading codes', () => {
+    const parsed = splitEmbeddedInvoiceRateCode('1A: Vegetative work');
+    assert.equal(parsed.rateCode, '1A');
+    assert.equal(parsed.remainder, 'Vegetative work');
+  });
+
+  it('does not treat plain quantities as embedded rate tokens', () => {
+    assert.equal(splitEmbeddedInvoiceRateCode('43894 Vegetative').rateCode, null);
+    assert.equal(splitEmbeddedInvoiceRateCode('994 EA work').rateCode, null);
+    assert.equal(splitEmbeddedInvoiceRateCode('43,894.00 Vegetative').rateCode, null);
+    assert.equal(splitEmbeddedInvoiceRateCode('916 CYD').rateCode, null);
+  });
+
+  it('rejects ordinal-looking digit+letter tokens', () => {
+    assert.equal(splitEmbeddedInvoiceRateCode('1st Invoice line').rateCode, null);
+    assert.equal(isPlausibleEmbeddedInvoiceRateCode('1st'), false);
+  });
+});
+
+describe('buildInvoiceLedgerLineDisplay', () => {
+  it('matches operational Williamson-style billed lines (rate, description stripped, qty, money)', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_code: '43,894',
+      line_description:
+        '1A- Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      quantity: 43_894,
+      unit_price: 6.9,
+      line_total: 302_868.6,
+    });
+    assert.equal(row.rateCode, '1A');
+    assert.equal(
+      row.description,
+      'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+    );
+    assert.equal(row.quantity, '43,894');
+    assert.equal(row.unitPrice, '$6.90');
+    assert.equal(row.lineTotal, '$302,868.60');
+  });
+
+  it('parses six invoice-style prefixes including 1A with tight hyphen spacing', () => {
+    const exact = [
+      '1A- Vegetative Collect Remove Haul…',
+      '1B - Vegetative Collect Remove Haul…',
+      '1E - Vegetative Collect Remove Haul…',
+      '1F - Vegetative Collect Remove Haul…',
+      '5A - Tree Operations Hazardous Tree Removal 6-12 in',
+      '6A - Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+    ];
+    const expectations = ['1A', '1B', '1E', '1F', '5A', '6A'];
+    for (let index = 0; index < exact.length; index += 1) {
+      const row = buildInvoiceLedgerLineDisplay({
+        line_description: exact[index],
+        quantity: 1,
+        unit_price: 10,
+        line_total: 10,
+      });
+      assert.equal(row.rateCode, expectations[index], exact[index]);
+    }
+  });
+
+  it('does not surface billing_rate_key when description embeds a rate code (duplicate or alternate token)', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: '1A- Vegetative work',
+      billing_rate_key: '5B',
+      quantity: 100,
+      unit_price: 2,
+      line_total: 200,
+    });
+    assert.equal(row.rateCode, '1A');
+    assert.equal(row.description, 'Vegetative work');
+  });
+
+  it('strips prefixes so descriptions omit the extracted rate tokens', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: '5A - Tree Operations Hazardous Tree Removal 6-12 in',
+      quantity: 1,
+      unit_price: 10,
+      line_total: 10,
+    });
+    assert.equal(row.rateCode, '5A');
+    assert.equal(row.description, 'Tree Operations Hazardous Tree Removal 6-12 in');
+    assert.ok(!row.description.includes('5A'));
+  });
+
+  it('recovers rate code from raw_text when description omits the code and structured line_code is quantity', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_code: '43,894',
+      line_description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS',
+      raw_text:
+        '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD 6.90 302,868.60',
+      quantity: 43_894,
+      unit_price: 6.9,
+      line_total: 302_868.6,
+    });
+    assert.equal(row.rateCode, '1A');
+    assert.equal(
+      row.description,
+      'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS',
+    );
+  });
+
+  it('recovers 6A from raw_text when line_code matches EA quantity leakage', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_code: '994',
+      line_description: 'Tree Operations Hazardous Hanging Limb Removal',
+      raw_text: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00 79,520.00',
+      quantity: 994,
+      unit_price: 80,
+      line_total: 79_520,
+    });
+    assert.equal(row.rateCode, '6A');
+    assert.equal(row.description, 'Tree Operations Hazardous Hanging Limb Removal');
+  });
+
+  it('prefers structured line_description when absent line_code relies on raw_text recovery', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: 'Vegetative Collect Remove Haul',
+      raw_text: '1B Vegetative Collect Remove Haul 12,250 CYD 7.90',
+      quantity: 12_250,
+      unit_price: 7.9,
+      line_total: 96_775,
+    });
+    assert.equal(row.rateCode, '1B');
+    assert.equal(row.description, 'Vegetative Collect Remove Haul');
+  });
+
+  it('recovers rate code embedded mid line_description when structured line_code is numeric quantity', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_code: '12,250',
+      line_description: 'Additional 1B - Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS',
+      quantity: 12_250,
+      unit_price: 7.9,
+      line_total: 96_775,
+    });
+    assert.equal(row.rateCode, '1B');
+  });
+
+  it('recovers rate code from description field when line_description is absent', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      description: '1E - Vegetative Collect Remove Haul Rural Areas ROW to DMS',
+      line_code: '3099',
+      quantity: 3099,
+      unit_price: 13.5,
+      line_total: 41_836.5,
+    });
+    assert.equal(row.rateCode, '1E');
+  });
+
+  it('recovers rate code from text when line_description omits code', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: 'Tree Operations Hazardous Hanging Limb Removal',
+      text: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 LH',
+      line_code: '994',
+      quantity: 994,
+      unit_price: 80,
+      line_total: 79_520,
+    });
+    assert.equal(row.rateCode, '6A');
+  });
+
+  it('recovers 5A when embedded after other words in line_description', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: 'Billing 5A - Tree Operations Hazardous Tree Removal 6-12 in',
+      quantity: 5,
+      unit_price: 95,
+      line_total: 475,
+    });
+    assert.equal(row.rateCode, '5A');
+  });
+
+  it('keeps space-delimited 5A Williamson tree line with clean description column', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_code: '5A',
+      line_description: 'Tree Operations Hazardous Tree Removal',
+      raw_text: '5A Tree Operations Hazardous Tree Removal 5.00 EA 95.00 475.00',
+      quantity: 5,
+      unit_price: 95,
+      line_total: 475,
+    });
+    assert.equal(row.rateCode, '5A');
+    assert.equal(row.description, 'Tree Operations Hazardous Tree Removal');
+  });
+
+  it('recovers unit price from raw tail when typed unit echoes quantity ($ in tail)', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: 'Vegetative Collect …',
+      line_code: '43,894',
+      quantity: 43_894,
+      unit_price: 43_894,
+      line_total: 302_868.6,
+      raw_text:
+        '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD $6.90 $302,868.60',
+    });
+    assert.equal(row.unitPrice, '$6.90');
+    assert.equal(row.lineTotal, '$302,868.60');
+  });
+
+  it('does not invent a rate code from a quantity-prefixed raw_text line', () => {
+    const row = buildInvoiceLedgerLineDisplay({
+      line_description: 'Vegetative',
+      raw_text: '43894 Vegetative trailing text',
+      quantity: 43_894,
+      unit_price: 1,
+      line_total: 43_894,
+    });
+    assert.equal(row.rateCode, 'Unavailable');
+  });
+
+  it('Williamson reprocess: rate from raw_text_for_display, description column preserved (2026-002 six lines)', () => {
+    const specs = [
+      {
+        want: '1A',
+        line_description:
+          'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        raw_text: '43,894.00 ROW $6.90 $302,868.60',
+        full:
+          '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD $6.90 $302,868.60',
+        leak: '43,894',
+        qty: 43_894,
+        up: 6.9,
+        tot: 302_868.6,
+      },
+      {
+        want: '1B',
+        line_description:
+          'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+        raw_text: '12,250.00 ROW $7.90 $96,775.00',
+        full:
+          '1B Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 12,250.00 CYD $7.90 $96,775.00',
+        leak: '12,250',
+        qty: 12_250,
+        up: 7.9,
+        tot: 96_775,
+      },
+      {
+        want: '1E',
+        line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+        raw_text: '3,099.00 ROW $13.50 $41,836.50',
+        full:
+          '1E Vegetative Collect Remove Haul Rural Areas ROW to DMS 3,099.00 CYD $13.50 $41,836.50',
+        leak: '3,099',
+        qty: 3099,
+        up: 13.5,
+        tot: 41_836.5,
+      },
+      {
+        want: '1F',
+        line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        raw_text: '916.00 ROW $14.50 $13,282.00',
+        full:
+          '1F Vegetative Collect Remove Haul Rural Areas ROW to DMS 916.00 CYD $14.50 $13,282.00',
+        leak: '916',
+        qty: 916,
+        up: 14.5,
+        tot: 13_282,
+      },
+      {
+        want: '5A',
+        line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+        raw_text: '5.00 EA $95.00 $475.00',
+        full: '5A Tree Operations Hazardous Tree Removal 5.00 EA $95.00 $475.00',
+        leak: '5',
+        qty: 5,
+        up: 95,
+        tot: 475,
+      },
+      {
+        want: '6A',
+        line_description: 'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+        raw_text: '994.00 LH $80.00 $79,520.00',
+        full: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 LH $80.00 $79,520.00',
+        leak: '994',
+        qty: 994,
+        up: 80,
+        tot: 79_520,
+      },
+    ];
+    for (const spec of specs) {
+      const row = buildInvoiceLedgerLineDisplay({
+        line_code: spec.leak,
+        line_description: spec.line_description,
+        raw_text: spec.raw_text,
+        raw_text_for_display: spec.full,
+        quantity: spec.qty,
+        unit_price: spec.up,
+        line_total: spec.tot,
+      });
+      assert.equal(row.rateCode, spec.want, spec.want);
+      assert.equal(row.description, spec.line_description, spec.want);
+    }
+  });
+});
+
+describe('normalizeInvoiceSurfaceLineItem passthrough and InvoiceSurface ledger mapping', () => {
+  const executionTraceMinimal = {
+    facts: {},
+    decisions: [],
+    flow_tasks: [],
+    generated_at: '2026-03-23T14:00:00Z',
+    engine_version: 'document_intelligence:v2',
+    classification: {
+      label: 'Invoice',
+      family: 'invoice',
+    },
+  } as Record<string, unknown>;
+
+  it('preserves raw_text / rawText / line_text / text on normalized surface lines', () => {
+    const raw = '1A Vegetative Collect Remove Haul 43,894 CYD';
+    const model = buildModel({
+      documentId: 'inv-surface-passthrough',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-PASS',
+            line_items: [
+              {
+                line_code: '43894',
+                line_description: 'Vegetative Collect Remove Haul',
+                quantity: 43_894,
+                unit_price: 6.9,
+                line_total: 302_868.6,
+                raw_text: raw,
+                rawText: 'camel-raw-unused-in-split',
+                line_text: 'line-text-slot',
+                text: 'text-slot',
+              },
+            ],
+          },
+        },
+        extraction: {
+          evidence_v1: {},
+        },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const line = model.invoiceExtraction?.lineItems?.[0];
+    assert.ok(line, 'invoice surface line items');
+    assert.equal(line.raw_text, raw);
+    assert.equal(line.rawText, 'camel-raw-unused-in-split');
+    assert.equal(line.line_text, 'line-text-slot');
+    assert.equal(line.text, 'text-slot');
+    assert.equal(line.lineCode, '1A');
+
+    const mapped = invoiceSurfaceLineItemToLedgerRecord(line as Record<string, unknown>);
+    assert.equal(mapped.raw_text, raw);
+    assert.equal(mapped.line_text, 'line-text-slot');
+    const row = buildInvoiceLedgerLineDisplay(mapped);
+    assert.equal(row.rateCode, '1A');
+    assert.equal(row.quantity, '43,894');
+  });
+
+  it('preserves raw_text_for_display through typed line_items onto invoice extraction', () => {
+    const displayFull =
+      '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD $6.90 $302,868.60';
+    const model = buildModel({
+      documentId: 'inv-raw-display',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: '2026-002',
+            line_items: [
+              {
+                line_code: '43,894',
+                line_description:
+                  'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+                quantity: 43_894,
+                unit_price: 6.9,
+                line_total: 302_868.6,
+                raw_text: '43,894.00 ROW $6.90 $302,868.60',
+                raw_text_for_display: displayFull,
+              },
+            ],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const line = model.invoiceExtraction?.lineItems?.[0];
+    assert.ok(line);
+    assert.equal(line?.raw_text_for_display, displayFull);
+    assert.equal(line?.lineCode, '1A');
+    const mapped = invoiceSurfaceLineItemToLedgerRecord(line as Record<string, unknown>);
+    assert.equal(mapped.raw_text_for_display, displayFull);
+    const row = buildInvoiceLedgerLineDisplay(mapped);
+    assert.equal(row.rateCode, '1A');
+    assert.equal(
+      row.description,
+      'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+    );
+  });
+
+  it('Williamson 2026-002 typed_fields split: fuller description column wins over truncated line_description', () => {
+    const rows = [
+      {
+        wantCode: '1A',
+        wantDesc: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        fact: {
+          line_code: '43,894',
+          line_description:
+            'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS',
+          description:
+            'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+          quantity: 43_894,
+          unit_price: 6.9,
+          line_total: 302_868.6,
+          raw_text: '43,894.00 ROW $6.90 $302,868.60',
+          raw_text_for_display:
+            '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD $6.90 $302,868.60',
+        },
+      },
+      {
+        wantCode: '1B',
+        wantDesc: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+        fact: {
+          line_code: '12,250',
+          line_description:
+            'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS',
+          description:
+            'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+          quantity: 12_250,
+          unit_price: 7.9,
+          line_total: 96_775,
+          raw_text: '12,250.00 ROW $7.90 $96,775.00',
+          raw_text_for_display:
+            '1B Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 12,250.00 CYD $7.90 $96,775.00',
+        },
+      },
+      {
+        wantCode: '1E',
+        wantDesc: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+        fact: {
+          line_code: '3,099',
+          line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS',
+          description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+          quantity: 3099,
+          unit_price: 13.5,
+          line_total: 41_836.5,
+          raw_text: '3,099.00 ROW $13.50 $41,836.50',
+          raw_text_for_display:
+            '1E Vegetative Collect Remove Haul Rural Areas ROW to DMS 3,099.00 CYD $13.50 $41,836.50',
+        },
+      },
+      {
+        wantCode: '1F',
+        wantDesc: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        fact: {
+          line_code: '916',
+          line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS',
+          description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+          quantity: 916,
+          unit_price: 14.5,
+          line_total: 13_282,
+          raw_text: '916.00 ROW $14.50 $13,282.00',
+          raw_text_for_display:
+            '1F Vegetative Collect Remove Haul Rural Areas ROW to DMS 916.00 CYD $14.50 $13,282.00',
+        },
+      },
+      /** Single-column description (often how 5A is persisted — no competing truncated line_description). */
+      {
+        wantCode: '5A',
+        wantDesc: 'Tree Operations Hazardous Tree Removal 6-12 in',
+        fact: {
+          line_code: '5',
+          line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+          quantity: 5,
+          unit_price: 95,
+          line_total: 475,
+          raw_text: '5.00 EA $95.00 $475.00',
+          raw_text_for_display: '5A Tree Operations Hazardous Tree Removal 5.00 EA $95.00 $475.00',
+        },
+      },
+      {
+        wantCode: '6A',
+        wantDesc: 'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+        fact: {
+          line_code: '994',
+          line_description: 'Tree Operations Hazardous Hanging Limb Removal',
+          description: 'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+          quantity: 994,
+          unit_price: 80,
+          line_total: 79_520,
+          raw_text: '994.00 LH $80.00 $79,520.00',
+          raw_text_for_display:
+            '6A Tree Operations Hazardous Hanging Limb Removal 994.00 LH $80.00 $79,520.00',
+        },
+      },
+    ] as const;
+
+    const model = buildModel({
+      documentId: 'inv-williamson-2026-002-split',
+      documentType: 'invoice',
+      documentName: 'inv.xlsx',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: '2026-002',
+            line_items: rows.map((r) => ({ ...r.fact })),
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    rows.forEach((row, lineIndex) => {
+      const display = buildInvoiceLedgerLineDisplay(row.fact as Record<string, unknown>);
+      assert.equal(display.rateCode, row.wantCode);
+      assert.equal(display.description, row.wantDesc);
+
+      const surfaceLine = model.invoiceExtraction?.lineItems?.[lineIndex];
+      assert.ok(surfaceLine, row.wantCode);
+      const surfaced = buildInvoiceLedgerLineDisplay(
+        invoiceSurfaceLineItemToLedgerRecord(surfaceLine as Record<string, unknown>),
+      );
+      assert.equal(surfaced.rateCode, row.wantCode);
+      assert.equal(surfaced.description, row.wantDesc);
+    });
+  });
+
+  it('recovers billed line display from the exact stored Williamson 2026-002 row shape plus page text', () => {
+    const storedRows = [
+      {
+        unit: null,
+        total: 302_868.6,
+        quantity: 43_894,
+        raw_text: '43,894.00 $6.90 $302,868.60 Neighborhoods ROW to DMS 0 to 15',
+        line_code: null,
+        line_total: 302_868.6,
+        unit_price: 43_894,
+        description: '$6.90 Neighborhoods ROW to DMS 0 to 15',
+        billing_rate_key: 'desc:6 90 neighborhoods row to dms 0 to 15',
+        line_description: '$6.90 Neighborhoods ROW to DMS 0 to 15',
+        description_match_key: '6 90 neighborhoods row to dms 0 to 15',
+      },
+      {
+        unit: null,
+        total: 96_775,
+        quantity: 12_250,
+        raw_text: '12,250.00 $7.90 $96,775.00 Neighborhoods ROW to DMS 16 to 30',
+        line_code: null,
+        line_total: 96_775,
+        unit_price: 12_250,
+        description: '$7.90 Neighborhoods ROW to DMS 16 to 30',
+        billing_rate_key: 'desc:7 90 neighborhoods row to dms 16 to 30',
+        line_description: '$7.90 Neighborhoods ROW to DMS 16 to 30',
+        description_match_key: '7 90 neighborhoods row to dms 16 to 30',
+      },
+      {
+        unit: null,
+        total: 13_282,
+        quantity: 916,
+        raw_text: '916.00 $14.50 $13,282.00 to 30',
+        line_code: null,
+        line_total: 13_282,
+        unit_price: 916,
+        description: '$14.50 to 30',
+        billing_rate_key: 'desc:14 50 to 30',
+        line_description: '$14.50 to 30',
+        description_match_key: '14 50 to 30',
+      },
+      {
+        unit: null,
+        total: 475,
+        quantity: 5,
+        raw_text: '5.00 5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00 $475.00',
+        line_code: null,
+        line_total: 475,
+        unit_price: 5,
+        description: '5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00',
+        billing_rate_key: 'desc:5a tree operations hazardous tree removal 6 12 in 95 00',
+        line_description: '5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00',
+        description_match_key: '5a tree operations hazardous tree removal 6 12 in 95 00',
+      },
+      {
+        unit: null,
+        total: 79_520,
+        quantity: 994,
+        raw_text: '994 $80.00 $79,520.00 tree',
+        line_code: null,
+        line_total: 79_520,
+        unit_price: 994,
+        description: '$80.00 tree',
+        billing_rate_key: 'desc:80 00 tree',
+        line_description: '$80.00 tree',
+        description_match_key: '80 00 tree',
+      },
+    ];
+    const pageText = [
+      'INVOICE',
+      'Aftermath Disaster Recovery, Inc.',
+      'Williamson County Highway Dept',
+      '302 Beasley Dr',
+      'Due Date',
+      'Emergency Agmt for Disaster Debris Removal Services',
+      'Q Quantity Description Unit Price Line Total',
+      '1A- Vegetative Collect Remove Haul Unincorporated',
+      '43,894.00 $6.90 $302,868.60',
+      'Neighborhoods ROW to DMS 0 to 15',
+      '1B - Vegetative Collect Remove Haul Unincorporated',
+      '12,250.00 $7.90 $96,775.00',
+      'Neighborhoods ROW to DMS 16 to 30',
+      '1E - Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to',
+      '3,099.00 $13.50 $41,836.50',
+      '15',
+      '1F - Vegetative Collect Remove Haul Rural Areas ROW to DMS 16',
+      '916.00 $14.50 $13,282.00',
+      'to 30',
+      '5.00 5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00 $475.00',
+      '6A - Tree Operations Hazardous Hanging Limb Removal >2" per',
+      '994 $80.00 $79,520.00',
+      'tree',
+      'Subtotal $ 534,757.10',
+    ].join('\n');
+
+    const model = buildModel({
+      documentId: 'inv-williamson-2026-002-stored-shape',
+      documentType: 'invoice',
+      documentName: 'Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf',
+      documentTitle: 'Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: '2026-002',
+            line_items: storedRows,
+          },
+        },
+        extraction: {
+          evidence_v1: {
+            page_text: [{ page_number: 1, source_method: 'pdf_text', text: pageText }],
+          },
+        },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const expectedCodes = ['1A', '1B', '1E', '1F', '5A', '6A'];
+    const expectedDescriptions = [
+      'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+      'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+      'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+      'Tree Operations Hazardous Tree Removal 6-12 in',
+      'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+    ];
+
+    const surfaceItems = model.invoiceExtraction?.lineItems ?? [];
+    assert.equal(surfaceItems.length, 6);
+    assert.deepEqual(surfaceItems.map((item) => item.lineCode), expectedCodes);
+    surfaceItems.forEach((item, index) => {
+      const row = buildInvoiceLedgerLineDisplay(
+        invoiceSurfaceLineItemToLedgerRecord(item as Record<string, unknown>),
+      );
+      assert.equal(row.rateCode, expectedCodes[index]);
+      assert.equal(row.description, expectedDescriptions[index]);
+      assert.equal(/INVOICE|Aftermath|Williamson County|Due Date|Emergency Agmt/.test(row.description), false);
+    });
+
+    const factItems = model.facts.find((fact) =>
+      ['line_items', 'invoice_line_items'].includes(fact.fieldKey),
+    )?.normalizedValue;
+    assert.ok(Array.isArray(factItems));
+    assert.equal(factItems.length, 6);
+    factItems.forEach((item, index) => {
+      const row = buildInvoiceLedgerLineDisplay(item as Record<string, unknown>);
+      assert.equal(row.rateCode, expectedCodes[index]);
+      assert.equal(row.description, expectedDescriptions[index]);
+      assert.equal(/INVOICE|Aftermath|Williamson County|Due Date|Emergency Agmt/.test(row.description), false);
+    });
+  });
+
+  it('cleans invoice facts display while preserving the recovered rate lines table source', () => {
+    const model = buildModel({
+      documentId: 'inv-facts-cleanup',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: '2026-002',
+            invoice_date: '2026-04-03',
+            invoice_status: 'OPEN',
+            section: 'pdf:text:p1:b9',
+            normalized: 'helper',
+            text: 'pdf:text:p1:b10',
+            raw_text: 'raw helper text',
+            period_start: '2026-02-23',
+            period_end: '2026-03-18',
+            billing_period: '2/23/26 through 3/18/2026',
+            period_through: '2026-03-18',
+            periodFrom: '2026-02-23',
+            periodTo: '2026-03-18',
+            subtotal_amount: 534_757.1,
+            current_amount_due: 534_757.1,
+            line_item_support_present: true,
+            line_item_count: 6,
+            line_item_codes: ['1A', '1B', '1E', '1F', '5A', '6A'],
+            line_items: [
+              {
+                line_code: '1A',
+                line_description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+                quantity: 43_894,
+                unit_price: 6.9,
+                line_total: 302_868.6,
+              },
+              {
+                line_code: '1B',
+                line_description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+                quantity: 12_250,
+                unit_price: 7.9,
+                line_total: 96_775,
+              },
+              {
+                line_code: '1E',
+                line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+                quantity: 3099,
+                unit_price: 13.5,
+                line_total: 41_836.5,
+              },
+              {
+                line_code: '1F',
+                line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+                quantity: 916,
+                unit_price: 14.5,
+                line_total: 13_282,
+              },
+              {
+                line_code: '5A',
+                line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+                quantity: 5,
+                unit_price: 95,
+                line_total: 475,
+              },
+              {
+                line_code: '6A',
+                line_description: 'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+                quantity: 994,
+                unit_price: 80,
+                line_total: 79_520,
+              },
+            ],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const factKeys = model.facts.map((fact) => fact.fieldKey);
+    assert.ok(factKeys.includes('invoice_number'));
+    assert.ok(factKeys.includes('invoice_date'));
+    assert.ok(factKeys.includes('billed_amount'));
+    assert.ok(factKeys.includes('period_start'));
+    assert.ok(factKeys.includes('period_end'));
+    assert.ok(factKeys.includes('line_item_count'));
+    assert.ok(factKeys.some((key) => ['line_items', 'invoice_line_items'].includes(key)));
+
+    for (const hidden of [
+      'invoice_status',
+      'section',
+      'normalized',
+      'text',
+      'raw_text',
+      'billing_period',
+      'period_through',
+      'period_from',
+      'period_to',
+      'subtotal_amount',
+      'line_item_support_present',
+      'line_item_codes',
+    ]) {
+      assert.equal(factKeys.includes(hidden), false, hidden);
+    }
+
+    const servicePeriod = model.groups.find((group) => group.key === 'billing_period');
+    assert.equal(servicePeriod?.label, 'Service Period');
+    assert.deepEqual(servicePeriod?.facts.map((fact) => fact.fieldKey), ['period_start', 'period_end']);
+
+    const rateLines = model.groups.find((group) => group.key === 'rate_lines');
+    assert.deepEqual(rateLines?.facts.map((fact) => fact.fieldKey), ['line_item_count', 'line_items']);
+    const lineItems = rateLines?.facts.find((fact) =>
+      ['line_items', 'invoice_line_items'].includes(fact.fieldKey),
+    )?.normalizedValue;
+    assert.ok(Array.isArray(lineItems));
+    assert.equal(lineItems.length, 6);
+    assert.deepEqual(
+      lineItems.map((item) => buildInvoiceLedgerLineDisplay(item as Record<string, unknown>).rateCode),
+      ['1A', '1B', '1E', '1F', '5A', '6A'],
+    );
+  });
+
+  it('recovers 1A / 1B / 1E / 1F / 5A / 6A through surface normalization + InvoiceSurface ledger record', () => {
+    const lineSpecs = [
+      {
+        expectCode: '1A',
+        raw: '1A Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 43,894.00 CYD 6.90',
+        desc: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        leak: '43894',
+        qty: 43_894,
+        unitPrice: 6.9,
+        total: 302_868.6,
+      },
+      {
+        expectCode: '1B',
+        raw: '1B Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 12,250.00 CYD 7.90',
+        desc: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 16 to 30',
+        leak: '12250',
+        qty: 12_250,
+        unitPrice: 7.9,
+        total: 96_775,
+      },
+      {
+        expectCode: '1E',
+        raw: '1E Vegetative Collect Remove Haul Rural Areas ROW to DMS 3,099.00 CYD 13.50',
+        desc: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 0 to 15',
+        leak: '3099',
+        qty: 3099,
+        unitPrice: 13.5,
+        total: 41_836.5,
+      },
+      {
+        expectCode: '1F',
+        raw: '1F Vegetative Collect Remove Haul Rural Areas ROW to DMS 916.00 CYD 14.50',
+        desc: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        leak: '916',
+        qty: 916,
+        unitPrice: 14.5,
+        total: 13_282,
+      },
+      {
+        expectCode: '5A',
+        raw: '5A Tree Operations Hazardous Tree Removal 5.00 EA 95.00',
+        desc: 'Tree Operations Hazardous Tree Removal 6-12 in',
+        leak: '5',
+        qty: 5,
+        unitPrice: 95,
+        total: 475,
+      },
+      {
+        expectCode: '6A',
+        raw: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00',
+        desc: 'Tree Operations Hazardous Hanging Limb Removal >2" per tree',
+        leak: '994',
+        qty: 994,
+        unitPrice: 80,
+        total: 79_520,
+      },
+    ];
+
+    const model = buildModel({
+      documentId: 'inv-williamson-six-surface',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: '2026-002',
+            line_items: lineSpecs.map((spec) => ({
+              line_code: spec.leak,
+              line_description: spec.desc,
+              quantity: spec.qty,
+              unit_price: spec.unitPrice,
+              line_total: spec.total,
+              raw_text: spec.raw,
+            })),
+          },
+        },
+        extraction: {
+          evidence_v1: {},
+        },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const items = model.invoiceExtraction?.lineItems ?? [];
+    assert.equal(items.length, 6);
+    for (let i = 0; i < lineSpecs.length; i += 1) {
+      assert.equal(items[i]?.raw_text, lineSpecs[i].raw, lineSpecs[i].expectCode);
+      const row = buildInvoiceLedgerLineDisplay(
+        invoiceSurfaceLineItemToLedgerRecord(items[i] as Record<string, unknown>),
+      );
+      assert.equal(row.rateCode, lineSpecs[i].expectCode);
+      assert.equal(row.description, lineSpecs[i].desc);
+    }
+  });
+});
+
+describe('invoice unit price (no generic rate as unit price)', () => {
+  const executionTraceMinimal = {
+    facts: {},
+    decisions: [],
+    flow_tasks: [],
+    generated_at: '2026-03-23T14:00:00Z',
+    engine_version: 'document_intelligence:v2',
+    classification: {
+      label: 'Invoice',
+      family: 'invoice',
+    },
+  } as Record<string, unknown>;
+
+  it('surface line uses unit_price over misused rate; string $6.90 parses; unitRate and unit_rate work', () => {
+    const model = buildModel({
+      documentId: 'inv-unit-price',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-U',
+            line_items: [
+              {
+                line_description: 'Vegetative',
+                quantity: 43_894,
+                rate: 43_894,
+                unit_price: 6.9,
+                line_total: 302_868.6,
+                raw_text: '1A Vegetative 43,894 CYD 6.90',
+              },
+              {
+                line_description: 'Trees',
+                quantity: 5,
+                rate: 999,
+                unitRate: 95,
+                line_total: 475,
+              },
+              {
+                line_description: 'Dollar string',
+                quantity: 1,
+                rate: 1,
+                unit_price: '$6.90',
+                line_total: 6.9,
+              },
+              {
+                line_description: 'Snake unit_rate',
+                quantity: 2,
+                rate: 50_000,
+                unit_rate: 12.5,
+                line_total: 25,
+              },
+            ],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const items = model.invoiceExtraction?.lineItems ?? [];
+    assert.equal(items[0]?.unitPrice, 6.9);
+    assert.equal(items[1]?.unitPrice, 95);
+    assert.equal(items[2]?.unitPrice, 6.9);
+    assert.equal(items[3]?.unitPrice, 12.5);
+
+    assert.equal(
+      buildInvoiceLedgerLineDisplay(invoiceSurfaceLineItemToLedgerRecord(items[0] as Record<string, unknown>))
+        .unitPrice,
+      '$6.90',
+    );
+    assert.equal(
+      buildInvoiceLedgerLineDisplay(invoiceSurfaceLineItemToLedgerRecord(items[2] as Record<string, unknown>))
+        .unitPrice,
+      '$6.90',
+    );
+  });
+
+  it('surface line does not treat generic rate as unit price when unit_price absent', () => {
+    const model = buildModel({
+      documentId: 'inv-rate-only',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-RO',
+            line_items: [
+              {
+                line_description: 'Misaligned row',
+                quantity: 43_894,
+                rate: 43_894,
+                line_total: 302_868.6,
+              },
+            ],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    const line = model.invoiceExtraction?.lineItems?.[0];
+    assert.ok(line);
+    assert.equal(line.unitPrice, undefined);
+    const row = buildInvoiceLedgerLineDisplay(invoiceSurfaceLineItemToLedgerRecord(line as Record<string, unknown>));
+    assert.equal(row.unitPrice, 'Unavailable');
+    assert.equal(row.lineTotal, '$302,868.60');
+  });
+});
+
+describe('invoice party labels in view model', () => {
+  it('uses contractor and client field labels and splits embedded rate codes for invoice lines', () => {
+    const model = buildModel({
+      documentId: 'inv-party-labels',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-100',
+            invoice_date: '2026-01-05',
+            vendor_name: 'Aftermath Disaster Recovery, Inc.',
+            client_name: 'Williamson County, Tennessee',
+            line_items: [
+              {
+                line_code: '43894',
+                billing_rate_key: '999Z',
+                line_description:
+                  '1A- Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+                quantity: 43_894,
+                unit_price: 6.9,
+                line_total: 302_868.6,
+              },
+            ],
+          },
+        },
+        extraction: {
+          evidence_v1: {},
+        },
+      },
+      executionTrace: {
+        facts: {
+          invoice_number: 'INV-100',
+          vendor_name: 'Aftermath Disaster Recovery, Inc.',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        classification: {
+          label: 'Invoice',
+          family: 'invoice',
+        },
+      },
+    });
+
+    const contractor = model.facts.find((fact) => fact.fieldKey === 'contractor_name');
+    const client = model.facts.find((fact) => fact.fieldKey === 'client_name');
+    assert.ok(contractor, 'contractor fact present');
+    assert.ok(client, 'client fact present');
+    assert.equal(contractor?.fieldLabel, 'Contractor');
+    assert.equal(client?.fieldLabel, 'Client');
+    assert.equal(contractor?.displayValue, 'Aftermath Disaster Recovery');
+
+    assert.equal(model.family, 'invoice');
+    const line = model.invoiceExtraction?.lineItems?.[0];
+    assert.ok(line);
+    assert.equal(line?.lineCode, '1A');
+    assert.ok(line?.lineDescription?.startsWith('Vegetative'));
+    assert.equal(line?.billingRateKey, undefined);
+  });
+});
+
+describe('invoice period formatting', () => {
+  it('formats US short range for ISO endpoints', () => {
+    assert.equal(
+      formatInvoiceServicePeriodRangeFromEndpoints('2026-02-22', '2026-03-17'),
+      'Feb 22, 2026 → Mar 17, 2026',
+    );
+  });
+});
+
+describe('deriveLedgerInsightSignals', () => {
+  it('returns invoice insights for a reconciled invoice', () => {
+    const model = buildModel({
+      documentId: 'inv-insights-clean',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-100',
+            vendor_name: 'Vendor Co',
+            client_name: 'Client Co',
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: {
+        facts: {
+          invoice_number: 'INV-100',
+          vendor_name: 'Vendor Co',
+          client_name: 'Client Co',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        classification: { label: 'Invoice', family: 'invoice' },
+      },
+    });
+    const signals = deriveLedgerInsightSignals(model, []);
+    assert.equal(signals?.isInvoiceInsights, true);
+    assert.equal(signals?.missingInvoiceParties, false);
+    assert.equal(signals?.crossDocComparisonDebt, false);
+    assert.equal(signals?.needsReviewFactCount >= 0, true);
+  });
+
+  it('flags missing invoice parties', () => {
+    const model = buildModel({
+      documentId: 'inv-insights-missing-parties',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: { typed_fields: { invoice_number: 'INV-1' } },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: {
+        facts: { invoice_number: 'INV-1' },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        classification: { label: 'Invoice', family: 'invoice' },
+      },
+    });
+    const signals = deriveLedgerInsightSignals(model, []);
+    assert.equal(signals?.missingInvoiceParties, true);
+  });
+
+  it('flags cross-document contract comparison debt', () => {
+    const model = buildModel({
+      documentId: 'inv-insights-xdoc',
+      documentType: 'invoice',
+      documentName: 'inv.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-100',
+            vendor_name: 'Vendor Co',
+            client_name: 'Client Co',
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: {
+        facts: {
+          invoice_number: 'INV-100',
+          vendor_name: 'Vendor Co',
+          client_name: 'Client Co',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        classification: { label: 'Invoice', family: 'invoice' },
+      },
+    });
+    const signals = deriveLedgerInsightSignals(model, [
+      {
+        id: 'cmp-1',
+        check: 'Contract unit rates',
+        status: 'missing',
+        leftLabel: 'Contract',
+        leftValue: null,
+        rightLabel: 'Invoice',
+        rightValue: null,
+        explanation: 'No linked contract row.',
+      },
+    ]);
+    assert.equal(signals?.crossDocComparisonDebt, true);
   });
 });

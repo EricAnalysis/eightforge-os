@@ -32,8 +32,8 @@ export function ApprovalHistoryTimeline({
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <Clock className="w-12 h-12 text-gray-300 mb-3" />
-        <p className="text-gray-500 text-sm">No approval history yet</p>
+        <Clock className="mb-3 h-12 w-12 text-[var(--ef-text-soft)]" />
+        <p className="text-sm text-[var(--ef-text-muted)]">No approval history yet</p>
       </div>
     );
   }
@@ -71,22 +71,20 @@ export function ApprovalHistoryTimeline({
 
       {/* Timeline */}
       <div className="relative">
-        <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+        <div className="absolute bottom-0 left-6 top-0 w-0.5 bg-[var(--ef-border-subtle)]" />
 
         <div className="space-y-6">
-          {filteredEvents.map((event, index) => (
+          {filteredEvents.map((event) => (
             <TimelineItem
               key={event.id}
               event={event}
-              isFirst={index === 0}
-              isLast={index === filteredEvents.length - 1}
             />
           ))}
         </div>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between border-t border-[var(--ef-border-subtle)] pt-4 text-xs text-[var(--ef-text-muted)]">
         <span>
           {filteredEvents.length} event{filteredEvents.length !== 1 ? 's' : ''}
         </span>
@@ -101,30 +99,28 @@ export function ApprovalHistoryTimeline({
 
 interface TimelineItemProps {
   event: ApprovalTimelineEvent;
-  isFirst: boolean;
-  isLast: boolean;
 }
 
 /**
  * Individual timeline event
  */
-function TimelineItem({ event, isFirst, isLast }: TimelineItemProps) {
+function TimelineItem({ event }: TimelineItemProps) {
   const severityColors: Record<string, string> = {
-    critical: 'bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800',
-    warning: 'bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800',
-    info: 'bg-blue-100 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800',
+    critical: 'bg-[var(--ef-critical-bg)] dark:bg-[var(--ef-critical-bg)] border-[var(--ef-critical-a20)] dark:border-[var(--ef-critical-a40)]',
+    warning: 'bg-[var(--ef-warning-bg)] dark:bg-[var(--ef-warning-bg)] border-[var(--ef-warning-a20)] dark:border-[var(--ef-warning-a40)]',
+    info: 'bg-[var(--ef-purple-primary-a10)] dark:bg-[var(--ef-purple-primary-a10)] border-[var(--ef-purple-primary-a20)] dark:border-[var(--ef-purple-primary-a30)]',
   };
 
   const severityTextColors: Record<string, string> = {
-    critical: 'text-red-900 dark:text-red-100',
-    warning: 'text-amber-900 dark:text-amber-100',
-    info: 'text-blue-900 dark:text-blue-100',
+    critical: 'text-[var(--ef-critical)] dark:text-[var(--ef-critical-soft)]',
+    warning: 'text-[var(--ef-warning)] dark:text-[var(--ef-warning-soft)]',
+    info: 'text-[var(--ef-purple-primary)] dark:text-[var(--ef-purple-glow)]',
   };
 
   const severityDotColors: Record<string, string> = {
-    critical: 'bg-red-500',
-    warning: 'bg-amber-500',
-    info: 'bg-blue-500',
+    critical: 'bg-[var(--ef-critical)]',
+    warning: 'bg-[var(--ef-warning)]',
+    info: 'bg-[var(--ef-purple-primary)]',
   };
 
   const timestamp = new Date(event.timestamp);
@@ -141,10 +137,10 @@ function TimelineItem({ event, isFirst, isLast }: TimelineItemProps) {
     <div className="relative pl-16">
       {/* Dot */}
       <div
-        className={`absolute left-0 top-2 w-4 h-4 rounded-full ${severityDotColors[event.severity]} ring-4 ring-white dark:ring-gray-900 flex items-center justify-center`}
+        className={`absolute left-0 top-2 flex h-4 w-4 items-center justify-center rounded-full ${severityDotColors[event.severity]} ring-4 ring-[var(--ef-background-secondary)]`}
       >
         {/* Icon inside dot */}
-        <div className="text-white text-xs flex items-center justify-center w-full h-full">
+        <div className="flex h-full w-full items-center justify-center text-xs text-[var(--ef-text-primary)]">
           {eventTypeIcons[event.type] ? (
             <div className="text-xs">
               {React.cloneElement(
@@ -207,7 +203,7 @@ function TimelineItem({ event, isFirst, isLast }: TimelineItemProps) {
             <ul className="text-xs space-y-1">
               {event.newBlockingReasons.map((reason, i) => (
                 <li key={i} className="flex items-start gap-2">
-                  <span className="text-red-500 mt-0.5">✕</span>
+                  <span className="text-[var(--ef-critical)] mt-0.5">✕</span>
                   <span>{reason}</span>
                 </li>
               ))}
@@ -221,7 +217,7 @@ function TimelineItem({ event, isFirst, isLast }: TimelineItemProps) {
             <ul className="text-xs space-y-1">
               {event.resolvedBlockingReasons.map((reason, i) => (
                 <li key={i} className="flex items-start gap-2">
-                  <span className="text-green-600 dark:text-green-400 mt-0.5">✓</span>
+                  <span className="text-[var(--ef-success)] dark:text-[var(--ef-success-soft)] mt-0.5">✓</span>
                   <span>{reason}</span>
                 </li>
               ))}
@@ -253,12 +249,12 @@ function StatCard({
   };
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+    <div className="rounded-lg border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-panel)] p-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">{label}</span>
-        <div className="text-gray-400 dark:text-gray-500">{icons[icon]}</div>
+        <span className="text-xs font-medium text-[var(--ef-text-muted)]">{label}</span>
+        <div className="text-[var(--ef-text-soft)]">{icons[icon]}</div>
       </div>
-      <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
+      <div className="text-2xl font-bold text-[var(--ef-text-primary)]">{value}</div>
     </div>
   );
 }
@@ -280,7 +276,7 @@ function DetailRow({
       <span className="opacity-75">{label}:</span>
       <span
         className={`font-mono font-semibold ${
-          isNegative ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+          isNegative ? 'text-[var(--ef-success)] dark:text-[var(--ef-success-soft)]' : 'text-[var(--ef-critical)] dark:text-[var(--ef-critical)]'
         }`}
       >
         {isNegative ? '-' : '+'}

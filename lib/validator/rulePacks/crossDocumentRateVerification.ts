@@ -94,6 +94,14 @@ const INVOICE_LINE_QUANTITY_KEYS = [
   'tonnage',
   'cyd',
 ] as const;
+const INVOICE_LINE_TOTAL_KEYS = [
+  'line_total',
+  'extended_amount',
+  'extended_cost',
+  'total',
+  'amount',
+  'line_amount',
+] as const;
 
 const TICKET_QUANTITY_KEYS = [
   'quantity_cyd',
@@ -125,6 +133,7 @@ type CanonicalInvoiceLine = {
   invoice_rate_key: string | null;
   invoice_rate: number | null;
   quantity: number | null;
+  line_total: number | null;
   canonical_category: string | null;
   category_confidence: number | null;
   category_basis: CanonicalRateCategoryBasis;
@@ -216,6 +225,7 @@ function canonicalizeInvoiceLine(row: InvoiceLineRow): CanonicalInvoiceLine {
       ?? deriveInvoiceRateKey(invoiceNumber, keys.billing_rate_key),
     invoice_rate: readRowNumber(row, INVOICE_LINE_RATE_KEYS),
     quantity: readRowNumber(row, INVOICE_LINE_QUANTITY_KEYS),
+    line_total: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
     canonical_category: categoryResolution.canonical_category,
     category_confidence: categoryResolution.category_confidence,
     category_basis: categoryResolution.basis,
@@ -572,8 +582,8 @@ function findingForUnit(
       ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
       severity: 'critical',
       field: 'contract_rate',
-      expected: 'governing contract rate row',
-      actual: 'missing',
+      expected: 'Confirmed contract schedule row for this billed line',
+      actual: 'No confident contract rate-row match found',
     },
     missing_support: {
       ruleId: 'CROSS_DOCUMENT_TICKET_SUPPORT_EXISTS',
@@ -601,6 +611,51 @@ function findingForUnit(
   const config = ruleByStatus[unit.comparison_status];
   if (!isRuleEnabled(input.ruleStateByRuleId, config.ruleId)) return null;
 
+  const invoiceLineContextEvidence = [
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'invoice_number',
+      fieldValue: line.invoice_number,
+      note: 'Invoice number for the billed line evaluated through cross-document rate verification.',
+    }),
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'rate_code',
+      fieldValue: line.rate_code,
+      note: 'Invoice line rate code evaluated against the governing contract schedule.',
+    }),
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'description',
+      fieldValue: line.description,
+      note: 'Invoice line description evaluated against the governing contract schedule.',
+    }),
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'quantity',
+      fieldValue: line.quantity,
+      note: 'Invoice line quantity retained as context only for the contract rate match finding.',
+    }),
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'unit_price',
+      fieldValue: line.invoice_rate,
+      note: 'Invoice unit price retained as context only for the contract rate match finding.',
+    }),
+    structuredRowEvidenceInput({
+      evidenceType: 'invoice_line',
+      row: line.row,
+      fieldName: 'line_total',
+      fieldValue: line.line_total,
+      note: 'Invoice line total retained as context only for the contract rate match finding.',
+    }),
+  ];
+
   return makeFinding({
     projectId: input.project.id,
     ruleId: config.ruleId,
@@ -612,6 +667,7 @@ function findingForUnit(
     expected: config.expected,
     actual: config.actual,
     evidence: [
+      ...invoiceLineContextEvidence,
       structuredRowEvidenceInput({
         evidenceType: 'invoice_line',
         row: line.row,

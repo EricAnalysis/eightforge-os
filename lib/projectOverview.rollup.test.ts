@@ -5,6 +5,8 @@ import type { ValidationFinding } from '@/types/validator';
 import {
   buildProjectOperationalRollup,
   buildProjectOverviewModel,
+  documentNeedsExtractionFollowUp,
+  parseDocumentExecutionTrace,
   resolveProjectAuditEvents,
   resolveProjectDecisionSummary,
   resolveProjectPendingActions,
@@ -124,6 +126,84 @@ describe('project operational rollup', () => {
     assert.equal(model.documents[0]?.status_label, 'Needs review');
   });
 
+  it('does not mark invoice documents clear when contractor or client hints are missing from extraction', () => {
+    const invoiceDocument = buildDocument({
+      id: 'invoice-missing-client',
+      title: 'Monthly invoice',
+      name: 'invoice.pdf',
+      document_type: 'invoice',
+      intelligence_trace: {
+        classification: { label: 'Invoice', family: 'invoice' },
+        facts: {
+          vendor_name: 'Aftermath Disaster Recovery, Inc.',
+          invoice_number: 'INV-009',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-20T01:00:00Z',
+        engine_version: 'document_intelligence:v2',
+      },
+    });
+
+    const trace = parseDocumentExecutionTrace(invoiceDocument.intelligence_trace);
+    assert.ok(trace);
+    assert.equal(documentNeedsExtractionFollowUp(invoiceDocument, trace), true);
+
+    const rollup = buildProjectOperationalRollup({
+      project: baseProject,
+      documents: [invoiceDocument],
+      decisions: [],
+      tasks: [],
+      documentReviews: [
+        {
+          document_id: invoiceDocument.id,
+          status: 'approved',
+          reviewed_at: '2026-03-20T02:00:00Z',
+        },
+      ],
+    });
+
+    assert.equal(rollup.document_status_by_id[invoiceDocument.id]?.label, 'Needs review');
+    assert.equal(rollup.needs_review_document_count, 1);
+
+    const completeInvoice = buildDocument({
+      id: 'invoice-complete-parties',
+      title: 'Monthly invoice',
+      name: 'invoice.pdf',
+      document_type: 'invoice',
+      intelligence_trace: {
+        classification: { label: 'Invoice', family: 'invoice' },
+        facts: {
+          contractor_name: 'Aftermath Disaster Recovery, Inc.',
+          client_name: 'Williamson County',
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-20T01:00:00Z',
+        engine_version: 'document_intelligence:v2',
+      },
+    });
+
+    const rollupComplete = buildProjectOperationalRollup({
+      project: baseProject,
+      documents: [completeInvoice],
+      decisions: [],
+      tasks: [],
+      documentReviews: [
+        {
+          document_id: completeInvoice.id,
+          status: 'approved',
+          reviewed_at: '2026-03-20T02:00:00Z',
+        },
+      ],
+    });
+
+    const completeTrace = parseDocumentExecutionTrace(completeInvoice.intelligence_trace);
+    assert.ok(completeTrace);
+    assert.equal(documentNeedsExtractionFollowUp(completeInvoice, completeTrace), false);
+    assert.equal(rollupComplete.document_status_by_id[completeInvoice.id]?.label, 'Operationally clear');
+  });
+
   it('tracks linked documents separately from processed document counts', () => {
     const processedDocument = buildDocument({
       intelligence_trace: null,
@@ -224,7 +304,23 @@ describe('project operational rollup', () => {
     ];
     const members: ProjectMember[] = [{ id: 'member-1', display_name: 'Avery Ops' }];
 
-    const summary = resolveProjectDecisionSummary(decisions, tasks, members, 'project-1');
+    const summary = resolveProjectDecisionSummary(decisions, tasks, members, 'project-1', [
+      {
+        id: 'activity-1',
+        project_id: 'project-1',
+        entity_type: 'decision',
+        entity_id: 'decision-1',
+        event_type: 'review_recorded',
+        old_value: { status: 'open' },
+        new_value: {
+          feedback_type: 'needs_review',
+          operator_action: 'verify',
+          status_after_feedback: 'in_review',
+        },
+        changed_by: 'member-1',
+        created_at: '2026-03-24T11:00:00Z',
+      },
+    ]);
     const decision = summary[0];
 
     assert.ok(decision, 'decision projection must exist');
@@ -237,6 +333,106 @@ describe('project operational rollup', () => {
     assert.equal(decision.source_document_href, '/platform/documents/doc-invoice-1?source=project&projectId=project-1');
     assert.ok(decision.source_evidence_label.includes('Validator output'));
     assert.ok(decision.source_evidence_label.includes('2 evidence refs'));
+    assert.equal(decision.lifecycle_state, 'needs_verification');
+    assert.equal(decision.last_operator_action, 'Verify');
+    assert.equal(decision.evidence_summaries[0]?.document_title, 'Invoice 2026-003');
+    assert.equal(decision.evidence_summaries[0]?.anchor_summary, '2026-003 / line-1');
+  });
+
+  it('keeps invoice-line rate blockers specific across multiple invoices', () => {
+    const decisions: ProjectDecisionRow[] = [
+      {
+        id: 'decision-2026-002',
+        document_id: 'doc-invoice-002',
+        source: 'project_validator',
+        decision_type: 'validator_invoice_approval',
+        title: 'Invoice 2026-002 approval status',
+        summary: 'Invoice line is missing a confirmed contract rate match.',
+        severity: 'critical',
+        status: 'open',
+        confidence: null,
+        last_detected_at: '2026-03-24T10:00:00Z',
+        created_at: '2026-03-24T09:00:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          origin: 'project_validator',
+          primary_rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+          problem: 'Invoice line is missing a confirmed contract rate match.',
+          impact: 'This invoice line has a billed rate or category, but EightForge could not confirm the matching governing contract schedule row.',
+          required_action: 'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
+          validator_finding_ids: ['finding-2026-002'],
+          evidence_refs: ['invoice_line:typed:abc:invoice:line:4'],
+          invoice_line_contexts: [
+            {
+              invoice_number: '2026-002',
+              rate_code: '1F',
+              line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+              quantity: '916',
+              unit_price: '14.50',
+              line_total: '13282.00',
+            },
+          ],
+        },
+        documents: {
+          id: 'doc-invoice-002',
+          project_id: 'project-1',
+          title: 'Invoice 2026-002',
+          name: 'invoice-2026-002.pdf',
+          document_type: 'invoice',
+        },
+      },
+      {
+        id: 'decision-2026-003',
+        document_id: 'doc-invoice-003',
+        source: 'project_validator',
+        decision_type: 'validator_invoice_approval',
+        title: 'Invoice 2026-003 approval status',
+        summary: 'Invoice line is missing a confirmed contract rate match.',
+        severity: 'critical',
+        status: 'open',
+        confidence: null,
+        last_detected_at: '2026-03-24T10:01:00Z',
+        created_at: '2026-03-24T09:01:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          origin: 'project_validator',
+          primary_rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+          problem: 'Invoice line is missing a confirmed contract rate match.',
+          validator_finding_ids: ['finding-2026-003'],
+          invoice_line_contexts: [
+            {
+              invoice_number: '2026-003',
+              rate_code: '2A',
+              quantity: '12',
+            },
+          ],
+        },
+        documents: {
+          id: 'doc-invoice-003',
+          project_id: 'project-1',
+          title: 'Invoice 2026-003',
+          name: 'invoice-2026-003.pdf',
+          document_type: 'invoice',
+        },
+      },
+    ];
+
+    const summary = resolveProjectDecisionSummary(decisions, [], [], 'project-1');
+    const invoice002 = summary.find((decision) => decision.id === 'decision-2026-002');
+    const invoice003 = summary.find((decision) => decision.id === 'decision-2026-003');
+
+    assert.ok(invoice002, 'invoice 2026-002 decision should be projected');
+    assert.ok(invoice003, 'invoice 2026-003 decision should be projected');
+    assert.ok(invoice002.metadata.includes('Invoice 2026-002'));
+    assert.ok(invoice002.metadata.includes('Line 1F - Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30'));
+    assert.ok(invoice002.metadata.includes('Quantity 916.00'));
+    assert.ok(invoice002.metadata.includes('Unit price $14.50'));
+    assert.ok(invoice002.metadata.includes('Line total $13,282.00'));
+    assert.equal(invoice002.evidence_summaries[0]?.anchor_summary, 'Invoice 2026-002 · Line 1F · Contract rate match');
+    assert.ok(invoice003.metadata.includes('Invoice 2026-003'));
+    assert.ok(!invoice003.metadata.includes('Invoice 2026-002'));
   });
 
   it('prioritizes blocked findings ahead of review state', () => {

@@ -212,7 +212,7 @@ function ShellActionIconLink({
     <Link
       href={href}
       aria-label={label}
-      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#2F3B52]/70 bg-[#111827] text-[#C7D2E3] transition hover:border-[#3B82F6]/60 hover:bg-[#1A2333] hover:text-[#E5EDF7]"
+      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)] transition hover:border-[var(--ef-purple-primary-a60)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]"
     >
       <PlatformIcon name={icon} className="h-[18px] w-[18px]" />
     </Link>
@@ -224,12 +224,12 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
   const normalizedWorkspace = normalizeWorkspaceName(workspaceName);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-[#2F3B52]/80 bg-[#0B1020]/92 backdrop-blur-xl">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-primary-a92)] backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-5 lg:gap-8">
           <Link href="/platform" className="flex min-w-0 items-center gap-3">
             <EightForgeLogo size={24} />
-            <p className="truncate text-[13px] font-semibold uppercase tracking-[0.22em] text-[#3B82F6]">
+            <p className="truncate text-[13px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
               EightForge
             </p>
           </Link>
@@ -243,8 +243,8 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
                   href={item.href}
                   className={`border-b-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.2em] transition ${
                     active
-                      ? 'border-[#3B82F6] text-[#E5EDF7]'
-                      : 'border-transparent text-[#94A3B8] hover:text-[#E5EDF7]'
+                      ? 'border-[var(--ef-purple-primary)] text-[var(--ef-text-primary)]'
+                      : 'border-transparent text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]'
                   }`}
                 >
                   {item.label}
@@ -255,21 +255,21 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
         </div>
 
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <div className="hidden items-center gap-2 rounded-full border border-[#2F3B52]/70 bg-[#111827] px-3 py-1.5 lg:flex">
-            <span className="h-2 w-2 rounded-full bg-[#22C55E] shadow-[0_0_10px_rgba(34,197,94,0.55)]" />
-            <span className="max-w-[12rem] truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-[#C7D2E3]">
+          <div className="hidden items-center gap-2 rounded-full border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-3 py-1.5 lg:flex">
+            <span className="h-2 w-2 rounded-full bg-[var(--ef-success)] shadow-[0_0_10px_var(--ef-success-a40)]" />
+            <span className="max-w-[12rem] truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-secondary)]">
               {normalizedWorkspace}
             </span>
           </div>
 
           <label className="relative hidden sm:block">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ef-text-muted)]">
               <PlatformIcon name="search" className="h-4 w-4" />
             </span>
             <input
               type="text"
               placeholder="Search intelligence..."
-              className="w-44 rounded-full border border-[#2F3B52]/70 bg-[#111827] py-2 pl-9 pr-4 text-[12px] text-[#E5EDF7] outline-none transition placeholder:text-[#94A3B8] focus:border-[#3B82F6] focus:ring-1 focus:ring-[#3B82F6] lg:w-72"
+              className="w-44 rounded-full border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] py-2 pl-9 pr-4 text-[12px] text-[var(--ef-text-primary)] outline-none transition placeholder:text-[var(--ef-text-muted)] focus:border-[var(--ef-purple-primary)] focus:ring-1 focus:ring-[var(--ef-purple-glow)] lg:w-72"
             />
           </label>
 
@@ -282,7 +282,7 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
           <button
             type="button"
             onClick={onSignOut}
-            className="hidden rounded-full border border-[#2F3B52]/70 bg-[#111827] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E5EDF7] transition hover:border-[#3B82F6]/60 hover:bg-[#1A2333] lg:inline-flex"
+            className="hidden rounded-full border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-primary)] transition hover:border-[var(--ef-purple-primary-a60)] hover:bg-[var(--ef-surface-elevated)] lg:inline-flex"
           >
             Sign out
           </button>
@@ -297,20 +297,20 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
   const normalizedWorkspace = normalizeWorkspaceName(workspaceName);
 
   return (
-    <aside className="hidden shrink-0 border-r border-[#2F3B52]/80 bg-[#0B1020]/95 lg:flex lg:w-[17rem] xl:w-[18rem]">
+    <aside className="hidden shrink-0 border-r border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-primary-a95)] lg:flex lg:w-[17rem] xl:w-[18rem]">
       <div className="sticky top-16 flex h-[calc(100vh-4rem)] w-full flex-col overflow-y-auto">
-        <div className="border-b border-[#2F3B52]/80 p-5">
-          <div className="rounded-2xl border border-[#2F3B52]/80 bg-[linear-gradient(180deg,rgba(36,48,68,0.6),rgba(17,24,39,0.95))] p-4">
+        <div className="border-b border-[var(--ef-border-subtle-a80)] p-5">
+          <div className="rounded-2xl border border-[var(--ef-border-subtle-a80)] bg-[linear-gradient(180deg,var(--ef-surface-hover-a60),var(--ef-background-primary-a95))] p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#3B82F6]/20 bg-[#3B82F6]/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--ef-purple-primary-a20)] bg-[var(--ef-purple-primary-a10)]">
                 <EightForgeLogo size={18} />
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#E5EDF7]">
+                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[var(--ef-text-primary)]">
                   Operational Intelligence
                 </p>
-                <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-[#94A3B8]">
-                  <span className="h-2 w-2 rounded-full bg-[#22C55E] shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
+                  <span className="h-2 w-2 rounded-full bg-[var(--ef-success)] shadow-[0_0_8px_var(--ef-success-a50)]" />
                   <span>System Active</span>
                 </div>
               </div>
@@ -318,7 +318,7 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
 
             <Link
               href="/platform/documents"
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#3B82F6] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-[#2563EB]"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--ef-purple-primary)] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-[var(--ef-purple-glow)]"
             >
               <PlatformIcon name="upload" className="h-[18px] w-[18px]" />
               Upload Document
@@ -336,14 +336,14 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
                   href={item.href}
                   className={`group flex items-center gap-3 rounded-r-xl border-l-2 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.22em] transition ${
                     active
-                      ? 'border-l-[#3B82F6] bg-[#111827] text-[#E5EDF7]'
-                      : 'border-l-transparent text-[#94A3B8] hover:bg-[#111827] hover:text-[#E5EDF7]'
+                      ? 'border-l-[var(--ef-purple-primary)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-primary)]'
+                      : 'border-l-transparent text-[var(--ef-text-muted)] hover:bg-[var(--ef-background-secondary)] hover:text-[var(--ef-text-primary)]'
                   }`}
                 >
                   <PlatformIcon
                     name={item.icon}
                     className={`h-[18px] w-[18px] transition ${
-                      active ? 'text-[#3B82F6]' : 'text-[#94A3B8] group-hover:text-[#E5EDF7]'
+                      active ? 'text-[var(--ef-purple-primary)]' : 'text-[var(--ef-text-muted)] group-hover:text-[var(--ef-text-primary)]'
                     }`}
                   />
                   <span>{item.label}</span>
@@ -353,17 +353,17 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
           </div>
         </nav>
 
-        <div className="mt-auto border-t border-[#2F3B52]/80 p-4">
-          <div className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-4">
+        <div className="mt-auto border-t border-[var(--ef-border-subtle-a80)] p-4">
+          <div className="rounded-2xl border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#2F3B52]/80 bg-[#243044] text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E5EDF7]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-hover)] text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-primary)]">
                 {initialsFromWorkspace(normalizedWorkspace) || 'EF'}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-[11px] font-semibold text-[#E5EDF7]">
+                <p className="truncate text-[11px] font-semibold text-[var(--ef-text-primary)]">
                   {normalizedWorkspace}
                 </p>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[#94A3B8]">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
                   Platform
                 </p>
               </div>
@@ -372,7 +372,7 @@ export function PlatformSideRail({ workspaceName, onSignOut }: PlatformSideRailP
             <button
               type="button"
               onClick={onSignOut}
-              className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-[#2F3B52]/80 bg-[#1A2333] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C7D2E3] transition hover:border-[#3B82F6]/60 hover:text-[#E5EDF7]"
+              className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-secondary)] transition hover:border-[var(--ef-purple-primary-a60)] hover:text-[var(--ef-text-primary)]"
             >
               Sign out
             </button>

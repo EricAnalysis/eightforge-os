@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { MouseEvent, ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { inferGoverningDocumentFamily } from '@/lib/documentPrecedence';
 import {
   PROJECT_TERM_AT_RISK_AMOUNT,
@@ -11,11 +11,13 @@ import {
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { ProjectDecisionExecutionCard } from '@/components/projects/ProjectDecisionExecutionCard';
+import { ProjectIssueBoard } from '@/components/projects/ProjectIssueBoard';
 import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
 import { ApprovalActionTimeline } from '@/components/approval/ApprovalActionTimeline';
 import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
 import { ValidatorStatusChip } from '@/components/validator/ValidatorStatusChip';
 import { PROJECT_FORGE_TABS, projectTabFromHash, type ProjectTabKey } from '@/lib/projectForgeNavigation';
+import { supabase } from '@/lib/supabaseClient';
 import {
   approvalStatusLabelForProjectFacts,
   type CanonicalProjectDocumentRelationshipInput,
@@ -28,6 +30,8 @@ import {
   type CanonicalProjectTruthSection,
   type CanonicalProjectTruthState,
 } from '@/lib/projectFacts';
+import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
+import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   OverviewTone,
   ProjectDecisionRow,
@@ -37,9 +41,10 @@ import type {
   ProjectOverviewInvoiceItem,
   ProjectOverviewModel,
   ProjectOverviewTag,
+  ProjectActivityEventRow,
   ProjectTaskRow,
 } from '@/lib/projectOverview';
-import type { ValidationFinding } from '@/types/validator';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type ProjectOverviewProps = {
   model: ProjectOverviewModel;
@@ -47,8 +52,11 @@ type ProjectOverviewProps = {
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
   transactionDatasets?: CanonicalProjectTransactionDatasetInput[];
   validationFindings?: readonly ValidationFinding[];
+  validationEvidence?: readonly ValidationEvidence[];
+  executionItems?: readonly ProjectExecutionItemRow[];
   decisions?: ProjectDecisionRow[];
   tasks?: ProjectTaskRow[];
+  activityEvents?: ProjectActivityEventRow[];
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
   validatorTab?: ReactNode;
@@ -59,6 +67,13 @@ type DocumentRoleKey = 'contract' | 'invoice' | 'transaction_data' | 'support';
 
 function readActiveTabFromLocation(): ProjectTabKey {
   if (typeof window === 'undefined') return 'overview';
+  if (window.location.hash) {
+    return projectTabFromHash(window.location.hash);
+  }
+  const activeTab = new URLSearchParams(window.location.search).get('activeTab');
+  if (activeTab && PROJECT_FORGE_TABS.some((tab) => tab.key === activeTab)) {
+    return activeTab as ProjectTabKey;
+  }
   return projectTabFromHash(window.location.hash);
 }
 
@@ -332,10 +347,13 @@ function documentImpact(
 ): { label: string; tone: OverviewTone } {
   const status = model.document_status_by_id?.[document.id];
   if (status?.tone === 'danger') {
-    return { label: 'Blocked', tone: 'danger' };
+    return { label: status.label === 'Failed' ? 'Blocked' : 'Blocking', tone: 'danger' };
   }
-  if (status?.tone === 'warning' || status?.tone === 'info') {
-    return { label: 'Needs review', tone: 'warning' };
+  if (status?.tone === 'warning') {
+    return { label: 'Needs Review', tone: 'warning' };
+  }
+  if (status?.tone === 'info') {
+    return { label: 'Requires Review', tone: 'info' };
   }
   if (status?.tone === 'success') {
     return { label: 'Clear', tone: 'success' };
@@ -343,10 +361,13 @@ function documentImpact(
   if (document.processing_status === 'failed') {
     return { label: 'Blocked', tone: 'danger' };
   }
-  if (document.processed_at || document.processing_status === 'decisioned') {
-    return { label: 'Clear', tone: 'success' };
+  const looksProcessed =
+    document.processed_at != null ||
+    ['extracted', 'decisioned'].includes(document.processing_status);
+  if (looksProcessed) {
+    return { label: 'Needs Review', tone: 'warning' };
   }
-  return { label: 'Needs review', tone: 'warning' };
+  return { label: 'Needs Review', tone: 'warning' };
 }
 
 function documentProcessedLabel(document: ProjectDocumentRow): string {
@@ -356,9 +377,21 @@ function documentProcessedLabel(document: ProjectDocumentRow): string {
 function DocumentListRow({
   document,
   model,
+  selected,
+  processing,
+  reprocessDisabled,
+  error,
+  onSelect,
+  onReprocess,
 }: {
   document: ProjectDocumentRow;
   model: ProjectOverviewModel;
+  selected: boolean;
+  processing: boolean;
+  reprocessDisabled: boolean;
+  error?: string | null;
+  onSelect: (documentId: string, selected: boolean) => void;
+  onReprocess: (documentId: string) => void;
 }) {
   const primaryLabel = projectDocumentTitle(document);
   const secondaryLabel =
@@ -368,7 +401,25 @@ function DocumentListRow({
   const impact = documentImpact(document, model);
 
   return (
-    <div className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:items-center">
+    <div className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,0.28fr)_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:items-center">
+      <div>
+        <label
+          className="inline-flex items-center gap-2 text-[11px] text-[#94A3B8]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] lg:hidden">
+            Select
+          </span>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelect(document.id, event.target.checked)}
+            aria-label={`Select ${primaryLabel}`}
+            className="h-3.5 w-3.5 rounded border-[#2F3B52] bg-[#0B1020] text-[#3B82F6] focus:ring-[#3B82F6]"
+          />
+        </label>
+      </div>
+
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
           File Name
@@ -429,6 +480,28 @@ function DocumentListRow({
         <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(impact.tone)}`}>
           {impact.label}
         </span>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Actions
+        </p>
+        <button
+          type="button"
+          disabled={reprocessDisabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReprocess(document.id);
+          }}
+          className="rounded-sm border border-[#3B82F6]/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#93C5FD] transition-colors hover:border-[#3B82F6]/60 hover:bg-[#3B82F6]/10 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {processing ? 'Reprocessing...' : 'Reprocess'}
+        </button>
+        {error ? (
+          <p className="mt-2 text-[11px] text-[#FCA5A5]">
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1026,13 +1099,22 @@ export function ProjectOverview({
   documentRelationships = [],
   transactionDatasets = [],
   validationFindings,
+  validationEvidence = [],
+  executionItems = [],
   decisions = [],
   tasks = [],
+  activityEvents = [],
   loadIssue,
   onProjectRefresh,
   validatorTab,
 }: ProjectOverviewProps) {
   const [activeTab, setActiveTab] = useState<ProjectTabKey>(() => readActiveTabFromLocation());
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [reprocessingDocumentIds, setReprocessingDocumentIds] = useState<Set<string>>(new Set());
+  const [reprocessErrors, setReprocessErrors] = useState<Record<string, string>>({});
+  const [bulkReprocessing, setBulkReprocessing] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const tableReprocessInFlightRef = useRef(false);
 
   useEffect(() => {
     const syncWithLocation = () => {
@@ -1052,13 +1134,31 @@ export function ProjectOverview({
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('filter') === 'blocked';
 
-  const visibleDecisions = blockedFilterActive
-    ? model.decisions.filter((decision) => decision.border_tone === 'danger')
-    : model.decisions;
+  const issueObjects = useMemo(() => resolveProjectIssueObjects({
+    projectId: model.project.id,
+    findings: validationFindings ?? [],
+    evidence: validationEvidence,
+    decisions,
+    executionItems,
+    activityEvents,
+    documents,
+  }), [
+    activityEvents,
+    decisions,
+    documents,
+    executionItems,
+    model.project.id,
+    validationEvidence,
+    validationFindings,
+  ]);
+
+  const visibleIssues = blockedFilterActive
+    ? issueObjects.filter((issue) => issue.lifecycleState === 'blocked')
+    : issueObjects;
 
   const visibleDecisionTotal = blockedFilterActive
-    ? visibleDecisions.length
-    : model.decision_total;
+    ? visibleIssues.length
+    : issueObjects.length;
   const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
   const requiredReviewCount =
     model.validator_summary.required_review_total > 0
@@ -1069,6 +1169,181 @@ export function ProjectOverview({
     const rightTimestamp = new Date(right.processed_at ?? right.created_at).getTime();
     return rightTimestamp - leftTimestamp;
   });
+  const selectedOrderedDocumentIds = orderedDocuments
+    .map((document) => document.id)
+    .filter((documentId) => selectedDocumentIds.has(documentId));
+  const selectedDocumentCount = selectedOrderedDocumentIds.length;
+  const allOrderedDocumentsSelected =
+    orderedDocuments.length > 0 && selectedDocumentCount === orderedDocuments.length;
+  const documentReprocessInProgress = reprocessingDocumentIds.size > 0 || bulkReprocessing;
+
+  useEffect(() => {
+    setSelectedDocumentIds((previous) => {
+      const visibleIds = new Set(documents.map((document) => document.id));
+      const next = new Set(Array.from(previous).filter((documentId) => visibleIds.has(documentId)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [documents]);
+
+  const clearReprocessError = useCallback((documentId: string) => {
+    setReprocessErrors((previous) => {
+      if (!(documentId in previous)) return previous;
+      const next = { ...previous };
+      delete next[documentId];
+      return next;
+    });
+  }, []);
+
+  const processProjectDocument = useCallback(async (documentId: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error('Authentication required.');
+    }
+
+    const response = await fetch('/api/documents/process', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ documentId }),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.message ?? body?.error ?? 'Reprocess failed.');
+    }
+  }, []);
+
+  const refreshProject = useCallback(async () => {
+    await onProjectRefresh?.();
+  }, [onProjectRefresh]);
+
+  const handleSelectDocument = useCallback((documentId: string, selected: boolean) => {
+    setSelectedDocumentIds((previous) => {
+      const next = new Set(previous);
+      if (selected) {
+        next.add(documentId);
+      } else {
+        next.delete(documentId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllDocuments = useCallback((selected: boolean) => {
+    setSelectedDocumentIds((previous) => {
+      const next = new Set(previous);
+      for (const document of orderedDocuments) {
+        if (selected) {
+          next.add(document.id);
+        } else {
+          next.delete(document.id);
+        }
+      }
+      return next;
+    });
+  }, [orderedDocuments]);
+
+  const handleReprocessDocument = useCallback(async (documentId: string) => {
+    if (tableReprocessInFlightRef.current || bulkReprocessing) return;
+    tableReprocessInFlightRef.current = true;
+    setBulkMessage(null);
+    clearReprocessError(documentId);
+    setReprocessingDocumentIds((previous) => new Set(previous).add(documentId));
+
+    try {
+      await processProjectDocument(documentId);
+      await refreshProject();
+    } catch (error) {
+      setReprocessErrors((previous) => ({
+        ...previous,
+        [documentId]: error instanceof Error ? error.message : 'Reprocess failed.',
+      }));
+    } finally {
+      setReprocessingDocumentIds((previous) => {
+        const next = new Set(previous);
+        next.delete(documentId);
+        return next;
+      });
+      tableReprocessInFlightRef.current = false;
+    }
+  }, [bulkReprocessing, clearReprocessError, processProjectDocument, refreshProject]);
+
+  const handleBulkReprocess = useCallback(async () => {
+    if (
+      selectedOrderedDocumentIds.length === 0 ||
+      bulkReprocessing ||
+      reprocessingDocumentIds.size > 0 ||
+      tableReprocessInFlightRef.current
+    ) {
+      return;
+    }
+
+    tableReprocessInFlightRef.current = true;
+    setBulkReprocessing(true);
+    setBulkMessage(null);
+    setReprocessErrors((previous) => {
+      const next = { ...previous };
+      for (const documentId of selectedOrderedDocumentIds) {
+        delete next[documentId];
+      }
+      return next;
+    });
+
+    const failures: Array<{ documentId: string; message: string }> = [];
+
+    for (const documentId of selectedOrderedDocumentIds) {
+      setReprocessingDocumentIds((previous) => new Set(previous).add(documentId));
+      try {
+        await processProjectDocument(documentId);
+      } catch (error) {
+        failures.push({
+          documentId,
+          message: error instanceof Error ? error.message : 'Reprocess failed.',
+        });
+      } finally {
+        setReprocessingDocumentIds((previous) => {
+          const next = new Set(previous);
+          next.delete(documentId);
+          return next;
+        });
+      }
+    }
+
+    if (failures.length > 0) {
+      setReprocessErrors((previous) => {
+        const next = { ...previous };
+        for (const failure of failures) {
+          next[failure.documentId] = failure.message;
+        }
+        return next;
+      });
+      setBulkMessage(
+        `${selectedOrderedDocumentIds.length - failures.length} reprocessed, ${failures.length} failed.`,
+      );
+    } else {
+      setSelectedDocumentIds(new Set());
+      setBulkMessage(`${selectedOrderedDocumentIds.length} document${selectedOrderedDocumentIds.length === 1 ? '' : 's'} reprocessed.`);
+    }
+
+    try {
+      await refreshProject();
+    } catch (error) {
+      setBulkMessage(
+        error instanceof Error
+          ? `Reprocess finished, but refresh failed: ${error.message}`
+          : 'Reprocess finished, but refresh failed.',
+      );
+    } finally {
+      setBulkReprocessing(false);
+      tableReprocessInFlightRef.current = false;
+    }
+  }, [bulkReprocessing, processProjectDocument, refreshProject, reprocessingDocumentIds.size, selectedOrderedDocumentIds]);
+
   const truthDocuments = documents.map((document) => ({
     id: document.id,
     title: document.title,
@@ -1243,21 +1518,11 @@ export function ProjectOverview({
               }
             />
 
-            {visibleDecisions.length === 0 ? (
-              <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-6 text-sm text-[#94A3B8]">
-                {model.decision_empty_state}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {visibleDecisions.map((decision) => (
-                  <ProjectDecisionExecutionCard
-                    key={decision.id}
-                    decision={decision}
-                    onProjectRefresh={onProjectRefresh}
-                  />
-                ))}
-              </div>
-            )}
+            <ProjectIssueBoard
+              issues={visibleIssues}
+              emptyState={model.decision_empty_state}
+              onProjectRefresh={onProjectRefresh}
+            />
           </section>
         ) : activeTab === 'documents' ? (
           <section id="project-documents" className="space-y-8">
@@ -1272,8 +1537,51 @@ export function ProjectOverview({
                 </div>
               ) : (
                 <div className="overflow-hidden rounded-sm border border-[#2F3B52]/70 bg-[#111827]">
-                  <div className="hidden border-b border-[#2F3B52]/70 px-4 py-3 lg:grid lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:gap-3">
-                    {['File Name', 'Document Type', 'Role', 'Processing Status', 'Last Processed', 'Decision Impact'].map((label) => (
+                  {selectedDocumentCount > 0 || bulkMessage ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2F3B52]/70 bg-[#0B1020]/60 px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-[11px] font-medium text-[#C7D2E3]">
+                          {selectedDocumentCount} selected
+                        </p>
+                        {selectedDocumentCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDocumentIds(new Set())}
+                            disabled={bulkReprocessing}
+                            className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] hover:text-[#E5EDF7] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                        {bulkMessage ? (
+                          <p className="text-[11px] text-[#FCD34D]">
+                            {bulkMessage}
+                          </p>
+                        ) : null}
+                      </div>
+                      {selectedDocumentCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={handleBulkReprocess}
+                          disabled={bulkReprocessing || reprocessingDocumentIds.size > 0}
+                          className="rounded-sm border border-[#3B82F6]/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#93C5FD] transition-colors hover:border-[#3B82F6]/60 hover:bg-[#3B82F6]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {bulkReprocessing ? 'Reprocessing selected...' : 'Reprocess selected'}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="hidden border-b border-[#2F3B52]/70 px-4 py-3 lg:grid lg:grid-cols-[minmax(0,0.28fr)_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:gap-3">
+                    <label className="inline-flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={allOrderedDocumentsSelected}
+                        onChange={(event) => handleSelectAllDocuments(event.target.checked)}
+                        aria-label="Select all documents"
+                        className="h-3.5 w-3.5 rounded border-[#2F3B52] bg-[#0B1020] text-[#3B82F6] focus:ring-[#3B82F6]"
+                      />
+                    </label>
+                    {['File Name', 'Document Type', 'Role', 'Processing Status', 'Last Processed', 'Decision Impact', 'Actions'].map((label) => (
                       <p
                         key={label}
                         className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]"
@@ -1288,6 +1596,12 @@ export function ProjectOverview({
                         key={document.id}
                         document={document}
                         model={model}
+                        selected={selectedDocumentIds.has(document.id)}
+                        processing={reprocessingDocumentIds.has(document.id)}
+                        reprocessDisabled={documentReprocessInProgress}
+                        error={reprocessErrors[document.id] ?? null}
+                        onSelect={handleSelectDocument}
+                        onReprocess={handleReprocessDocument}
                       />
                     ))}
                   </div>

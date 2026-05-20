@@ -243,7 +243,8 @@ function createAdminMock(params: {
       from(table: string) {
         if (table === 'decisions') {
           return {
-            select(_columns: string) {
+            select(columns: string) {
+              void columns;
               const filters: Array<{ field: string; value?: unknown; values?: unknown[]; op: 'eq' | 'in' }> = [];
               const query = {
                 eq(field: string, value: unknown) {
@@ -286,7 +287,8 @@ function createAdminMock(params: {
             insert(row: Record<string, unknown>) {
               if (params.missingDecisionProjectIdColumn && 'project_id' in row) {
                 return {
-                  select(_columns: string) {
+                  select(columns: string) {
+                    void columns;
                     return {
                       single() {
                         return Promise.resolve({
@@ -323,7 +325,8 @@ function createAdminMock(params: {
               state.decisions.push(insertedRow);
 
               return {
-                select(_columns: string) {
+                select(columns: string) {
+                  void columns;
                   return {
                     single() {
                       return Promise.resolve({
@@ -550,6 +553,165 @@ describe('buildValidatorDecisionRecords', () => {
 
     assert.equal(first[0]?.identity_key, second[0]?.identity_key);
     assert.equal(first[1]?.identity_key, second[1]?.identity_key);
+  });
+
+  it('describes missing contract rate rows as an invoice-line mapping issue', () => {
+    const finding = makeFinding({
+      id: 'finding-rate-row',
+      rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+      check_key: 'invoice:2026-003:line-1:contract-rate',
+      subject_type: 'invoice_line',
+      subject_id: 'line-1',
+      field: 'contract_rate',
+      expected: 'Confirmed contract schedule row for this billed line',
+      actual: '916.00',
+      source_family: 'contract',
+      evidence: [
+        makeEvidence({
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'invoice_number',
+          field_value: '2026-003',
+        }),
+        makeEvidence({
+          id: 'evidence-rate-code',
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'rate_code',
+          field_value: '1F',
+        }),
+        makeEvidence({
+          id: 'evidence-description',
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'description',
+          field_value: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        }),
+        makeEvidence({
+          id: 'evidence-quantity',
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'quantity',
+          field_value: '916',
+        }),
+        makeEvidence({
+          id: 'evidence-unit-price',
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'unit_price',
+          field_value: '14.50',
+        }),
+        makeEvidence({
+          id: 'evidence-line-total',
+          finding_id: 'finding-rate-row',
+          evidence_type: 'invoice_line',
+          source_document_id: 'doc-invoice-003',
+          record_id: 'invoice-line-1',
+          field_name: 'line_total',
+          field_value: '13282.00',
+        }),
+      ],
+    });
+    const result = makeResult({
+      findings: [finding],
+      exposure: makeExposure([
+        makeInvoiceExposure({
+          invoice_number: '2026-003',
+          billed_amount: 1000,
+          supported_amount: 0,
+          contract_supported_amount: 0,
+          transaction_supported_amount: 1000,
+          fully_reconciled_amount: 0,
+          unreconciled_amount: 1000,
+          at_risk_amount: 1000,
+          requires_verification_amount: 1000,
+        }),
+      ]),
+    });
+
+    const records = buildValidatorDecisionRecords({
+      projectId: 'project-1',
+      runId: 'run-rate-row',
+      result,
+      findings: [finding],
+    });
+    const invoiceRecord = records.find((record) => record.decision_type === 'validator_invoice_approval');
+
+    assert.ok(invoiceRecord, 'invoice approval decision should exist');
+    assert.equal(invoiceRecord.details.problem, 'Invoice line is missing a confirmed contract rate match.');
+    assert.notEqual(invoiceRecord.details.actual, '916.00');
+    assert.equal(
+      invoiceRecord.details.required_action,
+      'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
+    );
+    assert.deepEqual(invoiceRecord.details.exposure_types, ['rate_mismatch']);
+    assert.deepEqual(invoiceRecord.details.invoice_line_contexts, [
+      {
+        finding_id: 'finding-rate-row',
+        rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        record_id: 'invoice-line-1',
+        subject_id: 'line-1',
+        invoice_document_id: 'doc-invoice-003',
+        invoice_number: '2026-003',
+        rate_code: '1F',
+        line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        quantity: '916',
+        unit_price: '14.50',
+        line_total: '13282.00',
+        expected: 'Confirmed contract schedule row for this billed line',
+        actual: 'No confident contract rate-row match found',
+      },
+    ]);
+  });
+
+  it('carries resolved actual vendor value source into invoice decision details', () => {
+    const finding = makeFinding({
+      id: 'finding-vendor',
+      rule_id: 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+      check_key: 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR:2026-003',
+      subject_type: 'invoice',
+      subject_id: '2026-003',
+      field: 'vendor_name',
+      expected: 'AFTERMATH DISASTER RECOVERY, INC',
+      actual: 'Other Debris LLC',
+      problem: 'Invoice vendor does not match the expected project truth.',
+      evidence: [
+        makeEvidence({
+          id: 'evidence-vendor',
+          finding_id: 'finding-vendor',
+          evidence_type: 'fact',
+          source_document_id: 'doc-invoice-003',
+          field_name: 'contractor_name_source',
+          field_value: 'human override',
+        }),
+      ],
+    });
+    const result = makeResult({
+      findings: [finding],
+      exposure: makeExposure([makeInvoiceExposure()]),
+    });
+
+    const records = buildValidatorDecisionRecords({
+      projectId: 'project-1',
+      runId: 'run-vendor',
+      result,
+      findings: [finding],
+    });
+    const invoiceRecord = records.find((record) => record.decision_type === 'validator_invoice_approval');
+
+    assert.equal(invoiceRecord?.details.actual_value, 'Other Debris LLC');
+    assert.equal(invoiceRecord?.details.expected_value, 'AFTERMATH DISASTER RECOVERY, INC');
+    assert.equal(invoiceRecord?.details.actual_value_source, 'human override');
   });
 
   it('rolls requires-review findings into a non-blocking primary approval decision', () => {

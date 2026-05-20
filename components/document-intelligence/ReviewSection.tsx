@@ -9,10 +9,10 @@ import { supabase } from '@/lib/supabaseClient';
 type ReviewStatus = 'not_reviewed' | 'in_review' | 'approved' | 'needs_correction';
 
 const STATUS_CONFIG: Record<ReviewStatus, { label: string; color: string }> = {
-  not_reviewed:     { label: 'Not Reviewed',    color: 'text-[#8B94A3]' },
-  in_review:        { label: 'In Review',        color: 'text-amber-400' },
-  approved:         { label: 'Approved',         color: 'text-emerald-400' },
-  needs_correction: { label: 'Needs Correction', color: 'text-red-400' },
+  not_reviewed:     { label: 'Not Reviewed',    color: 'text-[var(--ef-text-muted)]' },
+  in_review:        { label: 'In Review',        color: 'text-[var(--ef-warning)]' },
+  approved:         { label: 'Approved',         color: 'text-[var(--ef-success)]' },
+  needs_correction: { label: 'Needs Correction', color: 'text-[var(--ef-critical)]' },
 };
 
 interface ReviewSectionProps {
@@ -80,9 +80,9 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
   const { label, color } = STATUS_CONFIG[status];
 
   return (
-    <div className="rounded-xl bg-[#0F1117] border border-white/10">
+    <div className="rounded-xl bg-[var(--ef-background-primary)] border border-[var(--ef-border-white-10)]">
       <div className="border-b border-white/8 px-5 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
           Review
         </h3>
       </div>
@@ -90,7 +90,7 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
         <div className="flex items-center gap-2 mb-4">
           <span className={`text-sm font-medium ${color}`}>{label}</span>
           {updatedAt && (
-            <span className="text-[10px] text-[#5B6578]">
+            <span className="text-[10px] text-[var(--ef-text-faint)]">
               · {updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
@@ -100,7 +100,7 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
             type="button"
             onClick={() => update('in_review')}
             disabled={status === 'in_review' || saving}
-            className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-[#C5CAD4] hover:bg-white/10 disabled:opacity-40 disabled:cursor-default transition-colors"
+            className="rounded-md border border-[var(--ef-border-white-10)] bg-white/5 px-3 py-1.5 text-[11px] text-[var(--ef-text-secondary)] hover:bg-white/10 disabled:opacity-40 disabled:cursor-default transition-colors"
           >
             Mark as In Review
           </button>
@@ -108,7 +108,7 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
             type="button"
             onClick={() => update('approved')}
             disabled={status === 'approved' || saving}
-            className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-default transition-colors"
+            className="rounded-md border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-3 py-1.5 text-[11px] text-[var(--ef-success)] hover:bg-[var(--ef-success-a20)] disabled:opacity-40 disabled:cursor-default transition-colors"
           >
             Approve
           </button>
@@ -116,7 +116,7 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
             type="button"
             onClick={() => update('needs_correction')}
             disabled={status === 'needs_correction' || saving}
-            className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[11px] text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-default transition-colors"
+            className="rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-3 py-1.5 text-[11px] text-[var(--ef-critical)] hover:bg-[var(--ef-critical-a20)] disabled:opacity-40 disabled:cursor-default transition-colors"
           >
             Request Correction
           </button>

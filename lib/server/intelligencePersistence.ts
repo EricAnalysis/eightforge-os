@@ -37,6 +37,12 @@ import {
 import { persistCanonicalInvoiceForDocument } from '@/lib/server/invoicePersistence';
 import { persistCanonicalSupportForDocument } from '@/lib/server/supportTicketPersistence';
 import { withStageTimeout } from '@/lib/server/stageTimeout';
+import {
+  buildCanonicalOperationalRateDiff,
+} from '@/lib/operationalTables/canonicalOperationalRateDiff';
+import type {
+  CanonicalOperationalTableRow,
+} from '@/lib/operationalTables/canonicalOperationalTableRowAssembler';
 
 const EXECUTION_TRACE_PERSIST_TIMEOUT_MS = 60_000;
 const TRANSACTION_DATA_PERSIST_TIMEOUT_MS = 180_000;
@@ -181,6 +187,221 @@ function isTransactionDataExtracted(value: unknown): boolean {
 
 function isInvoiceDocumentType(value: string | null | undefined): boolean {
   return (value ?? '').trim().toLowerCase() === 'invoice';
+}
+
+function canonicalInspectionSnapshotsFromExtracted(
+  extracted: unknown,
+): Record<string, unknown> | null {
+  const record = asRecord(extracted);
+  if (!record) return null;
+  const snapshots: Record<string, unknown> = {};
+  if (record.canonicalContractRateScheduleAssembly != null) {
+    snapshots.canonicalContractRateScheduleAssembly = record.canonicalContractRateScheduleAssembly;
+  }
+  if (record.canonicalOperationalTableRowAssembly != null) {
+    snapshots.canonicalOperationalTableRowAssembly = record.canonicalOperationalTableRowAssembly;
+  }
+  if (record.canonicalOperationalRateDiff != null) {
+    snapshots.canonicalOperationalRateDiff = record.canonicalOperationalRateDiff;
+  }
+  return Object.keys(snapshots).length > 0 ? snapshots : null;
+}
+
+function diagnosticsFromExtractionData(
+  extractionData: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  return asRecord(asRecord(extractionData?.extraction)?.diagnostics);
+}
+
+function canonicalAssemblyRowsFromExtractionData(
+  extractionData: Record<string, unknown> | null | undefined,
+  key: 'canonicalOperationalTableRowAssembly' | 'canonicalContractRateScheduleAssembly',
+): CanonicalOperationalTableRow[] {
+  const diagnostics = diagnosticsFromExtractionData(extractionData);
+  const assembly = asRecord(diagnostics?.[key]);
+  const rows = assembly?.rows;
+  return Array.isArray(rows) ? rows as CanonicalOperationalTableRow[] : [];
+}
+
+async function loadLatestExtractionSnapshot(
+  admin: SupabaseClient,
+  documentId: string,
+): Promise<{ id: string; data: Record<string, unknown> | null } | null> {
+  const { data, error } = await admin
+    .from('document_extractions')
+    .select('id, data')
+    .eq('document_id', documentId)
+    .is('field_key', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return {
+    id: typeof data.id === 'string' ? data.id : '',
+    data: asRecord(data.data),
+  };
+}
+
+async function persistExtractionDiagnostics(
+  admin: SupabaseClient,
+  params: {
+    extractionSnapshotId: string;
+    extractionData: Record<string, unknown> | null;
+    diagnosticsPatch: Record<string, unknown>;
+    logLabel: string;
+  },
+): Promise<void> {
+  if (!params.extractionSnapshotId) return;
+
+  const root = params.extractionData ?? {};
+  const extraction = asRecord(root.extraction) ?? {};
+  const diagnostics = asRecord(extraction.diagnostics) ?? {};
+  const nextData = {
+    ...root,
+    extraction: {
+      ...extraction,
+      diagnostics: {
+        ...diagnostics,
+        ...params.diagnosticsPatch,
+        inspection_snapshot_shape: 'canonical_shadow_assembly_v1',
+      },
+    },
+  };
+
+  const { error } = await admin
+    .from('document_extractions')
+    .update({ data: nextData })
+    .eq('id', params.extractionSnapshotId);
+
+  if (error) {
+    console.error(`[generateAndPersistCanonicalIntelligence] failed to persist ${params.logLabel}`, {
+      extractionSnapshotId: params.extractionSnapshotId,
+      message: error.message,
+    });
+  }
+}
+
+async function persistExtractionInspectionSnapshots(
+  admin: SupabaseClient,
+  params: {
+    documentId: string;
+    extractionSnapshotId?: string;
+    extractionData: Record<string, unknown> | null;
+    extracted: unknown;
+  },
+): Promise<void> {
+  const snapshots = canonicalInspectionSnapshotsFromExtracted(params.extracted);
+  if (!snapshots) return;
+
+  let extractionSnapshotId = params.extractionSnapshotId;
+  let root = params.extractionData ?? {};
+  if (!extractionSnapshotId) {
+    const { data, error } = await admin
+      .from('document_extractions')
+      .select('id, data')
+      .eq('document_id', params.documentId)
+      .is('field_key', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return;
+    extractionSnapshotId = typeof data.id === 'string' ? data.id : undefined;
+    root = asRecord(data.data) ?? root;
+  }
+  if (!extractionSnapshotId) return;
+
+  await persistExtractionDiagnostics(admin, {
+    extractionSnapshotId,
+    extractionData: root,
+    diagnosticsPatch: snapshots,
+    logLabel: 'inspection snapshots',
+  });
+}
+
+async function persistOperationalRateDiffFromInspectionSnapshots(
+  admin: SupabaseClient,
+  params: {
+    documentId: string;
+    projectId?: string | null;
+    relatedDocs: RelatedDocInput[];
+    extracted: unknown;
+  },
+): Promise<{
+  diff: ReturnType<typeof buildCanonicalOperationalRateDiff> | null;
+  warnings: string[];
+}> {
+  const extractedRecord = asRecord(params.extracted);
+  if (extractedRecord?.canonicalOperationalTableRowAssembly == null) {
+    return { diff: null, warnings: [] };
+  }
+
+  const latestInvoiceSnapshot = await loadLatestExtractionSnapshot(admin, params.documentId);
+  const invoiceRows = canonicalAssemblyRowsFromExtractionData(
+    latestInvoiceSnapshot?.data,
+    'canonicalOperationalTableRowAssembly',
+  );
+  const warnings: string[] = [];
+  if (invoiceRows.length === 0) {
+    warnings.push('canonicalOperationalRateDiff skipped: invoice assembly snapshot missing');
+  }
+
+  const contract = params.relatedDocs
+    .filter((document) => (document.document_type ?? '').toLowerCase().includes('contract'))
+    .map((document) => ({
+      document,
+      rows: canonicalAssemblyRowsFromExtractionData(
+        document.extraction,
+        'canonicalContractRateScheduleAssembly',
+      ),
+    }))
+    .filter((entry) => entry.rows.length > 0)
+    .sort((left, right) => {
+      const leftGoverning = left.document.is_governing ? 0 : 1;
+      const rightGoverning = right.document.is_governing ? 0 : 1;
+      if (leftGoverning !== rightGoverning) return leftGoverning - rightGoverning;
+      return left.document.id.localeCompare(right.document.id);
+    })[0] ?? null;
+
+  if (!contract) {
+    warnings.push('canonicalOperationalRateDiff skipped: contract assembly snapshot missing');
+  }
+
+  if (!latestInvoiceSnapshot?.id) {
+    return { diff: null, warnings };
+  }
+
+  if (warnings.length > 0 || !contract) {
+    await persistExtractionDiagnostics(admin, {
+      extractionSnapshotId: latestInvoiceSnapshot.id,
+      extractionData: latestInvoiceSnapshot.data,
+      diagnosticsPatch: {
+        canonicalOperationalRateDiffWarnings: warnings,
+      },
+      logLabel: 'rate diff warnings',
+    });
+    return { diff: null, warnings };
+  }
+
+  const diff = buildCanonicalOperationalRateDiff({
+    project_id: params.projectId ?? null,
+    invoice_document_id: params.documentId,
+    contract_document_id: contract.document.id,
+    invoice_rows: invoiceRows,
+    contract_rows: contract.rows,
+  });
+
+  await persistExtractionDiagnostics(admin, {
+    extractionSnapshotId: latestInvoiceSnapshot.id,
+    extractionData: latestInvoiceSnapshot.data,
+    diagnosticsPatch: {
+      canonicalOperationalRateDiff: diff,
+      canonicalOperationalRateDiffWarnings: [],
+    },
+    logLabel: 'rate diff snapshot',
+  });
+
+  return { diff, warnings: [] };
 }
 
 function hasSupportTicketRowsInExtractionData(
@@ -1060,8 +1281,30 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     relatedDocs: buildContext.buildParams.relatedDocs,
   });
 
+  await persistExtractionInspectionSnapshots(params.admin, {
+    documentId: params.documentId,
+    extractionSnapshotId: buildContext.extractionSnapshotId,
+    extractionData: buildContext.buildParams.extractionData,
+    extracted: pipelineResult.extracted,
+  });
+
   const transactionDataDocument = isTransactionDataExtracted(pipelineResult.extracted);
   const invoiceDocument = isInvoiceDocumentType(buildContext.buildParams.documentType);
+  if (invoiceDocument) {
+    const rateDiffResult = await persistOperationalRateDiffFromInspectionSnapshots(params.admin, {
+      documentId: params.documentId,
+      projectId: params.projectId ?? null,
+      relatedDocs: buildContext.buildParams.relatedDocs,
+      extracted: pipelineResult.extracted,
+    });
+    const extractedRecord = asRecord(pipelineResult.extracted);
+    if (extractedRecord && rateDiffResult.diff) {
+      extractedRecord.canonicalOperationalRateDiff = rateDiffResult.diff;
+    }
+    if (extractedRecord && rateDiffResult.warnings.length > 0) {
+      extractedRecord.canonicalOperationalRateDiffWarnings = rateDiffResult.warnings;
+    }
+  }
   let transactionDataPersisted: boolean | null = transactionDataDocument ? false : null;
   let canonicalPersistenceError: string | null = null;
 

@@ -47,18 +47,18 @@ export function AskInterface({
   }
 
   return (
-    <div className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1117]">
-      <div className="flex items-center justify-between border-b border-[#2F3B52]/60 px-5 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8B94A3]">
+    <div className="rounded-xl border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)]">
+      <div className="flex items-center justify-between border-b border-[var(--ef-border-subtle-a60)] px-5 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
           {title}
         </h3>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-[#5B6578]">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--ef-text-faint)]">
           Single-shot query
         </span>
       </div>
 
       <div className="space-y-3 px-5 py-4">
-        <p className="text-[11px] text-[#94A3B8]">
+        <p className="text-[11px] text-[var(--ef-text-muted)]">
           One query, one result. Prior output is replaced each time.
         </p>
 
@@ -68,12 +68,12 @@ export function AskInterface({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="contract ceiling · invoice 2026-003 · rate 6A · signal approval blockers"
-              className="min-w-0 flex-1 rounded-lg border border-[#2F3B52] bg-[#111827] px-3 py-2.5 text-sm text-[#E5EDF7] outline-none placeholder:text-[#5B6578] focus:border-[#3B82F6]/50"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2.5 text-sm text-[var(--ef-text-primary)] outline-none placeholder:text-[var(--ef-text-faint)] focus:border-[var(--ef-purple-primary-a50)]"
             />
             <button
               type="submit"
               disabled={pending || draft.trim().length === 0}
-              className="rounded-lg border border-[#3B82F6]/50 bg-[#3B82F6]/12 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-[var(--ef-purple-primary-a50)] bg-[var(--ef-purple-primary-a12)] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending ? 'Running' : 'Ask'}
             </button>
@@ -90,19 +90,19 @@ export function AskInterface({
                     void submitQuestion(example);
                   });
                 }}
-                className="rounded border border-[#2F3B52]/60 bg-[#0D1526] px-2 py-0.5 font-mono text-[10px] text-[#5B6578] transition hover:border-[#3B82F6]/40 hover:text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded border border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-secondary)] px-2 py-0.5 font-mono text-[10px] text-[var(--ef-text-faint)] transition hover:border-[var(--ef-purple-primary-a40)] hover:text-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {example}
               </button>
             ))}
           </div>
-          <p className="text-[10px] text-[#5B6578]">
+          <p className="text-[10px] text-[var(--ef-text-faint)]">
             Sources: structured extracted facts, validator findings, decisions, then project documents (precedence applied when sources conflict).
           </p>
         </form>
 
         {error ? (
-          <div className="rounded-lg border border-[#EF4444]/35 bg-[#3A141A] px-3 py-2 text-[11px] text-[#FCA5A5]">
+          <div className="rounded-lg border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] px-3 py-2 text-[11px] text-[var(--ef-critical-soft)]">
             {error}
           </div>
         ) : null}

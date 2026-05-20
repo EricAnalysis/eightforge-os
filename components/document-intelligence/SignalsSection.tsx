@@ -38,9 +38,9 @@ export function SignalsSection({ decisions }: SignalsSectionProps) {
   if (signals.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5">
-      <div className="border-b border-amber-500/10 px-5 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+    <div className="rounded-xl border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-a08)]">
+      <div className="border-b border-[var(--ef-warning-a20)] px-5 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-warning)]">
           ⚑ Attention Required
         </h3>
       </div>
@@ -52,12 +52,12 @@ export function SignalsSection({ decisions }: SignalsSectionProps) {
           >
             <span
               className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                signal.high ? 'bg-red-400' : 'bg-amber-400'
+                signal.high ? 'bg-[var(--ef-critical)]' : 'bg-[var(--ef-warning)]'
               }`}
             />
             <div>
               <p className="text-sm font-medium text-white">{signal.label}</p>
-              <p className="text-xs text-[#8B94A3]">{signal.explanation}</p>
+              <p className="text-xs text-[var(--ef-text-muted)]">{signal.explanation}</p>
             </div>
           </div>
         ))}

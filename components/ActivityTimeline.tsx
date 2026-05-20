@@ -41,10 +41,10 @@ function eventLabel(event: ActivityEventRow): string {
 }
 
 const EVENT_TYPE_STYLES: Record<string, string> = {
-  created: 'text-[#3B82F6]',
-  status_changed: 'text-[#38BDF8]',
-  assignment_changed: 'text-[#C7D2E3]',
-  due_date_changed: 'text-[#E5EDF7]',
+  created: 'text-[var(--ef-purple-primary)]',
+  status_changed: 'text-[var(--ef-purple-accent)]',
+  assignment_changed: 'text-[var(--ef-text-secondary)]',
+  due_date_changed: 'text-[var(--ef-text-primary)]',
 };
 
 export function ActivityTimeline({
@@ -112,43 +112,43 @@ export function ActivityTimeline({
 
   if (loading) {
     return (
-      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+      <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
           Activity
         </div>
-        <p className="text-[11px] text-[#94A3B8]">Loading...</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Loading...</p>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+      <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
           Activity
         </div>
-        <p className="text-[11px] font-medium text-[#EF4444]">{error}</p>
+        <p className="text-[11px] font-medium text-[var(--ef-critical)]">{error}</p>
       </section>
     );
   }
 
   if (events.length === 0) {
     return (
-      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+      <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
           Activity
         </div>
-        <p className="text-[11px] text-[#94A3B8]">No activity recorded yet.</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">No activity recorded yet.</p>
       </section>
     );
   }
 
   return (
-    <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
-      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+    <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-5">
+      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         Activity
         {refreshing && (
-          <span className="text-[10px] font-normal normal-case tracking-normal text-[#94A3B8]">
+          <span className="text-[10px] font-normal normal-case tracking-normal text-[var(--ef-text-muted)]">
             Refreshing...
           </span>
         )}
@@ -158,25 +158,25 @@ export function ActivityTimeline({
           <li
             key={event.id}
             className={`flex items-start gap-3 py-2.5 text-[11px] ${
-              index < events.length - 1 ? 'border-b border-[#2F3B52]' : ''
+              index < events.length - 1 ? 'border-b border-[var(--ef-border-subtle)]' : ''
             }`}
           >
-            <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3B82F6]/40" />
+            <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ef-purple-primary-a40)]" />
             <div className="min-w-0 flex-1">
-              <span className={`font-medium ${EVENT_TYPE_STYLES[event.event_type] ?? 'text-[#E5EDF7]'}`}>
+              <span className={`font-medium ${EVENT_TYPE_STYLES[event.event_type] ?? 'text-[var(--ef-text-primary)]'}`}>
                 {eventLabel(event)}
               </span>
               {event.event_type === 'assignment_changed' && event.new_value && typeof event.new_value === 'object' && 'assigned_to' in event.new_value && (
-                <span className="ml-1 text-[#94A3B8]">
+                <span className="ml-1 text-[var(--ef-text-muted)]">
                   {'-> '}
                   {memberDisplayName(members, (event.new_value as { assigned_to?: string }).assigned_to ?? null)}
                 </span>
               )}
               {event.changed_by && (
-                <span className="ml-1 text-[#94A3B8]">by {memberDisplayName(members, event.changed_by)}</span>
+                <span className="ml-1 text-[var(--ef-text-muted)]">by {memberDisplayName(members, event.changed_by)}</span>
               )}
             </div>
-            <span className="shrink-0 text-[10px] text-[#94A3B8]/70">{formatDate(event.created_at)}</span>
+            <span className="shrink-0 text-[10px] text-[var(--ef-text-muted)]">{formatDate(event.created_at)}</span>
           </li>
         ))}
       </ul>

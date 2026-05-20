@@ -223,6 +223,28 @@ function parseProjectValidationSnapshot(
   };
 }
 
+function firstInvoiceLineContext(
+  details: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const contexts = details?.invoice_line_contexts;
+  if (!Array.isArray(contexts)) return null;
+  const first = contexts.find((entry) => entry != null && typeof entry === 'object' && !Array.isArray(entry));
+  return first ? first as Record<string, unknown> : null;
+}
+
+function contextString(context: Record<string, unknown> | null, key: string): string | null {
+  const value = context?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function invoiceLineContextLabel(context: Record<string, unknown> | null): string | null {
+  if (!context) return null;
+  const rateCode = contextString(context, 'rate_code');
+  const description = contextString(context, 'line_description');
+  const parts = [rateCode, description].filter(Boolean);
+  return parts.length > 0 ? parts.join(' - ') : null;
+}
+
 function isContractCeilingDecision(
   details: Record<string, unknown> | null,
 ): boolean {
@@ -861,6 +883,8 @@ export function buildDecisionContextRows(params: {
         ? `/platform/decisions/${selectedWorkflowTask.decision_id}`
         : '/platform/decisions'
       : null;
+  const invoiceLineContext = firstInvoiceLineContext(decisionDetails);
+  const invoiceLineLabel = invoiceLineContextLabel(invoiceLineContext);
 
   return [
     {
@@ -926,6 +950,21 @@ export function buildDecisionContextRows(params: {
           ? decisionActionImpact
           : 'Will complete validation',
     },
+    ...(invoiceLineLabel
+      ? [{
+        label: 'Invoice line',
+        value: invoiceLineLabel,
+        sourceLabel: contextString(invoiceLineContext, 'invoice_number')
+          ? `Invoice ${contextString(invoiceLineContext, 'invoice_number')}`
+          : 'Invoice extraction',
+        sourceHref: documentHref,
+        validation: 'Requires Verification' as TruthValidationState,
+        gateImpact: 'Specific billed line needs a confirmed contract schedule row',
+        nextAction:
+          'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
+        actionImpact: decisionActionImpact,
+      }]
+      : []),
     {
       label: 'Remaining capacity',
       value: formatRemainingCapacity(contractCeiling, invoiceTotal),

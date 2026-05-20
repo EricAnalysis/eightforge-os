@@ -10,6 +10,7 @@ import {
   isRuleEnabled,
   makeEvidenceInput,
   makeFinding,
+  normalizeVendorName,
   normalizeCode,
   partiesClearlyDifferent,
   readRowNumber,
@@ -160,6 +161,7 @@ type InvoiceMetadata = {
   source_document_id: string | null;
   invoice_number: string | null;
   vendor_name: string | null;
+  vendor_name_source: ResolvedVendorSource;
   client_name: string | null;
   period_start: string | null;
   period_end: string | null;
@@ -172,6 +174,13 @@ type InvoiceMetadata = {
   period_end_facts: ValidatorFactRecord[];
   total_facts: ValidatorFactRecord[];
 };
+
+type ResolvedVendorSource =
+  | 'human_override'
+  | 'human_review'
+  | 'canonical_fact'
+  | 'machine_fallback'
+  | null;
 
 type CanonicalInvoiceLine = {
   line_id: string;
@@ -213,6 +222,59 @@ function factStringValue(facts: readonly ValidatorFactRecord[]): string | null {
   }
 
   return null;
+}
+
+function vendorSourceLabel(source: ResolvedVendorSource): string {
+  switch (source) {
+    case 'human_override':
+      return 'human override';
+    case 'human_review':
+      return 'human reviewed';
+    case 'canonical_fact':
+      return 'canonical fact';
+    case 'machine_fallback':
+      return 'machine fallback';
+    default:
+      return 'unresolved';
+  }
+}
+
+function resolvedVendorSource(fact: ValidatorFactRecord | null): ResolvedVendorSource {
+  if (!fact) return null;
+  if (fact.source === 'human_override') return 'human_override';
+  if (fact.source === 'human_review') return 'human_review';
+  if (
+    fact.source === 'canonical_contract_intelligence'
+    || fact.source === 'normalized_row'
+  ) {
+    return 'canonical_fact';
+  }
+  return 'machine_fallback';
+}
+
+function resolvedVendorValue(facts: readonly ValidatorFactRecord[]): {
+  value: string | null;
+  source: ResolvedVendorSource;
+} {
+  for (const fact of facts) {
+    if (typeof fact.value === 'string' && fact.value.trim().length > 0) {
+      return {
+        value: fact.value.trim(),
+        source: resolvedVendorSource(fact),
+      };
+    }
+  }
+
+  return { value: null, source: null };
+}
+
+function vendorNamesMatch(
+  actual: string | null | undefined,
+  expected: string | null | undefined,
+): boolean {
+  const normalizedActual = normalizeVendorName(actual);
+  const normalizedExpected = normalizeVendorName(expected);
+  return !!normalizedActual && !!normalizedExpected && normalizedActual === normalizedExpected;
 }
 
 function factNumberValue(facts: readonly ValidatorFactRecord[]): number | null {
@@ -293,6 +355,7 @@ function createInvoiceMetadata(params: {
     source_document_id: params.sourceDocumentId ?? null,
     invoice_number: params.invoiceNumber ?? null,
     vendor_name: null,
+    vendor_name_source: null,
     client_name: null,
     period_start: null,
     period_end: null,
@@ -405,7 +468,9 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
       invoiceNumber,
     });
 
-    metadata.vendor_name = factStringValue(vendorFacts);
+    const resolvedVendor = resolvedVendorValue(vendorFacts);
+    metadata.vendor_name = resolvedVendor.value;
+    metadata.vendor_name_source = resolvedVendor.source;
     metadata.client_name = factStringValue(clientFacts);
     metadata.period_start = factStringValue(periodStartFacts);
     metadata.period_end = factStringValue(periodEndFacts);
@@ -455,7 +520,10 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
     metadata.subject_id = invoiceNumber ?? metadata.subject_id;
     metadata.source_document_id = sourceDocumentId ?? metadata.source_document_id;
     metadata.invoice_number = invoiceNumber ?? metadata.invoice_number;
-    metadata.vendor_name = readRowString(row, INVOICE_VENDOR_KEYS) ?? metadata.vendor_name;
+    if (!metadata.vendor_name) {
+      metadata.vendor_name = readRowString(row, INVOICE_VENDOR_KEYS);
+      metadata.vendor_name_source = metadata.vendor_name ? 'machine_fallback' : null;
+    }
     metadata.client_name = readRowString(row, INVOICE_CLIENT_KEYS) ?? metadata.client_name;
     metadata.period_start =
       readRowString(row, INVOICE_PERIOD_START_KEYS) ?? metadata.period_start;
@@ -638,7 +706,7 @@ export function evaluateContractInvoiceReconciliation(
   for (const invoice of invoices) {
     if (!contractVendor || !invoice.vendor_name) {
       vendorStatuses.push('MISSING');
-    } else if (partiesClearlyDifferent(invoice.vendor_name, contractVendor)) {
+    } else if (!vendorNamesMatch(invoice.vendor_name, contractVendor)) {
       vendorStatuses.push('MISMATCH');
       if (
         isRuleEnabled(
@@ -665,10 +733,18 @@ export function evaluateContractInvoiceReconciliation(
                     row: invoice.row,
                     fieldName: 'vendor_name',
                     fieldValue: invoice.vendor_name,
-                    note: 'Invoice vendor extracted for contractor identity comparison.',
+                    note: `Invoice vendor resolved for contractor identity comparison from ${vendorSourceLabel(invoice.vendor_name_source)}.`,
                   }),
                 ]
                 : evidenceFromFacts(invoice.vendor_facts)),
+              makeEvidenceInput({
+                evidence_type: 'fact',
+                source_document_id: invoice.source_document_id,
+                record_id: invoice.source_document_id,
+                field_name: 'contractor_name_source',
+                field_value: vendorSourceLabel(invoice.vendor_name_source),
+                note: 'Resolved invoice contractor source used for vendor identity comparison.',
+              }),
               ...evidenceFromFacts(contractVendorFacts),
             ],
           }),

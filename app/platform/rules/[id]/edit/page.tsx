@@ -98,10 +98,10 @@ export default function EditRulePage({
   if (orgLoading || loading) {
     return (
       <div className="space-y-3">
-        <Link href="/platform/rules" className="text-[11px] text-[#8B5CFF] hover:underline">
+        <Link href="/platform/rules" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           ← Rules
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
       </div>
     );
   }
@@ -109,10 +109,10 @@ export default function EditRulePage({
   if (notFound || !rule) {
     return (
       <div className="space-y-3">
-        <Link href="/platform/rules" className="text-[11px] text-[#8B5CFF] hover:underline">
+        <Link href="/platform/rules" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           ← Rules
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Rule not found.</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Rule not found.</p>
       </div>
     );
   }
@@ -120,18 +120,18 @@ export default function EditRulePage({
   return (
     <div className="space-y-4">
       <div>
-        <Link href="/platform/rules" className="text-[11px] text-[#8B5CFF] hover:underline">
+        <Link href="/platform/rules" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           ← Rules
         </Link>
-        <h2 className="mt-1 text-sm font-semibold text-[#F5F7FA]">Edit Rule</h2>
-        <p className="text-[11px] text-[#8B94A3]">{rule.name}</p>
+        <h2 className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">Edit Rule</h2>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">{rule.name}</p>
       </div>
 
       {error && (
-        <p className="text-[11px] text-red-400">{error}</p>
+        <p className="text-[11px] text-[var(--ef-critical)]">{error}</p>
       )}
 
-      <div className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+      <div className="rounded-lg border border-white/5 bg-[var(--ef-background-secondary)] p-4">
         <RuleForm
           initial={{
             domain: rule.domain,

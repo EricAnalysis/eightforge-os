@@ -118,34 +118,34 @@ function severityConfig(severity: string): {
     case 'critical':
       return {
         label: 'Risk detected',
-        textClass: 'text-[#EF4444]',
-        surfaceClass: 'bg-[#EF4444]/12',
-        borderClass: 'border-[#EF4444]/30',
-        accentClass: 'border-l-[#EF4444]',
+        textClass: 'text-[var(--ef-critical)]',
+        surfaceClass: 'bg-[var(--ef-critical-a12)]',
+        borderClass: 'border-[var(--ef-critical-a30)]',
+        accentClass: 'border-l-[var(--ef-critical)]',
       };
     case 'high':
       return {
         label: 'Needs review',
-        textClass: 'text-[#F59E0B]',
-        surfaceClass: 'bg-[#F59E0B]/12',
-        borderClass: 'border-[#F59E0B]/30',
-        accentClass: 'border-l-[#F59E0B]',
+        textClass: 'text-[var(--ef-warning)]',
+        surfaceClass: 'bg-[var(--ef-warning-bg)]',
+        borderClass: 'border-[var(--ef-warning-a30)]',
+        accentClass: 'border-l-[var(--ef-warning)]',
       };
     case 'medium':
       return {
         label: 'Review',
-        textClass: 'text-[#F59E0B]',
-        surfaceClass: 'bg-[#F59E0B]/12',
-        borderClass: 'border-[#F59E0B]/30',
-        accentClass: 'border-l-[#F59E0B]',
+        textClass: 'text-[var(--ef-warning)]',
+        surfaceClass: 'bg-[var(--ef-warning-bg)]',
+        borderClass: 'border-[var(--ef-warning-a30)]',
+        accentClass: 'border-l-[var(--ef-warning)]',
       };
     default:
       return {
         label: 'Low risk',
-        textClass: 'text-[#22C55E]',
-        surfaceClass: 'bg-[#22C55E]/12',
-        borderClass: 'border-[#22C55E]/30',
-        accentClass: 'border-l-[#22C55E]',
+        textClass: 'text-[var(--ef-success)]',
+        surfaceClass: 'bg-[var(--ef-success-bg)]',
+        borderClass: 'border-[var(--ef-success-a30)]',
+        accentClass: 'border-l-[var(--ef-success)]',
       };
   }
 }
@@ -153,58 +153,58 @@ function severityConfig(severity: string): {
 function statusBadgeClass(status: string): string {
   switch (status) {
     case 'open':
-      return 'bg-[#F59E0B]/12 text-[#F59E0B] border border-[#F59E0B]/30';
+      return 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning)] border border-[var(--ef-warning-a30)]';
     case 'in_review':
-      return 'bg-[#3B82F6]/12 text-[#3B82F6] border border-[#3B82F6]/30';
+      return 'bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-primary)] border border-[var(--ef-purple-primary-a30)]';
     case 'resolved':
-      return 'bg-[#22C55E]/12 text-[#22C55E] border border-[#22C55E]/30';
+      return 'bg-[var(--ef-success-bg)] text-[var(--ef-success)] border border-[var(--ef-success-a30)]';
     case 'suppressed':
-      return 'bg-[#243044] text-[#94A3B8] border border-[#2F3B52]';
+      return 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]';
     default:
-      return 'bg-[#243044] text-[#94A3B8] border border-[#2F3B52]';
+      return 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]';
   }
 }
 
 function taskPriorityClass(priority: string): string {
   switch (priority) {
     case 'critical':
-      return 'bg-[#EF4444]/12 text-[#EF4444] border border-[#EF4444]/30';
+      return 'bg-[var(--ef-critical-a12)] text-[var(--ef-critical)] border border-[var(--ef-critical-a30)]';
     case 'high':
-      return 'bg-[#F59E0B]/12 text-[#F59E0B] border border-[#F59E0B]/30';
+      return 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning)] border border-[var(--ef-warning-a30)]';
     case 'medium':
-      return 'bg-[#3B82F6]/12 text-[#3B82F6] border border-[#3B82F6]/30';
+      return 'bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-primary)] border border-[var(--ef-purple-primary-a30)]';
     default:
-      return 'bg-[#243044] text-[#94A3B8] border border-[#2F3B52]';
+      return 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]';
   }
 }
 
 function toneClass(tone: DecisionTone): string {
   switch (tone) {
     case 'brand':
-      return 'text-[#3B82F6]';
+      return 'text-[var(--ef-purple-primary)]';
     case 'success':
-      return 'text-[#22C55E]';
+      return 'text-[var(--ef-success)]';
     case 'warning':
-      return 'text-[#F59E0B]';
+      return 'text-[var(--ef-warning)]';
     case 'danger':
-      return 'text-[#EF4444]';
+      return 'text-[var(--ef-critical)]';
     default:
-      return 'text-[#94A3B8]';
+      return 'text-[var(--ef-text-muted)]';
   }
 }
 
 function metricBarClass(tone: DecisionTone): string {
   switch (tone) {
     case 'brand':
-      return 'bg-[#3B82F6]';
+      return 'bg-[var(--ef-purple-primary)]';
     case 'success':
-      return 'bg-[#22C55E]';
+      return 'bg-[var(--ef-success)]';
     case 'warning':
-      return 'bg-[#F59E0B]';
+      return 'bg-[var(--ef-warning)]';
     case 'danger':
-      return 'bg-[#EF4444]';
+      return 'bg-[var(--ef-critical)]';
     default:
-      return 'bg-[#94A3B8]';
+      return 'bg-[var(--ef-text-muted)]';
   }
 }
 
@@ -232,20 +232,20 @@ function headerCta(status: string): {
     return {
       label: 'Start remediation',
       nextStatus: 'in_review',
-      className: 'bg-gradient-to-br from-[#3B82F6] to-[#2563EB] text-white hover:brightness-110',
+      className: 'bg-gradient-to-br from-[var(--ef-purple-primary)] to-[var(--ef-purple-glow)] text-white hover:brightness-110',
     };
   }
   if (status === 'in_review') {
     return {
       label: 'Mark resolved',
       nextStatus: 'resolved',
-      className: 'bg-gradient-to-br from-[#22C55E] to-[#16A34A] text-white hover:brightness-110',
+      className: 'bg-gradient-to-br from-[var(--ef-success)] to-[var(--ef-success-soft)] text-white hover:brightness-110',
     };
   }
   return {
     label: 'Re-open decision',
     nextStatus: 'open',
-    className: 'bg-gradient-to-br from-[#3B82F6] to-[#2563EB] text-white hover:brightness-110',
+    className: 'bg-gradient-to-br from-[var(--ef-purple-primary)] to-[var(--ef-purple-glow)] text-white hover:brightness-110',
   };
 }
 
@@ -258,12 +258,12 @@ function feedbackLabel(row: DecisionDetailFeedback): string {
 }
 
 function feedbackTone(row: DecisionDetailFeedback): string {
-  if (row.is_correct === true) return 'text-[#22C55E]';
-  if (row.is_correct === false) return 'text-[#EF4444]';
-  if (row.disposition === 'accept') return 'text-[#22C55E]';
-  if (row.disposition === 'reject' || row.disposition === 'suppress') return 'text-[#EF4444]';
-  if (row.disposition === 'escalate') return 'text-[#F59E0B]';
-  return 'text-[#C7D2E3]';
+  if (row.is_correct === true) return 'text-[var(--ef-success)]';
+  if (row.is_correct === false) return 'text-[var(--ef-critical)]';
+  if (row.disposition === 'accept') return 'text-[var(--ef-success)]';
+  if (row.disposition === 'reject' || row.disposition === 'suppress') return 'text-[var(--ef-critical)]';
+  if (row.disposition === 'escalate') return 'text-[var(--ef-warning)]';
+  return 'text-[var(--ef-text-secondary)]';
 }
 
 function sortTasks(tasks: DecisionDetailTask[]): DecisionDetailTask[] {
@@ -317,33 +317,33 @@ function DecisionDetailHeader(props: {
   return (
     <section
       id="decision-header"
-      className="mb-8 rounded-2xl border border-[#2F3B52] bg-[#111827] p-6 shadow-[0_24px_64px_rgba(8,13,29,0.35)]"
+      className="mb-8 rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-6 shadow-[0_24px_64px_var(--ef-shadow-medium)]"
     >
       <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-3">
-            <span className="rounded border border-[#2F3B52] bg-[#1A2333] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">
+            <span className="rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-purple-primary)]">
               Decision
             </span>
-            <span className="text-sm text-[#94A3B8]">
-              Source document: <span className="font-medium text-[#E5EDF7]">{documentLabel}</span>
+            <span className="text-sm text-[var(--ef-text-muted)]">
+              Source document: <span className="font-medium text-[var(--ef-text-primary)]">{documentLabel}</span>
             </span>
           </div>
 
-          <h1 className="text-3xl font-semibold tracking-tight text-[#E5EDF7]">
+          <h1 className="text-3xl font-semibold tracking-tight text-[var(--ef-text-primary)]">
             {decision.title}
           </h1>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[#94A3B8]">
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[var(--ef-text-muted)]">
             {projectContextLabel && (
               <span>
-                Project: <span className="font-medium text-[#E5EDF7]">{projectContextLabel}</span>
+                Project: <span className="font-medium text-[var(--ef-text-primary)]">{projectContextLabel}</span>
               </span>
             )}
-            <span className="hidden h-3 w-px bg-[#2F3B52] sm:block" />
-            <span>Type: <span className="font-medium text-[#E5EDF7]">{titleize(decision.decision_type)}</span></span>
-            <span className="hidden h-3 w-px bg-[#2F3B52] sm:block" />
-            <span>Source: <span className="font-medium text-[#E5EDF7]">{titleize(decision.source)}</span></span>
+            <span className="hidden h-3 w-px bg-[var(--ef-border-subtle)] sm:block" />
+            <span>Type: <span className="font-medium text-[var(--ef-text-primary)]">{titleize(decision.decision_type)}</span></span>
+            <span className="hidden h-3 w-px bg-[var(--ef-border-subtle)] sm:block" />
+            <span>Source: <span className="font-medium text-[var(--ef-text-primary)]">{titleize(decision.source)}</span></span>
             <span className={`inline-flex items-center gap-2 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${severity.surfaceClass} ${severity.textClass} ${severity.borderClass} border`}>
               <span className={`h-2 w-2 rounded-full ${severity.textClass.replace('text', 'bg')}`} />
               {severity.label}
@@ -359,7 +359,7 @@ function DecisionDetailHeader(props: {
             {documentHref && (
               <Link
                 href={documentHref}
-                className="inline-flex items-center justify-center rounded-md border border-[#2F3B52] bg-[#1A2333] px-4 py-2.5 text-sm font-medium text-[#E5EDF7] transition-colors hover:bg-[#243044]"
+                className="inline-flex items-center justify-center rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] px-4 py-2.5 text-sm font-medium text-[var(--ef-text-primary)] transition-colors hover:bg-[var(--ef-surface-hover)]"
               >
                 Open source document
               </Link>
@@ -374,16 +374,16 @@ function DecisionDetailHeader(props: {
             </button>
           </div>
 
-          <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
+          <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
             <div className="grid gap-4 md:grid-cols-3">
-              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[#94A3B8]">
+              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
                 Owner
                 <select
                   aria-label="Assign decision"
                   value={decision.assigned_to ?? ''}
                   onChange={(event) => assignmentControl.onChange(event.target.value || null)}
                   disabled={assignmentControl.saving}
-                  className="rounded-md border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[#E5EDF7] outline-none focus:border-[#3B82F6] disabled:opacity-60"
+                  className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
                 >
                   <option value="">Unassigned</option>
                   {members.map((member) => (
@@ -394,37 +394,37 @@ function DecisionDetailHeader(props: {
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[#94A3B8]">
+              <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
                 Due date
                 <input
                   type="date"
                   value={decision.due_at ? dueDateInputValue(decision.due_at) : ''}
                   onChange={(event) => dueDateControl.onChange(dueDateToISO(event.target.value))}
                   disabled={dueDateControl.saving}
-                  className="rounded-md border border-[#2F3B52] bg-[#111827] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[#E5EDF7] outline-none focus:border-[#3B82F6] disabled:opacity-60"
+                  className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
                 />
               </label>
 
-              <div className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[#94A3B8]">
+              <div className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
                 Queue state
-                <div className="rounded-md border border-[#2F3B52] bg-[#111827] px-3 py-[0.65rem] text-sm font-medium normal-case tracking-normal text-[#E5EDF7]">
+                <div className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-[0.65rem] text-sm font-medium normal-case tracking-normal text-[var(--ef-text-primary)]">
                   {decision.due_at ? formatDueDate(decision.due_at) : memberDisplayName(members, decision.assigned_to)}
                   {overdue && <span className="ml-2 align-middle"><OverdueBadge /></span>}
                 </div>
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[#94A3B8]">
-              {assignmentControl.saved && <span className="text-[#22C55E]">Owner saved.</span>}
-              {assignmentControl.error && <span className="text-[#EF4444]">Owner update failed.</span>}
-              {dueDateControl.saved && <span className="text-[#22C55E]">Due date saved.</span>}
-              {dueDateControl.error && <span className="text-[#EF4444]">Due date update failed.</span>}
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[var(--ef-text-muted)]">
+              {assignmentControl.saved && <span className="text-[var(--ef-success)]">Owner saved.</span>}
+              {assignmentControl.error && <span className="text-[var(--ef-critical)]">Owner update failed.</span>}
+              {dueDateControl.saved && <span className="text-[var(--ef-success)]">Due date saved.</span>}
+              {dueDateControl.error && <span className="text-[var(--ef-critical)]">Due date update failed.</span>}
               {decision.due_at && (
                 <button
                   type="button"
                   onClick={() => dueDateControl.onChange(null)}
                   disabled={dueDateControl.saving}
-                  className="text-[#C7D2E3] transition-colors hover:text-[#E5EDF7] disabled:opacity-60"
+                  className="text-[var(--ef-text-secondary)] transition-colors hover:text-[var(--ef-text-primary)] disabled:opacity-60"
                 >
                   Clear due date
                 </button>
@@ -439,9 +439,9 @@ function DecisionDetailHeader(props: {
 
 function ExecutiveSummaryPanel({ summary }: { summary: DecisionExecutiveSummary }) {
   return (
-    <section className="mb-8 overflow-hidden rounded-2xl border border-[#2F3B52] bg-[#111827]">
-      <div className="border-l-4 border-[#3B82F6] p-6">
-        <h2 className="mb-5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+    <section className="mb-8 overflow-hidden rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)]">
+      <div className="border-l-4 border-[var(--ef-purple-primary)] p-6">
+        <h2 className="mb-5 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
           Executive summary
         </h2>
         <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
@@ -455,7 +455,7 @@ function ExecutiveSummaryPanel({ summary }: { summary: DecisionExecutiveSummary 
             {summary.sparseSignals.map((signal) => (
               <span
                 key={signal}
-                className="rounded border border-[#F59E0B]/30 bg-[#F59E0B]/12 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#F59E0B]"
+                className="rounded border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-warning)]"
               >
                 {signal}
               </span>
@@ -470,10 +470,10 @@ function ExecutiveSummaryPanel({ summary }: { summary: DecisionExecutiveSummary 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-2">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         {label}
       </p>
-      <p className="text-sm leading-6 text-[#E5EDF7]">
+      <p className="text-sm leading-6 text-[var(--ef-text-primary)]">
         {value}
       </p>
     </div>
@@ -490,14 +490,14 @@ function CriticalDecisionNodesSection(props: {
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-[#E5EDF7]">
+          <h2 className="text-xl font-semibold tracking-tight text-[var(--ef-text-primary)]">
             Critical Decision Nodes
           </h2>
-          <p className="text-sm text-[#94A3B8]">
+          <p className="text-sm text-[var(--ef-text-muted)]">
             The decision itself stays primary. Supporting actions stay attached to the same operator review thread.
           </p>
         </div>
-        <span className="rounded border border-[#2F3B52] bg-[#111827] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+        <span className="rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
           1 primary node
         </span>
       </div>
@@ -525,7 +525,7 @@ function DecisionNodeCard(props: {
     : false;
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-[#2F3B52] bg-[#1A2333] shadow-[0_20px_40px_rgba(8,13,29,0.28)]">
+    <article className="overflow-hidden rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] shadow-[0_20px_40px_var(--ef-shadow-soft)]">
       <div className={`border-l-4 ${severity.accentClass} p-6`}>
         <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex min-w-0 items-start gap-4">
@@ -534,7 +534,7 @@ function DecisionNodeCard(props: {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-semibold text-[#E5EDF7]">
+                <h3 className="text-lg font-semibold text-[var(--ef-text-primary)]">
                   {decision.title}
                 </h3>
                 <span className={`inline-flex rounded px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${severity.surfaceClass} ${severity.textClass} ${severity.borderClass} border`}>
@@ -544,51 +544,51 @@ function DecisionNodeCard(props: {
                   {decision.status.replace(/_/g, ' ')}
                 </span>
               </div>
-              <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[#94A3B8]">
+              <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
                 Ref: {reference}
               </p>
             </div>
           </div>
           {typeof decision.confidence === 'number' && (
-            <span className="text-sm font-medium text-[#C7D2E3]">
+            <span className="text-sm font-medium text-[var(--ef-text-secondary)]">
               {Math.round(decision.confidence * 100)}% confidence
             </span>
           )}
         </div>
 
-        <p className="text-sm leading-7 text-[#C7D2E3]">
+        <p className="text-sm leading-7 text-[var(--ef-text-secondary)]">
           {reason || decision.summary || 'This decision does not include a structured rationale yet.'}
         </p>
 
         <div className="mt-6 flex flex-col gap-4">
           {primaryAction ? (
-            <div className={`rounded-xl border p-4 ${vagueAction ? 'border-[#F59E0B]/30 bg-[#F59E0B]/10' : 'border-[#3B82F6]/25 bg-[#111827]'}`}>
+            <div className={`rounded-xl border p-4 ${vagueAction ? 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)]' : 'border-[var(--ef-purple-primary-a25)] bg-[var(--ef-background-secondary)]'}`}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-purple-primary)]">
                   Primary action
                 </span>
-                <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${primaryAction.resolvable ? 'bg-[#22C55E]/12 text-[#22C55E]' : 'bg-[#243044] text-[#C7D2E3]'}`}>
+                <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${primaryAction.resolvable ? 'bg-[var(--ef-success-bg)] text-[var(--ef-success)]' : 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-secondary)]'}`}>
                   {primaryAction.resolvable ? 'In product' : 'Manual step'}
                 </span>
                 {vagueAction && (
-                  <span className="rounded bg-[#F59E0B]/12 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#F59E0B]">
+                  <span className="rounded bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-warning)]">
                     Vague action
                   </span>
                 )}
               </div>
-              <p className="mt-3 text-sm font-medium text-[#E5EDF7]">
+              <p className="mt-3 text-sm font-medium text-[var(--ef-text-primary)]">
                 {primaryAction.description}
               </p>
-              <p className="mt-2 text-sm text-[#94A3B8]">
+              <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
                 {primaryAction.expected_outcome}
               </p>
             </div>
           ) : (
-            <div className="rounded-xl border border-[#EF4444]/30 bg-[#EF4444]/10 p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#EF4444]">
+            <div className="rounded-xl border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-critical)]">
                 Missing primary action
               </p>
-              <p className="mt-2 text-sm text-[#E5EDF7]">
+              <p className="mt-2 text-sm text-[var(--ef-text-primary)]">
                 This decision payload does not include a concrete next step for the operator. Treat this as a product defect, not a resolved decision.
               </p>
             </div>
@@ -599,7 +599,7 @@ function DecisionNodeCard(props: {
               {suggestedActions.map((action) => (
                 <span
                   key={action.id}
-                  className="rounded border border-[#2F3B52] bg-[#111827] px-3 py-2 text-xs font-medium text-[#C7D2E3]"
+                  className="rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-xs font-medium text-[var(--ef-text-secondary)]"
                 >
                   {action.description}
                 </span>
@@ -642,14 +642,14 @@ function ActionResolutionPanel(props: {
   return (
     <section
       id="decision-workflow"
-      className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-6"
+      className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-6"
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-[#E5EDF7]">
+          <h2 className="text-xl font-semibold tracking-tight text-[var(--ef-text-primary)]">
             Remediation and Resolution
           </h2>
-          <p className="text-sm text-[#94A3B8]">
+          <p className="text-sm text-[var(--ef-text-muted)]">
             Status control, review feedback, and workflow tasks stay attached to the live decision.
           </p>
         </div>
@@ -657,25 +657,25 @@ function ActionResolutionPanel(props: {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-5">
-          <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">
+          <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-purple-primary)]">
               Next operator move
             </p>
-            <p className="mt-3 text-sm text-[#E5EDF7]">
+            <p className="mt-3 text-sm text-[var(--ef-text-primary)]">
               {primaryAction?.description ?? 'No primary action emitted for this decision yet.'}
             </p>
-            <p className="mt-2 text-sm text-[#94A3B8]">
+            <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
               {primaryAction?.expected_outcome ?? 'Escalate the missing action payload so the decision engine can emit a reviewable next step.'}
             </p>
             {vagueAction && (
-              <p className="mt-3 rounded border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2 text-sm text-[#F59E0B]">
+              <p className="mt-3 rounded border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-sm text-[var(--ef-warning)]">
                 The current primary action is too vague for operator trust. It should be tightened in the decision output.
               </p>
             )}
           </div>
 
           <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               Decision status
             </p>
             <div className="flex flex-wrap gap-2">
@@ -689,8 +689,8 @@ function ActionResolutionPanel(props: {
                     disabled={statusControl.updating}
                     className={`rounded-md px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-60 ${
                       isActive
-                        ? 'bg-[#3B82F6] text-white'
-                        : 'border border-[#2F3B52] bg-[#1A2333] text-[#C7D2E3] hover:bg-[#243044]'
+                        ? 'bg-[var(--ef-purple-primary)] text-white'
+                        : 'border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-secondary)] hover:bg-[var(--ef-surface-hover)]'
                     }`}
                   >
                     {status.replace(/_/g, ' ')}
@@ -698,15 +698,15 @@ function ActionResolutionPanel(props: {
                 );
               })}
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-[#94A3B8]">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ef-text-muted)]">
               {statusControl.updating && <span>Saving status...</span>}
-              {statusControl.saved && <span className="text-[#22C55E]">Status saved.</span>}
-              {statusControl.error && <span className="text-[#EF4444]">Status update failed.</span>}
+              {statusControl.saved && <span className="text-[var(--ef-success)]">Status saved.</span>}
+              {statusControl.error && <span className="text-[var(--ef-critical)]">Status update failed.</span>}
             </div>
           </div>
 
           <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               Operator feedback
             </p>
             <div className="flex flex-wrap gap-2">
@@ -714,7 +714,7 @@ function ActionResolutionPanel(props: {
                 type="button"
                 onClick={() => feedbackControl.onSubmit(true)}
                 disabled={feedbackControl.saving}
-                className="rounded-md border border-[#22C55E]/30 bg-[#22C55E]/12 px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#22C55E] transition-colors hover:bg-[#22C55E]/18 disabled:opacity-60"
+                className="rounded-md border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--ef-success)] transition-colors hover:bg-[var(--ef-success-a18)] disabled:opacity-60"
               >
                 Mark correct
               </button>
@@ -722,7 +722,7 @@ function ActionResolutionPanel(props: {
                 type="button"
                 onClick={() => feedbackControl.onSubmit(false, 'extraction_error')}
                 disabled={feedbackControl.saving}
-                className="rounded-md border border-[#EF4444]/30 bg-[#EF4444]/12 px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#EF4444] transition-colors hover:bg-[#EF4444]/18 disabled:opacity-60"
+                className="rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a12)] px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--ef-critical)] transition-colors hover:bg-[var(--ef-critical-a18)] disabled:opacity-60"
               >
                 Extraction error
               </button>
@@ -730,7 +730,7 @@ function ActionResolutionPanel(props: {
                 type="button"
                 onClick={() => feedbackControl.onSubmit(false, 'rule_error')}
                 disabled={feedbackControl.saving}
-                className="rounded-md border border-[#F59E0B]/30 bg-[#F59E0B]/12 px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#F59E0B] transition-colors hover:bg-[#F59E0B]/18 disabled:opacity-60"
+                className="rounded-md border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--ef-warning)] transition-colors hover:bg-[var(--ef-warning-a18)] disabled:opacity-60"
               >
                 Rule error
               </button>
@@ -738,26 +738,26 @@ function ActionResolutionPanel(props: {
                 type="button"
                 onClick={() => feedbackControl.onSubmit(false, 'edge_case')}
                 disabled={feedbackControl.saving}
-                className="rounded-md border border-[#2F3B52] bg-[#1A2333] px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#C7D2E3] transition-colors hover:bg-[#243044] disabled:opacity-60"
+                className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--ef-text-secondary)] transition-colors hover:bg-[var(--ef-surface-hover)] disabled:opacity-60"
               >
                 Edge case
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-[#94A3B8]">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ef-text-muted)]">
               {feedbackControl.saving && <span>Saving feedback...</span>}
-              {feedbackControl.saved && <span className="text-[#22C55E]">Feedback saved.</span>}
-              {feedbackControl.error && <span className="text-[#EF4444]">{feedbackControl.error}</span>}
+              {feedbackControl.saved && <span className="text-[var(--ef-success)]">Feedback saved.</span>}
+              {feedbackControl.error && <span className="text-[var(--ef-critical)]">{feedbackControl.error}</span>}
             </div>
           </div>
         </div>
 
         <div className="space-y-5">
-          <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               Workflow tasks
             </p>
             {sortedTasks.length === 0 ? (
-              <p className="mt-3 text-sm text-[#C7D2E3]">
+              <p className="mt-3 text-sm text-[var(--ef-text-secondary)]">
                 No persisted workflow tasks were found for this decision yet.
               </p>
             ) : (
@@ -765,12 +765,12 @@ function ActionResolutionPanel(props: {
                 {sortedTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="block rounded-xl border border-[#2F3B52] bg-[#111827] p-4"
+                    className="block rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-[#E5EDF7]">{task.title}</p>
+                          <p className="text-sm font-medium text-[var(--ef-text-primary)]">{task.title}</p>
                           <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${taskPriorityClass(task.priority)}`}>
                             {task.priority}
                           </span>
@@ -779,9 +779,9 @@ function ActionResolutionPanel(props: {
                           </span>
                         </div>
                         {task.description && (
-                          <p className="mt-2 text-sm text-[#94A3B8]">{task.description}</p>
+                          <p className="mt-2 text-sm text-[var(--ef-text-muted)]">{task.description}</p>
                         )}
-                        <div className="mt-3 flex flex-wrap gap-3 text-xs text-[#94A3B8]">
+                        <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--ef-text-muted)]">
                           <span>Type: {titleize(task.task_type)}</span>
                           <span>Owner: {memberDisplayName(members, task.assigned_to)}</span>
                           {task.due_at && (
@@ -801,12 +801,12 @@ function ActionResolutionPanel(props: {
 
           <DecisionWorkflowOutcomePanel decisionId={decisionId} />
 
-          <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               Review log
             </p>
             {recentFeedback.length === 0 ? (
-              <p className="mt-3 text-sm text-[#C7D2E3]">
+              <p className="mt-3 text-sm text-[var(--ef-text-secondary)]">
                 No operator feedback has been recorded yet.
               </p>
             ) : (
@@ -814,17 +814,17 @@ function ActionResolutionPanel(props: {
                 {recentFeedback.map((row) => (
                   <div
                     key={row.id}
-                    className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4"
+                    className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className={`text-sm font-medium ${feedbackTone(row)}`}>
                         {feedbackLabel(row)}
                       </p>
-                      <span className="text-xs text-[#94A3B8]">
+                      <span className="text-xs text-[var(--ef-text-muted)]">
                         {formatDateTime(row.created_at)}
                       </span>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#94A3B8]">
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--ef-text-muted)]">
                       {row.feedback_type && <span>Type: {titleize(row.feedback_type)}</span>}
                       {row.disposition && <span>Disposition: {titleize(row.disposition)}</span>}
                       {row.decision_status_at_feedback && (
@@ -852,13 +852,13 @@ function EvidenceEnginePanel(props: {
   const hasRawDetails = details != null && Object.keys(details).length > 0;
 
   return (
-    <section className="rounded-2xl border border-[#2F3B52] bg-[#1A2333] p-6">
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+    <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] p-6">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
         Evidence engine
       </h2>
 
       {!evidence.hasStructuredEvidence && (
-        <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 p-4 text-sm text-[#F59E0B]">
+        <div className="mt-4 rounded-xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] p-4 text-sm text-[var(--ef-warning)]">
           No structured evidence payload was emitted for this decision. What you see below is the thinnest reliable fallback we could derive from the persisted record.
         </div>
       )}
@@ -866,13 +866,13 @@ function EvidenceEnginePanel(props: {
       {leadMetric && (
         <div className="mt-5">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-sm text-[#94A3B8]">{leadMetric.label}</span>
+            <span className="text-sm text-[var(--ef-text-muted)]">{leadMetric.label}</span>
             <span className={`text-sm font-semibold ${toneClass(leadMetric.tone)}`}>
               {leadMetric.value}
             </span>
           </div>
           {typeof leadMetric.progress === 'number' && (
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[#0B1020]">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--ef-background-primary)]">
               <div
                 className={`h-full ${metricBarClass(leadMetric.tone)}`}
                 style={{ width: `${leadMetric.progress}%` }}
@@ -880,7 +880,7 @@ function EvidenceEnginePanel(props: {
             </div>
           )}
           {leadMetric.detail && (
-            <p className="mt-3 text-sm text-[#C7D2E3]">{leadMetric.detail}</p>
+            <p className="mt-3 text-sm text-[var(--ef-text-secondary)]">{leadMetric.detail}</p>
           )}
         </div>
       )}
@@ -888,15 +888,15 @@ function EvidenceEnginePanel(props: {
       {trailingMetrics.length > 0 && (
         <div className="mt-5 space-y-3">
           {trailingMetrics.map((metric) => (
-            <div key={metric.id} className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4">
+            <div key={metric.id} className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-[#94A3B8]">{metric.label}</span>
+                <span className="text-sm text-[var(--ef-text-muted)]">{metric.label}</span>
                 <span className={`text-sm font-semibold ${toneClass(metric.tone)}`}>
                   {metric.value}
                 </span>
               </div>
               {metric.detail && (
-                <p className="mt-2 text-sm text-[#C7D2E3]">{metric.detail}</p>
+                <p className="mt-2 text-sm text-[var(--ef-text-secondary)]">{metric.detail}</p>
               )}
             </div>
           ))}
@@ -906,11 +906,11 @@ function EvidenceEnginePanel(props: {
       {evidence.references.length > 0 && (
         <div className="mt-5 space-y-3">
           {evidence.references.map((reference) => (
-            <div key={reference.id} className="flex gap-3 rounded-xl border border-[#2F3B52] bg-[#111827] p-4">
-              <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#3B82F6]" />
+            <div key={reference.id} className="flex gap-3 rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4">
+              <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--ef-purple-primary)]" />
               <div>
-                <p className="text-sm font-medium text-[#E5EDF7]">{reference.label}</p>
-                <p className="mt-1 text-xs text-[#94A3B8]">{reference.detail}</p>
+                <p className="text-sm font-medium text-[var(--ef-text-primary)]">{reference.label}</p>
+                <p className="mt-1 text-xs text-[var(--ef-text-muted)]">{reference.detail}</p>
               </div>
             </div>
           ))}
@@ -920,11 +920,11 @@ function EvidenceEnginePanel(props: {
       {evidence.notes.length > 0 && (
         <div className="mt-5 space-y-3">
           {evidence.notes.map((note) => (
-            <div key={note.id} className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">
+            <div key={note.id} className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-purple-primary)]">
                 {note.label}
               </p>
-              <p className="mt-2 text-sm leading-6 text-[#C7D2E3]">
+              <p className="mt-2 text-sm leading-6 text-[var(--ef-text-secondary)]">
                 {note.body}
               </p>
             </div>
@@ -933,11 +933,11 @@ function EvidenceEnginePanel(props: {
       )}
 
       {hasRawDetails && (
-        <details className="mt-5 rounded-xl border border-[#2F3B52] bg-[#111827] p-4">
-          <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+        <details className="mt-5 rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4">
+          <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Raw payload
           </summary>
-          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-[#0B1020] p-3 text-[11px] text-[#C7D2E3]">
+          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--ef-background-primary)] p-3 text-[11px] text-[var(--ef-text-secondary)]">
             {JSON.stringify(details, null, 2)}
           </pre>
         </details>
@@ -948,19 +948,19 @@ function EvidenceEnginePanel(props: {
 
 function ProcessPositionPanel({ processState }: { processState: DecisionProcessState }) {
   return (
-    <section className="rounded-2xl border border-[#2F3B52] bg-[#1A2333] p-6">
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+    <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] p-6">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
         Process position
       </h2>
-      <p className="mt-4 text-base font-semibold text-[#E5EDF7]">
+      <p className="mt-4 text-base font-semibold text-[var(--ef-text-primary)]">
         {processState.headline}
       </p>
-      <p className="mt-2 text-sm text-[#94A3B8]">
+      <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
         {processState.detail}
       </p>
 
       <div className="relative mt-6 space-y-6 pl-7">
-        <div className="absolute left-[0.78rem] top-1 bottom-1 w-px bg-[#2F3B52]" />
+        <div className="absolute left-[0.78rem] top-1 bottom-1 w-px bg-[var(--ef-border-subtle)]" />
         {processState.steps.map((step) => (
           <div key={step.id} className="relative">
             <div className={`absolute -left-[1.05rem] top-1.5 h-3.5 w-3.5 rounded-full ${processStepDot(step.state)}`} />
@@ -968,7 +968,7 @@ function ProcessPositionPanel({ processState }: { processState: DecisionProcessS
               {step.label}
             </p>
             {step.detail && (
-              <p className="mt-1 text-xs text-[#94A3B8]">{step.detail}</p>
+              <p className="mt-1 text-xs text-[var(--ef-text-muted)]">{step.detail}</p>
             )}
           </div>
         ))}
@@ -980,26 +980,26 @@ function ProcessPositionPanel({ processState }: { processState: DecisionProcessS
 function processStepDot(state: DecisionProcessState['steps'][number]['state']): string {
   switch (state) {
     case 'complete':
-      return 'bg-[#22C55E] shadow-[0_0_10px_rgba(34,197,94,0.4)]';
+      return 'bg-[var(--ef-success)] shadow-[0_0_10px_var(--ef-success-a40)]';
     case 'current':
-      return 'bg-[#3B82F6] ring-4 ring-[#3B82F6]/20';
+      return 'bg-[var(--ef-purple-primary)] ring-4 ring-[var(--ef-purple-primary-a20)]';
     case 'attention':
-      return 'bg-[#EF4444] shadow-[0_0_10px_rgba(239,68,68,0.4)]';
+      return 'bg-[var(--ef-critical)] shadow-[0_0_10px_var(--ef-critical-a40)]';
     default:
-      return 'bg-[#2F3B52]';
+      return 'bg-[var(--ef-border-subtle)]';
   }
 }
 
 function processStepText(state: DecisionProcessState['steps'][number]['state']): string {
   switch (state) {
     case 'complete':
-      return 'text-[#E5EDF7]';
+      return 'text-[var(--ef-text-primary)]';
     case 'current':
-      return 'text-[#3B82F6]';
+      return 'text-[var(--ef-purple-primary)]';
     case 'attention':
-      return 'text-[#EF4444]';
+      return 'text-[var(--ef-critical)]';
     default:
-      return 'text-[#94A3B8]';
+      return 'text-[var(--ef-text-muted)]';
   }
 }
 
@@ -1007,21 +1007,21 @@ function DecisionMetricsPanel({ metrics }: { metrics: DecisionMetricCard[] }) {
   if (metrics.length === 0) return null;
 
   return (
-    <section className="rounded-2xl border border-[#2F3B52] bg-[#1A2333] p-6">
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+    <section className="rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] p-6">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
         Decision metrics
       </h2>
       <div className="mt-5 grid grid-cols-2 gap-4">
         {metrics.map((metric) => (
-          <div key={metric.id} className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4 text-center">
-            <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <div key={metric.id} className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4 text-center">
+            <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               {metric.label}
             </span>
             <span className={`mt-2 block text-2xl font-semibold tracking-tight ${toneClass(metric.tone)}`}>
               {metric.value}
             </span>
             {metric.detail && (
-              <span className="mt-1 block text-xs text-[#94A3B8]">{metric.detail}</span>
+              <span className="mt-1 block text-xs text-[var(--ef-text-muted)]">{metric.detail}</span>
             )}
           </div>
         ))}
@@ -1059,7 +1059,7 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
   } = props;
 
   return (
-    <div className="min-h-full bg-[#0B1020]">
+    <div className="min-h-full bg-[var(--ef-background-primary)]">
       <div className="mx-auto max-w-[1600px] px-6 py-8 lg:px-8">
         <DecisionDetailHeader
           decision={decision}
@@ -1130,8 +1130,8 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
           />
         </section>
 
-        <section className="mt-8 rounded-2xl border border-[#2F3B52] bg-[#111827] p-6">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+        <section className="mt-8 rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-6">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
             Decision metadata
           </h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1152,11 +1152,11 @@ export function DecisionDetailView(props: DecisionDetailViewProps) {
 
 function MetaCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+    <div className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         {label}
       </p>
-      <p className="mt-2 text-sm text-[#E5EDF7]">{value}</p>
+      <p className="mt-2 text-sm text-[var(--ef-text-primary)]">{value}</p>
     </div>
   );
 }

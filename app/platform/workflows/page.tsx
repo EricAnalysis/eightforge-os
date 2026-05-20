@@ -65,12 +65,12 @@ const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'critical'] as const;
 
 function PriorityBadge({ priority }: { priority: string }) {
   const map: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    high: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    medium: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-    low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    critical: 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
+    high: 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+    medium: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
+    low: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
   };
-  const cls = map[priority] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[priority] ?? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${cls}`}>
       {priority}
@@ -80,15 +80,15 @@ function PriorityBadge({ priority }: { priority: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    open: 'border-amber-500/40 text-amber-400',
-    in_progress: 'border-blue-500/40 text-blue-400',
-    blocked: 'border-red-500/40 text-red-400',
-    resolved: 'border-emerald-500/40 text-emerald-400',
-    cancelled: 'border-[#1A1A3E] text-[#8B94A3]',
+    open: 'border-[var(--ef-warning-a40)] text-[var(--ef-warning)]',
+    in_progress: 'border-[var(--ef-purple-primary-a40)] text-[var(--ef-purple-glow)]',
+    blocked: 'border-[var(--ef-critical-a40)] text-[var(--ef-critical)]',
+    resolved: 'border-[var(--ef-success-a40)] text-[var(--ef-success)]',
+    cancelled: 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]',
   };
-  const cls = map[status] ?? 'border-[#1A1A3E] text-[#8B94A3]';
+  const cls = map[status] ?? 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
   return (
-    <span className={`inline-flex rounded border bg-[#0A0A20] px-2 py-1 text-[11px] ${cls}`}>
+    <span className={`inline-flex rounded border bg-[var(--ef-background-secondary)] px-2 py-1 text-[11px] ${cls}`}>
       {status.replace(/_/g, ' ')}
     </span>
   );
@@ -311,20 +311,20 @@ export default function WorkflowsPage() {
     <div className="space-y-4">
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">My Actions</h2>
-          <p className="text-xs text-[#8B94A3]">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">My Actions</h2>
+          <p className="text-xs text-[var(--ef-text-muted)]">
             Shared operational actions from persisted workflow tasks and unresolved document next steps.
           </p>
         </div>
       </section>
 
       <section className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Status</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Status</span>
           <select
             value={filterStatus}
             onChange={(event) => setFilterStatus(event.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">{includeHistory ? 'History' : 'Current'}</option>
             {STATUS_OPTIONS.map((status) => (
@@ -332,12 +332,12 @@ export default function WorkflowsPage() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Priority</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Priority</span>
           <select
             value={filterPriority}
             onChange={(event) => setFilterPriority(event.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             {PRIORITY_OPTIONS.map((priority) => (
@@ -345,12 +345,12 @@ export default function WorkflowsPage() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Assigned</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Assigned</span>
           <select
             value={filterAssigned}
             onChange={(event) => setFilterAssigned(event.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             <option value="__me">Assigned to me</option>
@@ -360,12 +360,12 @@ export default function WorkflowsPage() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Due date</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Due date</span>
           <select
             value={filterDue}
             onChange={(event) => setFilterDue(event.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             <option value="__overdue">Overdue</option>
@@ -373,12 +373,12 @@ export default function WorkflowsPage() {
             <option value="__no_due">No due date</option>
           </select>
         </label>
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Age</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Age</span>
           <select
             value={filterAge}
             onChange={(event) => setFilterAge(event.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             {AGING_BUCKETS.map((bucket) => (
@@ -396,36 +396,36 @@ export default function WorkflowsPage() {
               setFilterDue('');
               setFilterAge('');
             }}
-            className="rounded-md border border-[#1A1A3E] px-2 py-1.5 text-[11px] text-[#8B94A3] hover:bg-[#1A1A3E] hover:text-[#F5F7FA]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] px-2 py-1.5 text-[11px] text-[var(--ef-text-muted)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]"
           >
             Clear filters
           </button>
         ) : null}
       </section>
 
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+      <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
         {listError ? (
-          <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
-            <p className="text-[11px] font-medium text-red-400">{listError}</p>
+          <div className="mb-3 rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-3 py-2">
+            <p className="text-[11px] font-medium text-[var(--ef-critical)]">{listError}</p>
           </div>
         ) : null}
 
         {!isLoading && filteredTasks.length > 0 ? (
-          <div className="mb-3 flex flex-wrap items-center gap-4 border-b border-[#1A1A3E] pb-3">
-            <span className="text-[11px] font-semibold text-[#F5F7FA]">
+          <div className="mb-3 flex flex-wrap items-center gap-4 border-b border-[var(--ef-surface-elevated)] pb-3">
+            <span className="text-[11px] font-semibold text-[var(--ef-text-primary)]">
               {filteredTasks.length} action{filteredTasks.length !== 1 ? 's' : ''}
             </span>
-            {scanSummary.blocked > 0 ? <span className="text-[11px] font-medium text-red-400">{scanSummary.blocked} blocked</span> : null}
-            {scanSummary.overdue > 0 ? <span className="text-[11px] font-medium text-red-400">{scanSummary.overdue} overdue</span> : null}
-            {scanSummary.criticalHigh > 0 ? <span className="text-[11px] font-medium text-amber-400">{scanSummary.criticalHigh} critical / high</span> : null}
-            {scanSummary.unassignedCrit > 0 ? <span className="text-[11px] font-medium text-amber-400">{scanSummary.unassignedCrit} unassigned critical</span> : null}
+            {scanSummary.blocked > 0 ? <span className="text-[11px] font-medium text-[var(--ef-critical)]">{scanSummary.blocked} blocked</span> : null}
+            {scanSummary.overdue > 0 ? <span className="text-[11px] font-medium text-[var(--ef-critical)]">{scanSummary.overdue} overdue</span> : null}
+            {scanSummary.criticalHigh > 0 ? <span className="text-[11px] font-medium text-[var(--ef-warning)]">{scanSummary.criticalHigh} critical / high</span> : null}
+            {scanSummary.unassignedCrit > 0 ? <span className="text-[11px] font-medium text-[var(--ef-warning)]">{scanSummary.unassignedCrit} unassigned critical</span> : null}
           </div>
         ) : null}
 
         {isLoading ? (
-          <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+          <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
         ) : filteredTasks.length === 0 ? (
-          <p className="text-[11px] text-[#8B94A3]">
+          <p className="text-[11px] text-[var(--ef-text-muted)]">
             {includeHistory
               ? 'No actions matched this history view.'
               : 'No unresolved actions are currently waiting in the shared operational queue.'}
@@ -433,22 +433,22 @@ export default function WorkflowsPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[11px]">
-              <thead className="border-b border-[#1A1A3E] text-left">
+              <thead className="border-b border-[var(--ef-surface-elevated)] text-left">
                 <tr>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Priority</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Status</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Title</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Due</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Assigned</th>
-                  <th className="pb-2 pr-3 font-medium text-[#8B94A3]">Source</th>
-                  <th className="pb-2 font-medium text-[#8B94A3]">Created</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Priority</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Status</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Title</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Due</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Assigned</th>
+                  <th className="pb-2 pr-3 font-medium text-[var(--ef-text-muted)]">Source</th>
+                  <th className="pb-2 font-medium text-[var(--ef-text-muted)]">Created</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTasks.map((item) => (
                   <tr
                     key={item.id}
-                    className={`border-b border-[#1A1A3E] last:border-0 transition-colors hover:bg-[#12122E] ${item.blocked ? 'bg-red-500/[0.07]' : item.priority === 'critical' || item.priority === 'high' ? 'bg-red-500/[0.03]' : ''}`}
+                    className={`border-b border-[var(--ef-surface-elevated)] last:border-0 transition-colors hover:bg-[var(--ef-surface-elevated)] ${item.blocked ? 'bg-[var(--ef-critical-a08)]' : item.priority === 'critical' || item.priority === 'high' ? 'bg-[var(--ef-critical-a05)]' : ''}`}
                   >
                     <td className="py-2.5 pr-3">
                       <PriorityBadge priority={item.priority} />
@@ -461,13 +461,13 @@ export default function WorkflowsPage() {
                             value={item.status}
                             onChange={(event) => updateTaskStatus(item.taskId as string, event.target.value)}
                             disabled={updatingId === item.id}
-                            className="rounded border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] disabled:opacity-60"
+                            className="rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] disabled:opacity-60"
                           >
                             {STATUS_OPTIONS.map((status) => (
                               <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>
                             ))}
                           </select>
-                          {updateErrorId === item.id ? <span className="text-[10px] text-red-400">Update failed</span> : null}
+                          {updateErrorId === item.id ? <span className="text-[10px] text-[var(--ef-critical)]">Update failed</span> : null}
                         </div>
                       ) : (
                         <StatusBadge status={item.status} />
@@ -476,53 +476,53 @@ export default function WorkflowsPage() {
                     <td className="max-w-[280px] py-2.5 pr-3">
                       <div className="flex flex-col gap-1.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Link href={item.deepLinkTarget} className="font-medium text-[#8B5CFF] hover:underline">
+                          <Link href={item.deepLinkTarget} className="font-medium text-[var(--ef-purple-primary)] hover:underline">
                             {item.title}
                           </Link>
-                          {item.projectLabel ? <span className="text-[10px] uppercase tracking-wide text-[#5B6578]">{item.projectLabel}</span> : null}
+                          {item.projectLabel ? <span className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">{item.projectLabel}</span> : null}
                           {item.kind !== 'persisted_task' && item.kind !== 'history' ? (
-                            <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300">
+                            <span className="rounded bg-[var(--ef-purple-primary-a10)] px-1.5 py-0.5 text-[10px] text-[var(--ef-purple-glow)]">
                               Derived from shared operational model
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-[11px] text-[#8B94A3]">{item.instructions}</p>
-                        {item.isVague ? <span className="text-[10px] text-amber-300">Action text needs specificity</span> : null}
+                        <p className="text-[11px] text-[var(--ef-text-muted)]">{item.instructions}</p>
+                        {item.isVague ? <span className="text-[10px] text-[var(--ef-warning-soft)]">Action text needs specificity</span> : null}
                       </div>
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
                       {item.dueAt ? (
-                        <span className={`flex items-center gap-1.5 ${item.overdue ? 'font-medium text-red-400' : 'text-[#8B94A3]'}`}>
+                        <span className={`flex items-center gap-1.5 ${item.overdue ? 'font-medium text-[var(--ef-critical)]' : 'text-[var(--ef-text-muted)]'}`}>
                           <span>{formatDueDate(item.dueAt)}</span>
                           {item.overdue ? <OverdueBadge /> : null}
                         </span>
                       ) : (
-                        <span className="text-[#3a3f5a]">—</span>
+                        <span className="text-[var(--ef-text-faint)]">—</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
                       {item.assignedName ? (
-                        <span className="text-[#F5F7FA]">{item.assignedName}</span>
+                        <span className="text-[var(--ef-text-primary)]">{item.assignedName}</span>
                       ) : (
-                        <span className={item.isUrgentUnassigned ? 'font-medium text-amber-400' : 'text-[#8B94A3]'}>
+                        <span className={item.isUrgentUnassigned ? 'font-medium text-[var(--ef-warning)]' : 'text-[var(--ef-text-muted)]'}>
                           Unassigned
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 pr-3 text-[#8B94A3]">
+                    <td className="py-2.5 pr-3 text-[var(--ef-text-muted)]">
                       {item.sourceDocumentTarget ? (
-                        <Link href={item.sourceDocumentTarget} className="text-[#8B5CFF] hover:underline">
+                        <Link href={item.sourceDocumentTarget} className="text-[var(--ef-purple-primary)] hover:underline">
                           {item.sourceDocumentTitle ?? 'View document'}
                         </Link>
                       ) : item.decisionId ? (
-                        <Link href={`/platform/decisions/${item.decisionId}`} className="text-[#8B5CFF] hover:underline">
+                        <Link href={`/platform/decisions/${item.decisionId}`} className="text-[var(--ef-purple-primary)] hover:underline">
                           Linked decision
                         </Link>
                       ) : (
-                        <span className="text-[#3a3f5a]">Project record</span>
+                        <span className="text-[var(--ef-text-faint)]">Project record</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 text-[#8B94A3]">
+                    <td className="whitespace-nowrap py-2.5 text-[var(--ef-text-muted)]">
                       {new Date(item.createdAt).toLocaleString()}
                     </td>
                   </tr>

@@ -17,34 +17,34 @@ type ProjectDecisionExecutionCardProps = {
 function toneBorderClass(tone: OverviewTone): string {
   switch (tone) {
     case 'info':
-      return 'border-l-[#38BDF8]';
+      return 'border-l-[var(--ef-purple-accent)]';
     case 'success':
-      return 'border-l-[#22C55E]';
+      return 'border-l-[var(--ef-success)]';
     case 'warning':
-      return 'border-l-[#F59E0B]';
+      return 'border-l-[var(--ef-warning)]';
     case 'danger':
-      return 'border-l-[#EF4444]';
+      return 'border-l-[var(--ef-critical)]';
     case 'muted':
-      return 'border-l-[#2F3B52]';
+      return 'border-l-[var(--ef-border-subtle)]';
     default:
-      return 'border-l-[#3B82F6]';
+      return 'border-l-[var(--ef-purple-primary)]';
   }
 }
 
 function toneBadgeClass(tone: OverviewTone): string {
   switch (tone) {
     case 'info':
-      return 'border border-[#38BDF8]/25 bg-[#38BDF8]/10 text-[#38BDF8]';
+      return 'border border-[var(--ef-purple-glow-a25)] bg-[var(--ef-purple-glow-a10)] text-[var(--ef-purple-accent)]';
     case 'success':
-      return 'border border-[#22C55E]/25 bg-[#22C55E]/10 text-[#22C55E]';
+      return 'border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success)]';
     case 'warning':
-      return 'border border-[#F59E0B]/25 bg-[#F59E0B]/10 text-[#F59E0B]';
+      return 'border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning)]';
     case 'danger':
-      return 'border border-[#EF4444]/25 bg-[#EF4444]/10 text-[#EF4444]';
+      return 'border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical)]';
     case 'muted':
-      return 'border border-[#2F3B52] bg-[#1A2333] text-[#94A3B8]';
+      return 'border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
     default:
-      return 'border border-[#2F3B52] bg-[#1A2333] text-[#E5EDF7]';
+      return 'border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-primary)]';
   }
 }
 
@@ -55,11 +55,11 @@ function ExecutionField(props: {
 }) {
   const { label, value, emphasis = 'default' } = props;
   return (
-    <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+    <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         {label}
       </p>
-      <p className={`mt-2 text-sm leading-6 ${emphasis === 'warning' ? 'text-[#FDE68A]' : 'text-[#C7D2E3]'}`}>
+      <p className={`mt-2 text-sm leading-6 ${emphasis === 'warning' ? 'text-[var(--ef-warning-soft)]' : 'text-[var(--ef-text-secondary)]'}`}>
         {value}
       </p>
     </div>
@@ -122,7 +122,7 @@ export function ProjectDecisionExecutionCard(
 
   return (
     <article
-      className={`rounded-sm border-y border-r border-[#2F3B52]/50 border-l-2 ${toneBorderClass(decision.border_tone)} bg-[#111827] p-6`}
+      className={`rounded-sm border-y border-r border-[var(--ef-border-subtle-a50)] border-l-2 ${toneBorderClass(decision.border_tone)} bg-[var(--ef-background-secondary)] p-6`}
     >
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -130,7 +130,7 @@ export function ProjectDecisionExecutionCard(
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Link
                 href={decision.href}
-                className="text-lg font-bold tracking-tight text-[#E5EDF7] transition-colors hover:text-[#3B82F6]"
+                className="text-lg font-bold tracking-tight text-[var(--ef-text-primary)] transition-colors hover:text-[var(--ef-purple-primary)]"
               >
                 {decision.title}
               </Link>
@@ -138,7 +138,7 @@ export function ProjectDecisionExecutionCard(
                 {decision.status_label}
               </span>
             </div>
-            <p className="text-xs text-[#94A3B8]">
+            <p className="text-xs text-[var(--ef-text-muted)]">
               {decision.freshness_label}
             </p>
           </div>
@@ -146,13 +146,13 @@ export function ProjectDecisionExecutionCard(
           <div className="flex flex-wrap gap-3">
             <Link
               href={decision.href}
-              className="inline-flex items-center justify-center rounded-sm border border-[#2F3B52] bg-[#1A2333] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#E5EDF7] transition-colors hover:bg-[#243044]"
+              className="inline-flex items-center justify-center rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:bg-[var(--ef-surface-hover)]"
             >
               Open Decision Context
             </Link>
             <Link
               href={inspectEvidenceHref}
-              className="inline-flex items-center justify-center rounded-sm border border-[#2F3B52] bg-[#0F172A] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:bg-[#172033]"
+              className="inline-flex items-center justify-center rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] transition-colors hover:bg-[var(--ef-surface-hover)]"
             >
               Inspect Evidence
             </Link>
@@ -173,20 +173,20 @@ export function ProjectDecisionExecutionCard(
         </div>
 
         {decision.metadata.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
+          <div className="flex flex-wrap items-center gap-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
             {decision.metadata.map((item) => (
               <span key={item}>{item}</span>
             ))}
           </div>
         ) : null}
 
-        <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0F172A] p-4">
+        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4">
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => runResolution('mark_correct')}
               disabled={savingAction != null}
-              className="rounded-sm border border-[#22C55E]/30 bg-[#22C55E]/12 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#22C55E] transition-colors hover:bg-[#22C55E]/18 disabled:opacity-60"
+              className="rounded-sm border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-success)] transition-colors hover:bg-[var(--ef-success-a18)] disabled:opacity-60"
             >
               Mark Correct
             </button>
@@ -194,7 +194,7 @@ export function ProjectDecisionExecutionCard(
               type="button"
               onClick={() => runResolution('request_correction')}
               disabled={savingAction != null}
-              className="rounded-sm border border-[#F59E0B]/30 bg-[#F59E0B]/12 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#F59E0B] transition-colors hover:bg-[#F59E0B]/18 disabled:opacity-60"
+              className="rounded-sm border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-warning)] transition-colors hover:bg-[var(--ef-warning-a18)] disabled:opacity-60"
             >
               Request Correction
             </button>
@@ -203,7 +203,7 @@ export function ProjectDecisionExecutionCard(
                 type="button"
                 onClick={() => runResolution('mark_resolved')}
                 disabled={savingAction != null}
-                className="rounded-sm border border-[#3B82F6]/30 bg-[#3B82F6]/12 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#93C5FD] transition-colors hover:bg-[#3B82F6]/18 disabled:opacity-60"
+                className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a12)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-purple-glow)] transition-colors hover:bg-[var(--ef-purple-primary-a18)] disabled:opacity-60"
               >
                 Mark Resolved
               </button>
@@ -213,17 +213,17 @@ export function ProjectDecisionExecutionCard(
                 type="button"
                 onClick={() => runResolution('suppress')}
                 disabled={savingAction != null}
-                className="rounded-sm border border-[#2F3B52] bg-[#1A2333] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#C7D2E3] transition-colors hover:bg-[#243044] disabled:opacity-60"
+                className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-secondary)] transition-colors hover:bg-[var(--ef-surface-hover)] disabled:opacity-60"
               >
                 Suppress
               </button>
             ) : null}
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[#94A3B8]">
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[var(--ef-text-muted)]">
             {savingAction ? <span>Saving decision update...</span> : null}
-            {actionMessage ? <span className="text-[#22C55E]">{actionMessage}</span> : null}
-            {actionError ? <span className="text-[#EF4444]">{actionError}</span> : null}
+            {actionMessage ? <span className="text-[var(--ef-success)]">{actionMessage}</span> : null}
+            {actionError ? <span className="text-[var(--ef-critical)]">{actionError}</span> : null}
           </div>
         </div>
       </div>

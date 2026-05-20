@@ -14,6 +14,7 @@ import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
 const VALID_FEEDBACK_TYPES = ['correct', 'incorrect', 'needs_review', 'override'] as const;
 const VALID_DISPOSITIONS = ['accept', 'reject', 'escalate', 'suppress'] as const;
 const VALID_REVIEW_ERROR_TYPES = ['extraction_error', 'rule_error', 'edge_case'] as const;
+const VALID_OPERATOR_ACTIONS = ['approve', 'correct', 'override', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -52,6 +53,14 @@ export async function POST(
     typeof body.notes === 'string' && body.notes.trim().length > 0
       ? body.notes.trim()
       : null;
+  const operatorAction: string | null =
+    typeof body.operator_action === 'string' && VALID_OPERATOR_ACTIONS.includes(body.operator_action)
+      ? body.operator_action
+      : null;
+
+  if (feedbackType === 'override' && !notes) {
+    return jsonError('Override requires a reason.', 400);
+  }
 
   const correctedValue: Record<string, unknown> | null =
     body.corrected_value && typeof body.corrected_value === 'object'
@@ -132,6 +141,7 @@ export async function POST(
       is_correct: body.is_correct,
       feedback_type: feedbackType,
       disposition,
+      operator_action: operatorAction,
       review_error_type: reviewErrorType,
       corrected_value: correctedValue,
       notes,

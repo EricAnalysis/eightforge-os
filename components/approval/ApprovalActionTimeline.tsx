@@ -42,30 +42,30 @@ const OUTCOME_DISPLAY: Record<string, string> = {
 
 function statusDotClass(status: string): string {
   switch (status) {
-    case 'blocked':               return 'bg-[#EF4444]';
+    case 'blocked':               return 'bg-[var(--ef-critical)]';
     case 'needs_review':
-    case 'approved_with_exceptions': return 'bg-[#F59E0B]';
-    case 'approved':              return 'bg-[#22C55E]';
-    default:                      return 'bg-[#2F3B52]';
+    case 'approved_with_exceptions': return 'bg-[var(--ef-warning)]';
+    case 'approved':              return 'bg-[var(--ef-success)]';
+    default:                      return 'bg-[var(--ef-border-subtle)]';
   }
 }
 
 function statusBadgeClass(status: string): string {
   switch (status) {
-    case 'blocked':               return 'border-[#EF4444]/25 bg-[#EF4444]/10 text-[#EF4444]';
+    case 'blocked':               return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical)]';
     case 'needs_review':
-    case 'approved_with_exceptions': return 'border-[#F59E0B]/25 bg-[#F59E0B]/10 text-[#F59E0B]';
-    case 'approved':              return 'border-[#22C55E]/25 bg-[#22C55E]/10 text-[#22C55E]';
-    default:                      return 'border-[#2F3B52] bg-[#1A2333] text-[#94A3B8]';
+    case 'approved_with_exceptions': return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning)]';
+    case 'approved':              return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success)]';
+    default:                      return 'border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
   }
 }
 
 function priorityDotClass(priority: string): string {
   switch (priority) {
-    case 'critical': return 'bg-[#EF4444]';
-    case 'high':     return 'bg-[#F97316]';
-    case 'medium':   return 'bg-[#F59E0B]';
-    default:         return 'bg-[#3B82F6]';
+    case 'critical': return 'bg-[var(--ef-critical)]';
+    case 'high':     return 'bg-[var(--ef-warning)]';
+    case 'medium':   return 'bg-[var(--ef-warning)]';
+    default:         return 'bg-[var(--ef-purple-primary)]';
   }
 }
 
@@ -128,33 +128,33 @@ function ActionRow({ entry }: { entry: ApprovalActionLogEntry }) {
   return (
     <div
       className={`flex items-start gap-3 rounded-sm px-3 py-2 ${
-        isFailed ? 'bg-[#EF4444]/5' : 'bg-white/[0.02]'
+        isFailed ? 'bg-[var(--ef-critical-a05)]' : 'bg-white/[0.02]'
       }`}
     >
       {/* Priority dot */}
       <div
         className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-          isFailed ? 'bg-[#EF4444]' : priorityDotClass(entry.priority)
+          isFailed ? 'bg-[var(--ef-critical)]' : priorityDotClass(entry.priority)
         }`}
       />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {/* Action type */}
-          <span className="text-[11px] font-semibold text-[#E5EDF7]">
+          <span className="text-[11px] font-semibold text-[var(--ef-text-primary)]">
             {displayType}
           </span>
 
           {/* Invoice number */}
           {entry.invoice_number ? (
-            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#8FA1BC]">
+            <span className="rounded border border-[var(--ef-border-white-10)] bg-[var(--ef-border-white-06)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--ef-text-soft)]">
               {entry.invoice_number}
             </span>
           ) : null}
 
           {/* Amount */}
           {amountStr ? (
-            <span className="font-mono text-[11px] tabular-nums text-[#C7D2E3]">
+            <span className="font-mono text-[11px] tabular-nums text-[var(--ef-text-secondary)]">
               {amountStr}
             </span>
           ) : null}
@@ -163,10 +163,10 @@ function ActionRow({ entry }: { entry: ApprovalActionLogEntry }) {
           <span
             className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] ${
               isFailed
-                ? 'bg-[#EF4444]/15 text-[#F87171]'
+                ? 'bg-[var(--ef-critical-a15)] text-[var(--ef-critical-soft)]'
                 : entry.task_outcome === 'updated'
-                ? 'bg-[#F59E0B]/10 text-[#FCD34D]'
-                : 'bg-[#22C55E]/10 text-[#4ADE80]'
+                ? 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]'
+                : 'bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]'
             }`}
           >
             {OUTCOME_DISPLAY[entry.task_outcome] ?? entry.task_outcome}
@@ -175,14 +175,14 @@ function ActionRow({ entry }: { entry: ApprovalActionLogEntry }) {
 
         {/* Reason */}
         {entry.reason ? (
-          <p className="mt-0.5 text-[11px] leading-5 text-[#7F90AA]">
+          <p className="mt-0.5 text-[11px] leading-5 text-[var(--ef-text-soft)]">
             {entry.reason}
           </p>
         ) : null}
 
         {/* Error */}
         {isFailed && entry.error ? (
-          <p className="mt-0.5 text-[11px] text-[#F87171]">
+          <p className="mt-0.5 text-[11px] text-[var(--ef-critical-soft)]">
             Error: {entry.error}
           </p>
         ) : null}
@@ -206,7 +206,7 @@ function ExecutionGroupRow({ group, defaultOpen }: { group: ApprovalExecutionGro
   if (group.failures > 0)      summaryParts.push(`${group.failures} failed`);
 
   return (
-    <div className="border-b border-[#2F3B52]/40 last:border-b-0">
+    <div className="border-b border-[var(--ef-border-subtle-a40)] last:border-b-0">
       {/* Group header — always visible, clickable to expand */}
       <button
         type="button"
@@ -223,7 +223,7 @@ function ExecutionGroupRow({ group, defaultOpen }: { group: ApprovalExecutionGro
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span
-              className="text-[11px] font-medium text-[#94A3B8]"
+              className="text-[11px] font-medium text-[var(--ef-text-muted)]"
               title={fmtAbsTime(group.batch_timestamp)}
             >
               {fmtRelativeTime(group.batch_timestamp)}
@@ -239,7 +239,7 @@ function ExecutionGroupRow({ group, defaultOpen }: { group: ApprovalExecutionGro
             {/* Task summary */}
             {summaryParts.length > 0 ? (
               <span
-                className={`text-[10px] font-medium ${hasFailures ? 'text-[#F87171]' : 'text-[#94A3B8]'}`}
+                className={`text-[10px] font-medium ${hasFailures ? 'text-[var(--ef-critical-soft)]' : 'text-[var(--ef-text-muted)]'}`}
               >
                 {summaryParts.join(' · ')}
               </span>
@@ -249,7 +249,7 @@ function ExecutionGroupRow({ group, defaultOpen }: { group: ApprovalExecutionGro
 
         {/* Chevron */}
         <svg
-          className={`h-3.5 w-3.5 shrink-0 text-[#4A5E78] transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--ef-text-faint)] transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -338,11 +338,11 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
   // Don't render anything until we know there's data to show
   if (loading) {
     return (
-      <div className="mt-4 animate-pulse rounded-xl border border-[#2F3B52]/40 bg-[#111827] px-5 py-4">
-        <div className="h-3 w-32 rounded bg-[#2F3B52]/60" />
+      <div className="mt-4 animate-pulse rounded-xl border border-[var(--ef-border-subtle-a40)] bg-[var(--ef-background-secondary)] px-5 py-4">
+        <div className="h-3 w-32 rounded bg-[var(--ef-border-subtle-a60)]" />
         <div className="mt-3 space-y-2">
-          <div className="h-2.5 w-full rounded bg-[#2F3B52]/40" />
-          <div className="h-2.5 w-3/4 rounded bg-[#2F3B52]/40" />
+          <div className="h-2.5 w-full rounded bg-[var(--ef-border-subtle-a40)]" />
+          <div className="h-2.5 w-3/4 rounded bg-[var(--ef-border-subtle-a40)]" />
         </div>
       </div>
     );
@@ -364,14 +364,14 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
   const hasMore = history.executions.length > COLLAPSED_LIMIT;
 
   return (
-    <div className="mt-4 overflow-hidden rounded-xl border border-[#2F3B52]/50 bg-[#0B101D]">
+    <div className="mt-4 overflow-hidden rounded-xl border border-[var(--ef-border-subtle-a50)] bg-[var(--ef-background-secondary)]">
       {/* Section header */}
-      <div className="flex items-center justify-between border-b border-[#2F3B52]/40 px-5 py-3">
+      <div className="flex items-center justify-between border-b border-[var(--ef-border-subtle-a40)] px-5 py-3">
         <div>
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">
+          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-soft)]">
             Approval Actions
           </p>
-          <p className="mt-0.5 text-[11px] text-[#5A7090]">
+          <p className="mt-0.5 text-[11px] text-[var(--ef-text-soft)]">
             {history.total_actions} action{history.total_actions === 1 ? '' : 's'} across{' '}
             {history.executions.length} execution{history.executions.length === 1 ? '' : 's'}
           </p>
@@ -391,11 +391,11 @@ export function ApprovalActionTimeline({ projectId }: ApprovalActionTimelineProp
 
       {/* Show more / show less toggle */}
       {hasMore ? (
-        <div className="border-t border-[#2F3B52]/40 px-5 py-2.5">
+        <div className="border-t border-[var(--ef-border-subtle-a40)] px-5 py-2.5">
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3B82F6] transition-colors hover:text-[#60A5FA]"
+            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-purple-primary)] transition-colors hover:text-[var(--ef-purple-glow)]"
           >
             {showAll
               ? 'Show less'

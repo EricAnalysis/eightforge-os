@@ -484,10 +484,10 @@ export default function DecisionDetailPage({
   if (loading || orgLoading) {
     return (
       <div className="p-8">
-        <Link href="/platform/decisions" className="text-sm text-[#3B82F6] hover:underline">
+        <Link href="/platform/decisions" className="text-sm text-[var(--ef-purple-primary)] hover:underline">
           Back to decisions
         </Link>
-        <p className="mt-3 text-sm text-[#94A3B8]">Loading decision detail...</p>
+        <p className="mt-3 text-sm text-[var(--ef-text-muted)]">Loading decision detail...</p>
       </div>
     );
   }
@@ -495,12 +495,12 @@ export default function DecisionDetailPage({
   if (loadError) {
     return (
       <div className="p-8">
-        <Link href="/platform/decisions" className="text-sm text-[#3B82F6] hover:underline">
+        <Link href="/platform/decisions" className="text-sm text-[var(--ef-purple-primary)] hover:underline">
           Back to decisions
         </Link>
-        <div className="mt-4 rounded-2xl border border-[#EF4444]/30 bg-[#EF4444]/10 p-6">
-          <p className="text-sm font-medium text-[#EF4444]">Fetch failure</p>
-          <p className="mt-2 text-sm text-[#E5EDF7]">{loadError}</p>
+        <div className="mt-4 rounded-2xl border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-6">
+          <p className="text-sm font-medium text-[var(--ef-critical)]">Fetch failure</p>
+          <p className="mt-2 text-sm text-[var(--ef-text-primary)]">{loadError}</p>
         </div>
       </div>
     );
@@ -509,12 +509,12 @@ export default function DecisionDetailPage({
   if (notFound || !decision) {
     return (
       <div className="p-8">
-        <Link href="/platform/decisions" className="text-sm text-[#3B82F6] hover:underline">
+        <Link href="/platform/decisions" className="text-sm text-[var(--ef-purple-primary)] hover:underline">
           Back to decisions
         </Link>
-        <div className="mt-4 rounded-2xl border border-[#2F3B52] bg-[#111827] p-6">
-          <p className="text-sm font-medium text-[#E5EDF7]">No decision found</p>
-          <p className="mt-2 text-sm text-[#94A3B8]">
+        <div className="mt-4 rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-6">
+          <p className="text-sm font-medium text-[var(--ef-text-primary)]">No decision found</p>
+          <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
             The requested decision does not exist in the active organization context.
           </p>
         </div>

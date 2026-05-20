@@ -9,6 +9,26 @@ import {
   contractCeilingSummary,
 } from '@/lib/contracts/contractCeiling';
 import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
+import {
+  assembleCanonicalOperationalTableRows,
+  type CanonicalOperationalTableRow,
+  type CanonicalOperationalTableRowAssemblyResult,
+  type OperationalTableRowEvidenceRef,
+  type OperationalTableFragment,
+} from '@/lib/operationalTables/canonicalOperationalTableRowAssembler';
+import {
+  buildCanonicalOperationalRateDiff,
+  type CanonicalOperationalRateDiff,
+} from '@/lib/operationalTables/canonicalOperationalRateDiff';
+import {
+  adaptContractRateScheduleFragments,
+  type ContractRateScheduleKind,
+} from '@/lib/operationalTables/adapters/contractRateScheduleFragmentAdapter';
+import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import {
+  inferInvoiceContractorFromPlainText,
+  normalizeInvoiceContractorDisplay,
+} from '@/lib/invoices/invoiceCanonicalNames';
 import { CONTRACT_FAILURE_MODES } from '@/lib/extraction/failureModes/contractFailureModes';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
@@ -28,6 +48,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function diagnosticsFromExtractionData(
+  extractionData: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  return asRecord(asRecord(extractionData?.extraction)?.diagnostics);
+}
+
+function canonicalAssemblyRowsFromDiagnostics(
+  extractionData: Record<string, unknown> | null,
+  key: 'canonicalOperationalTableRowAssembly' | 'canonicalContractRateScheduleAssembly',
+): CanonicalOperationalTableRow[] {
+  const diagnostics = diagnosticsFromExtractionData(extractionData);
+  const assembly = asRecord(diagnostics?.[key]);
+  return asArray<CanonicalOperationalTableRow>(assembly?.rows);
 }
 
 function normalizeText(value: string): string {
@@ -376,18 +411,20 @@ function isRateValueText(value: string): boolean {
   if (trimmed.length === 0) return false;
   return (
     /^\$?\s*[\d,]+(?:\.\d+)?$/i.test(trimmed) ||
-    /^\$?\s*[\d,]+(?:\.\d+)?\s*(?:per|\/)\s*[A-Za-z][A-Za-z .-]*$/i.test(trimmed)
+    /^\$?\s*[\d,]+(?:\.\d+)?\s*(?:per|\/)\s*[A-Za-z][A-Za-z .-]*$/i.test(trimmed) ||
+    (/[$Â§]\s*[\d,]+(?:\.\d+)?/i.test(trimmed) && /\b(?:yard|cy|tree|stump|hour|unit|ton|pound|pass[-\s]?through)\b/i.test(trimmed))
   );
 }
 
 function isMoneyLikeValueText(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0) return false;
-  return /^\$?\s*[\d,]+(?:\.\d+)+$/i.test(trimmed) || /^\$\s*[\d,]+(?:\.\d+)?$/i.test(trimmed);
+  return /^\$?\s*[\d,]+(?:\.\d+)+$/i.test(trimmed) || /[$Â§]\s*[\d,]+(?:\.\d+)?/i.test(trimmed);
 }
 
 function isUnitTokenText(value: string): boolean {
   const dense = denseText(value);
+  if (/c[uy]b[il1]c?yards?/.test(dense)) return true;
   if (RATE_UNIT_TOKENS.has(dense)) return true;
   if (dense.startsWith('per')) {
     const remainder = dense.slice(3);
@@ -510,6 +547,33 @@ type RateScheduleQualificationDebug = {
   rejected_reasons: string[];
   accepted_reasons: string[];
 };
+
+function determineContractRateScheduleKind(
+  acceptedRateTables: Array<{ qualification_signals: RateScheduleQualificationDebug }>,
+): ContractRateScheduleKind {
+  if (acceptedRateTables.length === 0) return 'unknown';
+  const signalText = acceptedRateTables
+    .flatMap((table) => [
+      ...table.qualification_signals.schedule_aliases_matched,
+      ...table.qualification_signals.title_alias_matches,
+      ...table.qualification_signals.header_signal_matches,
+      ...table.qualification_signals.term_signal_matches,
+      ...table.qualification_signals.detected_failure_modes,
+    ])
+    .join(' ')
+    .toLowerCase();
+
+  if (/timeandmaterials|time and materials|sectionbpricesorcosts|t&m/.test(signalText)) {
+    return 'time_and_materials';
+  }
+  if (/pricesheet|price sheet|priceschedule|pricing schedule|pricingschedule|contractpriceschedule|scheduleofvalues|\bsov\b/.test(signalText)) {
+    return 'price_sheet';
+  }
+  if (/unitrate|unit rate|unitprices|unit prices|scheduleofrates|emergencydebrisremovalunitrates/.test(signalText)) {
+    return 'unit_rate';
+  }
+  return 'unknown';
+}
 
 const RATE_SCHEDULE_TITLE_ALIAS_KEYS = [
   'unitPrices',
@@ -2676,8 +2740,6 @@ function addFact(
 /** Document-level phrases for an overall contract $ cap (excludes per-unit / schedule-only caps). */
 const GLOBAL_CONTRACT_CEILING_LANGUAGE_RE = /\b(?:total\s+compensation|contract\s+amount|contract\s+sum|aggregate\s+payments|maximum\s+contract\s+amount|total\s+amount\s+of\s+bid(?:\s+for\s+entire\s+project)?|total\s+amount\s+payable|contract\s+ceiling|contract\s+limit|contract\s+cap|ceiling\s+for\s+this\s+contract|maximum\s+amount\s+payable|aggregate\s+cap|contractual\s+limit|ceiling\s+amount|estimated\s+liability)\b/i;
 
-const UNIT_PRICE_OR_SCHEDULE_LANGUAGE_RE = /\b(?:unit\s+prices?|unit\s+pricing|unit[-\s]rate|schedule\s+of\s+(?:values|rates)|lump\s+sum\s+per|price\s+per\s+unit|price\s+schedule|unit\s+rate\s+price|emergency\s+debris\s+removal\s+unit\s+rates)\b/i;
-
 /**
  * NTE followed within a short window by rate-table vocabulary → per-unit / classification cap, not contract ceiling.
  * Mirrors (?i)(not[-\s]to[-\s]exceed).*?(rate|unit|hourly|price|classification) with a bounded window.
@@ -2762,11 +2824,6 @@ function resolveContractCeilingFacts(params: {
 } {
   const haystack = joinContractTextForExecutedRelativeDerivation(params.document);
   const hasGlobalCeilingLanguage = GLOBAL_CONTRACT_CEILING_LANGUAGE_RE.test(haystack);
-  const hasUnitPriceLanguageInText =
-    UNIT_PRICE_OR_SCHEDULE_LANGUAGE_RE.test(haystack)
-    || /\bexhibit\s+[a-z]\b[\s\S]{0,120}\b(?:unit\s+rate|rate\s+schedule|unit\s+rates)\b/i.test(
-      haystack,
-    );
 
   const explicitNteCeilingEvidence = findExplicitNteCeilingEvidenceSkippingRateCap(
     params.document,
@@ -2873,6 +2930,22 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
       )[0]
     ?? null;
   const rateTables = acceptedRateTables.map((t) => t._table);
+  const contractRateScheduleKind = determineContractRateScheduleKind(acceptedRateTables);
+  const contractRateScheduleAdapter = acceptedRateTables.length > 0
+    ? adaptContractRateScheduleFragments({
+        document_id: document.document_id,
+        source_family: 'contract',
+        tables: rateTables as PdfTable[],
+        schedule_kind: contractRateScheduleKind,
+      })
+    : null;
+  const contractRateScheduleAssembly = contractRateScheduleAdapter
+    ? assembleCanonicalOperationalTableRows({
+        document_id: document.document_id,
+        source_family: 'contract',
+        fragments: contractRateScheduleAdapter.fragments,
+      })
+    : null;
   const rateFromSignals =
     document.section_signals.rate_section_present === true ||
     document.section_signals.unit_price_structure_present === true;
@@ -3364,6 +3437,21 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     contractCeilingSummary: contractCeilingSummary(contractCeilingType),
     rateSchedulePresent,
     timeAndMaterialsPresent,
+    canonicalContractRateScheduleAssembly: contractRateScheduleAssembly
+      ? {
+          document_id: contractRateScheduleAssembly.document_id,
+          source_family: contractRateScheduleAssembly.source_family,
+          schedule_kind: contractRateScheduleKind,
+          rows: contractRateScheduleAssembly.rows,
+          rejected_rows: contractRateScheduleAssembly.rejected_rows,
+          unclassified_rows: contractRateScheduleAssembly.unclassified_rows,
+          adapter_warnings: contractRateScheduleAdapter?.adapter_warnings ?? [],
+          assembly_warnings: [
+            ...(contractRateScheduleAdapter?.adapter_warnings ?? []),
+            ...contractRateScheduleAssembly.assembly_warnings,
+          ],
+        }
+      : undefined,
   };
 
   if (contractDebugEnabled) {
@@ -3639,6 +3727,281 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   };
 }
 
+function invoiceTableFragmentsFromPdfTables(
+  document: ExtractedNodeDocument,
+  pdfTables: readonly Record<string, unknown>[],
+): OperationalTableFragment[] {
+  const fragments: OperationalTableFragment[] = [];
+  for (const [tableIndex, table] of pdfTables.entries()) {
+    const tableKey =
+      typeof table.id === 'string' && table.id.trim().length > 0
+        ? table.id.trim()
+        : `invoice_table_${tableIndex + 1}`;
+    const tablePage = parseNumber(table.page_number) ?? 1;
+    for (const row of asArray<Record<string, unknown>>(table.rows)) {
+      const rowIndex = parseNumber(row.row_index) ?? fragments.length + 1;
+      const pageNumber = parseNumber(row.page_number) ?? tablePage;
+      for (const cell of asArray<Record<string, unknown>>(row.cells)) {
+        const cellText = typeof cell.text === 'string' ? cell.text.trim() : '';
+        if (!cellText) continue;
+        fragments.push({
+          cell_text: cellText,
+          cell_index: parseNumber(cell.column_index) ?? fragments.length,
+          row_index: rowIndex,
+          table_key: tableKey,
+          page_number: pageNumber,
+          source: cell.source === 'ocr_fallback' ? 'ocr_fallback' : cell.source === 'pdfjs' ? 'pdfjs' : undefined,
+          extractor_hint: 'invoice_pdf_table',
+        });
+      }
+    }
+  }
+  return fragments;
+}
+
+function stringField(record: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function inferInvoiceShadowUnit(line: Record<string, unknown>): string | undefined {
+  const explicit = stringField(line, ['unit']);
+  if (explicit) return explicit.toUpperCase();
+  const description = stringField(line, ['description', 'line_description', 'raw_text']) ?? '';
+  const normalized = description.toLowerCase();
+  if (/\b(?:tree|limb|stump)\b/.test(normalized)) return 'TREE';
+  if (/\b(?:cy|cyd|cubic\s+yard|vegetative|debris|material|mulch|dms|fds|grinding|chipping)\b/.test(normalized)) return 'CY';
+  if (/\brow\s+clearing\b/.test(normalized)) return 'ROW';
+  return undefined;
+}
+
+function inferInvoiceShadowMileageTier(line: Record<string, unknown>): string | undefined {
+  const text = [
+    stringField(line, ['description', 'line_description']),
+    stringField(line, ['raw_text']),
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/\b0\s*(?:-|to)\s*15\b/.test(text)) return '0-15';
+  if (/\b16\s*(?:-|to)\s*30\b/.test(text)) return '16-30';
+  if (/\b31\s*(?:-|to)\s*60\b/.test(text)) return '31-60';
+  if (/\b60\+\b|\bgreater\s+than\s+60\b/.test(text)) return '60+';
+  return undefined;
+}
+
+function inferInvoiceShadowSiteType(line: Record<string, unknown>): string | undefined {
+  const text = [
+    stringField(line, ['description', 'line_description']),
+    stringField(line, ['raw_text']),
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/\brow\s+to\s+dms\b/.test(text)) return 'ROW_to_DMS';
+  if (/\bdms\s+to\s+fds\b/.test(text)) return 'DMS_to_FDS';
+  return undefined;
+}
+
+function invoiceShadowEvidenceRefs(params: {
+  documentId: string;
+  tableKey: string;
+  rowIndex: number;
+  line: Record<string, unknown>;
+}): OperationalTableRowEvidenceRef[] {
+  const rawText =
+    stringField(params.line, ['raw_text'])
+    ?? stringField(params.line, ['line_description', 'description'])
+    ?? stringField(params.line, ['line_code', 'rate_code'])
+    ?? '';
+  const refs: OperationalTableRowEvidenceRef[] = [];
+  const push = (
+    field: OperationalTableRowEvidenceRef['field_assigned'],
+    value: unknown,
+    cellIndex: number,
+  ) => {
+    if (value == null || value === '') return;
+    refs.push({
+      document_id: params.documentId,
+      page_number: 1,
+      table_key: params.tableKey,
+      row_index: params.rowIndex,
+      cell_index: cellIndex,
+      raw_text: String(value),
+      field_assigned: field,
+      confidence: 1,
+    });
+  };
+
+  push('rate_code', stringField(params.line, ['rate_code', 'line_code']), 0);
+  push('description', stringField(params.line, ['description', 'line_description']) ?? rawText, 1);
+  push('quantity', parseNumber(params.line.quantity), 2);
+  push('unit', inferInvoiceShadowUnit(params.line), 3);
+  push('unit_price', parseNumber(params.line.unit_price), 4);
+  push('line_total', parseNumber(params.line.line_total ?? params.line.total_amount ?? params.line.total), 5);
+  return refs;
+}
+
+function invoiceShadowFragmentsFromLine(params: {
+  tableKey: string;
+  rowIndex: number;
+  line: Record<string, unknown>;
+}): OperationalTableFragment[] {
+  const values = [
+    stringField(params.line, ['rate_code', 'line_code']),
+    stringField(params.line, ['description', 'line_description']),
+    parseNumber(params.line.quantity),
+    inferInvoiceShadowUnit(params.line),
+    parseNumber(params.line.unit_price),
+    parseNumber(params.line.line_total ?? params.line.total_amount ?? params.line.total),
+  ];
+  return values.flatMap((value, cellIndex) =>
+    value == null || value === ''
+      ? []
+      : [{
+          cell_text: String(value),
+          cell_index: cellIndex,
+          row_index: params.rowIndex,
+          table_key: params.tableKey,
+          page_number: 1,
+          extractor_hint: 'invoice_canonical_line',
+          candidate_value: value,
+          confidence: 1,
+        }]);
+}
+
+function invoiceAssemblyFromCanonicalLines(
+  documentId: string,
+  invoiceLines: readonly Record<string, unknown>[],
+): CanonicalOperationalTableRowAssemblyResult | null {
+  if (invoiceLines.length === 0) return null;
+  const tableKey = 'invoice:canonical_line_items';
+  const rows: CanonicalOperationalTableRow[] = invoiceLines.map((line, index) => {
+    const rowIndex = index + 1;
+    const rateCode = stringField(line, ['rate_code', 'line_code']) ?? undefined;
+    const description = stringField(line, ['description', 'line_description']) ?? undefined;
+    const quantity = parseNumber(line.quantity) ?? undefined;
+    const unit = inferInvoiceShadowUnit(line);
+    const unitPrice = parseNumber(line.unit_price) ?? undefined;
+    const lineTotal = parseNumber(line.line_total ?? line.total_amount ?? line.total) ?? undefined;
+    const warnings = [
+      ...(rateCode ? [] : ['rate code not recovered']),
+      ...(unitPrice == null ? ['unit price not recovered'] : []),
+    ];
+    return {
+      row_id: `invoice:${tableKey}:r${rowIndex}`,
+      canonical_row_signature: [
+        documentId,
+        rateCode ?? '',
+        description ?? '',
+        unitPrice ?? '',
+      ].join('|').toLowerCase(),
+      document_id: documentId,
+      source_family: 'invoice',
+      source_table_key: tableKey,
+      source_document_family: 'invoice',
+      assembly_semantic_mode: 'transactional',
+      row_role: 'line_item',
+      rate_code: rateCode,
+      description,
+      quantity,
+      unit,
+      unit_price: unitPrice,
+      line_total: lineTotal,
+      category: stringField(line, ['canonical_category']) ?? undefined,
+      service_item: stringField(line, ['service_item']) ?? undefined,
+      mileage_tier: inferInvoiceShadowMileageTier(line),
+      site_type: inferInvoiceShadowSiteType(line),
+      warnings,
+      confidence: warnings.length === 0 ? 1 : 0.85,
+      evidence_refs: invoiceShadowEvidenceRefs({
+        documentId,
+        tableKey,
+        rowIndex,
+        line,
+      }),
+      raw_fragments: invoiceShadowFragmentsFromLine({ tableKey, rowIndex, line }),
+    };
+  });
+
+  return {
+    document_id: documentId,
+    source_family: 'invoice',
+    rows,
+    rejected_rows: [],
+    unclassified_rows: [],
+    assembly_warnings: [],
+  };
+}
+
+function normalizeInvoiceAgreementText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.toLowerCase().replace(/\s+/g, ' ').trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeInvoiceAgreementNumber(value: unknown): number | null {
+  const parsed = parseNumber(value);
+  return parsed == null ? null : Number(parsed.toFixed(2));
+}
+
+function isNarrativeAssemblerUnit(value: string | null): boolean {
+  return value === 'row' || value === 'lh' || value === 'cy';
+}
+
+function invoiceShadowAssemblyWarnings(params: {
+  existingLines: readonly unknown[];
+  assembledRows: readonly CanonicalOperationalTableRow[];
+}): string[] {
+  const warnings: string[] = [];
+  const existingByCode = new Map<string, Record<string, unknown>>();
+  for (const line of params.existingLines) {
+    const record = asRecord(line);
+    if (!record) continue;
+    const code = normalizeInvoiceAgreementText(record.rate_code ?? record.line_code);
+    if (code) existingByCode.set(code, record);
+  }
+
+  for (const row of params.assembledRows) {
+    const code = normalizeInvoiceAgreementText(row.rate_code);
+    if (!code) {
+      warnings.push(`assembler row ${row.row_id} has no rate_code for agreement check`);
+      continue;
+    }
+    const existing = existingByCode.get(code);
+    if (!existing) {
+      warnings.push(`assembler produced extra invoice row ${row.rate_code}`);
+      continue;
+    }
+
+    const comparisons = [
+      ['rate_code', normalizeInvoiceAgreementText(existing.rate_code ?? existing.line_code), normalizeInvoiceAgreementText(row.rate_code)],
+      ['description', normalizeInvoiceAgreementText(existing.description ?? existing.line_description), normalizeInvoiceAgreementText(row.description)],
+      ['quantity', normalizeInvoiceAgreementNumber(existing.quantity), normalizeInvoiceAgreementNumber(row.quantity)],
+      ['unit', normalizeInvoiceAgreementText(existing.unit), normalizeInvoiceAgreementText(row.unit)],
+      ['unit_price', normalizeInvoiceAgreementNumber(existing.unit_price), normalizeInvoiceAgreementNumber(row.unit_price)],
+      ['line_total', normalizeInvoiceAgreementNumber(existing.line_total), normalizeInvoiceAgreementNumber(row.line_total)],
+    ] as const;
+
+    for (const [field, existingValue, assembledValue] of comparisons) {
+      if (existingValue == null && assembledValue == null) continue;
+      if (field === 'unit' && existingValue == null && isNarrativeAssemblerUnit(assembledValue)) {
+        continue;
+      }
+      if (existingValue !== assembledValue) {
+        warnings.push(`assembler mismatch for ${row.rate_code}.${field}: existing=${String(existingValue)} assembled=${String(assembledValue)}`);
+      }
+    }
+  }
+
+  for (const [code] of existingByCode) {
+    if (!params.assembledRows.some((row) => normalizeInvoiceAgreementText(row.rate_code) === code)) {
+      warnings.push(`assembler missing invoice row ${code}`);
+    }
+  }
+
+  return warnings;
+}
+
 function normalizeInvoice(document: ExtractedNodeDocument): { facts: PipelineFact[]; extracted: Record<string, unknown> } {
   const facts: PipelineFact[] = [];
   const pdf = asRecord(document.content_layers?.pdf);
@@ -3660,9 +4023,26 @@ function normalizeInvoice(document: ExtractedNodeDocument): { facts: PipelineFac
   const canonicalInvoice = buildCanonicalInvoiceRowsFromTypedFields({
     documentId: document.document_id,
     typedFields: document.typed_fields,
+    extractionData: document.extraction_data,
   });
   const invoiceRow = canonicalInvoice.invoiceRow ?? {};
   const invoiceLines = canonicalInvoice.invoiceLines;
+  const invoiceAssemblyFragments = invoiceTableFragmentsFromPdfTables(document, pdfTables);
+  const pdfInvoiceAssembly = assembleCanonicalOperationalTableRows({
+    document_id: document.document_id,
+    source_family: 'invoice',
+    fragments: invoiceAssemblyFragments,
+  });
+  const invoiceAssembly =
+    invoiceAssemblyFromCanonicalLines(document.document_id, invoiceLines)
+    ?? pdfInvoiceAssembly;
+  const invoiceAssemblyWarnings = [
+    ...invoiceAssembly.assembly_warnings,
+    ...invoiceShadowAssemblyWarnings({
+      existingLines: invoiceLines,
+      assembledRows: pdfInvoiceAssembly.rows,
+    }),
+  ];
   const invoiceEvidence = findEvidenceByLabel(document, ['invoice', 'invoice #', 'invoice number']);
   const amountEvidence = findEvidenceByRegex(document, [
     /(?:current\s+amount\s+due|current\s+payment\s+due|total\s+amount|amount\s+due|invoice\s+total|grand\s+total)[^$0-9]{0,24}\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
@@ -3698,7 +4078,7 @@ function normalizeInvoice(document: ExtractedNodeDocument): { facts: PipelineFac
     .filter((value): value is number => value != null)
     .reduce((sum, value) => sum + value, 0);
   const billedAmount = explicitTotalAmount ?? (lineTotalSum > 0 ? Number(lineTotalSum.toFixed(2)) : null) ?? subtotalAmount;
-  const contractor = String(
+  let contractor = String(
     invoiceRow.vendor_name ??
     document.typed_fields.vendor_name ??
     document.typed_fields.contractorName ??
@@ -3706,6 +4086,10 @@ function normalizeInvoice(document: ExtractedNodeDocument): { facts: PipelineFac
     contractorEvidence[0]?.text ??
     '',
   ).trim() || null;
+  if (!contractor) {
+    contractor = inferInvoiceContractorFromPlainText(joinPdfPlainTextFromContentLayers(document.content_layers));
+  }
+  contractor = normalizeInvoiceContractorDisplay(contractor) ?? contractor;
   const client = String(
     invoiceRow.client_name ??
     document.typed_fields.client_name ??
@@ -3839,6 +4223,16 @@ function normalizeInvoice(document: ExtractedNodeDocument): { facts: PipelineFac
         ? lineItems
           .map((line) => typeof line === 'object' && line != null ? String((line as Record<string, unknown>).line_code ?? '') : '')
           .filter((value) => value.length > 0)
+        : undefined,
+      canonicalOperationalTableRowAssembly: invoiceAssemblyFragments.length > 0
+        ? {
+            document_id: invoiceAssembly.document_id,
+            source_family: invoiceAssembly.source_family,
+            rows: invoiceAssembly.rows,
+            rejected_rows: invoiceAssembly.rejected_rows,
+            unclassified_rows: invoiceAssembly.unclassified_rows,
+            assembly_warnings: invoiceAssemblyWarnings,
+          }
         : undefined,
     },
   };
@@ -4329,12 +4723,53 @@ function normalizeDocument(document: ExtractedNodeDocument): { facts: PipelineFa
   }
 }
 
+function buildInvoiceOperationalRateDiffFromPersistedSnapshots(params: {
+  primaryDocument: ExtractedNodeDocument;
+  relatedDocuments: readonly ExtractedNodeDocument[];
+}): CanonicalOperationalRateDiff | null {
+  if (params.primaryDocument.family !== 'invoice') return null;
+  const invoiceRows = canonicalAssemblyRowsFromDiagnostics(
+    params.primaryDocument.extraction_data,
+    'canonicalOperationalTableRowAssembly',
+  );
+  if (invoiceRows.length === 0) return null;
+
+  const contract = params.relatedDocuments
+    .filter((document) => document.family === 'contract')
+    .map((document) => ({
+      document,
+      rows: canonicalAssemblyRowsFromDiagnostics(
+        document.extraction_data,
+        'canonicalContractRateScheduleAssembly',
+      ),
+    }))
+    .filter((entry) => entry.rows.length > 0)
+    .sort((left, right) => left.document.document_id.localeCompare(right.document.document_id))[0];
+
+  if (!contract) return null;
+
+  return buildCanonicalOperationalRateDiff({
+    project_id: null,
+    invoice_document_id: params.primaryDocument.document_id,
+    contract_document_id: contract.document.document_id,
+    invoice_rows: invoiceRows,
+    contract_rows: contract.rows,
+  });
+}
+
 function factMap(facts: PipelineFact[]): Record<string, PipelineFact> {
   return Object.fromEntries(facts.map((fact) => [fact.key, fact]));
 }
 
 export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
   const primaryNormalized = normalizeDocument(input.primaryDocument);
+  const canonicalOperationalRateDiff = buildInvoiceOperationalRateDiffFromPersistedSnapshots({
+    primaryDocument: input.primaryDocument,
+    relatedDocuments: input.relatedDocuments,
+  });
+  if (canonicalOperationalRateDiff) {
+    primaryNormalized.extracted.canonicalOperationalRateDiff = canonicalOperationalRateDiff;
+  }
   attachCanonicalPersistenceMetadata(
     input.primaryDocument,
     primaryNormalized.facts,

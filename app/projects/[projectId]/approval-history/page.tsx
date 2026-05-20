@@ -43,23 +43,23 @@ export default async function ApprovalHistoryPage({ params }: PageProps) {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold mb-2">{project.name}</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-[var(--ef-text-muted)]">
           Approval decision history and timeline
         </p>
       </div>
 
       {/* Timeline */}
-      <div className="bg-white dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 p-6">
+      <div className="rounded-lg border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-6">
         <ApprovalHistoryTimeline timeline={timeline} />
       </div>
 
       {/* Raw JSON for debugging (optional) */}
       {process.env.NODE_ENV === 'development' && (
-        <details className="bg-gray-100 dark:bg-gray-900 rounded-lg p-4">
-          <summary className="cursor-pointer font-mono text-sm text-gray-600 dark:text-gray-400">
+        <details className="rounded-lg bg-[var(--ef-surface-elevated)] p-4">
+          <summary className="cursor-pointer font-mono text-sm text-[var(--ef-text-muted)]">
             Raw Timeline Data
           </summary>
-          <pre className="mt-4 overflow-auto max-h-96 text-xs bg-white dark:bg-gray-950 p-4 rounded border border-gray-300 dark:border-gray-700">
+          <pre className="mt-4 max-h-96 overflow-auto rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4 text-xs text-[var(--ef-text-secondary)]">
             {JSON.stringify(timeline, null, 2)}
           </pre>
         </details>

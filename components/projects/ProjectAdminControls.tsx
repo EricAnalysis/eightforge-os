@@ -157,16 +157,16 @@ export function ProjectAdminControls({
       <div
         className={
           compact
-            ? 'mt-3 border-t border-[#2F3B52]/80 pt-3'
-            : 'rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4'
+            ? 'mt-3 border-t border-[var(--ef-border-subtle-a80)] pt-3'
+            : 'rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4'
         }
       >
       <div className={`flex ${compact ? 'flex-wrap items-center gap-2' : 'flex-wrap items-start justify-between gap-4'}`}>
         <div className={compact ? 'min-w-0' : 'max-w-xl'}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Project Admin
           </p>
-          <p className={`mt-1 ${compact ? 'text-[11px]' : 'text-[12px]'} text-[#C7D2E3]`}>
+          <p className={`mt-1 ${compact ? 'text-[11px]' : 'text-[12px]'} text-[var(--ef-text-secondary)]`}>
             Archive hides the project from default active views. Delete is allowed only after the project is empty.
           </p>
         </div>
@@ -176,7 +176,7 @@ export function ProjectAdminControls({
             type="button"
             onClick={handleArchive}
             disabled={busyAction != null || project.status === 'archived'}
-            className="rounded-md border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FBBF24] transition hover:bg-[#F59E0B]/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-warning-soft)] transition hover:bg-[var(--ef-warning-a20)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busyAction === 'archive' ? 'Archiving...' : project.status === 'archived' ? 'Archived' : 'Archive'}
           </button>
@@ -189,7 +189,7 @@ export function ProjectAdminControls({
                 ? 'Cannot delete: project is blocked by approval gate'
                 : undefined
             }
-            className="rounded-md border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#F87171] transition hover:bg-[#EF4444]/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-critical-soft)] transition hover:bg-[var(--ef-critical-a20)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busyAction === 'delete' ? 'Deleting...' : 'Delete Empty Project'}
           </button>
@@ -197,10 +197,10 @@ export function ProjectAdminControls({
       </div>
 
       {message ? (
-        <p className="mt-3 text-[11px] text-emerald-300">{message}</p>
+        <p className="mt-3 text-[11px] text-[var(--ef-success-soft)]">{message}</p>
       ) : null}
       {error ? (
-        <p className="mt-3 text-[11px] text-red-400">{error}</p>
+        <p className="mt-3 text-[11px] text-[var(--ef-critical)]">{error}</p>
       ) : null}
       </div>
     </>

@@ -181,15 +181,15 @@ export function DocumentProjectControls({
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left text-[11px] text-[#8FA1BC]">
-      <p className="font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Project Admin</p>
+    <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-3 text-left text-[11px] text-[var(--ef-text-soft)]">
+      <p className="font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">Project Admin</p>
       <p className="mt-2 leading-relaxed">
         Move this document to another project or remove its current link. Linked decisions, tasks, and precedence relationships must be cleared first.
       </p>
 
       <div className="mt-3 space-y-3">
         <div>
-          <label htmlFor={`document-project-target-${documentId}`} className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">
+          <label htmlFor={`document-project-target-${documentId}`} className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
             {currentProjectId ? 'Move To Project' : 'Assign To Project'}
           </label>
           <select
@@ -197,7 +197,7 @@ export function DocumentProjectControls({
             value={targetProjectId}
             onChange={(event) => setTargetProjectId(event.target.value)}
             disabled={projectsLoading || targetProjects.length === 0 || busyAction != null}
-            className="w-full rounded-md border border-[#2F3B52] bg-[#101827] px-3 py-2 text-[11px] text-[#E5EDF7] outline-none ring-[#3B82F6]/40 focus:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none ring-[var(--ef-purple-primary-a40)] focus:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {targetProjects.length === 0 ? (
               <option value="">No other active projects</option>
@@ -215,7 +215,7 @@ export function DocumentProjectControls({
             type="button"
             onClick={handleMove}
             disabled={busyAction != null || targetProjects.length === 0}
-            className="rounded-md bg-[#3B82F6]/15 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#93C5FD] transition hover:bg-[#3B82F6]/25 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md bg-[var(--ef-purple-primary-a15)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition hover:bg-[var(--ef-purple-primary-a25)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busyAction === 'move' ? (currentProjectId ? 'Moving...' : 'Assigning...') : currentProjectId ? 'Move Document' : 'Assign Document'}
           </button>
@@ -224,7 +224,7 @@ export function DocumentProjectControls({
               type="button"
               onClick={handleRemove}
               disabled={busyAction != null}
-              className="rounded-md border border-[#EF4444]/35 bg-[#EF4444]/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FCA5A5] transition hover:bg-[#EF4444]/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-critical-soft)] transition hover:bg-[var(--ef-critical-a20)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busyAction === 'remove' ? 'Removing...' : 'Remove From Project'}
             </button>
@@ -233,10 +233,10 @@ export function DocumentProjectControls({
       </div>
 
       {message ? (
-        <p className="mt-3 text-[11px] text-emerald-300">{message}</p>
+        <p className="mt-3 text-[11px] text-[var(--ef-success-soft)]">{message}</p>
       ) : null}
       {error ? (
-        <p className="mt-3 text-[11px] text-red-400">{error}</p>
+        <p className="mt-3 text-[11px] text-[var(--ef-critical)]">{error}</p>
       ) : null}
     </div>
   );

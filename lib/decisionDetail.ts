@@ -201,6 +201,14 @@ function shortIdentifier(value: string): string {
 }
 
 function formatReference(ref: string): DecisionEvidenceReference {
+  if (/^Invoice\s+/i.test(ref) && /Contract rate match/i.test(ref)) {
+    return {
+      id: ref,
+      label: 'Invoice line',
+      detail: ref,
+    };
+  }
+
   const parts = ref.split(/:(.+)/);
   if (parts.length < 3) {
     return {
@@ -400,6 +408,20 @@ export function resolveDecisionEvidence(
     structuredEvidenceCount += 1;
   }
 
+  const actualValue = stringValue(details?.actual_value);
+  const expectedTextValue = stringValue(details?.expected_value);
+  if (metrics.length === 0 && actualValue && expectedTextValue) {
+    const sourceLabel = stringValue(details?.actual_value_source);
+    metrics.push({
+      id: 'comparison',
+      label: humanize(fieldKey),
+      value: actualValue,
+      detail: `Expected ${expectedTextValue}.${sourceLabel ? ` Source: ${sourceLabel}.` : ''}`,
+      tone: severity === 'critical' ? 'danger' : 'warning',
+    });
+    structuredEvidenceCount += 1;
+  }
+
   const matchedConditions = Array.isArray(details?.matched_conditions)
     ? details.matched_conditions.filter((entry) => isRecord(entry))
     : [];
@@ -444,7 +466,10 @@ export function resolveDecisionEvidence(
     });
   }
 
-  firstArrayStrings(details?.source_refs, 4).forEach((ref) => {
+  [
+    ...firstArrayStrings(details?.source_refs, 4),
+    ...firstArrayStrings(details?.evidence_refs, 4),
+  ].forEach((ref) => {
     addUniqueReference(references, seenReferences, formatReference(ref));
     structuredEvidenceCount += 1;
   });

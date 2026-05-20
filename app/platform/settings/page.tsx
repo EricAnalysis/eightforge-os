@@ -94,11 +94,11 @@ export default function SettingsPage() {
   const getRoleBadgeClasses = (role: string) => {
     switch (role?.toLowerCase()) {
       case 'admin':
-        return 'bg-purple-500/20 text-purple-400 border border-purple-500/40';
+        return 'bg-[var(--ef-purple-primary-a20)] text-[var(--ef-purple-glow)] border border-[var(--ef-purple-primary-a40)]';
       case 'owner':
-        return 'bg-amber-500/20 text-amber-400 border border-amber-500/40';
+        return 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]';
       default:
-        return 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+        return 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
     }
   };
 
@@ -107,40 +107,40 @@ export default function SettingsPage() {
       {/* Header */}
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">
             Settings
           </h2>
-          <p className="text-xs text-[#8B94A3]">
+          <p className="text-xs text-[var(--ef-text-muted)]">
             Workspace, users, roles, and integrations for EightForge.
           </p>
         </div>
       </section>
 
       {error && (
-        <section className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-          <p className="text-[11px] text-red-400">Error: {error}</p>
+        <section className="rounded-lg border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-4">
+          <p className="text-[11px] text-[var(--ef-critical)]">Error: {error}</p>
         </section>
       )}
 
       {/* Organization Section */}
       <section>
-        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[#8B94A3]">
+        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[var(--ef-text-muted)]">
           Organization
         </h3>
-        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4 space-y-3">
+        <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4 space-y-3">
           {orgLoading ? (
-            <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+            <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
           ) : (
             <>
               <div className="flex justify-between">
-                <span className="text-[12px] text-[#8B94A3]">Name</span>
-                <span className="text-[11px] text-[#F5F7FA] font-medium">
+                <span className="text-[12px] text-[var(--ef-text-muted)]">Name</span>
+                <span className="text-[11px] text-[var(--ef-text-primary)] font-medium">
                   {organization?.name || '—'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[12px] text-[#8B94A3]">ID</span>
-                <span className="text-[11px] text-[#F5F7FA] font-medium">
+                <span className="text-[12px] text-[var(--ef-text-muted)]">ID</span>
+                <span className="text-[11px] text-[var(--ef-text-primary)] font-medium">
                   {organization?.id ? truncateUuid(organization.id) : '—'}
                 </span>
               </div>
@@ -152,28 +152,28 @@ export default function SettingsPage() {
 
       {/* Your Profile Section */}
       <section>
-        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[#8B94A3]">
+        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[var(--ef-text-muted)]">
           Your Profile
         </h3>
-        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4 space-y-3">
+        <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4 space-y-3">
           {dataLoading ? (
-            <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+            <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
           ) : userProfile ? (
             <>
               <div className="flex justify-between">
-                <span className="text-[12px] text-[#8B94A3]">Display Name</span>
-                <span className="text-[11px] text-[#F5F7FA] font-medium">
+                <span className="text-[12px] text-[var(--ef-text-muted)]">Display Name</span>
+                <span className="text-[11px] text-[var(--ef-text-primary)] font-medium">
                   {userProfile.display_name || '—'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[12px] text-[#8B94A3]">Email</span>
-                <span className="text-[11px] text-[#F5F7FA] font-medium">
+                <span className="text-[12px] text-[var(--ef-text-muted)]">Email</span>
+                <span className="text-[11px] text-[var(--ef-text-primary)] font-medium">
                   {userProfile.email || '—'}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[12px] text-[#8B94A3]">Role</span>
+                <span className="text-[12px] text-[var(--ef-text-muted)]">Role</span>
                 <span
                   className={`text-[11px] px-2 py-1 rounded-md font-medium ${getRoleBadgeClasses(userProfile.role)}`}
                 >
@@ -182,7 +182,7 @@ export default function SettingsPage() {
               </div>
             </>
           ) : (
-            <p className="text-[11px] text-red-400">Failed to load profile</p>
+            <p className="text-[11px] text-[var(--ef-critical)]">Failed to load profile</p>
           )}
         </div>
       </section>
@@ -190,28 +190,28 @@ export default function SettingsPage() {
       {/* Team Members Section */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#8B94A3]">
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-[var(--ef-text-muted)]">
             Team Members
           </h3>
-          <span className="text-[10px] font-semibold text-[#8B94A3] bg-[#0E0E2A] px-2 py-1 rounded">
+          <span className="text-[10px] font-semibold text-[var(--ef-text-muted)] bg-[var(--ef-background-secondary)] px-2 py-1 rounded">
             {dataLoading ? '—' : teamMembers.length}
           </span>
         </div>
-        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] overflow-hidden">
+        <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] overflow-hidden">
           {dataLoading ? (
             <div className="p-4">
-              <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+              <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
             </div>
           ) : teamMembers.length > 0 ? (
-            <div className="divide-y divide-[#1A1A3E]">
+            <div className="divide-y divide-[var(--ef-surface-elevated)]">
               {teamMembers.map((member) => (
                 <div key={member.id} className="p-4 space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <p className="text-[11px] font-medium text-[#F5F7FA]">
+                      <p className="text-[11px] font-medium text-[var(--ef-text-primary)]">
                         {member.display_name}
                       </p>
-                      <p className="text-[10px] text-[#8B94A3]">
+                      <p className="text-[10px] text-[var(--ef-text-muted)]">
                         {member.email}
                       </p>
                     </div>
@@ -221,7 +221,7 @@ export default function SettingsPage() {
                       {member.role}
                     </span>
                   </div>
-                  <p className="text-[10px] text-[#8B94A3]">
+                  <p className="text-[10px] text-[var(--ef-text-muted)]">
                     Joined {formatDate(member.created_at)}
                   </p>
                 </div>
@@ -229,7 +229,7 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="p-4">
-              <p className="text-[11px] text-[#8B94A3]">No team members</p>
+              <p className="text-[11px] text-[var(--ef-text-muted)]">No team members</p>
             </div>
           )}
         </div>
@@ -237,14 +237,14 @@ export default function SettingsPage() {
 
       {/* Danger Zone */}
       <section>
-        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-red-500/70">
+        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[var(--ef-critical-soft)]">
           Danger Zone
         </h3>
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">
+        <div className="rounded-lg border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a05)] p-4">
           <button
             onClick={handleSignOut}
             disabled={signingOut}
-            className="w-full rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-[11px] font-medium text-red-400 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full rounded-md border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] px-4 py-2 text-[11px] font-medium text-[var(--ef-critical)] hover:bg-[var(--ef-critical-a20)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {signingOut ? 'Signing out…' : 'Sign Out'}
           </button>

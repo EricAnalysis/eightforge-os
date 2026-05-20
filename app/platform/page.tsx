@@ -1,21 +1,49 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import {
-  FloatingCommandBar,
-  IntelligenceInsightCard,
-  StatusStrip,
-  type IntelligenceInsight,
-  type StatusStripMetric,
-} from '@/components/platform/command-center';
-import { buildOperatorGraphData } from '@/lib/operatorGraph';
+import { useDeferredValue, useMemo, useState, type ReactNode } from 'react';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
-import { OperatorGraphPanel } from '@/components/platform/OperatorGraphPanel';
-import { AskOperationsSection } from '@/components/platform/AskOperationsSection';
+import type {
+  OperationalDecisionQueueItem,
+  OperationalProjectRollupItem,
+} from '@/lib/server/operationalQueue';
 
-type Tone = 'brand' | 'success' | 'warning' | 'danger' | 'info' | 'muted';
+type QueueAction = OperationalProjectRollupItem['rollup']['pending_actions'][number];
+
+type AttentionMetric = {
+  label: string;
+  value: string | number;
+  subtext: string;
+  tone: 'danger' | 'warning' | 'brand' | 'muted';
+};
+
+type CriticalActionCardItem = {
+  id: string;
+  href: string;
+  severityLabel: 'BLOCKER' | 'WARNING';
+  severityTone: 'danger' | 'warning';
+  title: string;
+  projectLabel: string;
+  context: string;
+  atRiskLabel: string | null;
+};
+
+type ProjectRollupRow = {
+  id: string;
+  href: string;
+  projectLabel: string;
+  projectCode: string | null;
+  statusLabel: string;
+  statusKey: string;
+  blockers: number;
+  atRiskLabel: string;
+  atRiskHint: string | null;
+  pendingDecisions: number;
+  nextAction: string;
+  lastActivityLabel: string;
+  searchText: string;
+};
 
 function buildProjectTabHref(params: {
   projectId: string;
@@ -47,483 +75,729 @@ function buildLastSyncLabel(value: string | null | undefined): string {
   return `Last sync ${Math.floor(diffHours / 24)}d ago`;
 }
 
-function DiagnosticLink({
-  label,
-  value,
-  detail,
-  href,
-  tone,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  href: string;
-  tone: Tone;
-}) {
-  const badgeClass =
-    tone === 'danger'
-      ? 'border-red-500/40 bg-red-500/10 text-red-300'
-      : tone === 'warning'
-        ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-        : tone === 'success'
-          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-          : tone === 'brand'
-            ? 'border-[#3B82F6]/30 bg-[#3B82F6]/10 text-[#93C5FD]'
-            : tone === 'info'
-              ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
-              : 'border-[#2F3B52] bg-[#243044]/70 text-[#C7D2E3]';
+function formatShortCurrency(amount: number): string {
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+  return `$${Math.round(amount)}`;
+}
 
+function formatRelativeTime(value: string | null | undefined): string {
+  if (!value) return '--';
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return '--';
+
+  const diffMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (diffMinutes <= 1) return 'just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}d ago`;
+
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function normalizeSearchText(value: string | null | undefined): string {
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function titleize(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function statusBadgeClass(statusKey: string): string {
+  if (statusKey === 'blocked') {
+    return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]';
+  }
+  if (statusKey === 'needs_review') {
+    return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
+  }
+  if (statusKey === 'attention_required') {
+    return 'border-[var(--ef-purple-primary-a35)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]';
+  }
+  return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
+}
+
+function severityBadgeClass(tone: CriticalActionCardItem['severityTone']): string {
+  return tone === 'danger'
+    ? 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]'
+    : 'border-[var(--ef-warning-a35)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
+}
+
+function metricToneClass(tone: AttentionMetric['tone']): string {
+  if (tone === 'danger') return 'border-[var(--ef-critical-a20)] bg-[var(--ef-critical-a05)] text-[var(--ef-critical-soft)]';
+  if (tone === 'warning') return 'border-[var(--ef-warning-a20)] bg-[var(--ef-warning-a08)] text-[var(--ef-warning-soft)]';
+  if (tone === 'brand') return 'border-[var(--ef-purple-primary-a25)] bg-[var(--ef-purple-primary)]/[0.08] text-[var(--ef-purple-glow)]';
+  return 'border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-primary)]';
+}
+
+function primaryRiskAmount(action: QueueAction): number | null {
   return (
-    <Link
-      href={href}
-      className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-4 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)] transition hover:bg-[#1A2333]"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
-          {label}
-        </p>
-        <span className={`rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${badgeClass}`}>
-          {value}
-        </span>
-      </div>
-      <p className="mt-3 text-[12px] leading-relaxed text-[#C7D2E3]">
-        {detail}
-      </p>
-    </Link>
+    action.at_risk_amount ??
+    action.requires_verification_amount ??
+    action.blocked_amount ??
+    null
   );
 }
 
-export default function PlatformDashboardPage() {
-  const { organization, userId, loading: orgLoading } = useCurrentOrg();
-  const { data: operationalModel, loading, error, reload } =
-    useOperationalModel(!orgLoading && !!organization?.id);
+function formatRiskLabel(amount: number | null): string {
+  return amount != null && amount > 0 ? formatShortCurrency(amount) : '--';
+}
 
-  const isLoading = orgLoading || loading;
+function buildActionContext(action: QueueAction): string {
+  const parts = [
+    action.invoice_number ? `Invoice ${action.invoice_number}` : null,
+    action.variance_label ? `Variance ${action.variance_label}` : null,
+    action.source_document_title ?? titleize(action.source_document_type),
+    action.next_step,
+  ].filter((value): value is string => Boolean(value));
 
-  const counts = useMemo(() => {
-    const actions = operationalModel?.actions ?? [];
+  if (parts.length === 0) {
+    return 'Open the linked project queue item and review the approval context.';
+  }
 
-    return {
-      assignedActions: userId
-        ? actions.filter((item) => item.assigned_to === userId).length
-        : actions.filter((item) => item.assigned_to != null).length,
-      highRisk: operationalModel?.intelligence.high_risk_count ?? 0,
-      blocked: operationalModel?.intelligence.blocked_count ?? 0,
-      recentDocuments: operationalModel?.recent_documents_count ?? 0,
-      lowTrust: operationalModel?.intelligence.low_trust_document_count ?? 0,
-      feedbackExceptions: operationalModel?.intelligence.recent_feedback_exception_count ?? 0,
-      hiddenRows:
-        (operationalModel?.superseded_counts.decisions ?? 0) +
-        (operationalModel?.superseded_counts.actions ?? 0),
-    };
-  }, [operationalModel, userId]);
+  return truncateText(parts.slice(0, 3).join(' | '), 140);
+}
 
-  const statusStripMetrics = useMemo<StatusStripMetric[]>(() => [
-    {
-      label: 'Actions Assigned',
-      value: isLoading ? '...' : counts.assignedActions,
-      tone: !isLoading && counts.assignedActions > 0 ? 'success' : 'muted',
-      emphasize: !isLoading && counts.assignedActions > 0,
-    },
-    {
-      label: 'High Risk',
-      value: isLoading ? '...' : counts.highRisk,
-      tone: !isLoading && counts.highRisk > 0 ? 'danger' : 'muted',
-      emphasize: !isLoading && counts.highRisk > 0,
-    },
-    {
-      label: 'Blocked',
-      value: isLoading ? '...' : counts.blocked,
-      tone: !isLoading && counts.blocked > 0 ? 'danger' : 'muted',
-      emphasize: !isLoading && counts.blocked > 0,
-    },
-    {
-      label: 'Low Trust',
-      value: isLoading ? '...' : counts.lowTrust,
-      tone: !isLoading && counts.lowTrust > 0 ? 'warning' : 'muted',
-      emphasize: !isLoading && counts.lowTrust > 0,
-    },
-    {
-      label: 'Recent Docs',
-      value: isLoading ? '...' : counts.recentDocuments ?? 0,
-      tone: !isLoading && (counts.recentDocuments ?? 0) > 0 ? 'info' : 'muted',
-      emphasize: !isLoading && (counts.recentDocuments ?? 0) > 0,
-    },
-  ], [counts, isLoading]);
+function buildDecisionContext(item: OperationalDecisionQueueItem): string {
+  const detail = item.evidence_summary?.trim() || item.summary?.trim() || null;
+  const parts = [
+    item.source_document_title,
+    titleize(item.source_document_type),
+    detail,
+  ].filter((value): value is string => Boolean(value));
 
-  const intelligenceInsight = useMemo<IntelligenceInsight>(() => {
-    if (isLoading) {
-      return {
-        title: 'Loading operational intelligence',
-        body: 'Workspace signals are being refreshed from the shared operational model.',
-        tone: 'muted',
-        href: '/platform/reviews',
-        ctaLabel: 'Open intelligence',
-      };
-    }
+  if (parts.length === 0) {
+    return 'Review the linked queue item for the latest blocker context.';
+  }
 
-    if (counts.highRisk > 0) {
-      return {
-        title: 'High-risk work needs attention',
-        body: `${counts.highRisk} high-risk item${counts.highRisk === 1 ? '' : 's'} are currently open across the portfolio and should be reviewed first.`,
-        tone: 'danger',
-        href: '/platform/decisions?severity=high',
-        ctaLabel: 'Open Decision Queue',
-      };
-    }
+  return truncateText(parts.join(' | '), 140);
+}
 
-    if (counts.blocked > 0) {
-      return {
-        title: 'Blocked work is constraining flow',
-        body: `${counts.blocked} blocked item${counts.blocked === 1 ? '' : 's'} are holding up execution across the workspace.`,
-        tone: 'warning',
-        href: '/platform/reviews#blocked',
-        ctaLabel: 'Review blocked items',
-      };
-    }
+function pickProjectNextAction(
+  rollupItem: OperationalProjectRollupItem,
+  decision: OperationalDecisionQueueItem | null,
+): string {
+  const primaryAction = rollupItem.rollup.pending_actions[0];
+  if (primaryAction?.next_step) return primaryAction.next_step;
+  if (primaryAction?.title) return primaryAction.title;
+  if (decision?.title) return decision.title;
+  return 'Open project queue';
+}
 
-    if (counts.lowTrust > 0) {
-      return {
-        title: 'Low-trust extraction still needs review',
-        body: `${counts.lowTrust} document${counts.lowTrust === 1 ? '' : 's'} are still using lower-trust extraction modes and may need closer operator review.`,
-        tone: 'info',
-        href: '/platform/reviews#low-trust',
-        ctaLabel: 'Inspect trust surface',
-      };
-    }
+function latestProjectTimestamp(
+  projectId: string,
+  decisions: OperationalDecisionQueueItem[],
+  actionTimestampsByProjectId: Map<string, string>,
+  fallback: string,
+): string {
+  let latest = new Date(fallback).getTime();
 
-    return {
-      title: 'Portfolio signals are currently stable',
-      body: 'Current rollups and operational diagnostics look healthy, so the command center can stay focused on prioritization and routing.',
-      tone: 'success',
-      href: '/platform/reviews',
-      ctaLabel: 'Review intelligence',
-    };
-  }, [counts.blocked, counts.highRisk, counts.lowTrust, isLoading]);
+  for (const decision of decisions) {
+    if (decision.project_id !== projectId) continue;
+    const timestamp = new Date(decision.detected_at ?? decision.created_at).getTime();
+    if (!Number.isNaN(timestamp) && timestamp > latest) latest = timestamp;
+  }
 
-  const operatorGraph = useMemo(
-    () => buildOperatorGraphData(operationalModel ?? null, null),
-    [operationalModel],
-  );
+  const actionTimestamp = actionTimestampsByProjectId.get(projectId);
+  if (actionTimestamp) {
+    const timestamp = new Date(actionTimestamp).getTime();
+    if (!Number.isNaN(timestamp) && timestamp > latest) latest = timestamp;
+  }
 
-  const isEmpty =
-    !isLoading &&
-    (operationalModel?.recent_documents_count ?? 0) === 0 &&
-    (operationalModel?.project_rollups.length ?? 0) === 0 &&
-    (operationalModel?.actions.length ?? 0) === 0 &&
-    counts.highRisk === 0 &&
-    counts.blocked === 0 &&
-    counts.lowTrust === 0 &&
-    counts.feedbackExceptions === 0;
+  return Number.isFinite(latest) ? new Date(latest).toISOString() : fallback;
+}
 
+function SectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: ReactNode;
+}) {
   return (
-    <div className="space-y-6 pb-24">
-      <StatusStrip
-        metrics={statusStripMetrics}
-        lastSyncLabel={buildLastSyncLabel(operationalModel?.generated_at)}
-      />
-
-      <AskOperationsSection operationalModel={operationalModel ?? null} loading={isLoading} />
-
-      {error ? (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <p className="text-[11px] font-medium text-red-300">{error}</p>
-          <button
-            type="button"
-            onClick={() => void reload()}
-            className="rounded-lg border border-red-500/30 px-3 py-1.5 text-[11px] font-medium text-red-300 transition hover:bg-red-500/10"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
-      {!isLoading && operationalModel?.warnings.length ? (
-        <div className="space-y-2">
-          {operationalModel.warnings.map((warning) => (
-            <div
-              key={warning}
-              className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-200"
-            >
-              {warning}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {isEmpty ? (
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#3B82F6]/30 bg-[#3B82F6]/[0.06] px-5 py-4">
-          <div>
-            <p className="text-[12px] font-semibold text-[#E5EDF7]">Get started</p>
-            <p className="mt-1 text-[11px] text-[#94A3B8]">
-              Upload a document to begin generating project rollups, actions, and shared operational context.
-            </p>
-          </div>
-          <Link
-            href="/platform/documents"
-            className="rounded-xl bg-[#3B82F6] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-[#2563EB]"
-          >
-            Upload Document
-          </Link>
-        </div>
-      ) : null}
-
-      <OperatorGraphPanel data={operatorGraph} />
-
-      <section className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
-        <section className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-5 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[#94A3B8]">
-                Rollups
-              </p>
-              <h2 className="mt-2 text-[15px] font-semibold tracking-tight text-[#E5EDF7]">
-                Project Rollups
-              </h2>
-            </div>
-            <Link
-              href="/platform/projects"
-              className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3B82F6] transition hover:text-[#60A5FA]"
-            >
-              View All
-            </Link>
-          </div>
-
-          {isLoading ? (
-            <div className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] px-4 py-4 text-[12px] text-[#94A3B8]">
-              Loading project rollups...
-            </div>
-          ) : !operationalModel || operationalModel.project_rollups.length === 0 ? (
-            <div className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] px-4 py-4 text-[12px] text-[#94A3B8]">
-              No project context is connected yet.
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {operationalModel.project_rollups.slice(0, 4).map((item) => (
-                <div
-                  key={item.project.id}
-                  className="relative rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] p-4 transition hover:bg-[#1A2333]"
-                >
-                  <Link
-                    href={item.href}
-                    aria-label={`Open ${item.project.name}`}
-                    className="absolute inset-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
-                  />
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium text-[#E5EDF7]">
-                        {item.project.name}
-                      </p>
-                      {item.project.code ? (
-                        <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[#94A3B8]">
-                          {item.project.code}
-                        </p>
-                      ) : null}
-                    </div>
-                    <span
-                      className={`rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${
-                        item.rollup.status.key === 'blocked'
-                          ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                          : item.rollup.status.key === 'needs_review' ||
-                              item.rollup.status.key === 'attention_required'
-                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-                            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                      }`}
-                    >
-                      {item.rollup.status.label}
-                    </span>
-                  </div>
-
-                  <div className="relative z-10 mt-4 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">
-                    <div className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2">
-                      {item.rollup.unresolved_finding_count} findings
-                    </div>
-                    <Link
-                      href={buildProjectTabHref({
-                        projectId: item.project.id,
-                        hash: '#project-actions',
-                      })}
-                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
-                    >
-                      {item.rollup.open_document_action_count} actions
-                    </Link>
-                    <Link
-                      href={buildProjectTabHref({
-                        projectId: item.project.id,
-                        hash: '#project-documents',
-                      })}
-                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
-                    >
-                      {item.rollup.linked_document_count ?? item.rollup.processed_document_count} docs
-                    </Link>
-                    <Link
-                      href={buildProjectTabHref({
-                        projectId: item.project.id,
-                        hash: '#project-decisions',
-                        query: { filter: 'blocked' },
-                      })}
-                      className="rounded-lg border border-[#2F3B52]/70 bg-[#111827] px-3 py-2 transition hover:bg-[#1A2333] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60A5FA]"
-                    >
-                      {item.rollup.blocked_count} blocked
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-4">
-          {!isLoading &&
-          counts.lowTrust === 0 &&
-          counts.feedbackExceptions === 0 &&
-          counts.hiddenRows === 0 ? (
-            <div className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-4 text-[12px] text-[#C7D2E3] shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
-              No trust issues detected in current workspace
-            </div>
-          ) : (
-            <>
-              {isLoading || counts.lowTrust > 0 ? (
-                <DiagnosticLink
-                  label="Low Trust Surface"
-                  value={isLoading ? 0 : counts.lowTrust}
-                  detail={
-                    isLoading
-                      ? 'Loading extraction trust diagnostics...'
-                      : `${counts.lowTrust} document${counts.lowTrust === 1 ? '' : 's'} still depend on lower-trust extraction modes.`
-                  }
-                  href="/platform/reviews#low-trust"
-                  tone={!isLoading && counts.lowTrust > 0 ? 'warning' : 'success'}
-                />
-              ) : null}
-
-              {isLoading || counts.feedbackExceptions > 0 ? (
-                <DiagnosticLink
-                  label="Feedback Exceptions"
-                  value={isLoading ? 0 : counts.feedbackExceptions}
-                  detail={
-                    isLoading
-                      ? 'Loading feedback diagnostics...'
-                      : `${counts.feedbackExceptions} recent feedback exception${counts.feedbackExceptions === 1 ? '' : 's'} need follow-up.`
-                  }
-                  href="/platform/reviews"
-                  tone={!isLoading && counts.feedbackExceptions > 0 ? 'danger' : 'info'}
-                />
-              ) : null}
-
-              {isLoading || counts.hiddenRows > 0 ? (
-                <DiagnosticLink
-                  label="Filtered Stale Rows"
-                  value={isLoading ? 0 : counts.hiddenRows}
-                  detail={
-                    isLoading
-                      ? 'Loading queue hygiene diagnostics...'
-                      : `${counts.hiddenRows} superseded generated row${counts.hiddenRows === 1 ? '' : 's'} are hidden from the active queue.`
-                  }
-                  href="/platform/reviews"
-                  tone={!isLoading && counts.hiddenRows > 0 ? 'brand' : 'muted'}
-                />
-              ) : null}
-            </>
-          )}
-        </section>
-      </section>
-
-      <IntelligenceInsightCard insight={intelligenceInsight} />
-
-      {organization && (
-        <PortfolioTeaserCard organizationId={organization.id} />
-      )}
-
-      <FloatingCommandBar />
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <h2 className="text-[18px] font-semibold tracking-tight text-[var(--ef-text-primary)]">
+        {title}
+      </h2>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Portfolio teaser — lightweight summary linking to /platform/portfolio
-// ---------------------------------------------------------------------------
-
-type PortfolioSummary = {
-  totalRequiresVerification: number;
-  totalAtRisk: number;
-  projectsRequiringReview: number;
-};
-
-function formatShortCurrency(amount: number): string {
-  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
-  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
-  return `$${amount.toFixed(0)}`;
+function ArrowLinkLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>{children}</span>
+      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+        <path
+          d="M3 8H13M9 4L13 8L9 12"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
 }
 
-function PortfolioTeaserCard({ organizationId }: { organizationId: string }) {
-  const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function PlatformDashboardPage() {
+  const { organization, loading: orgLoading } = useCurrentOrg();
+  const { data: operationalModel, loading, error, reload } =
+    useOperationalModel(!orgLoading && !!organization?.id);
+  const [projectSearchValue, setProjectSearchValue] = useState('');
+  const deferredProjectSearch = useDeferredValue(projectSearchValue);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/portfolio/summary?organizationId=${organizationId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: PortfolioSummary | null) => {
-        if (!cancelled) { setSummary(data); setLoading(false); }
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [organizationId]);
+  const isLoading = orgLoading || loading;
+  const decisions = useMemo(
+    () => operationalModel?.decisions ?? [],
+    [operationalModel?.decisions],
+  );
+  const rollups = useMemo(
+    () => operationalModel?.project_rollups ?? [],
+    [operationalModel?.project_rollups],
+  );
+  const warnings = useMemo(
+    () => operationalModel?.warnings ?? [],
+    [operationalModel?.warnings],
+  );
 
-  const metrics: Array<{ label: string; value: string; colorClass: string }> = [
-    {
-      label: 'Requires Verification',
-      value: loading ? '—' : formatShortCurrency(summary?.totalRequiresVerification ?? 0),
-      colorClass: 'text-red-300',
-    },
-    {
-      label: 'At Risk',
-      value: loading ? '—' : formatShortCurrency(summary?.totalAtRisk ?? 0),
-      colorClass: 'text-amber-200',
-    },
-    {
-      label: 'Needs Review',
-      value: loading ? '—' : `${summary?.projectsRequiringReview ?? 0}`,
-      colorClass: 'text-sky-300',
-    },
-  ];
+  const projectDecisionCountById = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const decision of decisions) {
+      if (!decision.project_id) continue;
+      counts.set(decision.project_id, (counts.get(decision.project_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [decisions]);
+
+  const highRiskProjectCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const decision of decisions) {
+      if (!decision.project_id) continue;
+      if (decision.severity === 'critical' || decision.severity === 'high') {
+        ids.add(decision.project_id);
+      }
+    }
+    return ids.size;
+  }, [decisions]);
+
+  const decisionByProjectId = useMemo(() => {
+    const map = new Map<string, OperationalDecisionQueueItem>();
+    for (const decision of decisions) {
+      if (!decision.project_id || map.has(decision.project_id)) continue;
+      map.set(decision.project_id, decision);
+    }
+    return map;
+  }, [decisions]);
+
+  const latestActionTimestampByProjectId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const action of operationalModel?.actions ?? []) {
+      if (!action.project_id) continue;
+      const current = map.get(action.project_id);
+      if (!current || new Date(action.created_at).getTime() > new Date(current).getTime()) {
+        map.set(action.project_id, action.created_at);
+      }
+    }
+    return map;
+  }, [operationalModel?.actions]);
+
+  const attentionMetrics = useMemo<AttentionMetric[]>(() => {
+    const blockedProjects = rollups.filter(
+      (item) => item.rollup.status.key === 'blocked' || item.rollup.blocked_count > 0,
+    ).length;
+
+    return [
+      {
+        label: 'Blocked Projects',
+        value: isLoading ? '...' : blockedProjects,
+        subtext: isLoading
+          ? 'Refreshing portfolio blockers'
+          : `${operationalModel?.intelligence.blocked_count ?? 0} blocker${(operationalModel?.intelligence.blocked_count ?? 0) === 1 ? '' : 's'} active across the queue`,
+        tone: blockedProjects > 0 ? 'danger' : 'muted',
+      },
+      {
+        label: 'High Risk Projects',
+        value: isLoading ? '...' : highRiskProjectCount,
+        subtext: isLoading
+          ? 'Refreshing high-severity items'
+          : `${operationalModel?.intelligence.high_risk_count ?? 0} high-severity queue item${(operationalModel?.intelligence.high_risk_count ?? 0) === 1 ? '' : 's'} open`,
+        tone: highRiskProjectCount > 0 ? 'warning' : 'muted',
+      },
+      {
+        label: 'Pending Decisions',
+        value: isLoading ? '...' : operationalModel?.intelligence.open_decisions_count ?? 0,
+        subtext: isLoading
+          ? 'Refreshing decision queue'
+          : `${decisions.length} routed decision${decisions.length === 1 ? '' : 's'} ready for operator review`,
+        tone: (operationalModel?.intelligence.open_decisions_count ?? 0) > 0 ? 'brand' : 'muted',
+      },
+      {
+        label: 'Needs Review',
+        value: isLoading ? '...' : operationalModel?.intelligence.needs_review_count ?? 0,
+        subtext: isLoading
+          ? 'Refreshing review surface'
+          : `${operationalModel?.intelligence.needs_review_documents.length ?? 0} document${(operationalModel?.intelligence.needs_review_documents.length ?? 0) === 1 ? '' : 's'} currently waiting for review`,
+        tone: (operationalModel?.intelligence.needs_review_count ?? 0) > 0 ? 'warning' : 'muted',
+      },
+    ];
+  }, [decisions.length, highRiskProjectCount, isLoading, operationalModel, rollups]);
+
+  const criticalActions = useMemo<CriticalActionCardItem[]>(() => {
+    const rollupActions = rollups.flatMap((rollupItem) =>
+      rollupItem.rollup.pending_actions.slice(0, 2).map((action) => {
+        const riskAmount = primaryRiskAmount(action);
+        const isBlocker =
+          action.approval_status === 'blocked' ||
+          (action.blocked_amount ?? 0) > 0 ||
+          rollupItem.rollup.status.key === 'blocked';
+        const severityLabel: CriticalActionCardItem['severityLabel'] = isBlocker
+          ? 'BLOCKER'
+          : 'WARNING';
+        const severityTone: CriticalActionCardItem['severityTone'] = isBlocker
+          ? 'danger'
+          : 'warning';
+
+        return {
+          id: `${rollupItem.project.id}:${action.id}`,
+          href: action.href,
+          severityLabel,
+          severityTone,
+          title: action.title,
+          projectLabel: rollupItem.project.name,
+          context: buildActionContext(action),
+          atRiskLabel: riskAmount != null && riskAmount > 0 ? formatRiskLabel(riskAmount) : null,
+        };
+      }),
+    );
+
+    const decisionActions = decisions
+      .filter(
+        (item) =>
+          item.blocked ||
+          item.severity === 'critical' ||
+          item.severity === 'high' ||
+          item.review_status === 'needs_correction',
+      )
+      .map((item) => {
+        const isBlocker = item.blocked || item.severity === 'critical';
+        const severityLabel: CriticalActionCardItem['severityLabel'] = isBlocker
+          ? 'BLOCKER'
+          : 'WARNING';
+        const severityTone: CriticalActionCardItem['severityTone'] = isBlocker
+          ? 'danger'
+          : 'warning';
+
+        return {
+          id: item.id,
+          href: item.deep_link_target,
+          severityLabel,
+          severityTone,
+          title: item.title,
+          projectLabel: item.project_label ?? 'Unscoped project',
+          context: buildDecisionContext(item),
+          atRiskLabel: null,
+        };
+      });
+
+    const deduped: CriticalActionCardItem[] = [];
+    const seen = new Set<string>();
+    for (const candidate of [...rollupActions, ...decisionActions]) {
+      const key = `${candidate.href}:${candidate.title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(candidate);
+      if (deduped.length === 6) break;
+    }
+    return deduped;
+  }, [decisions, rollups]);
+
+  const projectRows = useMemo<ProjectRollupRow[]>(() => {
+    return rollups.map((rollupItem) => {
+      const leadAction = rollupItem.rollup.pending_actions[0] ?? null;
+      const leadDecision = decisionByProjectId.get(rollupItem.project.id) ?? null;
+      const atRiskAmount = leadAction ? primaryRiskAmount(leadAction) : null;
+      const lastActivity = latestProjectTimestamp(
+        rollupItem.project.id,
+        decisions,
+        latestActionTimestampByProjectId,
+        rollupItem.project.created_at,
+      );
+      const nextAction = pickProjectNextAction(rollupItem, leadDecision);
+      const href =
+        rollupItem.rollup.pending_actions.length > 0
+          ? buildProjectTabHref({
+              projectId: rollupItem.project.id,
+              hash: '#project-actions',
+            })
+          : buildProjectTabHref({
+              projectId: rollupItem.project.id,
+              hash: '#project-decisions',
+            });
+
+      return {
+        id: rollupItem.project.id,
+        href,
+        projectLabel: rollupItem.project.name,
+        projectCode: rollupItem.project.code,
+        statusLabel: rollupItem.rollup.status.label,
+        statusKey: rollupItem.rollup.status.key,
+        blockers: rollupItem.rollup.blocked_count,
+        atRiskLabel: formatRiskLabel(atRiskAmount),
+        atRiskHint:
+          atRiskAmount != null && atRiskAmount > 0 ? 'Top exposure' : null,
+        pendingDecisions: projectDecisionCountById.get(rollupItem.project.id) ?? 0,
+        nextAction,
+        lastActivityLabel: formatRelativeTime(lastActivity),
+        searchText: normalizeSearchText(
+          [
+            rollupItem.project.name,
+            rollupItem.project.code,
+            rollupItem.rollup.status.label,
+            nextAction,
+          ].filter(Boolean).join(' '),
+        ),
+      };
+    });
+  }, [
+    decisionByProjectId,
+    decisions,
+    latestActionTimestampByProjectId,
+    projectDecisionCountById,
+    rollups,
+  ]);
+
+  const filteredProjectRows = useMemo(() => {
+    const query = normalizeSearchText(deferredProjectSearch);
+    if (!query) return projectRows;
+    return projectRows.filter((row) => row.searchText.includes(query));
+  }, [deferredProjectSearch, projectRows]);
 
   return (
-    <section className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-5 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[#94A3B8]">
-            Workspace
-          </p>
-          <h2 className="mt-2 text-[15px] font-semibold tracking-tight text-[#E5EDF7]">
-            Portfolio Command Center
-          </h2>
-          <p className="mt-1 text-[11px] text-[#94A3B8]">
-            Cross-project approval exposure and review triage
-          </p>
-        </div>
-        <Link
-          href="/platform/portfolio"
-          className="shrink-0 rounded-xl border border-[#2F3B52]/80 bg-[#1A2333] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3B82F6] transition hover:border-[#3B82F6]/50 hover:text-[#60A5FA]"
-        >
-          Open →
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        {metrics.map((m) => (
-          <div
-            key={m.label}
-            className="rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] px-4 py-3"
-          >
-            <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{m.label}</p>
-            <p className={`mt-2 text-[20px] font-bold tabular-nums ${m.colorClass}`}>
-              {m.value}
+    <div className="mx-auto max-w-[1600px] space-y-8 px-4 py-6 pb-10 sm:px-6 lg:px-8">
+      <section className="space-y-4 border-b border-[var(--ef-surface-elevated)] pb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--ef-purple-glow)]">
+              Command Center
+            </p>
+            <h1 className="mt-3 text-[30px] font-semibold tracking-tight text-[var(--ef-text-primary)] sm:text-[34px]">
+              Command Center
+            </h1>
+            <p className="mt-2 text-[14px] text-[var(--ef-text-muted)]">
+              Execute decisions. Resolve blockers. Move work forward.
             </p>
           </div>
-        ))}
-      </div>
-    </section>
+
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--ef-purple-primary-a25)] bg-[var(--ef-purple-primary-a10)] px-4 py-2 text-[11px] font-medium text-[var(--ef-purple-glow)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--ef-purple-glow)] shadow-[0_0_12px_var(--ef-purple-glow-a70)]" />
+              <span>{buildLastSyncLabel(operationalModel?.generated_at)}</span>
+            </div>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[12px] font-medium text-[var(--ef-critical-soft)]">{error}</p>
+            <button
+              type="button"
+              onClick={() => void reload()}
+              className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[var(--ef-critical-a30)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-critical-soft)] transition hover:bg-[var(--ef-critical-a10)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+
+        {!isLoading && warnings.length > 0 ? (
+          <div className="grid gap-2">
+            {warnings.map((warning) => (
+              <div
+                key={warning}
+                className="rounded-2xl border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-4 py-3 text-[11px] text-[var(--ef-warning-soft)]"
+              >
+                {warning}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader
+          title="What Needs Your Attention"
+          action={(
+            <Link
+              href="/platform/decisions"
+              className="inline-flex items-center justify-center rounded-xl border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition hover:bg-[var(--ef-purple-primary-a18)]"
+            >
+              View Decision Queue
+            </Link>
+          )}
+        />
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {attentionMetrics.map((metric) => (
+            <div
+              key={metric.label}
+              className={`rounded-2xl border p-5 ${metricToneClass(metric.tone)}`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
+                {metric.label}
+              </p>
+              <p className="mt-4 text-[32px] font-semibold tracking-tight text-[var(--ef-text-primary)]">
+                {metric.value}
+              </p>
+              <p className="mt-2 text-[12px] leading-relaxed text-[var(--ef-text-muted)]">
+                {metric.subtext}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader
+          title="Critical Actions"
+          action={(
+            <Link
+              href="/platform/decisions"
+              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-glow)] transition hover:text-[var(--ef-purple-glow)]"
+            >
+              <ArrowLinkLabel>View all actions</ArrowLinkLabel>
+            </Link>
+          )}
+        />
+
+        {isLoading ? (
+          <div className="rounded-2xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-5 py-10 text-[13px] text-[var(--ef-text-muted)]">
+            Loading critical actions...
+          </div>
+        ) : criticalActions.length === 0 ? (
+          <div className="rounded-2xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-5 py-10">
+            <p className="text-[14px] font-medium text-[var(--ef-text-primary)]">
+              No critical actions are active right now.
+            </p>
+            <p className="mt-2 text-[12px] text-[var(--ef-text-muted)]">
+              The queue is currently clear of blocker-level items and approval issues needing immediate review.
+            </p>
+            {rollups.length === 0 ? (
+              <Link
+                href="/platform/documents"
+                className="mt-4 inline-flex items-center justify-center rounded-xl bg-[var(--ef-purple-primary)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-[var(--ef-purple-glow)]"
+              >
+                Upload Document
+              </Link>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {criticalActions.map((item) => (
+              <Link
+                key={item.id}
+                href={item.href}
+                className="group flex h-full flex-col justify-between rounded-2xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-5 transition hover:border-[var(--ef-purple-primary-a40)] hover:bg-[var(--ef-background-secondary)]"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityBadgeClass(item.severityTone)}`}
+                    >
+                      {item.severityLabel}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+                      {item.projectLabel}
+                    </span>
+                  </div>
+
+                  <h3 className="mt-4 text-[18px] font-semibold tracking-tight text-[var(--ef-text-primary)]">
+                    {item.title}
+                  </h3>
+
+                  <p className="mt-3 text-[13px] leading-relaxed text-[var(--ef-text-muted)]">
+                    {item.context}
+                  </p>
+
+                  {item.atRiskLabel ? (
+                    <div className="mt-4 inline-flex rounded-full border border-[var(--ef-purple-primary-a20)] bg-[var(--ef-purple-primary-a10)] px-3 py-1 text-[11px] font-medium text-[var(--ef-purple-glow)]">
+                      At Risk: {item.atRiskLabel}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-5 inline-flex items-center justify-between rounded-xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition group-hover:border-[var(--ef-purple-primary-a30)]">
+                  <span>Review</span>
+                  <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+                    <path
+                      d="M3 8H13M9 4L13 8L9 12"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader title="Project Rollups" />
+
+        <div className="rounded-2xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--ef-surface-elevated)] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="relative w-full max-w-md">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ef-text-faint)]">
+                  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
+                    <circle cx="8.75" cy="8.75" r="4.5" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M12.25 12.25L16 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <input
+                  type="search"
+                  value={projectSearchValue}
+                  onChange={(event) => setProjectSearchValue(event.target.value)}
+                  placeholder="Search projects"
+                  className="w-full rounded-xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] py-2.5 pl-9 pr-4 text-[12px] text-[var(--ef-text-primary)] outline-none transition placeholder:text-[var(--ef-text-faint)] focus:border-[var(--ef-purple-primary)]"
+                />
+              </label>
+
+              <button
+                type="button"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-secondary)] transition hover:border-[var(--ef-purple-primary-a35)] hover:text-[var(--ef-text-primary)]"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path
+                    d="M2.5 4H13.5M4.5 8H11.5M6.5 12H9.5"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>Filter</span>
+              </button>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="px-4 py-10 text-[13px] text-[var(--ef-text-muted)]">
+              Loading project rollups...
+            </div>
+          ) : filteredProjectRows.length === 0 ? (
+            <div className="px-4 py-10">
+              <p className="text-[14px] font-medium text-[var(--ef-text-primary)]">
+                {projectRows.length === 0 ? 'No project rollups are connected yet.' : 'No projects match that search.'}
+              </p>
+              <p className="mt-2 text-[12px] text-[var(--ef-text-muted)]">
+                {projectRows.length === 0
+                  ? 'Upload documents to generate project summaries, blockers, and approval actions.'
+                  : 'Try a different project name, code, or action keyword.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left">
+                <thead>
+                  <tr className="border-b border-[var(--ef-surface-elevated)] text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-faint)]">
+                    <th className="px-4 py-3">Project</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Blockers</th>
+                    <th className="px-4 py-3">At Risk</th>
+                    <th className="px-4 py-3">Pending Decisions</th>
+                    <th className="px-4 py-3">Next Action</th>
+                    <th className="px-4 py-3">Last Activity</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProjectRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-[var(--ef-surface-elevated-a80)] transition hover:bg-[var(--ef-background-secondary)]"
+                    >
+                      <td className="px-4 py-4 align-top">
+                        <div className="min-w-[220px]">
+                          <p className="text-[13px] font-semibold text-[var(--ef-text-primary)]">
+                            {row.projectLabel}
+                          </p>
+                          {row.projectCode ? (
+                            <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+                              {row.projectCode}
+                            </p>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${statusBadgeClass(row.statusKey)}`}
+                        >
+                          {row.statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 align-top text-[13px] font-medium text-[var(--ef-text-primary)]">
+                        {row.blockers}
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        <p className="text-[13px] font-medium text-[var(--ef-text-primary)]">{row.atRiskLabel}</p>
+                        {row.atRiskHint ? (
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+                            {row.atRiskHint}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4 align-top text-[13px] font-medium text-[var(--ef-text-primary)]">
+                        {row.pendingDecisions}
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        <div className="max-w-[320px] text-[13px] text-[var(--ef-text-secondary)]">
+                          {truncateText(row.nextAction, 90)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 align-top text-[13px] text-[var(--ef-text-muted)]">
+                        {row.lastActivityLabel}
+                      </td>
+                      <td className="px-4 py-4 align-top text-right">
+                        <Link
+                          href={row.href}
+                          className="inline-flex items-center justify-center rounded-xl border border-[var(--ef-purple-primary-a25)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition hover:bg-[var(--ef-purple-primary-a18)]"
+                        >
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

@@ -9,6 +9,7 @@ import type {
 import type {
   DocumentEvidenceAnchor,
   DocumentFact,
+  DocumentSourceTextPage,
 } from '@/lib/documentIntelligenceViewModel';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -230,15 +231,15 @@ function Thumbnail({
       onClick={onSelect}
       className={`rounded-xl border p-2 text-left transition ${
         active
-          ? 'border-[#3B82F6]/40 bg-[#3B82F6]/10'
-          : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.05]'
+          ? 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)]'
+          : 'border-[var(--ef-border-white-10)] bg-white/[0.03] hover:bg-white/[0.05]'
       }`}
     >
       <canvas ref={canvasRef} className="mx-auto block rounded bg-white shadow-sm" />
       <div className="mt-2 flex items-center justify-between text-[11px]">
-        <span className="font-medium text-[#E5EDF7]">Page {pageNumber}</span>
+        <span className="font-medium text-[var(--ef-text-primary)]">Page {pageNumber}</span>
         {markerCount > 0 ? (
-          <span className="rounded border border-[#7FA6FF]/25 px-1.5 py-0.5 text-[#7FA6FF]">
+          <span className="rounded border border-[var(--ef-purple-accent-a25)] px-1.5 py-0.5 text-[var(--ef-purple-accent)]">
             {markerCount}
           </span>
         ) : null}
@@ -248,13 +249,93 @@ function Thumbnail({
 }
 
 function overlayStroke(active: boolean): string {
-  return active ? '#60A5FA' : '#F59E0B';
+  return active ? 'var(--ef-purple-glow)' : 'var(--ef-warning)';
+}
+
+function clampPageToSourcePages(page: number | null | undefined, pages: readonly DocumentSourceTextPage[]): number {
+  if (pages.length === 0) return 1;
+  const pageNumbers = pages.map((item) => item.pageNumber);
+  const minPage = Math.min(...pageNumbers);
+  const maxPage = Math.max(...pageNumbers);
+  return clamp(page ?? minPage, minPage, maxPage);
+}
+
+function OcrTextFallbackViewer({
+  filename,
+  pages,
+  requestedPage,
+  reason,
+  isWorkspace,
+}: {
+  filename: string;
+  pages: readonly DocumentSourceTextPage[];
+  requestedPage?: number | null;
+  reason: string;
+  isWorkspace: boolean;
+}) {
+  const [selectedPage, setSelectedPage] = useState(() => clampPageToSourcePages(requestedPage, pages));
+  const page = pages.find((item) => item.pageNumber === selectedPage) ?? pages[0] ?? null;
+
+  useEffect(() => {
+    setSelectedPage(clampPageToSourcePages(requestedPage, pages));
+  }, [pages, requestedPage]);
+
+  if (!page) {
+    return (
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0' : 'min-h-[640px]'} items-center justify-center px-8 text-center text-sm text-[var(--ef-text-soft)]`}>
+        Source preview is unavailable for this document.
+      </div>
+    );
+  }
+
+  return (
+    <div className={isWorkspace ? 'grid min-h-0 flex-1 gap-0 xl:grid-cols-[180px_minmax(0,1fr)]' : 'grid gap-0 xl:grid-cols-[220px_minmax(0,1fr)]'}>
+      <div className={isWorkspace ? 'min-h-0 overflow-y-auto border-r border-white/8 p-3' : 'max-h-[840px] overflow-y-auto border-r border-white/8 p-3'}>
+        <div className="space-y-2">
+          {pages.map((item) => (
+            <button
+              key={item.pageNumber}
+              type="button"
+              onClick={() => setSelectedPage(item.pageNumber)}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-[12px] transition ${
+                item.pageNumber === selectedPage
+                  ? 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-text-primary)]'
+                  : 'border-[var(--ef-border-white-10)] bg-white/[0.03] text-[var(--ef-text-secondary)] hover:bg-white/[0.05]'
+              }`}
+            >
+              <span className="font-medium">Page {item.pageNumber}</span>
+              {item.sourceMethod ? (
+                <span className="mt-1 block text-[10px] text-[var(--ef-text-soft)]">{item.sourceMethod}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={isWorkspace ? 'min-h-0 overflow-auto bg-[var(--ef-background-primary)] p-4 xl:p-6' : 'min-h-[640px] overflow-auto bg-[var(--ef-background-primary)] p-4'}>
+        <div className="mb-4 rounded-xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-a10)] px-4 py-3">
+          <p className="text-sm font-semibold text-[var(--ef-text-primary)]">OCR text fallback</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[var(--ef-text-secondary)]">
+            {reason} Showing persisted OCR/page text for {filename}.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-white/[0.03]">
+          <div className="border-b border-white/8 px-4 py-3 text-[12px] text-[var(--ef-text-secondary)]">
+            Page {page.pageNumber} of {pages.length}
+          </div>
+          <pre className="whitespace-pre-wrap break-words px-4 py-4 font-mono text-[12px] leading-relaxed text-[var(--ef-text-primary)]">
+            {page.text}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function DocumentSourceViewer({
   signedUrl,
   fileExt,
   filename,
+  sourceTextPages = [],
   fact,
   anchors,
   activeAnchor,
@@ -273,6 +354,7 @@ export function DocumentSourceViewer({
   signedUrl: string | null;
   fileExt: string;
   filename: string;
+  sourceTextPages?: DocumentSourceTextPage[];
   fact: DocumentFact | null;
   anchors: DocumentEvidenceAnchor[];
   activeAnchor: DocumentEvidenceAnchor | null;
@@ -340,8 +422,8 @@ export function DocumentSourceViewer({
       ? rawActiveOverrideId.trim()
       : null;
   const rootClass = isWorkspace
-    ? 'flex h-full min-h-0 flex-col overflow-hidden bg-[#050A14]'
-    : 'overflow-hidden rounded-2xl border border-white/10 bg-[#0B1220]';
+    ? 'flex h-full min-h-0 flex-col overflow-hidden bg-[var(--ef-background-primary)]'
+    : 'overflow-hidden rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]';
   const headerClass = isWorkspace ? 'border-b border-white/8 px-4 py-3' : 'border-b border-white/8 px-5 py-4';
   const viewerShellClass = isWorkspace
     ? 'grid min-h-0 flex-1 gap-0 xl:grid-cols-[180px_minmax(0,1fr)]'
@@ -350,14 +432,15 @@ export function DocumentSourceViewer({
     ? 'min-h-0 overflow-y-auto border-r border-white/8 p-3'
     : 'max-h-[840px] overflow-y-auto border-r border-white/8 p-3';
   const pageViewerClass = isWorkspace
-    ? 'min-h-0 overflow-auto bg-[#050A14] p-4 xl:p-6'
-    : 'min-h-[840px] overflow-auto bg-[#050A14] p-4';
+    ? 'min-h-0 overflow-auto bg-[var(--ef-background-primary)] p-4 xl:p-6'
+    : 'min-h-[840px] overflow-auto bg-[var(--ef-background-primary)] p-4';
   const loadingClass = isWorkspace
-    ? 'flex min-h-0 flex-1 items-center justify-center text-sm text-[#8FA1BC]'
-    : 'flex min-h-[640px] items-center justify-center text-sm text-[#8FA1BC]';
+    ? 'flex min-h-0 flex-1 items-center justify-center text-sm text-[var(--ef-text-soft)]'
+    : 'flex min-h-[640px] items-center justify-center text-sm text-[var(--ef-text-soft)]';
   const errorClass = isWorkspace
-    ? 'flex min-h-0 flex-1 items-center justify-center px-8 text-center text-sm text-red-300'
-    : 'flex min-h-[640px] items-center justify-center px-8 text-center text-sm text-red-300';
+    ? 'flex min-h-0 flex-1 items-center justify-center px-8 text-center text-sm text-[var(--ef-critical-soft)]'
+    : 'flex min-h-[640px] items-center justify-center px-8 text-center text-sm text-[var(--ef-critical-soft)]';
+  const fallbackPage = initialPage ?? activeAnchor?.startPage ?? activeAnchor?.pageNumber ?? anchors[0]?.startPage ?? anchors[0]?.pageNumber ?? 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -742,9 +825,9 @@ export function DocumentSourceViewer({
     });
   };
 
-  if (!signedUrl) {
+  if (!signedUrl && !(fileExt === 'pdf' && sourceTextPages.length > 0)) {
     return (
-      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[#050A14]' : 'min-h-[720px] rounded-2xl border border-white/10 bg-[#0B1220]'} items-center justify-center p-8 text-center text-sm text-[#8FA1BC]`}>
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[var(--ef-background-primary)]' : 'min-h-[720px] rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]'} items-center justify-center p-8 text-center text-sm text-[var(--ef-text-soft)]`}>
         File preview is unavailable for this document.
       </div>
     );
@@ -754,10 +837,10 @@ export function DocumentSourceViewer({
     return (
       <div className={rootClass}>
         <div className={headerClass}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ef-purple-accent)]">
             Source Viewer
           </p>
-          <p className="mt-1 text-[12px] text-[#8FA1BC]">Image preview for {filename}.</p>
+          <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">Image preview for {filename}.</p>
         </div>
         <div className={isWorkspace ? 'flex min-h-0 flex-1 items-center justify-center p-4' : 'p-4'}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -769,7 +852,7 @@ export function DocumentSourceViewer({
 
   if (fileExt !== 'pdf') {
     return (
-      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[#050A14]' : 'min-h-[720px] rounded-2xl border border-white/10 bg-[#0B1220]'} items-center justify-center p-8 text-center text-sm text-[#8FA1BC]`}>
+      <div className={`flex ${isWorkspace ? 'h-full min-h-0 bg-[var(--ef-background-primary)]' : 'min-h-[720px] rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]'} items-center justify-center p-8 text-center text-sm text-[var(--ef-text-soft)]`}>
         Inline preview is not available for this file type. Use the file actions in the header to open or download it.
       </div>
     );
@@ -796,7 +879,7 @@ export function DocumentSourceViewer({
 
         .ef-pdf-text-layer::selection,
         .ef-pdf-text-layer span::selection {
-          background: rgba(59, 130, 246, 0.32);
+          background: var(--ef-purple-primary-a30);
           color: transparent;
         }
       `}</style>
@@ -804,19 +887,19 @@ export function DocumentSourceViewer({
       <div className={headerClass}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ef-purple-accent)]">
               Source Viewer
             </p>
-            <p className="mt-1 text-[12px] text-[#8FA1BC]">
+            <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
               Page navigation, zoom, and anchor overlays for the selected fact. Thumbnail badges count all current fact anchors on each page.
             </p>
             {rateSchedulePages ? (
-              <p className="mt-2 text-[11px] text-[#8FA1BC]">
+              <p className="mt-2 text-[11px] text-[var(--ef-text-soft)]">
                 Effective rate schedule: {rateSchedulePages}
               </p>
             ) : null}
             {captureMode ? (
-              <p className="mt-2 text-[11px] text-amber-100">
+              <p className="mt-2 text-[11px] text-[var(--ef-warning-soft)]">
                 {captureMode === 'text'
                   ? 'Capture mode: select text in the PDF to create a text anchor.'
                   : captureMode === 'region'
@@ -825,15 +908,15 @@ export function DocumentSourceViewer({
               </p>
             ) : null}
             {captureMode === 'rate_schedule' ? (
-              <p className="mt-2 text-[11px] text-[#CFE4FF]">
+              <p className="mt-2 text-[11px] text-[var(--ef-purple-glow)]">
                 Draft schedule: {pageRangeLabel(rateScheduleDraft.startPage, rateScheduleDraft.endPage)}
               </p>
             ) : null}
             {captureError ? (
-              <p className="mt-2 text-[11px] text-red-200">{captureError}</p>
+              <p className="mt-2 text-[11px] text-[var(--ef-critical-soft)]">{captureError}</p>
             ) : null}
             {savingAnchor ? (
-              <p className="mt-2 text-[11px] text-[#CFE4FF]">Saving anchor...</p>
+              <p className="mt-2 text-[11px] text-[var(--ef-purple-glow)]">Saving anchor...</p>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -846,7 +929,7 @@ export function DocumentSourceViewer({
                   setRegionDraft(null);
                   setRateScheduleDraft({ startPage: null, endPage: null });
                 }}
-                className="rounded border border-amber-400/30 px-2 py-1 text-amber-100"
+                className="rounded border border-[var(--ef-warning-a30)] px-2 py-1 text-[var(--ef-warning-soft)]"
               >
                 Cancel capture
               </button>
@@ -858,7 +941,7 @@ export function DocumentSourceViewer({
                   onClick={() =>
                     setRateScheduleDraft((current) => ({ ...current, startPage: currentPage }))
                   }
-                  className="rounded border border-[#3B82F6]/20 px-2 py-1 text-[#CFE4FF]"
+                  className="rounded border border-[var(--ef-purple-primary-a20)] px-2 py-1 text-[var(--ef-purple-glow)]"
                 >
                   Set start
                 </button>
@@ -867,7 +950,7 @@ export function DocumentSourceViewer({
                   onClick={() =>
                     setRateScheduleDraft((current) => ({ ...current, endPage: currentPage }))
                   }
-                  className="rounded border border-[#3B82F6]/20 px-2 py-1 text-[#CFE4FF]"
+                  className="rounded border border-[var(--ef-purple-primary-a20)] px-2 py-1 text-[var(--ef-purple-glow)]"
                 >
                   Set end
                 </button>
@@ -876,7 +959,7 @@ export function DocumentSourceViewer({
                   onClick={() => {
                     void saveRateSchedulePageRange();
                   }}
-                  className="rounded border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2 py-1 text-[#CFE4FF]"
+                  className="rounded border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-2 py-1 text-[var(--ef-purple-glow)]"
                 >
                   Save schedule
                 </button>
@@ -885,15 +968,15 @@ export function DocumentSourceViewer({
             <button
               type="button"
               onClick={() => setZoom((value) => Math.max(0.6, Number((value - 0.15).toFixed(2))))}
-              className="rounded border border-white/10 px-2 py-1 text-[#D9E3F3]"
+              className="rounded border border-[var(--ef-border-white-10)] px-2 py-1 text-[var(--ef-text-secondary)]"
             >
               -
             </button>
-            <span className="min-w-14 text-center text-[#D9E3F3]">{Math.round(zoom * 100)}%</span>
+            <span className="min-w-14 text-center text-[var(--ef-text-secondary)]">{Math.round(zoom * 100)}%</span>
             <button
               type="button"
               onClick={() => setZoom((value) => Math.min(2.4, Number((value + 0.15).toFixed(2))))}
-              className="rounded border border-white/10 px-2 py-1 text-[#D9E3F3]"
+              className="rounded border border-[var(--ef-border-white-10)] px-2 py-1 text-[var(--ef-text-secondary)]"
             >
               +
             </button>
@@ -901,7 +984,7 @@ export function DocumentSourceViewer({
               type="button"
               onClick={() => setShowOverlays((value) => !value)}
               aria-label={showOverlays ? 'Evidence overlays visible' : 'Evidence overlays hidden'}
-              className="rounded border border-white/10 px-2 py-1 text-[#D9E3F3]"
+              className="rounded border border-[var(--ef-border-white-10)] px-2 py-1 text-[var(--ef-text-secondary)]"
             >
               {showOverlays ? 'Hide overlays' : 'Show overlays'}
             </button>
@@ -912,9 +995,27 @@ export function DocumentSourceViewer({
       {loading ? (
         <div className={loadingClass}>Loading PDF...</div>
       ) : error ? (
-        <div className={errorClass}>
-          {error}
-        </div>
+        sourceTextPages.length > 0 ? (
+          <OcrTextFallbackViewer
+            filename={filename}
+            pages={sourceTextPages}
+            requestedPage={fallbackPage}
+            reason={error}
+            isWorkspace={isWorkspace}
+          />
+        ) : (
+          <div className={errorClass}>
+            {error}
+          </div>
+        )
+      ) : !signedUrl && sourceTextPages.length > 0 ? (
+        <OcrTextFallbackViewer
+          filename={filename}
+          pages={sourceTextPages}
+          requestedPage={fallbackPage}
+          reason="The PDF binary preview is not available."
+          isWorkspace={isWorkspace}
+        />
       ) : pdf ? (
         <div className={viewerShellClass}>
           <div className={thumbnailRailClass}>
@@ -933,7 +1034,7 @@ export function DocumentSourceViewer({
           </div>
 
           <div ref={viewerScrollRef} className={pageViewerClass}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8FA1BC]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--ef-text-soft)]">
               <span>
                 Page {currentPage} of {pdf.numPages}
               </span>
@@ -947,7 +1048,7 @@ export function DocumentSourceViewer({
 
             <div
               ref={pageSurfaceRef}
-              className="relative inline-block rounded-xl border border-white/10 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.45)]"
+              className="relative inline-block rounded-xl border border-[var(--ef-border-white-10)] bg-white shadow-[0_20px_60px_var(--ef-shadow-overlay)]"
             >
               <canvas ref={canvasRef} className="block rounded-xl" />
               <div
@@ -995,7 +1096,7 @@ export function DocumentSourceViewer({
                       <polygon
                         key={anchor.id}
                         points={points}
-                        fill={active ? 'rgba(59,130,246,0.22)' : 'rgba(245,158,11,0.16)'}
+                        fill={active ? 'var(--ef-purple-primary-a20)' : 'var(--ef-warning-a18)'}
                         stroke={overlayStroke(active)}
                         strokeWidth={active ? 2.5 : 1.5}
                       />
@@ -1007,8 +1108,8 @@ export function DocumentSourceViewer({
                       y={normalizeRect(regionDraft).y}
                       width={normalizeRect(regionDraft).width}
                       height={normalizeRect(regionDraft).height}
-                      fill="rgba(59,130,246,0.12)"
-                      stroke="#60A5FA"
+                      fill="var(--ef-purple-primary-a12)"
+                      stroke="var(--ef-purple-glow)"
                       strokeDasharray="6 4"
                       strokeWidth={1.5}
                     />
@@ -1018,22 +1119,22 @@ export function DocumentSourceViewer({
             </div>
 
             {activeAnchor ? (
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <div className="mt-4 rounded-xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[#F5F7FA]">
+                  <p className="text-sm font-semibold text-[var(--ef-text-primary)]">
                     {activeAnchor.pageNumber || activeAnchor.startPage
                       ? `Active anchor on ${anchorPageLabel(activeAnchor)}`
                       : 'Active anchor'}
                   </p>
-                  <span className="text-[11px] text-[#7FA6FF]">{activeAnchor.matchType}</span>
+                  <span className="text-[11px] text-[var(--ef-purple-accent)]">{activeAnchor.matchType}</span>
                 </div>
                 {activeAnchor.snippet ? (
-                  <p className="mt-2 text-[12px] leading-relaxed text-[#D9E3F3]">
+                  <p className="mt-2 text-[12px] leading-relaxed text-[var(--ef-text-secondary)]">
                     {activeAnchor.snippet}
                   </p>
                 ) : null}
                 {!activeAnchor.geometry ? (
-                  <p className="mt-2 text-[11px] text-[#8FA1BC]">
+                  <p className="mt-2 text-[11px] text-[var(--ef-text-soft)]">
                     This anchor does not include region geometry yet, so the viewer is focused to the source page instead.
                   </p>
                 ) : null}

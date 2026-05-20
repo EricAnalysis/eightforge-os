@@ -7,12 +7,13 @@ import {
   type ForgeGeneratedDecision,
 } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
+import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import type { CanonicalProjectTransactionDatasetInput } from '@/lib/projectFacts';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
-import type { ValidationFinding } from '@/types/validator';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 import {
   dedupeById,
   matchesProjectDecision,
@@ -28,7 +29,7 @@ import {
 } from '@/lib/projectOverview';
 
 const BASE_DECISION_SELECT =
-  'id, document_id, source, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
+  'id, document_id, project_id, source, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, updated_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const BASE_TASK_SELECT =
   'id, decision_id, document_id, task_type, title, description, priority, status, created_at, updated_at, due_at, assigned_to, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const DOCUMENT_SELECT_WITH_PRECEDENCE =
@@ -101,6 +102,14 @@ function isMissingProjectValidationPhaseColumnError(
     (error?.code === '42703' || error?.code === 'PGRST204')
     && message.includes('validation_phase')
   );
+}
+
+function isMissingExecutionItemsTableError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (error?.message ?? '').toLowerCase().includes('execution_items');
 }
 
 function parseExecutionTrace(
@@ -236,6 +245,8 @@ export type ProjectWorkspaceDataState = {
   documentRelationships: ProjectDocumentRelationshipRow[];
   transactionDatasets: ProjectTransactionDatasetRow[];
   validationFindings: ValidationFinding[];
+  validationEvidence: ValidationEvidence[];
+  executionItems: ProjectExecutionItemRow[];
   documentReviews: ProjectDocumentReviewRow[];
   generatedDecisions: ForgeGeneratedDecision[];
   decisions: ProjectDecisionRow[];
@@ -266,6 +277,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
   const [documentRelationships, setDocumentRelationships] = useState<ProjectDocumentRelationshipRow[]>([]);
   const [transactionDatasets, setTransactionDatasets] = useState<ProjectTransactionDatasetRow[]>([]);
   const [validationFindings, setValidationFindings] = useState<ValidationFinding[]>([]);
+  const [validationEvidence, setValidationEvidence] = useState<ValidationEvidence[]>([]);
+  const [executionItems, setExecutionItems] = useState<ProjectExecutionItemRow[]>([]);
   const [documentReviews, setDocumentReviews] = useState<ProjectDocumentReviewRow[]>([]);
   const [generatedDecisions, setGeneratedDecisions] = useState<ForgeGeneratedDecision[]>([]);
   const [decisions, setDecisions] = useState<ProjectDecisionRow[]>([]);
@@ -308,6 +321,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         transactionDatasetsResult,
         validationFindingsResult,
         documentRelationshipsResult,
+        executionItemsResult,
       ] = await Promise.all([
         supabase
           .from('projects')
@@ -337,6 +351,11 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .eq('organization_id', organizationId)
           .eq('project_id', projectId)
           .order('created_at', { ascending: false }),
+        supabase
+          .from('execution_items')
+          .select('*')
+          .eq('project_id', projectId)
+          .order('updated_at', { ascending: false }),
       ]);
       collectError(issues, 'Transaction datasets', transactionDatasetsResult.error);
       collectError(issues, 'Validation findings', validationFindingsResult.error);
@@ -374,6 +393,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           setPageError('Failed to load this project.');
           setDocumentRelationships([]);
           setValidationFindings([]);
+          setValidationEvidence([]);
+          setExecutionItems([]);
           setGeneratedDecisions([]);
           setLoading(false);
         }
@@ -385,6 +406,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           setNotFound(true);
           setDocumentRelationships([]);
           setValidationFindings([]);
+          setValidationEvidence([]);
+          setExecutionItems([]);
           setGeneratedDecisions([]);
           setLoading(false);
         }
@@ -412,6 +435,18 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const projectValidationFindings = !validationFindingsResult.error
         ? ((validationFindingsResult.data ?? []) as ValidationFinding[])
         : [];
+      let projectExecutionItems: ProjectExecutionItemRow[] = [];
+      if (executionItemsResult.error) {
+        if (isMissingExecutionItemsTableError(executionItemsResult.error)) {
+          issues.push(
+            'Execution items are not available yet; project execution is falling back to legacy decision and task records until that table is migrated.',
+          );
+        } else {
+          collectError(issues, 'Execution items', executionItemsResult.error);
+        }
+      } else {
+        projectExecutionItems = (executionItemsResult.data ?? []) as ProjectExecutionItemRow[];
+      }
       const projectDocumentIds = projectDocuments.map((document) => document.id);
       const reviewsResult = projectDocumentIds.length > 0
         ? await supabase
@@ -485,7 +520,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
       // If columns are missing, fall back to document_id / decision_id scoping only.
-      const [linkedDecisionsResult, fallbackDecisionsResult, documentTasksResult, fallbackTasksResult] = await Promise.all([
+      const [linkedDecisionsResult, fallbackDecisionsResult, documentScopedDecisionsResult, contextualValidatorDecisionsResult, documentTasksResult, fallbackTasksResult] = await Promise.all([
         supabase
           .from('decisions')
           .select(BASE_DECISION_SELECT)
@@ -500,6 +535,22 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .is('document_id', null)
           .order('last_detected_at', { ascending: false })
           .limit(50),
+        projectDocumentIds.length === 0
+          ? { data: [], error: null }
+          : supabase
+              .from('decisions')
+              .select(BASE_DECISION_SELECT)
+              .eq('organization_id', organizationId)
+              .is('project_id', null)
+              .in('document_id', projectDocumentIds)
+              .order('last_detected_at', { ascending: false }),
+        supabase
+          .from('decisions')
+          .select(BASE_DECISION_SELECT)
+          .eq('organization_id', organizationId)
+          .eq('source', 'project_validator')
+          .order('last_detected_at', { ascending: false })
+          .limit(200),
         supabase
           .from('workflow_tasks')
           .select(BASE_TASK_SELECT)
@@ -519,6 +570,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const projectIdColumnMissing =
         isMissingProjectIdColumnError(linkedDecisionsResult.error) ||
         isMissingProjectIdColumnError(fallbackDecisionsResult.error) ||
+        isMissingProjectIdColumnError(documentScopedDecisionsResult.error) ||
+        isMissingProjectIdColumnError(contextualValidatorDecisionsResult.error) ||
         isMissingProjectIdColumnError(documentTasksResult.error) ||
         isMissingProjectIdColumnError(fallbackTasksResult.error);
 
@@ -540,11 +593,17 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       } else {
         collectError(issues, 'Decisions', linkedDecisionsResult.error);
         collectError(issues, 'Decision fallbacks', fallbackDecisionsResult.error);
+        collectError(issues, 'Decisions (document fallback)', documentScopedDecisionsResult.error);
+        collectError(issues, 'Validator decision fallbacks', contextualValidatorDecisionsResult.error);
         collectError(issues, 'Tasks', documentTasksResult.error);
         collectError(issues, 'Task fallbacks', fallbackTasksResult.error);
 
         projectDecisions = dedupeById([
           ...((linkedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
+          ...((documentScopedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
+          ...((contextualValidatorDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
+            matchesProjectDecision(decision, projectRow),
+          ),
           ...((fallbackDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
             matchesProjectDecision(decision, projectRow),
           ),
@@ -564,6 +623,27 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       const projectTaskIds = new Set(projectTasks.map((task) => task.id));
       const projectDocumentIdSet = new Set(projectDocumentIds);
+      const executionItemIds = new Set(projectExecutionItems.map((item) => item.id));
+      const executionFindingIds = new Set(
+        [
+          ...projectValidationFindings.map((finding) => finding.id),
+          ...projectExecutionItems
+            .filter((item) => item.source_type === 'validator_finding')
+            .map((item) => item.source_id),
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0),
+      );
+
+      const validationEvidenceResult = executionFindingIds.size > 0
+        ? await supabase
+            .from('project_validation_evidence')
+            .select('*')
+            .in('finding_id', Array.from(executionFindingIds))
+        : { data: [], error: null };
+
+      collectError(issues, 'Validation evidence', validationEvidenceResult.error);
+      const projectValidationEvidence = !validationEvidenceResult.error
+        ? ((validationEvidenceResult.data ?? []) as ValidationEvidence[])
+        : [];
 
       const activityResult = await supabase
         .from('activity_events')
@@ -577,6 +657,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       const filteredActivityEvents = ((activityResult.data ?? []) as ProjectActivityEventRow[]).filter((event) => {
         if (event.entity_type === 'decision') return projectDecisionIds.has(event.entity_id);
         if (event.entity_type === 'workflow_task') return projectTaskIds.has(event.entity_id);
+        if (event.entity_type === 'execution_item') return executionItemIds.has(event.entity_id);
+        if (event.entity_type === 'project_validation_finding') {
+          return executionFindingIds.has(event.entity_id);
+        }
         if (event.entity_type === 'project') return event.entity_id === projectId;
         if (event.entity_type === 'project_validation_run') return event.project_id === projectId;
         if (event.entity_type === 'document') {
@@ -599,6 +683,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setDocumentRelationships(projectDocumentRelationships);
       setTransactionDatasets(projectTransactionDatasets);
       setValidationFindings(projectValidationFindings);
+      setValidationEvidence(projectValidationEvidence);
+      setExecutionItems(projectExecutionItems);
       setDocumentReviews(projectDocumentReviews);
       setGeneratedDecisions(generated);
       setDecisions(projectDecisions);
@@ -613,6 +699,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setPageError(error instanceof Error ? error.message : 'Failed to load this project.');
       setDocumentRelationships([]);
       setValidationFindings([]);
+      setValidationEvidence([]);
+      setExecutionItems([]);
       setGeneratedDecisions([]);
       setLoading(false);
     });
@@ -628,6 +716,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     documentRelationships,
     transactionDatasets,
     validationFindings,
+    validationEvidence,
+    executionItems,
     documentReviews,
     generatedDecisions,
     decisions,

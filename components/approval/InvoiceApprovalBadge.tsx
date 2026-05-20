@@ -19,34 +19,34 @@ export function InvoiceApprovalBadge({ approval, compact = false }: InvoiceAppro
     blocked: {
       icon: AlertCircle,
       label: 'Blocked',
-      bgColor: 'bg-red-950/40',
-      borderColor: 'border-red-500/40',
-      textColor: 'text-red-300',
-      iconColor: 'text-red-400',
+      bgColor: 'bg-[var(--ef-critical-bg)]',
+      borderColor: 'border-[var(--ef-critical-a40)]',
+      textColor: 'text-[var(--ef-critical-soft)]',
+      iconColor: 'text-[var(--ef-critical)]',
     },
     needs_review: {
       icon: Clock,
       label: 'Needs Review',
-      bgColor: 'bg-yellow-950/40',
-      borderColor: 'border-yellow-500/40',
-      textColor: 'text-yellow-300',
-      iconColor: 'text-yellow-400',
+      bgColor: 'bg-[var(--ef-warning-bg)]',
+      borderColor: 'border-[var(--ef-warning-a40)]',
+      textColor: 'text-[var(--ef-warning-soft)]',
+      iconColor: 'text-[var(--ef-warning)]',
     },
     approved: {
       icon: CheckCircle,
       label: 'Approved',
-      bgColor: 'bg-green-950/40',
-      borderColor: 'border-green-500/40',
-      textColor: 'text-green-300',
-      iconColor: 'text-green-400',
+      bgColor: 'bg-[var(--ef-success-bg)]',
+      borderColor: 'border-[var(--ef-success-a40)]',
+      textColor: 'text-[var(--ef-success-soft)]',
+      iconColor: 'text-[var(--ef-success-soft)]',
     },
     approved_with_exceptions: {
       icon: HelpCircle,
       label: 'Approved (Exceptions)',
-      bgColor: 'bg-slate-700/40',
-      borderColor: 'border-slate-500/40',
-      textColor: 'text-slate-300',
-      iconColor: 'text-slate-400',
+      bgColor: 'bg-[var(--ef-warning-bg)]',
+      borderColor: 'border-[var(--ef-warning-a40)]',
+      textColor: 'text-[var(--ef-warning-soft)]',
+      iconColor: 'text-[var(--ef-warning)]',
     },
   };
 
@@ -60,7 +60,7 @@ export function InvoiceApprovalBadge({ approval, compact = false }: InvoiceAppro
         {compact ? approval.approval_status.split('_')[0]?.toUpperCase() : config.label}
       </span>
       {!compact && approval.at_risk_amount && approval.at_risk_amount > 0 && (
-        <span className={`text-xs font-mono ml-1 ${config.textColor}/80`}>
+        <span className="ml-1 text-xs font-mono text-[var(--ef-text-secondary)]">
           ${(approval.at_risk_amount / 100).toFixed(2)}
         </span>
       )}
@@ -68,7 +68,10 @@ export function InvoiceApprovalBadge({ approval, compact = false }: InvoiceAppro
   );
 
   // Show tooltip only if there are blocking reasons or at-risk amount
-  if (approval.blocking_reasons?.length > 0 || (approval.at_risk_amount && approval.at_risk_amount > 0)) {
+  if (
+    approval.blocking_reasons?.length > 0 ||
+    (approval.at_risk_amount && approval.at_risk_amount > 0)
+  ) {
     return (
       <TooltipProvider>
         <Tooltip>
@@ -76,20 +79,20 @@ export function InvoiceApprovalBadge({ approval, compact = false }: InvoiceAppro
           <TooltipContent side="left" className="max-w-xs">
             <div className="space-y-2">
               {approval.approval_status === 'blocked' && (
-                <p className="font-semibold text-red-300">Blocked</p>
+                <p className="font-semibold text-[var(--ef-critical-soft)]">Blocked</p>
               )}
               {approval.blocking_reasons && approval.blocking_reasons.length > 0 && (
-                <ul className="text-sm space-y-1">
+                <ul className="space-y-1 text-sm">
                   {approval.blocking_reasons.map((reason, idx) => (
                     <li key={idx} className="flex gap-2">
-                      <span className="text-slate-400">•</span>
+                      <span className="text-[var(--ef-text-faint)]">-</span>
                       {reason}
                     </li>
                   ))}
                 </ul>
               )}
               {approval.at_risk_amount && approval.at_risk_amount > 0 && (
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-[var(--ef-text-secondary)]">
                   At-risk amount: ${(approval.at_risk_amount / 100).toFixed(2)}
                 </p>
               )}

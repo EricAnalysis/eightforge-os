@@ -20,6 +20,7 @@ import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
 import { buildDecisionContextHref } from '@/lib/decisionNavigation';
 import {
+  buildProjectDocumentsForgeHref,
   resolveDocumentDetailContext,
   type DocumentDetailContextMode,
 } from '@/lib/documentNavigation';
@@ -1527,11 +1528,11 @@ export default function DocumentDetailPage({
       <div className="space-y-3">
         <Link
           href={loadingBackHref}
-          className="text-[11px] text-[#8B5CFF] hover:underline"
+          className="text-[11px] text-[var(--ef-purple-primary)] hover:underline"
         >
           ← Back
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Loading…</p>
       </div>
     );
   }
@@ -1543,11 +1544,11 @@ export default function DocumentDetailPage({
       <div className="space-y-3">
         <Link
           href={loadingBackHref}
-          className="text-[11px] text-[#8B5CFF] hover:underline"
+          className="text-[11px] text-[var(--ef-purple-primary)] hover:underline"
         >
           ← Back
         </Link>
-        <p className="text-[11px] text-red-400">{error}</p>
+        <p className="text-[11px] text-[var(--ef-critical)]">{error}</p>
       </div>
     );
   }
@@ -1559,11 +1560,11 @@ export default function DocumentDetailPage({
       <div className="space-y-3">
         <Link
           href={loadingBackHref}
-          className="text-[11px] text-[#8B5CFF] hover:underline"
+          className="text-[11px] text-[var(--ef-purple-primary)] hover:underline"
         >
           ← Back
         </Link>
-        <p className="text-[11px] text-[#8B94A3]">Document not found.</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Document not found.</p>
       </div>
     );
   }
@@ -1584,7 +1585,9 @@ export default function DocumentDetailPage({
     requestedSource === 'project' && requestedProjectId
       ? `/platform/projects/${requestedProjectId}#project-validator`
       : null;
-  const projectDocumentsHref = project ? `${projectHref}#project-documents` : null;
+  const projectDocumentsHref = project
+    ? buildProjectDocumentsForgeHref(project.id, doc.id)
+    : null;
   const backToDocumentsHref = '/platform/documents';
   const primaryBackHref =
     detailContext.mode === 'project' && projectHref ? projectHref : backToDocumentsHref;
@@ -1596,25 +1599,25 @@ export default function DocumentDetailPage({
     detailContext.mode === 'project' ? 'Back to Documents' : 'Back to Project';
   const hasIntelligenceWorkspace = intelligenceViewModel != null;
   const evaluationSection = (
-    <section className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
-      <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Evaluation</div>
+    <section className="rounded-lg border border-white/5 bg-[var(--ef-background-secondary)] p-4">
+      <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Evaluation</div>
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#8B94A3]">Processing status</span>
+          <span className="text-[11px] text-[var(--ef-text-muted)]">Processing status</span>
           <span
             className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${
               (doc.processing_status ?? lastEvalResult?.processing_status) === 'decisioned'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                ? 'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]'
                 : (doc.processing_status ?? lastEvalResult?.processing_status) === 'failed'
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                  : 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]'
+                  ? 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]'
+                  : 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]'
             }`}
           >
             {doc.processing_status ?? lastEvalResult?.processing_status ?? '—'}
           </span>
         </div>
         {(doc.processed_at || lastEvalResult) && (
-          <span className="text-[11px] text-[#8B94A3]">
+          <span className="text-[11px] text-[var(--ef-text-muted)]">
             Last processed: {doc.processed_at
               ? new Date(doc.processed_at).toLocaleString()
               : lastEvalResult
@@ -1624,15 +1627,15 @@ export default function DocumentDetailPage({
         )}
         {lastEvalResult ? (
           <>
-            <span className="text-[11px] text-[#8B94A3]">
-              Matched rules: <strong className="text-[#F5F7FA]">{lastEvalResult.matched_rules}</strong>
+            <span className="text-[11px] text-[var(--ef-text-muted)]">
+              Matched rules: <strong className="text-[var(--ef-text-primary)]">{lastEvalResult.matched_rules}</strong>
             </span>
-            <span className="text-[11px] text-[#8B94A3]">
-              Decisions: <strong className="text-[#F5F7FA]">+{lastEvalResult.decisions_created}</strong> created,{' '}
-              <strong className="text-[#F5F7FA]">{lastEvalResult.decisions_updated}</strong> updated
+            <span className="text-[11px] text-[var(--ef-text-muted)]">
+              Decisions: <strong className="text-[var(--ef-text-primary)]">+{lastEvalResult.decisions_created}</strong> created,{' '}
+              <strong className="text-[var(--ef-text-primary)]">{lastEvalResult.decisions_updated}</strong> updated
             </span>
-            <span className="text-[11px] text-[#8B94A3]">
-              Tasks created: <strong className="text-[#F5F7FA]">{lastEvalResult.tasks_created}</strong>
+            <span className="text-[11px] text-[var(--ef-text-muted)]">
+              Tasks created: <strong className="text-[var(--ef-text-primary)]">{lastEvalResult.tasks_created}</strong>
             </span>
           </>
         ) : null}
@@ -1641,35 +1644,35 @@ export default function DocumentDetailPage({
             type="button"
             onClick={handleEvaluate}
             disabled={evaluating}
-            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {evaluating ? 'Evaluating…' : 'Evaluate Document'}
           </button>
         ) : (
-          <span className="text-[11px] text-amber-400">
+          <span className="text-[11px] text-[var(--ef-warning)]">
             Set domain and document type to evaluate.
           </span>
         )}
       </div>
       {evalError && (
-        <p className="mt-2 text-[11px] text-red-400">{evalError}</p>
+        <p className="mt-2 text-[11px] text-[var(--ef-critical)]">{evalError}</p>
       )}
       {lastEvalResult && (
         <>
-          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#1A1A3E] pt-3 text-[11px] sm:grid-cols-4">
-            <div><span className="text-[#8B94A3]">Facts loaded</span> <span className="text-[#F5F7FA]">{lastEvalResult.facts_loaded}</span></div>
-            <div><span className="text-[#8B94A3]">Rules evaluated</span> <span className="text-[#F5F7FA]">{lastEvalResult.rules_evaluated}</span></div>
-            <div><span className="text-[#8B94A3]">Matched rules</span> <span className="text-[#F5F7FA]">{lastEvalResult.matched_rules}</span></div>
-            <div><span className="text-[#8B94A3]">Decisions created</span> <span className="text-[#F5F7FA]">{lastEvalResult.decisions_created}</span></div>
-            <div><span className="text-[#8B94A3]">Decisions updated</span> <span className="text-[#F5F7FA]">{lastEvalResult.decisions_updated}</span></div>
-            <div><span className="text-[#8B94A3]">Decisions skipped</span> <span className="text-[#F5F7FA]">{lastEvalResult.decisions_skipped}</span></div>
-            <div><span className="text-[#8B94A3]">Tasks created</span> <span className="text-[#F5F7FA]">{lastEvalResult.tasks_created}</span></div>
-            <div><span className="text-[#8B94A3]">Tasks skipped</span> <span className="text-[#F5F7FA]">{lastEvalResult.tasks_skipped}</span></div>
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[var(--ef-surface-elevated)] pt-3 text-[11px] sm:grid-cols-4">
+            <div><span className="text-[var(--ef-text-muted)]">Facts loaded</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.facts_loaded}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Rules evaluated</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.rules_evaluated}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Matched rules</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.matched_rules}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Decisions created</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.decisions_created}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Decisions updated</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.decisions_updated}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Decisions skipped</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.decisions_skipped}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Tasks created</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.tasks_created}</span></div>
+            <div><span className="text-[var(--ef-text-muted)]">Tasks skipped</span> <span className="text-[var(--ef-text-primary)]">{lastEvalResult.tasks_skipped}</span></div>
           </div>
           {lastEvalResult.debug && Object.keys(lastEvalResult.debug.derived_facts ?? {}).length > 0 && (
-            <div className="mt-2 border-t border-[#1A1A3E] pt-2 text-[11px]">
-              <span className="text-[#8B94A3]">Derived facts (debug):</span>{' '}
-              <span className="text-[#F5F7FA]">
+            <div className="mt-2 border-t border-[var(--ef-surface-elevated)] pt-2 text-[11px]">
+              <span className="text-[var(--ef-text-muted)]">Derived facts (debug):</span>{' '}
+              <span className="text-[var(--ef-text-primary)]">
                 {lastEvalResult.debug.extraction_row_count} rows → {JSON.stringify(lastEvalResult.debug.derived_facts)}
               </span>
             </div>

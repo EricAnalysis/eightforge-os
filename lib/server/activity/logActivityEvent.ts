@@ -11,7 +11,9 @@
 //     'workflow_task',
 //     'document',
 //     'project',
-//     'project_validation_run'
+//     'project_validation_run',
+//     'project_validation_finding',
+//     'execution_item'
 //   )
 //   event_type  IN (
 //     'created',
@@ -25,6 +27,7 @@
 //     'project_deleted',
 //     'validation_run_requested',
 //     'validation_run_completed',
+//     'validation_finding_generated',
 //     'override_applied',
 //     'review_recorded',
 //     'review_correction_applied',
@@ -33,7 +36,11 @@
 //     'document_relationship_changed',
 //     'document_precedence_changed',
 //     'document_subtype_updated',
-//     'project_validation_phase_changed'
+//     'project_validation_phase_changed',
+//     'execution_item_created',
+//     'execution_item_approved',
+//     'execution_item_corrected',
+//     'execution_item_overridden'
 //   )
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -43,7 +50,9 @@ export type ActivityEntityType =
   | 'workflow_task'
   | 'document'
   | 'project'
-  | 'project_validation_run';
+  | 'project_validation_run'
+  | 'project_validation_finding'
+  | 'execution_item';
 
 export type ActivityEventType =
   | 'created'
@@ -57,6 +66,7 @@ export type ActivityEventType =
   | 'project_deleted'
   | 'validation_run_requested'
   | 'validation_run_completed'
+  | 'validation_finding_generated'
   | 'override_applied'
   | 'review_recorded'
   | 'review_correction_applied'
@@ -65,7 +75,11 @@ export type ActivityEventType =
   | 'document_relationship_changed'
   | 'document_precedence_changed'
   | 'document_subtype_updated'
-  | 'project_validation_phase_changed';
+  | 'project_validation_phase_changed'
+  | 'execution_item_created'
+  | 'execution_item_approved'
+  | 'execution_item_corrected'
+  | 'execution_item_overridden';
 
 export type ActivityInput = {
   organization_id: string;

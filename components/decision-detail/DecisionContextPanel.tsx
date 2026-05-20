@@ -16,21 +16,21 @@ import type { DecisionAction } from '@/lib/types/documentIntelligence';
 
 function validationTone(validation: TruthValidationState): string {
   const tone = validationToneKey(validation);
-  if (tone === 'success') return 'text-[#34D399]';
-  if (tone === 'warning') return 'text-[#FBBF24]';
-  if (tone === 'danger') return 'text-[#F87171]';
-  return 'text-[#94A3B8]';
+  if (tone === 'success') return 'text-[var(--ef-success-soft)]';
+  if (tone === 'warning') return 'text-[var(--ef-warning-soft)]';
+  if (tone === 'danger') return 'text-[var(--ef-critical-soft)]';
+  return 'text-[var(--ef-text-muted)]';
 }
 
 function gateTone(gateImpact: string): string {
   const normalized = gateImpact.toLowerCase();
-  if (normalized.includes('blocks approval')) return 'text-[#F87171]';
+  if (normalized.includes('blocks approval')) return 'text-[var(--ef-critical-soft)]';
   if (
     normalized.includes('holds approval')
     || normalized.includes('operator review')
     || normalized.includes('not established')
   ) {
-    return 'text-[#FBBF24]';
+    return 'text-[var(--ef-warning-soft)]';
   }
   if (
     normalized.includes('approval limit')
@@ -38,9 +38,9 @@ function gateTone(gateImpact: string): string {
     || normalized.includes('capacity')
     || normalized.includes('clears the approval gate')
   ) {
-    return 'text-[#60A5FA]';
+    return 'text-[var(--ef-purple-glow)]';
   }
-  return 'text-[#94A3B8]';
+  return 'text-[var(--ef-text-muted)]';
 }
 
 function actionTone(nextAction: string): string {
@@ -51,9 +51,9 @@ function actionTone(nextAction: string): string {
     || normalized.includes('confirm')
     || normalized.includes('escalate')
   ) {
-    return 'text-[#E5EDF7]';
+    return 'text-[var(--ef-text-primary)]';
   }
-  return 'text-[#C7D2E3]';
+  return 'text-[var(--ef-text-secondary)]';
 }
 
 function reviewStateLabel(decisionStatus: string): string {
@@ -65,48 +65,48 @@ function reviewStateLabel(decisionStatus: string): string {
 function causalChainSurfaceClass(state: DecisionCausalChainStepState): string {
   switch (state) {
     case 'complete':
-      return 'border-[#22C55E]/25 bg-[#22C55E]/8 hover:border-[#22C55E]/40';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-a08)] hover:border-[var(--ef-success-a40)]';
     case 'current':
-      return 'border-[#3B82F6]/30 bg-[#3B82F6]/10 hover:border-[#60A5FA]';
+      return 'border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] hover:border-[var(--ef-purple-glow)]';
     case 'attention':
-      return 'border-[#F59E0B]/30 bg-[#F59E0B]/10 hover:border-[#FBBF24]';
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] hover:border-[var(--ef-warning-soft)]';
     default:
-      return 'border-[#2F3B52] bg-[#0B1020] hover:border-[#3B82F6]/20';
+      return 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] hover:border-[var(--ef-purple-primary-a20)]';
   }
 }
 
 function causalChainDotClass(state: DecisionCausalChainStepState): string {
   switch (state) {
     case 'complete':
-      return 'bg-[#22C55E]';
+      return 'bg-[var(--ef-success)]';
     case 'current':
-      return 'bg-[#3B82F6]';
+      return 'bg-[var(--ef-purple-primary)]';
     case 'attention':
-      return 'bg-[#F59E0B]';
+      return 'bg-[var(--ef-warning)]';
     default:
-      return 'bg-[#475569]';
+      return 'bg-[var(--ef-text-faint)]';
   }
 }
 
 function causalChainLabelClass(state: DecisionCausalChainStepState): string {
   switch (state) {
     case 'complete':
-      return 'text-[#86EFAC]';
+      return 'text-[var(--ef-success-soft)]';
     case 'current':
-      return 'text-[#93C5FD]';
+      return 'text-[var(--ef-purple-glow)]';
     case 'attention':
-      return 'text-[#FCD34D]';
+      return 'text-[var(--ef-warning-soft)]';
     default:
-      return 'text-[#94A3B8]';
+      return 'text-[var(--ef-text-muted)]';
   }
 }
 
 function stripSurfaceClass(validation: TruthValidationState): string {
   const tone = validationToneKey(validation);
-  if (tone === 'success') return 'border-[#22C55E]/20 bg-[#22C55E]/6';
-  if (tone === 'warning') return 'border-[#F59E0B]/25 bg-[#F59E0B]/8';
-  if (tone === 'danger') return 'border-[#EF4444]/25 bg-[#EF4444]/8';
-  return 'border-[#2F3B52] bg-[#0B1020]';
+  if (tone === 'success') return 'border-[var(--ef-success-a20)] bg-[var(--ef-success-a06)]';
+  if (tone === 'warning') return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-a08)]';
+  if (tone === 'danger') return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a08)]';
+  return 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)]';
 }
 
 export function DecisionContextPanel(props: {
@@ -173,25 +173,25 @@ export function DecisionContextPanel(props: {
   return (
     <section
       id="decision-context"
-      className="mb-8 overflow-hidden rounded-2xl border border-[#2F3B52] bg-[#111827]"
+      className="mb-8 overflow-hidden rounded-2xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)]"
     >
-      <div className="border-l-4 border-[#3B82F6] p-6">
+      <div className="border-l-4 border-[var(--ef-purple-primary)] p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#3B82F6]">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--ef-purple-primary)]">
               Decision context
             </h2>
-            <p className="mt-2 text-sm text-[#94A3B8]">
+            <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
               Decision-level truth, gate posture, and operator action for invoice approval.
             </p>
           </div>
-          <span className="rounded border border-[#2F3B52] bg-[#0B1020] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <span className="rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Review state: {reviewStateLabel(decisionStatus)}
           </span>
         </div>
 
         <div className="mt-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Causal chain
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -201,7 +201,7 @@ export function DecisionContextPanel(props: {
                   className={`min-w-[148px] rounded-xl border px-3 py-3 transition-colors ${causalChainSurfaceClass(step.state)}`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
                       {step.label}
                     </span>
                     <span className={`h-2.5 w-2.5 rounded-full ${causalChainDotClass(step.state)}`} />
@@ -209,7 +209,7 @@ export function DecisionContextPanel(props: {
                   <p className={`mt-1 text-sm font-semibold ${causalChainLabelClass(step.state)}`}>
                     {step.stateLabel}
                   </p>
-                  <p className="mt-1 text-[11px] leading-5 text-[#94A3B8]">
+                  <p className="mt-1 text-[11px] leading-5 text-[var(--ef-text-muted)]">
                     {step.detail}
                   </p>
                 </div>
@@ -225,7 +225,7 @@ export function DecisionContextPanel(props: {
                     content
                   )}
                   {index < causalChain.length - 1 && (
-                    <span className="text-xs text-[#334155]">{'->'}</span>
+                    <span className="text-xs text-[var(--ef-border-strong)]">{'->'}</span>
                   )}
                 </div>
               );
@@ -235,7 +235,7 @@ export function DecisionContextPanel(props: {
 
         {invoiceStrip ? (
           <div className="mt-5">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               Invoice decision
             </p>
             <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -244,7 +244,7 @@ export function DecisionContextPanel(props: {
                   key={item.label}
                   className={`rounded-xl border px-3 py-3 ${stripSurfaceClass(item.validation)}`}
                 >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
                     {item.label}
                   </p>
                   <p className={`mt-2 text-sm font-semibold ${validationTone(item.validation)}`}>
@@ -256,17 +256,17 @@ export function DecisionContextPanel(props: {
           </div>
         ) : null}
 
-        <div className="mt-5 rounded-xl border border-[#2F3B52] bg-[#0B1020] p-4">
+        <div className="mt-5 rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
                 Evidence routing
               </p>
-              <p className="mt-2 text-sm text-[#C7D2E3]">
+              <p className="mt-2 text-sm text-[var(--ef-text-secondary)]">
                 Inspect evidence from decision context first, then open the exact source document, fact, or spreadsheet row for review and correction.
               </p>
             </div>
-            <span className="rounded border border-[#2F3B52] bg-[#111827] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            <span className="rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
               {evidence.targets.length} target{evidence.targets.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -276,24 +276,24 @@ export function DecisionContextPanel(props: {
               {evidence.targets.map((target) => (
                 <div
                   key={target.id}
-                  className="rounded-xl border border-[#2F3B52] bg-[#111827] p-4"
+                  className="rounded-xl border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-[#E5EDF7]">{target.label}</p>
-                      <p className="mt-1 text-[12px] text-[#94A3B8]">{target.detail}</p>
+                      <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{target.label}</p>
+                      <p className="mt-1 text-[12px] text-[var(--ef-text-muted)]">{target.detail}</p>
                     </div>
                     {target.href ? (
                       <Link
                         href={target.href}
-                        className="rounded-md border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[11px] font-medium text-[#CFE4FF] transition-colors hover:bg-[#3B82F6]/15"
+                        className="rounded-md border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-[11px] font-medium text-[var(--ef-purple-glow)] transition-colors hover:bg-[var(--ef-purple-primary-a15)]"
                       >
                         {target.exactTarget ? 'Open exact evidence' : 'Open source document'}
                       </Link>
                     ) : null}
                   </div>
                   {target.missingReason ? (
-                    <p className="mt-3 rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2 text-[12px] text-[#FDE68A]">
+                    <p className="mt-3 rounded-lg border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-[12px] text-[var(--ef-warning-soft)]">
                       {target.missingReason}
                     </p>
                   ) : null}
@@ -301,58 +301,58 @@ export function DecisionContextPanel(props: {
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-3 text-sm text-[#FDE68A]">
+            <div className="mt-4 rounded-xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-4 py-3 text-sm text-[var(--ef-warning-soft)]">
               {evidence.missingEvidenceMessage ?? 'No validator-backed evidence target is attached to this decision yet.'}
             </div>
           )}
         </div>
 
-        <ul className="mt-5 divide-y divide-[#1E2B3D]/60">
+        <ul className="mt-5 divide-y divide-[var(--ef-surface-hover-a60)]">
           {rows.map((row) => (
             <li key={row.label} className="py-3">
-              <p className="text-[12px] font-semibold text-[#C7D2E3]">
+              <p className="text-[12px] font-semibold text-[var(--ef-text-secondary)]">
                 {row.label}:{' '}
-                <span className="font-bold text-[#E5EDF7]">{row.value}</span>
+                <span className="font-bold text-[var(--ef-text-primary)]">{row.value}</span>
               </p>
               <div className="mt-2 grid gap-1.5 text-[10px] uppercase tracking-[0.14em]">
-                <p className="text-[#64748B]">
+                <p className="text-[var(--ef-text-faint)]">
                   Source:{' '}
                   {row.sourceHref ? (
-                    <Link href={row.sourceHref} className="text-[#60A5FA] hover:underline">
+                    <Link href={row.sourceHref} className="text-[var(--ef-purple-glow)] hover:underline">
                       {row.sourceLabel}
                     </Link>
                   ) : (
-                    <span className="text-[#94A3B8]">{row.sourceLabel}</span>
+                    <span className="text-[var(--ef-text-muted)]">{row.sourceLabel}</span>
                   )}
                 </p>
-                <p className="text-[#64748B]">
+                <p className="text-[var(--ef-text-faint)]">
                   Validation:{' '}
                   <span className={`font-semibold ${validationTone(row.validation)}`}>
                     {row.validation}
                   </span>
                 </p>
-                <p className="text-[#64748B]">
+                <p className="text-[var(--ef-text-faint)]">
                   Gate impact:{' '}
                   <span className={`font-semibold ${gateTone(row.gateImpact)}`}>
                     {row.gateImpact}
                   </span>
                 </p>
-                <p className="text-[#64748B]">
+                <p className="text-[var(--ef-text-faint)]">
                   Next action:{' '}
                   <span className={`font-semibold ${actionTone(row.nextAction)}`}>
                     {row.nextAction}
                   </span>
                 </p>
-                <p className="text-[#64748B]">
+                <p className="text-[var(--ef-text-faint)]">
                   Action impact:{' '}
-                  <span className="font-semibold text-[#C7D2E3]">
+                  <span className="font-semibold text-[var(--ef-text-secondary)]">
                     {row.actionImpact}
                   </span>
                 </p>
                 {row.executionStatus ? (
-                  <p className="text-[#64748B]">
+                  <p className="text-[var(--ef-text-faint)]">
                     Execution status:{' '}
-                    <span className="font-semibold text-[#C7D2E3]">
+                    <span className="font-semibold text-[var(--ef-text-secondary)]">
                       {row.executionStatus}
                     </span>
                   </p>

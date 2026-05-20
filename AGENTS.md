@@ -27,7 +27,9 @@ Future Agent Unlocks:
 - Autonomous code review agents
 
 Usage:
-Reference the umbrella reviewer for full reviews.
+Reference `eightforge-code-reviewer` for full reviews.
 Use specialized reviewers for domain-specific operational reviews.
-Combine reviewers as needed, for example `truth-engine` + `cross-document` + `execution`.
-Cross-document + execution reviewers should often be combined when governing contract logic directly affects downstream approvals, workflows, or automation behavior.
+Combine reviewers as needed, for example:
+`eightforge-truth-engine-reviewer` + `eightforge-cross-document-reviewer` + `eightforge-execution-reviewer`.
+
+`eightforge-cross-document-reviewer` + `eightforge-execution-reviewer` should often be combined when governing contract logic directly affects downstream approvals, workflows, or automation behavior.

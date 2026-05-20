@@ -29,7 +29,12 @@ import {
   resolveCanonicalProjectFacts,
   spreadsheetReviewReadinessStatusForProjectFacts,
 } from '@/lib/projectFacts';
-import { normalizeCanonicalInvoiceNumber } from '@/lib/invoices/invoiceParser';
+import {
+  normalizeCanonicalInvoiceNumber,
+  recoverInvoiceLineItemsFromExtractionData,
+  resolveInvoiceLineUnitPrice,
+} from '@/lib/invoices/invoiceParser';
+import { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -61,6 +66,8 @@ import {
   normalizeSpreadsheetEligibility,
   ticketTypeBucketFromRawRow,
 } from '@/lib/spreadsheetDocumentReview';
+
+export { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 
 export type DocumentFactState =
   | 'auto'
@@ -237,6 +244,22 @@ export type DiagnosticsDrawerModel = {
     description?: string;
     content: string;
   }>;
+  rowInspection?: {
+    label: string;
+    rows: Array<{
+      row_id: string;
+      rate_code: string | null;
+      row_role: string;
+      confidence: number | null;
+      warnings: string[];
+    }>;
+  };
+};
+
+export type DocumentSourceTextPage = {
+  pageNumber: number;
+  sourceMethod: string | null;
+  text: string;
 };
 
 export type SpreadsheetReviewKpis = {
@@ -364,6 +387,7 @@ export type DocumentIntelligenceViewModel = {
   parserStatus: string;
   schemaMappingStatus: string;
   sourceModeLabel: string;
+  sourceTextPages: DocumentSourceTextPage[];
   rateScheduleSource: 'auto' | 'human';
   rateSchedulePages: string | null;
   rateScheduleAnchor: DocumentEvidenceAnchor | null;
@@ -514,7 +538,7 @@ function asFiniteNumber(value: unknown): number | null {
 function asLooseNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
-    const cleaned = value.replace(/,/g, '').trim();
+    const cleaned = value.replace(/[$,\s]/g, '').trim();
     if (cleaned.length === 0) return null;
     const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
@@ -1912,10 +1936,21 @@ const FIELD_KEY_ALIASES: Record<DocumentFamily | 'generic', Record<string, strin
   },
   invoice: {
     vendor_name: 'contractor_name',
+    contractor: 'contractor_name',
     current_amount_due: 'billed_amount',
     current_payment_due: 'billed_amount',
     total_amount: 'billed_amount',
     amount_due: 'billed_amount',
+    lineitems: 'invoice_line_items',
+    line_items: 'invoice_line_items',
+    line_item_codes: 'line_item_codes',
+    lineitemcodes: 'line_item_codes',
+    periodfrom: 'period_from',
+    periodto: 'period_to',
+    period_start_date: 'period_start',
+    period_end_date: 'period_end',
+    service_period_start: 'period_start',
+    service_period_end: 'period_end',
   },
   payment_recommendation: {
     vendor_name: 'contractor_name',
@@ -1953,11 +1988,13 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
   invoice: [
     'invoice_number',
     'contractor_name',
+    'client_name',
     'invoice_date',
     'billed_amount',
-    'billing_period',
-    'line_item_support_present',
+    'period_start',
+    'period_end',
     'line_item_count',
+    'invoice_line_items',
     'po_number',
   ],
   payment_recommendation: [
@@ -2042,6 +2079,7 @@ const SECONDARY_ADAPTER_FIELDS = new Set([
 
 const RAW_VALUE_ALIASES: Record<string, string[]> = {
   contractor_name: ['vendor_name', 'contractorName', 'contractor'],
+  client_name: ['customer_name', 'owner_name', 'clientName', 'ownerName', 'bill_to_name'],
   owner_name: ['ownerName', 'client_name', 'customer_name'],
   executed_date: ['contract_date', 'effective_date', 'executedDate'],
   contract_ceiling: ['nte_amount', 'notToExceedAmount', 'contract_sum'],
@@ -2134,10 +2172,10 @@ const GROUP_DEFINITIONS: Record<
   ],
   invoice: [
     {
-      key: 'vendor_payee',
-      label: 'Vendor And Payee',
+      key: 'contractor_client',
+      label: 'Contractor And Client',
       order: 10,
-      patterns: [/vendor/i, /payee/i, /contractor/i, /owner/i, /applicant/i],
+      patterns: [/vendor/i, /payee/i, /contractor/i, /owner/i, /applicant/i, /client/i],
     },
     {
       key: 'invoice_identifiers',
@@ -2147,7 +2185,7 @@ const GROUP_DEFINITIONS: Record<
     },
     {
       key: 'billing_period',
-      label: 'Billing Period',
+      label: 'Service Period',
       order: 30,
       patterns: [/period/i, /invoice_date/i, /billing/i, /service_date/i, /date/i],
     },
@@ -2380,8 +2418,10 @@ function titleize(value: string): string {
     .join(' ');
 }
 
-/** Human labels for stable schema keys; `owner_name` stays the stored key (contracting entity). */
+/** Human labels for stable schema keys; invoice party keys use operator-facing contractor/client language. */
 const FACT_FIELD_LABEL_OVERRIDES: Record<string, string> = {
+  contractor_name: 'Contractor',
+  client_name: 'Client',
   owner_name: 'Client',
 };
 
@@ -2435,6 +2475,125 @@ function isInternalMetadataFieldKey(fieldKey: string): boolean {
   const lastSegment = segments.at(-1) ?? normalized;
 
   return INTERNAL_METADATA_KEY_SEGMENTS.has(lastSegment);
+}
+
+const INVOICE_DISPLAY_HIDDEN_FACT_KEYS = new Set([
+  'invoice_status',
+  'status',
+  'section',
+  'normalized',
+  'text',
+  'raw_text',
+  'rawtext',
+  'raw_section_text',
+  'section_text',
+  'period_through',
+  'period_from',
+  'period_to',
+]);
+
+const INVOICE_PERIOD_RANGE_FACT_KEYS = new Set([
+  'billing_period',
+  'invoice_period',
+  'period',
+]);
+
+function parseInvoiceDisplayAmount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const negative = /^\(.*\)$/.test(trimmed);
+  const parsed = Number.parseFloat(trimmed.replace(/[()$,\s]/g, ''));
+  if (!Number.isFinite(parsed)) return null;
+  return negative ? -parsed : parsed;
+}
+
+function invoiceFactAmountValue(fact: DocumentFact): number | null {
+  return (
+    parseInvoiceDisplayAmount(fact.normalizedValue)
+    ?? parseInvoiceDisplayAmount(fact.valueNumber)
+    ?? parseInvoiceDisplayAmount(fact.displayValue)
+    ?? parseInvoiceDisplayAmount(fact.rawValue)
+  );
+}
+
+function invoiceLineItemRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const record = asRecord(value);
+  if (!record) return [];
+  return invoiceLineItemRows(record.line_items ?? record.lineItems ?? record.items);
+}
+
+function hasInvoiceLineItemTable(facts: readonly DocumentFact[]): boolean {
+  return facts.some((fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, 'invoice');
+    if (key !== 'invoice_line_items') return false;
+    return invoiceLineItemRows(fact.normalizedValue ?? fact.machineValue).length > 0;
+  });
+}
+
+function shouldHideInvoiceDisplayFact(fact: DocumentFact, allFacts: readonly DocumentFact[]): boolean {
+  const canonical = canonicalFieldKey(fact.fieldKey, 'invoice');
+  const normalized = toSnakeCase(fact.fieldKey);
+  const hasLineItems = hasInvoiceLineItemTable(allFacts);
+  const hasServicePeriodEndpoints = allFacts.some((candidate) => {
+    const key = canonicalFieldKey(candidate.fieldKey, 'invoice');
+    return (
+      (key === 'period_start' || key === 'period_end')
+      && candidate.reviewState !== 'missing'
+      && candidate.displayValue !== 'Missing'
+    );
+  });
+
+  if (canonical === 'invoice_line_items' || canonical === 'line_item_count') return false;
+  if (canonical === 'line_item_support_present' && hasLineItems) return true;
+  if (canonical === 'line_item_codes' && hasLineItems) return true;
+
+  if (canonical === 'subtotal_amount') {
+    const billed = allFacts.find((candidate) =>
+      canonicalFieldKey(candidate.fieldKey, 'invoice') === 'billed_amount',
+    );
+    const billedAmount = billed ? invoiceFactAmountValue(billed) : null;
+    const subtotalAmount = invoiceFactAmountValue(fact);
+    if (billedAmount != null && subtotalAmount != null) {
+      return Math.abs(billedAmount - subtotalAmount) < 0.015;
+    }
+    return billed != null && billed.displayValue === fact.displayValue;
+  }
+
+  if (INVOICE_DISPLAY_HIDDEN_FACT_KEYS.has(canonical) || INVOICE_DISPLAY_HIDDEN_FACT_KEYS.has(normalized)) {
+    return true;
+  }
+
+  if (canonical === 'period_start' || canonical === 'period_end') return false;
+  if (
+    hasServicePeriodEndpoints
+    && (INVOICE_PERIOD_RANGE_FACT_KEYS.has(canonical) || INVOICE_PERIOD_RANGE_FACT_KEYS.has(normalized))
+  ) {
+    return true;
+  }
+
+  const segments = normalized.split('_').filter(Boolean);
+  const lastSegment = segments.at(-1) ?? normalized;
+  if (['text', 'helper', 'normalized', 'section'].includes(lastSegment)) return true;
+  if (normalized.includes('raw_section')) return true;
+  if (
+    normalized.includes('raw')
+    && (normalized.includes('text') || normalized.includes('helper') || normalized.includes('section'))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function filterDisplayFactsForFamily(
+  facts: readonly DocumentFact[],
+  family: DocumentFamily,
+): DocumentFact[] {
+  if (family !== 'invoice') return [...facts];
+  return facts.filter((fact) => !shouldHideInvoiceDisplayFact(fact, facts));
 }
 
 /**
@@ -2527,9 +2686,41 @@ function formatFactValue(value: unknown, valueType: DocumentFactValueType): stri
     return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(value);
   }
   if (Array.isArray(value)) {
-    return value.map((item) => scalarToString(item) ?? String(item)).join(', ');
+    return value.map((item) => {
+      const scalar = scalarToString(item);
+      if (scalar != null) return scalar;
+      if (item != null && typeof item === 'object') return compactStructuredValue(item);
+      return 'Unavailable';
+    }).join(', ');
   }
+  if (typeof value === 'object') return compactStructuredValue(value);
   return String(value);
+}
+
+function compactStructuredValue(value: unknown): string {
+  if (value == null) return 'Unavailable';
+  if (Array.isArray(value)) return formatFactValue(value, 'array');
+  if (typeof value !== 'object') return String(value);
+  const record = value as Record<string, unknown>;
+  const preferred = [
+    record.line_description,
+    record.lineDescription,
+    record.description,
+    record.code,
+    record.line_code,
+    record.lineCode,
+  ]
+    .map((item) => scalarToString(item))
+    .filter((item): item is string => Boolean(item));
+  if (preferred.length > 0) return preferred.join(' / ');
+  const entries = Object.entries(record)
+    .map(([key, item]) => {
+      const scalar = scalarToString(item);
+      return scalar ? `${titleize(key)}: ${scalar}` : null;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 4);
+  return entries.length > 0 ? entries.join(' | ') : 'Unavailable';
 }
 
 function withDisplayMetadata(fact: BaseDocumentFact): DocumentFact {
@@ -3754,7 +3945,18 @@ function buildAdditionalFacts(params: {
     });
     const rawValue = resolveRawValue(entry.key, params.rawValueMap);
     const group = resolveSchemaGroup(params.family, entry.key);
-    const normalizedDisplay = formatFactValue(fieldValue, valueType);
+    let normalizedDisplay = formatFactValue(fieldValue, valueType);
+    const factCanon = canonicalFieldKey(entry.key, params.family);
+    if (params.family === 'invoice' && (factCanon === 'contractor_name' || entry.key === 'vendor_name')) {
+      const coerced = normalizeInvoiceContractorDisplay(
+        typeof fieldValue === 'string'
+          ? fieldValue
+          : fieldValue != null
+            ? scalarToString(fieldValue)
+            : null,
+      );
+      if (coerced) normalizedDisplay = coerced;
+    }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
     if (entry.source === 'section_signals') notes.push('Derived from parser section signals.');
@@ -4028,10 +4230,163 @@ function schemaStatus(facts: DocumentFact[]): string {
   return 'Mapped';
 }
 
+function buildOperationalTableAssemblyDiagnostic(params: {
+  extracted: Record<string, unknown>;
+  fieldKey: string;
+  id: string;
+  title: string;
+  summary: string;
+}): DiagnosticsDrawerModel | null {
+  const result = asRecord(params.extracted[params.fieldKey]);
+  if (!result) return null;
+
+  const rows = asArray<Record<string, unknown>>(result.rows);
+  const rejectedRows = asArray<Record<string, unknown>>(result.rejected_rows);
+  const unclassifiedRows = asArray<Record<string, unknown>>(result.unclassified_rows);
+  const assemblyWarnings = asArray<unknown>(result.assembly_warnings)
+    .filter((warning): warning is string => typeof warning === 'string');
+  const rowsMissingEvidence = rows.filter((row) => asArray<unknown>(row.evidence_refs).length === 0).length;
+  const rowWarningCount = rows.reduce(
+    (sum, row) => sum + asArray<unknown>(row.warnings).length,
+    0,
+  );
+
+  return {
+    id: params.id,
+    title: params.title,
+    summary: params.summary,
+    textBlocks: [
+      {
+        id: 'summary',
+        label: 'Shadow Assembly Summary',
+        description: 'Parser remains authoritative',
+        content: [
+          `Rows reconstructed: ${rows.length}`,
+          `Rejected rows: ${rejectedRows.length}`,
+          `Unclassified rows: ${unclassifiedRows.length}`,
+          `Warnings: ${assemblyWarnings.length + rowWarningCount}`,
+          `Evidence refs: ${rowsMissingEvidence === 0 ? 'present' : `MISSING on ${rowsMissingEvidence} rows`}`,
+          'Shadow mode: active — parser authoritative',
+        ].join('\n'),
+      },
+    ],
+    rowInspection: {
+      label: 'Inspect rows',
+      rows: rows.map((row) => ({
+        row_id: typeof row.row_id === 'string' ? row.row_id : 'unknown',
+        rate_code: typeof row.rate_code === 'string' ? row.rate_code : null,
+        row_role: typeof row.row_role === 'string' ? row.row_role : 'unknown',
+        confidence: typeof row.confidence === 'number' && Number.isFinite(row.confidence)
+          ? row.confidence
+          : null,
+        warnings: asArray<unknown>(row.warnings)
+          .filter((warning): warning is string => typeof warning === 'string'),
+      })),
+    },
+  };
+}
+
+function buildOperationalRateDiffDiagnostic(
+  extracted: Record<string, unknown>,
+): DiagnosticsDrawerModel | null {
+  const diff = asRecord(extracted.canonicalOperationalRateDiff);
+  if (!diff) return null;
+  const rows = asArray<Record<string, unknown>>(diff.rows);
+  const summary = asRecord(diff.summary) ?? {};
+  const count = (key: string) => typeof summary[key] === 'number' ? summary[key] as number : 0;
+
+  return {
+    id: 'canonical_operational_rate_diff',
+    title: 'Cross Document Rate Diff',
+    summary: 'Shadow-only invoice-to-contract operational rate comparison.',
+    textBlocks: [
+      {
+        id: 'summary',
+        label: 'Shadow Diff Summary',
+        description: 'No validator or execution coupling',
+        content: [
+          `Matched rows: ${count('matched_rows')}`,
+          `Ambiguous rows: ${count('ambiguous_rows')}`,
+          `Unmatched rows: ${count('unmatched_rows')}`,
+          `Low-confidence matches: ${count('low_confidence_matches')}`,
+          `Rows exceeding contract ceiling: ${count('rows_exceeding_contract_ceiling')}`,
+          `Passthrough rows: ${count('passthrough_rows')}`,
+          `T&M rows: ${count('tm_rows')}`,
+          'Shadow mode: active - no approval or payment gating',
+        ].join('\n'),
+      },
+    ],
+    rowInspection: {
+      label: 'Inspect rate diff rows',
+      rows: rows.map((row) => ({
+        row_id: typeof row.invoice_row_id === 'string' ? row.invoice_row_id : 'unknown',
+        rate_code: typeof row.contract_row_id === 'string' ? row.contract_row_id : null,
+        row_role: typeof row.variance_status === 'string' ? row.variance_status : 'unknown',
+        confidence: typeof row.match_confidence === 'number' && Number.isFinite(row.match_confidence)
+          ? row.match_confidence
+          : null,
+        warnings: (() => {
+          const candidateCount = asArray<Record<string, unknown>>(row.candidate_matches).length;
+          return [
+            ...asArray<unknown>(row.mismatch_reasons)
+              .filter((reason): reason is string => typeof reason === 'string'),
+            ...(candidateCount > 1 ? [`candidate matches: ${candidateCount}`] : []),
+          ];
+        })(),
+      })),
+    },
+    json: {
+      project_id: diff.project_id ?? null,
+      invoice_document_id: diff.invoice_document_id ?? null,
+      contract_document_id: diff.contract_document_id ?? null,
+      generated_at: diff.generated_at ?? null,
+      rows,
+    },
+  };
+}
+
+function buildSourceTextPages(extractionData: Record<string, unknown> | null): DocumentSourceTextPage[] {
+  const extraction = asRecord(extractionData?.extraction);
+  const evidencePageText = asArray<Record<string, unknown>>(asRecord(extraction?.evidence_v1)?.page_text);
+  const contentLayerPages = asArray<Record<string, unknown>>(
+    asRecord(asRecord(asRecord(extraction?.content_layers_v1)?.pdf)?.text)?.pages,
+  );
+  const sourcePages = evidencePageText.length > 0 ? evidencePageText : contentLayerPages;
+  const pages = sourcePages
+    .map((page, index) => {
+      const text = scalarToString(page.text) ?? scalarToString(page.content) ?? '';
+      const pageNumber = typeof page.page_number === 'number'
+        ? page.page_number
+        : typeof page.pageNumber === 'number'
+          ? page.pageNumber
+          : index + 1;
+      return {
+        pageNumber,
+        sourceMethod: typeof page.source_method === 'string'
+          ? page.source_method
+          : typeof page.sourceMethod === 'string'
+            ? page.sourceMethod
+            : null,
+        text,
+      };
+    })
+    .filter((page) => page.text.trim().length > 0);
+
+  const seen = new Set<number>();
+  return pages
+    .sort((left, right) => left.pageNumber - right.pageNumber)
+    .filter((page) => {
+      if (seen.has(page.pageNumber)) return false;
+      seen.add(page.pageNumber);
+      return true;
+    });
+}
+
 function buildDiagnostics(params: {
   extractionData: Record<string, unknown> | null;
   extractionHistory: Array<{ id: string; created_at: string; data: Record<string, unknown> }>;
   executionTrace: DocumentExecutionTrace | null;
+  extracted: Record<string, unknown>;
   groups: DocumentFactGroup[];
   facts: DocumentFact[];
   auditNotes: AuditNote[];
@@ -4042,8 +4397,29 @@ function buildDiagnostics(params: {
   const contentLayers = asRecord(extraction?.content_layers_v1);
   const parsedElements = asRecord(extraction?.parsed_elements_v1);
   const pageText = asArray<Record<string, unknown>>(evidenceV1?.page_text);
+  const invoiceAssemblyDiagnostic = buildOperationalTableAssemblyDiagnostic({
+    extracted: params.extracted,
+    fieldKey: 'canonicalOperationalTableRowAssembly',
+    id: 'canonical_operational_table_row_assembly',
+    title: 'Invoice Operational Row Assembly',
+    summary: 'canonicalOperationalTableRowAssembler shadow output.',
+  });
+  const contractRateAssemblyDiagnostic = buildOperationalTableAssemblyDiagnostic({
+    extracted: params.extracted,
+    fieldKey: 'canonicalContractRateScheduleAssembly',
+    id: 'canonical_contract_rate_schedule_assembly',
+    title: 'Contract Rate Assembly',
+    summary: 'contract rate schedule shadow output.',
+  });
+  const operationalRateDiffDiagnostic = buildOperationalRateDiffDiagnostic(params.extracted);
 
+  // DEV ONLY: this project currently exposes diagnostics as a collapsed document-workspace surface,
+  // but there is no production admin/debug permission gate around the diagnostics collection.
+  // Keep assembler inspection sanitized here until a real production gate is added.
   return [
+    invoiceAssemblyDiagnostic,
+    contractRateAssemblyDiagnostic,
+    operationalRateDiffDiagnostic,
     {
       id: 'schema_map',
       title: 'Schema Map',
@@ -4120,7 +4496,8 @@ function buildDiagnostics(params: {
         data: row.data,
       })),
     },
-  ].filter((drawer) => {
+  ].filter((drawer): drawer is DiagnosticsDrawerModel => {
+    if (drawer == null) return false;
     if (drawer.json && typeof drawer.json === 'object') {
       if (Array.isArray(drawer.json)) return drawer.json.length > 0;
       return Object.keys(drawer.json as Record<string, unknown>).length > 0;
@@ -4182,24 +4559,604 @@ function readLooseString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+/** US short date like InvoiceSurface extraction (`Feb 22, 2026`). */
+export function formatInvoicePeriodEndpointForDisplay(raw: unknown): string {
+  if (raw == null) return '';
+  const s = typeof raw === 'string' ? raw.trim() : String(raw);
+  if (!s || s === 'Missing' || s === 'Unavailable') return '';
+  const isoDateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnly) {
+    const dt = new Date(
+      Number.parseInt(isoDateOnly[1], 10),
+      Number.parseInt(isoDateOnly[2], 10) - 1,
+      Number.parseInt(isoDateOnly[3], 10),
+    );
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  const isoTry = new Date(s);
+  if (!Number.isNaN(isoTry.getTime())) {
+    return isoTry.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  const slash = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (slash) {
+    const y = Number.parseInt(slash[3], 10);
+    const fullYear = y < 100 ? 2000 + y : y;
+    const dt = new Date(fullYear, Number.parseInt(slash[1], 10) - 1, Number.parseInt(slash[2], 10));
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  return s;
+}
+
+export function formatInvoiceServicePeriodRangeFromEndpoints(startRaw: unknown, endRaw: unknown): string {
+  const left = formatInvoicePeriodEndpointForDisplay(startRaw);
+  const right = formatInvoicePeriodEndpointForDisplay(endRaw);
+  if (left && right) return `${left} → ${right}`;
+  return left || right || '';
+}
+
+/** Max length for an embedded alphanumeric invoice rate token (e.g. 1A, 10AB). */
+export const MAX_EMBEDDED_INVOICE_RATE_CODE_LEN = 12;
+
+/** Reject ordinal-looking tokens misread as rate codes ("1st", "2024th"). */
+const EMBEDDED_INVOICE_RATE_ORDINAL_RE = /^\d{1,6}(?:st|nd|rd|th)$/i;
+
+/**
+ * Validates a leading substring as an invoice-style rate token: digits then letters only,
+ * at least one letter, bounded length — never a plain quantity ("43894", "43,894.00").
+ */
+export function isPlausibleEmbeddedInvoiceRateCode(candidate: string | null | undefined): boolean {
+  if (candidate == null || typeof candidate !== 'string') return false;
+  const code = candidate.trim();
+  if (code.length === 0 || code.length > MAX_EMBEDDED_INVOICE_RATE_CODE_LEN) return false;
+  if (!/^\d+[A-Za-z]+$/.test(code)) return false;
+  if (EMBEDDED_INVOICE_RATE_ORDINAL_RE.test(code)) return false;
+  return true;
+}
+
+/** Extract leading rate-table code from "1A Vegetative …", "1A- Vegetative …", "1A - …", "1A: …". */
+export function splitEmbeddedInvoiceRateCode(description: string | null | undefined): {
+  rateCode: string | null;
+  remainder: string;
+} {
+  if (typeof description !== 'string') return { rateCode: null, remainder: '' };
+  const trimmed = description.trim();
+  if (!trimmed) return { rateCode: null, remainder: trimmed };
+
+  const punct = trimmed.match(/^(\d+[A-Za-z]+)\s*[-–—\u2013\u2014:]\s*(.+)$/);
+  if (
+    punct
+    && isPlausibleEmbeddedInvoiceRateCode(punct[1])
+  ) {
+    const remainder = punct[2].trim();
+    return {
+      rateCode: punct[1],
+      remainder: remainder.length > 0 ? remainder : trimmed,
+    };
+  }
+
+  const spaced = trimmed.match(/^(\d+[A-Za-z]+)\s+([A-Za-z].*)$/);
+  if (
+    spaced
+    && isPlausibleEmbeddedInvoiceRateCode(spaced[1])
+  ) {
+    return { rateCode: spaced[1], remainder: spaced[2].trim() };
+  }
+
+  return { rateCode: null, remainder: trimmed };
+}
+
+function invoiceLedgerRegexEscape(value: string): string {
+  return value.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+/**
+ * First plausible invoice-style rate token anywhere in the line (digit + letters), left-to-right.
+ * Excludes plain quantities (no letters) via isPlausibleEmbeddedInvoiceRateCode.
+ */
+function findFirstPlausibleEmbeddedInvoiceRateCodeToken(text: string): string | null {
+  const re = /\b(\d{1,4}[A-Za-z]{1,12})\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const cand = match[1] ?? '';
+    if (isPlausibleEmbeddedInvoiceRateCode(cand)) return cand;
+  }
+  return null;
+}
+
+function stripFirstEmbeddedInvoiceRateCodeFromText(text: string, code: string): string {
+  const esc = invoiceLedgerRegexEscape(code);
+  const leadHyphen = new RegExp(`^\\s*${esc}(?:\\s*[-–—\u2013\u2014:]\\s*)`, 'i');
+  const leadSpace = new RegExp(`^\\s*${esc}\\s+`, 'i');
+  if (leadHyphen.test(text)) return text.replace(leadHyphen, '').trim();
+  if (leadSpace.test(text)) return text.replace(leadSpace, '').trim();
+  const once = new RegExp(`\\b${esc}\\b`, 'i');
+  return text.replace(once, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+function embeddedRateSplitFromSingleField(trimmed: string): { rateCode: string; remainder: string } | null {
+  const leading = splitEmbeddedInvoiceRateCode(trimmed);
+  if (leading.rateCode) {
+    return { rateCode: leading.rateCode, remainder: leading.remainder };
+  }
+  const token = findFirstPlausibleEmbeddedInvoiceRateCodeToken(trimmed);
+  if (!token) return null;
+  return {
+    rateCode: token,
+    remainder: stripFirstEmbeddedInvoiceRateCodeFromText(trimmed, token),
+  };
+}
+
+/** When the richest description cell still echoes the extracted rate (`1A- …`), drop that prefix so Rate Code owns the token. */
+function stripMatchedLeadingRatePrefixFromInvoiceDescription(
+  resolvedRateTokenForDisplay: string | undefined | null,
+  unifiedDescriptionColumn: string,
+): string {
+  const d = unifiedDescriptionColumn.trim();
+  if (!d.length) return d;
+  const r = resolvedRateTokenForDisplay?.trim();
+  if (!r || !isPlausibleEmbeddedInvoiceRateCode(r)) return d;
+
+  const parsed = splitEmbeddedInvoiceRateCode(unifiedDescriptionColumn);
+  if (parsed.rateCode && parsed.rateCode.toLowerCase() === r.toLowerCase()) {
+    const out = parsed.remainder.trim();
+    /** Odd punctuation-only remainders shouldn't blank the user's cell. */
+    return out.length > 0 ? out : d;
+  }
+  return d;
+}
+
+/** Fields that carry joined / OCR row text (not the human description column). */
+const INVOICE_LEDGER_RAW_ROW_TEXT_KEYS = new Set<string>([
+  'raw_text_for_display',
+  'rawTextForDisplay',
+  'full_row_text',
+  'fullRowText',
+  'raw_text',
+  'rawText',
+  'line_text',
+  'lineText',
+  'text',
+]);
+
+function invoiceLedgerFieldIsRawRowSource(key: string): boolean {
+  return INVOICE_LEDGER_RAW_ROW_TEXT_KEYS.has(key);
+}
+
+/**
+ * Parse embedded rate codes in **most-complete row text first** (full OCR/joined line), then fall back to
+ * description columns. Per field: leading code, then mid-string token scan (`findFirstPlausible…`).
+ */
+function invoiceLedgerEmbeddedRateSplit(
+  record: Record<string, unknown>,
+  descFallback: string,
+): { rateCode: string | null; remainder: string; matchedKey: string | null } {
+  const keys = [
+    'raw_text_for_display',
+    'rawTextForDisplay',
+    'full_row_text',
+    'fullRowText',
+    'raw_text',
+    'rawText',
+    'line_text',
+    'lineText',
+    'text',
+    'line_description',
+    'lineDescription',
+    'description',
+    'desc',
+  ] as const;
+  for (const key of keys) {
+    const v = record[key];
+    if (typeof v !== 'string') continue;
+    const trimmed = v.trim();
+    if (!trimmed) continue;
+    const embedded = embeddedRateSplitFromSingleField(trimmed);
+    if (embedded) return { ...embedded, matchedKey: key };
+  }
+  return { rateCode: null, remainder: descFallback, matchedKey: null };
+}
+
+/**
+ * Prefer explicit structured invoice rate codes (`line_code`) when they look real (digits + letters, not qty leak).
+ * Embeddings / OCR row scans are skipped for code when this returns a value.
+ */
+function pickStructuredPlausibleInvoiceLineCode(code: string | null | undefined, quantity: unknown): string | undefined {
+  if (!code) return undefined;
+  const t = code.trim();
+  if (!t || !isPlausibleEmbeddedInvoiceRateCode(t)) return undefined;
+  if (lineCodeLooksLikeQuantityLeak(t, quantity)) return undefined;
+  return t;
+}
+
+function cloneFullPersistedInvoiceLineRecordForDebug(record: Record<string, unknown>): Record<string, unknown> {
+  /** Shallow copy so logs show every persisted key without masking undefined vs missing. */
+  return { ...record };
+}
+
+/**
+ * Persisted rows often split work across `line_description` vs `description` / `desc` (one truncated, one full).
+ * Pick the longest non-trivial candidate so vegetative lines don't lose "0 to 15" / "16 to 30" tails that still
+ * live in a secondary column (Tree lines like 5A often work because only one column is populated).
+ */
+const UNIFIED_INVOICE_DESCRIPTION_STRUCTURED_KEYS = [
+  'line_description',
+  'lineDescription',
+  'description',
+  'desc',
+] as const;
+
+function isUsdScalarOrNumericOnlyStub(text: string): boolean {
+  const t = text.trim();
+  if (!t.length) return true;
+  const noComma = t.replace(/,/g, '');
+  /** "$6.90" or "534757.10" with no prose */
+  if (/^\$[\d.]+$/.test(t.replace(/\s/g, ''))) return true;
+  if (/^-?\d+(?:\.\d+)?$/.test(noComma) && !/[A-Za-z]/.test(t)) return true;
+  return false;
+}
+
+function pickUnifiedInvoiceStructuredDescription(record: Record<string, unknown>): string {
+  const candidates: string[] = [];
+  for (const key of UNIFIED_INVOICE_DESCRIPTION_STRUCTURED_KEYS) {
+    const raw = record[key];
+    if (typeof raw !== 'string') continue;
+    const v = raw.trim();
+    if (!v.length) continue;
+    if (isUsdScalarOrNumericOnlyStub(v)) continue;
+    candidates.push(v);
+  }
+  if (!candidates.length) return '';
+  candidates.sort((a, b) => b.length - a.length);
+  return candidates[0] ?? '';
+}
+
+function snapshotInvoiceLineRecordForDebug(record: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'lineCode',
+    'line_code',
+    'lineDescription',
+    'line_description',
+    'description',
+    'desc',
+    'raw_text_for_display',
+    'rawTextForDisplay',
+    'full_row_text',
+    'fullRowText',
+    'raw_text',
+    'rawText',
+    'line_text',
+    'lineText',
+    'text',
+    'billing_rate_key',
+    'billingRateKey',
+    'quantity',
+    'qty',
+    'unitPrice',
+    'unit_price',
+    'lineTotal',
+    'line_total',
+  ] as const;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (record[k] !== undefined) out[k] = record[k];
+  }
+  return out;
+}
+
+function isInvoiceLineDebugEnabled(): boolean {
+  return typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_INVOICE_LINE_DEBUG === '1';
+}
+
+export function logInvoiceLineDebug(
+  stage: string,
+  params: {
+    index?: number;
+    record: Record<string, unknown>;
+    row?: Partial<InvoiceLedgerLineDisplayRow>;
+    extra?: Record<string, unknown>;
+  },
+): void {
+  if (!isInvoiceLineDebugEnabled()) return;
+  const r = params.record;
+  console.info(`[EightForge invoice line ${stage}]`, {
+    stage,
+    index: params.index,
+    line_code: r.line_code,
+    lineCode: r.lineCode,
+    description: r.description,
+    desc: r.desc,
+    line_description: r.line_description,
+    lineDescription: r.lineDescription,
+    raw_text: r.raw_text,
+    rawText: r.rawText,
+    raw_text_for_display: r.raw_text_for_display,
+    rawTextForDisplay: r.rawTextForDisplay,
+    full_row_text: r.full_row_text,
+    fullRowText: r.fullRowText,
+    text: r.text,
+    line_text: r.line_text,
+    lineText: r.lineText,
+    quantity: r.quantity,
+    qty: r.qty,
+    unit_price: r.unit_price,
+    unitPrice: r.unitPrice,
+    line_total: r.line_total,
+    lineTotal: r.lineTotal,
+    billing_rate_key: r.billing_rate_key,
+    billingRateKey: r.billingRateKey,
+    resolvedRateCode: params.row?.rateCode,
+    resolvedDescription: params.row?.description,
+    resolvedUnitPrice: params.row?.unitPrice,
+    ...(params.extra ?? {}),
+  });
+}
+
+export type InvoiceLedgerLineDisplayRow = {
+  rateCode: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  lineTotal: string;
+};
+
+function invoiceLedgerPick(record: Record<string, unknown>, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    if (record[key] != null) return record[key];
+  }
+  return null;
+}
+
+function invoiceLedgerScalarText(value: unknown): string {
+  if (value == null) return 'Unavailable';
+  if (typeof value === 'string') return value.trim() || 'Unavailable';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'Unavailable';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return 'Unavailable';
+}
+
+function invoiceLedgerSanitizeLineText(value: string): string {
+  if (value === '[object Object]') return 'Unavailable';
+  const trimmed = value.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return 'Unavailable';
+  return value;
+}
+
+function invoiceLedgerFirstRawLineText(record: Record<string, unknown>): string | null {
+  for (const key of ['raw_text', 'rawText', 'line_text', 'lineText', 'text'] as const) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function invoiceLedgerFormatQuantity(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
+  }
+  return invoiceLedgerScalarText(value);
+}
+
+function invoiceLedgerFormatMoney(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+  }
+  if (typeof value === 'string' && value.trim()) return value;
+  return 'Unavailable';
+}
+
+/**
+ * Operator-facing row for invoice Fact Ledger / Evidence workspace line tables.
+ * Prefer embedded description rate codes; never show quantity as code; suppress competing billing_rate_key tokens.
+ */
+export function buildInvoiceLedgerLineDisplay(record: Record<string, unknown>): InvoiceLedgerLineDisplayRow {
+  const columnDescTrim = pickUnifiedInvoiceStructuredDescription(record);
+  const rawDescFallback = invoiceLedgerPick(record, ['lineDescription', 'line_description', 'description', 'desc']);
+  const split = invoiceLedgerEmbeddedRateSplit(record, columnDescTrim);
+  const lineCodeField = invoiceLedgerPick(record, ['lineCode', 'line_code', 'code', 'rate_code']);
+  const lineCodeRawString =
+    lineCodeField == null
+      ? null
+      : typeof lineCodeField === 'string'
+        ? lineCodeField
+        : typeof lineCodeField === 'number' && Number.isFinite(lineCodeField)
+          ? String(lineCodeField)
+          : null;
+  const billingKeyRaw = invoiceLedgerPick(record, ['billing_rate_key', 'billingRateKey']);
+  let codeRaw = invoiceLedgerScalarText(lineCodeField);
+  let description =
+    columnDescTrim.length > 0 ? columnDescTrim : invoiceLedgerScalarText(rawDescFallback);
+  const qtyPick = invoiceLedgerPick(record, ['quantity', 'qty']);
+  const quantity = invoiceLedgerFormatQuantity(qtyPick);
+  const looksNumericCode = /^[\d,]+(?:\.\d+)?$/.test((codeRaw === 'Unavailable' ? '' : codeRaw).trim());
+  const qtyMatchesCode =
+    looksNumericCode
+    && typeof qtyPick === 'number'
+    && Number.isFinite(qtyPick)
+    && Math.abs(Number.parseFloat(String(codeRaw).replace(/,/g, '')) - qtyPick) < 0.000_001;
+
+  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCodeRawString, qtyPick);
+
+  if (structuredResolved) {
+    codeRaw = structuredResolved;
+  } else if (split.rateCode) {
+    codeRaw = split.rateCode;
+    const rem = split.remainder.trim();
+    const pref = columnDescTrim;
+    const parsedFromRawRow =
+      split.matchedKey != null && invoiceLedgerFieldIsRawRowSource(split.matchedKey);
+
+    if (!pref.length && rem.length > 0) {
+      /** No clean description column — use fuller row-derived text when OCR joined code + qty + money into one blob. */
+      if (!parsedFromRawRow) {
+        description = rem;
+      } else {
+        description = rem;
+      }
+    }
+  } else {
+    const bk = billingKeyRaw != null ? String(billingKeyRaw).trim() : '';
+    const billingLooksLikeRateToken = /^\d+[A-Za-z]+$/.test(bk);
+    if (
+      (codeRaw === 'Unavailable' || qtyMatchesCode || looksNumericCode)
+      && billingLooksLikeRateToken
+    ) {
+      codeRaw = bk;
+    } else if (qtyMatchesCode || looksNumericCode) {
+      codeRaw = 'Unavailable';
+    }
+  }
+
+  if (columnDescTrim.length > 0) {
+    /** Unified column wins — strip echoed rate prefix when Rate Code duplicates it. */
+    const rateTokForStrip = codeRaw !== 'Unavailable' && codeRaw.trim() ? codeRaw.trim() : '';
+    description = stripMatchedLeadingRatePrefixFromInvoiceDescription(rateTokForStrip, columnDescTrim);
+  }
+
+  description = invoiceLedgerSanitizeLineText(description);
+  codeRaw = invoiceLedgerSanitizeLineText(codeRaw);
+
+  const lineTotalPick = invoiceLedgerPick(record, ['lineTotal', 'line_total', 'total', 'amount']);
+  const structuredUnitPick = invoiceLedgerPick(record, ['unitPrice', 'unit_price', 'price', 'unitRate', 'unit_rate']);
+  const resolvedUnitPrice = resolveInvoiceLineUnitPrice({
+    structuredUnitPrice: asLooseNumber(structuredUnitPick),
+    quantity: asLooseNumber(qtyPick),
+    lineTotal: asLooseNumber(lineTotalPick),
+    rawText: invoiceLedgerFirstRawLineText(record),
+  });
+
+  const row: InvoiceLedgerLineDisplayRow = {
+    rateCode: codeRaw,
+    description,
+    quantity,
+    unitPrice: invoiceLedgerFormatMoney(resolvedUnitPrice),
+    lineTotal: invoiceLedgerFormatMoney(lineTotalPick),
+  };
+
+  if (isInvoiceLineDebugEnabled()) {
+    logInvoiceLineDebug('buildInvoiceLedgerLineDisplay', {
+      record,
+      row,
+      extra: {
+        recordIn: snapshotInvoiceLineRecordForDebug(record),
+        lineTotalPick,
+        resolvedUnitPrice,
+        unitPriceDisplayed: row.unitPrice,
+      },
+    });
+  }
+
+  return row;
+}
+
+/** Same mapping as InvoiceSurface billed-line table inputs to `buildInvoiceLedgerLineDisplay` (single source for tests/UI). */
+export function invoiceSurfaceLineItemToLedgerRecord(item: Record<string, unknown>): Record<string, unknown> {
+  const r = item;
+  return {
+    lineCode: r.lineCode ?? r.line_code,
+    lineDescription: r.lineDescription ?? r.line_description,
+    line_description: r.line_description ?? r.lineDescription,
+    /** Explicit secondary columns — `buildInvoiceLedgerLineDisplay` unions these via `pickUnifiedInvoiceStructuredDescription`. */
+    description: r.description,
+    desc: r.desc,
+    quantity: r.quantity ?? r.qty,
+    unit_price: r.unitPrice ?? r.unit_price,
+    line_total: r.lineTotal ?? r.line_total,
+    billing_rate_key: r.billingRateKey ?? r.billing_rate_key,
+    raw_text: r.raw_text ?? r.rawText,
+    raw_text_for_display: r.raw_text_for_display ?? r.rawTextForDisplay,
+    full_row_text: r.full_row_text ?? r.fullRowText,
+    line_text: r.line_text ?? r.lineText,
+    text: r.text,
+  };
+}
+
+function compactNumberishToken(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return null;
+  return value.replace(/,/g, '').replace(/\s+/g, '').trim() || null;
+}
+
+function lineCodeLooksLikeQuantityLeak(code: string | null | undefined, quantity: unknown): boolean {
+  if (!code) return true;
+  const codeToken = compactNumberishToken(code.replace(/,/g, ''));
+  const qtyToken = compactNumberishToken(quantity);
+  if (!codeToken || !qtyToken) return /^\d[\d,]*(?:\.\d+)?$/.test(code.trim());
+  return codeToken === qtyToken;
+}
+
+/** Preserve raw row strings for downstream `invoiceLedgerEmbeddedRateSplit` (typed payloads often omit code in description only). */
+function passthroughInvoiceLineTextField(record: Record<string, unknown>, key: string): string | undefined {
+  const v = record[key];
+  return typeof v === 'string' ? v : undefined;
+}
+
+function passthroughInvoiceLineTextFields(record: Record<string, unknown>): Partial<Record<string, string>> {
+  const keys = ['raw_text', 'rawText', 'line_text', 'lineText', 'text'] as const;
+  const out: Partial<Record<string, string>> = {};
+  for (const key of keys) {
+    const s = passthroughInvoiceLineTextField(record, key);
+    if (s !== undefined) (out as Record<string, string>)[key] = s;
+  }
+  return out;
+}
+
+function passthroughInvoiceLineFullRowDisplayFields(record: Record<string, unknown>): Partial<Record<string, string>> {
+  const keys = ['raw_text_for_display', 'rawTextForDisplay', 'full_row_text', 'fullRowText'] as const;
+  const out: Partial<Record<string, string>> = {};
+  for (const key of keys) {
+    const s = passthroughInvoiceLineTextField(record, key);
+    if (s !== undefined) (out as Record<string, string>)[key] = s;
+  }
+  return out;
+}
+
 function normalizeInvoiceSurfaceLineItem(
   value: unknown,
+  index?: number,
 ): NonNullable<InvoiceExtraction['lineItems']>[number] | null {
   const record = asRecord(value);
   if (!record) return null;
 
+  logInvoiceLineDebug('normalizeInvoiceSurfaceLineItem input', {
+    index,
+    record: record as Record<string, unknown>,
+    extra: {
+      fullPersistedRow: cloneFullPersistedInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      unifiedDescriptionPick: pickUnifiedInvoiceStructuredDescription(record as Record<string, unknown>),
+    },
+  });
+
   const lineCode =
     readLooseString(record.line_code)
     ?? readLooseString(record.lineCode)
+    ?? readLooseString(record.code)
     ?? readLooseString(record.rate_code);
-  const lineDescription =
-    readLooseString(record.line_description)
-    ?? readLooseString(record.lineDescription)
-    ?? readLooseString(record.description);
-  const quantity = asLooseNumber(record.quantity);
+  const quantity = asLooseNumber(record.quantity ?? record.qty);
   const unit = readLooseString(record.unit);
-  const unitPrice = asLooseNumber(record.unit_price ?? record.unitPrice ?? record.rate);
   const lineTotal = asLooseNumber(record.line_total ?? record.lineTotal ?? record.total ?? record.amount);
+  const structuredUnitPrice = asLooseNumber(
+    record.unit_price
+    ?? record.unitPrice
+    ?? record.price
+    ?? record.unitRate
+    ?? record.unit_rate,
+  );
+  const rawMerged =
+    passthroughInvoiceLineTextField(record, 'raw_text')
+    ?? passthroughInvoiceLineTextField(record, 'rawText')
+    ?? passthroughInvoiceLineTextField(record, 'line_text')
+    ?? passthroughInvoiceLineTextField(record, 'lineText')
+    ?? passthroughInvoiceLineTextField(record, 'text');
+  const unitPrice = resolveInvoiceLineUnitPrice({
+    structuredUnitPrice,
+    quantity,
+    lineTotal,
+    rawText: rawMerged,
+  });
   const billingRateKey =
     readLooseString(record.billing_rate_key)
     ?? readLooseString(record.billingRateKey);
@@ -4207,9 +5164,33 @@ function normalizeInvoiceSurfaceLineItem(
     readLooseString(record.description_match_key)
     ?? readLooseString(record.descriptionMatchKey);
 
+  const unifiedDescTrim = pickUnifiedInvoiceStructuredDescription(record as Record<string, unknown>);
+  const embedded = invoiceLedgerEmbeddedRateSplit(record as Record<string, unknown>, unifiedDescTrim);
+  const codeCapturedAsQty = lineCodeLooksLikeQuantityLeak(lineCode, quantity);
+  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCode, quantity);
+
+  let resolvedCode: string | undefined;
+  let lineDescriptionOut = unifiedDescTrim;
+
+  if (structuredResolved) {
+    resolvedCode = structuredResolved;
+  } else if (embedded.rateCode) {
+    resolvedCode = embedded.rateCode;
+    if (!unifiedDescTrim.length) {
+      const rem = embedded.remainder.trim();
+      /** No structured prose cells — OCR remainder is the best available narrative text. */
+      if (rem.length > 0) lineDescriptionOut = rem;
+    }
+  } else if (codeCapturedAsQty) {
+    resolvedCode = undefined;
+  } else if (lineCode?.trim()) {
+    const lc = lineCode.trim();
+    if (!codeCapturedAsQty && isPlausibleEmbeddedInvoiceRateCode(lc)) resolvedCode = lc;
+  }
+
   if (
-    !lineCode
-    && !lineDescription
+    !lineDescriptionOut
+    && !resolvedCode
     && quantity == null
     && unitPrice == null
     && lineTotal == null
@@ -4217,21 +5198,54 @@ function normalizeInvoiceSurfaceLineItem(
     return null;
   }
 
-  return {
-    lineCode: lineCode ?? undefined,
-    lineDescription: lineDescription ?? undefined,
+  let outboundBillingRateKey = billingRateKey ?? undefined;
+  const suppressBillingAgainst = resolvedCode;
+  if (suppressBillingAgainst && outboundBillingRateKey) {
+    const bk = outboundBillingRateKey.trim();
+    if (/^\d+[A-Za-z]+$/.test(bk)) {
+      outboundBillingRateKey = undefined;
+    } else if (bk.toLowerCase() === suppressBillingAgainst.toLowerCase()) {
+      outboundBillingRateKey = undefined;
+    }
+  }
+
+  const rateForStrip = resolvedCode && resolvedCode.trim() ? resolvedCode.trim() : '';
+  lineDescriptionOut = stripMatchedLeadingRatePrefixFromInvoiceDescription(rateForStrip, lineDescriptionOut);
+
+  const out: NonNullable<InvoiceExtraction['lineItems']>[number] = {
+    lineCode: resolvedCode,
+    lineDescription: lineDescriptionOut || undefined,
     quantity: quantity ?? undefined,
     unit: unit ?? undefined,
     unitPrice: unitPrice ?? undefined,
     lineTotal: lineTotal ?? undefined,
-    billingRateKey: billingRateKey ?? undefined,
+    billingRateKey: outboundBillingRateKey ?? undefined,
     descriptionMatchKey: descriptionMatchKey ?? undefined,
+    ...passthroughInvoiceLineTextFields(record),
+    ...passthroughInvoiceLineFullRowDisplayFields(record),
   };
+
+  logInvoiceLineDebug('normalized invoice extraction lineItems', {
+    index,
+    record: out as Record<string, unknown>,
+    row: {
+      rateCode: out.lineCode ?? 'Unavailable',
+      description: out.lineDescription ?? 'Unavailable',
+      unitPrice: out.unitPrice != null ? invoiceLedgerFormatMoney(out.unitPrice) : undefined,
+    },
+    extra: {
+      recordIn: snapshotInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      normalizedOut: { ...out },
+    },
+  });
+
+  return out;
 }
 
 function toInvoiceSurfaceExtraction(params: {
   typedFields: Record<string, unknown>;
   extracted: Record<string, unknown>;
+  extractionData?: Record<string, unknown> | null;
 }): InvoiceExtraction | null {
   const source = {
     ...params.extracted,
@@ -4262,9 +5276,10 @@ function toInvoiceSurfaceExtraction(params: {
   const periodThrough =
     readLooseString(source.period_through)
     ?? readLooseString(source.periodThrough);
-  const vendorName =
+  const vendorNameRaw =
     readLooseString(source.vendor_name)
     ?? readLooseString(source.contractorName);
+  const vendorName = normalizeInvoiceContractorDisplay(vendorNameRaw) ?? vendorNameRaw ?? null;
   const clientName =
     readLooseString(source.client_name)
     ?? readLooseString(source.clientName)
@@ -4284,8 +5299,25 @@ function toInvoiceSurfaceExtraction(params: {
     ?? asLooseNumber(source.currentPaymentDue)
     ?? totalAmount;
 
-  const lineItems = asArray<unknown>(source.line_items ?? source.lineItems)
-    .map((line) => normalizeInvoiceSurfaceLineItem(line))
+  const persistedLineItems = asArray<unknown>(source.line_items ?? source.lineItems);
+  persistedLineItems.forEach((line, index) => {
+    const record = asRecord(line);
+    if (!record) return;
+    logInvoiceLineDebug('document_extractions.data.fields.typed_fields.line_items', {
+      index,
+      record: record as Record<string, unknown>,
+      extra: {
+        fullPersistedRow: cloneFullPersistedInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      },
+    });
+  });
+
+  const lineItemSource = recoverInvoiceLineItemsFromExtractionData({
+    lineItems: persistedLineItems,
+    extractionData: params.extractionData,
+  });
+  const lineItems = lineItemSource
+    .map((line, index) => normalizeInvoiceSurfaceLineItem(line, index))
     .filter((line): line is NonNullable<InvoiceExtraction['lineItems']>[number] => line != null);
   const lineItemCount =
     asLooseNumber(source.line_item_count)
@@ -4334,16 +5366,30 @@ function toInvoiceSurfaceExtraction(params: {
     lineItemCount: lineItemCount ?? undefined,
     line_item_count: lineItemCount ?? null,
     lineItems,
-    line_items: lineItems.map((line) => ({
-      line_code: line.lineCode ?? null,
-      line_description: line.lineDescription ?? null,
-      quantity: line.quantity ?? null,
-      unit: line.unit ?? null,
-      unit_price: line.unitPrice ?? null,
-      line_total: line.lineTotal ?? null,
-      billing_rate_key: line.billingRateKey ?? null,
-      description_match_key: line.descriptionMatchKey ?? null,
-    })),
+    line_items: lineItems.map((line) => {
+      const l = line as Record<string, unknown>;
+      return {
+        line_code: line.lineCode ?? null,
+        line_description: line.lineDescription ?? null,
+        quantity: line.quantity ?? null,
+        unit: line.unit ?? null,
+        unit_price: line.unitPrice ?? null,
+        line_total: line.lineTotal ?? null,
+        billing_rate_key: line.billingRateKey ?? null,
+        description_match_key: line.descriptionMatchKey ?? null,
+        raw_text: passthroughInvoiceLineTextField(l, 'raw_text') ?? passthroughInvoiceLineTextField(l, 'rawText') ?? null,
+        raw_text_for_display:
+          passthroughInvoiceLineTextField(l, 'raw_text_for_display')
+          ?? passthroughInvoiceLineTextField(l, 'rawTextForDisplay')
+          ?? null,
+        full_row_text:
+          passthroughInvoiceLineTextField(l, 'full_row_text')
+          ?? passthroughInvoiceLineTextField(l, 'fullRowText')
+          ?? null,
+        line_text: passthroughInvoiceLineTextField(l, 'line_text') ?? passthroughInvoiceLineTextField(l, 'lineText') ?? null,
+        text: passthroughInvoiceLineTextField(l, 'text') ?? null,
+      };
+    }),
   };
 }
 
@@ -4370,7 +5416,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   const structuredFields = asRecord(asRecord(extraction?.evidence_v1)?.structured_fields) ?? {};
   const sectionSignals = asRecord(asRecord(extraction?.evidence_v1)?.section_signals) ?? {};
   const traceFacts = params.executionTrace?.facts ?? {};
-  const extracted = params.executionTrace?.extracted ?? {};
+  const traceExtracted = params.executionTrace?.extracted ?? {};
   const extractionVersion =
     params.executionTrace?.engine_version ??
     (typeof asRecord(extraction?.evidence_v1)?.parser_version === 'string'
@@ -4388,6 +5434,10 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     relatedDocs: params.relatedDocs,
   });
   const normalizedNode = normalizeNode(extractedNode);
+  const extracted = {
+    ...normalizedNode.extracted,
+    ...traceExtracted,
+  };
   const primaryDocument = applyContractorIdentityResolutionToNormalizedDocument(normalizedNode.primaryDocument);
   const relatedDocuments = normalizedNode.relatedDocuments.map(applyContractorIdentityResolutionToNormalizedDocument);
   const normalizedNodeForFacts = {
@@ -4436,6 +5486,18 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     let normalizedDisplay = formatFactValue(fact.value, valueType);
     if (ratePriceNoOverallCeiling) {
       normalizedDisplay = contractCeilingSummary('rate_based');
+    } else if (family === 'invoice') {
+      const canon = canonicalFieldKey(fact.key, family);
+      if (canon === 'contractor_name' || fact.key === 'vendor_name') {
+        const coerced = normalizeInvoiceContractorDisplay(
+          typeof fact.value === 'string'
+            ? fact.value
+            : fact.value != null
+              ? scalarToString(fact.value)
+              : null,
+        );
+        if (coerced) normalizedDisplay = coerced;
+      }
     }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
@@ -4494,10 +5556,18 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
 
     const machineSource = fact.identity_resolution_source_value;
     if (typeof machineSource === 'string' && machineSource.trim().length > 0) {
+      let machineDisplay = formatFactValue(machineSource, valueType);
+      if (family === 'invoice') {
+        const canon = canonicalFieldKey(fact.key, family);
+        if (canon === 'contractor_name' || fact.key === 'vendor_name') {
+          const display = normalizeInvoiceContractorDisplay(machineSource);
+          if (display) machineDisplay = display;
+        }
+      }
       return {
         ...baseFact,
         machineValue: machineSource,
-        machineDisplay: formatFactValue(machineSource, valueType),
+        machineDisplay,
       };
     }
 
@@ -4571,7 +5641,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     anchorRecord: humanRateScheduleAnchorRecord,
   });
 
-  const facts = rateScheduleOverlay.facts.sort((left, right) => {
+  const facts = filterDisplayFactsForFamily(rateScheduleOverlay.facts, family).sort((left, right) => {
     const leftGroup = resolveSchemaGroup(family, left.fieldKey);
     const rightGroup = resolveSchemaGroup(family, right.fieldKey);
     if (leftGroup.order !== rightGroup.order) return leftGroup.order - rightGroup.order;
@@ -4635,6 +5705,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     facts,
   });
   const schema = schemaStatus(facts);
+  const sourceTextPages = buildSourceTextPages(extractionData);
 
   const anchorCoverage = computeAnchorCoverage(facts);
 
@@ -4645,6 +5716,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       ? toInvoiceSurfaceExtraction({
           typedFields,
           extracted,
+          extractionData,
         })
       : null;
   const preferredTransactionDataExtraction: TransactionDataExtraction | null =
@@ -4699,6 +5771,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     parserStatus: parser,
     schemaMappingStatus: schema,
     sourceModeLabel: sourceMode,
+    sourceTextPages,
     rateScheduleSource: rateScheduleOverlay.rateScheduleSource,
     rateSchedulePages: rateScheduleOverlay.rateSchedulePages,
     rateScheduleAnchor: rateScheduleOverlay.rateScheduleAnchor,
@@ -4710,6 +5783,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       extractionData,
       extractionHistory: params.extractionHistory,
       executionTrace: params.executionTrace,
+      extracted,
       groups,
       facts,
       auditNotes: params.auditNotes,

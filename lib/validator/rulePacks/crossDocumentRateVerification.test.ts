@@ -169,6 +169,48 @@ describe('cross document rate verification', () => {
     assert.equal(result.summary.validation_units[0]?.comparison_status, 'match');
   });
 
+  it('matches invoice 2026-002 line 1F to the contract row by rate code and unit price without using quantity', () => {
+    const description = 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30';
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:1F',
+          rateCode: '1F',
+          description,
+          sourceCategory: 'Vegetative',
+          rate: 14.5,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'invoice-line-2026-002-1F',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1F',
+        description,
+        unit_price: 14.5,
+        quantity: 916,
+        line_total: 13282,
+      }],
+      mobileTickets: [{
+        id: 'mobile:2026-002-1F',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        material: 'Vegetative',
+        quantity_cyd: 916,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.findings.length, 0);
+    assert.equal(result.summary.matched_units, 1);
+    assert.equal(result.summary.missing_contract_rate_units, 0);
+    assert.equal(result.summary.validation_units[0]?.invoice_number, '2026-002');
+    assert.equal(result.summary.validation_units[0]?.invoice_rate, 14.5);
+    assert.equal(result.summary.validation_units[0]?.contract_rate, 14.5);
+    assert.equal(result.summary.validation_units[0]?.comparison_status, 'match');
+  });
+
   it('detects invoice rate mismatches against contract truth while mobile unit support maps by service item', () => {
     const input = buildInput({
       rateScheduleItems: [

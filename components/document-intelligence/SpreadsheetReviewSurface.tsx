@@ -72,13 +72,13 @@ function invoicedTransactionCount(dataset: SpreadsheetReviewDataset): number {
 
 function reviewLabelValueRows(rows: Array<{ label: string; value: string }>) {
   if (rows.length === 0) {
-    return <p className="px-4 py-3 text-sm text-[#8FA1BC]">No rows available.</p>;
+    return <p className="px-4 py-3 text-sm text-[var(--ef-text-soft)]">No rows available.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+        <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
           <tr>
             <th className="px-4 py-3 font-semibold">Label</th>
             <th className="px-4 py-3 font-semibold">Value</th>
@@ -87,8 +87,8 @@ function reviewLabelValueRows(rows: Array<{ label: string; value: string }>) {
         <tbody>
           {rows.map((row) => (
             <tr key={row.label} className="border-t border-white/8">
-              <td className="px-4 py-3 text-[#E5EDF7]">{row.label}</td>
-              <td className="px-4 py-3 text-[#F5F7FA]">{row.value}</td>
+              <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.label}</td>
+              <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.value}</td>
             </tr>
           ))}
         </tbody>
@@ -158,17 +158,17 @@ function RecordEvidencePanel(props: {
 
   if (!record) {
     return (
-      <section className="overflow-hidden rounded-3xl border border-amber-300/30 bg-amber-300/10">
-        <div className="border-b border-amber-200/15 px-5 py-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-100">
+      <section className="overflow-hidden rounded-3xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)]">
+        <div className="border-b border-[var(--ef-warning-a20)] px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-warning-soft)]">
             Evidence Target Missing
           </p>
-          <h3 className="mt-2 text-lg font-semibold text-amber-50">Exact spreadsheet row unavailable</h3>
-          <p className="mt-1 text-[12px] text-amber-100/85">
+          <h3 className="mt-2 text-lg font-semibold text-[var(--ef-text-primary)]">Exact spreadsheet row unavailable</h3>
+          <p className="mt-1 text-[12px] text-[var(--ef-warning-soft)]">
             Validator linked record <span className="font-mono">{selectedRecordId}</span>, but this spreadsheet view no longer contains that row.
           </p>
         </div>
-        <div className="space-y-3 px-5 py-4 text-sm text-amber-50">
+        <div className="space-y-3 px-5 py-4 text-sm text-[var(--ef-text-primary)]">
           <p>
             The evidence link is not a dead end anymore: the exact row target is missing, so the operator should reopen the linked decision or validator and confirm whether the canonical dataset changed.
           </p>
@@ -176,7 +176,7 @@ function RecordEvidencePanel(props: {
             {decisionContextHref ? (
               <Link
                 href={decisionContextHref}
-                className="rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-50 hover:bg-amber-200/15"
+                className="rounded-xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-text-primary)] hover:bg-[var(--ef-warning-a18)]"
               >
                 Return to decision
               </Link>
@@ -184,7 +184,7 @@ function RecordEvidencePanel(props: {
             {validatorHref ? (
               <Link
                 href={validatorHref}
-                className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-50 hover:bg-white/[0.05]"
+                className="rounded-xl border border-[var(--ef-border-white-10)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-text-primary)] hover:bg-white/[0.05]"
               >
                 Open validator
               </Link>
@@ -211,13 +211,13 @@ function RecordEvidencePanel(props: {
   ];
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+    <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">
           {recordContextLabel(navigationAction)}
         </p>
-        <h3 className="mt-2 text-lg font-semibold text-[#F5F7FA]">Spreadsheet row {record.id}</h3>
-        <p className="mt-1 text-[12px] text-[#8FA1BC]">
+        <h3 className="mt-2 text-lg font-semibold text-[var(--ef-text-primary)]">Spreadsheet row {record.id}</h3>
+        <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
           {recordContextDescription(navigationAction)}
         </p>
       </div>
@@ -226,7 +226,7 @@ function RecordEvidencePanel(props: {
           {decisionContextHref ? (
             <Link
               href={decisionContextHref}
-              className="rounded-xl border border-[#3A6BB8] bg-[#0E1D35] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#93C5FD] hover:bg-[#122544]"
+              className="rounded-xl border border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-purple-glow)] hover:bg-[var(--ef-purple-primary-a16)]"
             >
               Return to decision
             </Link>
@@ -234,7 +234,7 @@ function RecordEvidencePanel(props: {
           {validatorHref ? (
             <Link
               href={validatorHref}
-              className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#D9E3F3] hover:bg-white/[0.06]"
+              className="rounded-xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-text-secondary)] hover:bg-white/[0.06]"
             >
               Open validator
             </Link>
@@ -283,9 +283,9 @@ function kpiCards(params: {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {cards.map((card) => (
-        <div key={card.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">{card.label}</p>
-          <p className="mt-2 text-base font-semibold text-[#F5F7FA]">{card.value}</p>
+        <div key={card.label} className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">{card.label}</p>
+          <p className="mt-2 text-base font-semibold text-[var(--ef-text-primary)]">{card.value}</p>
         </div>
       ))}
     </div>
@@ -299,11 +299,11 @@ function ReviewSection(props: {
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+    <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">{props.eyebrow}</p>
-        <h3 className="mt-2 text-lg font-semibold text-[#F5F7FA]">{props.title}</h3>
-        <p className="mt-1 text-[12px] text-[#8FA1BC]">{props.description}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">{props.eyebrow}</p>
+        <h3 className="mt-2 text-lg font-semibold text-[var(--ef-text-primary)]">{props.title}</h3>
+        <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">{props.description}</p>
       </div>
       <div className="space-y-4 px-5 py-4">
         {props.children}
@@ -344,20 +344,20 @@ export function SpreadsheetReviewSurface({
         />
       ) : null}
 
-      <section className="overflow-hidden rounded-3xl border border-[#2A3550] bg-[#08101D]">
+      <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
         <div className="border-b border-white/8 px-5 py-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7FA6FF]">Daily Review</p>
-          <h3 className="mt-2 text-lg font-semibold text-[#F5F7FA]">Project Validator Launcher</h3>
-          <p className="mt-1 text-[12px] text-[#8FA1BC]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">Daily Review</p>
+          <h3 className="mt-2 text-lg font-semibold text-[var(--ef-text-primary)]">Project Validator Launcher</h3>
+          <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
             Launch the standalone validator for project-level review.
           </p>
         </div>
         <div className="px-5 py-4">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7F90AA]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
               Project Validator
             </p>
-            <p className="mt-1 text-sm text-[#C8D5E6]">
+            <p className="mt-1 text-sm text-[var(--ef-text-secondary)]">
               Validator remains standalone and does not alter EightForge extraction truth.
             </p>
             {projectValidatorHref ? (
@@ -365,12 +365,12 @@ export function SpreadsheetReviewSurface({
                 href={projectValidatorHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center rounded-xl border border-[#3A6BB8] bg-[#0E1D35] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#93C5FD] hover:bg-[#122544]"
+                className="mt-3 inline-flex items-center rounded-xl border border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-purple-glow)] hover:bg-[var(--ef-purple-primary-a16)]"
               >
                 Open Project Validator
               </Link>
             ) : (
-              <span className="mt-3 inline-flex items-center rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#7F90AA]">
+              <span className="mt-3 inline-flex items-center rounded-xl border border-[var(--ef-border-white-10)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ef-text-soft)]">
                 Validator URL unavailable
               </span>
             )}
@@ -392,13 +392,13 @@ export function SpreadsheetReviewSurface({
         description="Shows where debris moved, what site types received it, which materials drove project volume and cost, and what service work shaped the operational mix."
       >
         {dataset.disposalSiteRows.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">By Disposal Site</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">By Disposal Site</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Disposal Site</th>
                     <th className="px-4 py-3 font-semibold">{PROJECT_TERM_UNIQUE_TICKET_NUMBERS}</th>
@@ -413,14 +413,14 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.disposalSiteRows.map((row) => (
                     <tr key={row.label} className="border-t border-white/8">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.label}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.eligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ineligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatQuantity(row.volume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalVolume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amount)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalCost)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.label}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.eligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ineligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatQuantity(row.volume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalVolume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalCost)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -430,13 +430,13 @@ export function SpreadsheetReviewSurface({
         ) : null}
 
         {dataset.siteTypeRows.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">By Site Type</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">By Site Type</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Site Type</th>
                     <th className="px-4 py-3 font-semibold">{PROJECT_TERM_UNIQUE_TICKET_NUMBERS}</th>
@@ -451,14 +451,14 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.siteTypeRows.map((row) => (
                     <tr key={row.label} className="border-t border-white/8">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.label}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.eligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ineligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatQuantity(row.volume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalVolume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amount)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalCost)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.label}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.eligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ineligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatQuantity(row.volume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalVolume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalCost)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -468,13 +468,13 @@ export function SpreadsheetReviewSurface({
         ) : null}
 
         {dataset.materialRows.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">By Material</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">By Material</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Material</th>
                     <th className="px-4 py-3 font-semibold">{PROJECT_TERM_UNIQUE_TICKET_NUMBERS}</th>
@@ -489,14 +489,14 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.materialRows.map((row) => (
                     <tr key={row.label} className="border-t border-white/8">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.label}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.eligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ineligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatQuantity(row.volume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalVolume)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amount)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalCost)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.label}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.eligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ineligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatQuantity(row.volume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalVolume)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalCost)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -506,13 +506,13 @@ export function SpreadsheetReviewSurface({
         ) : null}
 
         {dataset.serviceItemRows.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">By Service Item</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">By Service Item</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Service Item</th>
                     <th className="px-4 py-3 font-semibold">{PROJECT_TERM_UNIQUE_TICKET_NUMBERS}</th>
@@ -526,13 +526,13 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.serviceItemRows.map((row, index) => (
                     <tr key={`${row.serviceItem}-${index}`} className="border-t border-white/8">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.serviceItem}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.eligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ineligibleTickets)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatQuantity(row.diameterUnits)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amount)}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatPercent(row.percentOfTotalServiceCost)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.serviceItem}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.eligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ineligibleTickets)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatQuantity(row.diameterUnits)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatPercent(row.percentOfTotalServiceCost)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -548,13 +548,13 @@ export function SpreadsheetReviewSurface({
         description="Shows which rate codes are driving billed activity and project cost."
       >
         {dataset.rateCodeRows.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">By Rate Code / Description</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">By Rate Code / Description</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Rate Code</th>
                     <th className="px-4 py-3 font-semibold">Description</th>
@@ -565,10 +565,10 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.rateCodeRows.map((row, index) => (
                     <tr key={`${row.rateCode ?? row.description ?? 'rate'}-${index}`} className="border-t border-white/8">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.rateCode ?? 'Unspecified'}</td>
-                      <td className="px-4 py-3 text-[#C8D5E6]">{row.description ?? EM_DASH}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.rateCode ?? 'Unspecified'}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-secondary)]">{row.description ?? EM_DASH}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -596,26 +596,26 @@ export function SpreadsheetReviewSurface({
                 value: formatCurrency(dataset.riskSummary.estimatedAmountAtRisk),
               },
             ].map((card) => (
-              <div key={card.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">{card.label}</p>
-                <p className="mt-2 text-base font-semibold text-[#F5F7FA]">{card.value}</p>
+              <div key={card.label} className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">{card.label}</p>
+                <p className="mt-2 text-base font-semibold text-[var(--ef-text-primary)]">{card.value}</p>
               </div>
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100">
+          <div className="rounded-2xl border border-[var(--ef-success-a20)] bg-[var(--ef-success-bg)] px-4 py-3 text-sm text-[var(--ef-success-soft)]">
             No project-level risk categories are currently surfaced from spreadsheet review.
           </div>
         )}
 
         {dataset.groupedRiskIssues.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">Grouped Issue Categories</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">Grouped Issue Categories</h4>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#111A2A] text-[11px] uppercase tracking-[0.14em] text-[#7F90AA]">
+                <thead className="bg-[var(--ef-background-secondary)] text-[11px] uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Issue Type</th>
                     <th className="px-4 py-3 font-semibold">Severity</th>
@@ -630,14 +630,14 @@ export function SpreadsheetReviewSurface({
                 <tbody>
                   {dataset.groupedRiskIssues.map((row) => (
                     <tr key={row.issueType} className="border-t border-white/8 align-top">
-                      <td className="px-4 py-3 text-[#E5EDF7]">{row.issueType}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{row.severity}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.ticketCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#C8D5E6]">{row.affectedTicketPreview ?? EM_DASH}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatInteger(row.invoiceCount, '0')}</td>
-                      <td className="px-4 py-3 text-[#F5F7FA]">{formatCurrency(row.amountImpact)}</td>
-                      <td className="px-4 py-3 text-[#C8D5E6]">{row.whyItMatters}</td>
-                      <td className="px-4 py-3 text-[#C8D5E6]">{row.actionNeeded}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.issueType}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{row.severity}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.ticketCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-secondary)]">{row.affectedTicketPreview ?? EM_DASH}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatInteger(row.invoiceCount, '0')}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-primary)]">{formatCurrency(row.amountImpact)}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-secondary)]">{row.whyItMatters}</td>
+                      <td className="px-4 py-3 text-[var(--ef-text-secondary)]">{row.actionNeeded}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -653,9 +653,9 @@ export function SpreadsheetReviewSurface({
         description="Summarizes whether the current invoice set looks ready, partial, or still needs review."
       >
         {dataset.invoiceReadinessSummary ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02]">
             <div className="border-b border-white/8 px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#E5EDF7]">Invoice Readiness</h4>
+              <h4 className="text-sm font-semibold text-[var(--ef-text-primary)]">Invoice Readiness</h4>
             </div>
             <div className="space-y-3 p-4">
               {reviewLabelValueRows([
@@ -690,14 +690,14 @@ export function SpreadsheetReviewSurface({
                 },
               ])}
               {dataset.invoiceReadinessSummary.blocking_reasons.length > 0 ? (
-                <div className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">
+                <div className="rounded-xl border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-sm text-[var(--ef-warning-soft)]">
                   {dataset.invoiceReadinessSummary.blocking_reasons.join(' | ')}
                 </div>
               ) : null}
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-[#8FA1BC]">
+          <div className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.02] px-4 py-3 text-sm text-[var(--ef-text-soft)]">
             Invoice readiness is not yet available for this spreadsheet.
           </div>
         )}

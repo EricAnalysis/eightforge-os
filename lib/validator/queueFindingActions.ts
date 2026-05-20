@@ -43,6 +43,7 @@ const PROJECT_VALIDATOR_FALLBACK_ANCHOR = '#project-validator';
 export const QUEUE_FINDING_RULE_IDS = [
   'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE',
   'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+  'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
   'TRANSACTION_QUANTITY_MATCHES_INVOICE',
   'TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE',
   'INVOICE_DUPLICATE_BILLED_LINE',
@@ -363,6 +364,7 @@ function buildTitle(
         ? `Rate ${rateKey} does not match contract rate`
         : `Invoice line rate does not match contract rate`;
     case 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT':
+    case 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS':
       return rateKey
         ? `Rate ${rateKey} has no contract rate match`
         : `Invoice line has no contract rate match`;
@@ -393,6 +395,7 @@ function buildNextStep(
     case 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE':
       return 'Review contract rate schedule';
     case 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT':
+    case 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS':
       return rateKey
         ? `Review contract rate schedule for ${rateKey}`
         : 'Review contract rate schedule';
@@ -448,6 +451,18 @@ function buildExpectedActualValues(
   expectedNumeric: number | null;
   actualNumeric: number | null;
 } {
+  if (
+    finding.rule_id === 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS'
+    || finding.rule_id === 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT'
+  ) {
+    return {
+      expectedValue: 'Confirmed contract schedule row for this billed line',
+      actualValue: 'No confident contract rate-row match found',
+      expectedNumeric: null,
+      actualNumeric: null,
+    };
+  }
+
   const expectedNumeric = parseNumber(finding.expected);
   const actualNumeric = parseNumber(finding.actual);
 

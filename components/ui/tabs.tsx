@@ -51,7 +51,7 @@ export function TabsList({ className, ...props }: HTMLAttributes<HTMLDivElement>
   return (
     <div
       role="tablist"
-      className={`flex rounded-xl border border-[#2F3B52]/80 bg-[#0F1728] p-1 ${className ?? ''}`}
+      className={`flex rounded-xl border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] p-1 ${className ?? ''}`}
       {...props}
     />
   );
@@ -73,8 +73,8 @@ export function TabsTrigger({ value, className, children, ...props }: TabsTrigge
       onClick={() => ctx.setValue(value)}
       className={`flex-1 rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] transition ${
         active
-          ? 'bg-[#1A2333] text-[#E5EDF7]'
-          : 'text-[#94A3B8] hover:text-[#E5EDF7]'
+          ? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-primary)]'
+          : 'text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]'
       } ${className ?? ''}`}
       {...props}
     >

@@ -32,6 +32,12 @@ import {
   buildPdfTextExtraction,
   computeLayoutPlainCombinedText,
 } from '@/lib/extraction/pdf/extractText';
+import {
+  mergeOcrFallbackLayout,
+  type OcrGeometryPage,
+  type OcrGeometryWord,
+  type OcrLayoutDiagnostics,
+} from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPdfTableExtraction } from '@/lib/extraction/pdf/extractTables';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
@@ -837,6 +843,16 @@ function combinePageTextEvidence(
   return combined.length > 0 ? combined : null;
 }
 
+function mergeOcrGeometryPages(
+  existing: OcrGeometryPage[],
+  incoming: OcrGeometryPage[],
+): OcrGeometryPage[] {
+  const byPage = new Map<number, OcrGeometryPage>();
+  for (const page of existing) byPage.set(page.page_number, page);
+  for (const page of incoming) byPage.set(page.page_number, page);
+  return Array.from(byPage.values()).sort((left, right) => left.page_number - right.page_number);
+}
+
 /**
  * Minimal OCR recovery for weak contract-like PDFs.
  * Runs whole-page OCR only after the existing weak PDF gate has fired so
@@ -844,9 +860,57 @@ function combinePageTextEvidence(
  */
 type PdfOcrExtractionResult = {
   pages: PageTextEvidence[] | null;
+  geometryPages: OcrGeometryPage[];
   pagesAttempted: number;
   confidenceAvg: number | null;
 };
+
+function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
+  const blocks = (data as { blocks?: unknown })?.blocks;
+  if (!Array.isArray(blocks)) return [];
+  const words: OcrGeometryWord[] = [];
+
+  for (const block of blocks) {
+    const paragraphs = (block as { paragraphs?: unknown })?.paragraphs;
+    if (!Array.isArray(paragraphs)) continue;
+    for (const paragraph of paragraphs) {
+      const lines = (paragraph as { lines?: unknown })?.lines;
+      if (!Array.isArray(lines)) continue;
+      for (const line of lines) {
+        const lineWords = (line as { words?: unknown })?.words;
+        if (!Array.isArray(lineWords)) continue;
+        for (const word of lineWords) {
+          const text = (word as { text?: unknown }).text;
+          const bbox = (word as { bbox?: unknown }).bbox;
+          const confidence = (word as { confidence?: unknown }).confidence;
+          const box = bbox as { x0?: unknown; y0?: unknown; x1?: unknown; y1?: unknown } | null;
+          if (
+            typeof text !== 'string' ||
+            !box ||
+            typeof box.x0 !== 'number' ||
+            typeof box.y0 !== 'number' ||
+            typeof box.x1 !== 'number' ||
+            typeof box.y1 !== 'number'
+          ) {
+            continue;
+          }
+          words.push({
+            text,
+            confidence: typeof confidence === 'number' ? confidence : null,
+            bbox: {
+              x0: box.x0,
+              y0: box.y0,
+              x1: box.x1,
+              y1: box.y1,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  return words;
+}
 
 async function extractPdfPageTextViaOcr(
   bytes: ArrayBuffer,
@@ -854,6 +918,7 @@ async function extractPdfPageTextViaOcr(
 ): Promise<PdfOcrExtractionResult> {
   const fallbackResult: PdfOcrExtractionResult = {
     pages: null,
+    geometryPages: [],
     pagesAttempted: 0,
     confidenceAvg: null,
   };
@@ -877,6 +942,7 @@ async function extractPdfPageTextViaOcr(
     try {
       await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
       const out: PageTextEvidence[] = [];
+      const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];
 
       for (const pageNum of pagesToRender) {
@@ -892,9 +958,14 @@ async function extractPdfPageTextViaOcr(
         };
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
-        const result = await worker.recognize(pngBuffer);
+        const result = await worker.recognize(
+          pngBuffer,
+          {},
+          { text: true, blocks: true },
+        );
         const text = result?.data?.text;
         const confidence = result?.data?.confidence;
+        const words = extractOcrGeometryWords(result?.data);
 
         if (typeof confidence === 'number' && Number.isFinite(confidence)) {
           confidences.push(confidence);
@@ -906,10 +977,19 @@ async function extractPdfPageTextViaOcr(
             source_method: 'ocr' as EvidenceSourceMethod,
           });
         }
+        if (words.length > 0) {
+          geometryPages.push({
+            page_number: pageNum,
+            width: Math.floor(viewport.width),
+            height: Math.floor(viewport.height),
+            words,
+          });
+        }
       }
 
       return {
         pages: out.length > 0 ? out : null,
+        geometryPages,
         pagesAttempted: pagesToRender.length,
         confidenceAvg:
           confidences.length > 0
@@ -1011,6 +1091,7 @@ function applyPdfContentLayers(
     forms: ReturnType<typeof buildPdfFormExtraction>;
     pdfEvidenceLayer: ReturnType<typeof buildPdfEvidenceMap>;
     parsedElementsLayer?: ParsedElementsV1 | null;
+    layoutDiagnostics?: OcrLayoutDiagnostics | null;
   },
 ): void {
   const parsedElementEvidence =
@@ -1044,6 +1125,7 @@ function applyPdfContentLayers(
       evidence,
       confidence: params.pdfEvidenceLayer.confidence,
       gaps,
+      layout_diagnostics: params.layoutDiagnostics ?? null,
     },
   };
 }
@@ -1252,6 +1334,7 @@ export async function extractDocument(
     let ocrPagesAttempted = 0;
     let ocrConfidenceAvg: number | null = null;
     let ocrTriggerReason: string | null = null;
+    let ocrGeometryPages: OcrGeometryPage[] = [];
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1343,6 +1426,7 @@ export async function extractDocument(
 
       const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
       const ocrPages = ocrResult.pages;
+      ocrGeometryPages = ocrResult.geometryPages;
       const extractedTextOcr = combinePageTextEvidence(ocrPages);
       const ocrLen = extractedTextOcr?.length ?? 0;
       ocrCombinedTextLength = ocrLen;
@@ -1396,6 +1480,7 @@ export async function extractDocument(
           pageNumbers: weakFrontPages,
         });
         const ocrPages = ocrResult.pages;
+        ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1437,6 +1522,7 @@ export async function extractDocument(
           pageNumbers: [1, 2, 8, 9, 10, 11],
         });
         const ocrPages = ocrResult.pages;
+        ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1475,18 +1561,26 @@ export async function extractDocument(
       layout_pages_parsed: pdfLayout.pages.length,
       layout_gaps: pdfLayout.gaps.map((g) => ({ id: g.id, category: g.category, severity: g.severity })),
     });
+    const ocrLayoutMerge = mergeOcrFallbackLayout({
+      nativeLayout: pdfLayout,
+      ocrPages: ocrGeometryPages,
+      ocrTextPageNumbers: evidencePageText
+        .filter((page) => page.source_method === 'ocr')
+        .map((page) => page.page_number),
+    });
+    const structuredLayout = ocrLayoutMerge.layout;
     const pdfTextLayer = buildPdfTextExtraction({
-      layout: pdfLayout,
+      layout: structuredLayout,
       fallbackText: extractedText ?? textPreview ?? null,
       fallbackPages: evidencePageText,
     });
-    const layoutLineKindCounts = countPdfLayoutLinesByKind(pdfLayout);
-    const layoutPlainCombinedLength = computeLayoutPlainCombinedText(pdfLayout).length;
+    const layoutLineKindCounts = countPdfLayoutLinesByKind(structuredLayout);
+    const layoutPlainCombinedLength = computeLayoutPlainCombinedText(structuredLayout).length;
     const textLayerUsedFallbackTextOnlyGap = pdfTextLayer.gaps.some(
       (g) => g.category === 'fallback_text_only',
     );
     const pdfTableLayer = buildPdfTableExtraction({
-      layout: pdfLayout,
+      layout: structuredLayout,
     });
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
@@ -1496,12 +1590,13 @@ export async function extractDocument(
       layout_plain_combined_length: layoutPlainCombinedLength,
       layout_line_kind_counts: layoutLineKindCounts,
       layout_table_candidate_lines: layoutLineKindCounts.table_candidate ?? 0,
+      ocr_layout_diagnostics: ocrLayoutMerge.diagnostics,
       text_layer_fallback_text_only_gap: textLayerUsedFallbackTextOnlyGap,
       pdf_table_count: pdfTableLayer.tables.length,
       pdf_text_gaps: pdfTextLayer.gaps.map((g) => ({ id: g.id, category: g.category, severity: g.severity })),
     });
     const pdfFormLayer = buildPdfFormExtraction({
-      layout: pdfLayout,
+      layout: structuredLayout,
     });
     const pdfEvidenceLayer = buildPdfEvidenceMap({
       sourceDocumentId: metadata.id,
@@ -1537,7 +1632,7 @@ export async function extractDocument(
       (sum, t) => sum + (t?.length ?? 0),
       0,
     );
-    const layoutTotalLineCount = pdfLayout.pages.reduce((n, p) => n + p.lines.length, 0);
+    const layoutTotalLineCount = structuredLayout.pages.reduce((n, p) => n + p.lines.length, 0);
     const syntheticEvidencePageCollapsed =
       evidencePageText.length === 0
       && textPreview != null
@@ -1583,6 +1678,7 @@ export async function extractDocument(
           layout_total_line_count: layoutTotalLineCount,
           layout_line_kind_counts: layoutLineKindCounts,
           layout_plain_combined_length: layoutPlainCombinedLength,
+          ocr_layout_diagnostics: ocrLayoutMerge.diagnostics,
           pdf_text_layer_combined_length: pdfTextLayer.combined_text.length,
           text_layer_fallback_text_only_gap: textLayerUsedFallbackTextOnlyGap,
           parsed_elements_present: Boolean(parsedElementsLayer),
@@ -1659,6 +1755,7 @@ export async function extractDocument(
         forms: pdfFormLayer,
         pdfEvidenceLayer,
         parsedElementsLayer,
+        layoutDiagnostics: ocrLayoutMerge.diagnostics,
       });
       applyDerivedFields(payload, extractedText ?? '');
       const extractionAssist = await maybeAssistTypedExtraction({
@@ -1780,6 +1877,7 @@ export async function extractDocument(
       forms: pdfFormLayer,
       pdfEvidenceLayer,
       parsedElementsLayer,
+      layoutDiagnostics: ocrLayoutMerge.diagnostics,
     });
     applyDerivedFields(payload, extractedText ?? textPreview ?? '');
     const extractionAssist = await maybeAssistTypedExtraction({

@@ -3,38 +3,38 @@
 
 :root {
   /* Legacy EightForge tokens (keep for backward compat) */
-  --ef-bg: #07071A;
-  --ef-surface: #0E0E2A;
-  --ef-border: #1A1A3E;
-  --ef-input: #0A0A20;
-  --ef-hover: #12122E;
-  --ef-hover-surface: #252548;
-  --ef-text: #F5F7FA;
-  --ef-muted: #8B94A3;
-  --ef-inactive: #3a3f5a;
-  --ef-purple: #8B5CFF;
-  --ef-purple-glow: #B794FF;
-  --ef-purple-accent: #A66BFF;
-  --ef-purple-hover: #7A4FE8;
+  --ef-bg: var(--ef-background-primary);
+  --ef-surface: var(--ef-background-secondary);
+  --ef-border: var(--ef-border-subtle);
+  --ef-input: var(--ef-surface-panel);
+  --ef-hover: var(--ef-surface-elevated);
+  --ef-hover-surface: var(--ef-surface-hover);
+  --ef-text: var(--ef-text-primary);
+  --ef-muted: var(--ef-text-muted);
+  --ef-inactive: var(--ef-text-faint);
+  --ef-purple: var(--ef-purple-primary);
+  --ef-purple-glow: var(--ef-purple-glow);
+  --ef-purple-accent: var(--ef-purple-accent);
+  --ef-purple-hover: var(--ef-purple-glow);
 
   /* Obsidian Architect surface hierarchy */
-  --ob-bg: #0B1020;
-  --ob-surface: #111827;
-  --ob-surface-secondary: #1A2333;
-  --ob-surface-tertiary: #243044;
-  --ob-border: #2F3B52;
-  --ob-text: #E5EDF7;
-  --ob-text-secondary: #C7D2E3;
-  --ob-text-muted: #94A3B8;
-  --ob-brand: #3B82F6;
-  --ob-brand-hover: #2563EB;
-  --ob-success: #22C55E;
-  --ob-warning: #F59E0B;
-  --ob-danger: #EF4444;
-  --ob-info: #38BDF8;
+  --ob-bg: var(--ef-background-primary);
+  --ob-surface: var(--ef-background-secondary);
+  --ob-surface-secondary: var(--ef-surface-elevated);
+  --ob-surface-tertiary: var(--ef-surface-hover);
+  --ob-border: var(--ef-border-subtle);
+  --ob-text: var(--ef-text-primary);
+  --ob-text-secondary: var(--ef-text-secondary);
+  --ob-text-muted: var(--ef-text-muted);
+  --ob-brand: var(--ef-purple-primary);
+  --ob-brand-hover: var(--ef-purple-glow);
+  --ob-success: var(--ef-success);
+  --ob-warning: var(--ef-warning);
+  --ob-danger: var(--ef-critical);
+  --ob-info: var(--ef-purple-accent);
 
-  --background: var(--ob-bg);
-  --foreground: var(--ob-text);
+  --background: var(--ef-background-primary);
+  --foreground: var(--ef-text-primary);
 }
 
 @theme inline {
@@ -53,7 +53,7 @@ body {
 }
 
 .glass-panel {
-  background: rgba(26, 35, 51, 0.72);
+  background: var(--ef-glass-panel);
   backdrop-filter: blur(20px);
 }
 
@@ -64,7 +64,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--ob-brand); }
 
 ::selection {
-  background: rgba(59, 130, 246, 0.3);
+  background: var(--ef-purple-primary-a30);
   color: var(--ob-text);
 }
 
@@ -73,6 +73,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .glass-panel {
-  background: rgba(26, 35, 51, 0.82);
+  background: var(--ef-glass-panel);
   backdrop-filter: blur(18px);
 }

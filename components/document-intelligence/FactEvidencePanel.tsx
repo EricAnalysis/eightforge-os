@@ -8,35 +8,35 @@ import type { DocumentEvidenceAnchor, DocumentFact } from '@/lib/documentIntelli
 
 function anchorClass(active: boolean): string {
   return active
-    ? 'border-[#3B82F6]/40 bg-[#3B82F6]/10'
-    : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]';
+    ? 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-surface-elevated)]'
+    : 'border-[var(--ef-border-white-10)] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]';
 }
 
 function stateClass(state: DocumentFact['reviewState']): string {
   switch (state) {
     case 'conflicted':
-      return 'border-red-400/25 bg-red-400/10 text-red-100';
+      return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]';
     case 'missing':
-      return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
     case 'reviewed':
-      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'overridden':
-      return 'border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-100';
+      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
     case 'derived':
-      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
     default:
-      return 'border-white/10 bg-white/[0.03] text-[#D9E3F3]';
+      return 'border-[var(--ef-border-white-10)] bg-white/[0.03] text-[var(--ef-text-secondary)]';
   }
 }
 
 function sourceClass(source: DocumentFact['displaySource']): string {
   switch (source) {
     case 'human_added':
-      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'human_corrected':
-      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
     default:
-      return 'border-white/10 bg-white/[0.03] text-[#D9E3F3]';
+      return 'border-[var(--ef-border-white-10)] bg-white/[0.03] text-[var(--ef-text-secondary)]';
   }
 }
 
@@ -54,13 +54,13 @@ function sourceLabel(source: DocumentFact['displaySource']): string {
 function reviewClass(status: DocumentFactReviewStatus): string {
   switch (status) {
     case 'confirmed':
-      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'corrected':
-      return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
+      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
     case 'missing_confirmed':
-      return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
     default:
-      return 'border-rose-400/25 bg-rose-400/10 text-rose-100';
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
   }
 }
 
@@ -77,20 +77,37 @@ function reviewLabel(status: DocumentFactReviewStatus): string {
   }
 }
 
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  if (!value) return null;
-  return (
-    <div className="flex gap-3 text-[11px]">
-      <span className="w-28 shrink-0 text-[#7F90AA]">{label}</span>
-      <span className="text-[#E5EDF7]">{value}</span>
-    </div>
-  );
+const FIELD_LABEL_OVERRIDES: Record<string, string> = {
+  contractor_name: 'Contractor',
+  vendor_name: 'Contractor',
+  client_name: 'Client',
+  owner_name: 'Client',
+  customer_name: 'Client',
+  invoice_number: 'Invoice Number',
+  invoice_date: 'Invoice Date',
+  invoice_status: 'Invoice Status',
+  billed_amount: 'Billed Amount',
+  period_start: 'Period Start',
+  period_end: 'Period End',
+  period_from: 'Period From',
+  period_to: 'Period To',
+  service_period_start: 'Period Start',
+  service_period_end: 'Period End',
+  invoice_line_items: 'Invoice Line Items',
+  line_items: 'Invoice Line Items',
+};
+
+function normalizedFieldKey(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function factTitle(fact: DocumentFact): string {
+  return FIELD_LABEL_OVERRIDES[normalizedFieldKey(fact.fieldKey)] ?? fact.fieldLabel;
 }
 
 function distinctValues(values: Array<string | null | undefined>): string[] {
@@ -323,12 +340,27 @@ function ValueEditor({
   value: string;
   onChange: (next: string) => void;
 }) {
+  if (normalizedFieldKey(fact.fieldKey) === 'invoice_status') {
+    return (
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
+      >
+        <option value="">Select status</option>
+        <option value="Presubmitted">Presubmitted</option>
+        <option value="In Reconciliation">In Reconciliation</option>
+        <option value="Finalized">Finalized</option>
+      </select>
+    );
+  }
+
   if (fact.valueType === 'boolean') {
     return (
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
+        className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
       >
         <option value="">Select value</option>
         <option value="true">true</option>
@@ -343,7 +375,7 @@ function ValueEditor({
         type="date"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
+        className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
       />
     );
   }
@@ -354,7 +386,7 @@ function ValueEditor({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={fact.valueType === 'array' ? 4 : 3}
-        className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
+        className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
         placeholder={
           fact.valueType === 'array'
             ? 'Enter one item per line or paste a JSON array'
@@ -369,7 +401,7 @@ function ValueEditor({
       type="text"
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
+      className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
       placeholder={fact.valueType === 'percent' ? 'e.g. 12.5%' : 'Enter the corrected value'}
     />
   );
@@ -394,36 +426,69 @@ function AnchorCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-[#F5F7FA]">
+          <span className="text-sm font-semibold text-[var(--ef-text-primary)]">
             {anchorPageLabel(anchor)}
           </span>
-          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-[#9FB0CA]">
+          <span className="rounded border border-[var(--ef-border-white-10)] px-1.5 py-0.5 text-[10px] text-[var(--ef-text-soft)]">
             {anchor.sourceLayer}
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-[#7FA6FF]">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--ef-purple-accent)]">
           {anchor.matchType}
         </span>
       </div>
       {anchor.snippet ? (
-        <p className="mt-2 text-[12px] leading-relaxed text-[#D9E3F3]">{anchor.snippet}</p>
+        <p className="mt-2 text-[12px] leading-relaxed text-[var(--ef-text-secondary)]">{anchor.snippet}</p>
       ) : null}
       {anchor.quoteText && anchor.quoteText !== anchor.snippet ? (
-        <p className="mt-2 text-[11px] text-[#9FB0CA]">Quote: {anchor.quoteText}</p>
+        <p className="mt-2 text-[11px] text-[var(--ef-text-soft)]">Quote: {anchor.quoteText}</p>
       ) : null}
       {conflictNotes && conflictNotes.length > 0 ? (
-        <div className="mt-2 space-y-1 rounded-lg border border-red-400/20 bg-red-400/5 px-2 py-2 text-[10px] text-red-100">
+        <div className="mt-2 space-y-1 rounded-lg border border-[var(--ef-critical-a20)] bg-[var(--ef-critical-a05)] px-2 py-2 text-[10px] text-[var(--ef-critical-soft)]">
           {conflictNotes.map((note) => (
             <p key={note}>{note}</p>
           ))}
         </div>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-[#7F90AA]">
+      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-[var(--ef-text-soft)]">
         <span>{anchor.parserSource}</span>
         <span>{anchor.sourceRegionId ?? 'No region id'}</span>
         <span>{anchor.geometry ? 'Geometry ready' : 'Page focus only'}</span>
       </div>
     </button>
+  );
+}
+
+function Chip({
+  label,
+  value,
+  className = 'border-[var(--ef-border-white-10)] bg-white/[0.03] text-[var(--ef-text-secondary)]',
+}: {
+  label: string;
+  value: string | number | null | undefined;
+  className?: string;
+}) {
+  const display = value == null || String(value).trim().length === 0 ? 'Unavailable' : String(value);
+  return (
+    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ${className}`}>
+      {label}: {display}
+    </span>
+  );
+}
+
+function SummaryCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  const display = value && value !== '[object Object]' ? value : 'Unavailable';
+  return (
+    <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-soft)]">{label}</p>
+      <p className="mt-2 text-[12px] leading-5 text-[var(--ef-text-primary)]">{display}</p>
+    </div>
   );
 }
 
@@ -487,7 +552,7 @@ export function FactEvidencePanel({
 
   if (!fact) {
     return (
-      <div className={`${isWorkspace ? 'flex h-full min-h-0 items-center px-4 py-6' : 'border-t border-white/8 px-5 py-5'} text-sm text-[#8FA1BC]`}>
+      <div className={`${isWorkspace ? 'flex h-full min-h-0 items-center px-4 py-6' : 'border-t border-white/8 px-5 py-5'} text-sm text-[var(--ef-text-soft)]`}>
         Select a fact to inspect normalization details and evidence anchors.
       </div>
     );
@@ -496,19 +561,38 @@ export function FactEvidencePanel({
   const machineMissing = fact.machineValue == null || fact.machineDisplay === 'Missing';
   const primaryAction: DocumentFactOverrideActionType = machineMissing ? 'add' : 'correct';
   const activeOverrideId = fact.overrideHistory.find((item) => item.isActive)?.id ?? null;
-  const showValueComparison =
-    fact.rawDisplay != null &&
-    fact.rawDisplay.trim().length > 0 &&
-    fact.rawDisplay !== fact.machineDisplay;
+  const activeOverride =
+    fact.overrideHistory.find((item) => item.isActive) ?? fact.overrideHistory[0] ?? null;
   const normalizationExplain = fact.normalizationNotes.filter(
     (note) => !/^Raw source:/i.test(note),
   );
   const rootClass = isWorkspace
     ? 'flex h-full min-h-0 flex-col overflow-y-auto px-4 py-4'
     : 'border-t border-white/8 px-5 py-5';
-  const valueGridClass = isWorkspace ? 'mt-4 grid gap-3' : 'mt-4 grid gap-3 md:grid-cols-3';
-  const comparisonGridClass = isWorkspace ? 'mt-4 grid gap-3' : 'mt-4 grid gap-3 md:grid-cols-2';
   const historyCount = fact.reviewHistory.length + fact.overrideHistory.length;
+  const activeAnchor =
+    fact.anchors.find((anchor) => anchor.id === activeAnchorId) ??
+    fact.primaryAnchor ??
+    fact.anchors[0] ??
+    null;
+  const activeAnchorIndex = activeAnchor
+    ? fact.anchors.findIndex((anchor) => anchor.id === activeAnchor.id)
+    : -1;
+  const activeAnchorLabel = activeAnchorIndex >= 0 ? `A${activeAnchorIndex + 1}` : 'Unavailable';
+  const overrideTypeLabel =
+    editorMode?.kind === 'override'
+      ? editorMode.captureAfterSave === 'region'
+        ? 'Manual region override'
+        : editorMode.captureAfterSave === 'text'
+          ? 'Manual text override'
+          : primaryAction === 'add'
+            ? 'Manual add override'
+            : 'Manual correction override'
+      : primaryAction === 'add'
+      ? 'Manual add override'
+      : 'Manual correction override';
+  const reviewStatusLabel = fact.reviewStatus ? reviewLabel(fact.reviewStatus) : 'not reviewed';
+  const reviewedAtLabel = fact.reviewedAt ? formatTimestamp(fact.reviewedAt) : null;
 
   const openOverrideEditor = (
     actionType: DocumentFactOverrideActionType,
@@ -614,34 +698,123 @@ export function FactEvidencePanel({
     <div className={rootClass}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7FA6FF]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ef-purple-accent)]">
             Evidence Inspector
           </p>
-          <h4 className="mt-2 text-base font-semibold text-[#F5F7FA]">{fact.fieldLabel}</h4>
-          <p className="mt-1 text-[11px] text-[#7F90AA]">{fact.fieldKey}</p>
-          <p className="mt-2 text-[11px] text-[#8FA1BC]">
-            Review actions mark fact status. Override actions assert a human value into canonical truth.
+          <h4 className="mt-2 text-base font-semibold text-[var(--ef-text-primary)]">
+            {factTitle(fact)}
+          </h4>
+          <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">{fact.fieldKey}</p>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--ef-text-soft)]">
+            Move from source evidence to canonical truth, then apply overrides only when the proof is explicit.
           </p>
           {fact.machineClassification === 'rate_price_no_ceiling' ? (
-            <p className="mt-3 rounded-lg border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
-              No overall contract ceiling was cited. This agreement is treated as rate- or price-based; use the rate schedule
-              anchors below for context. Machine tag: <span className="font-mono text-[10px] text-sky-200/90">rate_price_no_ceiling</span>.
+            <p className="mt-3 rounded-lg border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] px-3 py-2 text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
+              No overall contract ceiling was cited. This agreement is treated as rate- or price-based; use the rate schedule anchors below for context.
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-start justify-end gap-3">
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
-              Review actions
+
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <div className={`rounded-xl border px-3 py-2 text-right ${stateClass(fact.reviewState)}`}>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">State</p>
+            <p className="mt-1 text-sm font-semibold">{fact.reviewState}</p>
+          </div>
+          <div className={`rounded-xl border px-3 py-2 text-right ${sourceClass(fact.displaySource)}`}>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">Source</p>
+            <p className="mt-1 text-sm font-semibold">{sourceLabel(fact.displaySource)}</p>
+          </div>
+          {fact.reviewStatus ? (
+            <div className={`rounded-xl border px-3 py-2 text-right ${reviewClass(fact.reviewStatus)}`}>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">Reviewed</p>
+              <p className="mt-1 text-sm font-semibold">{reviewLabel(fact.reviewStatus)}</p>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setShowHistory((current) => !current)}
+            className="rounded-lg border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-secondary)] hover:bg-white/[0.06]"
+          >
+            History ({historyCount})
+          </button>
+        </div>
+      </div>
+
+      {reviewError ? (
+        <p className="mt-3 text-[11px] text-[var(--ef-critical-soft)]">{reviewError}</p>
+      ) : null}
+
+      <div className="mt-4 space-y-4">
+        <section className="rounded-2xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-accent)]">Selected Fact</p>
+              <h5 className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">{factTitle(fact)}</h5>
+              <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">{fact.fieldKey}</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Chip label="State" value={fact.reviewState} className={stateClass(fact.reviewState)} />
+              <Chip label="Source" value={sourceLabel(fact.displaySource)} className={sourceClass(fact.displaySource)} />
+              <Chip label="Review" value={reviewStatusLabel} className={fact.reviewStatus ? reviewClass(fact.reviewStatus) : undefined} />
+              <Chip label="Confidence" value={fact.confidenceLabel} />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            <Chip label="Page" value={activeAnchor ? anchorPageLabel(activeAnchor) : 'Unavailable'} />
+            <Chip label="Region" value={activeAnchor?.sourceRegionId ?? 'Page focus only'} />
+            <Chip label="Anchor" value={activeAnchorLabel} />
+            <Chip label="Anchor count" value={fact.anchorCount} />
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            <SummaryCell label="Extracted value" value={fact.displayValue} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SummaryCell label="Machine value" value={fact.machineDisplay} />
+              <SummaryCell label="Human value" value={fact.humanDisplay ?? 'Unavailable'} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <SummaryCell label="Mapping status" value={fact.statusLabel} />
+              <SummaryCell label="Display source" value={sourceLabel(fact.displaySource)} />
+              <SummaryCell label="Derivation" value={fact.derivationKind ?? 'Unavailable'} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SummaryCell label="Reviewed by" value={fact.reviewedBy ?? 'Unavailable'} />
+              <SummaryCell label="Reviewed at" value={reviewedAtLabel ?? 'Unavailable'} />
+            </div>
+          </div>
+
+          {reasons.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-[var(--ef-critical-a20)] bg-[var(--ef-critical-a05)] px-3 py-3 text-[11px] text-[var(--ef-critical-soft)]">
+              {reasons.join(' ')}
+            </div>
+          ) : null}
+
+          {normalizationExplain.length > 0 ? (
+            <details className="mt-3 rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-3">
+              <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-soft)]">
+                Diagnostics
+              </summary>
+              <div className="mt-3 space-y-2 text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
+                {normalizationExplain.map((note) => (
+                  <p key={note}>{note}</p>
+                ))}
+              </div>
+            </details>
+          ) : null}
+
+          <div className="mt-4 rounded-xl border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-3 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+              Controls
             </p>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => {
                   void saveReviewStatus(machineMissing ? 'missing_confirmed' : 'confirmed');
                 }}
                 disabled={reviewSaving}
-                className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-[11px] font-medium text-emerald-100 hover:bg-emerald-400/15 disabled:cursor-default disabled:opacity-50"
+                className="rounded-lg border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-3 py-2 text-[11px] font-medium text-[var(--ef-success-soft)] hover:bg-[var(--ef-success)]/15 disabled:cursor-default disabled:opacity-50"
               >
                 {machineMissing ? 'Confirm missing' : 'Confirm'}
               </button>
@@ -651,288 +824,235 @@ export function FactEvidencePanel({
                   void saveReviewStatus('needs_followup');
                 }}
                 disabled={reviewSaving}
-                className="rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-[11px] font-medium text-amber-100 hover:bg-amber-400/15 disabled:cursor-default disabled:opacity-50"
+                className="rounded-lg border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-[11px] font-medium text-[var(--ef-warning-soft)] hover:bg-[var(--ef-warning-a18)] disabled:cursor-default disabled:opacity-50"
               >
-                Needs review
+                Needs Review
               </button>
               <button
                 type="button"
                 onClick={openReviewCorrectionEditor}
-                className="rounded-lg border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-[11px] font-medium text-sky-100 hover:bg-sky-400/15"
+                className="rounded-lg border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary-a30)]"
               >
                 Correct
               </button>
+              <button
+                type="button"
+                onClick={() => openOverrideEditor(primaryAction)}
+                className="rounded-lg bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)]"
+              >
+                Override
+              </button>
             </div>
           </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
-              Override actions
-            </p>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {canAttachAnchors ? (
-                captureMode ? (
-                  <button
-                    type="button"
-                    onClick={onCancelAnchorCapture}
-                    className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] font-medium text-amber-100 hover:bg-amber-400/15"
-                  >
-                    Cancel manual override capture
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => startManualOverride('text')}
-                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[#D9E3F3] hover:bg-white/[0.06]"
-                    >
-                      Manual text override
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startManualOverride('region')}
-                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[#D9E3F3] hover:bg-white/[0.06]"
-                    >
-                      Manual region override
-                    </button>
-                  </>
-                )
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => openOverrideEditor(primaryAction)}
-                  className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[#D9E3F3] hover:bg-white/[0.06]"
-                >
-                  Manual text override
-                </button>
-              )}
-              {canMarkRateSchedule ? (
-                <button
-                  type="button"
-                  onClick={() => onStartAnchorCapture('rate_schedule')}
-                  className="rounded-lg border border-[#3B82F6]/20 bg-[#3B82F6]/10 px-3 py-2 text-[11px] font-medium text-[#CFE4FF] hover:bg-[#3B82F6]/15"
-                >
-                  Mark as Rate Schedule
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowHistory((current) => !current)}
-            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[#D9E3F3] hover:bg-white/[0.06]"
-          >
-            History ({historyCount})
-          </button>
-          <div className={`rounded-xl border px-3 py-2 text-right ${stateClass(fact.reviewState)}`}>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#7F90AA]">State</p>
-            <p className="mt-1 text-sm font-semibold">{fact.reviewState}</p>
-          </div>
-          <div className={`rounded-xl border px-3 py-2 text-right ${sourceClass(fact.displaySource)}`}>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#7F90AA]">Source</p>
-            <p className="mt-1 text-sm font-semibold">{sourceLabel(fact.displaySource)}</p>
-          </div>
-          {fact.reviewStatus ? (
-            <div className={`rounded-xl border px-3 py-2 text-right ${reviewClass(fact.reviewStatus)}`}>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[#7F90AA]">Reviewed</p>
-              <p className="mt-1 text-sm font-semibold">{reviewLabel(fact.reviewStatus)}</p>
+
+          {captureMode ? (
+            <div className="mt-3 rounded-xl border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-3 py-3 text-[11px] text-[var(--ef-warning-soft)]">
+              {captureMode === 'text'
+                ? `Select text in the viewer to attach support for the active override${activeOverrideId ? '' : ' after saving it'}.`
+                : captureMode === 'region'
+                  ? `Drag a region in the viewer to attach support for the active override${activeOverrideId ? '' : ' after saving it'}.`
+                  : 'Choose the start and end pages in the viewer, then save the schedule or drag a table region.'}
             </div>
           ) : null}
-        </div>
-      </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {fact.primaryAnchor ? (
-          <button
-            type="button"
-            onClick={() => onSelectAnchor(fact.primaryAnchor!.id)}
-            className="rounded-full border border-[#3B82F6]/25 bg-[#3B82F6]/10 px-3 py-1 text-[11px] font-medium text-[#CFE4FF] hover:bg-[#3B82F6]/15"
-          >
-            Evidence: {anchorPageLabel(fact.primaryAnchor)}
-          </button>
-        ) : null}
-        {captureMode ? (
-          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[11px] text-amber-100">
-            {captureMode === 'text'
-              ? `Select text in the PDF to attach support for the active manual override${activeOverrideId ? '' : ' after saving it'}.`
-              : captureMode === 'region'
-                ? `Drag a region in the PDF to attach support for the active manual override${activeOverrideId ? '' : ' after saving it'}.`
-                : 'Choose the start and end pages in the viewer, then save the schedule or drag a table region.'}
-          </span>
-        ) : null}
-        {fact.humanDefinedSchedule ? (
-          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] text-emerald-100">
-            Human-defined schedule
-          </span>
-        ) : null}
-        {fact.reviewStatus ? (
-          <span className={`rounded-full border px-3 py-1 text-[11px] ${reviewClass(fact.reviewStatus)}`}>
-            Review: {reviewLabel(fact.reviewStatus)}
-          </span>
-        ) : null}
-      </div>
-
-      {reviewError ? (
-        <p className="mt-3 text-[11px] text-red-200">{reviewError}</p>
-      ) : null}
-
-      <div className={valueGridClass}>
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Displayed value</p>
-          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.displayValue}</p>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Machine value</p>
-          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.machineDisplay}</p>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Human value</p>
-          <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.humanDisplay ?? 'None'}</p>
-        </div>
-      </div>
-
-      {editorMode ? (
-        <div className="mt-4 rounded-xl border border-[#3B82F6]/20 bg-[#0D1728] px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7FA6FF]">
-                {editorMode.kind === 'review_correction'
-                  ? 'Corrected review'
-                  : editorMode.captureAfterSave === 'region'
-                    ? 'Manual region override'
-                    : 'Manual text override'}
-              </p>
-              <p className="mt-1 text-[11px] text-[#8FA1BC]">
-                {editorMode.kind === 'review_correction'
-                  ? 'This records a corrected review in canonical review history without promoting a manual override.'
-                  : 'This creates a canonical human override and keeps the machine-extracted value unchanged.'}
-              </p>
+          {activeOverride ? (
+            <div className="mt-3 rounded-xl border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] px-3 py-3 text-[11px] text-[var(--ef-text-primary)]">
+              <p className="font-semibold">Current override</p>
+              <p className="mt-2">{activeOverride.valueDisplay}</p>
+              {activeOverride.reason ? <p className="mt-2 text-[var(--ef-text-soft)]">Reason: {activeOverride.reason}</p> : null}
             </div>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canAttachAnchors ? (
+              captureMode ? (
+                <button
+                  type="button"
+                  onClick={onCancelAnchorCapture}
+                  className="rounded-lg border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-3 py-2 text-[11px] font-medium text-[var(--ef-warning-soft)] hover:bg-[var(--ef-warning-a18)]"
+                >
+                  Cancel capture
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => startManualOverride('text')}
+                    className="rounded-lg border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-secondary)] hover:bg-white/[0.06]"
+                  >
+                    Manual text override
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startManualOverride('region')}
+                    className="rounded-lg border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-secondary)] hover:bg-white/[0.06]"
+                  >
+                    Manual region override
+                  </button>
+                </>
+              )
+            ) : null}
+            {canMarkRateSchedule ? (
+              <button
+                type="button"
+                onClick={() => onStartAnchorCapture('rate_schedule')}
+                className="rounded-lg border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary-a60)]"
+              >
+                Mark as Rate Schedule
+              </button>
+            ) : null}
           </div>
 
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-[#D9E3F3]">Value</label>
-              <ValueEditor fact={fact} value={valueInput} onChange={setValueInput} />
-            </div>
+          {editorMode ? (
+            <div className="mt-3 rounded-xl border border-[var(--ef-purple-primary-a20)] bg-[var(--ef-surface-elevated)] px-4 py-4">
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-secondary)]">Override type</label>
+                  <div className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]">
+                    {editorMode.kind === 'review_correction' ? 'Corrected review' : overrideTypeLabel}
+                  </div>
+                </div>
 
-            {editorMode.kind === 'override' ? (
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-[#D9E3F3]">Raw value (optional)</label>
-                <input
-                  type="text"
-                  value={rawValueInput}
-                  onChange={(event) => setRawValueInput(event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
-                  placeholder="Original operator-entered wording"
-                />
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-secondary)]">Override value</label>
+                  <ValueEditor fact={fact} value={valueInput} onChange={setValueInput} />
+                </div>
+
+                {editorMode.kind === 'override' ? (
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-secondary)]">Raw value (optional)</label>
+                    <input
+                      type="text"
+                      value={rawValueInput}
+                      onChange={(event) => setRawValueInput(event.target.value)}
+                      className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
+                      placeholder="Original operator-entered wording"
+                    />
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-secondary)]">
+                    {editorMode.kind === 'review_correction' ? 'Reason' : 'Reason'}
+                  </label>
+                  <textarea
+                    value={reasonInput}
+                    onChange={(event) => setReasonInput(event.target.value)}
+                    rows={2}
+                    className="w-full rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]"
+                    placeholder="Why this operator override should replace the extracted value"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-secondary)]">Evidence reference</label>
+                  <div className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]">
+                    {activeAnchor ? `${activeAnchorLabel} / ${anchorPageLabel(activeAnchor)}` : 'No anchor selected'}
+                  </div>
+                </div>
+
+                {saveError ? (
+                  <p className="text-[11px] text-[var(--ef-critical-soft)]">{saveError}</p>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={editorMode.kind === 'review_correction' ? saveReviewCorrection : saveOverride}
+                    disabled={saving}
+                    className="rounded-lg bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:cursor-default disabled:opacity-50"
+                  >
+                    {saving
+                      ? 'Saving...'
+                      : editorMode.kind === 'review_correction'
+                        ? 'Save corrected review'
+                        : 'Apply Override'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditorMode(null);
+                      setSaveError(null);
+                      setReasonInput('');
+                      setRawValueInput('');
+                    }}
+                    disabled={saving}
+                    className="rounded-lg border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-secondary)] hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            ) : null}
-
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-[#D9E3F3]">
-                {editorMode.kind === 'review_correction' ? 'Notes (optional)' : 'Reason (optional)'}
-              </label>
-              <textarea
-                value={reasonInput}
-                onChange={(event) => setReasonInput(event.target.value)}
-                rows={2}
-                className="w-full rounded-lg border border-white/10 bg-[#0B1220] px-3 py-2 text-sm text-[#E5EDF7]"
-                placeholder={
-                  editorMode.kind === 'review_correction'
-                    ? 'Why this corrected review should replace the machine value'
-                    : 'Why this manual override was added or corrected'
-                }
-              />
             </div>
-
-            {saveError ? (
-              <p className="text-[11px] text-red-200">{saveError}</p>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={editorMode.kind === 'review_correction' ? saveReviewCorrection : saveOverride}
-                disabled={saving}
-                className="rounded-lg border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-2 text-[11px] font-medium text-[#CFE4FF] hover:bg-[#3B82F6]/15 disabled:cursor-default disabled:opacity-50"
-              >
-                {saving
-                  ? 'Saving...'
-                  : editorMode.kind === 'review_correction'
-                    ? 'Save corrected review'
-                    : 'Save override'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditorMode(null);
-                  setSaveError(null);
-                  setReasonInput('');
-                  setRawValueInput('');
-                }}
-                disabled={saving}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-[#D9E3F3] hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50"
-              >
-                Cancel
-              </button>
+          ) : null}
+          {fact.anchors.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-3 py-3 text-[11px] text-[var(--ef-warning-soft)]">
+              This fact does not currently have a direct evidence anchor. Machine extraction remains preserved even when a human override is active.
             </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showValueComparison ? (
-        <div className={comparisonGridClass}>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Machine normalized</p>
-            <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.machineDisplay}</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">Raw source</p>
-            <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{fact.rawDisplay}</p>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-4 space-y-2">
-        <DetailRow label="Value type" value={fact.valueType} />
-        <DetailRow label="Display source" value={sourceLabel(fact.displaySource)} />
-        <DetailRow label="Displayed" value={fact.displayValue} />
-        <DetailRow label="Machine" value={fact.machineDisplay} />
-        <DetailRow label="Human" value={fact.humanDisplay} />
-        <DetailRow label="Review status" value={fact.reviewStatus ? reviewLabel(fact.reviewStatus) : null} />
-        <DetailRow label="Reviewed by" value={fact.reviewedBy} />
-        <DetailRow label="Reviewed at" value={fact.reviewedAt ? formatTimestamp(fact.reviewedAt) : null} />
-        <DetailRow label="Review notes" value={fact.reviewNotes} />
-        <DetailRow label="Confidence" value={fact.confidenceLabel} />
-        <DetailRow label="Confidence why" value={fact.confidenceReason} />
-        <DetailRow label="Fact state" value={fact.statusLabel} />
-        <DetailRow label="Derivation" value={fact.derivationKind} />
-        <DetailRow label="Human-defined schedule" value={fact.humanDefinedSchedule ? 'true' : null} />
-        <DetailRow label="Anchor count" value={String(fact.anchorCount)} />
+          ) : (
+            <details className="mt-3 rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-3">
+              <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-soft)]">
+                Evidence anchors ({fact.anchors.length})
+              </summary>
+              <div className="mt-3 space-y-4">
+                {groupedAnchors.map((group) => (
+                  <div key={group.key}>
+                    {groupedAnchors.length > 1 ? (
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-soft)]">
+                          {group.label}
+                        </p>
+                        <p className="text-[10px] text-[var(--ef-text-soft)]">
+                          {group.anchors.length} anchor{group.anchors.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                    ) : null}
+                    <div className="space-y-2">
+                      {group.anchors.map((anchor, anchorIndex) => (
+                        <AnchorCard
+                          key={anchor.id}
+                          anchor={anchor}
+                          active={activeAnchorId === anchor.id}
+                          conflictNotes={anchorConflictHints(
+                            fact,
+                            anchor,
+                            anchorIndex,
+                            group.anchors,
+                          )}
+                          onSelect={() => onSelectAnchor(anchor.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </section>
       </div>
 
       {showHistory ? (
-        <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
+        <div className="mt-4 rounded-xl border border-[var(--ef-border-white-10)] bg-white/[0.03] px-3 py-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">
               Review & Override History
             </p>
-            <p className="text-[11px] text-[#8FA1BC]">
+            <p className="text-[11px] text-[var(--ef-text-soft)]">
               {historyCount} change{historyCount === 1 ? '' : 's'}
             </p>
           </div>
           {historyCount === 0 ? (
-            <p className="mt-3 text-[11px] text-[#8FA1BC]">
+            <p className="mt-3 text-[11px] text-[var(--ef-text-soft)]">
               No review or override changes have been saved for this field yet.
             </p>
           ) : null}
           {fact.reviewHistory.length > 0 ? (
             <div className="mt-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">
                   Review History
                 </p>
-                <p className="text-[11px] text-[#8FA1BC]">
+                <p className="text-[11px] text-[var(--ef-text-soft)]">
                   {fact.reviewHistory.length} review{fact.reviewHistory.length === 1 ? '' : 's'}
                 </p>
               </div>
@@ -940,7 +1060,7 @@ export function FactEvidencePanel({
                 {fact.reviewHistory.map((item) => (
                   <div
                     key={item.id}
-                    className="rounded-lg border border-white/10 bg-[#0B1220] px-3 py-3"
+                    className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-3"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -948,15 +1068,15 @@ export function FactEvidencePanel({
                           {reviewLabel(item.reviewStatus)}
                         </span>
                       </div>
-                      <span className="text-[10px] text-[#7F90AA]">{formatTimestamp(item.reviewedAt)}</span>
+                      <span className="text-[10px] text-[var(--ef-text-soft)]">{formatTimestamp(item.reviewedAt)}</span>
                     </div>
                     {item.reviewedValueDisplay ? (
-                      <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{item.reviewedValueDisplay}</p>
+                      <p className="mt-2 text-sm font-semibold text-[var(--ef-text-primary)]">{item.reviewedValueDisplay}</p>
                     ) : null}
                     {item.notes ? (
-                      <p className="mt-1 text-[11px] text-[#8FA1BC]">Notes: {item.notes}</p>
+                      <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">Notes: {item.notes}</p>
                     ) : null}
-                    <p className="mt-1 text-[10px] text-[#5B6578]">Actor: {actorLabel(item.reviewedBy)}</p>
+                    <p className="mt-1 text-[10px] text-[var(--ef-text-faint)]">Actor: {actorLabel(item.reviewedBy)}</p>
                   </div>
                 ))}
               </div>
@@ -965,10 +1085,10 @@ export function FactEvidencePanel({
           {fact.overrideHistory.length > 0 ? (
             <div className="mt-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)]">
                   Override History
                 </p>
-                <p className="text-[11px] text-[#8FA1BC]">
+                <p className="text-[11px] text-[var(--ef-text-soft)]">
                   {fact.overrideHistory.length} override{fact.overrideHistory.length === 1 ? '' : 's'}
                 </p>
               </div>
@@ -976,7 +1096,7 @@ export function FactEvidencePanel({
                 {fact.overrideHistory.map((item) => (
                   <div
                     key={item.id}
-                    className="rounded-lg border border-white/10 bg-[#0B1220] px-3 py-3"
+                    className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] px-3 py-3"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -984,21 +1104,21 @@ export function FactEvidencePanel({
                           {sourceLabel(item.displaySource)}
                         </span>
                         {item.isActive ? (
-                          <span className="rounded border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+                          <span className="rounded border border-[var(--ef-success-a20)] bg-[var(--ef-success-bg)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-success-soft)]">
                             Active
                           </span>
                         ) : null}
                       </div>
-                      <span className="text-[10px] text-[#7F90AA]">{formatTimestamp(item.createdAt)}</span>
+                      <span className="text-[10px] text-[var(--ef-text-soft)]">{formatTimestamp(item.createdAt)}</span>
                     </div>
-                    <p className="mt-2 text-sm font-semibold text-[#F5F7FA]">{item.valueDisplay}</p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--ef-text-primary)]">{item.valueDisplay}</p>
                     {item.rawValue ? (
-                      <p className="mt-1 text-[11px] text-[#8FA1BC]">Raw: {item.rawValue}</p>
+                      <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">Raw: {item.rawValue}</p>
                     ) : null}
                     {item.reason ? (
-                      <p className="mt-1 text-[11px] text-[#8FA1BC]">Reason: {item.reason}</p>
+                      <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">Reason: {item.reason}</p>
                     ) : null}
-                    <p className="mt-1 text-[10px] text-[#5B6578]">Actor: {actorLabel(item.createdBy)}</p>
+                    <p className="mt-1 text-[10px] text-[var(--ef-text-faint)]">Actor: {actorLabel(item.createdBy)}</p>
                   </div>
                 ))}
               </div>
@@ -1006,81 +1126,6 @@ export function FactEvidencePanel({
           ) : null}
         </div>
       ) : null}
-
-      {reasons.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-100">
-            Conflict Reasons
-          </p>
-          <div className="mt-2 space-y-1 text-[11px] text-red-50">
-            {reasons.map((reason) => (
-              <p key={reason}>{reason}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {normalizationExplain.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
-            Normalization
-          </p>
-          <div className="mt-2 space-y-1 text-[11px] text-[#D9E3F3]">
-            {normalizationExplain.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7F90AA]">
-            Anchors
-          </p>
-          <p className="text-[11px] text-[#8FA1BC]">
-            {fact.anchors.length} anchor{fact.anchors.length === 1 ? '' : 's'}
-          </p>
-        </div>
-        {fact.anchors.length === 0 ? (
-          <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-[11px] text-amber-100">
-            This fact does not currently have a direct evidence anchor. Machine extraction remains preserved even when a human override is active.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {groupedAnchors.map((group) => (
-              <div key={group.key}>
-                {groupedAnchors.length > 1 ? (
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7F90AA]">
-                      {group.label}
-                    </p>
-                    <p className="text-[10px] text-[#7F90AA]">
-                      {group.anchors.length} anchor{group.anchors.length === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                ) : null}
-                <div className="space-y-2">
-                  {group.anchors.map((anchor, anchorIndex) => (
-                    <AnchorCard
-                      key={anchor.id}
-                      anchor={anchor}
-                      active={activeAnchorId === anchor.id}
-                      conflictNotes={anchorConflictHints(
-                        fact,
-                        anchor,
-                        anchorIndex,
-                        group.anchors,
-                      )}
-                      onSelect={() => onSelectAnchor(anchor.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

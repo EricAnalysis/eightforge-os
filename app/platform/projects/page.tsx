@@ -14,11 +14,11 @@ type ProjectRow = {
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  active:   'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-  inactive: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-  draft:    'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-  archived: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
-  paused:   'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+  active:   'bg-[var(--ef-success-bg)] text-[var(--ef-success)] border border-[var(--ef-success-a20)]',
+  inactive: 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning)] border border-[var(--ef-warning-a20)]',
+  draft:    'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
+  archived: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
+  paused:   'bg-[var(--ef-warning-bg)] text-[var(--ef-warning)] border border-[var(--ef-warning-a20)]',
 };
 
 function NewProjectModal({ onClose, onCreated }: {
@@ -69,31 +69,31 @@ function NewProjectModal({ onClose, onCreated }: {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-sm rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
+      <div className="w-full max-w-sm rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-[#F5F7FA]">New Project</span>
-          <button type="button" onClick={onClose} className="text-lg leading-none text-[#8B94A3] hover:text-[#F5F7FA]" aria-label="Close">×</button>
+          <span className="text-sm font-semibold text-[var(--ef-text-primary)]">New Project</span>
+          <button type="button" onClick={onClose} className="text-lg leading-none text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]" aria-label="Close">×</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">Name <span className="text-red-400">*</span></label>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">Name <span className="text-[var(--ef-critical)]">*</span></label>
             <input type="text" value={name} onChange={(e) => handleNameChange(e.target.value)} placeholder="e.g. Spring Harbor Demolition"
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]" />
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]" />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
-              Code <span className="text-red-400">*</span>{' '}
-              <span className="font-normal text-[#8B94A3]">(max 12 chars)</span>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+              Code <span className="text-[var(--ef-critical)]">*</span>{' '}
+              <span className="font-normal text-[var(--ef-text-muted)]">(max 12 chars)</span>
             </label>
             <input type="text" value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9\-_]/g, '').slice(0, 12))}
               placeholder="e.g. SHD-2025"
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] font-mono text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]" />
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-mono text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]" />
           </div>
-          {error && <p className="text-[11px] text-red-400">{error}</p>}
+          {error && <p className="text-[11px] text-[var(--ef-critical)]">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]">Cancel</button>
+            <button type="submit" disabled={submitting} className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:opacity-50 disabled:cursor-not-allowed">
               {submitting ? 'Creating…' : 'Create Project'}
             </button>
           </div>
@@ -135,8 +135,8 @@ export default function ProjectsPage() {
     <div className="space-y-4">
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Projects</h2>
-          <p className="text-xs text-[#8B94A3]">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">Projects</h2>
+          <p className="text-xs text-[var(--ef-text-muted)]">
             Group documents, decisions, and workflow tasks by project for organized operational oversight.
           </p>
         </div>
@@ -145,12 +145,12 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => setShowArchived((value) => !value)}
-              className="rounded-md border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2 text-[11px] font-medium text-[#F5F7FA] hover:border-[#8B5CFF]/40"
+              className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary-a40)]"
             >
               {showArchived ? 'Hide Archived' : 'Show Archived'}
             </button>
             <button type="button" onClick={() => setModalOpen(true)}
-              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
+              className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)]">
               New Project
             </button>
           </div>
@@ -158,30 +158,30 @@ export default function ProjectsPage() {
       </section>
 
       {loading && (
-        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-          <p className="text-[11px] text-[#8B94A3]">Loading projects…</p>
+        <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+          <p className="text-[11px] text-[var(--ef-text-muted)]">Loading projects…</p>
         </div>
       )}
 
       {!loading && error && (
-        <div className="rounded-lg border border-red-900/40 bg-[#0E0E2A] p-4">
-          <p className="text-[11px] font-medium text-red-400">{error}</p>
+        <div className="rounded-lg border border-[var(--ef-critical-a40)] bg-[var(--ef-background-secondary)] p-4">
+          <p className="text-[11px] font-medium text-[var(--ef-critical)]">{error}</p>
         </div>
       )}
 
       {!loading && !error && visibleProjects.length === 0 && (
-        <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-6 text-center">
-          <p className="text-[11px] font-medium text-[#F5F7FA]">
+        <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-6 text-center">
+          <p className="text-[11px] font-medium text-[var(--ef-text-primary)]">
             {projects.length > 0 ? 'No active projects in the default list' : 'No projects yet'}
           </p>
-          <p className="mt-1 text-[11px] text-[#8B94A3]">
+          <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
             {projects.length > 0
               ? 'Archived projects stay hidden until you intentionally include them.'
               : 'Create a project to group documents, decisions, and tasks together.'}
           </p>
           {projects.length === 0 ? (
             <button type="button" onClick={() => setModalOpen(true)}
-              className="mt-3 rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]">
+              className="mt-3 rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)]">
               Create your first project
             </button>
           ) : null}
@@ -189,30 +189,30 @@ export default function ProjectsPage() {
       )}
 
       {!loading && !error && visibleProjects.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-[#1A1A3E] bg-[#0E0E2A]">
+        <div className="overflow-hidden rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)]">
           <table className="w-full text-[11px]">
             <thead>
-              <tr className="border-b border-[#1A1A3E]">
-                <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Code</th>
-                <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-[#8B94A3]">Created</th>
+              <tr className="border-b border-[var(--ef-surface-elevated)]">
+                <th className="px-4 py-3 text-left font-medium text-[var(--ef-text-muted)]">Code</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--ef-text-muted)]">Name</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--ef-text-muted)]">Status</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--ef-text-muted)]">Created</th>
               </tr>
             </thead>
             <tbody>
               {visibleProjects.map((project) => (
-                <tr key={project.id} className="border-b border-[#1A1A3E] last:border-0 hover:bg-[#12122E]">
-                  <td className="px-4 py-3 font-mono text-[#8B94A3]">
-                    <Link href={`/platform/projects/${project.id}`} className="hover:text-[#F5F7FA] hover:underline">
+                <tr key={project.id} className="border-b border-[var(--ef-surface-elevated)] last:border-0 hover:bg-[var(--ef-surface-elevated)]">
+                  <td className="px-4 py-3 font-mono text-[var(--ef-text-muted)]">
+                    <Link href={`/platform/projects/${project.id}`} className="hover:text-[var(--ef-text-primary)] hover:underline">
                       {project.code}
                     </Link>
                   </td>
                   <td className="px-4 py-3">
                     <Link href={`/platform/projects/${project.id}`} className="block">
-                      <span className="font-medium text-[#F5F7FA] hover:text-[#8B5CFF]">
+                      <span className="font-medium text-[var(--ef-text-primary)] hover:text-[var(--ef-purple-primary)]">
                         {project.name}
                       </span>
-                      <span className="mt-1 block text-[10px] uppercase tracking-[0.14em] text-[#8B94A3]">
+                      <span className="mt-1 block text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
                         Open project overview
                       </span>
                     </Link>
@@ -222,7 +222,7 @@ export default function ProjectsPage() {
                       {project.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[#8B94A3]">
+                  <td className="px-4 py-3 text-[var(--ef-text-muted)]">
                     {new Date(project.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </td>
                 </tr>

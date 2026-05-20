@@ -73,7 +73,7 @@ export function TooltipContent({
   return (
     <div
       role="tooltip"
-      className={`absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-[#2F3B52]/80 bg-[#1A2333] px-3 py-1.5 text-[11px] text-[#E5EDF7] shadow-lg ${className ?? ''}`}
+      className={`absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] px-3 py-1.5 text-[11px] text-[var(--ef-text-primary)] shadow-lg ${className ?? ''}`}
       {...props}
     >
       {children}

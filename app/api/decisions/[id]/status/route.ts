@@ -10,6 +10,7 @@ import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowT
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
 const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
+const VALID_OPERATOR_ACTIONS = ['approve', 'correct', 'override', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -51,6 +52,10 @@ export async function PATCH(
     if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
       return jsonError('Invalid status', 400);
     }
+    const operatorAction =
+      typeof body?.operator_action === 'string' && VALID_OPERATOR_ACTIONS.includes(body.operator_action)
+        ? body.operator_action
+        : null;
 
     const previousStatus = (existing.status as string) ?? null;
 
@@ -84,7 +89,7 @@ export async function PATCH(
         event_type: 'status_changed',
         changed_by: actorId,
         old_value: { status: previousStatus },
-        new_value: { status: newStatus },
+        new_value: { status: newStatus, operator_action: operatorAction },
       });
 
       if (!activityResult.ok) {

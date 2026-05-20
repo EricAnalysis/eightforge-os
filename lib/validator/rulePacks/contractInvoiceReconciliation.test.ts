@@ -21,13 +21,14 @@ function makeFactRecord(
   documentId: string,
   key: string,
   value: unknown,
+  source: ValidatorFactRecord['source'] = 'normalized_row',
 ): ValidatorFactRecord {
   return {
     id: `${documentId}:${key}`,
     document_id: documentId,
     key,
     value,
-    source: 'normalized_row',
+    source,
     field_type: null,
     evidence: [{
       id: `fact:${documentId}:${key}`,
@@ -207,6 +208,101 @@ function buildInput(params?: {
 }
 
 describe('contract invoice reconciliation validator', () => {
+  it('does not block when vendor names only differ by legal suffix and punctuation', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        vendor_name: 'Aftermath Disaster Recovery',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    const result = evaluateContractInvoiceReconciliation(input);
+
+    assert.equal(
+      result.findings.some((finding) =>
+        finding.rule_id === 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+      ),
+      false,
+    );
+    assert.equal(result.summary.vendor_identity_status, 'MATCH');
+  });
+
+  it('uses human overridden contractor value before stale invoice row machine value', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        vendor_name: 'Wrong Machine Vendor LLC',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[1], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'invoice_number', '2026-003'),
+      makeFactRecord(
+        INVOICE_DOCUMENT_IDS[1],
+        'contractor_name',
+        'Aftermath Disaster Recovery',
+        'human_override',
+      ),
+    ]);
+
+    const result = evaluateContractInvoiceReconciliation(input);
+
+    assert.equal(
+      result.findings.some((finding) =>
+        finding.rule_id === 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+      ),
+      false,
+    );
+    assert.equal(result.summary.vendor_identity_status, 'MATCH');
+  });
+
+  it('falls back to machine invoice row vendor when no reviewed canonical fact exists', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        vendor_name: 'Aftermath Disaster Recovery',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[1], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'invoice_number', '2026-003'),
+    ]);
+
+    const result = evaluateContractInvoiceReconciliation(input);
+
+    assert.equal(result.summary.vendor_identity_status, 'MATCH');
+  });
+
+  it('keeps true vendor mismatches as critical blockers', () => {
+    const input = buildInput({
+      invoiceRows: [{
+        id: 'invoice-row-003',
+        source_document_id: INVOICE_DOCUMENT_IDS[1],
+        invoice_number: '2026-003',
+        vendor_name: 'Other Debris LLC',
+        client_name: 'Williamson County, Tennessee',
+      }],
+    });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[1], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'invoice_number', '2026-003'),
+      makeFactRecord(INVOICE_DOCUMENT_IDS[1], 'contractor_name', 'Other Debris LLC'),
+    ]);
+
+    const result = evaluateContractInvoiceReconciliation(input);
+    const finding = result.findings.find((candidate) =>
+      candidate.rule_id === 'FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR',
+    );
+
+    assert.equal(result.summary.vendor_identity_status, 'MISMATCH');
+    assert.equal(finding?.severity, 'critical');
+  });
+
   it('reconciles Williamson invoices 2026-002 and 2026-003 against the governing contract schedule', () => {
     const rateScheduleItems = [
       makeRateItem('1A', 6.9),
@@ -305,7 +401,6 @@ describe('contract invoice reconciliation validator', () => {
         line_total: 125,
       }],
     });
-
     const result = evaluateContractInvoiceReconciliation(input);
     assert.equal(result.summary.matched_invoice_lines, 0);
     assert.equal(result.summary.unmatched_invoice_lines, 1);
@@ -339,7 +434,6 @@ describe('contract invoice reconciliation validator', () => {
         line_total: 130,
       }],
     });
-
     const result = evaluateContractInvoiceReconciliation(input);
     assert.equal(result.summary.matched_invoice_lines, 1);
     assert.equal(result.summary.rate_mismatches, 1);
@@ -371,6 +465,10 @@ describe('contract invoice reconciliation validator', () => {
         line_total: 125,
       }],
     });
+    input.factsByDocumentId.set(INVOICE_DOCUMENT_IDS[0], [
+      makeFactRecord(INVOICE_DOCUMENT_IDS[0], 'invoice_number', '2026-002'),
+      makeFactRecord(INVOICE_DOCUMENT_IDS[0], 'contractor_name', 'Other Debris LLC'),
+    ]);
 
     const result = evaluateContractInvoiceReconciliation(input);
     const ruleIds = result.findings.map((finding) => finding.rule_id);

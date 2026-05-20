@@ -44,6 +44,19 @@ export function buildProjectDocumentHref(documentId: string, projectId: string):
   return buildDocumentDetailHref(documentId, { source: 'project', projectId });
 }
 
+export function buildProjectDocumentsForgeHref(
+  projectId: string,
+  documentId?: string | null,
+): string {
+  const params = new URLSearchParams();
+  if (documentId) {
+    params.set('documentId', documentId);
+  }
+
+  const query = params.toString();
+  return `/platform/projects/${projectId}${query ? `?${query}` : ''}#project-documents`;
+}
+
 export function resolveDocumentDetailContext(
   searchParams: SearchParamsLike,
   linkedProjectId?: string | null,

@@ -6,27 +6,27 @@ import type { OperatorGraphData, OperatorGraphNode, OperatorGraphStatus } from '
 // ── Visual maps ──────────────────────────────────────────────────────────────
 
 const STATUS_DOT: Record<OperatorGraphStatus, string> = {
-  ok:      'bg-emerald-400',
-  review:  'bg-amber-400',
-  blocked: 'bg-red-400',
-  active:  'bg-[#3B82F6]',
-  loading: 'bg-[#2F3B52]',
+  ok:      'bg-[var(--ef-success)]',
+  review:  'bg-[var(--ef-warning)]',
+  blocked: 'bg-[var(--ef-critical)]',
+  active:  'bg-[var(--ef-purple-primary)]',
+  loading: 'bg-[var(--ef-border-subtle)]',
 };
 
 const STATUS_TEXT: Record<OperatorGraphStatus, string> = {
-  ok:      'text-emerald-400',
-  review:  'text-amber-300',
-  blocked: 'text-red-400',
-  active:  'text-[#93C5FD]',
-  loading: 'text-[#94A3B8]',
+  ok:      'text-[var(--ef-success)]',
+  review:  'text-[var(--ef-warning-soft)]',
+  blocked: 'text-[var(--ef-critical)]',
+  active:  'text-[var(--ef-purple-glow)]',
+  loading: 'text-[var(--ef-text-muted)]',
 };
 
 const COUNT_COLOR: Record<OperatorGraphStatus, string> = {
-  ok:      'text-[#E5EDF7]',
-  review:  'text-amber-200',
-  blocked: 'text-red-300',
-  active:  'text-[#93C5FD]',
-  loading: 'text-[#94A3B8]',
+  ok:      'text-[var(--ef-text-primary)]',
+  review:  'text-[var(--ef-warning-soft)]',
+  blocked: 'text-[var(--ef-critical-soft)]',
+  active:  'text-[var(--ef-purple-glow)]',
+  loading: 'text-[var(--ef-text-muted)]',
 };
 
 // Stage icons: simple SVG matched to the platform icon style (20×20 viewBox)
@@ -80,18 +80,18 @@ function StageNode({ node }: { node: OperatorGraphNode }) {
   return (
     <Link
       href={node.href}
-      className="group flex min-w-0 flex-1 flex-col gap-3 rounded-xl border border-[#2F3B52]/70 bg-[#0F1728] p-4 transition hover:border-[#3B82F6]/40 hover:bg-[#1A2333]"
+      className="group flex min-w-0 flex-1 flex-col gap-3 rounded-xl border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4 transition hover:border-[var(--ef-purple-primary-a40)] hover:bg-[var(--ef-surface-elevated)]"
     >
       {/* Stage icon + labels */}
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 text-[#94A3B8]">
+        <span className="mt-0.5 shrink-0 text-[var(--ef-text-muted)]">
           {STAGE_ICON[node.stage]}
         </span>
         <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#94A3B8] truncate">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[var(--ef-text-muted)] truncate">
             {node.sublabel}
           </p>
-          <p className="mt-0.5 text-[12px] font-semibold tracking-tight text-[#E5EDF7] truncate">
+          <p className="mt-0.5 text-[12px] font-semibold tracking-tight text-[var(--ef-text-primary)] truncate">
             {node.label}
           </p>
         </div>
@@ -100,18 +100,18 @@ function StageNode({ node }: { node: OperatorGraphNode }) {
       {/* Primary count */}
       <div>
         <p className={`text-[24px] font-bold tabular-nums leading-none ${
-          node.count === null ? 'text-[#94A3B8]' : COUNT_COLOR[node.status]
+          node.count === null ? 'text-[var(--ef-text-muted)]' : COUNT_COLOR[node.status]
         }`}>
           {node.count === null ? '—' : node.count}
         </p>
-        <p className="mt-1 text-[9px] uppercase tracking-[0.14em] text-[#94A3B8]">
+        <p className="mt-1 text-[9px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
           {node.countLabel}
         </p>
       </div>
 
       {/* Amount (enforcement exposure) */}
       {node.amount !== null && node.amount > 0 && (
-        <p className="text-[11px] font-semibold tabular-nums text-[#C7D2E3]">
+        <p className="text-[11px] font-semibold tabular-nums text-[var(--ef-text-secondary)]">
           {formatAmount(node.amount)} exposure
         </p>
       )}
@@ -135,7 +135,7 @@ function Arrow() {
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path
           d="M2 8H14M9 3L14 8L9 13"
-          stroke="#2F3B52"
+          stroke="var(--ef-border-subtle)"
           strokeWidth="1.4"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -149,15 +149,15 @@ function Arrow() {
 
 export function OperatorGraphPanel({ data }: { data: OperatorGraphData }) {
   return (
-    <section className="rounded-2xl border border-[#2F3B52]/80 bg-[#111827] p-5 shadow-[0_24px_90px_-64px_rgba(11,16,32,0.95)]">
+    <section className="rounded-2xl border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] p-5 shadow-[0_24px_90px_-64px_var(--ef-shadow-ambient)]">
       <div className="mb-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[#94A3B8]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[var(--ef-text-muted)]">
           Operator Graph
         </p>
-        <h2 className="mt-2 text-[15px] font-semibold tracking-tight text-[#E5EDF7]">
+        <h2 className="mt-2 text-[15px] font-semibold tracking-tight text-[var(--ef-text-primary)]">
           Execution Pipeline
         </h2>
-        <p className="mt-1 text-[11px] text-[#94A3B8]">
+        <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
           Documents → truth → decisions → enforcement → execution
         </p>
       </div>

@@ -220,6 +220,118 @@ function toAmount(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Match extension total within cents / small relative slack. */
+function nearlySameInvoiceMoney(a: number, b: number): boolean {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  const tolerance = Math.max(0.02, Math.abs(b) * 0.002);
+  return Math.abs(a - b) <= tolerance;
+}
+
+/** Unit column (CYD / EA / ROW / LH / …) followed by unit price then line total at end of raw row — Williamson spreadsheet + invoice lines. */
+const INVOICE_LINE_UNIT_AMOUNT_PAIR_TAIL_RE =
+  /\b(?:CYD|EA|SQ\s*(?:YD|FT)|LF|TN|TON|DAY|DAYS|HRS|HR|WK|YR|YR\.|BU|BUSHEL|LB|UNIT|EACH|ROW|LH)\b\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i;
+
+function invoiceMoneyAmountsOrdered(text: string): number[] {
+  const out: number[] = [];
+  const re = new RegExp(MONEY_RE.source, MONEY_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const parsed = toAmount(match[1] ?? '');
+    if (parsed != null && Number.isFinite(parsed) && parsed >= 0) out.push(parsed);
+  }
+  return out;
+}
+
+function deriveUnitAmountPairFromTailUnit(raw: string): { unitPrice: number; extension: number } | null {
+  const trimmed = normalizeWhitespace(raw);
+  if (!trimmed) return null;
+  const tailMatch = trimmed.match(INVOICE_LINE_UNIT_AMOUNT_PAIR_TAIL_RE);
+  if (!tailMatch) return null;
+  const unitPrice = toAmount(tailMatch[1] ?? '');
+  const extension = toAmount(tailMatch[2] ?? '');
+  if (unitPrice == null || extension == null) return null;
+  return { unitPrice, extension };
+}
+
+/**
+ * Resolve display/canonical invoice line unit price: trust structured fields only when qty × unit ≈ extension;
+ * otherwise prefer the monetary token immediately before the line total near the CYD|EA|ROW|LH tail, or anchored token scan on raw_text.
+ *
+ * Generic `rate` / quantity-like structured values are superseded when raw pattern + extension check disprove them.
+ */
+export function resolveInvoiceLineUnitPrice(params: {
+  structuredUnitPrice?: number | null | undefined;
+  quantity?: number | null | undefined;
+  lineTotal?: number | null | undefined;
+  rawText?: string | null | undefined;
+}): number | null {
+  const qty = typeof params.quantity === 'number' && Number.isFinite(params.quantity) ? params.quantity : null;
+  const extension =
+    typeof params.lineTotal === 'number' && Number.isFinite(params.lineTotal)
+      ? params.lineTotal
+      : null;
+  const structured =
+    typeof params.structuredUnitPrice === 'number' && Number.isFinite(params.structuredUnitPrice)
+      ? params.structuredUnitPrice
+      : null;
+  const rawText = typeof params.rawText === 'string' ? params.rawText.trim() : '';
+
+  const structuredConsistent =
+    structured != null
+    && extension != null
+    && qty != null
+    && nearlySameInvoiceMoney(qty * structured, extension);
+
+  if (structuredConsistent) {
+    return structured;
+  }
+
+  const tailDerived = rawText.length > 0 ? deriveUnitAmountPairFromTailUnit(rawText) : null;
+  if (tailDerived) {
+    const { unitPrice, extension: extensionFromTail } = tailDerived;
+    if (!(extension != null && !nearlySameInvoiceMoney(extensionFromTail, extension))) {
+      if (qty != null && extension != null) {
+        if (nearlySameInvoiceMoney(qty * unitPrice, extension)) return unitPrice;
+      } else if (extension != null) {
+        if (nearlySameInvoiceMoney(extensionFromTail, extension)) return unitPrice;
+      } else {
+        /** No structured extension — still trust unit-token ×2 tail when qty proves extension math. */
+        if (qty != null && nearlySameInvoiceMoney(qty * unitPrice, extensionFromTail)) return unitPrice;
+      }
+    }
+  }
+
+  const amounts = invoiceMoneyAmountsOrdered(rawText);
+  if (qty != null && extension != null && amounts.length >= 2) {
+    for (let i = amounts.length - 1; i >= 1; i -= 1) {
+      if (nearlySameInvoiceMoney(amounts[i]!, extension)) {
+        const candidate = amounts[i - 1]!;
+        if (!nearlySameInvoiceMoney(candidate, extension) && nearlySameInvoiceMoney(qty * candidate, extension)) {
+          return candidate;
+        }
+      }
+    }
+    /** Last resort: last monetary token is extension, preceding is unit price if math holds. */
+    const lastAmt = amounts[amounts.length - 1];
+    const penultimate = amounts[amounts.length - 2];
+    if (
+      lastAmt != null
+      && penultimate != null
+      && nearlySameInvoiceMoney(lastAmt, extension)
+      && nearlySameInvoiceMoney(qty * penultimate, extension)
+    ) {
+      return penultimate;
+    }
+  }
+
+  /** Reject bogus structured unit price vs extension×quantity when qty is known. */
+  if (structured != null && qty != null && extension != null && !nearlySameInvoiceMoney(qty * structured, extension)) {
+    return null;
+  }
+
+  return structured ?? null;
+}
+
 function lastAmountInText(value: string | null | undefined): number | null {
   if (!value) return null;
   let match: RegExpExecArray | null = null;
@@ -401,18 +513,183 @@ function lineCodeLikeValue(value: string | null | undefined): string | null {
 function cleanFlattenedLineDescription(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = restoreOcrWordSpacing(value)
+    .replace(/^[\s\S]*?\bQ\s+Quantity\s+Description\s+Unit\s+Price\s+Line\s+Total\b/i, ' ')
     .replace(/\bINVOICE\s+Description\b[\s\S]*$/i, '')
+    .replace(/\bSubtotal\b[\s\S]*$/i, '')
+    .replace(/\bTOTAL\b[\s\S]*$/i, '')
     .replace(/\bMake all checks payable to\b[\s\S]*$/i, '')
     .replace(/\bTHANK YOU FOR YOUR BUSINESS!?[\s\S]*$/i, '')
+    .replace(/\b\d[\d,]*(?:\.\d{1,2})\s+\$?\d[\d,]*(?:\.\d{1,2})\s+\$?\d[\d,]*(?:\.\d{1,2})\b/g, ' ')
+    .replace(/\b\d[\d,]*\s+\$\s*\d[\d,]*(?:\.\d{1,2})\s+\$\s*\d[\d,]*(?:\.\d{1,2})\b/g, ' ')
+    .replace(/\s+\$?\d[\d,]*(?:\.\d{1,2})\s+\$?\d[\d,]*(?:\.\d{1,2})(?=\s|$)/g, ' ')
     .replace(/\b\d{3}[- ]\d{3}[- ]\d{4}\b/g, ' ')
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ')
     .replace(/\b\d{4}-\d{3,4}\b/g, ' ')
-    .replace(/[>"“”]+/g, ' ')
+    .replace(/[“”]+/g, '"')
     .replace(/\s{2,}/g, ' ')
     .trim();
 
   if (!normalized || !/[A-Za-z]/.test(normalized)) return null;
   return normalized.length > 220 ? normalized.slice(0, 220).trim() : normalized;
+}
+
+function invoiceLineCodeStartFromText(value: string): {
+  line_code: string;
+  description: string;
+  leadingQuantity: number | null;
+} | null {
+  const normalized = restoreOcrWordSpacing(value);
+  const leadingQuantityMatch = normalized.match(
+    /^\s*(\d[\d,]*(?:\.\d{1,2})?)\s+(\d{1,4}[A-Z]{1,12})\s*(?:[-:]\s*)?(.*)$/i,
+  );
+  if (leadingQuantityMatch) {
+    const line_code = lineCodeLikeValue(leadingQuantityMatch[2] ?? null);
+    const leadingQuantity = toAmount(leadingQuantityMatch[1]);
+    if (line_code && leadingQuantity != null) {
+      return {
+        line_code,
+        description: leadingQuantityMatch[3] ?? '',
+        leadingQuantity,
+      };
+    }
+  }
+
+  const standardMatch = normalized.match(/^\s*(\d{1,4}[A-Z]{1,12})\s*(?:[-:]\s*)?(.*)$/i);
+  const line_code = lineCodeLikeValue(standardMatch?.[1] ?? null);
+  if (!line_code || !standardMatch) return null;
+  return {
+    line_code,
+    description: standardMatch[2] ?? '',
+    leadingQuantity: null,
+  };
+}
+
+function validInvoiceAmountTriple(
+  quantity: number | null,
+  unit_price: number | null,
+  line_total: number | null,
+  raw_text: string,
+): { quantity: number; unit_price: number; line_total: number; raw_text: string } | null {
+  if (quantity == null || unit_price == null || line_total == null) return null;
+  if (quantity <= 0 || unit_price <= 0 || line_total <= 0) return null;
+  const expectedTotal = quantity * unit_price;
+  if (Math.abs(expectedTotal - line_total) > Math.max(1, line_total * 0.01)) {
+    return null;
+  }
+  return {
+    quantity,
+    unit_price,
+    line_total,
+    raw_text: normalizeWhitespace(raw_text),
+  };
+}
+
+function extractValidInvoiceAmountTriple(
+  value: string,
+): { quantity: number; unit_price: number; line_total: number; raw_text: string } | null {
+  const text = restoreOcrWordSpacing(value);
+  const codeMiddlePattern =
+    /(?:^|[^$\d,.])(\d[\d,]*(?:\.\d{1,2})?)\s+\d{1,4}[A-Z]{1,12}\b[\s\S]*?\$\s*([\d,]+(?:\.\d{1,2})?)\s+\$\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/gi;
+  let codeMiddleMatch: RegExpExecArray | null;
+  while ((codeMiddleMatch = codeMiddlePattern.exec(text)) != null) {
+    const triple = validInvoiceAmountTriple(
+      toAmount(codeMiddleMatch[1]),
+      toAmount(codeMiddleMatch[2]),
+      toAmount(codeMiddleMatch[3]),
+      codeMiddleMatch[0] ?? '',
+    );
+    if (triple) return triple;
+    codeMiddlePattern.lastIndex = (codeMiddleMatch.index ?? 0) + 1;
+  }
+
+  const triplePattern =
+    /\b(\d[\d,]*(?:\.\d{1,2})?)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = triplePattern.exec(text)) != null) {
+    const triple = validInvoiceAmountTriple(
+      toAmount(match[1]),
+      toAmount(match[2]),
+      toAmount(match[3]),
+      match[0] ?? '',
+    );
+    if (triple) return triple;
+    triplePattern.lastIndex = (match.index ?? 0) + 1;
+  }
+
+  return null;
+}
+
+function extractLineOrientedFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
+  if (!/\r?\n/.test(text)) return [];
+  const amountRegion = text.split(/subtotal/i)[0] ?? text;
+  const blocks: Array<{
+    line_code: string;
+    leadingQuantity: number | null;
+    lines: string[];
+  }> = [];
+  let current: { line_code: string; leadingQuantity: number | null; lines: string[] } | null = null;
+
+  for (const rawLine of amountRegion.split(/\r?\n/)) {
+    const line = normalizeWhitespace(rawLine);
+    if (!line) continue;
+    if (/^(?:Q\s+)?Quantity\s+Description\s+Unit\s+Price\s+Line\s+Total$/i.test(line)) continue;
+    if (/^(?:INVOICE|Bill To|Due Date|Invoice Number|Invoice Date|Emergency Agmt)\b/i.test(line)) continue;
+
+    const start = invoiceLineCodeStartFromText(line);
+    if (start) {
+      if (current) blocks.push(current);
+      current = {
+        line_code: start.line_code,
+        leadingQuantity: start.leadingQuantity,
+        lines: [start.description],
+      };
+      continue;
+    }
+
+    if (current) current.lines.push(line);
+  }
+  if (current) blocks.push(current);
+
+  const rows = blocks.flatMap((block) => {
+    const raw_text = normalizeWhitespace(`${block.line_code} ${block.lines.join(' ')}`);
+    const line_description = cleanFlattenedLineDescription(block.lines.join(' '));
+    if (!line_description) return [];
+    const amount = extractValidInvoiceAmountTriple(
+      block.leadingQuantity == null
+        ? block.lines.join(' ')
+        : `${block.leadingQuantity} ${block.line_code} ${block.lines.join(' ')}`,
+    );
+    const billingKeys = deriveBillingKeysForInvoiceLine({
+      rate_code: block.line_code,
+      description: line_description,
+      service_item: line_description,
+      material: null,
+    });
+
+    return [{
+      line_code: block.line_code,
+      line_description,
+      quantity: amount?.quantity ?? block.leadingQuantity,
+      unit: null,
+      unit_price: amount?.unit_price ?? null,
+      line_total: amount?.line_total ?? null,
+      billing_rate_key: billingKeys.billing_rate_key,
+      description_match_key: billingKeys.description_match_key,
+      description: line_description,
+      total: amount?.line_total ?? null,
+      evidence_refs: [],
+      raw_text: normalizeWhitespace(`${raw_text} ${amount?.raw_text ?? ''}`),
+    }];
+  });
+
+  const unique = new Map<string, InvoiceLineItem>();
+  for (const row of rows) {
+    if (!row.line_code || unique.has(row.line_code)) continue;
+    unique.set(row.line_code, row);
+  }
+  return [...unique.values()].sort((left, right) =>
+    compareInvoiceLineCodes(String(left.line_code ?? ''), String(right.line_code ?? '')),
+  );
 }
 
 function compareInvoiceLineCodes(left: string, right: string): number {
@@ -452,29 +729,26 @@ function extractClientFromUnlabeledText(text: string): string | null {
 }
 
 function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
+  const lineOrientedRows = extractLineOrientedFlattenedLineItemsFromText(text);
+  if (lineOrientedRows.length > 0) return lineOrientedRows;
+
   const amountRegion = text.split(/subtotal/i)[0] ?? text;
-  const amountMatches = Array.from(
-    amountRegion.matchAll(
-      /(\d[\d,]*(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/g,
-    ),
-  ).flatMap((match) => {
-    const quantity = toAmount(match[1]);
-    const unit_price = toAmount(match[2]);
-    const line_total = toAmount(match[3]);
-    if (quantity == null || unit_price == null || line_total == null) return [];
-
-    const expectedTotal = quantity * unit_price;
-    if (Math.abs(expectedTotal - line_total) > Math.max(1, line_total * 0.01)) {
-      return [];
+  const amountMatches: Array<{ quantity: number; unit_price: number; line_total: number; raw_text: string }> = [];
+  const amountPattern =
+    /(\d[\d,]*(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/g;
+  let amountMatch: RegExpExecArray | null;
+  while ((amountMatch = amountPattern.exec(amountRegion)) != null) {
+    const amount = validInvoiceAmountTriple(
+      toAmount(amountMatch[1]),
+      toAmount(amountMatch[2]),
+      toAmount(amountMatch[3]),
+      amountMatch[0] ?? '',
+    );
+    if (amount && !amountMatches.some((existing) => existing.raw_text === amount.raw_text)) {
+      amountMatches.push(amount);
     }
-
-    return [{
-      quantity,
-      unit_price,
-      line_total,
-      raw_text: normalizeWhitespace(match[0] ?? ''),
-    }];
-  });
+    amountPattern.lastIndex = (amountMatch.index ?? 0) + 1;
+  }
 
   const descriptionRegionMatch = text.match(
     /(?:Emergency\s+Agmt[\s\S]*?)((?:\b\d+[A-Z]\s*-\s*[\s\S]+))(?:Make all checks payable to|THANK YOU FOR YOUR BUSINESS|$)/i,
@@ -482,7 +756,7 @@ function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
   const descriptionRegion = descriptionRegionMatch?.[1] ?? text;
   const descriptionMatches = Array.from(
     descriptionRegion.matchAll(
-      /\b(\d+[A-Z])\s*-\s*([\s\S]*?)(?=(?:\b\d+[A-Z]\s*-\s*)|Make all checks payable to|THANK YOU FOR YOUR BUSINESS|$)/gi,
+      /\b(\d+[A-Z])\s*-\s*([\s\S]*?)(?=(?:\b(?:\d[\d,]*(?:\.\d{1,2})?[ \t]+)?\d+[A-Z]\s*-\s*)|Make all checks payable to|THANK YOU FOR YOUR BUSINESS|$)/gi,
     ),
   ).flatMap((match) => {
     const line_code = lineCodeLikeValue(match[1] ?? null);
@@ -492,6 +766,7 @@ function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
       line_code,
       line_description,
       raw_text: normalizeWhitespace(match[0] ?? ''),
+      start: match.index ?? 0,
     }];
   });
 
@@ -501,13 +776,50 @@ function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
         map.set(item.line_code, item);
       }
       return map;
-    }, new Map<string, { line_code: string; line_description: string; raw_text: string }>()),
+    }, new Map<string, { line_code: string; line_description: string; raw_text: string; start: number }>()),
   )
     .map(([, item]) => item)
     .sort((left, right) => compareInvoiceLineCodes(left.line_code, right.line_code));
 
-  if (amountMatches.length === 0 || uniqueDescriptions.length === 0) return [];
-  if (amountMatches.length !== uniqueDescriptions.length) return [];
+  if (uniqueDescriptions.length === 0) return [];
+
+  if (amountMatches.length < uniqueDescriptions.length) {
+    const descriptionsBySourceOrder = [...uniqueDescriptions].sort((left, right) => left.start - right.start);
+    const nextStartByCode = new Map<string, number>();
+    descriptionsBySourceOrder.forEach((description, index) => {
+      nextStartByCode.set(description.line_code, descriptionsBySourceOrder[index + 1]?.start ?? descriptionRegion.length);
+    });
+
+    return uniqueDescriptions.map((description) => {
+      const amount = extractAmountsNearFlattenedDescription(
+        descriptionRegion,
+        description.line_code,
+        description.start,
+        nextStartByCode.get(description.line_code) ?? descriptionRegion.length,
+      );
+      const billingKeys = deriveBillingKeysForInvoiceLine({
+        rate_code: description.line_code,
+        description: description.line_description,
+        service_item: description.line_description,
+        material: null,
+      });
+
+      return {
+        line_code: description.line_code,
+        line_description: description.line_description,
+        quantity: amount?.quantity ?? null,
+        unit: null,
+        unit_price: amount?.unit_price ?? null,
+        line_total: amount?.line_total ?? null,
+        billing_rate_key: billingKeys.billing_rate_key,
+        description_match_key: billingKeys.description_match_key,
+        description: description.line_description,
+        total: amount?.line_total ?? null,
+        evidence_refs: [],
+        raw_text: normalizeWhitespace(`${description.raw_text} ${amount?.raw_text ?? ''}`),
+      };
+    });
+  }
 
   return uniqueDescriptions.map((description, index) => {
     const amount = amountMatches[index]!;
@@ -533,6 +845,204 @@ function extractFlattenedLineItemsFromText(text: string): InvoiceLineItem[] {
       raw_text: `${description.raw_text} ${amount.raw_text}`.trim(),
     };
   });
+}
+
+function extractAmountsNearFlattenedDescription(
+  descriptionRegion: string,
+  lineCode: string,
+  start: number,
+  nextStart: number,
+): { quantity: number; unit_price: number; line_total: number; raw_text: string } | null {
+  const windowStart = Math.max(0, start - 48);
+  const prefixBlock = descriptionRegion.slice(windowStart, Math.max(nextStart, start));
+  const block = descriptionRegion.slice(start, Math.max(nextStart, start));
+  const codeEsc = escapeRegExp(lineCode);
+  const codeMiddle = prefixBlock.match(
+    new RegExp(`(?:^|[^$\\d,.])(\\d[\\d,]*(?:\\.\\d{1,2})?)[ \\t]+${codeEsc}\\b[\\s\\S]*?\\$?\\s*([\\d,]+(?:\\.\\d{1,2})?)\\s+\\$?\\s*([\\d,]+(?:\\.\\d{1,2})?)(?=\\s|$)`, 'i'),
+  );
+  const decimalQuantityTriple = block.match(
+    /\b(\d[\d,]*(?:\.\d{1,2}))\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/,
+  );
+  const integerQuantityDollarTriple = block.match(
+    /\b(\d[\d,]*)\s+\$\s*([\d,]+(?:\.\d{1,2})?)\s+\$\s*([\d,]+(?:\.\d{1,2})?)(?=\s|$)/,
+  );
+  const triple =
+    codeMiddle
+    ?? decimalQuantityTriple
+    ?? integerQuantityDollarTriple;
+  if (!triple) return null;
+  return validInvoiceAmountTriple(
+    toAmount(triple[1]),
+    toAmount(triple[2]),
+    toAmount(triple[3]),
+    triple[0] ?? '',
+  );
+}
+
+function invoiceRateCodeToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = restoreOcrWordSpacing(value).match(/^\s*(\d{1,4}[A-Za-z]{1,12})\b/);
+  return match?.[1] ?? null;
+}
+
+function invoiceLineCodeToken(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return (
+    invoiceRateCodeToken(record.line_code)
+    ?? invoiceRateCodeToken(record.lineCode)
+    ?? invoiceRateCodeToken(record.rate_code)
+    ?? invoiceRateCodeToken(record.code)
+  );
+}
+
+function invoiceLineText(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) return '';
+  return normalizeWhitespace(
+    [
+      record.line_description,
+      record.lineDescription,
+      record.description,
+      record.desc,
+      record.raw_text_for_display,
+      record.rawTextForDisplay,
+      record.full_row_text,
+      record.fullRowText,
+      record.raw_text,
+      record.rawText,
+      record.line_text,
+      record.lineText,
+      record.text,
+    ]
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join(' '),
+  );
+}
+
+function invoiceLineHasCompleteAmounts(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  return (
+    recordNumber(record.quantity ?? record.qty) != null
+    && recordNumber(record.unit_price ?? record.unitPrice ?? record.price ?? record.unitRate ?? record.unit_rate) != null
+    && recordNumber(record.line_total ?? record.lineTotal ?? record.total ?? record.amount) != null
+  );
+}
+
+function invoiceLineQuality(lines: readonly unknown[]): {
+  count: number;
+  codeCount: number;
+  completeAmountCount: number;
+  proseCount: number;
+} {
+  return lines.reduce(
+    (summary, line) => {
+      summary.count += 1;
+      if (invoiceLineCodeToken(line)) summary.codeCount += 1;
+      if (invoiceLineHasCompleteAmounts(line)) summary.completeAmountCount += 1;
+      if (/[A-Za-z]/.test(invoiceLineText(line))) summary.proseCount += 1;
+      return summary;
+    },
+    { count: 0, codeCount: 0, completeAmountCount: 0, proseCount: 0 },
+  );
+}
+
+function shouldPreferRecoveredInvoiceLines(
+  currentLines: readonly unknown[],
+  recoveredLines: readonly InvoiceLineItem[],
+): boolean {
+  if (recoveredLines.length === 0) return false;
+  const current = invoiceLineQuality(currentLines);
+  const recovered = invoiceLineQuality(recoveredLines);
+  if (recovered.codeCount <= current.codeCount) return false;
+  if (current.count > 0 && recovered.count < current.count) return false;
+  if (recovered.codeCount < Math.max(1, Math.ceil(recovered.count * 0.6))) return false;
+  if (
+    current.completeAmountCount > 0
+    && recovered.completeAmountCount < Math.min(current.completeAmountCount, recovered.count)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function uniqueInvoiceRecoveryTextParts(parts: Array<string | null | undefined>): string {
+  return uniqueStrings(parts).join('\n');
+}
+
+export function invoiceRecoveryTextFromExtractionData(extractionData: unknown): string {
+  const payload = asRecord(extractionData);
+  const extraction = asRecord(payload?.extraction);
+  const evidenceV1 = asRecord(extraction?.evidence_v1);
+  const contentLayers = asRecord(extraction?.content_layers_v1);
+  const pdf = asRecord(contentLayers?.pdf);
+  const pdfText = asRecord(pdf?.text);
+  const pdfTables = asRecord(pdf?.tables);
+
+  const pageTextParts: Array<string | null | undefined> = [];
+  for (const page of asArray<Record<string, unknown>>(evidenceV1?.page_text)) {
+    if (typeof page.text === 'string') pageTextParts.push(page.text);
+  }
+  if (uniqueStrings(pageTextParts).length > 0) return uniqueInvoiceRecoveryTextParts(pageTextParts);
+
+  if (typeof pdfText?.combined_text === 'string' && pdfText.combined_text.trim().length > 0) {
+    return pdfText.combined_text;
+  }
+
+  const blockParts: Array<string | null | undefined> = [];
+  for (const page of asArray<Record<string, unknown>>(pdfText?.pages)) {
+    for (const block of asArray<Record<string, unknown>>(page.plain_text_blocks)) {
+      if (typeof block.text === 'string') blockParts.push(block.text);
+      if (typeof block.nearby_text === 'string') blockParts.push(block.nearby_text);
+    }
+  }
+  if (uniqueStrings(blockParts).length > 0) return uniqueInvoiceRecoveryTextParts(blockParts);
+
+  const tableParts: Array<string | null | undefined> = [];
+  for (const table of asArray<Record<string, unknown>>(pdfTables?.tables)) {
+    tableParts.push(...asArray<string>(table.header_context));
+    for (const row of asArray<Record<string, unknown>>(table.rows)) {
+      if (typeof row.raw_text === 'string') tableParts.push(row.raw_text);
+      if (typeof row.nearby_text === 'string') tableParts.push(row.nearby_text);
+      for (const cell of asArray<Record<string, unknown>>(row.cells)) {
+        if (typeof cell.text === 'string') tableParts.push(cell.text);
+      }
+    }
+  }
+  if (uniqueStrings(tableParts).length > 0) return uniqueInvoiceRecoveryTextParts(tableParts);
+
+  const evidenceParts: Array<string | null | undefined> = [];
+  for (const evidence of asArray<Record<string, unknown>>(pdf?.evidence)) {
+    if (typeof evidence.text === 'string') evidenceParts.push(evidence.text);
+    const location = asRecord(evidence.location);
+    if (typeof location?.nearby_text === 'string') evidenceParts.push(location.nearby_text);
+  }
+  if (uniqueStrings(evidenceParts).length > 0) return uniqueInvoiceRecoveryTextParts(evidenceParts);
+
+  return typeof extraction?.text_preview === 'string' ? extraction.text_preview : '';
+}
+
+export function recoverInvoiceLineItemsFromRichText(text: string | null | undefined): InvoiceLineItem[] {
+  return typeof text === 'string' && text.trim().length > 0
+    ? extractFlattenedLineItemsFromText(text)
+    : [];
+}
+
+export function recoverInvoiceLineItemsFromExtractionData(params: {
+  lineItems: unknown;
+  extractionData?: unknown;
+  fallbackText?: string | null;
+}): unknown[] {
+  const currentLines = asArray<unknown>(params.lineItems);
+  const richText = uniqueInvoiceRecoveryTextParts([
+    params.fallbackText ?? null,
+    invoiceRecoveryTextFromExtractionData(params.extractionData),
+  ]);
+  const recoveredLines = recoverInvoiceLineItemsFromRichText(richText);
+  return shouldPreferRecoveredInvoiceLines(currentLines, recoveredLines)
+    ? recoveredLines
+    : currentLines;
 }
 
 function formatIsoDate(year: number, month: number, day: number): string | null {
@@ -1521,17 +2031,16 @@ export function extractInvoiceTypedFields(params: {
   });
 
   const tableLineItems = extractLineItemsFromTables(context.tables);
-  const fallbackTextLineItems = tableLineItems.length > 0 ? [] : extractLineItemsFromText(text);
-  const flattenedTextLineItems =
-    tableLineItems.length > 0 || fallbackTextLineItems.length > 0
-      ? []
-      : extractFlattenedLineItemsFromText(text);
-  const resolvedLineItems =
-    tableLineItems.length > 0
+  const fallbackTextLineItems = extractLineItemsFromText(text);
+  const flattenedTextLineItems = extractFlattenedLineItemsFromText(text);
+  const textRecoveredLineItems = shouldPreferRecoveredInvoiceLines(fallbackTextLineItems, flattenedTextLineItems)
+    ? flattenedTextLineItems
+    : fallbackTextLineItems;
+  const resolvedLineItems = shouldPreferRecoveredInvoiceLines(tableLineItems, textRecoveredLineItems)
+    ? textRecoveredLineItems
+    : tableLineItems.length > 0
       ? tableLineItems
-      : fallbackTextLineItems.length > 0
-        ? fallbackTextLineItems
-        : flattenedTextLineItems;
+      : textRecoveredLineItems;
 
   const { subtotalCandidates, totalCandidates, currentDueCandidates } = extractAmountCandidates({
     text,
@@ -1641,8 +2150,20 @@ function normalizeTypedInvoiceLine(
     ?? line_description;
   const quantity = recordNumber(record.quantity ?? record.qty);
   const unit = recordString(record.unit ?? record.uom);
-  const unit_price = recordNumber(record.unit_price ?? record.price ?? record.rate);
   const line_total = recordNumber(record.line_total ?? record.total ?? record.amount);
+  const structuredUnitPrice = recordNumber(
+    record.unit_price
+    ?? record.unitPrice
+    ?? record.price
+    ?? record.unitRate
+    ?? record.unit_rate,
+  );
+  const unit_price = resolveInvoiceLineUnitPrice({
+    structuredUnitPrice,
+    quantity,
+    lineTotal: line_total,
+    rawText: recordString(record.raw_text),
+  });
 
   if (!line_code && !line_description && line_total == null && quantity == null && unit_price == null) {
     return null;
@@ -1699,6 +2220,8 @@ function normalizeTypedInvoiceLine(
 export function buildCanonicalInvoiceRowsFromTypedFields(params: {
   documentId: string;
   typedFields: Record<string, unknown> | null | undefined;
+  extractionData?: unknown;
+  fallbackText?: string | null;
 }): {
   invoiceRow: Record<string, unknown> | null;
   invoiceLines: Record<string, unknown>[];
@@ -1744,7 +2267,11 @@ export function buildCanonicalInvoiceRowsFromTypedFields(params: {
     ?? recordNumber(typed.current_amount_due)
     ?? recordNumber(typed.currentPaymentDue);
   const invoice_status = recordString(typed.invoice_status);
-  const lineItems = asArray<unknown>(typed.line_items);
+  const lineItems = recoverInvoiceLineItemsFromExtractionData({
+    lineItems: typed.line_items,
+    extractionData: params.extractionData,
+    fallbackText: params.fallbackText,
+  });
   const invoiceId = `typed:${params.documentId}:invoice`;
   const invoiceLines = lineItems
     .map((line, index) =>

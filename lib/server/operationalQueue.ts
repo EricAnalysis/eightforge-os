@@ -1,6 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { filterCurrentQueueRecords } from '@/lib/currentWork';
 import {
+  buildExecutionInspectorHref,
+  executionItemBlocksApproval,
+  executionItemIsResolvableNow,
+  executionItemProjectHref,
+  executionItemStatusLabel,
+  type ProjectExecutionItemRow,
+} from '@/lib/executionItems';
+import {
   resolveDecisionPrimaryAction,
   resolveDecisionProjectContext,
   resolveDecisionReason,
@@ -63,8 +71,8 @@ export type OperationalDecisionQueueItem = {
   created_at: string;
   detected_at: string | null;
   due_at: string | null;
-  kind: 'persisted_decision' | 'trace_decision';
-  action_mode: 'decision' | 'document_review';
+  kind: 'persisted_decision' | 'trace_decision' | 'execution_item';
+  action_mode: 'decision' | 'document_review' | 'execution';
   missing_action: boolean;
   vague_action: boolean;
   blocked: boolean;
@@ -496,6 +504,68 @@ function resolveEvidenceSummary(sourceRefs: string[], factRefs: string[], fallba
   return fallback;
 }
 
+function executionEvidenceHref(params: {
+  item: ProjectExecutionItemRow;
+  evidence: QueueFindingEvidenceRow[];
+}): string | null {
+  const primaryEvidence = params.evidence.find((entry) => entry.source_document_id) ?? null;
+  if (!primaryEvidence?.source_document_id) {
+    return null;
+  }
+
+  return buildExecutionInspectorHref({
+    projectId: params.item.project_id,
+    documentId: primaryEvidence.source_document_id,
+    page: primaryEvidence.source_page,
+    factId: primaryEvidence.fact_id,
+    fieldKey: primaryEvidence.field_name,
+    recordId: primaryEvidence.record_id,
+    action: 'inspect',
+    executionItemId: params.item.id,
+    findingId: params.item.source_type === 'validator_finding' ? params.item.source_id : null,
+  });
+}
+
+function executionItemSummary(item: ProjectExecutionItemRow): string {
+  const parts = [item.problem, item.impact].filter((value): value is string => Boolean(value?.trim()));
+  return parts.join(' ');
+}
+
+function executionPendingActionFromItem(item: ProjectExecutionItemRow): ProjectOverviewActionItem {
+  return {
+    id: item.id,
+    href: executionItemProjectHref(item.project_id, item.id),
+    title: item.title,
+    due_label: item.status === 'resolved' ? 'Resolved' : executionItemBlocksApproval(item) ? 'Blocking' : 'Resolvable Now',
+    due_tone: item.status === 'resolved' ? 'success' : executionItemBlocksApproval(item) ? 'danger' : 'warning',
+    assignee_label: 'Unassigned',
+    priority_label: titleize(item.severity),
+    priority_tone:
+      item.severity === 'critical' || item.severity === 'high'
+        ? 'danger'
+        : item.status === 'resolved'
+          ? 'success'
+          : 'warning',
+    status_label: executionItemStatusLabel(item.status),
+    source_document_title: null,
+    source_document_type: item.source_type === 'validator_finding' ? 'validator' : item.source_type,
+    approval_status:
+      item.status === 'resolved'
+        ? 'approved'
+        : executionItemBlocksApproval(item)
+          ? 'blocked'
+          : 'needs_review',
+    impacted_amount: null,
+    at_risk_amount: null,
+    requires_verification_amount: null,
+    blocked_amount: null,
+    next_step: item.required_action,
+    expected_value: item.expected_value,
+    actual_value: item.actual_value,
+    variance_label: item.impact,
+  };
+}
+
 function isVagueDescription(description: string | null | undefined): boolean {
   const normalized = nonEmptyString(description)
     ?.toLowerCase()
@@ -710,6 +780,101 @@ function augmentRollupWithValidatorActions(
   };
 }
 
+function rollupStatusRank(key: ProjectOperationalRollup['status']['key']): number {
+  switch (key) {
+    case 'blocked':
+      return 0;
+    case 'needs_review':
+      return 1;
+    case 'attention_required':
+      return 2;
+    case 'operationally_clear':
+      return 3;
+    default:
+      return 3;
+  }
+}
+
+function executionItemIsUnresolved(item: Pick<ProjectExecutionItemRow, 'status'>): boolean {
+  return item.status !== 'resolved';
+}
+
+function executionItemIsBlockedTier(item: ProjectExecutionItemRow): boolean {
+  if (!executionItemIsUnresolved(item)) return false;
+  return executionItemBlocksApproval(item) || item.severity === 'critical';
+}
+
+function statusFromUnresolvedExecutionItems(
+  unresolvedItems: ProjectExecutionItemRow[],
+): ProjectOperationalRollup['status'] | null {
+  const blockedTier = unresolvedItems.filter(executionItemIsBlockedTier);
+  const blockedIds = new Set(blockedTier.map((entry) => entry.id));
+  const atRisk = unresolvedItems.filter((entry) => !blockedIds.has(entry.id));
+
+  if (blockedTier.length > 0) {
+    return {
+      key: 'blocked',
+      label: 'Blocked',
+      tone: 'danger',
+      detail: `${blockedTier.length} execution item${blockedTier.length === 1 ? '' : 's'} block approval or are critical.`,
+      is_clear: false,
+    };
+  }
+
+  if (atRisk.length > 0) {
+    return {
+      key: 'attention_required',
+      label: 'At Risk',
+      tone: 'warning',
+      detail: `${atRisk.length} execution item${atRisk.length === 1 ? '' : 's'} still need resolution.`,
+      is_clear: false,
+    };
+  }
+
+  return null;
+}
+
+function mergeOperationalRollupStatus(
+  base: ProjectOperationalRollup['status'],
+  exec: ProjectOperationalRollup['status'] | null,
+): ProjectOperationalRollup['status'] {
+  if (!exec) return base;
+  const baseRank = rollupStatusRank(base.key);
+  const execRank = rollupStatusRank(exec.key);
+  if (execRank < baseRank) return exec;
+  if (execRank > baseRank) return base;
+  return {
+    ...base,
+    detail: [base.detail, exec.detail].filter(Boolean).join(' '),
+    is_clear: false,
+  };
+}
+
+/**
+ * Merges execution-item queue data into a project rollup without discarding
+ * document, trace, or validator-derived operational status (Command Center shaping).
+ */
+export function mergeProjectRollupWithExecutionItems(params: {
+  rollup: ProjectOperationalRollup;
+  unresolvedItems: ProjectExecutionItemRow[];
+  pendingExecutionActions: ProjectOverviewActionItem[];
+}): ProjectOperationalRollup {
+  const { rollup, unresolvedItems, pendingExecutionActions } = params;
+  const execStatus = statusFromUnresolvedExecutionItems(unresolvedItems);
+  const mergedStatus = mergeOperationalRollupStatus(rollup.status, execStatus);
+  const blockedTierCount = unresolvedItems.filter(executionItemIsBlockedTier).length;
+
+  return {
+    ...rollup,
+    status: mergedStatus,
+    project_clear: mergedStatus.is_clear,
+    open_document_action_count: rollup.open_document_action_count + unresolvedItems.length,
+    unresolved_finding_count: rollup.unresolved_finding_count + unresolvedItems.length,
+    blocked_count: rollup.blocked_count + blockedTierCount,
+    pending_actions: [...pendingExecutionActions, ...rollup.pending_actions],
+  };
+}
+
 export function buildOperationalQueueModel(params: {
   projects: ProjectRecord[];
   documents: ProjectDocumentRow[];
@@ -838,6 +1003,7 @@ export function buildOperationalQueueModel(params: {
       });
       const sourceRefs = stringArray(decision.details?.source_refs);
       const factRefs = stringArray(decision.details?.fact_refs);
+      const evidenceRefs = stringArray(decision.details?.evidence_refs);
       const summary = resolveDecisionReason(decision.details ?? null, decision.summary);
       const primaryAction = resolveDecisionPrimaryAction(decision.details ?? null);
 
@@ -859,8 +1025,8 @@ export function buildOperationalQueueModel(params: {
         assigned_to_name: firstRelation(decision.assignee)?.display_name ?? null,
         source_document_title: documentTitleLabel,
         source_document_type: documentType,
-        source_refs: [...sourceRefs, ...factRefs],
-        evidence_summary: resolveEvidenceSummary(sourceRefs, factRefs, summary || null),
+        source_refs: [...evidenceRefs, ...sourceRefs, ...factRefs],
+        evidence_summary: resolveEvidenceSummary([...evidenceRefs, ...sourceRefs], factRefs, summary || null),
         deep_link_target: `/platform/decisions/${decision.id}`,
         source_document_target: documentHref,
         decision_target: `/platform/decisions/${decision.id}`,
@@ -1280,11 +1446,15 @@ export function buildOperationalQueueModel(params: {
       source_document_title: sourceDocumentTitle,
       source_document_type: sourceDocumentType,
       source_refs: [
+        ...stringArray(decision.details?.evidence_refs),
         ...stringArray(decision.details?.source_refs),
         ...stringArray(decision.details?.fact_refs),
       ],
       evidence_summary: resolveEvidenceSummary(
-        stringArray(decision.details?.source_refs),
+        [
+          ...stringArray(decision.details?.evidence_refs),
+          ...stringArray(decision.details?.source_refs),
+        ],
         stringArray(decision.details?.fact_refs),
         summary || null,
       ),
@@ -1485,6 +1655,7 @@ export async function loadOperationalQueueModel(params: {
     tasksResult,
     projectsResult,
     documentsResult,
+    executionItemsResult,
     reviewsResult,
     feedbackResult,
     recentDocumentsResult,
@@ -1492,7 +1663,7 @@ export async function loadOperationalQueueModel(params: {
     admin
       .from('decisions')
       .select(
-        'id, document_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)',
+        'id, document_id, project_id, decision_type, title, summary, severity, status, confidence, last_detected_at, created_at, due_at, assigned_to, details, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)',
       )
       .eq('organization_id', organizationId)
       .in('status', [...DECISION_OPEN_STATUSES])
@@ -1517,6 +1688,11 @@ export async function loadOperationalQueueModel(params: {
       )
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false }),
+    admin
+      .from('execution_items')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('updated_at', { ascending: false }),
     admin
       .from('document_reviews')
       .select('document_id, status, reviewed_at')
@@ -1548,6 +1724,9 @@ export async function loadOperationalQueueModel(params: {
   if (documentsResult.error) {
     throw new Error(`Failed to load documents: ${documentsResult.error.message}`);
   }
+  if (executionItemsResult.error) {
+    throw new Error(`Failed to load execution items: ${executionItemsResult.error.message}`);
+  }
 
   if (reviewsResult.error) {
     warnings.push('Document review state is unavailable. Review-based signals may be incomplete.');
@@ -1565,7 +1744,10 @@ export async function loadOperationalQueueModel(params: {
   const currentTasks = filterCurrentQueueRecords(rawTasks);
   const projects = (projectsResult.data ?? []) as ProjectRecord[];
   const projectIds = projects.map((project) => project.id);
+  const executionItems = (executionItemsResult.data ?? []) as ProjectExecutionItemRow[];
   let validatorFindingActionsByProjectId = new Map<string, ProjectOverviewActionItem[]>();
+  let queueFindings: QueueFindingRow[] = [];
+  let queueEvidence: QueueFindingEvidenceRow[] = [];
 
   if (projectIds.length > 0) {
     const findingsResult = await admin
@@ -1579,9 +1761,8 @@ export async function loadOperationalQueueModel(params: {
     if (findingsResult.error) {
       warnings.push('Validator findings are unavailable. Queue-backed line issues may be incomplete.');
     } else {
-      const findings = (findingsResult.data ?? []) as QueueFindingRow[];
-      const findingIds = findings.map((finding) => finding.id);
-      let evidence: QueueFindingEvidenceRow[] = [];
+      queueFindings = (findingsResult.data ?? []) as QueueFindingRow[];
+      const findingIds = queueFindings.map((finding) => finding.id);
 
       if (findingIds.length > 0) {
         const evidenceResult = await admin
@@ -1594,18 +1775,18 @@ export async function loadOperationalQueueModel(params: {
         if (evidenceResult.error) {
           warnings.push('Validator evidence links are unavailable. Queue deep links may fall back to the validator tab.');
         } else {
-          evidence = (evidenceResult.data ?? []) as QueueFindingEvidenceRow[];
+          queueEvidence = (evidenceResult.data ?? []) as QueueFindingEvidenceRow[];
         }
       }
 
       validatorFindingActionsByProjectId = buildValidatorFindingActionsByProjectId({
-        findings,
-        evidence,
+        findings: queueFindings,
+        evidence: queueEvidence,
       });
     }
   }
 
-  return buildOperationalQueueModel({
+  const legacyModel = buildOperationalQueueModel({
     projects,
     documents: (documentsResult.data ?? []) as ProjectDocumentRow[],
     decisions: currentDecisions,
@@ -1626,4 +1807,162 @@ export async function loadOperationalQueueModel(params: {
     },
     warnings,
   });
+
+  const projectsById = new Map(projects.map((project) => [project.id, project] as const));
+  const documentsById = new Map(
+    ((documentsResult.data ?? []) as ProjectDocumentRow[]).map((document) => [document.id, document] as const),
+  );
+  const evidenceByFindingId = new Map<string, QueueFindingEvidenceRow[]>();
+  for (const evidenceRow of queueEvidence) {
+    const current = evidenceByFindingId.get(evidenceRow.finding_id) ?? [];
+    current.push(evidenceRow);
+    evidenceByFindingId.set(evidenceRow.finding_id, current);
+  }
+
+  const unresolvedExecutionItems = executionItems.filter((item) => item.status !== 'resolved');
+  const executionQueueItems = sortDecisionItems(
+    unresolvedExecutionItems.map((item) => {
+      const project = projectsById.get(item.project_id) ?? null;
+      const evidenceRows = item.source_type === 'validator_finding'
+        ? evidenceByFindingId.get(item.source_id) ?? []
+        : [];
+      const primaryEvidence = evidenceRows.find((entry) => entry.source_document_id) ?? null;
+      const sourceDocument = primaryEvidence?.source_document_id
+        ? documentsById.get(primaryEvidence.source_document_id) ?? null
+        : null;
+
+      return {
+        id: item.id,
+        decision_id: null,
+        decision_type: item.validator_rule_key ?? item.source_key,
+        project_id: item.project_id,
+        project_label: project?.name ?? null,
+        project_code: project?.code ?? null,
+        document_id: sourceDocument?.id ?? null,
+        title: item.title,
+        summary: executionItemSummary(item),
+        status: item.status,
+        severity: item.severity,
+        confidence: null,
+        review_status: 'not_reviewed' as const,
+        assigned_to: null,
+        assigned_to_name: null,
+        source_document_title: sourceDocument ? documentTitle(sourceDocument) : null,
+        source_document_type: sourceDocument ? documentTypeLabel(sourceDocument.document_type) : null,
+        source_refs: item.evidence_refs ?? [],
+        evidence_summary:
+          primaryEvidence != null
+            ? [
+                sourceDocument ? documentTitle(sourceDocument) : null,
+                primaryEvidence.source_page != null ? `Page ${primaryEvidence.source_page}` : null,
+                primaryEvidence.field_name ? titleize(primaryEvidence.field_name) : null,
+                primaryEvidence.field_value ?? primaryEvidence.note,
+              ].filter((value): value is string => Boolean(value)).join(' | ')
+            : item.impact,
+        deep_link_target: executionItemProjectHref(item.project_id, item.id),
+        source_document_target: executionEvidenceHref({ item, evidence: evidenceRows }),
+        decision_target: null,
+        created_at: item.created_at,
+        detected_at: item.updated_at,
+        due_at: null,
+        kind: 'execution_item' as const,
+        action_mode: 'execution' as const,
+        missing_action: item.required_action.trim().length === 0,
+        vague_action: isVagueDescription(item.required_action),
+        blocked: executionItemBlocksApproval(item),
+      };
+    }),
+  );
+  const executionItemDecisionKeys = new Set(
+    executionQueueItems.map((item) =>
+      [
+        item.project_id ?? 'no_project',
+        item.decision_type,
+        item.decision_id ?? item.id,
+      ].join(':'),
+    ),
+  );
+  const persistedDecisionQueueItems = legacyModel.decisions.filter((item) => {
+    if (item.kind !== 'persisted_decision') return true;
+    const key = [
+      item.project_id ?? 'no_project',
+      item.decision_type,
+      item.decision_id ?? item.id,
+    ].join(':');
+    return !executionItemDecisionKeys.has(key);
+  });
+  const mergedDecisionQueueItems = sortDecisionItems([
+    ...executionQueueItems,
+    ...persistedDecisionQueueItems,
+  ]);
+
+  const executionActionsByProjectId = new Map<string, ProjectOverviewActionItem[]>();
+  for (const item of unresolvedExecutionItems) {
+    const current = executionActionsByProjectId.get(item.project_id) ?? [];
+    current.push(executionPendingActionFromItem(item));
+    executionActionsByProjectId.set(item.project_id, current);
+  }
+
+  const updatedRollups = legacyModel.project_rollups.map((rollupItem) => {
+    const projectExecutionItems = executionItems.filter((item) => item.project_id === rollupItem.project.id);
+    const unresolvedItems = projectExecutionItems.filter(executionItemIsUnresolved);
+    const pendingActions = executionActionsByProjectId.get(rollupItem.project.id) ?? [];
+
+    return {
+      ...rollupItem,
+      rollup: mergeProjectRollupWithExecutionItems({
+        rollup: rollupItem.rollup,
+        unresolvedItems,
+        pendingExecutionActions: pendingActions,
+      }),
+    };
+  });
+  const sortedUpdatedRollups = [...updatedRollups].sort((left, right) => {
+    const statusRank = (status: ProjectOperationalRollup['status']['key']) => {
+      if (status === 'blocked') return 0;
+      if (status === 'needs_review') return 1;
+      if (status === 'attention_required') return 2;
+      return 3;
+    };
+
+    const leftRank = statusRank(left.rollup.status.key);
+    const rightRank = statusRank(right.rollup.status.key);
+    if (leftRank !== rightRank) return leftRank - rightRank;
+
+    const leftWeight =
+      left.rollup.blocked_count +
+      left.rollup.needs_review_document_count +
+      left.rollup.open_document_action_count +
+      left.rollup.unresolved_finding_count;
+    const rightWeight =
+      right.rollup.blocked_count +
+      right.rollup.needs_review_document_count +
+      right.rollup.open_document_action_count +
+      right.rollup.unresolved_finding_count;
+    if (leftWeight !== rightWeight) return rightWeight - leftWeight;
+
+    return left.project.name.localeCompare(right.project.name);
+  });
+
+  const blockingCount = unresolvedExecutionItems.filter((item) => executionItemBlocksApproval(item)).length;
+  const resolvableCount = unresolvedExecutionItems.filter((item) => executionItemIsResolvableNow(item)).length;
+
+  return {
+    ...legacyModel,
+    warnings,
+    decisions: mergedDecisionQueueItems,
+    actions: [],
+    intelligence: {
+      ...legacyModel.intelligence,
+      open_decisions_count: mergedDecisionQueueItems.length,
+      open_actions_count: resolvableCount,
+      blocked_count: blockingCount,
+      high_risk_count: unresolvedExecutionItems.filter(
+        (item) => item.severity === 'critical' || item.severity === 'high',
+      ).length + persistedDecisionQueueItems.filter(
+        (item) => item.severity === 'critical' || item.severity === 'high',
+      ).length,
+    },
+    project_rollups: sortedUpdatedRollups,
+  };
 }

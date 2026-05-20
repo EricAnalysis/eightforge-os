@@ -3,8 +3,8 @@
 import type { ActionJson } from '@/lib/types/rules';
 
 const inputCls =
-  'block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]';
-const labelCls = 'mb-1 block text-[11px] font-medium text-[#F5F7FA]';
+  'block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]';
+const labelCls = 'mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]';
 
 const TASK_TYPES = [
   'general_review',
@@ -36,12 +36,12 @@ export function ActionBuilder({
 
   return (
     <div className="space-y-4">
-      <label className="flex items-center gap-2 text-[11px] text-[#F5F7FA]">
+      <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-primary)]">
         <input
           type="checkbox"
           checked={create_task}
           onChange={(e) => update({ create_task: e.target.checked })}
-          className="rounded border-[#1A1A3E] bg-[#0A0A20] text-[#8B5CFF] focus:ring-[#8B5CFF]"
+          className="rounded border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-purple-primary)] focus:ring-[var(--ef-purple-primary)]"
           aria-label="Create workflow task when rule matches"
         />
         Create workflow task when rule matches

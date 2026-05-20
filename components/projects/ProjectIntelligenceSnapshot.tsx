@@ -48,34 +48,34 @@ function findGoverningContract(documents: ProjectDocumentRow[]): ProjectDocument
 
 function validationTone(validation: TruthValidationState): string {
   const tone = validationToneKey(validation);
-  if (tone === 'success') return 'text-[#34D399]';
-  if (tone === 'warning') return 'text-[#FBBF24]';
-  if (tone === 'danger') return 'text-[#F87171]';
-  return 'text-[#94A3B8]';
+  if (tone === 'success') return 'text-[var(--ef-success-soft)]';
+  if (tone === 'warning') return 'text-[var(--ef-warning-soft)]';
+  if (tone === 'danger') return 'text-[var(--ef-critical-soft)]';
+  return 'text-[var(--ef-text-muted)]';
 }
 
 function gateTone(gateImpact: string): string {
   const normalized = gateImpact.toLowerCase();
-  if (normalized.includes('blocks approval')) return 'text-[#F87171]';
+  if (normalized.includes('blocks approval')) return 'text-[var(--ef-critical-soft)]';
   if (normalized.includes('holds approval') || normalized.includes('operator review')) {
-    return 'text-[#FBBF24]';
+    return 'text-[var(--ef-warning-soft)]';
   }
   if (
     normalized.includes('approval limit') ||
     normalized.includes('exposure baseline') ||
     normalized.includes('clears the approval gate')
   ) {
-    return 'text-[#60A5FA]';
+    return 'text-[var(--ef-purple-glow)]';
   }
-  return 'text-[#94A3B8]';
+  return 'text-[var(--ef-text-muted)]';
 }
 
 function actionTone(nextAction: string): string {
   const normalized = nextAction.toLowerCase();
   if (normalized.includes('resolve') || normalized.includes('review')) {
-    return 'text-[#E5EDF7]';
+    return 'text-[var(--ef-text-primary)]';
   }
-  return 'text-[#C7D2E3]';
+  return 'text-[var(--ef-text-secondary)]';
 }
 
 export function ProjectIntelligenceSnapshot({
@@ -239,51 +239,51 @@ export function ProjectIntelligenceSnapshot({
   if (rows.length === 0) return null;
 
   return (
-    <section className="mt-3 rounded-lg border border-[#2F3B52]/60 bg-[#0D1526]/80">
-      <div className="flex items-center justify-between gap-3 border-b border-[#2F3B52]/50 px-4 py-2.5">
+    <section className="mt-3 rounded-lg border border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-secondary-a80)]">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--ef-border-subtle-a50)] px-4 py-2.5">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#64748B]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-faint)]">
             Project intelligence snapshot
           </p>
-          <p className="mt-1 text-[11px] text-[#475569]">
+          <p className="mt-1 text-[11px] text-[var(--ef-text-faint)]">
             Input to truth to gate to action for the highest-signal approval drivers.
           </p>
         </div>
       </div>
 
-      <ul className="divide-y divide-[#1E2B3D]/60">
+      <ul className="divide-y divide-[var(--ef-surface-hover-a60)]">
         {rows.map((item) => (
           <li key={`${item.label}:${item.value}:${item.sourceLabel}`} className="px-4 py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-[12px] font-semibold text-[#C7D2E3]">
+              <p className="text-[12px] font-semibold text-[var(--ef-text-secondary)]">
                 {item.label}:{' '}
-                <span className="font-bold text-[#E5EDF7]">{item.value}</span>
+                <span className="font-bold text-[var(--ef-text-primary)]">{item.value}</span>
               </p>
             </div>
             <div className="mt-2 grid gap-1.5 text-[10px] uppercase tracking-[0.14em]">
-              <p className="text-[#64748B]">
+              <p className="text-[var(--ef-text-faint)]">
                 Source:{' '}
                 {item.sourceHref ? (
-                  <Link href={item.sourceHref} className="text-[#60A5FA] hover:underline">
+                  <Link href={item.sourceHref} className="text-[var(--ef-purple-glow)] hover:underline">
                     {item.sourceLabel}
                   </Link>
                 ) : (
-                  <span className="text-[#94A3B8]">{item.sourceLabel}</span>
+                  <span className="text-[var(--ef-text-muted)]">{item.sourceLabel}</span>
                 )}
               </p>
-              <p className="text-[#64748B]">
+              <p className="text-[var(--ef-text-faint)]">
                 Validation:{' '}
                 <span className={`font-semibold ${validationTone(item.validation)}`}>
                   {item.validation}
                 </span>
               </p>
-              <p className="text-[#64748B]">
+              <p className="text-[var(--ef-text-faint)]">
                 Gate impact:{' '}
                 <span className={`font-semibold ${gateTone(item.gateImpact)}`}>
                   {item.gateImpact}
                 </span>
               </p>
-              <p className="text-[#64748B]">
+              <p className="text-[var(--ef-text-faint)]">
                 Next action:{' '}
                 <span className={`font-semibold ${actionTone(item.nextAction)}`}>
                   {item.nextAction}

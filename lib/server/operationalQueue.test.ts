@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
+import type { ProjectExecutionItemRow } from '../executionItems';
 import type {
   ProjectDecisionRow,
   ProjectDocumentReviewRow,
   ProjectDocumentRow,
+  ProjectOperationalRollup,
   ProjectRecord,
   ProjectTaskRow,
 } from '../projectOverview';
-import { buildOperationalQueueModel } from './operationalQueue';
+import { buildOperationalQueueModel, mergeProjectRollupWithExecutionItems } from './operationalQueue';
 
 const baseProject: ProjectRecord = {
   id: 'project-1',
@@ -284,5 +286,185 @@ describe('buildOperationalQueueModel', () => {
     assert.equal(rollupActions[0]?.actual_value, '$80.00');
     assert.equal(rollupActions[0]?.variance_label, '+$5.00');
     assert.equal(model.project_rollups[0]?.rollup.status.label, 'Blocked');
+  });
+});
+
+function buildExecutionItem(
+  overrides: Partial<ProjectExecutionItemRow> = {},
+): ProjectExecutionItemRow {
+  return {
+    id: 'ex-1',
+    organization_id: 'org-1',
+    project_id: 'project-1',
+    source_type: 'validator_finding',
+    source_id: 'finding-1',
+    source_key: 'rate_mismatch',
+    severity: 'medium',
+    title: 'Test execution item',
+    problem: 'Mismatch',
+    expected_value: null,
+    actual_value: null,
+    impact: 'Exposure',
+    required_action: 'Confirm contracted rate',
+    status: 'resolvable',
+    outcome: null,
+    evidence_refs: null,
+    fact_refs: null,
+    validator_rule_key: 'RATE_CHECK',
+    override_reason: null,
+    suppression_signature: null,
+    created_at: '2026-03-20T00:00:00Z',
+    updated_at: '2026-03-20T00:00:00Z',
+    last_seen_at: null,
+    overridden_at: null,
+    resolved_at: null,
+    ...overrides,
+  };
+}
+
+function baseRollupFixture(overrides: Partial<ProjectOperationalRollup> = {}): ProjectOperationalRollup {
+  return {
+    status: {
+      key: 'needs_review',
+      label: 'Needs Review',
+      tone: 'warning',
+      detail: 'Documents require operator review.',
+      is_clear: false,
+    },
+    processed_document_count: 1,
+    needs_review_document_count: 1,
+    open_document_action_count: 2,
+    unresolved_finding_count: 2,
+    blocked_count: 0,
+    anomaly_count: 0,
+    project_clear: false,
+    pending_actions: [
+      {
+        id: 'a1',
+        href: '/platform/projects/project-1',
+        title: 'Follow up',
+        due_label: 'Open',
+        due_tone: 'warning',
+        assignee_label: 'Ops',
+        priority_label: 'Medium',
+        priority_tone: 'warning',
+        status_label: 'Open',
+        source_document_title: null,
+        source_document_type: null,
+      },
+    ],
+    document_status_by_id: {},
+    ...overrides,
+  };
+}
+
+describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => {
+  it('does not downgrade document/validator rollup status when no execution items remain', () => {
+    const base = baseRollupFixture();
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(merged.status.key, 'needs_review');
+    assert.equal(merged.status.label, 'Needs Review');
+    assert.equal(merged.open_document_action_count, base.open_document_action_count);
+    assert.equal(merged.unresolved_finding_count, base.unresolved_finding_count);
+    assert.equal(merged.pending_actions.length, base.pending_actions.length);
+  });
+
+  it('surfaces At Risk when only non-blocking execution items are unresolved', () => {
+    const base = baseRollupFixture({
+      status: {
+        key: 'operationally_clear',
+        label: 'Approved',
+        tone: 'success',
+        detail: 'No blockers.',
+        is_clear: true,
+      },
+      needs_review_document_count: 0,
+      project_clear: true,
+    });
+    const item = buildExecutionItem({ status: 'resolvable', severity: 'medium' });
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [item],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(merged.status.key, 'attention_required');
+    assert.equal(merged.status.label, 'At Risk');
+    assert.equal(merged.project_clear, false);
+  });
+
+  it('escalates to Blocked when an open execution item blocks approval', () => {
+    const base = baseRollupFixture({
+      status: {
+        key: 'needs_review',
+        label: 'Needs Review',
+        tone: 'warning',
+        detail: 'Review docs.',
+        is_clear: false,
+      },
+    });
+    const item = buildExecutionItem({ id: 'ex-block', status: 'open', severity: 'high' });
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [item],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(merged.status.key, 'blocked');
+    assert.equal(merged.status.label, 'Blocked');
+  });
+
+  it('treats critical severity execution items as blocked tier even when status is resolvable', () => {
+    const base = baseRollupFixture({
+      status: {
+        key: 'operationally_clear',
+        label: 'Approved',
+        tone: 'success',
+        detail: 'Clear.',
+        is_clear: true,
+      },
+      needs_review_document_count: 0,
+      project_clear: true,
+    });
+    const item = buildExecutionItem({ status: 'resolvable', severity: 'critical' });
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [item],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(merged.status.key, 'blocked');
+  });
+
+  it('prepends execution pending actions without dropping existing rollup actions', () => {
+    const base = baseRollupFixture();
+    const execAction = {
+      id: 'exec-pending-1',
+      href: '/platform/projects/project-1?executionItemId=ex-1',
+      title: 'Execution follow-up',
+      due_label: 'Resolvable Now',
+      due_tone: 'warning' as const,
+      assignee_label: 'Unassigned',
+      priority_label: 'Medium',
+      priority_tone: 'warning' as const,
+      status_label: 'Open',
+      source_document_title: null,
+      source_document_type: 'validator',
+      approval_status: 'needs_review' as const,
+    };
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [buildExecutionItem()],
+      pendingExecutionActions: [execAction],
+    });
+
+    assert.equal(merged.pending_actions.length, 2);
+    assert.equal(merged.pending_actions[0]?.id, 'exec-pending-1');
+    assert.equal(merged.pending_actions[1]?.id, 'a1');
   });
 });

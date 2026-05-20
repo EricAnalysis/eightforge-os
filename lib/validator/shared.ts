@@ -14,7 +14,6 @@ import {
   blockerFindingCount,
   infoFindingCount,
   isBlockingFinding,
-  isReviewFinding,
   normalizeValidationFinding,
   requiresReviewFindingCount,
   severityRankForFinding,
@@ -441,6 +440,18 @@ export function normalizePartyName(value: string | null | undefined): string | n
     .trim();
 
   return normalized.length > 0 ? normalized : null;
+}
+
+export function normalizeVendorName(value: string | null | undefined): string | null {
+  const normalized = normalizePartyName(value);
+  if (!normalized) return null;
+
+  const tokens = normalized
+    .replace(/[^A-Z0-9&\s]+/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 0 && !PARTY_SUFFIX_TOKENS.has(token));
+
+  return tokens.length > 0 ? tokens.join(' ') : null;
 }
 
 export function partiesClearlyDifferent(

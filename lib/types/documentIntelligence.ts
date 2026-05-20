@@ -346,6 +346,20 @@ export interface InvoiceExtraction {
     lineTotal?: number;
     billingRateKey?: string;
     descriptionMatchKey?: string;
+    /** Passthrough row text for ledger rate-code recovery (see `normalizeInvoiceSurfaceLineItem`). */
+    raw_text?: string;
+    rawText?: string;
+    /**
+     * Optional full original invoice row text when `raw_text` is truncated for machine fields.
+     * Used first for embedded rate-code parsing; does not replace structured description for display.
+     */
+    raw_text_for_display?: string;
+    rawTextForDisplay?: string;
+    full_row_text?: string;
+    fullRowText?: string;
+    line_text?: string;
+    lineText?: string;
+    text?: string;
   }>;
   line_items?: Array<{
     line_code?: string | null;
@@ -356,6 +370,11 @@ export interface InvoiceExtraction {
     line_total?: number | null;
     billing_rate_key?: string | null;
     description_match_key?: string | null;
+    raw_text?: string | null;
+    raw_text_for_display?: string | null;
+    full_row_text?: string | null;
+    line_text?: string | null;
+    text?: string | null;
   }>;
 }
 

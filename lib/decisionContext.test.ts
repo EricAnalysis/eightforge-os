@@ -183,6 +183,39 @@ describe('buildDecisionContextRows', () => {
     assert.equal(nextOperatorMove?.executionStatus, 'In progress');
   });
 
+  it('adds invoice-line contract-rate context when the decision payload includes it', () => {
+    const rows = buildDecisionContextRows({
+      decisionDetails: {
+        approval_status: 'blocked',
+        invoice_line_contexts: [
+          {
+            invoice_number: '2026-002',
+            rate_code: '1F',
+            line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+            quantity: '916',
+            unit_price: '14.50',
+          },
+        ],
+      },
+      documentHref: '/platform/documents/doc-invoice-002',
+      projectId: 'project-1',
+      primaryAction: null,
+      projectValidation: null,
+    });
+
+    const invoiceLine = rows.find((row) => row.label === 'Invoice line');
+
+    assert.equal(
+      invoiceLine?.value,
+      '1F - Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+    );
+    assert.equal(invoiceLine?.sourceLabel, 'Invoice 2026-002');
+    assert.equal(
+      invoiceLine?.nextAction,
+      'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
+    );
+  });
+
   it('uses the explicit operator fallbacks when no next action source is available', () => {
     const rows = buildDecisionContextRows({
       decisionDetails: {

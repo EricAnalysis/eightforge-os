@@ -238,6 +238,80 @@ function findingSourceDocumentIds(finding: PersistableValidationFinding): string
   );
 }
 
+function evidenceValue(
+  evidence: readonly ValidationEvidence[] | undefined,
+  fieldNames: readonly string[],
+): string | null {
+  if (!evidence) return null;
+  for (const fieldName of fieldNames) {
+    const match = evidence.find((entry) => entry.field_name === fieldName);
+    if (typeof match?.field_value === 'string' && match.field_value.trim().length > 0) {
+      return match.field_value.trim();
+    }
+  }
+  return null;
+}
+
+function invoiceLineContexts(
+  findings: readonly PersistableValidationFinding[],
+): Array<Record<string, unknown>> {
+  return findings
+    .filter((finding) => finding.subject_type === 'invoice_line')
+    .map((finding) => {
+      const normalized = normalizeValidationFinding(finding);
+      const evidence = finding.evidence ?? [];
+      const recordId =
+        evidence.find((entry) => entry.evidence_type === 'invoice_line' && entry.record_id)?.record_id
+        ?? finding.subject_id;
+      const rateCode = evidenceValue(evidence, ['rate_code', 'line_code', 'item_code']);
+
+      return {
+        finding_id: finding.id,
+        rule_id: finding.rule_id,
+        record_id: recordId,
+        subject_id: finding.subject_id,
+        invoice_document_id: evidence.find((entry) => entry.evidence_type === 'invoice_line' && entry.source_document_id)?.source_document_id ?? null,
+        invoice_number: evidenceValue(evidence, ['invoice_number', 'invoice_no', 'number']),
+        rate_code: rateCode,
+        line_description: evidenceValue(evidence, ['description', 'line_description', 'rate_description']),
+        quantity: evidenceValue(evidence, ['quantity', 'qty', 'billed_quantity']),
+        unit_price: evidenceValue(evidence, ['unit_price', 'billed_rate', 'invoice_rate', 'rate']),
+        line_total: evidenceValue(evidence, ['line_total', 'extended_amount', 'extended_cost', 'line_amount']),
+        expected: normalized.expected,
+        actual: normalized.actual,
+      };
+    })
+    .filter((context) => (
+      context.invoice_number != null
+      || context.rate_code != null
+      || context.line_description != null
+      || context.quantity != null
+      || context.unit_price != null
+      || context.line_total != null
+    ));
+}
+
+function primaryComparisonContext(
+  finding: PersistableValidationFinding | null,
+): Record<string, unknown> {
+  if (!finding) return {};
+
+  const normalized = normalizeValidationFinding(finding);
+  const actualSource = evidenceValue(finding.evidence, [
+    'contractor_name_source',
+    'vendor_name_source',
+    'actual_source',
+  ]);
+
+  return {
+    rule_id: normalized.rule_id,
+    field_key: normalized.field,
+    expected_value: normalized.expected,
+    actual_value: normalized.actual,
+    actual_value_source: actualSource,
+  };
+}
+
 function primarySourceDocumentId(findings: readonly PersistableValidationFinding[]): string | null {
   const counts = new Map<string, number>();
   for (const finding of findings) {
@@ -539,6 +613,7 @@ function buildInvoiceDecisionRecord(params: {
   const sourceDocumentIds = uniqueStrings(
     relatedFindings.flatMap((finding) => findingSourceDocumentIds(finding)),
   );
+  const lineContexts = invoiceLineContexts(relatedFindings);
   const sourceFamily = dominantSourceFamily(relatedFindings);
   const summary = buildDecisionSummary(problem, impact);
   const primary = primaryFinding(relatedFindings);
@@ -583,6 +658,7 @@ function buildInvoiceDecisionRecord(params: {
       source_finding_ids: [...invoice.finding_ids],
       evidence_refs: evidenceRefs,
       source_document_ids: sourceDocumentIds,
+      invoice_line_contexts: lineContexts,
       source_family: sourceFamily,
       invoice_number: invoice.invoice_number,
       total_billed_amount: billedAmount,
@@ -605,6 +681,7 @@ function buildInvoiceDecisionRecord(params: {
       required_action: requiredAction,
       primary_rule_id: primary?.rule_id ?? null,
       primary_subject_id: primary?.subject_id ?? null,
+      ...primaryComparisonContext(primary),
     },
   };
 }
@@ -1009,6 +1086,7 @@ export async function syncValidatorDecisions(params: {
       const { error } = await admin
         .from('decisions')
         .update({
+          project_id: projectId,
           document_id: record.document_id,
           decision_type: record.decision_type,
           title: record.title,
@@ -1043,10 +1121,11 @@ export async function syncValidatorDecisions(params: {
     }
 
     const { data, error } = await admin
-      .from('decisions')
-      .insert({
-        organization_id: organizationId,
-        document_id: record.document_id,
+        .from('decisions')
+        .insert({
+          organization_id: organizationId,
+          project_id: projectId,
+          document_id: record.document_id,
         decision_type: record.decision_type,
         title: record.title,
         summary: record.summary,

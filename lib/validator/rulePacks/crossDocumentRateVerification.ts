@@ -82,6 +82,7 @@ const INVOICE_LINE_RATE_KEYS = [
   'uom_rate',
   'rate_raw',
 ] as const;
+const INVOICE_LINE_UNIT_KEYS = ['unit_type', 'unit', 'uom', 'unit_of_measure'] as const;
 const INVOICE_LINE_QUANTITY_KEYS = [
   'quantity',
   'qty',
@@ -132,6 +133,7 @@ type CanonicalInvoiceLine = {
   billing_rate_key: string | null;
   invoice_rate_key: string | null;
   invoice_rate: number | null;
+  unit_type: string | null;
   quantity: number | null;
   line_total: number | null;
   canonical_category: string | null;
@@ -196,6 +198,7 @@ function canonicalizeInvoiceLine(row: InvoiceLineRow): CanonicalInvoiceLine {
   const description = readRowString(row, INVOICE_LINE_DESCRIPTION_KEYS);
   const serviceItem = readRowString(row, INVOICE_LINE_SERVICE_ITEM_KEYS);
   const material = readRowString(row, INVOICE_LINE_MATERIAL_KEYS);
+  const unitType = readRowString(row, INVOICE_LINE_UNIT_KEYS);
   const invoiceNumber = readRowString(row, INVOICE_LINE_INVOICE_NUMBER_KEYS);
   const keys = deriveBillingKeysForInvoiceLine({
     rate_code: rateCode,
@@ -224,6 +227,7 @@ function canonicalizeInvoiceLine(row: InvoiceLineRow): CanonicalInvoiceLine {
       readRowString(row, ['invoice_rate_key'])
       ?? deriveInvoiceRateKey(invoiceNumber, keys.billing_rate_key),
     invoice_rate: readRowNumber(row, INVOICE_LINE_RATE_KEYS),
+    unit_type: unitType,
     quantity: readRowNumber(row, INVOICE_LINE_QUANTITY_KEYS),
     line_total: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
     canonical_category: categoryResolution.canonical_category,
@@ -717,6 +721,10 @@ export function evaluateCrossDocumentRateVerification(
       service_item: line.service_item,
       material: line.material,
       unit_price: line.invoice_rate,
+      unit_type: line.unit_type,
+      canonical_category: line.canonical_category,
+      quantity: line.quantity,
+      line_total: line.line_total,
       billing_rate_key: line.billing_rate_key,
     }, scheduleIndex);
     const contractItem = match.match ?? null;

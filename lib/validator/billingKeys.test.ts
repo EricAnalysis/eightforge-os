@@ -9,6 +9,7 @@ import {
   deriveDescriptionMatchKey,
   deriveInvoiceRateKey,
   deriveSiteMaterialKey,
+  findOperationalRateScheduleCandidatesForInvoiceLine,
   indexRateScheduleItemsByCanonicalKeys,
   matchRateScheduleItemForInvoiceLine,
   normalizeDisposalSite,
@@ -225,5 +226,167 @@ describe('billingKeys', () => {
     const result = matchRateScheduleItemForInvoiceLine(line, scheduleIndex);
     assert.equal(result.candidates.length, 1);
     assert.equal(result.match?.record_id, 'schedule:sm');
+  });
+
+  it('uses operational fallback when invoice code is only an operational alias', () => {
+    const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
+      {
+        record_id: 'schedule:veg-0-15',
+        rate_code: null,
+        description:
+          'Cubic Yard | Vegetative Collect, Remove & Haul | 0-15 Miles from ROW to DMS | from Unincorporated Neighborhoods',
+        material_type: 'Vegetative',
+        unit_type: 'miles',
+        canonical_category: 'vegetative_removal',
+        rate_amount: 6.9,
+        raw_value: {
+          source_anchor: 'pdf:text:p8:b2',
+          unit: 'Cubic Yard',
+        },
+        ...deriveBillingKeysForRateScheduleItem({
+          rate_code: null,
+          description:
+            'Cubic Yard | Vegetative Collect, Remove & Haul | 0-15 Miles from ROW to DMS | from Unincorporated Neighborhoods',
+          material_type: 'Vegetative',
+          unit_type: 'miles',
+        }),
+      },
+    ]);
+
+    const result = matchRateScheduleItemForInvoiceLine({
+      rate_code: '1A',
+      description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      material: 'Vegetative',
+      canonical_category: 'vegetative_removal',
+      unit_price: 6.9,
+    }, scheduleIndex);
+
+    assert.equal(result.match_reason, 'operational_fallback');
+    assert.equal(result.candidate_count, 1);
+    assert.equal(result.ambiguous, false);
+    assert.equal(result.match?.record_id, 'schedule:veg-0-15');
+  });
+
+  it('does not let rate alone create an operational match', () => {
+    const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
+      {
+        record_id: 'schedule:unrelated',
+        rate_code: null,
+        description: 'Temporary road repair crew standby',
+        material_type: 'Road Repair',
+        unit_type: 'hour',
+        canonical_category: 'road_repair',
+        rate_amount: 6.9,
+        ...deriveBillingKeysForRateScheduleItem({
+          rate_code: null,
+          description: 'Temporary road repair crew standby',
+          material_type: 'Road Repair',
+          unit_type: 'hour',
+        }),
+      },
+    ]);
+
+    const result = matchRateScheduleItemForInvoiceLine({
+      rate_code: '1A',
+      description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      material: 'Vegetative',
+      canonical_category: 'vegetative_removal',
+      unit_price: 6.9,
+    }, scheduleIndex);
+
+    assert.equal(result.candidate_count, 0);
+    assert.equal(result.match, null);
+  });
+
+  it('keeps exact billing-key matches preferred over operational fallback', () => {
+    const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
+      {
+        record_id: 'schedule:exact',
+        rate_code: '1A',
+        description: 'Legacy rate-code row',
+        material_type: 'Vegetative',
+        unit_type: 'CY',
+        canonical_category: 'vegetative_removal',
+        rate_amount: 6.9,
+        ...deriveBillingKeysForRateScheduleItem({
+          rate_code: '1A',
+          description: 'Legacy rate-code row',
+          material_type: 'Vegetative',
+          unit_type: 'CY',
+        }),
+      },
+      {
+        record_id: 'schedule:operational',
+        rate_code: null,
+        description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        material_type: 'Vegetative',
+        unit_type: 'CY',
+        canonical_category: 'vegetative_removal',
+        rate_amount: 6.9,
+        ...deriveBillingKeysForRateScheduleItem({
+          rate_code: null,
+          description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+          material_type: 'Vegetative',
+          unit_type: 'CY',
+        }),
+      },
+    ]);
+
+    const result = matchRateScheduleItemForInvoiceLine({
+      rate_code: '1A',
+      description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      material: 'Vegetative',
+      canonical_category: 'vegetative_removal',
+      unit_price: 6.9,
+    }, scheduleIndex);
+
+    assert.equal(result.match_reason, 'exact_billing_key');
+    assert.equal(result.match?.record_id, 'schedule:exact');
+  });
+
+  it('exposes multiple equally strong operational candidates as ambiguous', () => {
+    const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
+      'a',
+      'b',
+    ].map((suffix) => ({
+      record_id: `schedule:veg-${suffix}`,
+      rate_code: null,
+      description:
+        'Cubic Yard | Vegetative Collect Remove Haul | Unincorporated Neighborhoods ROW to DMS 0-15 Miles',
+      material_type: 'Vegetative',
+      unit_type: 'CY',
+      canonical_category: 'vegetative_removal',
+      rate_amount: 6.9,
+      ...deriveBillingKeysForRateScheduleItem({
+        rate_code: null,
+        description:
+          'Cubic Yard | Vegetative Collect Remove Haul | Unincorporated Neighborhoods ROW to DMS 0-15 Miles',
+        material_type: 'Vegetative',
+        unit_type: 'CY',
+      }),
+    })));
+
+    const operational = findOperationalRateScheduleCandidatesForInvoiceLine({
+      rate_code: '1A',
+      description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      material: 'Vegetative',
+      canonical_category: 'vegetative_removal',
+      unit_price: 6.9,
+    }, scheduleIndex);
+
+    assert.equal(operational.candidate_count, 2);
+    assert.equal(operational.ambiguous, true);
+    assert.equal(operational.match, null);
+
+    const result = matchRateScheduleItemForInvoiceLine({
+      rate_code: '1A',
+      description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+      material: 'Vegetative',
+      canonical_category: 'vegetative_removal',
+      unit_price: 6.9,
+    }, scheduleIndex);
+
+    assert.equal(result.ambiguous, true);
+    assert.equal(result.match, null);
   });
 });

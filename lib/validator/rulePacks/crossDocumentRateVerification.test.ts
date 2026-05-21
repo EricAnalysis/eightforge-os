@@ -211,6 +211,121 @@ describe('cross document rate verification', () => {
     assert.equal(result.summary.validation_units[0]?.comparison_status, 'match');
   });
 
+  it('uses operational fallback when the contract row lacks the invoice monitoring rate code', () => {
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:veg-row-dms-0-15',
+          description:
+            'Cubic Yard | Vegetative Collect, Remove & Haul | 0-15 Miles from ROW to DMS | from Unincorporated Neighborhoods',
+          sourceCategory: 'Vegetative',
+          rate: 6.9,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'invoice-line-2026-002-1A',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        unit_price: 6.9,
+        quantity: 43894,
+        line_total: 302868.6,
+      }],
+      mobileTickets: [ {
+        id: 'mobile:2026-002-1A',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        material: 'Vegetative',
+        quantity_cyd: 43894,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.findings.length, 0);
+    assert.equal(result.summary.matched_units, 1);
+    assert.equal(result.summary.missing_contract_rate_units, 0);
+    assert.equal(result.summary.validation_units[0]?.contract_rate_found, true);
+    assert.equal(result.summary.validation_units[0]?.contract_rate, 6.9);
+    assert.equal(result.summary.validation_units[0]?.comparison_status, 'match');
+  });
+
+  it('keeps same-rate unrelated contract rows from clearing missing contract rate blockers', () => {
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:unrelated',
+          description: 'Temporary road repair crew standby',
+          sourceCategory: 'Road Repair',
+          rate: 6.9,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'invoice-line-2026-002-1A',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        unit_price: 6.9,
+        quantity: 43894,
+        line_total: 302868.6,
+      }],
+      mobileTickets: [{
+        id: 'mobile:2026-002-1A',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        material: 'Vegetative',
+        quantity_cyd: 43894,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.summary.missing_contract_rate_units, 1);
+    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS');
+  });
+
+  it('keeps operational fallback candidates available so rate mismatches remain blockers', () => {
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:veg-row-dms-0-15',
+          description:
+            'Cubic Yard | Vegetative Collect, Remove & Haul | 0-15 Miles from ROW to DMS | from Unincorporated Neighborhoods',
+          sourceCategory: 'Vegetative',
+          rate: 6.9,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'invoice-line-2026-002-1A',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        description: 'Vegetative Collect Remove Haul Unincorporated Neighborhoods ROW to DMS 0 to 15',
+        unit_price: 7.25,
+        quantity: 43894,
+        line_total: 318231.5,
+      }],
+      mobileTickets: [{
+        id: 'mobile:2026-002-1A',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        rate_code: '1A',
+        material: 'Vegetative',
+        quantity_cyd: 43894,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.summary.rate_mismatch_units, 1);
+    assert.equal(result.summary.missing_contract_rate_units, 0);
+    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_RATE_MATCHES_CONTRACT');
+  });
+
   it('detects invoice rate mismatches against contract truth while mobile unit support maps by service item', () => {
     const input = buildInput({
       rateScheduleItems: [

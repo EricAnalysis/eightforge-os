@@ -1,3 +1,7 @@
+// ASK BOUNDARY FILE — reads canonical truth, never produces it.
+// No summation, scoring, risk creation, severity assignment, or pattern
+// inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
+// at 22/22, 0 gaps. See Ask workstream closeout.
 import type {
   AskRelationship,
   CeilingVsBilledRelationship,

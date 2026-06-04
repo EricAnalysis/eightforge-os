@@ -141,6 +141,9 @@ export type RateScheduleItem = {
   source_category?: string | null;
   canonical_category?: string | null;
   category_confidence?: number | null;
+  source_kind?: string | null;
+  source_quality?: string | null;
+  confidence?: string | null;
   raw_value: unknown;
   /** Derived: canonical pricing key for reconciliation (see billingKeys). */
   billing_rate_key?: string | null;
@@ -1014,6 +1017,38 @@ export function buildValidationSummary(
       : null;
   const requiresVerificationAmount =
     options.exposure?.total_requires_verification_amount ?? null;
+  const contractExecutedDate =
+    options.contractValidationContext?.analysis.contract_identity?.executed_date;
+  const governingContractFullyExecuted =
+    contractExecutedDate?.value != null
+    && String(contractExecutedDate.value).trim().length > 0
+    && (contractExecutedDate.state === 'explicit' || contractExecutedDate.state === 'derived');
+  const activationInReview = openFindings.some(
+    (finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
+  );
+  const pricingInReview = openFindings.some(
+    (finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR',
+  );
+  const allRateUnitsMatched =
+    options.crossDocumentRateVerification != null
+    && options.crossDocumentRateVerification.comparable_units > 0
+    && options.crossDocumentRateVerification.matched_units === options.crossDocumentRateVerification.comparable_units
+    && options.crossDocumentRateVerification.missing_contract_rate_units === 0
+    && options.crossDocumentRateVerification.category_mismatch_units === 0
+    && options.crossDocumentRateVerification.rate_mismatch_units === 0
+    && options.crossDocumentRateVerification.unsupported_work_units === 0;
+  const activationGateStatus =
+    activationInReview
+      ? 'in_review'
+      : governingContractFullyExecuted
+        ? 'satisfied'
+        : 'unknown';
+  const pricingApplicabilityStatus =
+    pricingInReview
+      ? 'in_review'
+      : governingContractFullyExecuted && activationGateStatus === 'satisfied' && allRateUnitsMatched
+        ? 'confirmed'
+        : 'unknown';
 
   return {
     status,
@@ -1064,6 +1099,12 @@ export function buildValidationSummary(
         relationship_context: options.contractValidationContext.relationship_context ?? null,
       }
       : null,
+    activation_gate_status: activationGateStatus,
+    activation_gate_status_reason:
+      activationGateStatus === 'satisfied'
+        ? 'Governing contract treated as active because it is fully executed and no inactive override was found.'
+        : null,
+    pricing_applicability_status: pricingApplicabilityStatus,
   };
 }
 

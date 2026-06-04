@@ -43,6 +43,24 @@ function dedupe(ids: string[]): string[] {
   return [...new Set(ids.filter((id) => id.trim().length > 0))];
 }
 
+function hasConfirmedExecutionWithEffectiveDate(fields: Map<string, ContractFieldAnalysis>): boolean {
+  const executedField = fields.get('executed_date') ?? null;
+  const effectiveField = fields.get('effective_date') ?? null;
+  const executedValue =
+    executedField?.value == null ? null : String(executedField.value).trim();
+  const effectiveValue =
+    effectiveField?.value == null ? null : String(effectiveField.value).trim();
+
+  return (
+    executedValue != null
+    && executedValue.length > 0
+    && (executedField?.state === 'explicit' || executedField?.state === 'derived')
+    && effectiveValue != null
+    && effectiveValue.length > 0
+    && effectiveField?.state === 'explicit'
+  );
+}
+
 export function buildContractIssues(
   input: BuildContractIssuesInput,
 ): BuildContractIssuesOutput {
@@ -66,6 +84,7 @@ export function buildContractIssues(
     ...(activationField?.pattern_ids ?? []),
   ]);
   const hasActivationDependency = activationField?.state === 'conditional' && activationField.value != null;
+  const suppressActivationDependency = hasConfirmedExecutionWithEffectiveDate(fields);
   const hasPricingSpecificAmbiguity =
     disposalField?.value != null
     || femaField?.state === 'conditional';
@@ -107,7 +126,7 @@ export function buildContractIssues(
     });
   }
 
-  if (hasActivationDependency) {
+  if (hasActivationDependency && !suppressActivationDependency) {
     issues.set('activation_trigger_status_unresolved', {
       issue_id: 'activation_trigger_status_unresolved',
       issue_type: 'conditional_without_trigger_status',
@@ -119,6 +138,11 @@ export function buildContractIssues(
       evidence_anchors: dedupe(activationField.evidence_anchors),
       resolution_effect: 'resolve_activation_gate',
     });
+  } else if (hasActivationDependency) {
+    suppress(
+      'activation_trigger_status_unresolved',
+      'Suppressed because explicit effective-date and executed-date evidence confirm the contract is active while preserving the activation trigger as contextual evidence.',
+    );
   }
 
   if (rateField?.value === true && pricingField?.state === 'conditional') {
@@ -210,7 +234,11 @@ export function buildContractIssues(
   }
 
   const activationCoverage = coverageById.get('activation_trigger') ?? null;
-  if (activationCoverage && !activationCoverage.found && activationCoverage.operator_review_required === true) {
+  if (
+    activationCoverage
+    && !activationCoverage.found
+    && activationCoverage.operator_review_required === true
+  ) {
     if (activationPatternIds.length > 0) {
       issues.set('missing_required_clause:activation_trigger', {
         issue_id: 'missing_required_clause:activation_trigger',

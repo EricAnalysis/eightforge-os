@@ -266,6 +266,9 @@ export type RateScheduleMatchable = RateScheduleBillingSource & {
   description_match_key?: string | null;
   canonical_category?: string | null;
   source_category?: string | null;
+  source_kind?: string | null;
+  source_quality?: string | null;
+  confidence?: string | null;
   raw_value?: unknown;
 };
 
@@ -412,7 +415,8 @@ export function selectBestRateScheduleItemForInvoiceLine<T extends RateScheduleM
 }
 
 const OPERATIONAL_RATE_TOLERANCE = 0.01;
-const STRONG_OPERATIONAL_DESCRIPTION_SCORE = 0.9;
+const MIN_OPERATIONAL_DESCRIPTION_SCORE = 0.45;
+const MIN_NEEDS_REVIEW_DESCRIPTION_SCORE = 0.75;
 const AMBIGUOUS_SCORE_TOLERANCE = 0.0001;
 
 const DESCRIPTION_STOP_WORDS = new Set([
@@ -479,6 +483,7 @@ function normalizeOperationalText(value: string | null | undefined): string {
     .toLowerCase()
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/&/g, ' and ')
+    .replace(/\bfds\b/g, 'final disposal')
     .replace(/\bmiles?from\b/g, 'miles from')
     .replace(/\bt6\b/g, 'to')
     .replace(/[^a-z0-9-]+/g, ' ')
@@ -590,11 +595,58 @@ function operationalDescriptionScore(line: InvoiceLineMatchable, item: RateSched
   return Math.min(1, score);
 }
 
+function inferOperationalCategory(value: string | null | undefined): string | null {
+  const text = normalizeOperationalText(value);
+  if (!text) return null;
+
+  if (
+    /\bfinal\s+disposal\b/.test(text)
+    || (/\bdms\b/.test(text) && /\bfinal\b/.test(text) && /\bdisposal\b/.test(text))
+  ) {
+    return 'final_disposal';
+  }
+  if (
+    /\bmanagement\b/.test(text)
+    || /\breduction\b/.test(text)
+    || /\bgrinding\b/.test(text)
+    || /\bchipping\b/.test(text)
+    || /\bair\s+curtain\b/.test(text)
+    || /\bopen\s+burning\b/.test(text)
+  ) {
+    return 'management_reduction';
+  }
+  if (/\btree\b/.test(text) || /\btrees\b/.test(text) || /\bhazardous\b/.test(text) || /\blimb/.test(text)) {
+    return 'tree_operations';
+  }
+  if (/\bc\s+and\s+d\b/.test(text) || /\bc\s+d\b/.test(text) || /\bconstruction\b/.test(text)) {
+    return 'construction_demolition';
+  }
+  if (
+    /\bvegetative\b/.test(text)
+    || /\brural\b/.test(text)
+    || /\bunincorporated\b/.test(text)
+    || (/\brow\b/.test(text) && /\bdms\b/.test(text))
+  ) {
+    return 'vegetative_removal';
+  }
+
+  return null;
+}
+
 function categoriesCompatible(line: InvoiceLineMatchable, item: RateScheduleMatchable): boolean {
   const invoiceCategory = normalizeRateDescription(line.canonical_category ?? line.material);
   const contractCategory = normalizeRateDescription(
     item.canonical_category ?? item.source_category ?? item.material_type,
   );
+  const inferredInvoiceCategory = inferOperationalCategory(line.description);
+  const inferredContractCategory = inferOperationalCategory(candidateSearchText(item));
+  if (
+    inferredInvoiceCategory != null
+    && inferredContractCategory != null
+    && inferredInvoiceCategory === inferredContractCategory
+  ) {
+    return true;
+  }
   if (!invoiceCategory || !contractCategory) return true;
   return invoiceCategory === contractCategory
     || invoiceCategory.includes(contractCategory)
@@ -617,7 +669,7 @@ function normalizeOperationalUnit(
 
   if (rawUnit === 'miles' && hasCubicYard && hasMiles) return null;
   if (hasCubicYard) return 'cubic_yard';
-  if (hasMiles) return 'mile';
+  if (rawUnit && hasMiles) return 'mile';
   if (!rawUnit) return null;
   return rawUnit;
 }
@@ -634,7 +686,6 @@ function scoreOperationalCandidate<T extends RateScheduleMatchable>(
   item: T,
 ): OperationalScoredCandidate<T> | null {
   const descriptionScore = operationalDescriptionScore(line, item);
-  if (descriptionScore < STRONG_OPERATIONAL_DESCRIPTION_SCORE) return null;
   if (!categoriesCompatible(line, item)) return null;
   if (!unitsCompatible(line, item)) return null;
 
@@ -643,6 +694,15 @@ function scoreOperationalCandidate<T extends RateScheduleMatchable>(
       ? Math.abs(line.unit_price - item.rate_amount)
       : null;
   const rateMatches = rateDelta != null && rateDelta <= OPERATIONAL_RATE_TOLERANCE;
+  if (!rateMatches) return null;
+
+  if (item.source_quality === 'junk') return null;
+  const minimumDescriptionScore =
+    item.confidence === 'needs_review'
+      ? MIN_NEEDS_REVIEW_DESCRIPTION_SCORE
+      : MIN_OPERATIONAL_DESCRIPTION_SCORE;
+  if (descriptionScore < minimumDescriptionScore) return null;
+
   const score =
     descriptionScore
     + (rateMatches ? 0.2 : 0)
@@ -674,10 +734,51 @@ function selectOperationalCandidate<T extends RateScheduleMatchable>(
   const equallyPlausible = sorted.filter((candidate) =>
     Math.abs(candidate.score - best.score) <= AMBIGUOUS_SCORE_TOLERANCE);
   if (equallyPlausible.length > 1) {
+    const sameContractSlot = new Set(equallyPlausible.map((candidate) => [
+      normalizeRateDescription(candidate.item.description) ?? '',
+      inferOperationalCategory(candidateSearchText(candidate.item))
+        ?? normalizeRateDescription(candidate.item.canonical_category ?? candidate.item.source_category ?? candidate.item.material_type)
+        ?? '',
+      normalizeRateDescription(candidate.item.unit_type) ?? '',
+      candidate.item.rate_amount != null ? candidate.item.rate_amount.toFixed(2) : '',
+    ].join('|')));
+    if (sameContractSlot.size === 1) {
+      const preferred = [...equallyPlausible].sort((left, right) => {
+        const sourceQualityScore = (candidate: OperationalScoredCandidate<T>) =>
+          candidate.item.source_quality === 'clean' ? 0 : 1;
+        const sourceKindScore = (candidate: OperationalScoredCandidate<T>) =>
+          candidate.item.source_kind === 'exhibit_a_table'
+            || candidate.item.source_kind === 'exhibit_a_text_recovery'
+            || candidate.item.record_id.startsWith('exhibit_a_')
+            ? 0
+            : 1;
+        const qualityDelta = sourceQualityScore(left) - sourceQualityScore(right);
+        if (qualityDelta !== 0) return qualityDelta;
+        const kindDelta = sourceKindScore(left) - sourceKindScore(right);
+        if (kindDelta !== 0) return kindDelta;
+        return left.item.record_id.localeCompare(right.item.record_id, 'en-US');
+      })[0];
+      return { match: preferred?.item ?? null, ambiguous: false };
+    }
     return { match: null, ambiguous: true };
   }
 
   return { match: best.item, ambiguous: false };
+}
+
+function exactDescriptionCandidateStillFitsInvoiceLine(
+  line: InvoiceLineMatchable,
+  item: RateScheduleMatchable,
+): boolean {
+  if (item.source_quality === 'junk') return false;
+  if (!categoriesCompatible(line, item)) return false;
+  if (!unitsCompatible(line, item)) return false;
+
+  if (line.unit_price != null && item.rate_amount != null) {
+    return Math.abs(line.unit_price - item.rate_amount) <= OPERATIONAL_RATE_TOLERANCE;
+  }
+
+  return true;
 }
 
 export function findOperationalRateScheduleCandidatesForInvoiceLine<T extends RateScheduleMatchable>(
@@ -714,9 +815,26 @@ export function matchRateScheduleItemForInvoiceLine<T extends RateScheduleMatcha
 } {
   const exact = findExactRateScheduleCandidatesForInvoiceLine(line, index);
   if (exact.candidates.length > 0) {
+    const exactMatch = selectBestRateScheduleItemForInvoiceLine(exact.candidates, line);
+    if (
+      (exact.reason === 'exact_description_key' || line.rate_code == null)
+      && (
+        exactMatch == null
+        || !exactDescriptionCandidateStillFitsInvoiceLine(line, exactMatch)
+      )
+    ) {
+      return {
+        candidates: exact.candidates,
+        match: null,
+        candidate_count: exact.candidates.length,
+        ambiguous: false,
+        match_reason: exact.reason,
+      };
+    }
+
     return {
       candidates: exact.candidates,
-      match: selectBestRateScheduleItemForInvoiceLine(exact.candidates, line),
+      match: exactMatch,
       candidate_count: exact.candidates.length,
       ambiguous: false,
       match_reason: exact.reason,
@@ -724,11 +842,66 @@ export function matchRateScheduleItemForInvoiceLine<T extends RateScheduleMatcha
   }
 
   const operational = findOperationalRateScheduleCandidatesForInvoiceLine(line, index);
+  if (operational.candidate_count > 0) {
+    return {
+      candidates: operational.candidates,
+      match: operational.match,
+      candidate_count: operational.candidate_count,
+      ambiguous: operational.ambiguous,
+      match_reason: 'operational_fallback',
+    };
+  }
+
   return {
-    candidates: operational.candidates,
-    match: operational.match,
-    candidate_count: operational.candidate_count,
-    ambiguous: operational.ambiguous,
-    match_reason: operational.candidate_count > 0 ? 'operational_fallback' : null,
+    candidates: exact.candidates,
+    match: null,
+    candidate_count: exact.candidates.length,
+    ambiguous: false,
+    match_reason: exact.reason,
   };
+}
+
+export type InvoiceGroupedTransactionMatchInput = {
+  invoice_rate_key?: string | null;
+  billing_rate_key?: string | null;
+  normalized_invoice_number?: string | null;
+};
+
+export type TransactionRowMatchIndex<T> = {
+  byInvoiceRateKey: Map<string, T[]>;
+  byBillingRateKey: Map<string, T[]>;
+};
+
+type TransactionRowInvoiceScope = {
+  meaningful_data?: boolean;
+  normalized_invoice_number?: string | null;
+};
+
+/**
+ * Match persisted transaction support rows for an invoice line group.
+ * Invoice number scope is enforced before project-wide billing-rate fallback.
+ */
+export function matchTransactionRowsForInvoiceGroup<T extends TransactionRowInvoiceScope>(
+  group: InvoiceGroupedTransactionMatchInput,
+  indexes: TransactionRowMatchIndex<T>,
+): T[] {
+  const isMeaningful = (row: T) => row.meaningful_data !== false;
+
+  if (group.invoice_rate_key) {
+    const invoiceRateRows = indexes.byInvoiceRateKey.get(group.invoice_rate_key) ?? [];
+    if (invoiceRateRows.length > 0) {
+      return invoiceRateRows.filter(isMeaningful);
+    }
+  }
+
+  if (group.billing_rate_key && group.normalized_invoice_number) {
+    const rateScoped = indexes.byBillingRateKey.get(group.billing_rate_key) ?? [];
+    return rateScoped.filter(
+      (row) =>
+        isMeaningful(row)
+        && row.normalized_invoice_number === group.normalized_invoice_number,
+    );
+  }
+
+  return [];
 }

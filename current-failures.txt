@@ -1,0 +1,5 @@
+﻿lib/pipeline/processDocument.test.ts > processDocument canonical persistence gating > keeps Williamson-style contract failures at extracted and blocks all downstream decisioning
+lib/server/documentExtraction.pdfFallbackGate.test.ts > documentExtraction pdf fallback gate > uses pdf_text when meaningful native page text blocks the weak fallback gate
+lib/server/documentExtraction.transactionData.test.ts > extractDocument transaction_data routing > routes explicit transaction_data uploads through the dedicated spreadsheet normalization path
+lib/validator/queueFindingActions.test.ts > validator finding queue actions > builds a Williamson-style queue action for a rate mismatch finding
+lib/validator/shared.test.ts > validator fact priority > persists contract validation context in the shared validation summary shape

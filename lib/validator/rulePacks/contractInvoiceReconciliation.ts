@@ -133,11 +133,30 @@ const INVOICE_LINE_RATE_KEYS = [
   'contract_rate',
   'unit_price',
   'bill_rate',
-  'rate_amount',
   'amount_per_unit',
   'unit_cost',
   'uom_rate',
   'rate_raw',
+] as const;
+const EXPLICIT_INVOICE_LINE_RATE_KEYS = new Set<string>([
+  'billed_rate',
+  'unit_rate',
+  'rate',
+  'price',
+  'contract_rate',
+  'unit_price',
+  'bill_rate',
+  'amount_per_unit',
+  'unit_cost',
+  'uom_rate',
+]);
+const INVOICE_LINE_QUANTITY_KEYS = [
+  'quantity',
+  'qty',
+  'units',
+  'volume',
+  'cubic_yards',
+  'tons',
 ] as const;
 const INVOICE_LINE_MATERIAL_KEYS = ['material', 'material_type', 'debris_type'] as const;
 const INVOICE_LINE_SERVICE_ITEM_KEYS = [
@@ -285,6 +304,36 @@ function factNumberValue(facts: readonly ValidatorFactRecord[]): number | null {
   }
 
   return null;
+}
+
+function readSemanticInvoiceUnitPrice(row: InvoiceLineRow): number | null {
+  let candidate: number | null = null;
+  let sourceKey: string | null = null;
+  for (const key of INVOICE_LINE_RATE_KEYS) {
+    candidate = readRowNumber(row, [key]);
+    if (candidate != null) {
+      sourceKey = key;
+      break;
+    }
+  }
+  if (candidate == null) return null;
+
+  const quantity = readRowNumber(row, INVOICE_LINE_QUANTITY_KEYS);
+  const lineTotal = readRowNumber(row, INVOICE_LINE_TOTAL_KEYS);
+  const explicitRateField = sourceKey != null && EXPLICIT_INVOICE_LINE_RATE_KEYS.has(sourceKey);
+  if (!explicitRateField && lineTotal != null && Math.abs(candidate - lineTotal) <= 0.01) return null;
+
+  if (!explicitRateField && quantity != null && Math.abs(candidate - quantity) <= 0.01) {
+    const derivedRate =
+      quantity > 0 && lineTotal != null
+        ? lineTotal / quantity
+        : null;
+    if (derivedRate == null || Math.abs(derivedRate - candidate) > 0.01) {
+      return null;
+    }
+  }
+
+  return candidate;
 }
 
 function evidenceFromFacts(
@@ -575,7 +624,7 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
       description: descriptionRaw,
       service_item: serviceItemRaw,
       material: materialRaw,
-      unit_price: readRowNumber(row, INVOICE_LINE_RATE_KEYS),
+      unit_price: readSemanticInvoiceUnitPrice(row),
       line_total: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
       row,
       billing_rate_key: keys.billing_rate_key,

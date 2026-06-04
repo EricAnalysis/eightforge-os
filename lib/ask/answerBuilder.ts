@@ -25,6 +25,7 @@ import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext'
 import { ASK_PROJECT_SYSTEM_PROMPT_VERSION } from '@/lib/ask/canonicalPrompts';
 import { guardProjectRead } from '@/lib/ask/canonicalReadGuard';
 import { detectUpstreamGap } from '@/lib/ask/upstreamGapDetector';
+import { selectProjectAnswer } from '@/lib/ask/selectors';
 
 const CEILING_FIELD_KEYS = new Set(['contract_ceiling', 'nte_amount']);
 const BILLED_FIELD_KEYS = new Set([
@@ -546,27 +547,30 @@ function formatCanonicalProjectAnswer(params: {
   context?: ValidatorContext;
   intent: ClassifiedQuestion['intent'];
   fallbackUsed: boolean;
+  validationStateOverride?: ValidationStateLabel;
+  gateImpactOverride?: string;
+  nextActionOverride?: string;
 }): {
   answer: string;
   validationState: string;
   gateImpact: string;
   nextAction: string;
 } {
-  const validationState = validationStateForResponse({
+  const validationState = params.validationStateOverride ?? validationStateForResponse({
     findings: params.findings,
     context: params.context,
     sources: params.sources,
     fallbackUsed: params.fallbackUsed,
     limitations: params.limitations,
   });
-  const gateImpact = gateImpactForResponse({
+  const gateImpact = params.gateImpactOverride ?? gateImpactForResponse({
     findings: params.findings,
     context: params.context,
     intent: params.intent,
     fallbackUsed: params.fallbackUsed,
     answer: params.answer,
   });
-  const nextAction = nextActionForResponse({
+  const nextAction = params.nextActionOverride ?? nextActionForResponse({
     findings: params.findings,
     sources: params.sources,
     decisions: params.decisions,
@@ -929,6 +933,18 @@ export function buildAskResponse(params: {
   let answer = '';
   let sources: Source[] = [];
   let limitations: string[] = [];
+  const selectorAnswer = selectProjectAnswer({
+    question: params.question,
+    retrieval: params.retrieval,
+    project: params.project,
+    projectId: params.projectId,
+  });
+
+  if (selectorAnswer?.value && selectorAnswer.sourceId) {
+    answer = selectorAnswer.value;
+    sources = selectorAnswer.sources;
+    limitations = [];
+  }
 
   if (!answer && matchedLayer === 'relationships' && params.retrieval.relationships.length > 0) {
     const relationshipAnswer = buildRelationshipAnswer({
@@ -1090,6 +1106,7 @@ export function buildAskResponse(params: {
     question: params.question,
     retrieval: params.retrieval,
   });
+  const selectorReturnedGap = selectorAnswer?.confidence === 'not_found';
   const canonical = formatCanonicalProjectAnswer({
     answer,
     sources,
@@ -1100,17 +1117,24 @@ export function buildAskResponse(params: {
     context,
     intent: params.question.intent,
     fallbackUsed,
+    validationStateOverride: selectorReturnedGap ? selectorAnswer.validationState : undefined,
+    gateImpactOverride: selectorReturnedGap ? selectorAnswer.gateImpact : undefined,
+    nextActionOverride: selectorReturnedGap ? selectorAnswer.nextAction : undefined,
   });
   const validationState = normalizeValidationState(canonical.validationState);
-  const blockerCount = params.retrieval.validatorFindings.filter((finding) => finding.severity === 'critical' || finding.blocksProject).length;
-  const warningCount = params.retrieval.validatorFindings.filter((finding) => finding.severity === 'warning').length;
+  const blockerCount = selectorReturnedGap
+    ? 0
+    : params.retrieval.validatorFindings.filter((finding) => finding.severity === 'critical' || finding.blocksProject).length;
+  const warningCount = selectorReturnedGap
+    ? 0
+    : params.retrieval.validatorFindings.filter((finding) => finding.severity === 'warning').length;
   const confidenceState = confidenceStateForResponse({
     validationState,
     fallbackUsed: fallbackUsed || guardedRead.fallbackUsed,
     upstreamGap,
     limitations,
   });
-  const validatorFindings = params.retrieval.validatorFindings.map((finding) => ({
+  const validatorFindings = (selectorReturnedGap ? [] : params.retrieval.validatorFindings).map((finding) => ({
     id: finding.id,
     label: finding.description,
     severity: finding.severity,

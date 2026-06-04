@@ -1,3 +1,7 @@
+// ASK BOUNDARY FILE — reads canonical truth, never produces it.
+// No summation, scoring, risk creation, severity assignment, or pattern
+// inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
+// at 22/22, 0 gaps. See Ask workstream closeout.
 import type {
   AskConfidence,
   AskRelationship,
@@ -8,14 +12,19 @@ import type {
   ContractorMismatchRelationship,
   CeilingVsBilledRelationship,
   DecisionRecord,
-  RiskAssessment,
   RetrievalResult,
   Source,
   StructuredFact,
   SuggestedAction,
   ValidatorContext,
   ValidatorFinding,
+  AskConfidenceState,
+  ValidationStateLabel,
 } from '@/lib/ask/types';
+import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
+import { ASK_PROJECT_SYSTEM_PROMPT_VERSION } from '@/lib/ask/canonicalPrompts';
+import { guardProjectRead } from '@/lib/ask/canonicalReadGuard';
+import { detectUpstreamGap } from '@/lib/ask/upstreamGapDetector';
 
 const CEILING_FIELD_KEYS = new Set(['contract_ceiling', 'nte_amount']);
 const BILLED_FIELD_KEYS = new Set([
@@ -396,59 +405,199 @@ function buildRelationshipAnswer(params: {
   }
 }
 
-function sourceForRiskIssue(params: {
-  issue: string;
-  findings: ValidatorFinding[];
-  decisions: DecisionRecord[];
-}): Source | null {
-  const finding = params.findings.find((candidate) => candidate.description === params.issue);
-  if (finding) {
-    return validatorSource(finding);
-  }
-
-  const decision = params.decisions.find((candidate) => candidate.title === params.issue);
-  if (decision) {
-    return decisionSource(decision);
-  }
-
-  return null;
+function normalizeValidationState(value: string): ValidationStateLabel {
+  if (value.startsWith('Approved with Warnings')) return 'Approved with Warnings';
+  if (value.startsWith('Blocked')) return 'Blocked';
+  if (value === 'Requires Review') return 'Requires Review';
+  if (value === 'Not Found') return 'Not Found';
+  if (value === 'Not Evaluated') return 'Not Evaluated';
+  if (value === 'Approved') return 'Approved';
+  return 'Confirmed';
 }
 
-function buildRiskAnswer(params: {
-  question: ClassifiedQuestion;
-  riskAssessments: RiskAssessment[];
+function confidenceStateForResponse(params: {
+  validationState: ValidationStateLabel;
+  fallbackUsed: boolean;
+  upstreamGap: ReturnType<typeof detectUpstreamGap>;
+  limitations: string[];
+}): AskConfidenceState {
+  if (params.upstreamGap || params.validationState === 'Not Found') return 'Not Found';
+  if (params.validationState === 'Requires Review' || params.validationState === 'Blocked') return 'Requires Review';
+  if (params.fallbackUsed || params.limitations.length > 0 || params.validationState === 'Approved with Warnings') return 'Partial';
+  return 'Verified';
+}
+
+function validationStateForResponse(params: {
   findings: ValidatorFinding[];
+  context?: ValidatorContext;
+  sources: Source[];
+  fallbackUsed: boolean;
+  limitations: string[];
+}): string {
+  const blockerCount = params.findings.filter((finding) => finding.severity === 'critical' || finding.blocksProject).length;
+  const warningCount = params.findings.filter((finding) => finding.severity === 'warning').length;
+  const suffix = [
+    blockerCount > 0 ? `${blockerCount} blocker${blockerCount === 1 ? '' : 's'}` : null,
+    warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(', ');
+
+  if (blockerCount > 0 || params.context?.projectStatus === 'blocked') {
+    return `Blocked${suffix ? ` - ${suffix}` : ''}`;
+  }
+
+  if (warningCount > 0 || params.context?.projectStatus === 'warning') {
+    return `Approved with Warnings${suffix ? ` - ${suffix}` : ''}`;
+  }
+
+  if (params.fallbackUsed || params.limitations.length > 0) {
+    return 'Requires Review';
+  }
+
+  if (params.sources.length === 0) {
+    return 'Not Found';
+  }
+
+  if (params.sources.some((source) => source.type === 'fact' || source.type === 'validator')) {
+    return 'Confirmed';
+  }
+
+  return 'Not Evaluated';
+}
+
+function gateImpactForResponse(params: {
+  findings: ValidatorFinding[];
+  context?: ValidatorContext;
+  intent: ClassifiedQuestion['intent'];
+  fallbackUsed: boolean;
+  answer: string;
+}): string {
+  const text = params.answer.toLowerCase();
+
+  if (params.findings.some((finding) => finding.severity === 'critical' || finding.blocksProject) || params.context?.projectStatus === 'blocked') {
+    return 'Affects approval, payment release, audit defensibility, and execution priority.';
+  }
+
+  if (params.findings.some((finding) => finding.severity === 'warning') || params.context?.projectStatus === 'warning') {
+    return 'Affects audit defensibility, contract compliance, document review, or execution priority.';
+  }
+
+  if (params.fallbackUsed) {
+    return 'Affects audit defensibility until the missing canonical source is resolved.';
+  }
+
+  if (params.intent === 'missing_data') {
+    return 'Affects document review and invoice readiness.';
+  }
+
+  if (text.includes('invoice') || text.includes('billed') || text.includes('payment')) {
+    return 'Affects invoice readiness or payment release.';
+  }
+
+  return 'No gate impact.';
+}
+
+function nextActionForResponse(params: {
+  findings: ValidatorFinding[];
+  sources: Source[];
   decisions: DecisionRecord[];
-}): {
+  documents: AskDocument[];
+  fallbackUsed: boolean;
+  intent: ClassifiedQuestion['intent'];
+}): string {
+  if (params.findings.length > 0) return 'Open Validator';
+  if (params.decisions.length > 0) return 'Open Execution Item';
+  if (params.sources.some((source) => source.documentId || source.anchorId || source.factId)) return 'Open Evidence';
+  if (params.intent === 'missing_data') return 'Create Execution Item';
+  if (params.fallbackUsed || params.documents.some((document) => document.processingStatus === 'failed')) return 'Reprocess Document';
+  return 'No action required';
+}
+
+function formatEvidenceBlock(params: {
+  sources: Source[];
+  limitations: string[];
+}): string {
+  const sourceLines = params.sources.slice(0, 4).map((source) => {
+    const parts = [
+      source.label,
+      source.documentName && source.documentName !== source.label ? source.documentName : null,
+      source.page ? `page ${source.page}` : null,
+      source.factId ? `fact ${source.factId}` : null,
+      source.anchorId ? `anchor ${source.anchorId}` : null,
+      source.snippet ? source.snippet : null,
+    ].filter(Boolean);
+
+    return parts.join(' / ');
+  });
+
+  if (sourceLines.length === 0) {
+    sourceLines.push('No source document, fact node, validation snapshot, execution item, or audit event was found for this question.');
+  }
+
+  return [...sourceLines, ...params.limitations].join('\n');
+}
+
+function formatCanonicalProjectAnswer(params: {
   answer: string;
   sources: Source[];
   limitations: string[];
-} | null {
-  const topIssues = params.riskAssessments.slice(0, 3);
-  const lead = topIssues[0];
-  if (!lead) return null;
-
-  const answer =
-    params.question.originalQuestion.toLowerCase().includes('biggest issue')
-      ? `The biggest issue is "${lead.issue}". ${lead.reasoning}.${topIssues[1] ? ` Next priorities are ${topIssues.slice(1).map((issue) => `"${issue.issue}"`).join(' and ')}.` : ''}`
-      : `Start with "${lead.issue}". ${lead.reasoning}.${topIssues[1] ? ` After that, address ${topIssues.slice(1).map((issue) => `"${issue.issue}"`).join(' and ')}.` : ''}`;
-
-  const sources = dedupeSources(
-    topIssues
-      .map((issue) =>
-        sourceForRiskIssue({
-          issue: issue.issue,
-          findings: params.findings,
-          decisions: params.decisions,
-        }),
-      )
-      .filter((source): source is Source => source != null),
-  ).slice(0, 3);
+  findings: ValidatorFinding[];
+  decisions: DecisionRecord[];
+  documents: AskDocument[];
+  context?: ValidatorContext;
+  intent: ClassifiedQuestion['intent'];
+  fallbackUsed: boolean;
+}): {
+  answer: string;
+  validationState: string;
+  gateImpact: string;
+  nextAction: string;
+} {
+  const validationState = validationStateForResponse({
+    findings: params.findings,
+    context: params.context,
+    sources: params.sources,
+    fallbackUsed: params.fallbackUsed,
+    limitations: params.limitations,
+  });
+  const gateImpact = gateImpactForResponse({
+    findings: params.findings,
+    context: params.context,
+    intent: params.intent,
+    fallbackUsed: params.fallbackUsed,
+    answer: params.answer,
+  });
+  const nextAction = nextActionForResponse({
+    findings: params.findings,
+    sources: params.sources,
+    decisions: params.decisions,
+    documents: params.documents,
+    fallbackUsed: params.fallbackUsed,
+    intent: params.intent,
+  });
 
   return {
-    answer,
-    sources,
-    limitations: [],
+    answer: [
+      'Answer:',
+      params.answer,
+      '',
+      'Evidence:',
+      formatEvidenceBlock({
+        sources: params.sources,
+        limitations: params.limitations,
+      }),
+      '',
+      'Validation State:',
+      validationState,
+      '',
+      'Gate Impact:',
+      gateImpact,
+      '',
+      'Next Action:',
+      nextAction,
+    ].join('\n'),
+    validationState,
+    gateImpact,
+    nextAction,
   };
 }
 
@@ -609,6 +758,39 @@ function buildFactAnswer(facts: StructuredFact[]): {
   };
 }
 
+function isTotalLineageQuestion(question: ClassifiedQuestion, facts: StructuredFact[]): boolean {
+  const text = question.originalQuestion.toLowerCase();
+  return (
+    facts.some((fact) => canonicalFieldKey(fact.fieldKey ?? fact.label) === 'total_billed') &&
+    (text.includes('come from') || text.includes('where did') || text.includes('source'))
+  );
+}
+
+function buildTotalLineageAnswer(facts: StructuredFact[]): {
+  answer: string;
+  sources: Source[];
+  limitations: string[];
+} | null {
+  const rollupFact = bestFactByConfidence(
+    facts.filter((fact) => canonicalFieldKey(fact.fieldKey ?? fact.label) === 'total_billed'),
+  );
+  if (!rollupFact) return null;
+
+  const invoiceContributions = facts
+    .filter((fact) => canonicalFieldKey(fact.fieldKey ?? fact.label) === 'invoice_total')
+    .filter((fact) => fact.factId !== rollupFact.factId)
+    .slice(0, 4);
+  const contributionText = invoiceContributions.length > 0
+    ? ` The contributing invoice evidence is ${invoiceContributions.map((fact) => `${fact.label}: ${formatValue(fact.value, fact.label)}`).join('; ')}.`
+    : ' No per-invoice contribution cards were available in the canonical rollup lineage.';
+
+  return {
+    answer: `${humanize(rollupFact.label)} is ${formatValue(rollupFact.value, rollupFact.label)} from the canonical project invoice total rollup.${contributionText}`,
+    sources: [rollupFact, ...invoiceContributions].map(factSource),
+    limitations: invoiceContributions.length > 0 ? [] : ['Canonical total was present, but per-invoice lineage was not available in the read result.'],
+  };
+}
+
 function buildValidatorAnswer(params: {
   findings: ValidatorFinding[];
   context?: ValidatorContext;
@@ -740,28 +922,13 @@ export function buildAskResponse(params: {
   project: AskProjectRecord;
   projectId: string;
   orgId: string;
+  handoffContext?: PortfolioHandoffContext;
 }): AskResponse {
   const context = params.retrieval.rawData.validatorContext as ValidatorContext | undefined;
   const matchedLayer = params.retrieval.rawData.matchedLayer ?? 'documents';
-  const riskAssessments = params.retrieval.rawData.riskAssessments as RiskAssessment[] | undefined;
   let answer = '';
   let sources: Source[] = [];
   let limitations: string[] = [];
-
-  if (riskAssessments && riskAssessments.length > 0) {
-    const riskAnswer = buildRiskAnswer({
-      question: params.question,
-      riskAssessments,
-      findings: params.retrieval.validatorFindings,
-      decisions: params.retrieval.decisions,
-    });
-
-    if (riskAnswer) {
-      answer = riskAnswer.answer;
-      sources = riskAnswer.sources;
-      limitations = riskAnswer.limitations;
-    }
-  }
 
   if (!answer && matchedLayer === 'relationships' && params.retrieval.relationships.length > 0) {
     const relationshipAnswer = buildRelationshipAnswer({
@@ -773,6 +940,17 @@ export function buildAskResponse(params: {
       answer = relationshipAnswer.answer;
       sources = relationshipAnswer.sources;
       limitations = relationshipAnswer.limitations;
+    }
+  }
+
+  if (!answer) {
+    const lineageAnswer = isTotalLineageQuestion(params.question, params.retrieval.facts)
+      ? buildTotalLineageAnswer(params.retrieval.facts)
+      : null;
+    if (lineageAnswer) {
+      answer = lineageAnswer.answer;
+      sources = lineageAnswer.sources;
+      limitations = lineageAnswer.limitations;
     }
   }
 
@@ -862,6 +1040,12 @@ export function buildAskResponse(params: {
       }
       case 'unknown':
       default:
+        if (params.retrieval.facts.length > 0) {
+          const factAnswer = buildFactAnswer(params.retrieval.facts);
+          answer = factAnswer.answer;
+          sources = factAnswer.sources;
+          limitations = factAnswer.limitations;
+        }
         break;
     }
   }
@@ -893,8 +1077,52 @@ export function buildAskResponse(params: {
     intent: params.question.intent,
   });
 
-  return {
+  const guardedRead = guardProjectRead({
+    retrieval: params.retrieval,
+    sources,
+    projectId: params.projectId,
+  });
+  const fallbackUsed = guardedRead.fallbackUsed || (matchedLayer === 'documents' && params.retrieval.facts.length === 0 && params.retrieval.validatorFindings.length === 0 && params.retrieval.decisions.length === 0);
+  if (guardedRead.fallbackUsed && !limitations.some((limitation) => limitation.toLowerCase().includes('raw extraction fallback'))) {
+    limitations = ['Unverified - raw extraction fallback.', ...limitations];
+  }
+  const upstreamGap = detectUpstreamGap({
+    question: params.question,
+    retrieval: params.retrieval,
+  });
+  const canonical = formatCanonicalProjectAnswer({
     answer,
+    sources,
+    limitations,
+    findings: params.retrieval.validatorFindings,
+    decisions: params.retrieval.decisions,
+    documents: params.retrieval.documents,
+    context,
+    intent: params.question.intent,
+    fallbackUsed,
+  });
+  const validationState = normalizeValidationState(canonical.validationState);
+  const blockerCount = params.retrieval.validatorFindings.filter((finding) => finding.severity === 'critical' || finding.blocksProject).length;
+  const warningCount = params.retrieval.validatorFindings.filter((finding) => finding.severity === 'warning').length;
+  const confidenceState = confidenceStateForResponse({
+    validationState,
+    fallbackUsed: fallbackUsed || guardedRead.fallbackUsed,
+    upstreamGap,
+    limitations,
+  });
+  const validatorFindings = params.retrieval.validatorFindings.map((finding) => ({
+    id: finding.id,
+    label: finding.description,
+    severity: finding.severity,
+    source: finding.documentName ?? finding.factId ?? finding.category,
+    gateImpact: finding.blocksProject
+      ? 'Affects approval, payment release, audit defensibility, and execution priority.'
+      : 'Affects audit defensibility, contract compliance, document review, or execution priority.',
+    nextAction: finding.linkedActionId ? 'Open Execution Item' : 'Open Validator',
+  }));
+
+  return {
+    answer: canonical.answer,
     confidence,
     confidenceScore,
     sources,
@@ -902,14 +1130,8 @@ export function buildAskResponse(params: {
       params.retrieval.relationships.length > 0
         ? params.retrieval.relationships
         : undefined,
-    riskAssessments:
-      riskAssessments && riskAssessments.length > 0
-        ? riskAssessments
-        : undefined,
     reasoning:
-      riskAssessments && riskAssessments.length > 0
-        ? 'Answer built by ranking validator findings and open decisions by severity, blocked status, exposure, and age.'
-        : matchedLayer === 'relationships' && params.retrieval.relationships.length > 0
+      matchedLayer === 'relationships' && params.retrieval.relationships.length > 0
         ? params.retrieval.relationships[0]?.type === 'ceiling_vs_billed'
           ? 'Answer built by comparing the persisted contract ceiling with the current billed total from structured facts and decision records.'
           : 'Answer built by comparing persisted contractor names across project documents.'
@@ -920,6 +1142,23 @@ export function buildAskResponse(params: {
           : matchedLayer === 'decisions' && params.retrieval.decisions.length > 0
             ? 'Answer built from the project decision queue.'
             : 'Answer fell back to project document search.',
+    promptVersion: ASK_PROJECT_SYSTEM_PROMPT_VERSION,
+    validationState: canonical.validationState,
+    gateImpact: canonical.gateImpact,
+    nextAction: canonical.nextAction,
+    sections: {
+      answer,
+      confidenceState,
+      evidence: guardedRead.evidence,
+      validatorFindings,
+      validationState,
+      blockerCount,
+      warningCount,
+      gateImpact: canonical.gateImpact,
+      nextAction: canonical.nextAction,
+      upstreamGap,
+      handoffContext: params.handoffContext,
+    },
     limitations: limitations.length > 0 ? Array.from(new Set(limitations)) : undefined,
     suggestedActions: suggestedActions.length > 0 ? suggestedActions : undefined,
     relatedQuestions: relatedQuestionsForIntent(params.question.intent),
@@ -929,6 +1168,7 @@ export function buildAskResponse(params: {
     projectId: params.projectId,
     orgId: params.orgId,
     createdAt: new Date().toISOString(),
-    fallbackUsed: matchedLayer === 'documents' && params.retrieval.facts.length === 0 && params.retrieval.validatorFindings.length === 0 && params.retrieval.decisions.length === 0,
+    fallbackUsed,
+    handoffContext: params.handoffContext,
   };
 }

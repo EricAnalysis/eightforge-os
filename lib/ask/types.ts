@@ -1,3 +1,13 @@
+// ASK BOUNDARY FILE — reads canonical truth, never produces it.
+// No summation, scoring, risk creation, severity assignment, or pattern
+// inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
+// at 22/22, 0 gaps. See Ask workstream closeout.
+import type { GuardedEvidenceItem } from '@/lib/ask/canonicalReadGuard';
+import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
+import type { UpstreamGap } from '@/lib/ask/upstreamGapDetector';
+
+export type { GuardedEvidenceItem, PortfolioHandoffContext, UpstreamGap };
+
 export type QuestionIntent =
   | 'fact_question'
   | 'validator_question'
@@ -32,6 +42,42 @@ export type SuggestedActionType =
   | 'create_decision'
   | 'assign_action';
 
+export type AskConfidenceState = 'Verified' | 'Partial' | 'Requires Review' | 'Not Found';
+
+export type ValidationStateLabel =
+  | 'Confirmed'
+  | 'Approved'
+  | 'Approved with Warnings'
+  | 'Blocked'
+  | 'Requires Review'
+  | 'Not Evaluated'
+  | 'Not Found';
+
+export type PortfolioSignalState =
+  | 'Portfolio Blocked'
+  | 'Portfolio Needs Review'
+  | 'Portfolio Exposure'
+  | 'Portfolio Ready'
+  | 'No Verified Data';
+
+export interface AskConflictSource {
+  label: string;
+  layer: string;
+  sourceId: string;
+}
+
+export interface AskConflictState {
+  requiresReview: boolean;
+  sourceA: AskConflictSource;
+  sourceB: AskConflictSource;
+}
+
+export interface AskOverrideState {
+  operator: string;
+  appliedAt: string;
+  overriddenSource: string;
+}
+
 export interface ClassifiedQuestion {
   intent: QuestionIntent;
   confidence: AskConfidence;
@@ -53,6 +99,15 @@ export interface StructuredFact {
   factId?: string;
   fieldKey?: string;
   searchText?: string;
+  sourceKind?:
+    | 'canonical_project_fact'
+    | 'human_override'
+    | 'human_review'
+    | 'document_fact'
+    | 'document_extraction';
+  sourceLabel?: string;
+  reviewStatus?: string;
+  overrideId?: string;
 }
 
 export interface ValidatorFinding {
@@ -73,6 +128,29 @@ export interface ValidatorFinding {
   linkedActionId?: string | null;
   factId?: string | null;
   searchText?: string;
+}
+
+export interface AskPresentedValidatorFinding {
+  id: string;
+  label: string;
+  severity: ValidatorFinding['severity'];
+  source: string;
+  gateImpact: string;
+  nextAction: string;
+}
+
+export interface AskProjectSections {
+  answer: string;
+  confidenceState: AskConfidenceState;
+  evidence: GuardedEvidenceItem[];
+  validatorFindings: AskPresentedValidatorFinding[];
+  validationState: ValidationStateLabel;
+  blockerCount: number;
+  warningCount: number;
+  gateImpact: string;
+  nextAction: string;
+  upstreamGap: UpstreamGap | null;
+  handoffContext?: PortfolioHandoffContext;
 }
 
 export interface DecisionRecord {
@@ -158,13 +236,6 @@ export type AskRelationship =
   | CeilingVsBilledRelationship
   | ContractorMismatchRelationship;
 
-export interface RiskAssessment {
-  issue: string;
-  severity: string;
-  rank: number;
-  reasoning: string;
-}
-
 export interface EvidenceChain {
   step: number;
   reasoning: string;
@@ -184,7 +255,6 @@ export interface AskResponse {
   confidenceScore: number;
   sources: Source[];
   relationships?: AskRelationship[];
-  riskAssessments?: RiskAssessment[];
   reasoning?: string;
   evidenceChain?: EvidenceChain[];
   assumptions?: string[];
@@ -199,6 +269,14 @@ export interface AskResponse {
   createdAt: string;
   error?: string;
   fallbackUsed?: boolean;
+  promptVersion?: string;
+  validationState?: string;
+  gateImpact?: string;
+  nextAction?: string;
+  sections?: AskProjectSections;
+  conflict?: AskConflictState;
+  override?: AskOverrideState;
+  handoffContext?: PortfolioHandoffContext;
 }
 
 export interface ValidatorContext {
@@ -231,7 +309,5 @@ export interface RetrievalResult {
     openDecisionCount?: number;
     reasoningFacts?: StructuredFact[];
     reasoningCase?: 'ceiling_vs_billed' | 'contractor_mismatch';
-    riskQuery?: boolean;
-    riskAssessments?: RiskAssessment[];
   };
 }

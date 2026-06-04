@@ -1,10 +1,12 @@
 'use client';
 
-import { startTransition, useState, type FormEvent } from 'react';
-import { ProjectQueryResultCard } from '@/components/ask/ProjectQueryResultCard';
+import { startTransition, useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { AskResponsePanel } from '@/components/ask/AskResponsePanel';
 import type { ProjectQueryContext } from '@/lib/projectQuery/executeProjectQuery';
-import { runAskThisProjectQueryWithLogging } from '@/lib/projectQuery/runClientQuery';
-import type { ProjectQueryResult } from '@/lib/projectQuery/types';
+import { decodePortfolioHandoffContext, type PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
+import type { AskResponse } from '@/lib/ask/types';
+import { supabase } from '@/lib/supabaseClient';
 
 type AskInterfaceProps = {
   projectId: string;
@@ -15,12 +17,20 @@ type AskInterfaceProps = {
 export function AskInterface({
   projectId,
   title = 'Ask This Project',
-  context,
 }: AskInterfaceProps) {
   const [draft, setDraft] = useState('');
-  const [result, setResult] = useState<ProjectQueryResult | null>(null);
+  const searchParams = useSearchParams();
+  const [handoffContext, setHandoffContext] = useState<PortfolioHandoffContext | null>(null);
+  const [response, setResponse] = useState<AskResponse | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const decoded = decodePortfolioHandoffContext(searchParams.get('portfolioHandoff'));
+    if (!decoded || decoded.projectId !== projectId) return;
+    setHandoffContext(decoded);
+    setDraft(decoded.suggestedProjectQuery);
+  }, [projectId, searchParams]);
 
   async function submitQuestion(question: string) {
     const trimmed = question.trim();
@@ -28,12 +38,33 @@ export function AskInterface({
 
     setPending(true);
     setError(null);
-    setResult(null);
+    setResponse(null);
     try {
-      const next = await runAskThisProjectQueryWithLogging({ projectId, input: trimmed, context });
-      setResult(next);
-    } catch {
-      setError('Query failed');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Authentication required.');
+
+      const result = await fetch('/api/ask/project', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId,
+          question: trimmed,
+          handoffContext,
+        }),
+      });
+      const payload = await result.json().catch(() => ({}));
+      if (!result.ok) {
+        throw new Error((payload as { error?: string }).error ?? 'Query failed');
+      }
+      setResponse(payload as AskResponse);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Query failed');
     } finally {
       setPending(false);
     }
@@ -61,6 +92,17 @@ export function AskInterface({
         <p className="text-[11px] text-[var(--ef-text-muted)]">
           One query, one result. Prior output is replaced each time.
         </p>
+
+        {handoffContext ? (
+          <div className="rounded-lg border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)]">
+              Opened from Portfolio: {handoffContext.signalReason}
+            </p>
+            <p className="mt-1 text-[11px] text-[var(--ef-text-secondary)]">
+              Suggested question: {handoffContext.suggestedProjectQuery}
+            </p>
+          </div>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -107,7 +149,19 @@ export function AskInterface({
           </div>
         ) : null}
 
-        {result ? <ProjectQueryResultCard result={result} /> : null}
+        {response ? (
+          <AskResponsePanel
+            response={response}
+            projectId={projectId}
+            pending={pending}
+            onSelectFollowup={(question) => {
+              setDraft(question);
+              startTransition(() => {
+                void submitQuestion(question);
+              });
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

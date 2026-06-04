@@ -1,0 +1,93 @@
+name: Ask Phase 3 Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'lib/ask/**'
+      - 'app/api/ask/**'
+      - 'components/ask/**'
+      - 'components/platform/AskEightForgeResponsePanel.tsx'
+      - 'lib/projectFacts.ts'
+
+jobs:
+  ask-phase3-diagnostic:
+    name: Ask regression harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Ask harness first pass
+        run: npx vitest run --config scripts/ask/vitest.phase3.config.ts --pool forks
+
+      - name: Capture first pass artifacts
+        run: |
+          mkdir -p /tmp/ask-phase3-first
+          cp scripts/ask/artifacts/phase3-diagnostic-log.json /tmp/ask-phase3-first/phase3-diagnostic-log.json
+          cp scripts/ask/artifacts/phase3-confirmed-gap-list.json /tmp/ask-phase3-first/phase3-confirmed-gap-list.json
+
+      - name: Run Ask harness second pass
+        run: npx vitest run --config scripts/ask/vitest.phase3.config.ts --pool forks
+
+      - name: Enforce Ask harness lock
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+
+          const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+          const normalize = (value) => {
+            if (Array.isArray(value)) return value.map(normalize);
+            if (value && typeof value === 'object') {
+              return Object.fromEntries(
+                Object.entries(value)
+                  .filter(([key]) => key !== 'generatedAt' && key !== 'createdAt')
+                  .map(([key, entry]) => [key, normalize(entry)]),
+              );
+            }
+            return value;
+          };
+          const stableJson = (value) => JSON.stringify(normalize(value), null, 2);
+
+          const firstLog = readJson('/tmp/ask-phase3-first/phase3-diagnostic-log.json');
+          const firstGaps = readJson('/tmp/ask-phase3-first/phase3-confirmed-gap-list.json');
+          const secondLog = readJson('scripts/ask/artifacts/phase3-diagnostic-log.json');
+          const secondGaps = readJson('scripts/ask/artifacts/phase3-confirmed-gap-list.json');
+
+          for (const [label, log, gaps] of [
+            ['first pass', firstLog, firstGaps],
+            ['second pass', secondLog, secondGaps],
+          ]) {
+            assert.equal(log.summary?.queriesRun, 22, `${label}: expected 22 queries to run`);
+            assert.equal(log.summary?.passing, 22, `${label}: expected 22 passing queries`);
+            assert.equal(log.summary?.failing, 0, `${label}: expected 0 failing queries`);
+            assert.equal(log.summary?.confirmedGaps, 0, `${label}: expected 0 confirmed gaps`);
+            assert.equal(gaps.summary?.confirmedGaps, 0, `${label}: expected gap artifact to report 0 gaps`);
+            assert.equal((gaps.gaps ?? []).length, 0, `${label}: expected empty gap list`);
+          }
+
+          assert.equal(
+            stableJson(firstLog),
+            stableJson(secondLog),
+            'phase3-diagnostic-log.json changed across two runs',
+          );
+          assert.equal(
+            stableJson(firstGaps),
+            stableJson(secondGaps),
+            'phase3-confirmed-gap-list.json changed across two runs',
+          );
+          NODE

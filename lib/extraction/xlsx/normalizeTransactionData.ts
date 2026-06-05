@@ -22,7 +22,6 @@ import {
   TRANSACTION_DATA_AMOUNT_FIELDS,
   TRANSACTION_DATA_CODE_FIELDS,
   TRANSACTION_DATA_HEADER_ALIASES,
-  TRANSACTION_DATA_FIELD_LABELS,
   TRANSACTION_DATA_FIELD_ORDER,
   TRANSACTION_DATA_METRIC_FIELDS,
 } from '@/lib/types/transactionData';
@@ -231,7 +230,7 @@ type ReviewRowSignal = {
   severity: 'warning' | 'critical';
 };
 
-function uniqueStrings(values: Array<string | null | undefined>): string[] {
+export function uniqueStrings(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
 
@@ -247,7 +246,7 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return out;
 }
 
-function roundNumber(value: number, digits: number): number {
+export function roundNumber(value: number, digits: number): number {
   return Number(value.toFixed(digits));
 }
 
@@ -385,7 +384,7 @@ function collectMatchingHeaders(
   return [...matches].sort((left, right) => left.localeCompare(right, 'en-US'));
 }
 
-function normalizeLooseText(value: string | null | undefined): string | null {
+export function normalizeLooseText(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value
     .toLowerCase()
@@ -394,7 +393,7 @@ function normalizeLooseText(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeEligibility(value: string | null | undefined): 'eligible' | 'ineligible' {
+export function normalizeEligibility(value: string | null | undefined): 'eligible' | 'ineligible' {
   return normalizeSpreadsheetEligibility(value);
 }
 
@@ -637,7 +636,7 @@ function sortDistinctStrings(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'en-US'));
 }
 
-function effectiveMaterial(record: NormalizedTransactionDataRecord): string | null {
+export function effectiveMaterial(record: NormalizedTransactionDataRecord): string | null {
   if (record.material?.trim()) return record.material.trim();
   return findRawRowText(record.raw_row, TRANSACTION_DATA_HEADER_ALIASES.material);
 }
@@ -656,7 +655,7 @@ function invoiceRawForDistinct(record: NormalizedTransactionDataRecord): string 
   return null;
 }
 
-function hasInvoiceLink(record: NormalizedTransactionDataRecord): boolean {
+export function hasInvoiceLink(record: NormalizedTransactionDataRecord): boolean {
   return invoiceRawForDistinct(record) != null;
 }
 
@@ -675,7 +674,7 @@ type RateGroupAcc = {
   total_cost: number;
 };
 
-function buildRateCodeGroups(
+export function buildRateCodeGroups(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataRateCodeGroup[] {
   const groups = new Map<string, RateGroupAcc>();
@@ -755,7 +754,7 @@ type InvoiceGroupAcc = {
   total_cost: number;
 };
 
-function buildInvoiceGroups(
+export function buildInvoiceGroups(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataInvoiceGroup[] {
   const groups = new Map<string, InvoiceGroupAcc>();

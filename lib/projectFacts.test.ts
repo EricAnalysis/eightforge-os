@@ -4,6 +4,7 @@ import { describe, it } from 'vitest';
 import type { ValidationFinding } from '@/types/validator';
 import {
   approvalStatusLabelForProjectFacts,
+  buildCanonicalTransactionSummaryFromRows,
   deriveCanonicalProjectInvoiceApprovalStatus,
   resolveCanonicalProjectOverviewBriefing,
   resolveCanonicalProjectFacts,
@@ -490,6 +491,215 @@ describe('resolveCanonicalProjectFacts', () => {
     const validationRows = sections.find((section) => section.key === 'validation')?.rows ?? [];
     assert.equal(validationRows.find((row) => row.key === 'blockers')?.value, '2');
     assert.equal(validationRows.find((row) => row.key === 'at_risk_amount')?.label, 'At Risk Amount');
+  });
+
+  it('reproduces summary-backed transaction projection fields from canonical rows', () => {
+    const transactionRows = [
+      {
+        id: 'row-2a-1',
+        document_id: 'tx-doc-1',
+        project_id: 'project-1',
+        invoice_number: '2026-002',
+        transaction_number: 'T-001',
+        rate_code: '2A',
+        billing_rate_key: '2a',
+        transaction_quantity: 1.25,
+        extended_cost: 50,
+        invoice_date: '2026-03-01',
+        source_sheet_name: 'Tickets',
+        source_row_number: 2,
+        record_json: {
+          id: 'row-2a-1',
+          evidence_ref: 'evidence:row-2a-1',
+          invoice_number: '2026-002',
+          transaction_number: 'T-001',
+          rate_code: '2A',
+          rate_description: 'Load and haul',
+          billing_rate_key: '2a',
+          transaction_quantity: 1.25,
+          extended_cost: 50,
+          cyd: 10,
+          material: 'Vegetative',
+          service_item: 'Haul',
+          eligibility: 'Eligible',
+          source_sheet_name: 'Tickets',
+          source_row_number: 2,
+          raw_row: { Invoice: '2026-002', Material: 'Vegetative' },
+        },
+        raw_row_json: { Invoice: '2026-002', Material: 'Vegetative' },
+        created_at: '2026-04-20T10:00:00Z',
+      },
+      {
+        id: 'row-2a-2',
+        document_id: 'tx-doc-1',
+        project_id: 'project-1',
+        invoice_number: '2026-002',
+        transaction_number: 'T-002',
+        rate_code: '2A',
+        billing_rate_key: '2a',
+        transaction_quantity: 2.75,
+        extended_cost: 55,
+        invoice_date: '2026-03-01',
+        source_sheet_name: 'Tickets',
+        source_row_number: 3,
+        record_json: {
+          id: 'row-2a-2',
+          evidence_ref: 'evidence:row-2a-2',
+          invoice_number: '2026-002',
+          transaction_number: 'T-002',
+          rate_code: '2A',
+          rate_description: 'Load and haul',
+          billing_rate_key: '2a',
+          transaction_quantity: 2.75,
+          extended_cost: 55,
+          cyd: 20,
+          material: 'Vegetative',
+          service_item: 'Haul',
+          eligibility: 'Eligible',
+          source_sheet_name: 'Tickets',
+          source_row_number: 3,
+          raw_row: { Invoice: '2026-002', Material: 'Vegetative' },
+        },
+        raw_row_json: { Invoice: '2026-002', Material: 'Vegetative' },
+        created_at: '2026-04-20T10:00:00Z',
+      },
+      {
+        id: 'row-2b-1',
+        document_id: 'tx-doc-1',
+        project_id: 'project-1',
+        invoice_number: '2026-003',
+        transaction_number: 'T-003',
+        rate_code: '2B',
+        billing_rate_key: '2b',
+        transaction_quantity: 3,
+        extended_cost: 70,
+        invoice_date: '2026-03-02',
+        source_sheet_name: 'Tickets',
+        source_row_number: 4,
+        record_json: {
+          id: 'row-2b-1',
+          evidence_ref: 'evidence:row-2b-1',
+          invoice_number: '2026-003',
+          transaction_number: 'T-003',
+          rate_code: '2B',
+          rate_description: 'Reduction',
+          billing_rate_key: '2b',
+          transaction_quantity: 3,
+          extended_cost: 70,
+          cyd: 30,
+          material: 'C&D',
+          service_item: 'Reduction',
+          eligibility: 'Ineligible',
+          source_sheet_name: 'Tickets',
+          source_row_number: 4,
+          raw_row: { Invoice: '2026-003', Material: 'C&D' },
+        },
+        raw_row_json: { Invoice: '2026-003', Material: 'C&D' },
+        created_at: '2026-04-20T10:00:00Z',
+      },
+      {
+        id: 'row-uninvoiced-1',
+        document_id: 'tx-doc-1',
+        project_id: 'project-1',
+        invoice_number: null,
+        transaction_number: 'T-004',
+        rate_code: '3B',
+        billing_rate_key: '3b',
+        transaction_quantity: 0,
+        extended_cost: 0,
+        invoice_date: null,
+        source_sheet_name: 'Tickets',
+        source_row_number: 5,
+        record_json: {
+          id: 'row-uninvoiced-1',
+          evidence_ref: 'evidence:row-uninvoiced-1',
+          invoice_number: null,
+          transaction_number: 'T-004',
+          rate_code: '3B',
+          rate_description: 'Monitor',
+          billing_rate_key: '3b',
+          transaction_quantity: 0,
+          extended_cost: 0,
+          cyd: 0,
+          material: 'Vegetative',
+          service_item: 'Monitor',
+          eligibility: 'Eligible',
+          source_sheet_name: 'Tickets',
+          source_row_number: 5,
+          raw_row: { Material: 'Vegetative' },
+        },
+        raw_row_json: { Material: 'Vegetative' },
+        created_at: '2026-04-20T10:00:00Z',
+      },
+    ];
+    const rowBackedSummary = buildCanonicalTransactionSummaryFromRows(transactionRows);
+    const summaryBackedDataset = {
+      document_id: 'tx-doc-1',
+      row_count: 4,
+      date_range_start: '2026-03-01',
+      date_range_end: '2026-03-02',
+      created_at: '2026-04-20T10:00:00Z',
+      summary_json: rowBackedSummary,
+    };
+    const rowBackedDataset = {
+      ...summaryBackedDataset,
+      rows: transactionRows,
+    };
+    const mappedFields = [
+      'row_count',
+      'total_extended_cost',
+      'total_transaction_quantity',
+      'total_tickets',
+      'total_cyd',
+      'invoiced_ticket_count',
+      'distinct_invoice_count',
+      'total_invoiced_amount',
+      'uninvoiced_line_count',
+      'eligible_count',
+      'ineligible_count',
+      'rows_with_missing_invoice_number',
+      'rows_with_zero_cost',
+      'grouped_by_rate_code',
+      'grouped_by_invoice',
+      'project_operations_overview',
+    ];
+
+    for (const field of mappedFields) {
+      assert.deepEqual(rowBackedSummary[field], summaryBackedDataset.summary_json[field]);
+    }
+
+    assert.equal(rowBackedSummary.total_extended_cost, 175);
+    assert.equal(rowBackedSummary.total_invoiced_amount, 175);
+    assert.equal(rowBackedSummary.uninvoiced_line_count, 1);
+    assert.deepEqual(
+      (rowBackedSummary.grouped_by_invoice as Array<{ invoice_number: string | null; row_count: number; total_extended_cost: number }>)
+        .map((group) => [group.invoice_number, group.row_count, group.total_extended_cost]),
+      [
+        ['2026002', 2, 105],
+        ['2026003', 1, 70],
+        [null, 1, 0],
+      ],
+    );
+    assert.deepEqual(
+      (rowBackedSummary.project_operations_overview as Record<string, unknown>).evidence_refs,
+      ['evidence:row-2a-1', 'evidence:row-2a-2', 'evidence:row-2b-1', 'evidence:row-uninvoiced-1'],
+    );
+
+    const summarySections = resolveCanonicalProjectTruthSections({
+      transactionDatasets: [summaryBackedDataset],
+    });
+    const rowSections = resolveCanonicalProjectTruthSections({
+      transactionDatasets: [rowBackedDataset],
+    });
+    assert.deepEqual(rowSections, summarySections);
+
+    const summaryBriefing = resolveCanonicalProjectOverviewBriefing({
+      transactionDatasets: [summaryBackedDataset],
+    });
+    const rowBriefing = resolveCanonicalProjectOverviewBriefing({
+      transactionDatasets: [rowBackedDataset],
+    });
+    assert.deepEqual(rowBriefing, summaryBriefing);
   });
 
   it('uses live unresolved validator findings for Facts validation truth when persisted counts are stale', () => {

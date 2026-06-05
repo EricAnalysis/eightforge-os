@@ -49,6 +49,18 @@ import {
   PROJECT_TERM_UNSUPPORTED_AMOUNT,
   PROJECT_TERM_WORKBOOK_INVOICED_AMOUNT,
 } from '@/lib/projectTerminology';
+import {
+  buildInvoiceGroups,
+  buildRateCodeGroups,
+  effectiveMaterial,
+  hasInvoiceLink,
+  normalizeEligibility,
+  normalizeLooseText,
+  roundNumber,
+  uniqueStrings,
+  type NormalizedTransactionDataRecord,
+} from '@/lib/extraction/xlsx/normalizeTransactionData';
+import { normalizeInvoiceNumber } from '@/lib/validator/billingKeys';
 
 /**
  * Consumer-facing normalized project truth snapshot.
@@ -209,6 +221,28 @@ export type CanonicalProjectTransactionDatasetInput = {
   date_range_end: string | null;
   summary_json: Record<string, unknown> | null;
   created_at: string | null;
+  rows?: readonly CanonicalProjectTransactionRowInput[];
+};
+
+export type CanonicalProjectTransactionRowInput = {
+  id?: string | null;
+  document_id?: string | null;
+  project_id?: string | null;
+  invoice_number?: string | null;
+  transaction_number?: string | null;
+  rate_code?: string | null;
+  billing_rate_key?: string | null;
+  description_match_key?: string | null;
+  site_material_key?: string | null;
+  invoice_rate_key?: string | null;
+  transaction_quantity?: number | null;
+  extended_cost?: number | null;
+  invoice_date?: string | null;
+  source_sheet_name?: string | null;
+  source_row_number?: number | null;
+  record_json?: Record<string, unknown> | null;
+  raw_row_json?: Record<string, unknown> | null;
+  created_at?: string | null;
 };
 
 export type CanonicalProjectValidatorStatusItem = {
@@ -2533,8 +2567,196 @@ function uniqueDefinedValues<T>(
 function readTransactionOverview(
   dataset: CanonicalProjectTransactionDatasetInput,
 ): Record<string, unknown> | null {
-  const summary = dataset.summary_json ?? null;
+  const summary = readRowBackedTransactionSummary(dataset) ?? dataset.summary_json ?? null;
   return asRecord(summary?.project_operations_overview) ?? summary;
+}
+
+function rowString(row: CanonicalProjectTransactionRowInput, record: Record<string, unknown>, key: keyof CanonicalProjectTransactionRowInput): string | null {
+  return readString(record[key as string]) ?? readString(row[key]);
+}
+
+function rowNumber(row: CanonicalProjectTransactionRowInput, record: Record<string, unknown>, key: keyof CanonicalProjectTransactionRowInput): number | null {
+  return readNumber(record[key as string]) ?? readNumber(row[key]);
+}
+
+function rowInteger(row: CanonicalProjectTransactionRowInput, record: Record<string, unknown>, key: keyof CanonicalProjectTransactionRowInput): number | null {
+  const value = rowNumber(row, record, key);
+  return value != null ? Math.trunc(value) : null;
+}
+
+function normalizeTransactionProjectionRow(
+  row: CanonicalProjectTransactionRowInput,
+): NormalizedTransactionDataRecord {
+  const record = asRecord(row.record_json) ?? {};
+  const rawRow = asRecord(record.raw_row) ?? asRecord(row.raw_row_json) ?? {};
+  const id =
+    readString(record.id)
+    ?? readString(row.id)
+    ?? [
+      rowString(row, record, 'document_id') ?? 'transaction-data',
+      rowString(row, record, 'source_sheet_name') ?? 'sheet',
+      String(rowInteger(row, record, 'source_row_number') ?? 0),
+    ].join(':');
+
+  return {
+    ...record,
+    id,
+    evidence_ref:
+      readString(record.evidence_ref)
+      ?? readString(record.evidenceRef)
+      ?? `transaction_data_rows:${id}`,
+    column_headers: asRecord(record.column_headers) as NormalizedTransactionDataRecord['column_headers'] ?? {},
+    field_evidence_ids: asRecord(record.field_evidence_ids) as NormalizedTransactionDataRecord['field_evidence_ids'] ?? {},
+    missing_fields: readStringArray(record.missing_fields),
+    confidence: readNumber(record.confidence) ?? 1,
+    transaction_number: rowString(row, record, 'transaction_number'),
+    invoice_number: rowString(row, record, 'invoice_number'),
+    invoice_date: rowString(row, record, 'invoice_date'),
+    rate_code: rowString(row, record, 'rate_code'),
+    rate_description: readString(record.rate_description),
+    transaction_quantity: rowNumber(row, record, 'transaction_quantity'),
+    transaction_rate: readNumber(record.transaction_rate),
+    extended_cost: rowNumber(row, record, 'extended_cost'),
+    net_quantity: readNumber(record.net_quantity),
+    mileage: readNumber(record.mileage),
+    cyd: readNumber(record.cyd),
+    net_tonnage: readNumber(record.net_tonnage),
+    diameter: readNumber(record.diameter),
+    material: readString(record.material),
+    service_item: readString(record.service_item),
+    ticket_notes: readString(record.ticket_notes),
+    eligibility: readString(record.eligibility),
+    eligibility_internal_comments: readString(record.eligibility_internal_comments),
+    eligibility_external_comments: readString(record.eligibility_external_comments),
+    load_latitude: readNumber(record.load_latitude),
+    load_longitude: readNumber(record.load_longitude),
+    disposal_latitude: readNumber(record.disposal_latitude),
+    disposal_longitude: readNumber(record.disposal_longitude),
+    project_name: readString(record.project_name),
+    billing_rate_key: rowString(row, record, 'billing_rate_key'),
+    description_match_key: rowString(row, record, 'description_match_key'),
+    site_material_key: rowString(row, record, 'site_material_key'),
+    invoice_rate_key: rowString(row, record, 'invoice_rate_key'),
+    source_sheet_name: rowString(row, record, 'source_sheet_name') ?? 'unknown',
+    source_row_number: rowInteger(row, record, 'source_row_number') ?? 0,
+    raw_row: rawRow,
+  } as NormalizedTransactionDataRecord;
+}
+
+export function buildCanonicalTransactionSummaryFromRows(
+  rows: readonly CanonicalProjectTransactionRowInput[],
+): Record<string, unknown> {
+  const records = rows.map(normalizeTransactionProjectionRow);
+  const normalizedTransactionNumberSet = new Set<string>();
+  const normalizedInvoicedTransactionNumberSet = new Set<string>();
+
+  for (const record of records) {
+    const transactionNumber = normalizeLooseText(record.transaction_number);
+    if (!transactionNumber) continue;
+    normalizedTransactionNumberSet.add(transactionNumber);
+    if (hasInvoiceLink(record)) {
+      normalizedInvoicedTransactionNumberSet.add(transactionNumber);
+    }
+  }
+
+  const totalExtendedCost = roundNumber(
+    records.reduce((sum, record) => sum + (record.extended_cost ?? 0), 0),
+    2,
+  );
+  const totalTransactionQuantity = roundNumber(
+    records.reduce((sum, record) => sum + (record.transaction_quantity ?? 0), 0),
+    3,
+  );
+  const totalCyd = roundNumber(
+    records.reduce((sum, record) => sum + (record.cyd ?? 0), 0),
+    3,
+  );
+  const totalInvoicedAmount = roundNumber(
+    records.reduce((sum, record) => sum + (hasInvoiceLink(record) ? (record.extended_cost ?? 0) : 0), 0),
+    2,
+  );
+  const distinctInvoiceCount = new Set(
+    records
+      .map((record) => normalizeInvoiceNumber(record.invoice_number))
+      .filter((value): value is string => value != null),
+  ).size;
+  const distinctServiceItems = uniqueStrings(records.map((record) => record.service_item));
+  const distinctMaterials = uniqueStrings(records.map((record) => effectiveMaterial(record)));
+  const eligibilityCounts = records.reduce((accumulator, record) => {
+    const status = normalizeEligibility(record.eligibility);
+    if (status === 'eligible') accumulator.eligible += 1;
+    else accumulator.ineligible += 1;
+    return accumulator;
+  }, { eligible: 0, ineligible: 0 });
+  const groupedByRateCode = buildRateCodeGroups(records);
+  const groupedByInvoice = buildInvoiceGroups(records);
+  const reviewedSheetNames = uniqueStrings(records.map((record) => record.source_sheet_name));
+  const recordIds = records.map((record) => record.id);
+  const evidenceRefs = uniqueStrings(records.map((record) => record.evidence_ref));
+
+  const summary: Record<string, unknown> = {
+    row_count: records.length,
+    distinct_invoice_numbers: uniqueStrings(records.map((record) => record.invoice_number)),
+    distinct_rate_codes: uniqueStrings(records.map((record) => record.rate_code)),
+    distinct_service_items: distinctServiceItems,
+    distinct_materials: distinctMaterials,
+    total_extended_cost: totalExtendedCost,
+    total_transaction_quantity: totalTransactionQuantity,
+    total_tickets: normalizedTransactionNumberSet.size,
+    total_cyd: totalCyd,
+    invoiced_ticket_count: normalizedInvoicedTransactionNumberSet.size,
+    distinct_invoice_count: distinctInvoiceCount,
+    total_invoiced_amount: totalInvoicedAmount,
+    uninvoiced_line_count: records.filter((record) => !hasInvoiceLink(record)).length,
+    eligible_count: eligibilityCounts.eligible,
+    ineligible_count: eligibilityCounts.ineligible,
+    rows_with_missing_rate_code: records.filter((record) => record.rate_code == null).length,
+    rows_with_missing_invoice_number: records.filter((record) => record.invoice_number == null).length,
+    rows_with_missing_quantity: records.filter((record) => record.transaction_quantity == null).length,
+    rows_with_missing_extended_cost: records.filter((record) => record.extended_cost == null).length,
+    rows_with_zero_cost: records.filter((record) => record.extended_cost === 0).length,
+    grouped_by_rate_code: groupedByRateCode,
+    grouped_by_invoice: groupedByInvoice,
+  };
+
+  summary.project_operations_overview = {
+    project_name: null,
+    total_tickets: summary.total_tickets,
+    total_transaction_quantity: totalTransactionQuantity,
+    total_cyd: totalCyd,
+    total_invoiced_amount: totalInvoicedAmount,
+    distinct_invoice_count: distinctInvoiceCount,
+    invoiced_ticket_count: summary.invoiced_ticket_count,
+    uninvoiced_line_count: summary.uninvoiced_line_count,
+    eligible_count: eligibilityCounts.eligible,
+    ineligible_count: eligibilityCounts.ineligible,
+    distinct_service_item_count: distinctServiceItems.length,
+    distinct_material_count: distinctMaterials.length,
+    distinct_site_type_count: 0,
+    distinct_disposal_site_count: 0,
+    reviewed_sheet_names: reviewedSheetNames,
+    record_ids: recordIds,
+    evidence_refs: evidenceRefs,
+  };
+
+  return summary;
+}
+
+function readRowBackedTransactionSummary(
+  dataset: CanonicalProjectTransactionDatasetInput,
+): Record<string, unknown> | null {
+  return dataset.rows && dataset.rows.length > 0
+    ? buildCanonicalTransactionSummaryFromRows(dataset.rows)
+    : null;
+}
+
+function readProjectRowBackedTransactionSummary(
+  datasets: readonly CanonicalProjectTransactionDatasetInput[],
+): Record<string, unknown> | null {
+  const rows = datasets.flatMap((dataset) => [...(dataset.rows ?? [])]);
+  return rows.length > 0
+    ? buildCanonicalTransactionSummaryFromRows(rows)
+    : null;
 }
 
 function findTruthSection(
@@ -3123,23 +3345,35 @@ function resolveTransactionTruthRows(
   datasets: readonly CanonicalProjectTransactionDatasetInput[],
 ): CanonicalProjectTruthRow[] {
   const sourceLabel = 'Canonical transaction data';
+  const rowBackedSummary = readProjectRowBackedTransactionSummary(datasets);
+  const metricDatasets =
+    rowBackedSummary != null
+      ? [{
+          document_id: 'project-union',
+          row_count: readNumber(rowBackedSummary.row_count),
+          date_range_start: null,
+          date_range_end: null,
+          summary_json: rowBackedSummary,
+          created_at: null,
+        }]
+      : datasets;
   const ticketRecords = resolveCanonicalTransactionMetric({
-    datasets,
+    datasets: metricDatasets,
     readValue: (dataset) => dataset.row_count,
     sourceLabel,
   });
   const uniqueTickets = resolveCanonicalTransactionMetric({
-    datasets,
+    datasets: metricDatasets,
     readValue: (dataset) => readNumber(readTransactionOverview(dataset)?.total_tickets),
     sourceLabel,
   });
   const totalCyd = resolveCanonicalTransactionMetric({
-    datasets,
+    datasets: metricDatasets,
     readValue: (dataset) => readNumber(readTransactionOverview(dataset)?.total_cyd),
     sourceLabel,
   });
   const eligibility = resolveCanonicalTransactionMetric({
-    datasets,
+    datasets: metricDatasets,
     readValue: (dataset) => {
       const overview = readTransactionOverview(dataset);
       const eligible = readNumber(overview?.eligible_count);
@@ -3151,14 +3385,14 @@ function resolveTransactionTruthRows(
     sourceLabel,
   });
   const totalInvoicedAmount = resolveCanonicalTransactionMetric({
-    datasets,
+    datasets: metricDatasets,
     readValue: (dataset) => readNumber(readTransactionOverview(dataset)?.total_invoiced_amount),
     sourceLabel,
   });
 
   const transactionConflictLabel =
-    datasets.length > 1
-      ? `Canonical transaction data (${datasets.length} datasets)`
+    metricDatasets.length > 1
+      ? `Canonical transaction data (${metricDatasets.length} datasets)`
       : sourceLabel;
 
   return [

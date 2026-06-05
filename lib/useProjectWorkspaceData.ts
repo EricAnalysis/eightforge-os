@@ -5,7 +5,10 @@ import type { ForgeGeneratedDecision } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
-import type { CanonicalProjectTransactionDatasetInput } from '@/lib/projectFacts';
+import type {
+  CanonicalProjectTransactionDatasetInput,
+  CanonicalProjectTransactionRowInput,
+} from '@/lib/projectFacts';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
@@ -33,6 +36,9 @@ const DOCUMENT_SELECT_LEGACY =
   'id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, intelligence_trace';
 const DOCUMENT_RELATIONSHIP_SELECT =
   'id, project_id, source_document_id, target_document_id, relationship_type, created_by, created_at';
+const TRANSACTION_DATA_ROW_SELECT =
+  'id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at';
+const TRANSACTION_DATA_ROW_PAGE_SIZE = 1000;
 
 function collectError(
   messageParts: string[],
@@ -59,6 +65,11 @@ type ProjectTransactionDatasetRow = CanonicalProjectTransactionDatasetInput;
 
 type ProjectRowsQueryResult = {
   data: unknown[] | null;
+  error: { code?: string | null; message?: string | null } | null;
+};
+
+type ProjectTransactionRowsQueryResult = {
+  data: CanonicalProjectTransactionRowInput[];
   error: { code?: string | null; message?: string | null } | null;
 };
 
@@ -102,6 +113,63 @@ function isMissingExecutionItemsTableError(
   return error?.code === '42P01'
     || error?.code === 'PGRST205'
     || (error?.message ?? '').toLowerCase().includes('execution_items');
+}
+
+function isMissingTransactionRowsTableError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (error?.message ?? '').toLowerCase().includes('transaction_data_rows');
+}
+
+async function loadTransactionRowsForProject(
+  projectId: string,
+): Promise<ProjectTransactionRowsQueryResult> {
+  const rows: CanonicalProjectTransactionRowInput[] = [];
+  let offset = 0;
+
+  while (true) {
+    const result = await supabase
+      .from('transaction_data_rows')
+      .select(TRANSACTION_DATA_ROW_SELECT)
+      .eq('project_id', projectId)
+      .order('invoice_date', { ascending: true })
+      .order('source_sheet_name', { ascending: true })
+      .order('source_row_number', { ascending: true })
+      .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
+
+    if (result.error) {
+      return { data: rows, error: result.error };
+    }
+
+    const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
+    rows.push(...batch);
+    if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+    offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
+  }
+}
+
+function attachRowsToTransactionDatasets(
+  datasets: readonly ProjectTransactionDatasetRow[],
+  rows: readonly CanonicalProjectTransactionRowInput[],
+): ProjectTransactionDatasetRow[] {
+  if (rows.length === 0) return [...datasets];
+
+  const rowsByDocumentId = new Map<string, CanonicalProjectTransactionRowInput[]>();
+  for (const row of rows) {
+    if (!row.document_id) continue;
+    const existing = rowsByDocumentId.get(row.document_id) ?? [];
+    existing.push(row);
+    rowsByDocumentId.set(row.document_id, existing);
+  }
+
+  return datasets.map((dataset) => ({
+    ...dataset,
+    rows: rowsByDocumentId.get(dataset.document_id) ?? [],
+  }));
 }
 
 /**
@@ -269,6 +337,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         projectResult,
         documentsWithPrecedenceResult,
         transactionDatasetsResult,
+        transactionRowsResult,
         validationFindingsResult,
         documentRelationshipsResult,
         executionItemsResult,
@@ -290,6 +359,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .select('document_id, row_count, date_range_start, date_range_end, summary_json, created_at')
           .eq('project_id', projectId)
           .order('created_at', { ascending: false }),
+        loadTransactionRowsForProject(projectId),
         supabase
           .from('project_validation_findings')
           .select('*')
@@ -308,6 +378,15 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .order('updated_at', { ascending: false }),
       ]);
       collectError(issues, 'Transaction datasets', transactionDatasetsResult.error);
+      if (transactionRowsResult.error) {
+        if (isMissingTransactionRowsTableError(transactionRowsResult.error)) {
+          issues.push(
+            'Canonical transaction rows are not available yet; project projection is falling back to persisted transaction summaries.',
+          );
+        } else {
+          collectError(issues, 'Transaction rows', transactionRowsResult.error);
+        }
+      }
       collectError(issues, 'Validation findings', validationFindingsResult.error);
 
       let resolvedProjectResult = projectResult;
@@ -384,7 +463,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           (documentRelationshipsResult.data ?? []) as ProjectDocumentRelationshipRow[];
       }
       const projectTransactionDatasets = !transactionDatasetsResult.error
-        ? ((transactionDatasetsResult.data ?? []) as ProjectTransactionDatasetRow[])
+        ? attachRowsToTransactionDatasets(
+            (transactionDatasetsResult.data ?? []) as ProjectTransactionDatasetRow[],
+            transactionRowsResult.error ? [] : transactionRowsResult.data,
+          )
         : [];
       const projectValidationFindings = !validationFindingsResult.error
         ? ((validationFindingsResult.data ?? []) as ValidationFinding[])

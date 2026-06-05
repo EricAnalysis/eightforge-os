@@ -476,7 +476,10 @@ describe('resolveCanonicalProjectFacts', () => {
 
     const contractRows = sections.find((section) => section.key === 'contract')?.rows ?? [];
     assert.equal(contractRows.find((row) => row.key === 'governing_contract')?.value, 'Golden Project Governing Contract');
-    assert.equal(contractRows.find((row) => row.key === 'rate_schedule')?.value, 'Present (7 pages)');
+    assert.equal(
+      contractRows.find((row) => row.key === 'rate_schedule')?.value,
+      'Rate schedule present. Activation or eligibility language may require operator review.',
+    );
 
     const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
     const transactionRows = sections.find((section) => section.key === 'transaction')?.rows ?? [];
@@ -1020,7 +1023,7 @@ describe('resolveCanonicalProjectFacts', () => {
     assert.equal(contractRows.find((row) => row.key === 'contract_ceiling')?.value, '$250,000');
     assert.equal(
       contractRows.find((row) => row.key === 'rate_schedule')?.value,
-      'Present (7 pages); Unit-rate schedule applies to debris hauling services',
+      'Rate schedule present. Activation or eligibility language may require operator review.',
     );
 
     const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
@@ -1197,8 +1200,303 @@ describe('resolveCanonicalProjectFacts', () => {
     });
 
     const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
-    assert.equal(invoiceRows.find((row) => row.key === 'active_invoice')?.value, 'INV-002 (Subsequent)');
+    const approvalContextRow = invoiceRows.find((row) => row.key === 'active_invoice');
+    assert.equal(approvalContextRow?.label, 'Invoice Approval Context');
+    assert.equal(
+      approvalContextRow?.value,
+      'INV-001: Approved, Original, billed $25,000, supported $25,000, at risk $0, MATCH; INV-002: Approved, Subsequent, billed $26,000, supported $26,000, at risk $0, MATCH; Combined: billed $51,000, supported $51,000, at risk $0',
+    );
     assert.equal(invoiceRows.find((row) => row.key === 'invoice_context')?.value, '2 invoices in approval context; active invoice approved; subsequent billing record in the known invoice sequence');
+  });
+
+  it('uses project-level approved invoice support coverage for multi-invoice approval context', () => {
+    const validationSummary = {
+      validator_status: 'READY' as const,
+      critical_count: 0,
+      warning_count: 0,
+      open_count: 0,
+      exposure: {
+        total_billed_amount: 815559.35,
+        total_contract_supported_amount: 815559.35,
+        total_transaction_supported_amount: 815559.35,
+        total_fully_reconciled_amount: 815559.35,
+        total_unreconciled_amount: 0,
+        total_at_risk_amount: 0,
+        total_requires_verification_amount: 0,
+        support_gap_tolerance_amount: 500,
+        at_risk_tolerance_amount: 500,
+        moderate_severity: 'warning' as const,
+        invoices: [
+          {
+            invoice_number: '2026-002',
+            billed_amount: 534757.1,
+            billed_amount_source: 'invoice_total' as const,
+            contract_supported_amount: 534757.1,
+            transaction_supported_amount: 534757.1,
+            fully_reconciled_amount: 534757.1,
+            supported_amount: 534757.1,
+            unreconciled_amount: 0,
+            at_risk_amount: 0,
+            requires_verification_amount: 0,
+            reconciliation_status: 'MATCH' as const,
+          },
+          {
+            invoice_number: '2026-003',
+            billed_amount: 280802.25,
+            billed_amount_source: 'invoice_total' as const,
+            contract_supported_amount: 280802.25,
+            transaction_supported_amount: 280802.25,
+            fully_reconciled_amount: 280802.25,
+            supported_amount: 280802.25,
+            unreconciled_amount: 0,
+            at_risk_amount: 0,
+            requires_verification_amount: 0,
+            reconciliation_status: 'MATCH' as const,
+          },
+        ],
+      },
+    };
+
+    const sections = resolveCanonicalProjectTruthSections({
+      validationStatus: 'VALIDATED',
+      validationSummary,
+    });
+
+    const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
+    const approvalContextRow = invoiceRows.find((row) => row.key === 'active_invoice');
+    const supportCoverageRow = invoiceRows.find((row) => row.key === 'support_coverage');
+
+    assert.equal(approvalContextRow?.label, 'Invoice Approval Context');
+    assert.ok(approvalContextRow?.value.includes('2026-002: Approved, Original, billed $534,757.10, supported $534,757.10, at risk $0, MATCH'));
+    assert.ok(approvalContextRow?.value.includes('2026-003: Approved, Subsequent, billed $280,802.25, supported $280,802.25, at risk $0, MATCH'));
+    assert.ok(approvalContextRow?.value.includes('Combined: billed $815,559.35, supported $815,559.35, at risk $0'));
+    assert.equal(invoiceRows.find((row) => row.key === 'billed_amount')?.value, '$815,559.35');
+    assert.equal(supportCoverageRow?.value, 'Complete ($815,559.35 of $815,559.35 supported)');
+    assert.equal(supportCoverageRow?.state, 'resolved');
+
+    const briefing = resolveCanonicalProjectOverviewBriefing({
+      validationStatus: 'VALIDATED',
+      validationSummary,
+    });
+
+    assert.equal(
+      briefing.critical_signals.some((signal) => signal.key === 'missing_support'),
+      false,
+    );
+  });
+
+  it('renders Golden-style approved contract pricing and expiration facts as non-blocking display truth', () => {
+    const validationSummary = {
+      validator_status: 'READY' as const,
+      critical_count: 0,
+      warning_count: 6,
+      open_count: 6,
+      contract_validation_context: {
+        document_id: 'contract-doc-1',
+        analysis: {
+          pricing_model: {
+            contract_ceiling_type: {
+              value: 'rate_based',
+              state: 'derived',
+              source_fact_ids: ['contract_ceiling_type'],
+            },
+            rate_schedule_present: {
+              value: true,
+              state: 'explicit',
+              source_fact_ids: ['rate_schedule_present'],
+            },
+            pricing_applicability: {
+              value: 'requires_activation_scope_or_eligibility_resolution',
+              state: 'derived',
+              source_fact_ids: ['pricing_applicability'],
+            },
+          },
+          contract_identity: {
+            effective_date: {
+              value: '2026-01-24',
+              state: 'explicit',
+              source_fact_ids: ['effective_date'],
+            },
+          },
+          term_model: {
+            expiration_date: {
+              value: '2026-05-10',
+              state: 'explicit',
+              source_fact_ids: ['expiration_date'],
+            },
+          },
+        },
+      },
+      exposure: {
+        total_billed_amount: 815559.35,
+        total_contract_supported_amount: 815559.35,
+        total_transaction_supported_amount: 815559.35,
+        total_fully_reconciled_amount: 815559.35,
+        total_unreconciled_amount: 0,
+        total_at_risk_amount: 0,
+        total_requires_verification_amount: 0,
+        support_gap_tolerance_amount: 500,
+        at_risk_tolerance_amount: 500,
+        moderate_severity: 'warning' as const,
+        invoices: [
+          {
+            invoice_number: '2026-002',
+            billed_amount: 534757.1,
+            billed_amount_source: 'invoice_total' as const,
+            contract_supported_amount: 534757.1,
+            transaction_supported_amount: 534757.1,
+            fully_reconciled_amount: 534757.1,
+            supported_amount: 534757.1,
+            unreconciled_amount: 0,
+            at_risk_amount: 0,
+            requires_verification_amount: 0,
+            reconciliation_status: 'MATCH' as const,
+          },
+          {
+            invoice_number: '2026-003',
+            billed_amount: 280802.25,
+            billed_amount_source: 'invoice_total' as const,
+            contract_supported_amount: 280802.25,
+            transaction_supported_amount: 280802.25,
+            fully_reconciled_amount: 280802.25,
+            supported_amount: 280802.25,
+            unreconciled_amount: 0,
+            at_risk_amount: 0,
+            requires_verification_amount: 0,
+            reconciliation_status: 'MATCH' as const,
+          },
+        ],
+      },
+    };
+
+    const documents = [
+      {
+        id: 'contract-doc-1',
+        title: 'Golden Project Contract',
+        name: 'golden-contract.pdf',
+        document_type: 'contract',
+        intelligence_trace: {
+          classification: { family: 'contract' },
+        },
+      },
+      {
+        id: 'invoice-doc-2026-002',
+        title: 'Invoice 2026-002',
+        name: 'invoice-2026-002.pdf',
+        document_type: 'invoice',
+        created_at: '2026-03-18T00:00:00Z',
+        intelligence_trace: {
+          classification: { family: 'invoice' },
+          facts: {
+            invoice_number: '2026-002',
+            period_start: '2026-02-23',
+            period_end: '2026-03-18',
+          },
+        },
+      },
+      {
+        id: 'invoice-doc-2026-003',
+        title: 'Invoice 2026-003',
+        name: 'invoice-2026-003.pdf',
+        document_type: 'invoice',
+        created_at: '2026-03-22T00:00:00Z',
+        intelligence_trace: {
+          classification: { family: 'invoice' },
+          facts: {
+            invoice_number: '2026-003',
+            period_start: '2026-02-23',
+            period_end: '2026-03-22',
+          },
+        },
+      },
+    ];
+
+    const sections = resolveCanonicalProjectTruthSections({
+      validationStatus: 'VALIDATED',
+      validationSummary,
+      documents,
+    });
+    const contractRows = sections.find((section) => section.key === 'contract')?.rows ?? [];
+    const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
+
+    assert.equal(
+      contractRows.find((row) => row.key === 'rate_schedule')?.value,
+      'Rate schedule present. Pricing basis confirmed for current invoice review.',
+    );
+    assert.equal(
+      contractRows.find((row) => row.key === 'expiration_status')?.value,
+      'Expired May 10, 2026 after current invoice period.',
+    );
+    assert.equal(contractRows.find((row) => row.key === 'expiration_status')?.state, 'derived');
+    assert.ok(
+      invoiceRows.find((row) => row.key === 'active_invoice')?.value.includes(
+        'Combined: billed $815,559.35, supported $815,559.35, at risk $0',
+      ),
+    );
+
+    const briefing = resolveCanonicalProjectOverviewBriefing({
+      validationStatus: 'VALIDATED',
+      validationSummary,
+      documents,
+    });
+    assert.equal(
+      briefing.critical_signals.some((signal) => signal.key === 'contract_risk'),
+      false,
+    );
+  });
+
+  it('keeps multi-invoice support coverage partial when aggregate approved support is short', () => {
+    const sections = resolveCanonicalProjectTruthSections({
+      validationStatus: 'FINDINGS_OPEN',
+      validationSummary: {
+        exposure: {
+          total_billed_amount: 815559.35,
+          total_contract_supported_amount: 800000,
+          total_transaction_supported_amount: 800000,
+          total_fully_reconciled_amount: 800000,
+          total_unreconciled_amount: 15559.35,
+          total_at_risk_amount: 15559.35,
+          total_requires_verification_amount: 15559.35,
+          support_gap_tolerance_amount: 500,
+          at_risk_tolerance_amount: 500,
+          moderate_severity: 'warning',
+          invoices: [
+            {
+              invoice_number: '2026-002',
+              billed_amount: 534757.1,
+              billed_amount_source: 'invoice_total',
+              contract_supported_amount: 534757.1,
+              transaction_supported_amount: 534757.1,
+              fully_reconciled_amount: 534757.1,
+              supported_amount: 534757.1,
+              unreconciled_amount: 0,
+              at_risk_amount: 0,
+              requires_verification_amount: 0,
+              reconciliation_status: 'MATCH',
+            },
+            {
+              invoice_number: '2026-003',
+              billed_amount: 280802.25,
+              billed_amount_source: 'invoice_total',
+              contract_supported_amount: 265242.9,
+              transaction_supported_amount: 265242.9,
+              fully_reconciled_amount: 265242.9,
+              supported_amount: 265242.9,
+              unreconciled_amount: 15559.35,
+              at_risk_amount: 15559.35,
+              requires_verification_amount: 15559.35,
+              reconciliation_status: 'PARTIAL',
+            },
+          ],
+        },
+      },
+    });
+
+    const invoiceRows = sections.find((section) => section.key === 'invoice')?.rows ?? [];
+    const supportCoverageRow = invoiceRows.find((row) => row.key === 'support_coverage');
+
+    assert.equal(supportCoverageRow?.value, 'Partial ($800,000 of $815,559.35 supported)');
+    assert.equal(supportCoverageRow?.state, 'requires_review');
   });
 
   it('returns invoice truth from canonical invoice documents when invoices exist without validator exposure', () => {
@@ -1724,7 +2022,7 @@ describe('resolveCanonicalProjectFacts', () => {
     assert.equal(contractRows.find((row) => row.key === 'governing_contract')?.value, 'MVSU Draft Contract');
     assert.equal(
       contractRows.find((row) => row.key === 'rate_schedule')?.value,
-      'Present (4 pages); Exhibit rates apply to debris hauling',
+      'Rate schedule present. Activation or eligibility language may require operator review.',
     );
     assert.equal(contractRows.find((row) => row.key === 'rate_schedule')?.source_label, 'Exhibit A');
     assert.equal(contractRows.find((row) => row.key === 'pricing_context')?.value, 'Exhibit A');

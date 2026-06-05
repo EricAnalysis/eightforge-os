@@ -26,10 +26,13 @@ import {
 import type {
   ContractInvoiceReconciliationSummary,
   CrossDocumentRateVerificationSummary,
+  FirstDocumentToInspect,
+  InvoiceExceptionEligibility,
   InvoiceTransactionReconciliationSummary,
   ProjectValidationPhase,
   ProjectExposureSummary,
   ProjectReconciliationSummary,
+  ReviewedDocumentWithWarnings,
   ValidationEvidence,
   ValidationFinding,
   ValidationRuleState,
@@ -971,6 +974,125 @@ export function toValidatorSummaryItem(
   };
 }
 
+function findingDocumentId(finding: ValidationFinding): string | null {
+  if (finding.subject_type === 'document' && finding.subject_id.trim().length > 0) {
+    return finding.subject_id;
+  }
+
+  return null;
+}
+
+function findingEvidenceDocumentId(finding: ValidationFinding): string | null {
+  const withEvidence = finding as ValidationFinding & {
+    evidence?: Array<{ source_document_id?: string | null }>;
+  };
+  return withEvidence.evidence?.find((entry) => entry.source_document_id)?.source_document_id ?? null;
+}
+
+function findingSourceDocumentId(finding: ValidationFinding): string | null {
+  return findingDocumentId(finding) ?? findingEvidenceDocumentId(finding);
+}
+
+function findingPriorityRank(finding: ValidationFinding): number {
+  if (isBlockingFinding(finding)) return 0;
+  if (finding.severity === 'warning') return 1;
+  if (finding.severity === 'critical') return 2;
+  return 3;
+}
+
+function deriveInvoiceExceptionEligibility(
+  openFindings: readonly ValidationFinding[],
+): InvoiceExceptionEligibility {
+  const ticketFindings = openFindings.filter((finding) => {
+    const normalized = normalizeValidationFinding(finding);
+    const searchable = [
+      finding.rule_id,
+      finding.check_key,
+      finding.category,
+      finding.subject_type,
+      normalized.source_family,
+      normalized.problem,
+      normalized.required_action,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return searchable.includes('ticket');
+  });
+  const basisFinding = ticketFindings[0] ?? openFindings[0] ?? null;
+  const hasBlocker = openFindings.some((finding) => isBlockingFinding(finding));
+  const hasTicketGaps = ticketFindings.length > 0;
+
+  return {
+    open_ticket_count: ticketFindings.length,
+    approval_gate_basis: basisFinding
+      ? [
+          messageForFinding(basisFinding),
+          basisFinding.linked_action_id ? `linked action ${basisFinding.linked_action_id}` : null,
+        ].filter(Boolean).join('; ')
+      : 'No open validator ticket exception basis.',
+    exception_type: hasBlocker
+      ? 'blocking_validator_exception'
+      : hasTicketGaps
+        ? 'ticket_support_exception'
+        : openFindings.length > 0
+          ? 'validator_warning_exception'
+          : 'none',
+    required_approval_condition: hasBlocker
+      ? 'Resolve blocking validator findings before approval can clear.'
+      : openFindings.length > 0
+        ? 'Operator exception approval is required while open validator findings remain.'
+        : 'No exception approval condition required.',
+  };
+}
+
+function deriveReviewedDocumentsWithWarnings(
+  openFindings: readonly ValidationFinding[],
+): ReviewedDocumentWithWarnings[] {
+  const warningCountsByDocumentId = new Map<string, { count: number; source: string }>();
+
+  for (const finding of openFindings) {
+    if (finding.severity !== 'warning') continue;
+    const documentId = findingSourceDocumentId(finding);
+    if (!documentId) continue;
+
+    const current = warningCountsByDocumentId.get(documentId);
+    warningCountsByDocumentId.set(documentId, {
+      count: (current?.count ?? 0) + 1,
+      source: current?.source ?? `validator_finding:${finding.id}`,
+    });
+  }
+
+  return [...warningCountsByDocumentId.entries()]
+    .map(([document_id, entry]) => ({
+      document_id,
+      warning_count: entry.count,
+      review_event_source: entry.source,
+    }))
+    .sort((left, right) =>
+      right.warning_count - left.warning_count
+      || left.document_id.localeCompare(right.document_id, 'en-US'),
+    );
+}
+
+function deriveFirstDocumentToInspect(
+  openFindings: readonly ValidationFinding[],
+): FirstDocumentToInspect | null {
+  const candidate = [...openFindings]
+    .filter((finding) => findingSourceDocumentId(finding) != null)
+    .sort((left, right) => {
+      const priorityDelta = findingPriorityRank(left) - findingPriorityRank(right);
+      if (priorityDelta !== 0) return priorityDelta;
+      return left.created_at.localeCompare(right.created_at, 'en-US');
+    })[0] ?? null;
+  const documentId = candidate ? findingSourceDocumentId(candidate) : null;
+  if (!candidate || !documentId) return null;
+
+  return {
+    document_id: documentId,
+    risk_reason: messageForFinding(candidate),
+    linked_action_id: candidate.linked_action_id ?? null,
+    priority_source: `validator_finding:${candidate.id}`,
+  };
+}
+
 export function deriveValidatorStatus(
   findings: readonly ValidationFinding[],
 ): ValidatorStatus {
@@ -1010,6 +1132,9 @@ export function buildValidationSummary(
   const validatorBlockers = openFindings
     .filter((finding) => isBlockingFinding(finding))
     .map(toValidatorSummaryItem);
+  const invoiceExceptionEligibility = deriveInvoiceExceptionEligibility(openFindings);
+  const reviewedDocumentsWithWarnings = deriveReviewedDocumentsWithWarnings(openFindings);
+  const firstDocumentToInspect = deriveFirstDocumentToInspect(openFindings);
   const unsupportedAmount = unsupportedAmountFromExposure(options.exposure ?? null);
   const atRiskAmount =
     options.exposure != null && Number.isFinite(options.exposure.total_at_risk_amount)
@@ -1088,6 +1213,9 @@ export function buildValidationSummary(
         : requiresVerificationAmount > 0,
     at_risk_amount: atRiskAmount,
     unsupported_amount: unsupportedAmount,
+    invoice_exception_eligibility: invoiceExceptionEligibility,
+    reviewed_documents_with_warnings: reviewedDocumentsWithWarnings,
+    first_document_to_inspect: firstDocumentToInspect,
     contract_document_id:
       options.contractDocumentId
       ?? options.contractValidationContext?.document_id

@@ -299,6 +299,26 @@ export type ProjectExposureSummary = {
   invoices: InvoiceExposureSummary[];
 };
 
+export type InvoiceExceptionEligibility = {
+  open_ticket_count: number;
+  approval_gate_basis: string;
+  exception_type: string;
+  required_approval_condition: string;
+};
+
+export type ReviewedDocumentWithWarnings = {
+  document_id: string;
+  warning_count: number;
+  review_event_source: string;
+};
+
+export type FirstDocumentToInspect = {
+  document_id: string;
+  risk_reason: string;
+  linked_action_id: string | null;
+  priority_source: string;
+};
+
 export type ValidationSummary = {
   status: ValidationStatus;
   last_run_at: string | null;
@@ -330,8 +350,14 @@ export type ValidationSummary = {
   requires_verification?: boolean | null;
   at_risk_amount?: number | null;
   unsupported_amount?: number | null;
+  invoice_exception_eligibility?: InvoiceExceptionEligibility | null;
+  reviewed_documents_with_warnings?: ReviewedDocumentWithWarnings[];
+  first_document_to_inspect?: FirstDocumentToInspect | null;
   contract_document_id?: string | null;
   contract_validation_context?: unknown | null;
+  activation_gate_status?: 'satisfied' | 'in_review' | 'unknown' | null;
+  activation_gate_status_reason?: string | null;
+  pricing_applicability_status?: 'confirmed' | 'in_review' | 'not_applicable' | 'unknown' | null;
 };
 
 export type ValidatorResult = {

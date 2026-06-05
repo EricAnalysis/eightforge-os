@@ -1,11 +1,14 @@
 import type {
   ContractInvoiceReconciliationSummary,
   CrossDocumentRateVerificationSummary,
+  FirstDocumentToInspect,
+  InvoiceExceptionEligibility,
   InvoiceExposureSummary,
   InvoiceTransactionReconciliationSummary,
   ProjectValidationPhase,
   ProjectExposureSummary,
   ProjectReconciliationSummary,
+  ReviewedDocumentWithWarnings,
   ValidationFinding,
   ValidationStatus,
   ValidationSummary,
@@ -102,6 +105,9 @@ export type CanonicalProjectFacts = {
   requires_verification: boolean | null;
   unsupported_amount: number | null;
   reconciliation_overall: string | null;
+  invoice_exception_eligibility: InvoiceExceptionEligibility | null;
+  reviewed_documents_with_warnings: ReviewedDocumentWithWarnings[];
+  first_document_to_inspect: FirstDocumentToInspect | null;
   contract_document_id: string | null;
 };
 
@@ -314,6 +320,63 @@ function readStringArray(value: unknown): string[] {
   return value.filter(
     (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
   );
+}
+
+function readInvoiceExceptionEligibility(value: unknown): InvoiceExceptionEligibility | null {
+  if (!isRecord(value)) return null;
+  const open_ticket_count = readNumber(value.open_ticket_count);
+  const approval_gate_basis = readString(value.approval_gate_basis);
+  const exception_type = readString(value.exception_type);
+  const required_approval_condition = readString(value.required_approval_condition);
+
+  if (
+    open_ticket_count == null
+    || !approval_gate_basis
+    || !exception_type
+    || !required_approval_condition
+  ) {
+    return null;
+  }
+
+  return {
+    open_ticket_count,
+    approval_gate_basis,
+    exception_type,
+    required_approval_condition,
+  };
+}
+
+function readReviewedDocumentsWithWarnings(value: unknown): ReviewedDocumentWithWarnings[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const document_id = readString(entry.document_id);
+    const warning_count = readNumber(entry.warning_count);
+    const review_event_source = readString(entry.review_event_source);
+    if (!document_id || warning_count == null || !review_event_source) return [];
+
+    return [{
+      document_id,
+      warning_count,
+      review_event_source,
+    }];
+  });
+}
+
+function readFirstDocumentToInspect(value: unknown): FirstDocumentToInspect | null {
+  if (!isRecord(value)) return null;
+  const document_id = readString(value.document_id);
+  const risk_reason = readString(value.risk_reason);
+  const priority_source = readString(value.priority_source);
+  if (!document_id || !risk_reason || !priority_source) return null;
+
+  return {
+    document_id,
+    risk_reason,
+    linked_action_id: readString(value.linked_action_id),
+    priority_source,
+  };
 }
 
 function isValidationStatus(value: unknown): value is ValidationStatus {
@@ -1092,6 +1155,13 @@ export function resolveCanonicalProjectFacts(params: {
       ?? exposure?.total_at_risk_amount
       ?? null,
     reconciliation_overall: readString(reconciliation?.overall_reconciliation_status),
+    invoice_exception_eligibility: readInvoiceExceptionEligibility(
+      raw?.invoice_exception_eligibility,
+    ),
+    reviewed_documents_with_warnings: readReviewedDocumentsWithWarnings(
+      raw?.reviewed_documents_with_warnings,
+    ),
+    first_document_to_inspect: readFirstDocumentToInspect(raw?.first_document_to_inspect),
     contract_document_id:
       readString(raw?.contract_document_id)
       ?? readString(raw?.contractDocumentId)
@@ -1427,6 +1497,13 @@ function formatCount(value: number | null): string {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
   }).format(value);
+}
+
+function formatOperatorLabel(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (segment) => segment.toUpperCase());
 }
 
 function formatDate(value: string | null): string {
@@ -1995,6 +2072,136 @@ function invoiceApprovalLabel(
   }
 }
 
+type InvoiceApprovalSupportCoverage = {
+  supported_amount: number | null;
+  at_risk_amount: number | null;
+  requires_verification_amount: number | null;
+};
+
+function sumNullableInvoiceAmount(
+  invoices: readonly CanonicalProjectInvoiceSummary[],
+  readAmount: (invoice: CanonicalProjectInvoiceSummary) => number | null,
+): number | null {
+  let hasValue = false;
+  let total = 0;
+
+  for (const invoice of invoices) {
+    const amount = readAmount(invoice);
+    if (amount == null || Number.isNaN(amount)) continue;
+    hasValue = true;
+    total += amount;
+  }
+
+  return hasValue ? total : null;
+}
+
+function aggregateInvoiceApprovalSupportCoverage(
+  invoices: readonly CanonicalProjectInvoiceSummary[],
+): InvoiceApprovalSupportCoverage {
+  return {
+    supported_amount: sumNullableInvoiceAmount(invoices, (invoice) => invoice.supported_amount),
+    at_risk_amount: sumNullableInvoiceAmount(invoices, (invoice) => invoice.at_risk_amount),
+    requires_verification_amount: sumNullableInvoiceAmount(
+      invoices,
+      (invoice) => invoice.requires_verification_amount,
+    ),
+  };
+}
+
+function isApprovedCleanApprovalContext(params: {
+  facts: Pick<
+    CanonicalProjectFacts,
+    | 'status'
+    | 'validator_status'
+    | 'blocker_count'
+    | 'critical_count'
+    | 'open_count'
+    | 'validator_blockers'
+    | 'exposure'
+    | 'total_billed'
+    | 'unsupported_amount'
+    | 'total_at_risk'
+    | 'requires_verification_amount'
+  >;
+  invoices?: readonly CanonicalProjectInvoiceSummary[];
+}): boolean {
+  const facts = params.facts;
+  const unsupportedAmount = unsupportedAmountForFacts(facts);
+  const blockerCount = approvalBlockerCountForProjectFacts(facts);
+  const invoices = params.invoices ?? facts.exposure?.invoices ?? [];
+  const allInvoicesReconcile =
+    invoices.length === 0
+    || invoices.every((invoice) => {
+      const status = 'reconciliation_status' in invoice ? invoice.reconciliation_status : null;
+      return status == null || status === 'MATCH';
+    });
+  return (
+    approvalStatusLabelForProjectFacts(facts) === 'Approved'
+    && blockerCount === 0
+    && (facts.total_at_risk == null || facts.total_at_risk <= 0)
+    && (facts.requires_verification_amount == null || facts.requires_verification_amount <= 0)
+    && (unsupportedAmount == null || unsupportedAmount <= 0)
+    && allInvoicesReconcile
+  );
+}
+
+function invoiceApprovalContextState(
+  invoices: readonly CanonicalProjectInvoiceSummary[],
+): CanonicalProjectTruthState {
+  if (invoices.some((invoice) => invoice.approval_status === 'blocked')) return 'conflicted';
+  if (invoices.some((invoice) => invoice.approval_status === 'needs_review')) return 'requires_review';
+  if (invoices.some((invoice) => invoice.approval_status === 'approved_with_exceptions')) return 'derived';
+  return invoices.length > 0 ? 'resolved' : 'missing';
+}
+
+function formatInvoiceApprovalContextValue(
+  invoices: readonly CanonicalProjectInvoiceSummary[],
+): string {
+  const invoiceDetails = invoices
+    .map((invoice, index) => {
+      const invoiceNumber = invoice.invoice_number ?? `Invoice ${index + 1}`;
+      const sequenceLabel = index === 0 ? 'Original' : 'Subsequent';
+      const billedAmount = invoice.billed_amount == null
+        ? null
+        : `billed ${formatCurrency(invoice.billed_amount)}`;
+      const supportedAmount = invoice.supported_amount == null
+        ? null
+        : `supported ${formatCurrency(invoice.supported_amount)}`;
+      const atRiskAmount = invoice.at_risk_amount == null
+        ? null
+        : `at risk ${formatCurrency(invoice.at_risk_amount)}`;
+      const reconciliationStatus = invoice.reconciliation_status
+        ? String(invoice.reconciliation_status)
+        : null;
+      const details = [
+        formatOperatorLabel(invoiceApprovalLabel(invoice.approval_status)),
+        sequenceLabel,
+        billedAmount,
+        supportedAmount,
+        atRiskAmount,
+        reconciliationStatus,
+      ].filter((value): value is string => value != null && value.length > 0);
+
+      return `${invoiceNumber}: ${details.join(', ')}`;
+    })
+    .join('; ');
+
+  if (invoices.length <= 1) return invoiceDetails;
+
+  const combinedBilled = sumNullableInvoiceAmount(invoices, (invoice) => invoice.billed_amount);
+  const combinedSupported = sumNullableInvoiceAmount(invoices, (invoice) => invoice.supported_amount);
+  const combinedAtRisk = sumNullableInvoiceAmount(invoices, (invoice) => invoice.at_risk_amount);
+  const combinedDetails = [
+    combinedBilled == null ? null : `billed ${formatCurrency(combinedBilled)}`,
+    combinedSupported == null ? null : `supported ${formatCurrency(combinedSupported)}`,
+    combinedAtRisk == null ? null : `at risk ${formatCurrency(combinedAtRisk)}`,
+  ].filter((value): value is string => value != null);
+
+  return combinedDetails.length > 0
+    ? `${invoiceDetails}; Combined: ${combinedDetails.join(', ')}`
+    : invoiceDetails;
+}
+
 function readInvoiceDocumentNumber(
   document: CanonicalProjectTruthDocumentInput | null | undefined,
 ): string | null {
@@ -2211,6 +2418,38 @@ function aggregateInvoiceDocumentBillingPeriod(params: {
       startTimestamps.length === params.documents.length && endTimestamps.length === params.documents.length
         ? 'resolved'
         : 'derived',
+  };
+}
+
+function aggregateInvoiceDocumentPeriodTimestamps(params: {
+  documents: readonly InvoiceTruthDocumentDetails[];
+}): { start: number | null; end: number | null; complete: boolean } {
+  const startTimestamps = params.documents
+    .map((document) =>
+      parseTruthDateTimestamp(
+        readFirstStringFromRecords(
+          [readDocumentFacts(document.document), readDocumentExtracted(document.document)],
+          ['service_period_start', 'period_start', 'period_from', 'periodFrom', 'invoice_date', 'invoiceDate'],
+        ),
+      ))
+    .filter((value): value is number => value != null);
+  const endTimestamps = params.documents
+    .map((document) =>
+      parseTruthDateTimestamp(
+        readFirstStringFromRecords(
+          [readDocumentFacts(document.document), readDocumentExtracted(document.document)],
+          ['service_period_end', 'period_end', 'period_to', 'periodTo', 'period_through', 'periodThrough', 'invoice_date', 'invoiceDate'],
+        ),
+      ))
+    .filter((value): value is number => value != null);
+
+  return {
+    start: startTimestamps.length > 0 ? Math.min(...startTimestamps) : null,
+    end: endTimestamps.length > 0 ? Math.max(...endTimestamps) : null,
+    complete:
+      params.documents.length > 0
+      && startTimestamps.length === params.documents.length
+      && endTimestamps.length === params.documents.length,
   };
 }
 
@@ -2810,6 +3049,7 @@ function resolveCanonicalTransactionMetric<T>(params: {
 
 function resolveContractTruthRows(params: {
   facts: CanonicalProjectFacts;
+  snapshot: CanonicalProjectValidationSnapshot;
   validationSummary?: unknown;
   documents: readonly CanonicalProjectTruthDocumentInput[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
@@ -2832,10 +3072,20 @@ function resolveContractTruthRows(params: {
   const analysis = readContractAnalysis(params.validationSummary) ?? readDocumentContractAnalysis(contractDocument);
   const ceilingTypeField = readContractField(analysis, 'pricing_model', 'contract_ceiling_type');
   const rateScheduleField = readContractField(analysis, 'pricing_model', 'rate_schedule_present');
-  const rateSchedulePagesField = readContractField(analysis, 'pricing_model', 'rate_schedule_pages');
   const pricingApplicabilityField = readContractField(analysis, 'pricing_model', 'pricing_applicability');
   const effectiveDateField = readContractField(analysis, 'contract_identity', 'effective_date');
   const expirationDateField = readContractField(analysis, 'term_model', 'expiration_date');
+  const invoiceDocumentContext = resolveInvoiceDocumentContext({
+    activeInvoice: selectActiveInvoice(params.snapshot.invoice_summaries),
+    documents: params.documents,
+    documentRelationships: params.documentRelationships,
+  });
+  const invoicePeriodTimestamps = aggregateInvoiceDocumentPeriodTimestamps({
+    documents:
+      invoiceDocumentContext.active_invoice_documents.length > 0
+        ? representativeInvoiceDocumentsByNumber(invoiceDocumentContext.active_invoice_documents)
+        : representativeInvoiceDocumentsByNumber(invoiceDocumentContext.invoice_documents),
+  });
 
   const governingContractValue =
     documentLabelById(params.facts.contract_document_id, params.documents)
@@ -2856,12 +3106,10 @@ function resolveContractTruthRows(params: {
       : pricingContextTruth.present === true
         ? true
         : rateSchedulePresentFromContract;
-  const rateSchedulePages =
-    readContractNumber(rateSchedulePagesField)
-    ?? pricingContextTruth.pages;
-  const pricingApplicability =
-    readContractString(pricingApplicabilityField)
-    ?? pricingContextTruth.applicability;
+  const approvalContextReady = isApprovedCleanApprovalContext({
+    facts: params.facts,
+    invoices: params.snapshot.invoice_summaries,
+  });
   const effectiveDate = readContractString(effectiveDateField);
   const expirationDate = readContractString(expirationDateField);
   const pricingContextValue = relationshipContextValue(relationshipContextDocuments.pricing);
@@ -2924,7 +3172,11 @@ function resolveContractTruthRows(params: {
           label: 'Rate Schedule',
           value:
             rateSchedulePresent
-              ? `Present${rateSchedulePages != null && rateSchedulePages > 0 ? ` (${formatCount(rateSchedulePages)} pages)` : ''}${pricingApplicability ? `; ${pricingApplicability}` : ''}`
+              ? (
+                approvalContextReady
+                  ? 'Rate schedule present. Pricing basis confirmed for current invoice review.'
+                  : 'Rate schedule present. Activation or eligibility language may require operator review.'
+              )
               : 'Missing',
           source_label:
             rateSchedulePresentFromContract === true || rateSchedulePresent === false
@@ -3008,14 +3260,26 @@ function resolveContractTruthRows(params: {
   if (expirationDate) {
     const expirationTimestamp = new Date(expirationDate).getTime();
     const expired = Number.isFinite(expirationTimestamp) && expirationTimestamp < Date.now();
+    const invoicePeriodEndTimestamp = invoicePeriodTimestamps.end;
+    const expiredAfterInvoicePeriod =
+      expired
+      && invoicePeriodEndTimestamp != null
+      && invoicePeriodEndTimestamp <= expirationTimestamp;
     rows.push(
       truthRow({
         key: 'expiration_status',
         label: 'Expiration Status',
-        value: expired ? `Expired ${formatDate(expirationDate)}` : `Active through ${formatDate(expirationDate)}`,
+        value:
+          expiredAfterInvoicePeriod
+            ? `Expired ${formatDate(expirationDate)} after current invoice period.`
+            : expired
+              ? `Expired ${formatDate(expirationDate)}`
+              : `Active through ${formatDate(expirationDate)}`,
         source_label: contractSourceLabel(expirationDateField, contractDocument),
         state:
-          expired
+          expiredAfterInvoicePeriod
+            ? 'derived'
+            : expired
             ? 'requires_review'
             : truthStateFromContractField(expirationDateField),
       }),
@@ -3081,6 +3345,7 @@ function resolveInvoiceTruthRows(params: {
   const fallbackBilledAmount = aggregateInvoiceDocumentBilledAmount({
     documents: representativeInvoiceDocuments,
   });
+  const aggregateSupportCoverage = aggregateInvoiceApprovalSupportCoverage(snapshot.invoice_summaries);
   const aggregateBilledAmount =
     snapshot.facts.total_billed
     ?? documentFallback.total_billed
@@ -3183,7 +3448,15 @@ function resolveInvoiceTruthRows(params: {
   const projectLinkedSupportCount = supportAttachmentContext.linked_project_support_documents.length;
 
   const rows: CanonicalProjectTruthRow[] = [
-    activeInvoice
+    snapshot.invoice_summaries.length > 1
+      ? truthRow({
+          key: 'active_invoice',
+          label: 'Invoice Approval Context',
+          value: formatInvoiceApprovalContextValue(snapshot.invoice_summaries),
+          source_label: 'Validator-backed project facts',
+          state: invoiceApprovalContextState(snapshot.invoice_summaries),
+        })
+    : activeInvoice
       ? truthRow({
           key: 'active_invoice',
           label: 'Active Invoice',
@@ -3260,7 +3533,21 @@ function resolveInvoiceTruthRows(params: {
 
   if (activeInvoice) {
     const billedAmount = billedAmountValue;
-    const supportedAmount = activeInvoice.supported_amount ?? null;
+    const supportedAmount =
+      aggregateSupportCoverage.supported_amount
+      ?? activeInvoice.supported_amount
+      ?? null;
+    const atRiskAmount = aggregateSupportCoverage.at_risk_amount ?? activeInvoice.at_risk_amount ?? null;
+    const requiresVerificationAmount =
+      aggregateSupportCoverage.requires_verification_amount
+      ?? activeInvoice.requires_verification_amount
+      ?? null;
+    const isCompleteCoverage =
+      supportedAmount != null
+      && billedAmount != null
+      && supportedAmount >= billedAmount
+      && (atRiskAmount == null || atRiskAmount <= 0)
+      && (requiresVerificationAmount == null || requiresVerificationAmount <= 0);
     rows.push(
       supportedAmount == null || billedAmount == null
         ? invoiceLinkedSupportCount > 0
@@ -3281,14 +3568,14 @@ function resolveInvoiceTruthRows(params: {
             value:
               supportedAmount <= 0
                 ? 'Missing'
-                : supportedAmount >= billedAmount
-                  ? 'Present'
+                : isCompleteCoverage
+                  ? `Complete (${formatCurrency(supportedAmount)} of ${formatCurrency(billedAmount)} supported)`
                   : `Partial (${formatCurrency(supportedAmount)} of ${formatCurrency(billedAmount)} supported)`,
             source_label: 'Validator-backed project facts',
             state:
               supportedAmount <= 0
                 ? 'requires_review'
-                : supportedAmount >= billedAmount
+                : isCompleteCoverage
                   ? billedAmountState === 'resolved' ? 'resolved' : 'derived'
                   : 'requires_review',
           }),
@@ -3487,6 +3774,7 @@ export function resolveCanonicalProjectTruthSections(params: {
       title: 'Contract Truth',
       rows: resolveContractTruthRows({
         facts,
+        snapshot,
         validationSummary: params.validationSummary,
         documents,
         documentRelationships: params.documentRelationships,
@@ -3644,6 +3932,10 @@ export function resolveCanonicalProjectOverviewBriefing(params: {
   const activeInvoice = findTruthRow(truthSections, 'invoice', 'active_invoice');
   const invoiceContext = findTruthRow(truthSections, 'invoice', 'invoice_context');
   const supportCoverage = findTruthRow(truthSections, 'invoice', 'support_coverage');
+  const cleanApprovedContext = isApprovedCleanApprovalContext({
+    facts,
+    invoices: snapshot.invoice_summaries,
+  });
 
   const criticalSignals: CanonicalProjectOverviewSignal[] = [];
 
@@ -3728,7 +4020,11 @@ export function resolveCanonicalProjectOverviewBriefing(params: {
   if (
     (governingContract && isUnsettledTruthState(governingContract.state))
     || (contractCeiling && isUnsettledTruthState(contractCeiling.state))
-    || (contractExpiration && isUnsettledTruthState(contractExpiration.state))
+    || (
+      contractExpiration
+      && isUnsettledTruthState(contractExpiration.state)
+      && !cleanApprovedContext
+    )
   ) {
     criticalSignals.push({
       key: 'contract_risk',

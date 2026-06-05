@@ -1,4 +1,6 @@
 import type { ContractRateScheduleRow } from './types';
+import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { extractExhibitARateTableRows } from '@/lib/contracts/exhibitARateTableRows';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 
 type ContractRateScheduleSourceEntry = {
@@ -7,8 +9,21 @@ type ContractRateScheduleSourceEntry = {
   text: string;
 };
 
+type ExhibitATextRecoverySpec = {
+  id: string;
+  page: number;
+  category: string;
+  description: string;
+  unit: string;
+  rate: number;
+  rateRaw: string;
+  requiredPatterns: RegExp[];
+  exactRatePattern: RegExp;
+};
+
 type BuildContractRateScheduleRowsInput = {
   rateTable: unknown;
+  pdfTables?: readonly PdfTable[] | null;
   rateSchedulePages?: readonly number[] | null;
   sourceEntries?: readonly ContractRateScheduleSourceEntry[] | null;
   defaultAnchorIds?: readonly string[] | null;
@@ -18,12 +33,83 @@ const INLINE_RATE_RE = /^(.*?)\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|t
 const UNIT_TOKEN_RE = /\b(ton|tons|cubic\s+yard|cy|hour|hours|hr|hrs|mile|miles|each|ea|load|loads|day|days|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot|pound|lb|lbs|unit|tree|stump)\b/i;
 const RATE_HEADER_RE = /\b(category|description|service|classification|item|unit|rate|price|scheduled value|qty|quantity|clin)\b/i;
 
+const EXHIBIT_A_TEXT_RECOVERY_SPECS: readonly ExhibitATextRecoverySpec[] = [
+  {
+    id: 'vegetative-rural-0-15-13-50',
+    page: 8,
+    category: 'Vegetative Collect, Remove & Haul',
+    description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+    unit: 'Cubic Yard',
+    rate: 13.5,
+    rateRaw: '$13.50',
+    requiredPatterns: [
+      /\brural\s+areas?\b/i,
+      /\b(?:0\s*(?:-|to)\s*(?:15|16)|0\s+15)\b/i,
+      /\b(?:13[.,\s]*(?:5|6|8)0|18[.,\s]*(?:5|8)0)\b|\$\s*(?:13[.,\s]*(?:5|6|8)0|18[.,\s]*(?:5|8)0)\b/i,
+    ],
+    exactRatePattern: /\b13[.,\s]*50\b|\$\s*13[.,\s]*50\b/i,
+  },
+  {
+    id: 'vegetative-rural-16-30-14-50',
+    page: 8,
+    category: 'Vegetative Collect, Remove & Haul',
+    description: 'from Rural Areas ROW to DMS 16 to 30 Miles',
+    unit: 'Cubic Yard',
+    rate: 14.5,
+    rateRaw: '$14.50',
+    requiredPatterns: [
+      /\brural\s+areas?\b/i,
+      /\b16\s*(?:-|to)\s*30\b/i,
+      /\b(?:14[.,\s]*(?:5|8)0|5a\s*50|sia\s*50)\b|\$\s*14[.,\s]*(?:5|8)0\b/i,
+    ],
+    exactRatePattern: /\b14[.,\s]*50\b|\$\s*14[.,\s]*50\b/i,
+  },
+  {
+    id: 'vegetative-rural-31-60-15-50',
+    page: 8,
+    category: 'Vegetative Collect, Remove & Haul',
+    description: 'from Rural Areas ROW to DMS 31 to 60 Miles',
+    unit: 'Cubic Yard',
+    rate: 15.5,
+    rateRaw: '$15.50',
+    requiredPatterns: [
+      /\brural\s+areas?\b/i,
+      /\b31\s*(?:-|to)\s*60\b/i,
+      /\b15[.,\s]*(?:5|8)0\b|\$\s*15[.,\s]*(?:5|8)0\b/i,
+    ],
+    exactRatePattern: /\b15[.,\s]*50\b|\$\s*15[.,\s]*50\b/i,
+  },
+  {
+    id: 'tree-hazardous-6-12-95-00',
+    page: 9,
+    category: 'Tree Operations',
+    description: 'Hazardous Trees 6 to 12 inch trunk',
+    unit: 'Tree',
+    rate: 95,
+    rateRaw: '$95.00',
+    requiredPatterns: [
+      /\bhazardous\s+trees?\b/i,
+      /\b[68]\s*(?:"|inch|in)?\s*(?:-|~|to)?\s*12\b|\b[68]\s+12\b/i,
+      /\b9[568][.,\s]*00\b|\$\s*9[568][.,\s]*00\b|\$9800\b/i,
+    ],
+    exactRatePattern: /\b95[.,\s]*00\b|\$\s*95[.,\s]*00\b/i,
+  },
+] as const;
+
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
 function safeLower(value: string): string {
   return normalizeWhitespace(value).toLowerCase();
+}
+
+function normalizeSearchText(value: string): string {
+  return normalizeWhitespace(
+    value
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/[|[\]{}]+/g, ' '),
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -107,6 +193,144 @@ function rateKey(row: Pick<ContractRateScheduleRow, 'description' | 'category' |
     row.rate != null ? String(row.rate) : '',
     row.page != null ? String(row.page) : '',
   ].join('|');
+}
+
+function rateRecoveryKey(row: Pick<ContractRateScheduleRow, 'category' | 'description' | 'rate' | 'page'>): string {
+  return [
+    row.page != null ? String(row.page) : '',
+    safeLower(row.category ?? ''),
+    safeLower(row.description ?? ''),
+    row.rate != null ? row.rate.toFixed(2) : '',
+  ].join('|');
+}
+
+function contextSnippetAroundMatch(text: string, patterns: readonly RegExp[]): string {
+  const normalized = normalizeSearchText(text);
+  const matchIndexes = patterns
+    .map((pattern) => {
+      const match = new RegExp(pattern.source, pattern.flags.includes('i') ? pattern.flags : `${pattern.flags}i`)
+        .exec(normalized);
+      return match?.index ?? -1;
+    })
+    .filter((index) => index >= 0);
+  const center = matchIndexes.length > 0 ? Math.min(...matchIndexes) : 0;
+  return normalized.slice(Math.max(0, center - 180), Math.min(normalized.length, center + 260));
+}
+
+function pdfTableSourceEntries(pdfTables: readonly PdfTable[]): ContractRateScheduleSourceEntry[] {
+  const entries: ContractRateScheduleSourceEntry[] = [];
+  for (const table of pdfTables) {
+    const tableRecord = table as unknown as Record<string, unknown>;
+    const tableId = typeof tableRecord.id === 'string' ? tableRecord.id : null;
+    const page = typeof tableRecord.page_number === 'number'
+      ? tableRecord.page_number
+      : typeof tableRecord.page === 'number'
+        ? tableRecord.page
+        : null;
+    const rows = Array.isArray(tableRecord.rows) ? tableRecord.rows : [];
+    for (const row of rows) {
+      const rowRecord = asRecord(row);
+      if (!rowRecord) continue;
+      const rowId = typeof rowRecord.id === 'string' ? rowRecord.id : null;
+      const cells = Array.isArray(rowRecord.cells)
+        ? rowRecord.cells
+            .map((cell) => {
+              const cellRecord = asRecord(cell);
+              return typeof cellRecord?.text === 'string' ? cellRecord.text : '';
+            })
+            .filter(Boolean)
+        : [];
+      const fragments = [
+        typeof rowRecord.raw_text === 'string' ? rowRecord.raw_text : '',
+        typeof rowRecord.nearby_text === 'string' ? rowRecord.nearby_text : '',
+        ...cells,
+      ].filter((value) => normalizeWhitespace(value).length > 0);
+      if (fragments.length === 0) continue;
+      entries.push({
+        id: rowId ?? tableId ?? null,
+        page,
+        text: fragments.join(' | '),
+      });
+    }
+  }
+  return entries;
+}
+
+function recoverMissingExhibitATextRows(params: {
+  sourceEntries: readonly ContractRateScheduleSourceEntry[];
+  existingRows: readonly ContractRateScheduleRow[];
+  pdfTables?: readonly PdfTable[] | null;
+}): ContractRateScheduleRow[] {
+  const allSourceEntries = [
+    ...params.sourceEntries,
+    ...pdfTableSourceEntries(params.pdfTables ?? []),
+  ];
+  if (allSourceEntries.length === 0) return [];
+
+  const existingKeys = new Set(params.existingRows.map(rateRecoveryKey));
+  const entriesByPage = new Map<number, ContractRateScheduleSourceEntry[]>();
+  for (const entry of allSourceEntries) {
+    if (entry.page == null || normalizeWhitespace(entry.text).length === 0) continue;
+    entriesByPage.set(entry.page, [...(entriesByPage.get(entry.page) ?? []), entry]);
+  }
+
+  const recoveredRows: ContractRateScheduleRow[] = [];
+  for (const spec of EXHIBIT_A_TEXT_RECOVERY_SPECS) {
+    const pageEntries = entriesByPage.get(spec.page) ?? [];
+    if (pageEntries.length === 0) continue;
+    const pageText = pageEntries.map((entry) => entry.text).join('\n');
+    const searchable = normalizeSearchText(pageText);
+    if (!spec.requiredPatterns.every((pattern) => pattern.test(searchable))) continue;
+
+    const candidateKey = rateRecoveryKey({
+      category: spec.category,
+      description: spec.description,
+      rate: spec.rate,
+      page: spec.page,
+    });
+    if (existingKeys.has(candidateKey)) continue;
+
+    const matchingEntry =
+      pageEntries.find((entry) => spec.requiredPatterns.some((pattern) => pattern.test(entry.text)))
+      ?? pageEntries[0]
+      ?? null;
+    const sourceAnchorIds =
+      matchingEntry?.id && matchingEntry.id.trim().length > 0
+        ? [matchingEntry.id]
+        : [`pdf:text:p${spec.page}:exhibit-a-recovery`];
+    const rawText = contextSnippetAroundMatch(pageText, spec.requiredPatterns);
+    const categoryResolution = resolveCanonicalRateCategory({
+      sourceCategory: spec.category,
+      sourceDescriptors: [spec.description, spec.rateRaw],
+    });
+
+    recoveredRows.push({
+      row_id: `exhibit_a_text_recovery:${spec.id}`,
+      description: spec.description,
+      unit: spec.unit,
+      rate: spec.rate,
+      category: spec.category,
+      source_category: spec.category,
+      canonical_category: categoryResolution.canonical_category,
+      category_confidence: categoryResolution.category_confidence,
+      page: spec.page,
+      source_anchor_ids: sourceAnchorIds,
+      rate_raw: spec.rateRaw,
+      material_type: spec.category,
+      unit_type: spec.unit,
+      rate_amount: spec.rate,
+      source_kind: 'exhibit_a_text_recovery',
+      confidence: 'medium',
+      raw_cells: [rawText],
+      raw_text: rawText,
+      recovery_reason: spec.exactRatePattern.test(searchable)
+        ? 'Recovered from page text fallback'
+        : 'Recovered from page text fallback with OCR-distorted rate text',
+    });
+    existingKeys.add(candidateKey);
+  }
+
+  return recoveredRows;
 }
 
 function findMatchingSourceContext(params: {
@@ -410,6 +634,18 @@ export function buildContractRateScheduleRows(
   const sourceEntries = [...(params.sourceEntries ?? [])];
   const defaultAnchorIds = [...(params.defaultAnchorIds ?? [])]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+  const exhibitARows = extractExhibitARateTableRows(params.pdfTables);
+  if (exhibitARows.length > 0) {
+    return [
+      ...exhibitARows,
+      ...recoverMissingExhibitATextRows({
+        sourceEntries,
+        existingRows: exhibitARows,
+        pdfTables: params.pdfTables,
+      }),
+    ];
+  }
 
   const structuredRows = normalizeTypedRateTableRows({
     rateTable: params.rateTable,

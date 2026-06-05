@@ -5,6 +5,7 @@
 import type { GuardedEvidenceItem } from '@/lib/ask/canonicalReadGuard';
 import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
 import type { UpstreamGap } from '@/lib/ask/upstreamGapDetector';
+import type { ProjectExecutionSummary } from '@/lib/execution/executionSummary';
 
 export type { GuardedEvidenceItem, PortfolioHandoffContext, UpstreamGap };
 
@@ -307,6 +308,7 @@ export interface RetrievalResult {
     totalDocumentCount?: number;
     processedDocumentCount?: number;
     openDecisionCount?: number;
+    executionSummary?: ProjectExecutionSummary | null;
     reasoningFacts?: StructuredFact[];
     reasoningCase?: 'ceiling_vs_billed' | 'contractor_mismatch';
   };

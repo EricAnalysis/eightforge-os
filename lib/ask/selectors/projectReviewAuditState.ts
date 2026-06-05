@@ -48,23 +48,100 @@ function upstreamGapAnswer(params: ProjectSelectorParams, message: string): Sele
 
 export function selectProjectReviewAuditState(params: ProjectSelectorParams): SelectorAnswer {
   const text = params.question.originalQuestion.toLowerCase();
-  if (text.includes('marked reviewed')) {
-    return upstreamGapAnswer(
-      params,
-      'This cannot be answered from current canonical system truth. Missing upstream field: Audit/Validator reviewed_documents_with_warnings[] with warning_count and review_event_source.',
-    );
-  }
-  if (text.includes('inspect first')) {
-    return upstreamGapAnswer(
-      params,
-      'This cannot be answered from current canonical system truth. Missing upstream field: Validator/Execution first_document_to_inspect with risk_reason and priority_source.',
-    );
-  }
-
   const snapshot = resolveCanonicalProjectValidationSnapshot({
     validationStatus: params.project.validationStatus,
     validationSummary: params.project.validationSummary,
   });
+  const validationState = validationStateFromCanonicalStatus(snapshot.facts.status);
+
+  if (text.includes('marked reviewed')) {
+    const reviewedDocuments = snapshot.facts.reviewed_documents_with_warnings;
+    if (reviewedDocuments[0] == null) {
+      return upstreamGapAnswer(
+        params,
+        'This cannot be answered from current canonical system truth. Missing upstream field: Audit/Validator reviewed_documents_with_warnings[] with warning_count and review_event_source.',
+      );
+    }
+
+    const sources = reviewedDocuments.map((document) => ({
+      type: 'validator' as const,
+      label: `Reviewed document warning ${document.document_id}`,
+      snippet: `Document ${document.document_id}; warning count ${document.warning_count}; review event source ${document.review_event_source}`,
+      confidence: 96,
+      timestamp: new Date(0).toISOString(),
+      documentId: document.document_id,
+      factId: document.review_event_source,
+    }));
+    const answer = reviewedDocuments
+      .map((document) =>
+        `Document ${document.document_id} is marked reviewed but still has warning count ${document.warning_count}; review event source ${document.review_event_source}.`,
+      )
+      .join(' ');
+    return {
+      value: `Reviewed documents with warnings: ${answer}`,
+      sourceLayer: 'validation_snapshot',
+      sourceId: sourceId(sources[0]),
+      isFallback: false,
+      isStale: false,
+      confidence: 'verified',
+      evidence: sources.map((source) => ({
+        label: source.label,
+        value: source.snippet ?? source.label,
+        sourceId: sourceId(source),
+      })),
+      sources,
+      validationState,
+      gateImpact: 'Affects document review, audit traceability, warning disposition, and operator inspection priority.',
+      nextAction: 'Open Evidence',
+      findings: [],
+      documents: [],
+    };
+  }
+  if (text.includes('inspect first')) {
+    const firstDocument = snapshot.facts.first_document_to_inspect;
+    if (firstDocument == null) {
+      return upstreamGapAnswer(
+        params,
+        'This cannot be answered from current canonical system truth. Missing upstream field: Validator/Execution first_document_to_inspect with risk_reason and priority_source.',
+      );
+    }
+
+    const source = {
+      type: 'validator' as const,
+      label: `First document to inspect ${firstDocument.document_id}`,
+      snippet:
+        `Document ${firstDocument.document_id}; risk reason ${firstDocument.risk_reason}; ` +
+        `linked action ${firstDocument.linked_action_id ?? 'none'}; priority source ${firstDocument.priority_source}`,
+      confidence: 96,
+      timestamp: new Date(0).toISOString(),
+      documentId: firstDocument.document_id,
+      factId: firstDocument.priority_source,
+    };
+    return {
+      value:
+        `First document to inspect: document ${firstDocument.document_id}. ` +
+        `Risk reason: ${firstDocument.risk_reason}. ` +
+        `Linked blocker/warning/action: ${firstDocument.linked_action_id ?? 'none'}. ` +
+        `Priority source: ${firstDocument.priority_source}.`,
+      sourceLayer: 'validation_snapshot',
+      sourceId: sourceId(source),
+      isFallback: false,
+      isStale: false,
+      confidence: 'verified',
+      evidence: [{
+        label: source.label,
+        value: source.snippet,
+        sourceId: sourceId(source),
+      }],
+      sources: [source],
+      validationState,
+      gateImpact: 'Affects document review, audit traceability, warning disposition, and operator inspection priority.',
+      nextAction: 'Open Evidence',
+      findings: [],
+      documents: [],
+    };
+  }
+
   const findings = params.retrieval.validatorFindings;
   const documents = params.retrieval.documents;
   const facts = params.retrieval.facts;
@@ -109,7 +186,7 @@ export function selectProjectReviewAuditState(params: ProjectSelectorParams): Se
       sourceId: sourceId(source),
     })),
     sources,
-    validationState: validationStateFromCanonicalStatus(snapshot.facts.status),
+    validationState,
     gateImpact: 'Affects document review, audit traceability, warning disposition, and operator inspection priority.',
     nextAction: text.includes('overridden') ? 'Override with Reason' : 'Open Evidence',
     findings,

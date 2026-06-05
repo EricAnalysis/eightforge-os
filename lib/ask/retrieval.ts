@@ -3,6 +3,8 @@ import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnErr
 import { buildAskRelationships, detectReasoningCase, type AskReasoningCase } from '@/lib/ask/reasoning';
 import { buildValidatorContext } from '@/lib/ask/validatorIntegration';
 import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
+import { buildProjectExecutionSummary } from '@/lib/execution/executionSummary';
+import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   AskDocument,
   AskProjectRecord,
@@ -1131,6 +1133,25 @@ async function loadDecisions(params: {
     .slice(0, 8);
 }
 
+async function loadProjectExecutionSummary(params: {
+  admin: SupabaseClient;
+  projectId: string;
+  orgId: string;
+}) {
+  const result = await params.admin
+    .from('execution_items')
+    .select('*')
+    .eq('organization_id', params.orgId)
+    .eq('project_id', params.projectId)
+    .order('updated_at', { ascending: false });
+
+  if (result.error) {
+    throw new Error(`Failed to load project execution summary: ${result.error.message}`);
+  }
+
+  return buildProjectExecutionSummary((result.data ?? []) as ProjectExecutionItemRow[]);
+}
+
 export async function retrieveProjectTruth(params: {
   admin: SupabaseClient;
   question: ClassifiedQuestion;
@@ -1151,9 +1172,16 @@ export async function retrieveProjectTruth(params: {
       totalDocumentCount: 0,
       processedDocumentCount: 0,
       openDecisionCount: 0,
+      executionSummary: null,
       reasoningCase: reasoningCase ?? undefined,
     },
   };
+
+  result.rawData.executionSummary = await loadProjectExecutionSummary({
+    admin: params.admin,
+    projectId: params.projectId,
+    orgId: params.orgId,
+  });
 
   const factResult = await loadStructuredFacts({
     admin: params.admin,

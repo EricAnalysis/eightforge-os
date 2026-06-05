@@ -27,6 +27,7 @@ type DiagnosticQuery = {
   set: QuerySet;
   scope: QueryScope;
   text: string;
+  matrixId?: string;
 };
 
 type PreconditionResult = {
@@ -43,6 +44,7 @@ type PreconditionResult = {
 
 type DiagnosticRecord = {
   queryId: number;
+  matrixId: string | null;
   set: QuerySet;
   scope: QueryScope;
   query: string;
@@ -68,6 +70,7 @@ type DiagnosticRecord = {
 type ConfirmedGap = {
   gapId: number;
   queries: number[];
+  matrixIds: string[];
   gapType:
     | 'canonical_field_absent'
     | 'validation_snapshot_missing'
@@ -91,29 +94,169 @@ type ConfirmedGap = {
 };
 
 const QUERIES: DiagnosticQuery[] = [
+  // CM-001
   { id: 1, set: 'A', scope: 'project', text: 'Is this project ready for invoice approval?' },
   { id: 2, set: 'A', scope: 'project', text: 'Which invoice amounts are fully supported?' },
+  // CM-002
   { id: 3, set: 'A', scope: 'project', text: 'What is blocking approval?' },
-  { id: 4, set: 'A', scope: 'project', text: 'Where did the $815,559.35 total come from?' },
+  // CM-008
+  { id: 4, set: 'A', scope: 'project', matrixId: 'CM-008', text: 'Where did the $815,559.35 total come from?' },
   { id: 5, set: 'A', scope: 'project', text: 'Show me unsupported ticket costs.' },
   { id: 6, set: 'A', scope: 'project', text: 'What is at risk in this project?' },
+  // CM-042
   { id: 7, set: 'A', scope: 'project', text: 'What changed since the last review?' },
+  // CM-018
   { id: 8, set: 'B', scope: 'project', text: 'Which contract is governing?' },
+  // CM-023
   { id: 9, set: 'B', scope: 'project', text: 'Are tipping fees billable under this contract?' },
   { id: 10, set: 'B', scope: 'project', text: 'Is this FEMA reimbursable work?' },
+  // CM-030
   { id: 11, set: 'B', scope: 'project', text: 'What federal compliance requirements apply?' },
+  // CM-031
   { id: 12, set: 'B', scope: 'project', text: 'Can the contractor work on private property?' },
   { id: 13, set: 'B', scope: 'project', text: 'Is a performance bond required?' },
+  // CM-033
   { id: 14, set: 'B', scope: 'project', text: 'What happens if FEMA funding is denied?' },
+  // CM-029
   { id: 15, set: 'C', scope: 'project', text: 'Is monitoring required?' },
+  // CM-028
   { id: 16, set: 'C', scope: 'project', text: 'What documentation is required for payment?' },
+  // CM-049
   { id: 17, set: 'D', scope: 'portfolio', text: 'Which projects are blocked right now?' },
-  { id: 18, set: 'D', scope: 'portfolio', text: 'What is the total at-risk amount across all projects?' },
-  { id: 19, set: 'D', scope: 'portfolio', text: 'Which projects need review first?' },
-  { id: 20, set: 'D', scope: 'portfolio', text: 'What issues are happening most across projects?' },
+  // CM-050
+  { id: 18, set: 'D', scope: 'portfolio', matrixId: 'CM-050', text: 'What is the total at-risk amount across all projects?' },
+  // CM-051
+  { id: 19, set: 'D', scope: 'portfolio', matrixId: 'CM-051', text: 'Which projects need review first?' },
+  // CM-052
+  { id: 20, set: 'D', scope: 'portfolio', matrixId: 'CM-052', text: 'What issues are happening most across projects?' },
+  // CM-053
   { id: 21, set: 'D', scope: 'portfolio', text: 'Which projects are ready for approval?' },
+  // CM-056
   { id: 22, set: 'D', scope: 'portfolio', text: 'Are any projects approaching contract ceiling?' },
+  // CM-001
+  { id: 23, set: 'A', scope: 'project', matrixId: 'CM-001', text: 'Is this project ready for invoice approval?' },
+  // CM-002
+  { id: 24, set: 'A', scope: 'project', matrixId: 'CM-002', text: 'What is preventing approval?' },
+  // CM-003
+  { id: 25, set: 'A', scope: 'project', matrixId: 'CM-003', text: 'What is the next best action for this project?' },
+  // CM-005
+  { id: 26, set: 'A', scope: 'project', matrixId: 'CM-005', text: 'Can this invoice move forward while open tickets are pending?' },
+  // CM-006
+  { id: 27, set: 'A', scope: 'project', matrixId: 'CM-006', text: 'Which invoice amounts are fully supported?' },
+  // CM-007
+  { id: 28, set: 'A', scope: 'project', matrixId: 'CM-007', text: 'Which invoice amounts are unsupported?' },
+  // CM-009
+  { id: 29, set: 'A', scope: 'project', matrixId: 'CM-009', text: 'What is the total invoice exposure?' },
+  // CM-010
+  { id: 30, set: 'A', scope: 'project', matrixId: 'CM-010', text: 'Can this invoice be approved with exceptions?' },
+  // CM-011
+  { id: 31, set: 'A', scope: 'project', matrixId: 'CM-011', text: 'Which tickets need correction?' },
+  // CM-013
+  { id: 32, set: 'A', scope: 'project', matrixId: 'CM-013', text: 'Which tickets have missing disposal site, material, CYD, tonnage, or mileage?' },
+  // CM-014
+  { id: 33, set: 'A', scope: 'project', matrixId: 'CM-014', text: 'Which tickets have rate-code mismatches?' },
+  // CM-017
+  { id: 34, set: 'A', scope: 'project', matrixId: 'CM-017', text: 'Which tickets are unresolved by reviewer?' },
+  // CM-018
+  { id: 35, set: 'B', scope: 'project', matrixId: 'CM-018', text: 'Which contract is governing?' },
+  // CM-019
+  { id: 36, set: 'B', scope: 'project', matrixId: 'CM-019', text: 'Which amendment or exhibit controls the rate schedule?' },
+  // CM-020
+  { id: 37, set: 'B', scope: 'project', matrixId: 'CM-020', text: 'Did a newer document replace an older one?' },
+  // CM-021
+  { id: 38, set: 'B', scope: 'project', matrixId: 'CM-021', text: 'Are there conflicting facts across documents?' },
+  // CM-022
+  { id: 39, set: 'B', scope: 'project', matrixId: 'CM-022', text: 'Does this invoice use the correct contract rates?' },
+  // CM-023
+  { id: 40, set: 'B', scope: 'project', matrixId: 'CM-023', text: 'Are tipping fees billable under this contract?' },
+  // CM-025
+  { id: 41, set: 'B', scope: 'project', matrixId: 'CM-025', text: 'Are any invoice line items missing from the contract rate table?' },
+  // CM-026
+  { id: 42, set: 'B', scope: 'project', matrixId: 'CM-026', text: 'Is the project approaching contract ceiling?' },
+  // CM-028
+  { id: 43, set: 'B', scope: 'project', matrixId: 'CM-028', text: 'What documentation is required for payment?' },
+  // CM-029
+  { id: 44, set: 'B', scope: 'project', matrixId: 'CM-029', text: 'Is monitoring required?' },
+  // CM-030
+  { id: 45, set: 'B', scope: 'project', matrixId: 'CM-030', text: 'Are GPS, photos, load tickets, or daily reconciliation required?' },
+  // CM-031
+  { id: 46, set: 'B', scope: 'project', matrixId: 'CM-031', text: 'Can the contractor work on private property?' },
+  // CM-033
+  { id: 47, set: 'B', scope: 'project', matrixId: 'CM-033', text: 'Is there no-guaranteed-quantity or funding-contingency language?' },
+  // CM-034
+  { id: 48, set: 'B', scope: 'project', matrixId: 'CM-034', text: 'Which documents still need review?' },
+  // CM-035
+  { id: 49, set: 'B', scope: 'project', matrixId: 'CM-035', text: 'Are any documents marked reviewed but still producing warnings?' },
+  // CM-036
+  { id: 50, set: 'B', scope: 'project', matrixId: 'CM-036', text: 'Which facts were manually confirmed?' },
+  // CM-037
+  { id: 51, set: 'B', scope: 'project', matrixId: 'CM-037', text: 'Which facts were overridden by a human?' },
+  // CM-038
+  { id: 52, set: 'B', scope: 'project', matrixId: 'CM-038', text: 'Which document should the operator inspect first?' },
+  // CM-039
+  { id: 53, set: 'C', scope: 'project', matrixId: 'CM-039', text: 'What execution items are still open?' },
+  // CM-040
+  { id: 54, set: 'C', scope: 'project', matrixId: 'CM-040', text: 'Which findings require action before approval?' },
+  // CM-041
+  { id: 55, set: 'C', scope: 'project', matrixId: 'CM-041', text: 'Which findings were overridden, and why?' },
+  // CM-042
+  { id: 56, set: 'C', scope: 'project', matrixId: 'CM-042', text: 'What changed since the last review?' },
+  // CM-043
+  { id: 57, set: 'C', scope: 'project', matrixId: 'CM-043', text: 'Which actions are blocking payment release?' },
+  // CM-053
+  { id: 58, set: 'D', scope: 'portfolio', matrixId: 'CM-053', text: 'Which projects are ready for approval?' },
+  // CM-054
+  { id: 59, set: 'D', scope: 'portfolio', matrixId: 'CM-054', text: 'Which projects have stale validation snapshots?' },
+  // CM-049
+  { id: 60, set: 'D', scope: 'portfolio', matrixId: 'CM-049', text: 'Which projects are blocked right now?' },
 ];
+const PHASE_3_BASELINE_QUERY_COUNT = 22;
+const ASK_EXPANSION_PROBE_COUNT = QUERIES.length - PHASE_3_BASELINE_QUERY_COUNT;
+
+const MATRIX_PROBE_CONTRACTS: Record<string, { concept: RegExp[]; evidenceRequirement: RegExp[] }> = {
+  'CM-001': { concept: [/readiness|ready/i, /approval/i], evidenceRequirement: [/readiness|ready/i, /blocker/i, /approval status|validator|source/i] },
+  'CM-002': { concept: [/prevent|blocker|blocking/i, /approval/i], evidenceRequirement: [/blocker|finding|execution item/i, /rule|gate impact|approval/i] },
+  'CM-003': { concept: [/next (best )?action/i], evidenceRequirement: [/action/i, /finding|execution item|source/i, /priority|because|reason/i] },
+  'CM-005': { concept: [/open ticket|pending ticket/i, /move forward|approval/i], evidenceRequirement: [/invoice/i, /ticket/i, /approval gate|gate basis|pending/i] },
+  'CM-006': { concept: [/fully supported|supported amount/i, /invoice/i], evidenceRequirement: [/invoice/i, /supported amount|fully supported/i, /support source|source/i] },
+  'CM-007': { concept: [/unsupported/i, /invoice/i], evidenceRequirement: [/invoice/i, /unsupported amount|unsupported/i, /missing support|mismatch|basis/i] },
+  'CM-008': { concept: [/total.*come from|rollup|lineage/i], evidenceRequirement: [/rollup/i, /invoice/i, /contribution/i] },
+  'CM-009': { concept: [/invoice exposure|total exposure/i], evidenceRequirement: [/total exposure|at risk/i, /supported/i, /unsupported|validator|source/i] },
+  'CM-010': { concept: [/exception/i, /approve|approval/i], evidenceRequirement: [/invoice/i, /exception/i, /condition|required/i] },
+  'CM-011': { concept: [/ticket/i, /correction|correct/i], evidenceRequirement: [/ticket/i, /correction|reason/i, /validator|evidence/i] },
+  'CM-013': { concept: [/ticket/i, /disposal site|material|cyd|tonnage|mileage/i], evidenceRequirement: [/ticket/i, /disposal site|material|cyd|tonnage|mileage/i, /source|evidence/i] },
+  'CM-014': { concept: [/ticket/i, /rate[- ]?code|rate code mismatch/i], evidenceRequirement: [/ticket/i, /rate[- ]?code/i, /expected|contract|evidence/i] },
+  'CM-017': { concept: [/ticket/i, /reviewer|unresolved/i], evidenceRequirement: [/ticket/i, /reviewer|review status/i, /finding|action|open/i] },
+  'CM-018': { concept: [/governing contract/i], evidenceRequirement: [/governing contract/i, /precedence|effective/i, /source|document/i] },
+  'CM-019': { concept: [/amendment|exhibit/i, /rate schedule/i], evidenceRequirement: [/amendment|exhibit/i, /relationship|basis/i, /rate schedule/i] },
+  'CM-020': { concept: [/newer|replace|replaced/i, /older|document/i], evidenceRequirement: [/replacing|newer|replacement/i, /replaced|older/i, /effective date|relationship|source/i] },
+  'CM-021': { concept: [/conflict|conflicting/i, /document|fact/i], evidenceRequirement: [/conflict|conflicting/i, /document/i, /canonical winner|current canonical|source/i] },
+  'CM-022': { concept: [/correct contract rates|contract rate/i, /invoice/i], evidenceRequirement: [/invoice line/i, /expected rate|contract rate/i, /actual rate|source/i] },
+  'CM-023': { concept: [/tipping fee/i, /billable|contract/i], evidenceRequirement: [/governing contract|contract/i, /fee clause|rate row|source/i, /billable|eligible/i] },
+  'CM-025': { concept: [/invoice line/i, /missing.*contract rate|rate table/i], evidenceRequirement: [/invoice line/i, /category|line item/i, /missing.*rate table|contract rate/i] },
+  'CM-026': { concept: [/contract ceiling|nte/i, /approaching|remaining|over/i], evidenceRequirement: [/nte|ceiling/i, /billed total|billed/i, /remaining|overage|source/i] },
+  'CM-028': { concept: [/documentation required|required document/i, /payment/i], evidenceRequirement: [/required document|document type/i, /governing|source/i, /missing|received|status/i] },
+  'CM-029': { concept: [/monitoring/i, /required/i], evidenceRequirement: [/monitoring/i, /clause|fact/i, /document|source/i] },
+  'CM-030': { concept: [/gps|photos|load tickets|daily reconciliation/i, /required/i], evidenceRequirement: [/gps|photos|load tickets|daily reconciliation/i, /source clause|clause|source/i, /received|missing|status/i] },
+  'CM-031': { concept: [/private property/i, /contractor|authority|allowed/i], evidenceRequirement: [/private property/i, /permission|limit|authority/i, /source|clause/i] },
+  'CM-033': { concept: [/no guaranteed quantity|funding contingency/i], evidenceRequirement: [/no guaranteed quantity|funding contingency/i, /document|contract/i, /contingency|clause/i] },
+  'CM-034': { concept: [/document/i, /need.*review|still.*review/i], evidenceRequirement: [/document/i, /review status/i, /reason|open/i] },
+  'CM-035': { concept: [/reviewed/i, /warning/i], evidenceRequirement: [/document/i, /warning/i, /review event|source|reviewed/i] },
+  'CM-036': { concept: [/manually confirmed/i, /fact/i], evidenceRequirement: [/fact/i, /confirmed value|value/i, /reviewer|review timestamp|source/i] },
+  'CM-037': { concept: [/overridden|override/i, /human|fact/i], evidenceRequirement: [/fact/i, /override value|overridden/i, /actor|reason|source/i] },
+  'CM-038': { concept: [/inspect first|first.*inspect/i, /document/i], evidenceRequirement: [/document/i, /risk reason|reason/i, /blocker|warning|action/i] },
+  'CM-039': { concept: [/execution item/i, /open/i], evidenceRequirement: [/execution item/i, /status/i, /required action|blocker/i] },
+  'CM-040': { concept: [/finding/i, /action before approval|before approval/i], evidenceRequirement: [/finding/i, /required action/i, /approval gate|gate effect/i] },
+  'CM-041': { concept: [/finding/i, /overridden|why/i], evidenceRequirement: [/finding/i, /override reason|why/i, /actor|timestamp|source/i] },
+  'CM-042': { concept: [/changed|change/i, /last review/i], evidenceRequirement: [/changed|change/i, /before|after/i, /review baseline|last review/i] },
+  'CM-043': { concept: [/action/i, /blocking payment|payment release/i], evidenceRequirement: [/action/i, /blocker|blocking/i, /payment gate|payment release/i] },
+  'CM-049': { concept: [/blocked/i, /project/i], evidenceRequirement: [/blocked project|project/i, /blocker count|blockers/i, /at risk|aggregate/i] },
+  'CM-050': { concept: [/total at[- ]risk|at risk amount/i], evidenceRequirement: [/total at[- ]risk|at risk amount/i, /project|per-project/i, /aggregate|source/i] },
+  'CM-051': { concept: [/review first|rank/i, /project/i], evidenceRequirement: [/project/i, /rank|first/i, /reason|aggregate|deterministic/i] },
+  'CM-052': { concept: [/issue type|pattern/i], evidenceRequirement: [/issue type|pattern/i, /count/i, /percentage|aggregate|source/i] },
+  'CM-053': { concept: [/ready for approval|approval ready/i, /project/i], evidenceRequirement: [/project/i, /ready status|approval ready|ready for approval/i, /aggregate|source/i] },
+  'CM-054': { concept: [/stale/i, /validation snapshot|project/i], evidenceRequirement: [/project/i, /stale/i, /validation timestamp|stale label|source/i] },
+};
 
 const ALLOWED_VALIDATION_STATES = new Set<ValidationStateLabel>([
   'Confirmed',
@@ -212,6 +355,68 @@ function answerHasMaterialClaim(answer: string): boolean {
   return /(\$[\d,]+(?:\.\d+)?|\b20\d{2}-\d{3}\b|\binvoice\b|\bcontract\b|\bFEMA\b|\bapproval\b)/i.test(answer);
 }
 
+function matrixProbeText(params: {
+  answer: string;
+  sourceNamed: string;
+  evidenceSources: string[];
+  extraText?: string[];
+}): string {
+  return [
+    params.answer,
+    params.sourceNamed,
+    ...params.evidenceSources,
+    ...(params.extraText ?? []),
+  ].join('\n');
+}
+
+function isGenericMatrixNonAnswer(text: string): boolean {
+  return /\b(can't answer|cannot be answered|could not find|no matching structured fact|not found|no .* found|unavailable)\b/i.test(text);
+}
+
+function matrixProbeSpecific(params: {
+  query: DiagnosticQuery;
+  answer: string;
+  sourceNamed: string;
+  evidenceSources: string[];
+  extraText?: string[];
+}): boolean {
+  if (!params.query.matrixId) return true;
+  const contract = MATRIX_PROBE_CONTRACTS[params.query.matrixId];
+  if (!contract) return true;
+
+  const text = matrixProbeText(params);
+  return !isGenericMatrixNonAnswer(text) && contract.concept.every((pattern) => pattern.test(text));
+}
+
+function matrixProbeSourced(params: {
+  query: DiagnosticQuery;
+  confidenceState: string | null;
+  sourceNamed: string;
+  evidenceSources: string[];
+  upstreamGap: UpstreamGap | null;
+  portfolioGap: boolean;
+}): boolean {
+  if (!params.query.matrixId) return true;
+  const hasNamedSource = params.sourceNamed !== 'none' || params.evidenceSources.length > 0;
+  const confidentEnough = params.confidenceState === 'Verified' || params.confidenceState === 'Partial' || params.confidenceState === 'available';
+  return (confidentEnough && hasNamedSource) || params.upstreamGap != null || params.portfolioGap;
+}
+
+function matrixProbeEvidenceAdequate(params: {
+  query: DiagnosticQuery;
+  answer: string;
+  sourceNamed: string;
+  evidenceSources: string[];
+  extraText?: string[];
+}): boolean {
+  if (!params.query.matrixId) return true;
+  const contract = MATRIX_PROBE_CONTRACTS[params.query.matrixId];
+  if (!contract) return true;
+
+  const text = matrixProbeText(params);
+  return !isGenericMatrixNonAnswer(text) && contract.evidenceRequirement.every((pattern) => pattern.test(text));
+}
+
 function likelyInferencePresentedAsFact(record: Pick<DiagnosticRecord, 'answerReturned' | 'confidenceState'>): boolean {
   return (
     record.confidenceState === 'Verified' &&
@@ -233,6 +438,13 @@ function projectDiagnosticRecord(query: DiagnosticQuery, response: AskResponse):
   const sourceNamed = sourceNames.length > 0 ? sourceNames.join(', ') : 'none';
   const validationState = normalizeProjectValidationState(response);
   const fallbackUsed = hasRawExtractionFallback(response);
+  const matrixExtraText = [
+    response.sections?.validationState,
+    response.sections?.gateImpact,
+    response.sections?.nextAction,
+    ...evidence.map((item) => `${item.label} ${item.value} ${item.sourceDocumentName ?? ''}`),
+    ...(response.sections?.validatorFindings.map((finding) => `${finding.label} ${finding.gateImpact} ${finding.nextAction}`) ?? []),
+  ].filter((value): value is string => Boolean(value));
   const criteria = {
     answerNonEmptyNonError: response.answer.trim().length > 0 && !/^error:/i.test(response.answer.trim()),
     confidenceStateNonNull: response.sections?.confidenceState != null,
@@ -249,10 +461,33 @@ function projectDiagnosticRecord(query: DiagnosticQuery, response: AskResponse):
     noInferenceAsFact: true,
     portfolioDidNotTraverseRawDocuments: true,
     portfolioRankingDeterministic: true,
+    matrixSpecific: matrixProbeSpecific({
+      query,
+      answer: response.answer,
+      sourceNamed,
+      evidenceSources,
+      extraText: matrixExtraText,
+    }),
+    matrixSourced: matrixProbeSourced({
+      query,
+      confidenceState: response.sections?.confidenceState ?? null,
+      sourceNamed,
+      evidenceSources,
+      upstreamGap,
+      portfolioGap: false,
+    }),
+    matrixEvidenceAdequate: matrixProbeEvidenceAdequate({
+      query,
+      answer: response.answer,
+      sourceNamed,
+      evidenceSources,
+      extraText: matrixExtraText,
+    }),
   };
 
   const record: DiagnosticRecord = {
     queryId: query.id,
+    matrixId: query.matrixId ?? null,
     set: query.set,
     scope: query.scope,
     query: query.text,
@@ -288,6 +523,21 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
   const validationState = response.portfolioSignalState ?? response.validationState ?? null;
   const nextAction = response.nextActions?.[0]?.label ?? 'No action required';
   const hasStaleProject = response.portfolioSections?.projectsAffected.some((project) => project.isStale) ?? false;
+  const sourceNamed = response.sources?.join(', ') || 'none';
+  const portfolioGap = !response.dataFound;
+  const matrixExtraText = [
+    response.portfolioSignalState,
+    response.gateImpact,
+    response.pattern,
+    response.recommendedAction,
+    response.portfolioSections?.portfolioSignal,
+    response.portfolioSections?.patternDetected.label,
+    response.portfolioSections?.recommendedAction.label,
+    ...(response.portfolioSections?.projectsAffected.map((project) =>
+      `${project.projectName} ${project.readinessState} ${project.validationState} blockers ${project.blockerCount} warnings ${project.warningCount} at risk ${project.atRiskAmount} staleness ${project.stalenessLabel} ${project.signalReason}`,
+    ) ?? []),
+    ...(response.checkedSources ?? []),
+  ].filter((value): value is string => Boolean(value));
   const criteria = {
     answerNonEmptyNonError: answer.trim().length > 0 && !/^error:/i.test(answer.trim()),
     confidenceStateNonNull: response.availability != null,
@@ -303,17 +553,40 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
     noInferenceAsFact: true,
     portfolioDidNotTraverseRawDocuments: !rawTraversal,
     portfolioRankingDeterministic: stablePortfolioOrder(response),
+    matrixSpecific: matrixProbeSpecific({
+      query,
+      answer,
+      sourceNamed,
+      evidenceSources,
+      extraText: matrixExtraText,
+    }),
+    matrixSourced: matrixProbeSourced({
+      query,
+      confidenceState: response.availability ?? null,
+      sourceNamed,
+      evidenceSources,
+      upstreamGap: null,
+      portfolioGap,
+    }),
+    matrixEvidenceAdequate: matrixProbeEvidenceAdequate({
+      query,
+      answer,
+      sourceNamed,
+      evidenceSources,
+      extraText: matrixExtraText,
+    }),
   };
 
   const record: DiagnosticRecord = {
     queryId: query.id,
+    matrixId: query.matrixId ?? null,
     set: query.set,
     scope: query.scope,
     query: query.text,
     answerReturned: answer,
     confidenceState: response.availability ?? null,
     canonicalLayerUsed: response.checkedSources?.join(', ') ?? 'none',
-    sourceNamed: response.sources?.join(', ') || 'none',
+    sourceNamed,
     validationState,
     gateImpact: response.gateImpact ?? 'No gate impact',
     nextAction,
@@ -334,6 +607,8 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
 }
 
 function gapTypeForFailure(key: string, record: DiagnosticRecord): ConfirmedGap['gapType'] {
+  if (key.includes('matrixSourced') || key.includes('matrixEvidenceAdequate')) return 'evidence_anchor_missing';
+  if (key.includes('matrixSpecific')) return 'canonical_field_absent';
   if (record.scope === 'portfolio') return 'portfolio_summary_absent';
   if (key.includes('validation')) return 'validation_snapshot_missing';
   if (key.includes('source') || key.includes('evidence')) return 'evidence_anchor_missing';
@@ -375,14 +650,26 @@ function buildConfirmedGaps(records: DiagnosticRecord[]): ConfirmedGap[] {
       if (passed) continue;
       const gapType = gapTypeForFailure(criteriaKey, record);
       const fieldOrSourceMissing =
-        record.upstreamGap !== 'no'
+        criteriaKey === 'matrixSpecific'
+          ? `${record.matrixId ?? 'matrix'}: response does not expose the matrix concept fields`
+        : criteriaKey === 'matrixSourced'
+          ? `${record.matrixId ?? 'matrix'}: response has neither a named source nor a surfaced upstream gap`
+        : criteriaKey === 'matrixEvidenceAdequate'
+          ? `${record.matrixId ?? 'matrix'}: response does not satisfy the matrix Evidence Requirement`
+        : record.upstreamGap !== 'no'
           ? record.upstreamGap
           : criteriaKey;
       const key = `${gapType}:${fieldOrSourceMissing}:${record.scope}`;
       const existing = byKey.get(key);
       const queryIds = existing ? Array.from(new Set([...existing.queries, record.queryId])) : [record.queryId];
+      const matrixIds = record.matrixId
+        ? existing
+          ? Array.from(new Set([...existing.matrixIds, record.matrixId]))
+          : [record.matrixId]
+        : existing?.matrixIds ?? [];
       byKey.set(key, {
         queries: queryIds,
+        matrixIds,
         gapType,
         fieldOrSourceMissing,
         currentBehavior: currentBehaviorForRecord(record),
@@ -646,7 +933,11 @@ async function runPhase3Diagnostic(): Promise<void> {
     }
   }
 
-  assert.equal(records.length, 22, 'All 22 Phase 3 diagnostic queries must execute.');
+  assert.equal(
+    records.length,
+    PHASE_3_BASELINE_QUERY_COUNT + ASK_EXPANSION_PROBE_COUNT,
+    'All Phase 3 baseline queries plus Ask expansion probes must execute.',
+  );
 
   const gaps = buildConfirmedGaps(records);
   const summary = summarize(records, gaps);

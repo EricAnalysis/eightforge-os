@@ -1107,6 +1107,7 @@ export function buildAskResponse(params: {
     retrieval: params.retrieval,
   });
   const selectorReturnedGap = selectorAnswer?.confidence === 'not_found';
+  const selectorReturnedExecutionSummary = selectorAnswer?.confidence === 'verified' && selectorAnswer.sourceLayer === 'execution_summary';
   const canonical = formatCanonicalProjectAnswer({
     answer,
     sources,
@@ -1117,9 +1118,9 @@ export function buildAskResponse(params: {
     context,
     intent: params.question.intent,
     fallbackUsed,
-    validationStateOverride: selectorReturnedGap ? selectorAnswer.validationState : undefined,
-    gateImpactOverride: selectorReturnedGap ? selectorAnswer.gateImpact : undefined,
-    nextActionOverride: selectorReturnedGap ? selectorAnswer.nextAction : undefined,
+    validationStateOverride: selectorReturnedGap || selectorReturnedExecutionSummary ? selectorAnswer.validationState : undefined,
+    gateImpactOverride: selectorReturnedGap || selectorReturnedExecutionSummary ? selectorAnswer.gateImpact : undefined,
+    nextActionOverride: selectorReturnedGap || selectorReturnedExecutionSummary ? selectorAnswer.nextAction : undefined,
   });
   const validationState = normalizeValidationState(canonical.validationState);
   const blockerCount = selectorReturnedGap
@@ -1128,12 +1129,14 @@ export function buildAskResponse(params: {
   const warningCount = selectorReturnedGap
     ? 0
     : params.retrieval.validatorFindings.filter((finding) => finding.severity === 'warning').length;
-  const confidenceState = confidenceStateForResponse({
-    validationState,
-    fallbackUsed: fallbackUsed || guardedRead.fallbackUsed,
-    upstreamGap,
-    limitations,
-  });
+  const confidenceState = selectorReturnedExecutionSummary
+    ? 'Verified'
+    : confidenceStateForResponse({
+        validationState,
+        fallbackUsed: fallbackUsed || guardedRead.fallbackUsed,
+        upstreamGap,
+        limitations,
+      });
   const validatorFindings = (selectorReturnedGap ? [] : params.retrieval.validatorFindings).map((finding) => ({
     id: finding.id,
     label: finding.description,

@@ -10,6 +10,8 @@ import {
 import type { PortfolioOverview } from '@/lib/server/portfolioCommandCenter';
 import type { OperationalQueueModel } from '@/lib/server/operationalQueue';
 import type { PortfolioStalenessState } from '@/lib/ask/portfolioStalenessCheck';
+import { selectPortfolioProjectStatus } from '@/lib/ask/selectors';
+import { buildPortfolioProjectStatusAggregate } from '@/lib/ask/portfolioProjectStatusAggregate';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -197,7 +199,7 @@ export function buildPortfolioAskAnswer(params: {
     },
   };
 
-  return {
+  const base: AskAnswerContract = {
     scope: 'portfolio',
     question: params.question,
     answer: [
@@ -257,4 +259,23 @@ export function buildPortfolioAskAnswer(params: {
     promptVersion: params.promptVersion,
     portfolioSections: sections,
   };
+
+  const projectStatusAggregate = buildPortfolioProjectStatusAggregate(
+    params.operations.project_rollups.map((item) => ({
+      project_id: item.project.id,
+      project_name: item.project.name,
+      validation_status: item.project.validation_status,
+      validation_summary: item.project.validation_summary_json,
+      validation_snapshot_stale: params.stalenessByProjectId.get(item.project.id)?.isStale ?? false,
+    })),
+  );
+
+  return selectPortfolioProjectStatus({
+    question: params.question,
+    portfolio: params.portfolio,
+    operations: params.operations,
+    stalenessByProjectId: params.stalenessByProjectId,
+    projectStatusAggregate,
+    base,
+  }) ?? base;
 }

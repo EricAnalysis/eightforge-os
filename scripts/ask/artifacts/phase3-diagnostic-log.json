@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-05T15:43:12.792Z",
+  "generatedAt": "2026-06-05T16:52:35.417Z",
   "preconditions": {
     "passed": true,
     "checks": [
@@ -83,6 +83,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -101,7 +103,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: blocker count 0; warning count 6; validator source. Next best action: Open Validator because validator and execution priority identify the current approval gate.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount / Invoice 2026-002 contribution: 534757.1\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -198,7 +201,7 @@
         "originalQuestion": "Is this project ready for invoice approval?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:32.033Z",
+        "createdAt": "2026-06-05T16:51:45.315Z",
         "fallbackUsed": false
       }
     },
@@ -227,6 +230,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -245,7 +250,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nFully supported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Each support source is the canonical invoice exposure summary.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -342,7 +348,7 @@
         "originalQuestion": "Which invoice amounts are fully supported?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:32.638Z",
+        "createdAt": "2026-06-05T16:51:45.966Z",
         "fallbackUsed": false
       }
     },
@@ -352,18 +358,18 @@
       "set": "A",
       "scope": "project",
       "query": "What is blocking approval?",
-      "answerReturned": "Answer:\nGolden Project is flagged because No validator blocker is currently recorded. Top blockers include invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0 and rate code expected invoice line rate code but recorded missing.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nInvoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; rule financial_integrity; gate impact requires approval review. Next best action: Open Validator because validator and execution priority identify the current approval gate.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
       "canonicalLayerUsed": "validation_snapshot",
-      "sourceNamed": "Project validator · warning, 53d74340-4d00-4d55-a937-4d0eca9c1573, aa3b36ac-05cd-45f4-849b-e6e40f37be28, aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
       "evidenceCount": 3,
       "evidenceSources": [
-        "validator:Project validator · warning",
-        "validator:53d74340-4d00-4d55-a937-4d0eca9c1573",
-        "validator:aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
@@ -377,6 +383,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -395,28 +403,23 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nGolden Project is flagged because No validator blocker is currently recorded. Top blockers include invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0 and rate code expected invoice line rate code but recorded missing.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "answer": "Answer:\nInvoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; rule financial_integrity; gate impact requires approval review. Next best action: Open Validator because validator and execution priority identify the current approval gate.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
         "confidence": "medium",
-        "confidenceScore": 76,
+        "confidenceScore": 78,
         "sources": [
-          {
-            "type": "validator",
-            "label": "Project validator · warning",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "snippet": "No validator blocker is currently recorded"
-          },
           {
             "type": "validator",
             "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
             "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
             "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
             "snippet": "invoice number expected linked invoice number but ",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:54.460929+00:00"
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
           },
           {
             "type": "validator",
@@ -424,8 +427,9 @@
             "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
             "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
             "snippet": "rate code expected invoice line rate code but reco",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:53.943128+00:00"
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
           },
           {
             "type": "validator",
@@ -433,8 +437,9 @@
             "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
             "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
             "snippet": "rate code expected invoice line rate code but reco",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:53.446153+00:00"
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -443,29 +448,16 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "Golden Project is flagged because No validator blocker is currently recorded. Top blockers include invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0 and rate code expected invoice line rate code but recorded missing.",
+          "answer": "Invoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; rule financial_integrity; gate impact requires approval review. Next best action: Open Validator because validator and execution priority identify the current approval gate.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "validator:Project validator · warning",
-              "label": "Project validator · warning",
-              "value": "No validator blocker is currently recorded",
-              "sourceDocumentName": null,
-              "pageNumber": null,
-              "factNodeKey": null,
-              "layer": "validation_snapshot",
-              "trustLevel": 3,
-              "isFallback": false,
-              "isStale": false,
-              "href": null
-            },
-            {
-              "id": "validator:53d74340-4d00-4d55-a937-4d0eca9c1573",
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
               "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "value": "invoice number expected linked invoice number but ",
               "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
@@ -473,12 +465,25 @@
               "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
             },
             {
-              "id": "validator:aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
               "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
               "value": "rate code expected invoice line rate code but reco",
               "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+            },
+            {
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
@@ -565,7 +570,7 @@
         "originalQuestion": "What is blocking approval?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:33.656Z",
+        "createdAt": "2026-06-05T16:51:47.043Z",
         "fallbackUsed": false
       }
     },
@@ -575,27 +580,27 @@
       "set": "A",
       "scope": "project",
       "query": "Where did the $815,559.35 total come from?",
-      "answerReturned": "Answer:\nProject invoice total rollup is $815,559 from the canonical project invoice total rollup. The contributing invoice evidence is Invoice 2026-002 contribution: $534,757; Invoice 2026-003 contribution: $280,802.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: $815,559\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount / Invoice 2026-002 contribution: $534,757\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount / Invoice 2026-003 contribution: $280,802\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
+      "answerReturned": "Answer:\nInvoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
       "confidenceState": "Verified",
       "canonicalLayerUsed": "canonical_project_fact, document_fact",
-      "sourceNamed": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed, project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount, project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount",
+      "sourceNamed": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
       "validationState": "Confirmed",
       "gateImpact": "Affects invoice readiness or payment release.",
       "nextAction": "Open Evidence",
-      "evidenceCount": 6,
+      "evidenceCount": 4,
       "evidenceSources": [
         "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
         "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount",
         "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount",
-        "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
-        "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount",
-        "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount"
+        "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -614,10 +619,11 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nProject invoice total rollup is $815,559 from the canonical project invoice total rollup. The contributing invoice evidence is Invoice 2026-002 contribution: $534,757; Invoice 2026-003 contribution: $280,802.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: $815,559\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount / Invoice 2026-002 contribution: $534,757\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount / Invoice 2026-003 contribution: $280,802\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
+        "answer": "Answer:\nInvoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
         "confidence": "medium",
         "confidenceScore": 74,
         "sources": [
@@ -625,28 +631,10 @@
             "type": "fact",
             "label": "Golden Project project truth",
             "documentName": "Golden Project project truth",
-            "snippet": "Project invoice total rollup: $815,559",
+            "snippet": "Project invoice total rollup: 815559.35",
             "confidence": 96,
             "timestamp": "2026-06-04T20:17:58.316Z",
             "factId": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed"
-          },
-          {
-            "type": "fact",
-            "label": "Golden Project project truth",
-            "documentName": "Golden Project project truth",
-            "snippet": "Invoice 2026-002 contribution: $534,757",
-            "confidence": 94,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "factId": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount"
-          },
-          {
-            "type": "fact",
-            "label": "Golden Project project truth",
-            "documentName": "Golden Project project truth",
-            "snippet": "Invoice 2026-003 contribution: $280,802",
-            "confidence": 94,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "factId": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount"
           }
         ],
         "reasoning": "Answer built from persisted structured document facts.",
@@ -655,7 +643,7 @@
         "gateImpact": "Affects invoice readiness or payment release.",
         "nextAction": "Open Evidence",
         "sections": {
-          "answer": "Project invoice total rollup is $815,559 from the canonical project invoice total rollup. The contributing invoice evidence is Invoice 2026-002 contribution: $534,757; Invoice 2026-003 contribution: $280,802.",
+          "answer": "Invoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.",
           "confidenceState": "Verified",
           "evidence": [
             {
@@ -700,36 +688,10 @@
             {
               "id": "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
               "label": "Golden Project project truth",
-              "value": "Project invoice total rollup: $815,559",
+              "value": "Project invoice total rollup: 815559.35",
               "sourceDocumentName": "Golden Project project truth",
               "pageNumber": null,
               "factNodeKey": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
-              "layer": "document_fact",
-              "trustLevel": 5,
-              "isFallback": false,
-              "isStale": false,
-              "href": null
-            },
-            {
-              "id": "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount",
-              "label": "Golden Project project truth",
-              "value": "Invoice 2026-002 contribution: $534,757",
-              "sourceDocumentName": "Golden Project project truth",
-              "pageNumber": null,
-              "factNodeKey": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount",
-              "layer": "document_fact",
-              "trustLevel": 5,
-              "isFallback": false,
-              "isStale": false,
-              "href": null
-            },
-            {
-              "id": "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount",
-              "label": "Golden Project project truth",
-              "value": "Invoice 2026-003 contribution: $280,802",
-              "sourceDocumentName": "Golden Project project truth",
-              "pageNumber": null,
-              "factNodeKey": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-003:billed_amount",
               "layer": "document_fact",
               "trustLevel": 5,
               "isFallback": false,
@@ -755,7 +717,7 @@
         "originalQuestion": "Where did the $815,559.35 total come from?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:34.284Z",
+        "createdAt": "2026-06-05T16:51:47.646Z",
         "fallbackUsed": false
       }
     },
@@ -765,20 +727,20 @@
       "set": "A",
       "scope": "project",
       "query": "Show me unsupported ticket costs.",
-      "answerReturned": "Answer:\nI found 4 matching documents. The closest match is ticket_query_20260404_191302.\n\nEvidence:\nticket_query_20260404_191302 / ticket_query_20260404_191302.xlsx / transaction_data · decisioned\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover.pdf / invoice · decisioned\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf / invoice · decisioned\nUnverified - raw extraction fallback.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nUnsupported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Missing support or mismatch basis comes from validator source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
-      "canonicalLayerUsed": "document_extraction",
-      "sourceNamed": "04e23a28-61a0-4abc-91ac-8c6f2db31ecf, aa3b36ac-05cd-45f4-849b-e6e40f37be28, 53d74340-4d00-4d55-a937-4d0eca9c1573",
+      "canonicalLayerUsed": "validation_snapshot",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
       "evidenceCount": 3,
       "evidenceSources": [
-        "document:04e23a28-61a0-4abc-91ac-8c6f2db31ecf",
-        "document:aa3b36ac-05cd-45f4-849b-e6e40f37be28",
-        "document:53d74340-4d00-4d55-a937-4d0eca9c1573"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
-      "fallbackLabel": "yes",
+      "fallbackLabel": "n-a",
       "staleLabel": "n-a",
       "validatorFindingsSurfaced": [
         "invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0",
@@ -790,6 +752,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -808,39 +772,43 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nI found 4 matching documents. The closest match is ticket_query_20260404_191302.\n\nEvidence:\nticket_query_20260404_191302 / ticket_query_20260404_191302.xlsx / transaction_data · decisioned\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover.pdf / invoice · decisioned\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf / invoice · decisioned\nUnverified - raw extraction fallback.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
-        "confidence": "medium",
-        "confidenceScore": 78,
+        "answer": "Answer:\nUnsupported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Missing support or mismatch basis comes from validator source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "confidence": "high",
+        "confidenceScore": 86,
         "sources": [
           {
-            "type": "document",
-            "label": "ticket_query_20260404_191302",
-            "documentId": "04e23a28-61a0-4abc-91ac-8c6f2db31ecf",
-            "documentName": "ticket_query_20260404_191302.xlsx",
-            "snippet": "transaction_data · decisioned",
-            "confidence": 72,
-            "timestamp": "2026-05-26T17:20:21.682+00:00"
-          },
-          {
-            "type": "document",
-            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
-            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
-            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover.pdf",
-            "snippet": "invoice · decisioned",
-            "confidence": 72,
-            "timestamp": "2026-05-26T17:21:03.221+00:00"
-          },
-          {
-            "type": "document",
+            "type": "validator",
             "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
             "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
-            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf",
-            "snippet": "invoice · decisioned",
-            "confidence": 72,
-            "timestamp": "2026-05-26T17:20:40.217+00:00"
+            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "snippet": "invoice number expected linked invoice number but ",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -849,47 +817,47 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "I found 4 matching documents. The closest match is ticket_query_20260404_191302.",
+          "answer": "Unsupported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Missing support or mismatch basis comes from validator source.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "document:04e23a28-61a0-4abc-91ac-8c6f2db31ecf",
-              "label": "ticket_query_20260404_191302",
-              "value": "transaction_data · decisioned",
-              "sourceDocumentName": "ticket_query_20260404_191302.xlsx",
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+              "value": "invoice number expected linked invoice number but ",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
-              "layer": "document_extraction",
-              "trustLevel": 6,
-              "isFallback": true,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
               "isStale": false,
-              "href": "/platform/documents/04e23a28-61a0-4abc-91ac-8c6f2db31ecf"
+              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
             },
             {
-              "id": "document:aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
               "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
-              "value": "invoice · decisioned",
-              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover.pdf",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
-              "layer": "document_extraction",
-              "trustLevel": 6,
-              "isFallback": true,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
               "isStale": false,
               "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             },
             {
-              "id": "document:53d74340-4d00-4d55-a937-4d0eca9c1573",
-              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
-              "value": "invoice · decisioned",
-              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf",
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
-              "layer": "document_extraction",
-              "trustLevel": 6,
-              "isFallback": true,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
               "isStale": false,
-              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             }
           ],
           "validatorFindings": [
@@ -949,9 +917,6 @@
           "nextAction": "Open Validator",
           "upstreamGap": null
         },
-        "limitations": [
-          "Unverified - raw extraction fallback."
-        ],
         "suggestedActions": [
           {
             "type": "check_validator",
@@ -979,8 +944,8 @@
         "originalQuestion": "Show me unsupported ticket costs.",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:35.460Z",
-        "fallbackUsed": true
+        "createdAt": "2026-06-05T16:51:48.835Z",
+        "fallbackUsed": false
       }
     },
     {
@@ -989,7 +954,7 @@
       "set": "A",
       "scope": "project",
       "query": "What is at risk in this project?",
-      "answerReturned": "Answer:\nProject invoice total rollup is $815,559.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: $815,559\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
+      "answerReturned": "Answer:\nInvoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
       "confidenceState": "Verified",
       "canonicalLayerUsed": "canonical_project_fact, document_fact",
       "sourceNamed": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
@@ -1008,6 +973,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -1026,10 +993,11 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nProject invoice total rollup is $815,559.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: $815,559\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
+        "answer": "Answer:\nInvoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
         "confidence": "high",
         "confidenceScore": 93,
         "sources": [
@@ -1037,7 +1005,7 @@
             "type": "fact",
             "label": "Golden Project project truth",
             "documentName": "Golden Project project truth",
-            "snippet": "Project invoice total rollup: $815,559",
+            "snippet": "Project invoice total rollup: 815559.35",
             "confidence": 96,
             "timestamp": "2026-06-04T20:17:58.316Z",
             "factId": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed"
@@ -1049,7 +1017,7 @@
         "gateImpact": "Affects invoice readiness or payment release.",
         "nextAction": "Open Evidence",
         "sections": {
-          "answer": "Project invoice total rollup is $815,559.",
+          "answer": "Invoice support selector: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.",
           "confidenceState": "Verified",
           "evidence": [
             {
@@ -1094,7 +1062,7 @@
             {
               "id": "fact:project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
               "label": "Golden Project project truth",
-              "value": "Project invoice total rollup: $815,559",
+              "value": "Project invoice total rollup: 815559.35",
               "sourceDocumentName": "Golden Project project truth",
               "pageNumber": null,
               "factNodeKey": "project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed",
@@ -1123,7 +1091,7 @@
         "originalQuestion": "What is at risk in this project?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:35.982Z",
+        "createdAt": "2026-06-05T16:51:49.437Z",
         "fallbackUsed": false
       }
     },
@@ -1160,6 +1128,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -1178,7 +1148,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nChanged since last review selector: changed item 8df968d3-57e0-470d-870a-3b2456259a47; before after state and review baseline last review source are audit and validator.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\nticket_query_20260404_191302 / ticket_query_20260404_191302.xlsx / fact 04e23a28-61a0-4abc-91ac-8c6f2db31ecf / transaction_data / decisioned\nUnverified - raw extraction fallback.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -1398,7 +1369,7 @@
         "originalQuestion": "What changed since the last review?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:37.122Z",
+        "createdAt": "2026-06-05T16:51:50.644Z",
         "fallbackUsed": true
       }
     },
@@ -1432,6 +1403,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -1450,7 +1423,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -1603,7 +1577,7 @@
         "originalQuestion": "Which contract is governing?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:38.010Z",
+        "createdAt": "2026-06-05T16:51:51.708Z",
         "fallbackUsed": false
       }
     },
@@ -1637,6 +1611,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -1655,7 +1631,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTipping fee billability selector: governing contract governing contract document; fee clause or rate row source; billable eligible basis comes from canonical contract facts.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -1808,7 +1785,7 @@
         "originalQuestion": "Are tipping fees billable under this contract?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:38.841Z",
+        "createdAt": "2026-06-05T16:51:52.711Z",
         "fallbackUsed": false
       }
     },
@@ -1818,16 +1795,18 @@
       "set": "B",
       "scope": "project",
       "query": "Is this FEMA reimbursable work?",
-      "answerReturned": "Answer:\nI can’t answer \"Is this FEMA reimbursable work?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
       "canonicalLayerUsed": "validation_snapshot",
-      "sourceNamed": "Project validator · warning",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
-      "evidenceCount": 1,
+      "evidenceCount": 3,
       "evidenceSources": [
-        "validator:Project validator · warning"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
@@ -1841,6 +1820,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -1859,19 +1840,43 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nI can’t answer \"Is this FEMA reimbursable work?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
         "confidence": "medium",
-        "confidenceScore": 60,
+        "confidenceScore": 67,
         "sources": [
           {
             "type": "validator",
-            "label": "Project validator · warning",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "snippet": "No validator blocker is currently recorded"
+            "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
+            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "snippet": "invoice number expected linked invoice number but ",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -1880,21 +1885,47 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "I can’t answer \"Is this FEMA reimbursable work?\" confidently from persisted project truth for Golden Project yet.",
+          "answer": "Governing contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "validator:Project validator · warning",
-              "label": "Project validator · warning",
-              "value": "No validator blocker is currently recorded",
-              "sourceDocumentName": null,
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+              "value": "invoice number expected linked invoice number but ",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
               "isStale": false,
-              "href": null
+              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
+            },
+            {
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+            },
+            {
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             }
           ],
           "validatorFindings": [
@@ -1954,10 +1985,6 @@
           "nextAction": "Open Validator",
           "upstreamGap": null
         },
-        "limitations": [
-          "No matching structured fact, validator finding, decision, or document was found.",
-          "Ask relies on persisted project facts and validator results only."
-        ],
         "suggestedActions": [
           {
             "type": "check_validator",
@@ -1980,7 +2007,7 @@
         "originalQuestion": "Is this FEMA reimbursable work?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:39.673Z",
+        "createdAt": "2026-06-05T16:51:53.806Z",
         "fallbackUsed": false
       }
     },
@@ -1990,16 +2017,18 @@
       "set": "B",
       "scope": "project",
       "query": "What federal compliance requirements apply?",
-      "answerReturned": "Answer:\nI can’t answer \"What federal compliance requirements apply?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
       "canonicalLayerUsed": "validation_snapshot",
-      "sourceNamed": "Project validator · warning",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
-      "evidenceCount": 1,
+      "evidenceCount": 3,
       "evidenceSources": [
-        "validator:Project validator · warning"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
@@ -2013,6 +2042,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2031,19 +2062,43 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nI can’t answer \"What federal compliance requirements apply?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
         "confidence": "medium",
-        "confidenceScore": 60,
+        "confidenceScore": 67,
         "sources": [
           {
             "type": "validator",
-            "label": "Project validator · warning",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "snippet": "No validator blocker is currently recorded"
+            "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
+            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "snippet": "invoice number expected linked invoice number but ",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -2052,21 +2107,47 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "I can’t answer \"What federal compliance requirements apply?\" confidently from persisted project truth for Golden Project yet.",
+          "answer": "Governing contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "validator:Project validator · warning",
-              "label": "Project validator · warning",
-              "value": "No validator blocker is currently recorded",
-              "sourceDocumentName": null,
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+              "value": "invoice number expected linked invoice number but ",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
               "isStale": false,
-              "href": null
+              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
+            },
+            {
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+            },
+            {
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             }
           ],
           "validatorFindings": [
@@ -2126,10 +2207,6 @@
           "nextAction": "Open Validator",
           "upstreamGap": null
         },
-        "limitations": [
-          "No matching structured fact, validator finding, decision, or document was found.",
-          "Ask relies on persisted project facts and validator results only."
-        ],
         "suggestedActions": [
           {
             "type": "check_validator",
@@ -2152,7 +2229,7 @@
         "originalQuestion": "What federal compliance requirements apply?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:40.497Z",
+        "createdAt": "2026-06-05T16:51:55.009Z",
         "fallbackUsed": false
       }
     },
@@ -2187,6 +2264,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2205,7 +2284,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nPrivate property authority selector: private property permission authority and limits are read from source clause in governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -2371,7 +2451,7 @@
         "originalQuestion": "Can the contractor work on private property?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:41.313Z",
+        "createdAt": "2026-06-05T16:51:56.693Z",
         "fallbackUsed": false
       }
     },
@@ -2381,16 +2461,18 @@
       "set": "B",
       "scope": "project",
       "query": "Is a performance bond required?",
-      "answerReturned": "Answer:\nI can’t answer \"Is a performance bond required?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
       "canonicalLayerUsed": "validation_snapshot",
-      "sourceNamed": "Project validator · warning",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
-      "evidenceCount": 1,
+      "evidenceCount": 3,
       "evidenceSources": [
-        "validator:Project validator · warning"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
@@ -2404,6 +2486,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2422,19 +2506,43 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nI can’t answer \"Is a performance bond required?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
         "confidence": "medium",
-        "confidenceScore": 60,
+        "confidenceScore": 67,
         "sources": [
           {
             "type": "validator",
-            "label": "Project validator · warning",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "snippet": "No validator blocker is currently recorded"
+            "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
+            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "snippet": "invoice number expected linked invoice number but ",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -2443,21 +2551,47 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "I can’t answer \"Is a performance bond required?\" confidently from persisted project truth for Golden Project yet.",
+          "answer": "Governing contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "validator:Project validator · warning",
-              "label": "Project validator · warning",
-              "value": "No validator blocker is currently recorded",
-              "sourceDocumentName": null,
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+              "value": "invoice number expected linked invoice number but ",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
               "isStale": false,
-              "href": null
+              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
+            },
+            {
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+            },
+            {
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             }
           ],
           "validatorFindings": [
@@ -2517,10 +2651,6 @@
           "nextAction": "Open Validator",
           "upstreamGap": null
         },
-        "limitations": [
-          "No matching structured fact, validator finding, decision, or document was found.",
-          "Ask relies on persisted project facts and validator results only."
-        ],
         "suggestedActions": [
           {
             "type": "check_validator",
@@ -2543,7 +2673,7 @@
         "originalQuestion": "Is a performance bond required?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:42.139Z",
+        "createdAt": "2026-06-05T16:51:57.800Z",
         "fallbackUsed": false
       }
     },
@@ -2553,16 +2683,18 @@
       "set": "B",
       "scope": "project",
       "query": "What happens if FEMA funding is denied?",
-      "answerReturned": "Answer:\nI can’t answer \"What happens if FEMA funding is denied?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+      "answerReturned": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
       "confidenceState": "Partial",
       "canonicalLayerUsed": "validation_snapshot",
-      "sourceNamed": "Project validator · warning",
+      "sourceNamed": "8df968d3-57e0-470d-870a-3b2456259a47, 2d450e44-b076-4a06-bf57-edb309500c23, 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
       "validationState": "Approved with Warnings",
       "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
       "nextAction": "Open Validator",
-      "evidenceCount": 1,
+      "evidenceCount": 3,
       "evidenceSources": [
-        "validator:Project validator · warning"
+        "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+        "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+        "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
       ],
       "fallbackLabel": "n-a",
       "staleLabel": "n-a",
@@ -2576,6 +2708,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2594,19 +2728,43 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
-        "answer": "Answer:\nI can’t answer \"What happens if FEMA funding is denied?\" confidently from persisted project truth for Golden Project yet.\n\nEvidence:\nProject validator · warning / No validator blocker is currently recorded\nNo matching structured fact, validator finding, decision, or document was found.\nAsk relies on persisted project facts and validator results only.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
+        "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
         "confidence": "medium",
-        "confidenceScore": 60,
+        "confidenceScore": 67,
         "sources": [
           {
             "type": "validator",
-            "label": "Project validator · warning",
-            "confidence": 82,
-            "timestamp": "2026-06-04T20:17:58.316Z",
-            "snippet": "No validator blocker is currently recorded"
+            "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "documentId": "53d74340-4d00-4d55-a937-4d0eca9c1573",
+            "documentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+            "snippet": "invoice number expected linked invoice number but ",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:54.460929+00:00",
+            "factId": "8df968d3-57e0-470d-870a-3b2456259a47"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.943128+00:00",
+            "factId": "2d450e44-b076-4a06-bf57-edb309500c23"
+          },
+          {
+            "type": "validator",
+            "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "documentId": "aa3b36ac-05cd-45f4-849b-e6e40f37be28",
+            "documentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+            "snippet": "rate code expected invoice line rate code but reco",
+            "confidence": 84,
+            "timestamp": "2026-06-04T20:17:53.446153+00:00",
+            "factId": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a"
           }
         ],
         "reasoning": "Answer built from the persisted validator state and open findings.",
@@ -2615,21 +2773,47 @@
         "gateImpact": "Affects audit defensibility, contract compliance, document review, or execution priority.",
         "nextAction": "Open Validator",
         "sections": {
-          "answer": "I can’t answer \"What happens if FEMA funding is denied?\" confidently from persisted project truth for Golden Project yet.",
+          "answer": "Governing contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.",
           "confidenceState": "Partial",
           "evidence": [
             {
-              "id": "validator:Project validator · warning",
-              "label": "Project validator · warning",
-              "value": "No validator blocker is currently recorded",
-              "sourceDocumentName": null,
+              "id": "validator:8df968d3-57e0-470d-870a-3b2456259a47",
+              "label": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
+              "value": "invoice number expected linked invoice number but ",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover",
               "pageNumber": null,
-              "factNodeKey": null,
+              "factNodeKey": "8df968d3-57e0-470d-870a-3b2456259a47",
               "layer": "validation_snapshot",
               "trustLevel": 3,
               "isFallback": false,
               "isStale": false,
-              "href": null
+              "href": "/platform/documents/53d74340-4d00-4d55-a937-4d0eca9c1573"
+            },
+            {
+              "id": "validator:2d450e44-b076-4a06-bf57-edb309500c23",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "2d450e44-b076-4a06-bf57-edb309500c23",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
+            },
+            {
+              "id": "validator:6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "label": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "value": "rate code expected invoice line rate code but reco",
+              "sourceDocumentName": "Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover",
+              "pageNumber": null,
+              "factNodeKey": "6a4a92d2-e312-4d25-a1b2-d6ee3d93956a",
+              "layer": "validation_snapshot",
+              "trustLevel": 3,
+              "isFallback": false,
+              "isStale": false,
+              "href": "/platform/documents/aa3b36ac-05cd-45f4-849b-e6e40f37be28"
             }
           ],
           "validatorFindings": [
@@ -2689,10 +2873,6 @@
           "nextAction": "Open Validator",
           "upstreamGap": null
         },
-        "limitations": [
-          "No matching structured fact, validator finding, decision, or document was found.",
-          "Ask relies on persisted project facts and validator results only."
-        ],
         "suggestedActions": [
           {
             "type": "check_validator",
@@ -2715,7 +2895,7 @@
         "originalQuestion": "What happens if FEMA funding is denied?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:42.967Z",
+        "createdAt": "2026-06-05T16:51:58.894Z",
         "fallbackUsed": false
       }
     },
@@ -2750,6 +2930,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2768,7 +2950,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nMonitoring required selector: monitoring clause fact is required; governing document source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -2934,7 +3117,7 @@
         "originalQuestion": "Is monitoring required?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:43.796Z",
+        "createdAt": "2026-06-05T16:51:59.928Z",
         "fallbackUsed": false
       }
     },
@@ -2969,6 +3152,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -2987,7 +3172,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nPayment documentation required selector: required document type source is governing contract/document facts; missing received status is read from validator/document review status.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -3153,7 +3339,7 @@
         "originalQuestion": "What documentation is required for payment?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:44.663Z",
+        "createdAt": "2026-06-05T16:52:00.991Z",
         "fallbackUsed": false
       }
     },
@@ -3177,6 +3363,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3195,7 +3383,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3273,6 +3462,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3291,7 +3482,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3426,6 +3618,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3444,7 +3638,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3579,6 +3774,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3597,7 +3794,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3729,6 +3927,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3747,7 +3947,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3825,6 +4026,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3843,7 +4046,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -3980,6 +4184,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -3998,7 +4204,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: blocker count 0; warning count 6; validator source. Next best action: Open Validator because validator and execution priority identify the current approval gate.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice:2026-002:billed_amount / Invoice 2026-002 contribution: 534757.1\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -4095,7 +4302,7 @@
         "originalQuestion": "Is this project ready for invoice approval?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:45.111Z",
+        "createdAt": "2026-06-05T16:52:01.682Z",
         "fallbackUsed": false
       }
     },
@@ -4130,6 +4337,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4148,7 +4357,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice approval readiness is NEEDS REVIEW; approval status source is validator. Blocking finding count is 0 with 6 warnings. Approval blocker basis: invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; rule financial_integrity; gate impact requires approval review. Next best action: Open Validator because validator and execution priority identify the current approval gate.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -4314,7 +4524,7 @@
         "originalQuestion": "What is preventing approval?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:46.098Z",
+        "createdAt": "2026-06-05T16:52:02.770Z",
         "fallbackUsed": false
       }
     },
@@ -4343,6 +4553,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4361,7 +4573,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nNext best action: no action pending. Execution summary source reports no open execution items, so priority reason is none open.\n\nEvidence:\nExecution summary / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:execution_summary / Execution summary computed no open execution items; next best action is no action pending; priority reason none open.\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nNo current execution blocker affects approval gate, invoice readiness, execution priority, or payment release.\n\nNext Action:\nNo action required",
@@ -4457,7 +4670,7 @@
         "originalQuestion": "What is the next best action for this project?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:46.533Z",
+        "createdAt": "2026-06-05T16:52:03.446Z",
         "fallbackUsed": false
       }
     },
@@ -4486,6 +4699,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4504,7 +4719,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice exception eligibility: open ticket count 0. This invoice can move forward only according to approval gate basis: Rate Code does not match the expected project truth..\n\nEvidence:\nValidator invoice exception eligibility / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice_exception_eligibility / Invoice open ticket count 0; approval gate basis Rate Code does not match the expected project truth.\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -4607,7 +4823,7 @@
         "originalQuestion": "Can this invoice move forward while open tickets are pending?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:47.256Z",
+        "createdAt": "2026-06-05T16:52:04.212Z",
         "fallbackUsed": false
       }
     },
@@ -4636,6 +4852,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4654,7 +4872,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nFully supported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Each support source is the canonical invoice exposure summary.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -4751,7 +4970,7 @@
         "originalQuestion": "Which invoice amounts are fully supported?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:47.681Z",
+        "createdAt": "2026-06-05T16:52:04.927Z",
         "fallbackUsed": false
       }
     },
@@ -4780,6 +4999,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4798,7 +5019,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nUnsupported invoice amounts: Invoice 2026-002 billed $534,757; supported amount $534,757; unsupported amount $0.00; approval approved; support source invoice_total. Invoice 2026-003 billed $280,802; supported amount $280,802; unsupported amount $0.00; approval approved; support source invoice_total. Missing support or mismatch basis comes from validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -4895,7 +5117,7 @@
         "originalQuestion": "Which invoice amounts are unsupported?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:48.273Z",
+        "createdAt": "2026-06-05T16:52:05.581Z",
         "fallbackUsed": false
       }
     },
@@ -4924,6 +5146,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -4942,7 +5166,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice exposure selector: Total exposure $0.00; supported $815,559; unsupported $0.00; validator source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -5039,7 +5264,7 @@
         "originalQuestion": "What is the total invoice exposure?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:48.896Z",
+        "createdAt": "2026-06-05T16:52:06.198Z",
         "fallbackUsed": false
       }
     },
@@ -5068,6 +5293,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -5086,7 +5313,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice exception approval: exception type validator_warning_exception. Required approval condition: Operator exception approval is required while open validator findings remain..\n\nEvidence:\nValidator invoice exception eligibility / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:invoice_exception_eligibility / Invoice exception validator_warning_exception; required approval condition Operator exception approval is required while open validator findings remain.\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -5182,7 +5410,7 @@
         "originalQuestion": "Can this invoice be approved with exceptions?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:49.478Z",
+        "createdAt": "2026-06-05T16:52:06.978Z",
         "fallbackUsed": false
       }
     },
@@ -5217,6 +5445,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "ticket_validation",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -5235,7 +5465,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTicket correction selector: ticket 53d74340-4d00-4d55-a937-4d0eca9c1573; correction reason invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; validator evidence source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -5401,7 +5632,7 @@
         "originalQuestion": "Which tickets need correction?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:50.546Z",
+        "createdAt": "2026-06-05T16:52:08.184Z",
         "fallbackUsed": false
       }
     },
@@ -5436,6 +5667,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "ticket_validation",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -5454,7 +5687,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTickets with missing disposal site, material, CYD, tonnage, or mileage: ticket aa3b36ac-05cd-45f4-849b-e6e40f37be28; missing fields disposal site material CYD tonnage mileage; source evidence rate code expected invoice line rate code but recorded missing.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -5619,7 +5853,7 @@
         "originalQuestion": "Which tickets have missing disposal site, material, CYD, tonnage, or mileage?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:51.561Z",
+        "createdAt": "2026-06-05T16:52:09.234Z",
         "fallbackUsed": false
       }
     },
@@ -5654,6 +5888,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "ticket_validation",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -5672,7 +5908,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTickets with rate-code mismatch: ticket aa3b36ac-05cd-45f4-849b-e6e40f37be28; invoice rate code compared to expected contract rate-code; evidence rate code expected invoice line rate code but recorded missing.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -5833,7 +6070,7 @@
         "originalQuestion": "Which tickets have rate-code mismatches?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:52.394Z",
+        "createdAt": "2026-06-05T16:52:10.297Z",
         "fallbackUsed": false
       }
     },
@@ -5868,6 +6105,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "ticket_validation",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -5886,7 +6125,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTickets unresolved by reviewer: ticket 53d74340-4d00-4d55-a937-4d0eca9c1573; reviewer review status open; finding or action 8df968d3-57e0-470d-870a-3b2456259a47 remains open.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -6057,7 +6297,7 @@
         "originalQuestion": "Which tickets are unresolved by reviewer?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:53.360Z",
+        "createdAt": "2026-06-05T16:52:11.470Z",
         "fallbackUsed": false
       }
     },
@@ -6091,6 +6331,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -6109,7 +6351,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nGoverning contract selector: governing contract governing contract document; precedence basis and effective source are canonical project facts and document source.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -6262,7 +6505,7 @@
         "originalQuestion": "Which contract is governing?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:54.173Z",
+        "createdAt": "2026-06-05T16:52:12.482Z",
         "fallbackUsed": false
       }
     },
@@ -6297,6 +6540,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -6315,7 +6560,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nRate schedule authority selector: controlling amendment or exhibit is read from canonical document relationship basis; rate schedule source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -6476,7 +6722,7 @@
         "originalQuestion": "Which amendment or exhibit controls the rate schedule?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:55.053Z",
+        "createdAt": "2026-06-05T16:52:13.589Z",
         "fallbackUsed": false
       }
     },
@@ -6511,6 +6757,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -6529,7 +6777,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nDocument replacement chain selector: newer replacing document and older replaced document are read from canonical relationship source; effective date and relationship source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -6695,7 +6944,7 @@
         "originalQuestion": "Did a newer document replace an older one?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:55.880Z",
+        "createdAt": "2026-06-05T16:52:14.683Z",
         "fallbackUsed": false
       }
     },
@@ -6730,6 +6979,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -6748,7 +6999,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nCross-document conflict selector: conflicting fact documents are surfaced from validator/document facts; current canonical winner source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -6914,7 +7166,7 @@
         "originalQuestion": "Are there conflicting facts across documents?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:56.971Z",
+        "createdAt": "2026-06-05T16:52:15.716Z",
         "fallbackUsed": false
       }
     },
@@ -6943,6 +7195,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -6961,7 +7215,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice contract rate validation: invoice line evidence uses expected contract rate from contract source and actual rate from validator source. Current validator rate findings are the canonical source.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -7058,7 +7313,7 @@
         "originalQuestion": "Does this invoice use the correct contract rates?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:57.479Z",
+        "createdAt": "2026-06-05T16:52:16.371Z",
         "fallbackUsed": false
       }
     },
@@ -7092,6 +7347,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -7110,7 +7367,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nTipping fee billability selector: governing contract governing contract document; fee clause or rate row source; billable eligible basis comes from canonical contract facts.\n\nEvidence:\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -7263,7 +7521,7 @@
         "originalQuestion": "Are tipping fees billable under this contract?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:58.638Z",
+        "createdAt": "2026-06-05T16:52:17.419Z",
         "fallbackUsed": false
       }
     },
@@ -7302,6 +7560,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -7320,7 +7580,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nInvoice line items missing contract rate table: invoice line category and line item basis are read from validator findings; missing contract rate table basis rate code expected invoice line rate code but recorded missing.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 385da71a-b530-454d-b805-b91a4aba8bcd / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 08f050fc-8661-4b93-9cb8-df577e9799ce / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 3dbfbda2-bd0c-433e-93bc-344cee0d8962 / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -7546,7 +7807,7 @@
         "originalQuestion": "Are any invoice line items missing from the contract rate table?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:59.471Z",
+        "createdAt": "2026-06-05T16:52:18.451Z",
         "fallbackUsed": false
       }
     },
@@ -7575,6 +7836,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "invoice_support",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -7593,7 +7856,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nContract ceiling proximity: NTE ceiling unresolved; billed total $815,559; remaining or overage source is canonical project validation snapshot.\n\nEvidence:\nGolden Project project truth / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:total_billed / Project invoice total rollup: 815559.35\n\nValidation State:\nConfirmed\n\nGate Impact:\nAffects invoice readiness or payment release.\n\nNext Action:\nOpen Evidence",
@@ -7690,7 +7954,7 @@
         "originalQuestion": "Is the project approaching contract ceiling?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:42:59.898Z",
+        "createdAt": "2026-06-05T16:52:19.120Z",
         "fallbackUsed": false
       }
     },
@@ -7725,6 +7989,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -7743,7 +8009,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nPayment documentation required selector: required document type source is governing contract/document facts; missing received status is read from validator/document review status.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -7909,7 +8176,7 @@
         "originalQuestion": "What documentation is required for payment?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:00.875Z",
+        "createdAt": "2026-06-05T16:52:20.172Z",
         "fallbackUsed": false
       }
     },
@@ -7944,6 +8211,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -7962,7 +8231,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nMonitoring required selector: monitoring clause fact is required; governing document source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -8128,7 +8398,7 @@
         "originalQuestion": "Is monitoring required?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:01.703Z",
+        "createdAt": "2026-06-05T16:52:21.232Z",
         "fallbackUsed": false
       }
     },
@@ -8156,6 +8426,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -8174,7 +8446,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nOperational documentation required selector: GPS, photos, load tickets, and daily reconciliation requirements are read from source clause; received missing status is validator/document fact status.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -8254,7 +8527,7 @@
         "originalQuestion": "Are GPS, photos, load tickets, or daily reconciliation required?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:02.528Z",
+        "createdAt": "2026-06-05T16:52:22.291Z",
         "fallbackUsed": false
       }
     },
@@ -8289,6 +8562,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -8307,7 +8582,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nPrivate property authority selector: private property permission authority and limits are read from source clause in governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -8473,7 +8749,7 @@
         "originalQuestion": "Can the contractor work on private property?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:03.367Z",
+        "createdAt": "2026-06-05T16:52:23.352Z",
         "fallbackUsed": false
       }
     },
@@ -8508,6 +8784,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "contract_authority",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -8526,7 +8804,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nNo guaranteed quantity and funding contingency selector: no guaranteed quantity or funding contingency clause is read from governing contract document; contingency clause type source governing contract document.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -8692,7 +8971,7 @@
         "originalQuestion": "Is there no-guaranteed-quantity or funding-contingency language?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:04.182Z",
+        "createdAt": "2026-06-05T16:52:24.370Z",
         "fallbackUsed": false
       }
     },
@@ -8729,6 +9008,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -8747,7 +9028,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nDocuments still need review selector: document ticket_query_20260404_191302 review status open; reason remains open from document facts, audit, and validator source.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\nticket_query_20260404_191302 / ticket_query_20260404_191302.xlsx / fact 04e23a28-61a0-4abc-91ac-8c6f2db31ecf / transaction_data / decisioned\nUnverified - raw extraction fallback.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -8967,7 +9249,7 @@
         "originalQuestion": "Which documents still need review?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:05.186Z",
+        "createdAt": "2026-06-05T16:52:25.550Z",
         "fallbackUsed": true
       }
     },
@@ -8996,6 +9278,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9014,7 +9298,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nReviewed documents with warnings: Document 53d74340-4d00-4d55-a937-4d0eca9c1573 is marked reviewed but still has warning count 3; review event source validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4. Document aa3b36ac-05cd-45f4-849b-e6e40f37be28 is marked reviewed but still has warning count 3; review event source validator_finding:24158455-b184-46cb-8ec9-b6552d6a66b8.\n\nEvidence:\nReviewed document warning 53d74340-4d00-4d55-a937-4d0eca9c1573 / fact validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4 / Document 53d74340-4d00-4d55-a937-4d0eca9c1573; warning count 3; review event source validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4\nReviewed document warning aa3b36ac-05cd-45f4-849b-e6e40f37be28 / fact validator_finding:24158455-b184-46cb-8ec9-b6552d6a66b8 / Document aa3b36ac-05cd-45f4-849b-e6e40f37be28; warning count 3; review event source validator_finding:24158455-b184-46cb-8ec9-b6552d6a66b8\n\nValidation State:\nConfirmed\n\nGate Impact:\nNo gate impact.\n\nNext Action:\nOpen Evidence",
@@ -9127,7 +9412,7 @@
         "originalQuestion": "Are any documents marked reviewed but still producing warnings?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:05.748Z",
+        "createdAt": "2026-06-05T16:52:26.336Z",
         "fallbackUsed": false
       }
     },
@@ -9162,6 +9447,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9180,7 +9467,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nManually confirmed facts selector: fact project fact confirmed value recorded; reviewer review timestamp source is document fact review.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -9346,7 +9634,7 @@
         "originalQuestion": "Which facts were manually confirmed?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:06.576Z",
+        "createdAt": "2026-06-05T16:52:27.286Z",
         "fallbackUsed": false
       }
     },
@@ -9381,6 +9669,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9399,7 +9689,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nHuman overridden facts selector: fact project fact override value recorded; prior value if available plus actor reason source are audit/document fact override.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -9565,7 +9856,7 @@
         "originalQuestion": "Which facts were overridden by a human?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:07.386Z",
+        "createdAt": "2026-06-05T16:52:28.439Z",
         "fallbackUsed": false
       }
     },
@@ -9598,6 +9889,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9616,7 +9909,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nFirst document to inspect: document 53d74340-4d00-4d55-a937-4d0eca9c1573. Risk reason: Rate Code does not match the expected project truth.. Linked blocker/warning/action: none. Priority source: validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4.\n\nEvidence:\nFirst document to inspect 53d74340-4d00-4d55-a937-4d0eca9c1573 / fact validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4 / Document 53d74340-4d00-4d55-a937-4d0eca9c1573; risk reason Rate Code does not match the expected project truth.; linked action none; priority source validator_finding:54f0d36f-118c-4e00-95df-8cb61f6d62a4\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -9735,7 +10029,7 @@
         "originalQuestion": "Which document should the operator inspect first?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:08.209Z",
+        "createdAt": "2026-06-05T16:52:29.529Z",
         "fallbackUsed": false
       }
     },
@@ -9768,6 +10062,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9786,7 +10082,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nOpen execution items: none open. Execution summary source reports status none open, required action none, and blocker flag false.\n\nEvidence:\nExecution summary / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:execution_summary / Execution summary open execution items list is empty; status none open; required action none; blocker flag false.\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nNo current execution blocker affects approval gate, invoice readiness, execution priority, or payment release.\n\nNext Action:\nNo action required",
@@ -9909,7 +10206,7 @@
         "originalQuestion": "What execution items are still open?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:09.173Z",
+        "createdAt": "2026-06-05T16:52:30.827Z",
         "fallbackUsed": false
       }
     },
@@ -9937,6 +10234,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -9955,7 +10254,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nFinding action before approval is Open Validator. Finding 8df968d3-57e0-470d-870a-3b2456259a47 required action Open Validator; approval gate effect invoice number expected linked invoice number but recorded 283 rows missing invoice number; total_extended_cost=0; rule financial_integrity; gate impact requires approval review.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \n\nValidation State:\nApproved with Warnings - 1 warning\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -10040,7 +10340,7 @@
         "originalQuestion": "Which findings require action before approval?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:10.117Z",
+        "createdAt": "2026-06-05T16:52:32.024Z",
         "fallbackUsed": false
       }
     },
@@ -10075,6 +10375,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10093,7 +10395,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nOverridden findings selector: finding 8df968d3-57e0-470d-870a-3b2456259a47 overridden why override reason source; actor timestamp source is audit event.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -10259,7 +10562,7 @@
         "originalQuestion": "Which findings were overridden, and why?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:10.985Z",
+        "createdAt": "2026-06-05T16:52:33.099Z",
         "fallbackUsed": false
       }
     },
@@ -10296,6 +10599,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "review_audit_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10314,7 +10619,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nChanged since last review selector: changed item 8df968d3-57e0-470d-870a-3b2456259a47; before after state and review baseline last review source are audit and validator.\n\nEvidence:\nAftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover / fact 8df968d3-57e0-470d-870a-3b2456259a47 / invoice number expected linked invoice number but \nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 2d450e44-b076-4a06-bf57-edb309500c23 / rate code expected invoice line rate code but reco\nAftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover / fact 6a4a92d2-e312-4d25-a1b2-d6ee3d93956a / rate code expected invoice line rate code but reco\nticket_query_20260404_191302 / ticket_query_20260404_191302.xlsx / fact 04e23a28-61a0-4abc-91ac-8c6f2db31ecf / transaction_data / decisioned\nUnverified - raw extraction fallback.\n\nValidation State:\nApproved with Warnings - 6 warnings\n\nGate Impact:\nAffects audit defensibility, contract compliance, document review, or execution priority.\n\nNext Action:\nOpen Validator",
@@ -10534,7 +10840,7 @@
         "originalQuestion": "What changed since the last review?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:11.934Z",
+        "createdAt": "2026-06-05T16:52:34.278Z",
         "fallbackUsed": true
       }
     },
@@ -10567,6 +10873,8 @@
       ],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "approval_execution_state",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10585,7 +10893,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "answer": "Answer:\nNo actions are blocking payment release. Execution summary source reports action none, blocker basis none, and payment gate impact none blocking.\n\nEvidence:\nExecution summary / fact project:437502f2-d46d-447f-81e3-f26fa7ba0c14:execution_summary / Execution summary payment release blockers list is empty; action none; blocker basis none; payment gate impact none blocking.\n\nValidation State:\nApproved with Warnings\n\nGate Impact:\nNo current execution blocker affects approval gate, invoice readiness, execution priority, or payment release.\n\nNext Action:\nNo action required",
@@ -10703,7 +11012,7 @@
         "originalQuestion": "Which actions are blocking payment release?",
         "projectId": "437502f2-d46d-447f-81e3-f26fa7ba0c14",
         "orgId": "11111111-1111-1111-1111-111111111111",
-        "createdAt": "2026-06-05T15:43:12.756Z",
+        "createdAt": "2026-06-05T16:52:35.388Z",
         "fallbackUsed": false
       }
     },
@@ -10727,6 +11036,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10745,7 +11056,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -10823,6 +11135,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10841,7 +11155,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",
@@ -10969,6 +11284,8 @@
       "validatorFindingsSurfaced": [],
       "upstreamGap": "no",
       "conflict": "no",
+      "routedIntent": "portfolio_project_status",
+      "routerConfidence": "high",
       "pass": true,
       "criteria": {
         "answerNonEmptyNonError": true,
@@ -10987,7 +11304,8 @@
         "portfolioRankingDeterministic": true,
         "matrixSpecific": true,
         "matrixSourced": true,
-        "matrixEvidenceAdequate": true
+        "matrixEvidenceAdequate": true,
+        "matrixRouted": true
       },
       "rawResponse": {
         "scope": "portfolio",

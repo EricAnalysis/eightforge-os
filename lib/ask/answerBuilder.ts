@@ -26,6 +26,7 @@ import { ASK_PROJECT_SYSTEM_PROMPT_VERSION } from '@/lib/ask/canonicalPrompts';
 import { guardProjectRead } from '@/lib/ask/canonicalReadGuard';
 import { detectUpstreamGap } from '@/lib/ask/upstreamGapDetector';
 import { selectProjectAnswer } from '@/lib/ask/selectors';
+import { classifyQueryIntent, type RouterResult } from '@/lib/ask/router/intentRouter';
 
 const CEILING_FIELD_KEYS = new Set(['contract_ceiling', 'nte_amount']);
 const BILLED_FIELD_KEYS = new Set([
@@ -36,6 +37,47 @@ const BILLED_FIELD_KEYS = new Set([
   'total_billed',
 ]);
 const CONTRACTOR_FIELD_KEYS = new Set(['contractor_name', 'vendor_name']);
+
+function buildProjectClarificationResponse(params: {
+  question: ClassifiedQuestion;
+  routerResult: Extract<RouterResult, { intent: 'ambiguous' }>;
+  projectId: string;
+  orgId: string;
+  retrievalUsed: RetrievalResult['rawData']['matchedLayer'];
+  handoffContext?: PortfolioHandoffContext;
+}): AskResponse {
+  return {
+    answer: params.routerResult.clarificationPrompt,
+    confidence: 'low',
+    confidenceScore: 35,
+    sources: [],
+    reasoning: 'Deterministic Ask router returned an ambiguous intent and did not dispatch to a selector.',
+    intent: params.question.intent,
+    retrievalUsed: params.retrievalUsed ?? 'documents',
+    originalQuestion: params.question.originalQuestion,
+    projectId: params.projectId,
+    orgId: params.orgId,
+    createdAt: new Date().toISOString(),
+    promptVersion: ASK_PROJECT_SYSTEM_PROMPT_VERSION,
+    validationState: 'Requires Review',
+    gateImpact: 'No approval, execution, or truth state was changed.',
+    nextAction: 'No action required',
+    sections: {
+      answer: params.routerResult.clarificationPrompt,
+      confidenceState: 'Requires Review',
+      evidence: [],
+      validatorFindings: [],
+      validationState: 'Requires Review',
+      blockerCount: 0,
+      warningCount: 0,
+      gateImpact: 'No approval, execution, or truth state was changed.',
+      nextAction: 'No action required',
+      upstreamGap: null,
+      handoffContext: params.handoffContext,
+    },
+    handoffContext: params.handoffContext,
+  };
+}
 
 function confidenceToScore(confidence: AskConfidence): number {
   switch (confidence) {
@@ -933,12 +975,24 @@ export function buildAskResponse(params: {
   let answer = '';
   let sources: Source[] = [];
   let limitations: string[] = [];
+  const routerResult = classifyQueryIntent(params.question.originalQuestion, 'project');
+  if (routerResult.intent === 'ambiguous') {
+    return buildProjectClarificationResponse({
+      question: params.question,
+      routerResult,
+      projectId: params.projectId,
+      orgId: params.orgId,
+      retrievalUsed: matchedLayer,
+      handoffContext: params.handoffContext,
+    });
+  }
+
   const selectorAnswer = selectProjectAnswer({
     question: params.question,
     retrieval: params.retrieval,
     project: params.project,
     projectId: params.projectId,
-  });
+  }, routerResult.intent);
 
   if (selectorAnswer?.value && selectorAnswer.sourceId) {
     answer = selectorAnswer.value;

@@ -15,6 +15,8 @@ import type { AskResponse, ValidationStateLabel } from '@/lib/ask/types';
 import type { AskAnswerContract, PortfolioSignalState } from '@/lib/ask/globalCommand';
 import type { CanonicalReadLayer } from '@/lib/ask/canonicalReadGuard';
 import type { UpstreamGap } from '@/lib/ask/upstreamGapDetector';
+import { classifyQueryIntent } from '@/lib/ask/router/intentRouter';
+import type { IntentGroup } from '@/lib/ask/router/intentClassificationMap';
 
 config({ path: '.env.local' });
 config();
@@ -62,6 +64,8 @@ type DiagnosticRecord = {
   validatorFindingsSurfaced: string[];
   upstreamGap: string | 'no';
   conflict: string | 'no';
+  routedIntent: IntentGroup | 'ambiguous' | 'none';
+  routerConfidence: string | null;
   pass: boolean;
   criteria: Record<string, boolean>;
   rawResponse: unknown;
@@ -258,6 +262,77 @@ const MATRIX_PROBE_CONTRACTS: Record<string, { concept: RegExp[]; evidenceRequir
   'CM-054': { concept: [/stale/i, /validation snapshot|project/i], evidenceRequirement: [/project/i, /stale/i, /validation timestamp|stale label|source/i] },
 };
 
+const ROUTER_INTENT_BY_MATRIX: Record<string, IntentGroup> = {
+  'CM-001': 'approval_execution_state',
+  'CM-002': 'approval_execution_state',
+  'CM-003': 'approval_execution_state',
+  'CM-005': 'approval_execution_state',
+  'CM-010': 'approval_execution_state',
+  'CM-039': 'approval_execution_state',
+  'CM-040': 'approval_execution_state',
+  'CM-043': 'approval_execution_state',
+  'CM-006': 'invoice_support',
+  'CM-007': 'invoice_support',
+  'CM-008': 'invoice_support',
+  'CM-009': 'invoice_support',
+  'CM-022': 'invoice_support',
+  'CM-025': 'invoice_support',
+  'CM-026': 'invoice_support',
+  'CM-011': 'ticket_validation',
+  'CM-013': 'ticket_validation',
+  'CM-014': 'ticket_validation',
+  'CM-017': 'ticket_validation',
+  'CM-018': 'contract_authority',
+  'CM-019': 'contract_authority',
+  'CM-020': 'contract_authority',
+  'CM-021': 'contract_authority',
+  'CM-023': 'contract_authority',
+  'CM-028': 'contract_authority',
+  'CM-029': 'contract_authority',
+  'CM-030': 'contract_authority',
+  'CM-031': 'contract_authority',
+  'CM-033': 'contract_authority',
+  'CM-034': 'review_audit_state',
+  'CM-035': 'review_audit_state',
+  'CM-036': 'review_audit_state',
+  'CM-037': 'review_audit_state',
+  'CM-038': 'review_audit_state',
+  'CM-041': 'review_audit_state',
+  'CM-042': 'review_audit_state',
+  'CM-049': 'portfolio_project_status',
+  'CM-050': 'portfolio_project_status',
+  'CM-051': 'portfolio_project_status',
+  'CM-052': 'portfolio_project_status',
+  'CM-053': 'portfolio_project_status',
+  'CM-054': 'portfolio_project_status',
+  'CM-056': 'portfolio_project_status',
+};
+
+const ROUTER_INTENT_BY_BASELINE_QUERY_ID: Record<number, IntentGroup> = {
+  1: 'approval_execution_state',
+  2: 'invoice_support',
+  3: 'approval_execution_state',
+  4: 'invoice_support',
+  5: 'invoice_support',
+  6: 'invoice_support',
+  7: 'review_audit_state',
+  8: 'contract_authority',
+  9: 'contract_authority',
+  10: 'contract_authority',
+  11: 'contract_authority',
+  12: 'contract_authority',
+  13: 'contract_authority',
+  14: 'contract_authority',
+  15: 'contract_authority',
+  16: 'contract_authority',
+  17: 'portfolio_project_status',
+  18: 'portfolio_project_status',
+  19: 'portfolio_project_status',
+  20: 'portfolio_project_status',
+  21: 'portfolio_project_status',
+  22: 'portfolio_project_status',
+};
+
 const ALLOWED_VALIDATION_STATES = new Set<ValidationStateLabel>([
   'Confirmed',
   'Approved',
@@ -300,6 +375,33 @@ function sourceId(source: {
   source?: string;
 }): string {
   return source.factId ?? source.anchorId ?? source.documentId ?? source.href ?? source.source ?? source.label ?? 'unknown';
+}
+
+function expectedRouterIntent(query: DiagnosticQuery): IntentGroup | null {
+  if (query.matrixId) return ROUTER_INTENT_BY_MATRIX[query.matrixId] ?? null;
+  return ROUTER_INTENT_BY_BASELINE_QUERY_ID[query.id] ?? null;
+}
+
+function routeMatchesExpected(query: DiagnosticQuery): {
+  routedIntent: IntentGroup | 'ambiguous' | 'none';
+  routerConfidence: string | null;
+  passed: boolean;
+} {
+  const expected = expectedRouterIntent(query);
+  if (!expected) {
+    return {
+      routedIntent: 'none',
+      routerConfidence: null,
+      passed: true,
+    };
+  }
+
+  const result = classifyQueryIntent(query.text, query.scope);
+  return {
+    routedIntent: result.intent,
+    routerConfidence: result.confidence,
+    passed: result.intent === expected && String(result.confidence) !== 'low',
+  };
 }
 
 function normalizeProjectValidationState(response: AskResponse): string | null {
@@ -438,6 +540,7 @@ function projectDiagnosticRecord(query: DiagnosticQuery, response: AskResponse):
   const sourceNamed = sourceNames.length > 0 ? sourceNames.join(', ') : 'none';
   const validationState = normalizeProjectValidationState(response);
   const fallbackUsed = hasRawExtractionFallback(response);
+  const routeCheck = routeMatchesExpected(query);
   const matrixExtraText = [
     response.sections?.validationState,
     response.sections?.gateImpact,
@@ -483,6 +586,7 @@ function projectDiagnosticRecord(query: DiagnosticQuery, response: AskResponse):
       evidenceSources,
       extraText: matrixExtraText,
     }),
+    matrixRouted: routeCheck.passed,
   };
 
   const record: DiagnosticRecord = {
@@ -505,6 +609,8 @@ function projectDiagnosticRecord(query: DiagnosticQuery, response: AskResponse):
     validatorFindingsSurfaced: response.sections?.validatorFindings.map((finding) => finding.label) ?? [],
     upstreamGap: gapDescription(upstreamGap),
     conflict: response.conflict ? JSON.stringify(response.conflict) : 'no',
+    routedIntent: routeCheck.routedIntent,
+    routerConfidence: routeCheck.routerConfidence,
     pass: false,
     criteria,
     rawResponse: response,
@@ -525,6 +631,7 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
   const hasStaleProject = response.portfolioSections?.projectsAffected.some((project) => project.isStale) ?? false;
   const sourceNamed = response.sources?.join(', ') || 'none';
   const portfolioGap = !response.dataFound;
+  const routeCheck = routeMatchesExpected(query);
   const matrixExtraText = [
     response.portfolioSignalState,
     response.gateImpact,
@@ -575,6 +682,7 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
       evidenceSources,
       extraText: matrixExtraText,
     }),
+    matrixRouted: routeCheck.passed,
   };
 
   const record: DiagnosticRecord = {
@@ -597,6 +705,8 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
     validatorFindingsSurfaced: [],
     upstreamGap: response.dataFound ? 'no' : 'portfolio aggregate unavailable',
     conflict: 'no',
+    routedIntent: routeCheck.routedIntent,
+    routerConfidence: routeCheck.routerConfidence,
     pass: false,
     criteria,
     rawResponse: response,
@@ -607,6 +717,7 @@ function portfolioDiagnosticRecord(query: DiagnosticQuery, response: AskAnswerCo
 }
 
 function gapTypeForFailure(key: string, record: DiagnosticRecord): ConfirmedGap['gapType'] {
+  if (key.includes('matrixRouted')) return 'other';
   if (key.includes('matrixSourced') || key.includes('matrixEvidenceAdequate')) return 'evidence_anchor_missing';
   if (key.includes('matrixSpecific')) return 'canonical_field_absent';
   if (record.scope === 'portfolio') return 'portfolio_summary_absent';
@@ -656,6 +767,8 @@ function buildConfirmedGaps(records: DiagnosticRecord[]): ConfirmedGap[] {
           ? `${record.matrixId ?? 'matrix'}: response has neither a named source nor a surfaced upstream gap`
         : criteriaKey === 'matrixEvidenceAdequate'
           ? `${record.matrixId ?? 'matrix'}: response does not satisfy the matrix Evidence Requirement`
+        : criteriaKey === 'matrixRouted'
+          ? `${record.matrixId ?? `query-${record.queryId}`}: deterministic router returned ${record.routedIntent} (${record.routerConfidence ?? 'no confidence'})`
         : record.upstreamGap !== 'no'
           ? record.upstreamGap
           : criteriaKey;

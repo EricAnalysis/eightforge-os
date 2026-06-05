@@ -20,6 +20,7 @@ import type { PortfolioOverview } from '@/lib/server/portfolioCommandCenter';
 import type { OperationalQueueModel } from '@/lib/server/operationalQueue';
 import type { PortfolioStalenessState } from '@/lib/ask/portfolioStalenessCheck';
 import type { PortfolioProjectStatusAggregate } from '@/lib/ask/portfolioProjectStatusAggregate';
+import type { IntentGroup } from '@/lib/ask/router/intentClassificationMap';
 import { selectProjectApprovalExecutionState } from './projectApprovalExecutionState';
 import { selectProjectInvoiceSupport } from './projectInvoiceSupport';
 import { selectProjectTicketValidation } from './projectTicketValidation';
@@ -73,68 +74,19 @@ export { selectProjectContractAuthority } from './projectContractAuthority';
 export { selectProjectReviewAuditState } from './projectReviewAuditState';
 export { selectPortfolioProjectStatus } from './portfolioProjectStatus';
 
-export function selectProjectAnswer(params: ProjectSelectorParams): SelectorAnswer | null {
-  const text = params.question.originalQuestion.toLowerCase();
-
-  if (
-    text.includes('ready for invoice approval') ||
-    text.includes('preventing approval') ||
-    text.includes('next best action') ||
-    text.includes('open tickets') ||
-    text.includes('approved with exceptions') ||
-    text.includes('execution items') ||
-    text.includes('action before approval') ||
-    text.includes('blocking payment release')
-  ) {
-    return selectProjectApprovalExecutionState(params);
+export function selectProjectAnswer(params: ProjectSelectorParams, intentGroup: IntentGroup): SelectorAnswer | null {
+  switch (intentGroup) {
+    case 'approval_execution_state':
+      return selectProjectApprovalExecutionState(params);
+    case 'invoice_support':
+      return selectProjectInvoiceSupport(params);
+    case 'ticket_validation':
+      return selectProjectTicketValidation(params);
+    case 'contract_authority':
+      return selectProjectContractAuthority(params);
+    case 'review_audit_state':
+      return selectProjectReviewAuditState(params);
+    case 'portfolio_project_status':
+      return null;
   }
-
-  if (
-    text.includes('invoice amounts') ||
-    text.includes('invoice exposure') ||
-    text.includes('correct contract rates') ||
-    text.includes('missing from the contract rate table') ||
-    text.includes('contract ceiling')
-  ) {
-    return selectProjectInvoiceSupport(params);
-  }
-
-  if (
-    text.includes('tickets need correction') ||
-    text.includes('tickets have missing') ||
-    text.includes('rate-code mismatches') ||
-    text.includes('unresolved by reviewer')
-  ) {
-    return selectProjectTicketValidation(params);
-  }
-
-  if (
-    text.includes('governing') ||
-    text.includes('rate schedule') ||
-    text.includes('replace an older') ||
-    text.includes('conflicting facts') ||
-    text.includes('tipping fees') ||
-    text.includes('documentation is required') ||
-    text.includes('monitoring required') ||
-    text.includes('gps') ||
-    text.includes('private property') ||
-    text.includes('no-guaranteed-quantity') ||
-    text.includes('funding-contingency')
-  ) {
-    return selectProjectContractAuthority(params);
-  }
-
-  if (
-    text.includes('documents still need review') ||
-    text.includes('marked reviewed') ||
-    text.includes('manually confirmed') ||
-    text.includes('overridden by a human') ||
-    text.includes('inspect first') ||
-    text.includes('findings were overridden') ||
-    text.includes('changed since the last review')
-  ) {
-    return selectProjectReviewAuditState(params);
-  }
-
-  return null;
 }

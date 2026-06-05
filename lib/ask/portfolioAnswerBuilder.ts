@@ -12,6 +12,7 @@ import type { OperationalQueueModel } from '@/lib/server/operationalQueue';
 import type { PortfolioStalenessState } from '@/lib/ask/portfolioStalenessCheck';
 import { selectPortfolioProjectStatus } from '@/lib/ask/selectors';
 import { buildPortfolioProjectStatusAggregate } from '@/lib/ask/portfolioProjectStatusAggregate';
+import { classifyQueryIntent, type RouterResult } from '@/lib/ask/router/intentRouter';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -72,6 +73,30 @@ function portfolioSignalStateFromAggregate(portfolio: PortfolioOverview): Portfo
   return 'Portfolio Ready';
 }
 
+function buildPortfolioClarificationAnswer(params: {
+  question: string;
+  promptVersion: string;
+  routerResult: Extract<RouterResult, { intent: 'ambiguous' }>;
+}): AskAnswerContract {
+  return {
+    scope: 'portfolio',
+    question: params.question,
+    answer: params.routerResult.clarificationPrompt,
+    evidence: [],
+    sources: ['Deterministic Ask intent router'],
+    checkedSources: ['intent classification map'],
+    nextActions: [{ label: 'No action required' }],
+    availability: 'available',
+    dataFound: false,
+    generatedBy: 'safe_fallback',
+    promptVersion: params.promptVersion,
+    validationState: 'Requires Review',
+    portfolioSignalState: 'No Verified Data',
+    gateImpact: 'No approval, execution, or truth state was changed.',
+    recommendedAction: 'No action required',
+  };
+}
+
 export function buildPortfolioAskAnswer(params: {
   question: string;
   portfolio: PortfolioOverview;
@@ -79,6 +104,15 @@ export function buildPortfolioAskAnswer(params: {
   stalenessByProjectId: Map<string, PortfolioStalenessState>;
   promptVersion: string;
 }): AskAnswerContract {
+  const routerResult = classifyQueryIntent(params.question, 'portfolio');
+  if (routerResult.intent === 'ambiguous') {
+    return buildPortfolioClarificationAnswer({
+      question: params.question,
+      promptVersion: params.promptVersion,
+      routerResult,
+    });
+  }
+
   const metricsByProjectId = new Map(params.portfolio.topRiskProjects.map((project) => [project.projectId, project] as const));
   const signals = params.operations.project_rollups.map((item, index): PortfolioProjectSignal => {
     const metrics = metricsByProjectId.get(item.project.id);

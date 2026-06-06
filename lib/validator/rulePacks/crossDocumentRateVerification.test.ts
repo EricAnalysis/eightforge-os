@@ -54,6 +54,7 @@ function buildInput(params: {
   invoiceLines: Array<Record<string, unknown>>;
   mobileTickets?: Array<Record<string, unknown>>;
   loadTickets?: Array<Record<string, unknown>>;
+  transactionRows?: Array<Record<string, unknown>>;
 }): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: 'project-1',
@@ -128,6 +129,34 @@ function buildInput(params: {
     projectTotals,
     factLookups,
     contractValidationContext: null,
+    transactionData: params.transactionRows
+      ? {
+        datasets: [],
+        rows: params.transactionRows.map((row, index) => ({
+          id: String(row.id ?? `txn-${index + 1}`),
+          document_id: String(row.document_id ?? SUPPORT_DOCUMENT_ID),
+          project_id: 'project-1',
+          invoice_number: row.invoice_number != null ? String(row.invoice_number) : null,
+          transaction_number: row.transaction_number != null ? String(row.transaction_number) : null,
+          rate_code: row.rate_code != null ? String(row.rate_code) : null,
+          billing_rate_key: row.billing_rate_key != null ? String(row.billing_rate_key) : null,
+          description_match_key: row.description_match_key != null ? String(row.description_match_key) : null,
+          site_material_key: row.site_material_key != null ? String(row.site_material_key) : null,
+          invoice_rate_key: row.invoice_rate_key != null ? String(row.invoice_rate_key) : null,
+          transaction_quantity: Number(row.transaction_quantity ?? 0),
+          extended_cost: Number(row.extended_cost ?? 0),
+          invoice_date: row.invoice_date != null ? String(row.invoice_date) : null,
+          source_sheet_name: row.source_sheet_name != null ? String(row.source_sheet_name) : 'ticket_query',
+          source_row_number: Number(row.source_row_number ?? index + 2),
+          record_json: (row.record_json as Record<string, unknown> | undefined) ?? {
+            material: row.material ?? null,
+            service_item: row.service_item ?? null,
+          },
+          raw_row_json: (row.raw_row_json as Record<string, unknown> | undefined) ?? {},
+          created_at: String(row.created_at ?? '2026-04-01T00:00:00.000Z'),
+        })),
+      }
+      : undefined,
   };
 }
 
@@ -288,7 +317,7 @@ describe('cross document rate verification', () => {
     assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS');
   });
 
-  it('keeps operational fallback candidates available so rate mismatches remain blockers', () => {
+  it('does not use an operational fallback row when the invoice rate differs from contract truth', () => {
     const input = buildInput({
       rateScheduleItems: [
         makeRateItem({
@@ -321,12 +350,12 @@ describe('cross document rate verification', () => {
 
     const result = evaluateCrossDocumentRateVerification(input);
 
-    assert.equal(result.summary.rate_mismatch_units, 1);
-    assert.equal(result.summary.missing_contract_rate_units, 0);
-    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_RATE_MATCHES_CONTRACT');
+    assert.equal(result.summary.rate_mismatch_units, 0);
+    assert.equal(result.summary.missing_contract_rate_units, 1);
+    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS');
   });
 
-  it('detects invoice rate mismatches against contract truth while mobile unit support maps by service item', () => {
+  it('does not clear contract-rate existence when the invoice rate differs from a same-description row', () => {
     const input = buildInput({
       rateScheduleItems: [
         makeRateItem({
@@ -357,9 +386,51 @@ describe('cross document rate verification', () => {
 
     const result = evaluateCrossDocumentRateVerification(input);
 
-    assert.equal(result.summary.rate_mismatch_units, 1);
+    assert.equal(result.summary.rate_mismatch_units, 0);
+    assert.equal(result.summary.missing_contract_rate_units, 1);
     assert.equal(result.summary.validation_units[0]?.support_families[0], 'mobile_unit_ticket');
-    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_RATE_MATCHES_CONTRACT');
+    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS');
+  });
+
+  it('does not create category mismatch when support confirms line category and contract rate aligns', () => {
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:2b',
+          rateCode: '2B',
+          description: 'Grinding and Chipping Vegetative Debris',
+          sourceCategory: 'Management & Reduction',
+          rate: 2.25,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'line:2b',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-003',
+        rate_code: '2B',
+        description: 'Management Reduction Grinding Chipping Vegetative Debris',
+        unit_price: 2.25,
+        quantity: 100,
+        line_total: 225,
+      }],
+      transactionRows: [{
+        id: 'txn:veg-2b',
+        document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-003',
+        rate_code: '2B',
+        billing_rate_key: '2B',
+        invoice_rate_key: '2026003::2B',
+        material: 'Vegetative',
+        transaction_quantity: 10,
+        extended_cost: 100,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.summary.category_mismatch_units, 0);
+    assert.equal(result.findings.some((finding) => finding.rule_id === 'CROSS_DOCUMENT_CANONICAL_CATEGORY_ALIGNS'), false);
+    assert.equal(result.summary.matched_units, 1);
   });
 
   it('detects category mismatch when invoice category and ticket support category differ', () => {
@@ -367,6 +438,7 @@ describe('cross document rate verification', () => {
       rateScheduleItems: [
         makeRateItem({
           recordId: 'rate:veg-haul',
+          rateCode: '1A',
           description: 'Vegetative haul line',
           sourceCategory: 'Vegetative',
           rate: 6.9,
@@ -376,6 +448,7 @@ describe('cross document rate verification', () => {
         id: 'line:veg-haul',
         source_document_id: INVOICE_DOCUMENT_ID,
         invoice_number: 'INV-003',
+        rate_code: '1A',
         description: 'Vegetative haul line',
         unit_price: 6.9,
         quantity: 2,
@@ -385,6 +458,7 @@ describe('cross document rate verification', () => {
         id: 'mobile:cd',
         source_document_id: SUPPORT_DOCUMENT_ID,
         invoice_number: 'INV-003',
+        rate_code: '1A',
         material: 'C&D',
         quantity_cyd: 2,
       }],

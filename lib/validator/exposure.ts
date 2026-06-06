@@ -2,6 +2,7 @@ import {
   deriveBillingKeysForInvoiceLine,
   deriveBillingKeysForTransactionRecord,
   deriveInvoiceRateKey,
+  matchTransactionRowsForInvoiceGroup,
   normalizeInvoiceNumber,
 } from '@/lib/validator/billingKeys';
 import {
@@ -115,14 +116,6 @@ const PROJECT_EXPOSURE_AT_RISK_RULE_ID = 'PROJECT_EXPOSURE_AT_RISK_AMOUNT_ZERO';
 const INVOICE_EXPOSURE_SUPPORTED_RULE_ID = 'INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED';
 const INVOICE_EXPOSURE_AT_RISK_RULE_ID = 'INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO';
 const INVOICE_BILLED_TOTAL_PRESENT_RULE_ID = 'INVOICE_BILLED_TOTAL_PRESENT_FOR_EXPOSURE';
-
-const EXPOSURE_RULE_IDS = new Set([
-  PROJECT_EXPOSURE_SUPPORTED_RULE_ID,
-  PROJECT_EXPOSURE_AT_RISK_RULE_ID,
-  INVOICE_EXPOSURE_SUPPORTED_RULE_ID,
-  INVOICE_EXPOSURE_AT_RISK_RULE_ID,
-  INVOICE_BILLED_TOTAL_PRESENT_RULE_ID,
-]);
 
 type InvoiceLookup = {
   byDocumentId: Map<string, string>;
@@ -501,6 +494,8 @@ export function evaluateProjectExposure(
   input: ProjectValidatorInput,
   findings: readonly ValidatorFindingResult[],
 ): ExposureAssessment {
+  void findings;
+
   const contractRateTolerance = resolveRuleTolerance(
     input.ruleStateByRuleId,
     'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE',
@@ -562,8 +557,6 @@ export function evaluateProjectExposure(
 
   const lineContexts = new Map<string, LineContext>();
   const groupContexts = new Map<string, GroupContext>();
-  const groupSubjectIndex = new Map<string, string[]>();
-  const billingRateIndex = new Map<string, string[]>();
 
   for (let index = 0; index < input.invoiceLines.length; index += 1) {
     const row = input.invoiceLines[index]!;
@@ -669,18 +662,6 @@ export function evaluateProjectExposure(
     }
     groupContexts.set(internalGroupKey, existingGroup);
 
-    const subjectEntries = groupSubjectIndex.get(groupSubjectId) ?? [];
-    if (!subjectEntries.includes(internalGroupKey)) {
-      subjectEntries.push(internalGroupKey);
-      groupSubjectIndex.set(groupSubjectId, subjectEntries);
-    }
-    if (keys.billing_rate_key) {
-      const billingEntries = billingRateIndex.get(keys.billing_rate_key) ?? [];
-      if (!billingEntries.includes(internalGroupKey)) {
-        billingEntries.push(internalGroupKey);
-        billingRateIndex.set(keys.billing_rate_key, billingEntries);
-      }
-    }
   }
 
   for (const invoice of invoiceContexts.values()) {
@@ -744,13 +725,17 @@ export function evaluateProjectExposure(
         }),
       ),
     );
-    const matchedRows =
-      (group.invoice_rate_key
-        ? transactionByInvoiceRateKey.get(group.invoice_rate_key) ?? []
-        : group.billing_rate_key
-          ? transactionByBillingRateKey.get(group.billing_rate_key) ?? []
-          : [])
-        .filter((row) => row.meaningful_data);
+    const matchedRows = matchTransactionRowsForInvoiceGroup(
+      {
+        invoice_rate_key: group.invoice_rate_key,
+        billing_rate_key: group.billing_rate_key,
+        normalized_invoice_number: group.normalized_invoice_number,
+      },
+      {
+        byInvoiceRateKey: transactionByInvoiceRateKey,
+        byBillingRateKey: transactionByBillingRateKey,
+      },
+    );
     if (matchedRows.length === 0 || !(group.amount > 0)) {
       group.transaction_supported = false;
       group.contract_supported_amount = contractSupportedAmount;
@@ -785,105 +770,8 @@ export function evaluateProjectExposure(
     );
   }
 
-  const wholeInvoiceAtRisk = new Set<string>();
-  const atRiskLineIds = new Set<string>();
-
-  function markInvoiceByKey(invoiceKey: string | null | undefined) {
-    if (!invoiceKey) return;
-    if (invoiceContexts.has(invoiceKey)) {
-      wholeInvoiceAtRisk.add(invoiceKey);
-    }
-  }
-
-  function markInvoiceByAlias(alias: string | null | undefined) {
-    if (!alias) return;
-    const invoiceKey =
-      invoiceAliasMap.get(alias)
-      ?? invoiceAliasMap.get(normalizeInvoiceNumber(alias) ?? '');
-    if (invoiceKey) {
-      markInvoiceByKey(invoiceKey);
-    }
-  }
-
-  function markLine(lineId: string | null | undefined) {
-    if (!lineId || !lineContexts.has(lineId)) return;
-    atRiskLineIds.add(lineId);
-  }
-
-  function markGroupByInternalKey(internalKey: string | null | undefined) {
-    if (!internalKey) return;
-    const group = groupContexts.get(internalKey);
-    if (!group) return;
-    for (const lineId of group.line_ids) {
-      atRiskLineIds.add(lineId);
-    }
-  }
-
-  function markGroupBySubjectId(subjectId: string | null | undefined) {
-    if (!subjectId) return;
-    for (const internalKey of groupSubjectIndex.get(subjectId) ?? []) {
-      markGroupByInternalKey(internalKey);
-    }
-  }
-
-  for (const finding of findings) {
-    if (
-      finding.status !== 'open'
-      || finding.severity === 'info'
-      || EXPOSURE_RULE_IDS.has(finding.rule_id)
-    ) {
-      continue;
-    }
-
-    switch (finding.subject_type) {
-      case 'invoice':
-        markInvoiceByAlias(finding.subject_id);
-        break;
-      case 'invoice_line':
-        markLine(finding.subject_id);
-        break;
-      case 'invoice_rate_group':
-        markGroupBySubjectId(finding.subject_id);
-        break;
-      case 'transaction_row': {
-        const row = canonicalTransactionRows.get(finding.subject_id);
-        if (!row) break;
-
-        if (row.invoice_rate_key) {
-          markGroupBySubjectId(row.invoice_rate_key);
-          break;
-        }
-
-        if (row.invoice_number && row.billing_rate_key) {
-          const scopedGroupId = deriveInvoiceRateKey(row.invoice_number, row.billing_rate_key);
-          if (scopedGroupId) {
-            markGroupBySubjectId(scopedGroupId);
-          }
-        }
-        break;
-      }
-      case 'transaction_group':
-        markGroupBySubjectId(finding.subject_id);
-        for (const evidence of finding.evidence) {
-          if (evidence.evidence_type !== 'grouping_key') continue;
-          if (typeof evidence.record_id === 'string') {
-            markGroupBySubjectId(evidence.record_id);
-            for (const internalKey of billingRateIndex.get(evidence.record_id) ?? []) {
-              markGroupByInternalKey(internalKey);
-            }
-          }
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
   const invoiceSummaries: InvoiceExposureSummary[] = [...invoiceContexts.values()]
     .map((invoice) => {
-      const invoiceLines = [...invoice.line_ids]
-        .map((lineId) => lineContexts.get(lineId))
-        .filter((line): line is LineContext => line != null);
       const invoiceGroups = [...invoice.group_internal_keys]
         .map((groupKey) => groupContexts.get(groupKey))
         .filter((group): group is GroupContext => group != null);
@@ -908,22 +796,11 @@ export function evaluateProjectExposure(
         invoice.billed_amount != null
           ? Math.min(invoice.billed_amount, fullyReconciledAmount)
           : fullyReconciledAmount;
-      const invoiceAtRiskAmount =
-        wholeInvoiceAtRisk.has(invoice.invoice_key)
-          ? roundCurrency(invoice.billed_amount ?? invoice.line_total_sum)
-          : roundCurrency(sumNumbers(
-            invoiceLines
-              .filter((line) => atRiskLineIds.has(line.line_id) && line.line_total != null)
-              .map((line) => line.line_total as number),
-          ));
-      const cappedAtRiskAmount =
-        invoice.billed_amount != null
-          ? Math.min(invoice.billed_amount, invoiceAtRiskAmount)
-          : invoiceAtRiskAmount;
       const unreconciledAmount =
         invoice.billed_amount != null
           ? roundCurrency(Math.max(0, invoice.billed_amount - cappedFullyReconciled))
           : null;
+      const atRiskAmount = unreconciledAmount ?? 0;
 
       return {
         invoice_number: invoice.invoice_number,
@@ -934,12 +811,12 @@ export function evaluateProjectExposure(
         fully_reconciled_amount: roundCurrency(cappedFullyReconciled),
         supported_amount: roundCurrency(cappedFullyReconciled),
         unreconciled_amount: unreconciledAmount,
-        at_risk_amount: roundCurrency(cappedAtRiskAmount),
-        requires_verification_amount: roundCurrency(cappedAtRiskAmount),
+        at_risk_amount: roundCurrency(atRiskAmount),
+        requires_verification_amount: roundCurrency(atRiskAmount),
         reconciliation_status: statusForInvoiceExposure({
           billedAmount: invoice.billed_amount,
           supportedAmount: cappedFullyReconciled,
-          atRiskAmount: cappedAtRiskAmount,
+          atRiskAmount,
           supportGapTolerance,
           atRiskTolerance,
         }),
@@ -1080,7 +957,14 @@ export function evaluateProjectExposure(
     }
 
     if (invoiceSummary.at_risk_amount > atRiskTolerance) {
-      const riskLines = invoiceLines.filter((line) => atRiskLineIds.has(line.line_id));
+      const riskGroupKeys = new Set(
+        [...invoiceContext?.group_internal_keys ?? []].filter((groupKey) => {
+          const group = groupContexts.get(groupKey);
+          if (!group) return false;
+          return roundCurrency(Math.max(0, group.amount - group.fully_reconciled_amount)) > atRiskTolerance;
+        }),
+      );
+      const riskLines = invoiceLines.filter((line) => riskGroupKeys.has(line.internal_group_key));
       exposureFindings.push(
         makeFinding({
           projectId: input.project.id,
@@ -1098,14 +982,14 @@ export function evaluateProjectExposure(
             ...invoiceRowEvidence(invoiceContext),
             ...lineEvidence(
               riskLines,
-              'This invoice line is tied to at-risk billed dollars through open critical or warning findings.',
+              'This invoice line contributes to financially at-risk billed dollars that are not fully reconciled.',
             ),
             makeEvidenceInput({
               evidence_type: 'summary',
               record_id: invoiceSummary.invoice_number ?? invoiceContext?.invoice_key ?? 'unknown_invoice',
               field_name: 'at_risk_amount',
               field_value: invoiceSummary.at_risk_amount,
-              note: 'At-risk dollars are derived from open critical or warning findings, with warning treated as moderate severity.',
+              note: 'At-risk dollars are derived from unreconciled billed dollars, not diagnostic warning presence.',
             }),
           ],
         }),
@@ -1168,7 +1052,7 @@ export function evaluateProjectExposure(
             record_id: input.project.id,
             field_name: 'total_at_risk_amount',
             field_value: summary.total_at_risk_amount,
-            note: 'Project at-risk dollars aggregate invoice dollars tied to open critical or warning findings.',
+            note: 'Project at-risk dollars aggregate unreconciled invoice dollars.',
           }),
         ],
       }),

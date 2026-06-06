@@ -1,222 +1,99 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
-import { buildDocumentPrecedenceSnapshotFingerprint } from '@/lib/validator/triggerProjectValidation';
+import {
+  buildValidationInputsSnapshotHash,
+  shouldSkipUnchangedValidationInputs,
+} from '@/lib/validator/triggerProjectValidation';
 
-describe('buildDocumentPrecedenceSnapshotFingerprint', () => {
-  it('changes when governing document order changes without any row-count change', () => {
-    const baseline = buildDocumentPrecedenceSnapshotFingerprint({
-      documents: [],
-      relationships: [],
-      families: [{
-        family: 'contract',
-        label: 'Contract',
-        governing_document_id: 'doc-a',
-        governing_reason: 'operator_override',
-        governing_reason_detail: 'Manual order',
-        has_operator_override: true,
-        considered_document_ids: ['doc-a', 'doc-b'],
-        documents: [
-          {
-            id: 'doc-a',
-            project_id: 'project-1',
-            title: 'Base Contract',
-            name: 'base-contract.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-20T00:00:00Z',
-            document_role: 'base_contract',
-            document_subtype: 'base_contract',
-            authority_status: 'active',
-            effective_date: '2026-04-01',
-            precedence_rank: 0,
-            operator_override_precedence: true,
-            family: 'contract',
-            resolved_role: 'base_contract',
-            resolved_subtype: 'base_contract',
-            resolved_order: 0,
-            is_governing: true,
-            governing_document_id: 'doc-a',
-            governing_reason: 'operator_override',
-            governing_reason_detail: 'Manual order',
-            considered_document_ids: ['doc-a', 'doc-b'],
-            relationship_summary: [],
+describe('validation trigger input fingerprint', () => {
+  it('changes when a contract reprocess updates persisted contract rate rows', () => {
+    const before = buildValidationInputsSnapshotHash({
+      ticketCount: 10,
+      factCount: 5,
+      precedenceFingerprint: 'precedence-1',
+      validationPhase: 'billing_review',
+      documentSnapshots: [
+        {
+          id: 'contract-doc',
+          processed_at: '2026-05-26T14:38:00.000Z',
+          intelligence_trace: {
+            contract_analysis: {
+              pricing_model: {
+                rate_schedule_present: { value: true },
+              },
+              rate_schedule_rows: [
+                {
+                  row_id: 'exhibit_a_table:row-1a',
+                  description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+                  unit: 'Cubic Yard',
+                  rate: 19.8,
+                  page: 8,
+                  source_kind: 'exhibit_a_table',
+                },
+              ],
+            },
           },
-          {
-            id: 'doc-b',
-            project_id: 'project-1',
-            title: 'Contract Amendment',
-            name: 'contract-amendment.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-21T00:00:00Z',
-            document_role: 'contract_amendment',
-            document_subtype: 'amendment',
-            authority_status: 'active',
-            effective_date: '2026-04-15',
-            precedence_rank: 1,
-            operator_override_precedence: true,
-            family: 'contract',
-            resolved_role: 'contract_amendment',
-            resolved_subtype: 'amendment',
-            resolved_order: 1,
-            is_governing: false,
-            governing_document_id: 'doc-a',
-            governing_reason: 'operator_override',
-            governing_reason_detail: 'Manual order',
-            considered_document_ids: ['doc-a', 'doc-b'],
-            relationship_summary: [],
-          },
-        ],
-      }],
+        },
+      ],
     });
 
-    const reordered = buildDocumentPrecedenceSnapshotFingerprint({
-      documents: [],
-      relationships: [],
-      families: [{
-        family: 'contract',
-        label: 'Contract',
-        governing_document_id: 'doc-b',
-        governing_reason: 'operator_override',
-        governing_reason_detail: 'Manual order',
-        has_operator_override: true,
-        considered_document_ids: ['doc-a', 'doc-b'],
-        documents: [
-          {
-            id: 'doc-b',
-            project_id: 'project-1',
-            title: 'Contract Amendment',
-            name: 'contract-amendment.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-21T00:00:00Z',
-            document_role: 'contract_amendment',
-            document_subtype: 'amendment',
-            authority_status: 'active',
-            effective_date: '2026-04-15',
-            precedence_rank: 0,
-            operator_override_precedence: true,
-            family: 'contract',
-            resolved_role: 'contract_amendment',
-            resolved_subtype: 'amendment',
-            resolved_order: 0,
-            is_governing: true,
-            governing_document_id: 'doc-b',
-            governing_reason: 'operator_override',
-            governing_reason_detail: 'Manual order',
-            considered_document_ids: ['doc-a', 'doc-b'],
-            relationship_summary: [],
+    const after = buildValidationInputsSnapshotHash({
+      ticketCount: 10,
+      factCount: 5,
+      precedenceFingerprint: 'precedence-1',
+      validationPhase: 'billing_review',
+      documentSnapshots: [
+        {
+          id: 'contract-doc',
+          processed_at: '2026-05-27T17:08:00.000Z',
+          intelligence_trace: {
+            contract_analysis: {
+              pricing_model: {
+                rate_schedule_present: { value: true },
+              },
+              rate_schedule_rows: [
+                {
+                  row_id: 'exhibit_a_table:row-1a',
+                  description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+                  unit: 'Cubic Yard',
+                  rate: 6.9,
+                  page: 8,
+                  source_kind: 'exhibit_a_table',
+                },
+                {
+                  row_id: 'exhibit_a_text_recovery:vegetative-rural-0-15-13-50',
+                  description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+                  unit: 'Cubic Yard',
+                  rate: 13.5,
+                  page: 8,
+                  source_kind: 'exhibit_a_text_recovery',
+                },
+              ],
+            },
           },
-          {
-            id: 'doc-a',
-            project_id: 'project-1',
-            title: 'Base Contract',
-            name: 'base-contract.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-20T00:00:00Z',
-            document_role: 'base_contract',
-            document_subtype: 'base_contract',
-            authority_status: 'active',
-            effective_date: '2026-04-01',
-            precedence_rank: 1,
-            operator_override_precedence: true,
-            family: 'contract',
-            resolved_role: 'base_contract',
-            resolved_subtype: 'base_contract',
-            resolved_order: 1,
-            is_governing: false,
-            governing_document_id: 'doc-b',
-            governing_reason: 'operator_override',
-            governing_reason_detail: 'Manual order',
-            considered_document_ids: ['doc-a', 'doc-b'],
-            relationship_summary: [],
-          },
-        ],
-      }],
+        },
+      ],
     });
 
-    assert.notEqual(reordered, baseline);
+    assert.notEqual(after, before);
   });
 
-  it('changes when a document subtype changes without any row-count change', () => {
-    const baseline = buildDocumentPrecedenceSnapshotFingerprint({
-      documents: [],
-      relationships: [],
-      families: [{
-        family: 'contract',
-        label: 'Contract',
-        governing_document_id: 'doc-a',
-        governing_reason: 'role_priority',
-        governing_reason_detail: 'Base contract selected.',
-        has_operator_override: false,
-        considered_document_ids: ['doc-a'],
-        documents: [
-          {
-            id: 'doc-a',
-            project_id: 'project-1',
-            title: 'Base Contract',
-            name: 'base-contract.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-20T00:00:00Z',
-            document_role: 'base_contract',
-            document_subtype: 'base_contract',
-            authority_status: 'active',
-            effective_date: '2026-04-01',
-            precedence_rank: 1,
-            operator_override_precedence: false,
-            family: 'contract',
-            resolved_role: 'base_contract',
-            resolved_subtype: 'base_contract',
-            resolved_order: 0,
-            is_governing: true,
-            governing_document_id: 'doc-a',
-            governing_reason: 'role_priority',
-            governing_reason_detail: 'Base contract selected.',
-            considered_document_ids: ['doc-a'],
-            relationship_summary: [],
-          },
-        ],
-      }],
-    });
-
-    const updated = buildDocumentPrecedenceSnapshotFingerprint({
-      documents: [],
-      relationships: [],
-      families: [{
-        family: 'contract',
-        label: 'Contract',
-        governing_document_id: 'doc-a',
-        governing_reason: 'role_priority',
-        governing_reason_detail: 'Base contract selected.',
-        has_operator_override: false,
-        considered_document_ids: ['doc-a'],
-        documents: [
-          {
-            id: 'doc-a',
-            project_id: 'project-1',
-            title: 'Base Contract',
-            name: 'base-contract.pdf',
-            document_type: 'contract',
-            created_at: '2026-04-20T00:00:00Z',
-            document_role: 'base_contract',
-            document_subtype: 'replacement_contract',
-            authority_status: 'active',
-            effective_date: '2026-04-01',
-            precedence_rank: 1,
-            operator_override_precedence: false,
-            family: 'contract',
-            resolved_role: 'base_contract',
-            resolved_subtype: 'replacement_contract',
-            resolved_order: 0,
-            is_governing: true,
-            governing_document_id: 'doc-a',
-            governing_reason: 'role_priority',
-            governing_reason_detail: 'Base contract selected.',
-            considered_document_ids: ['doc-a'],
-            relationship_summary: [],
-          },
-        ],
-      }],
-    });
-
-    assert.notEqual(updated, baseline);
+  it('does not skip unchanged inputs when a manual operator trigger is forced', () => {
+    assert.equal(
+      shouldSkipUnchangedValidationInputs({
+        lastCompletedSnapshotHash: 'same-hash',
+        inputsSnapshotHash: 'same-hash',
+      }),
+      true,
+    );
+    assert.equal(
+      shouldSkipUnchangedValidationInputs({
+        lastCompletedSnapshotHash: 'same-hash',
+        inputsSnapshotHash: 'same-hash',
+        force: true,
+      }),
+      false,
+    );
   });
 });

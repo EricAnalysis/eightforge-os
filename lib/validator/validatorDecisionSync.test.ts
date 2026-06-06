@@ -446,6 +446,66 @@ describe('buildValidatorDecisionRecords', () => {
     );
   });
 
+  it('does not route non-actionable warning findings into operator decision queues', () => {
+    const finding = makeFinding({
+      id: 'finding-warning-review-only',
+      rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+      check_key: 'FINANCIAL_RATE_CODE_MISSING:invoice:2026-002:line:1A',
+      severity: 'warning',
+      business_severity: 'medium',
+      finding_disposition: 'warning',
+      approval_gate_effect: 'requires_operator_review',
+      decision_eligible: false,
+      action_eligible: false,
+      affected_amount: null,
+    });
+    const exposure = makeExposure([
+      makeInvoiceExposure({
+        invoice_number: '2026-002',
+        billed_amount: 100,
+        supported_amount: 100,
+        contract_supported_amount: 100,
+        transaction_supported_amount: 100,
+        fully_reconciled_amount: 100,
+        unreconciled_amount: 0,
+        at_risk_amount: 0,
+        requires_verification_amount: 0,
+        reconciliation_status: 'MATCH',
+      }),
+    ], {
+      total_unreconciled_amount: 0,
+      total_at_risk_amount: 0,
+      total_requires_verification_amount: 0,
+    });
+    const result = makeResult({
+      findings: [finding],
+      exposure,
+      reconciliation: makeReconciliation({
+        invoice_transaction_status: 'MATCH',
+        overall_reconciliation_status: 'PARTIAL',
+        rate_mismatches: 0,
+        unmatched_billing_groups: 0,
+        orphan_transactions: 283,
+      }),
+    });
+
+    const records = buildValidatorDecisionRecords({
+      projectId: 'project-1',
+      runId: 'run-1',
+      result,
+      findings: [finding],
+    });
+
+    const projectRecord = records.find((record) => record.decision_type === 'validator_project_approval');
+    assert.equal(projectRecord?.status, 'resolved');
+    assert.equal(projectRecord?.severity, 'low');
+    assert.equal(projectRecord?.details.approval_status, 'approved');
+    assert.deepEqual(projectRecord?.details.gate_reasons, []);
+    assert.equal(projectRecord?.details.required_reviews, 0);
+    assert.deepEqual(projectRecord?.finding_ids, []);
+    assert.deepEqual(projectRecord?.link_finding_ids, []);
+  });
+
   it('groups project and invoice findings into primary validator decision nodes', () => {
     const contractFinding = makeFinding({
       id: 'finding-project-contract',

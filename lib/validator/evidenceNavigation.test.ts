@@ -43,6 +43,40 @@ describe('evidenceNavigation', () => {
     );
   });
 
+  it('labels Exhibit A table evidence as a contract rate row', () => {
+    const target = buildEvidenceTarget({
+      projectId: 'project-1',
+      action: 'review',
+      evidence: buildEvidence({
+        evidence_type: 'rate_schedule',
+        record_id: 'exhibit_a_table:pdf:table:p8:t26:r2:v1',
+        source_page: 8,
+      }),
+    });
+
+    assert.equal(target.exactTarget, true);
+    assert.equal(target.label, 'Contract rate row exhibit_a_table:pdf:table:p8:t26:r2:v1');
+    assert.equal(target.rateRowId, 'exhibit_a_table:pdf:table:p8:t26:r2:v1');
+    assert.equal(target.label.includes('Spreadsheet row'), false);
+  });
+
+  it('labels Exhibit A text recovery evidence as a contract rate row', () => {
+    const target = buildEvidenceTarget({
+      projectId: 'project-1',
+      action: 'review',
+      evidence: buildEvidence({
+        evidence_type: 'rate_schedule',
+        record_id: 'exhibit_a_text_recovery:vegetative-rural-0-15-13-50',
+        source_page: 8,
+      }),
+    });
+
+    assert.equal(target.exactTarget, true);
+    assert.equal(target.label, 'Contract rate row exhibit_a_text_recovery:vegetative-rural-0-15-13-50');
+    assert.equal(target.rateRowId, 'exhibit_a_text_recovery:vegetative-rural-0-15-13-50');
+    assert.equal(target.label.includes('Spreadsheet row'), false);
+  });
+
   it('returns an explicit missing evidence reason when validator did not persist an exact target', () => {
     const target = buildEvidenceTarget({
       projectId: 'project-1',

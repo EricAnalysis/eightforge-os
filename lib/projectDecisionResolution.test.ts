@@ -4,7 +4,8 @@ import { executeProjectDecisionResolution } from './projectDecisionResolution';
 
 describe('projectDecisionResolution', () => {
   it('marks a decision resolved through the decision status route', async () => {
-    const fetcher = vi.fn(async () => ({
+    const fetcher = vi.fn(async (_path: string, _init?: RequestInit) => ({
+      ...((_path || _init) && {}),
       ok: true,
       status: 200,
       json: async () => ({ status: 'resolved' }),
@@ -18,7 +19,10 @@ describe('projectDecisionResolution', () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    const [path, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    const call = fetcher.mock.calls[0];
+    assert.ok(call);
+    const [path, init] = call;
+    assert.ok(init);
     assert.equal(path, '/api/decisions/decision-1/status');
     assert.equal(init.method, 'PATCH');
     assert.deepEqual(JSON.parse(String(init.body)), { status: 'resolved' });
@@ -27,7 +31,8 @@ describe('projectDecisionResolution', () => {
   });
 
   it('requests correction through decision feedback with an operator-review disposition', async () => {
-    const fetcher = vi.fn(async () => ({
+    const fetcher = vi.fn(async (_path: string, _init?: RequestInit) => ({
+      ...((_path || _init) && {}),
       ok: true,
       status: 200,
       json: async () => ({ ok: true }),
@@ -41,7 +46,10 @@ describe('projectDecisionResolution', () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    const [path, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    const call = fetcher.mock.calls[0];
+    assert.ok(call);
+    const [path, init] = call;
+    assert.ok(init);
     assert.equal(path, '/api/decisions/decision-2/feedback');
     assert.equal(init.method, 'POST');
     assert.deepEqual(JSON.parse(String(init.body)), {

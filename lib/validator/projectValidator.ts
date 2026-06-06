@@ -1,11 +1,13 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import {
   inferGoverningDocumentFamily,
   resolveDocumentTruthCategoryIds,
   type GoverningDocumentFamily,
 } from '@/lib/documentPrecedence';
 import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
+import { collapseEffectiveFactRecords } from '@/lib/effectiveFacts';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import {
   isDocumentFactOverridesTableUnavailableError,
@@ -151,6 +153,14 @@ const INVOICE_LINE_TOTAL_KEYS = [
   'extended_amount',
   'total_amount',
   'amount',
+] as const;
+const INVOICE_LINE_QUANTITY_KEYS = [
+  'quantity',
+  'qty',
+  'units',
+  'volume',
+  'cubic_yards',
+  'tons',
 ] as const;
 const INVOICE_LINE_RATE_CODE_KEYS = [
   'rate_code',
@@ -425,6 +435,65 @@ export function buildPersistedContractValidationContextFromTrace(
 
 function isInactiveAuthorityStatus(status: string | null | undefined): boolean {
   return status === 'superseded' || status === 'archived';
+}
+
+const VALIDATION_EXCLUDED_RELATIONSHIP_TYPES = new Set([
+  'supersedes',
+  'replaces',
+  'voided',
+]);
+
+export function buildExcludedValidationDocumentIds(params: {
+  precedenceFamilies: readonly ResolvedDocumentPrecedenceFamily[];
+  documentRelationships: readonly DocumentRelationshipRecord[];
+}): Set<string> {
+  const excluded = new Set<string>();
+
+  for (const family of params.precedenceFamilies) {
+    if (family.family !== 'invoice') continue;
+    for (const document of family.documents) {
+      if (isInactiveAuthorityStatus(document.authority_status ?? null)) {
+        excluded.add(document.id);
+      }
+    }
+  }
+
+  for (const relationship of params.documentRelationships) {
+    const relationshipType = relationship.relationship_type?.trim().toLowerCase() ?? '';
+    if (!VALIDATION_EXCLUDED_RELATIONSHIP_TYPES.has(relationshipType)) continue;
+    const targetDocumentId = relationship.target_document_id?.trim();
+    if (targetDocumentId) excluded.add(targetDocumentId);
+  }
+
+  return excluded;
+}
+
+export function resolveValidationInvoiceScope<TInvoice extends StructuredRow, TLine extends StructuredRow>(params: {
+  invoices: readonly TInvoice[];
+  invoiceLines: readonly TLine[];
+  excludedDocumentIds: ReadonlySet<string>;
+}): { invoices: TInvoice[]; invoiceLines: TLine[] } {
+  const shouldKeep = (row: StructuredRow) => {
+    const documentId = readRowString(row, ['source_document_id', 'document_id']);
+    return documentId == null || !params.excludedDocumentIds.has(documentId);
+  };
+
+  return {
+    invoices: params.invoices.filter(shouldKeep),
+    invoiceLines: params.invoiceLines.filter(shouldKeep),
+  };
+}
+
+function activeInvoiceDocumentIds(
+  documents: readonly ValidatorDocumentRow[],
+  excludedDocumentIds: ReadonlySet<string>,
+): string[] {
+  return uniqueDocumentIds(
+    documents
+      .filter((document) => document.document_type === 'invoice')
+      .map((document) => document.id)
+      .filter((documentId) => !excludedDocumentIds.has(documentId)),
+  );
 }
 
 function resolveProjectValidationPhase(value: unknown): ProjectValidationPhase {
@@ -1028,15 +1097,17 @@ function buildFactsByDocumentId(params: {
       const latest = reviews[0] ?? null;
       if (
         latest == null
-        || latest.review_status !== 'corrected'
+        || (latest.review_status !== 'corrected' && latest.review_status !== 'confirmed')
         || latest.reviewed_value_json == null
       ) {
         continue;
       }
 
       const note = latest.notes && latest.notes.trim().length > 0
-        ? `Human-reviewed correction: ${latest.notes.trim()}`
-        : 'Human-reviewed fact correction.';
+        ? `Human-reviewed fact: ${latest.notes.trim()}`
+        : latest.review_status === 'corrected'
+          ? 'Human-reviewed fact correction.'
+          : 'Human-confirmed fact value.';
       facts.push(
         factRecord({
           documentId: document.id,
@@ -1075,7 +1146,7 @@ function buildFactsByDocumentId(params: {
       );
     }
 
-    factsByDocumentId.set(document.id, facts);
+    factsByDocumentId.set(document.id, collapseEffectiveFactRecords(facts));
   }
 
   return {
@@ -1191,12 +1262,15 @@ function normalizeRateScheduleItem(
     source_category: sourceCategory,
     canonical_category: categoryResolution.canonical_category,
     category_confidence: categoryResolution.category_confidence,
+    source_kind: readRowString(row, ['source_kind']),
+    source_quality: readRowString(row, ['source_quality']),
+    confidence: readRowString(row, ['confidence', 'state']),
     raw_value: value,
     ...keys,
   };
 }
 
-function buildRateScheduleItems(params: {
+export function buildRateScheduleItems(params: {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   rateDocumentIds: readonly string[];
   contractValidationContext: ValidatorContractAnalysisContext | null;
@@ -1221,7 +1295,26 @@ function buildRateScheduleItems(params: {
   };
 
   const persistedRateRows = params.contractValidationContext?.analysis.rate_schedule_rows ?? [];
-  for (const [index, row] of persistedRateRows.entries()) {
+  const assembledRateRows = assembleContractPricingRows(persistedRateRows).map((row) => ({
+    row_id: row.id,
+    source_kind: row.sourceKind,
+    category: row.category,
+    source_category: row.category,
+    material_type: row.category,
+    description: row.description,
+    unit: row.unit,
+    unit_type: row.unit,
+    rate: row.rate,
+    rate_amount: row.rate,
+    page: row.page,
+    source_anchor_ids: row.sourceAnchor ? [row.sourceAnchor] : [],
+    confidence: row.confidence,
+    source_quality: row.sourceQuality,
+    rate_raw: row.rawText,
+    raw_text: row.rawText,
+  }));
+  const validatorRateRows = assembledRateRows.length > 0 ? assembledRateRows : persistedRateRows;
+  for (const [index, row] of validatorRateRows.entries()) {
     pushItem(
       normalizeRateScheduleItem(
         row,
@@ -1374,7 +1467,7 @@ function buildContractRelationshipContext(
   };
 }
 
-function buildContractValidationContext(params: {
+export function buildContractValidationContext(params: {
   projectValidationSummary?: unknown;
   documents: readonly ValidatorDocumentRow[];
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
@@ -1384,6 +1477,42 @@ function buildContractValidationContext(params: {
   const relationshipContext = buildContractRelationshipContext(
     params.truthCategoryDocumentIds,
   );
+  const contractDocumentId = params.truthCategoryDocumentIds.contract_identity[0] ?? null;
+  if (contractDocumentId) {
+    const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
+    if (document) {
+      const persistedContext = buildPersistedContractValidationContextFromTrace(document);
+      if (persistedContext) {
+        return {
+          ...persistedContext,
+          relationship_context: relationshipContext,
+        };
+      }
+
+      const syntheticDocument = buildSyntheticContractDocument({
+        document,
+        facts: params.factsByDocumentId.get(contractDocumentId) ?? [],
+        legacyRow: params.legacyRowsByDocumentId.get(contractDocumentId) ?? null,
+      });
+      if (syntheticDocument) {
+        const analysis = analyzeContractIntelligence({
+          primaryDocument: syntheticDocument,
+          relatedDocuments: [],
+        });
+        if (analysis) {
+          return {
+            document_id: contractDocumentId,
+            analysis,
+            evidence_by_id: new Map(
+              syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
+            ),
+            relationship_context: relationshipContext,
+          };
+        }
+      }
+    }
+  }
+
   const persistedProjectContext = buildPersistedContractValidationContextFromProjectSummary(
     params.projectValidationSummary,
   );
@@ -1394,41 +1523,7 @@ function buildContractValidationContext(params: {
     };
   }
 
-  const contractDocumentId = params.truthCategoryDocumentIds.contract_identity[0] ?? null;
-  if (!contractDocumentId) return null;
-
-  const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
-  if (!document) return null;
-
-  const persistedContext = buildPersistedContractValidationContextFromTrace(document);
-  if (persistedContext) {
-    return {
-      ...persistedContext,
-      relationship_context: relationshipContext,
-    };
-  }
-
-  const syntheticDocument = buildSyntheticContractDocument({
-    document,
-    facts: params.factsByDocumentId.get(contractDocumentId) ?? [],
-    legacyRow: params.legacyRowsByDocumentId.get(contractDocumentId) ?? null,
-  });
-  if (!syntheticDocument) return null;
-
-  const analysis = analyzeContractIntelligence({
-    primaryDocument: syntheticDocument,
-    relatedDocuments: [],
-  });
-  if (!analysis) return null;
-
-  return {
-    document_id: contractDocumentId,
-    analysis,
-    evidence_by_id: new Map(
-      syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
-    ),
-    relationship_context: relationshipContext,
-  };
+  return null;
 }
 
 function buildFactLookups(params: {
@@ -1618,20 +1713,7 @@ function buildInvoiceLineToRateMap(
           material,
           billing_rate_key: canonicalKeys.billing_rate_key,
           description_match_key: canonicalKeys.description_match_key,
-          unit_price: readRowNumber(line, [
-            'billed_rate',
-            'unit_rate',
-            'rate',
-            'price',
-            'contract_rate',
-            'unit_price',
-            'bill_rate',
-            'rate_amount',
-            'amount_per_unit',
-            'unit_cost',
-            'uom_rate',
-            'rate_raw',
-          ]),
+          unit_price: readSemanticInvoiceUnitPrice(line),
         },
         scheduleIndex,
       ).match,
@@ -1639,6 +1721,60 @@ function buildInvoiceLineToRateMap(
   }
 
   return map;
+}
+
+function readSemanticInvoiceUnitPrice(line: InvoiceLineRow): number | null {
+  const rateKeys = [
+    'billed_rate',
+    'unit_rate',
+    'rate',
+    'price',
+    'contract_rate',
+    'unit_price',
+    'bill_rate',
+    'rate_amount',
+    'amount_per_unit',
+    'unit_cost',
+    'uom_rate',
+    'rate_raw',
+  ] as const;
+  let candidate: number | null = null;
+  let sourceKey: string | null = null;
+  for (const key of rateKeys) {
+    candidate = readRowNumber(line, [key]);
+    if (candidate != null) {
+      sourceKey = key;
+      break;
+    }
+  }
+  if (candidate == null) return null;
+
+  const quantity = readRowNumber(line, INVOICE_LINE_QUANTITY_KEYS);
+  const lineTotal = readRowNumber(line, INVOICE_LINE_TOTAL_KEYS);
+  const explicitRateField = sourceKey != null && [
+    'billed_rate',
+    'unit_rate',
+    'rate',
+    'price',
+    'contract_rate',
+    'unit_price',
+    'bill_rate',
+    'amount_per_unit',
+    'unit_cost',
+    'uom_rate',
+  ].includes(sourceKey);
+  if (!explicitRateField && lineTotal != null && Math.abs(candidate - lineTotal) <= 0.01) return null;
+  if (!explicitRateField && quantity != null && Math.abs(candidate - quantity) <= 0.01) {
+    const derivedRate =
+      quantity > 0 && lineTotal != null
+        ? lineTotal / quantity
+        : null;
+    if (derivedRate == null || Math.abs(derivedRate - candidate) > 0.01) {
+      return null;
+    }
+  }
+
+  return candidate;
 }
 
 function buildProjectTotals(params: {
@@ -1701,6 +1837,111 @@ function buildProjectTotals(params: {
   };
 }
 
+function firstFactValue(
+  factsByDocumentId: Map<string, ValidatorFactRecord[]>,
+  documentId: string,
+  keys: readonly string[],
+): unknown {
+  return findFactRecords(factsByDocumentId, [documentId], keys)[0]?.value ?? null;
+}
+
+function applyInvoiceScalarFact(
+  row: InvoiceRow,
+  factsByDocumentId: Map<string, ValidatorFactRecord[]>,
+): InvoiceRow {
+  const documentId = readRowString(row, ['source_document_id', 'document_id']);
+  if (!documentId) return row;
+
+  const invoiceNumber = firstFactValue(factsByDocumentId, documentId, ['invoice_number']);
+  const vendorName = firstFactValue(factsByDocumentId, documentId, ['contractor_name', 'vendor_name']);
+  const clientName = firstFactValue(factsByDocumentId, documentId, ['client_name', 'owner_name', 'bill_to_name']);
+  const periodStart = firstFactValue(factsByDocumentId, documentId, ['period_start', 'service_period_start']);
+  const periodEnd = firstFactValue(factsByDocumentId, documentId, ['period_end', 'service_period_end']);
+  const billedAmount = firstFactValue(factsByDocumentId, documentId, ['billed_amount', 'total_amount', 'invoice_total']);
+
+  return {
+    ...row,
+    ...(typeof invoiceNumber === 'string' && invoiceNumber.trim().length > 0
+      ? { invoice_number: invoiceNumber.trim() }
+      : {}),
+    ...(typeof vendorName === 'string' && vendorName.trim().length > 0
+      ? { contractor_name: vendorName.trim(), vendor_name: vendorName.trim() }
+      : {}),
+    ...(typeof clientName === 'string' && clientName.trim().length > 0
+      ? { client_name: clientName.trim(), owner_name: clientName.trim() }
+      : {}),
+    ...(typeof periodStart === 'string' && periodStart.trim().length > 0
+      ? { period_start: periodStart.trim(), service_period_start: periodStart.trim() }
+      : {}),
+    ...(typeof periodEnd === 'string' && periodEnd.trim().length > 0
+      ? { period_end: periodEnd.trim(), service_period_end: periodEnd.trim() }
+      : {}),
+    ...(toNumber(billedAmount) != null
+      ? { total_amount: toNumber(billedAmount), billed_amount: toNumber(billedAmount) }
+      : {}),
+  };
+}
+
+function applyEffectiveInvoiceFacts(params: {
+  invoices: readonly InvoiceRow[];
+  invoiceLines: readonly InvoiceLineRow[];
+  factsByDocumentId: Map<string, ValidatorFactRecord[]>;
+  invoiceDocumentIds: readonly string[];
+}): { invoices: InvoiceRow[]; invoiceLines: InvoiceLineRow[] } {
+  const invoices = params.invoices.map((row) =>
+    applyInvoiceScalarFact(row, params.factsByDocumentId),
+  );
+  const replacementLinesByDocumentId = new Map<string, InvoiceLineRow[]>();
+
+  for (const documentId of params.invoiceDocumentIds) {
+    const fact = findFactRecords(
+      params.factsByDocumentId,
+      [documentId],
+      ['invoice_line_items', 'line_items'],
+    )[0] ?? null;
+    if (!fact || !Array.isArray(fact.value)) continue;
+
+    const invoice = invoices.find((row) =>
+      readRowString(row, ['source_document_id', 'document_id']) === documentId,
+    ) ?? null;
+    const invoiceId = readRowString(invoice ?? {}, ['id', 'invoice_id']) ?? `fact:${documentId}:invoice`;
+    const invoiceNumber = readRowString(invoice ?? {}, ['invoice_number', 'invoice_no', 'number']);
+
+    replacementLinesByDocumentId.set(
+      documentId,
+      fact.value
+        .filter((entry): entry is Record<string, unknown> =>
+          entry != null && typeof entry === 'object' && !Array.isArray(entry),
+        )
+        .map((entry, index) => ({
+          ...entry,
+          id: readRowString(entry, ['id', 'invoice_line_id', 'line_id']) ?? `fact:${documentId}:line:${index + 1}`,
+          invoice_id: readRowString(entry, ['invoice_id', 'source_invoice_id']) ?? invoiceId,
+          invoice_number: readRowString(entry, ['invoice_number', 'invoice_no']) ?? invoiceNumber,
+          source_document_id: readRowString(entry, ['source_document_id', 'document_id']) ?? documentId,
+        })),
+    );
+  }
+
+  if (replacementLinesByDocumentId.size === 0) {
+    return { invoices, invoiceLines: [...params.invoiceLines] };
+  }
+
+  const replacedDocumentIds = new Set(replacementLinesByDocumentId.keys());
+  const retainedLines = params.invoiceLines.filter((row) => {
+    const documentId = readRowString(row, ['source_document_id', 'document_id']);
+    return !documentId || !replacedDocumentIds.has(documentId);
+  });
+
+  return {
+    invoices,
+    invoiceLines: [
+      ...retainedLines,
+      ...[...replacementLinesByDocumentId.values()].flat(),
+    ],
+  };
+}
+
 function deriveWorkspaceOverviewFinancials(
   input: ProjectValidatorInput,
   exposure: ProjectExposureSummary | null,
@@ -1711,6 +1952,12 @@ function deriveWorkspaceOverviewFinancials(
       ? exposure.total_billed_amount
       : input.projectTotals.billed_total;
   return { nte_amount, total_billed };
+}
+
+export async function loadProjectValidatorInput(
+  projectId: string,
+): Promise<ProjectValidatorInput> {
+  return loadValidatorInput(projectId);
 }
 
 async function loadValidatorInput(projectId: string): Promise<ProjectValidatorInput> {
@@ -1771,20 +2018,26 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     precedenceFamilies,
     documentRelationships,
   );
+  const excludedValidationDocumentIds = buildExcludedValidationDocumentIds({
+    precedenceFamilies,
+    documentRelationships,
+  });
+  const validationInvoiceDocumentIds = uniqueDocumentIds([
+    ...governingDocumentIds.invoice,
+    ...familyDocumentIds.invoice,
+    ...activeInvoiceDocumentIds(documents, excludedValidationDocumentIds),
+  ]);
   const syntheticInvoices = synthesizeInvoicesFromLegacyExtractions({
     legacyRowsByDocumentId,
-    invoiceDocumentIds: uniqueDocumentIds([
-      ...governingDocumentIds.invoice,
-      ...familyDocumentIds.invoice,
-    ]),
+    invoiceDocumentIds: validationInvoiceDocumentIds,
     existingInvoices: invoices as InvoiceRow[],
     existingInvoiceLines: invoiceLines as InvoiceLineRow[],
   });
-  const effectiveInvoices = [
+  const baseInvoices = [
     ...(invoices as InvoiceRow[]),
     ...syntheticInvoices.invoices,
   ];
-  const effectiveInvoiceLines = [
+  const baseInvoiceLines = [
     ...(invoiceLines as InvoiceLineRow[]),
     ...syntheticInvoices.invoiceLines,
   ];
@@ -1795,6 +2048,19 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     overrideRows,
     reviewRows,
   });
+  const scopedInvoiceTruth = resolveValidationInvoiceScope({
+    invoices: baseInvoices,
+    invoiceLines: baseInvoiceLines,
+    excludedDocumentIds: excludedValidationDocumentIds,
+  });
+  const effectiveInvoiceTruth = applyEffectiveInvoiceFacts({
+    invoices: scopedInvoiceTruth.invoices,
+    invoiceLines: scopedInvoiceTruth.invoiceLines,
+    factsByDocumentId,
+    invoiceDocumentIds: validationInvoiceDocumentIds,
+  });
+  const effectiveInvoices = effectiveInvoiceTruth.invoices;
+  const effectiveInvoiceLines = effectiveInvoiceTruth.invoiceLines;
   const contractValidationContext = buildContractValidationContext({
     projectValidationSummary: project.validation_summary_json,
     documents,

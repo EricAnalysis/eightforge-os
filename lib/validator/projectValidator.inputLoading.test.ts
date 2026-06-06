@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  buildContractValidationContext,
+  buildRateScheduleItems,
   buildDocumentIdsByFamily,
+  buildExcludedValidationDocumentIds,
   buildPersistedContractValidationContextFromProjectSummary,
+  resolveValidationInvoiceScope,
   synthesizeInvoicesFromLegacyExtractions,
   VALIDATOR_DOCUMENT_SELECT,
 } from '@/lib/validator/projectValidator';
@@ -44,6 +48,87 @@ describe('project validator input loading', () => {
     assert.equal(context?.document_id, 'contract-doc-1');
     assert.equal(context?.analysis.pricing_model.rate_schedule_present?.value, true);
     assert.equal(context?.analysis.rate_schedule_rows?.[0]?.rate, 6.9);
+  });
+
+  it('prefers fresh persisted contract trace rows over stale project validation summary rows', () => {
+    const context = buildContractValidationContext({
+      projectValidationSummary: {
+        contract_validation_context: {
+          document_id: 'contract-doc-1',
+          analysis: {
+            pricing_model: {
+              rate_schedule_present: { value: true },
+            },
+            rate_schedule_rows: [
+              {
+                row_id: 'stale-rate-row',
+                description: 'Stale row',
+                unit: 'Cubic Yard',
+                rate: 19.8,
+                page: 8,
+              },
+            ],
+          },
+        },
+      },
+      documents: [
+        {
+          id: 'contract-doc-1',
+          project_id: 'project-1',
+          organization_id: 'org-1',
+          title: 'Contract',
+          name: 'contract.pdf',
+          document_type: 'contract',
+          created_at: '2026-05-27T17:08:00.000Z',
+          intelligence_trace: {
+            classification: { family: 'contract' },
+            contract_analysis: {
+              pricing_model: {
+                rate_schedule_present: { value: true },
+              },
+              rate_schedule_rows: [
+                {
+                  row_id: 'exhibit_a_table:row-1a',
+                  source_kind: 'exhibit_a_table',
+                  description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+                  unit: 'Cubic Yard',
+                  rate: 6.9,
+                  page: 8,
+                },
+                {
+                  row_id: 'exhibit_a_text_recovery:vegetative-rural-0-15-13-50',
+                  source_kind: 'exhibit_a_text_recovery',
+                  description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+                  unit: 'Cubic Yard',
+                  rate: 13.5,
+                  page: 8,
+                },
+              ],
+            },
+          },
+        },
+      ],
+      factsByDocumentId: new Map(),
+      legacyRowsByDocumentId: new Map(),
+      truthCategoryDocumentIds: {
+        contract_identity: ['contract-doc-1'],
+        pricing: [],
+        compliance: [],
+        amendments: [],
+      },
+    } as never);
+
+    assert.ok(context);
+    const items = buildRateScheduleItems({
+      factsByDocumentId: new Map(),
+      rateDocumentIds: [],
+      contractValidationContext: context,
+    });
+
+    assert.equal(items.some((item) => item.rate_amount === 6.9), true);
+    assert.equal(items.some((item) => item.rate_amount === 13.5), true);
+    assert.equal(items.some((item) => item.record_id === 'exhibit_a_text_recovery:vegetative-rural-0-15-13-50'), true);
+    assert.equal(items.some((item) => item.record_id === 'stale-rate-row'), false);
   });
 
   it('falls back safely to legacy invoice extraction when canonical invoice rows are absent', () => {
@@ -280,5 +365,119 @@ describe('project validator input loading', () => {
     assert.deepEqual(ids.truthCategoryDocumentIds.pricing.slice(0, 2), ['exhibit-a', 'base-contract']);
     assert.deepEqual(ids.truthCategoryDocumentIds.compliance.slice(0, 2), ['federal-guidance', 'base-contract']);
     assert.deepEqual(ids.truthCategoryDocumentIds.amendments.slice(0, 2), ['contract-amendment-1', 'base-contract']);
+  });
+
+  it('excludes only superseded invoices and explicit supersedes targets from validation scope', () => {
+    const precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [
+      {
+        family: 'invoice',
+        label: 'Invoice',
+        governing_document_id: 'invoice-doc-003',
+        governing_reason: 'upload_recency_fallback',
+        governing_reason_detail: 'Latest upload',
+        has_operator_override: false,
+        considered_document_ids: ['invoice-doc-002', 'invoice-doc-003'],
+        documents: [
+          {
+            id: 'invoice-doc-002',
+            project_id: 'project-1',
+            title: 'Invoice 002',
+            name: 'invoice-002.pdf',
+            document_type: 'invoice',
+            created_at: '2026-04-03T12:00:00Z',
+            document_role: 'invoice',
+            authority_status: 'active',
+            effective_date: null,
+            precedence_rank: 0,
+            operator_override_precedence: false,
+            family: 'invoice',
+            resolved_role: 'invoice',
+            resolved_subtype: 'invoice',
+            resolved_order: 0,
+            is_governing: false,
+            governing_document_id: 'invoice-doc-003',
+            governing_reason: 'upload_recency_fallback',
+            governing_reason_detail: 'Latest upload',
+            considered_document_ids: ['invoice-doc-002', 'invoice-doc-003'],
+            relationship_summary: [],
+          },
+          {
+            id: 'invoice-doc-003',
+            project_id: 'project-1',
+            title: 'Invoice 003',
+            name: 'invoice-003.pdf',
+            document_type: 'invoice',
+            created_at: '2026-04-04T12:00:00Z',
+            document_role: 'invoice',
+            authority_status: 'active',
+            effective_date: null,
+            precedence_rank: 1,
+            operator_override_precedence: false,
+            family: 'invoice',
+            resolved_role: 'invoice',
+            resolved_subtype: 'invoice',
+            resolved_order: 1,
+            is_governing: true,
+            governing_document_id: 'invoice-doc-003',
+            governing_reason: 'upload_recency_fallback',
+            governing_reason_detail: 'Latest upload',
+            considered_document_ids: ['invoice-doc-002', 'invoice-doc-003'],
+            relationship_summary: [],
+          },
+        ],
+      },
+    ];
+
+    const excluded = buildExcludedValidationDocumentIds({
+      precedenceFamilies,
+      documentRelationships: [],
+    });
+    assert.equal(excluded.has('invoice-doc-002'), false);
+    assert.equal(excluded.has('invoice-doc-003'), false);
+
+    const scoped = resolveValidationInvoiceScope({
+      invoices: [
+        { id: 'inv-002', source_document_id: 'invoice-doc-002', invoice_number: '2026-002' },
+        { id: 'inv-003', source_document_id: 'invoice-doc-003', invoice_number: '2026-003' },
+      ],
+      invoiceLines: [
+        { id: 'line-002', source_document_id: 'invoice-doc-002', invoice_number: '2026-002' },
+        { id: 'line-003', source_document_id: 'invoice-doc-003', invoice_number: '2026-003' },
+      ],
+      excludedDocumentIds: excluded,
+    });
+
+    assert.equal(scoped.invoices.length, 2);
+    assert.equal(scoped.invoiceLines.length, 2);
+  });
+
+  it('excludes invoices explicitly superseded by relationship edges', () => {
+    const excluded = buildExcludedValidationDocumentIds({
+      precedenceFamilies: [],
+      documentRelationships: [{
+        id: 'rel-supersedes',
+        project_id: 'project-1',
+        source_document_id: 'invoice-doc-003',
+        target_document_id: 'invoice-doc-002',
+        relationship_type: 'supersedes',
+      }],
+    });
+
+    assert.deepEqual([...excluded], ['invoice-doc-002']);
+
+    const scoped = resolveValidationInvoiceScope({
+      invoices: [
+        { id: 'inv-002', source_document_id: 'invoice-doc-002' },
+        { id: 'inv-003', source_document_id: 'invoice-doc-003' },
+      ],
+      invoiceLines: [
+        { id: 'line-002', source_document_id: 'invoice-doc-002' },
+        { id: 'line-003', source_document_id: 'invoice-doc-003' },
+      ],
+      excludedDocumentIds: excluded,
+    });
+
+    assert.equal(scoped.invoices.length, 1);
+    assert.equal(scoped.invoices[0]?.source_document_id, 'invoice-doc-003');
   });
 });

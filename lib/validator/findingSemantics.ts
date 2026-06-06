@@ -84,7 +84,6 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
       'Confirm the missing unit coverage in the rate schedule before relying on the contract for full billing support.',
   },
   FINANCIAL_RATE_CODE_MISSING: {
-    business_severity: 'medium',
     source_family: 'invoice',
     required_action:
       'Populate the invoice line billing code or confirm the description-based billing key used for validation.',

@@ -46,6 +46,7 @@ export type SyncExecutionItemsResult = {
   created: number;
   updated: number;
   resolvable: number;
+  staleResolved: number;
   suppressed: number;
   suppressedFindingIds: Set<string>;
   executionItemIdsBySourceKey: Map<string, string>;
@@ -225,6 +226,42 @@ async function logExecutionItemCreated(params: {
   }
 }
 
+async function logExecutionItemStaleResolved(params: {
+  organizationId: string;
+  projectId: string;
+  executionItem: ExistingExecutionItemRow;
+  actorId?: string;
+}) {
+  const result = await logActivityEvent({
+    organization_id: params.organizationId,
+    project_id: params.projectId,
+    entity_type: 'execution_item',
+    entity_id: params.executionItem.id,
+    event_type: 'status_changed',
+    changed_by: params.actorId ?? null,
+    old_value: {
+      status: params.executionItem.status,
+      outcome: params.executionItem.outcome,
+      source_key: params.executionItem.source_key,
+      validator_rule_key: params.executionItem.validator_rule_key,
+    },
+    new_value: {
+      status: 'resolved',
+      outcome: 'resolved',
+      source_key: params.executionItem.source_key,
+      validator_rule_key: params.executionItem.validator_rule_key,
+      resolution_reason: 'superseded_by_latest_validation_run',
+    },
+  });
+
+  if (!result.ok) {
+    console.error('[syncExecutionItems] failed to log stale execution item resolution', {
+      executionItemId: params.executionItem.id,
+      error: result.error,
+    });
+  }
+}
+
 async function loadExistingExecutionItems(params: {
   admin: SupabaseClient;
   projectId: string;
@@ -294,7 +331,8 @@ export async function syncExecutionItems(params: {
   const actionableFindings = params.findings.filter(
     (finding) =>
       finding.status === 'open' &&
-      (isBlockingFinding(finding) || normalizeValidationFinding(finding).approval_gate_effect === 'requires_operator_review'),
+      finding.action_eligible &&
+      isBlockingFinding(finding),
   );
   const records = actionableFindings.map((finding) => ({
     finding,
@@ -314,7 +352,8 @@ export async function syncExecutionItems(params: {
 
   let created = 0;
   let updated = 0;
-  let resolvable = 0;
+  const resolvable = 0;
+  let staleResolved = 0;
   let suppressed = 0;
 
   for (const { finding, record } of records) {
@@ -478,25 +517,32 @@ export async function syncExecutionItems(params: {
   for (const row of existingRows) {
     if (row.source_type !== 'validator_finding') continue;
     if (currentSourceKeys.has(row.source_key)) continue;
-    if (row.status === 'resolved') {
-      executionItemIdsBySourceKey.set(row.source_key, row.id);
-      continue;
-    }
+    if (row.status === 'resolved') continue;
 
     const { error } = await admin
       .from('execution_items')
       .update({
-        status: 'resolvable',
+        status: 'resolved',
+        outcome: 'resolved',
+        override_reason: row.override_reason ?? 'Superseded by latest validation run.',
+        resolved_at: now,
+        last_seen_at: row.last_seen_at ?? now,
         updated_at: now,
       })
       .eq('id', row.id);
 
     if (error) {
-      throw new Error(`Failed to mark execution item ${row.id} resolvable: ${error.message}`);
+      throw new Error(`Failed to resolve stale execution item ${row.id}: ${error.message}`);
     }
 
-    executionItemIdsBySourceKey.set(row.source_key, row.id);
-    resolvable += 1;
+    staleResolved += 1;
+
+    await logExecutionItemStaleResolved({
+      organizationId,
+      projectId,
+      executionItem: row,
+      actorId,
+    });
   }
 
   await linkFindingsToExecutionItems({
@@ -508,6 +554,7 @@ export async function syncExecutionItems(params: {
     created,
     updated,
     resolvable,
+    staleResolved,
     suppressed,
     suppressedFindingIds,
     executionItemIdsBySourceKey,

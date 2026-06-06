@@ -56,6 +56,15 @@ export async function PATCH(
       typeof body?.operator_action === 'string' && VALID_OPERATOR_ACTIONS.includes(body.operator_action)
         ? body.operator_action
         : null;
+    if (
+      (newStatus === 'resolved' || newStatus === 'suppressed') &&
+      (operatorAction === 'approve' || operatorAction === 'correct' || operatorAction === 'override')
+    ) {
+      return jsonError(
+        'Approval-impacting outcomes must be finalized through Execution.',
+        409,
+      );
+    }
 
     const previousStatus = (existing.status as string) ?? null;
 

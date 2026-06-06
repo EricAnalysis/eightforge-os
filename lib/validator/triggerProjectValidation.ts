@@ -110,18 +110,123 @@ async function loadLastCompletedSnapshotHash(
   return data?.inputs_snapshot_hash ?? null;
 }
 
-async function loadProjectDocumentIds(projectId: string): Promise<string[]> {
+type ProjectDocumentInputSnapshot = {
+  id: string;
+  processed_at?: string | null;
+  intelligence_trace?: unknown;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringFromRecord(record: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function numberFromRecord(record: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value.replace(/[$,]/g, ''));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function contractTraceFingerprint(document: ProjectDocumentInputSnapshot): unknown {
+  const trace = asRecord(document.intelligence_trace);
+  const contractAnalysis = asRecord(trace?.contract_analysis);
+  if (!contractAnalysis) {
+    return {
+      id: document.id,
+      processed_at: document.processed_at ?? null,
+      contract_analysis: null,
+    };
+  }
+
+  const pricingModel = asRecord(contractAnalysis.pricing_model);
+  const rows = Array.isArray(contractAnalysis.rate_schedule_rows)
+    ? contractAnalysis.rate_schedule_rows
+      .map((value) => asRecord(value))
+      .filter((value): value is Record<string, unknown> => value != null)
+      .map((row) => ({
+        row_id: stringFromRecord(row, ['row_id', 'id']),
+        source_kind: stringFromRecord(row, ['source_kind']),
+        category: stringFromRecord(row, ['category', 'source_category', 'material_type']),
+        description: stringFromRecord(row, ['description', 'scope']),
+        unit: stringFromRecord(row, ['unit', 'unit_type']),
+        rate: numberFromRecord(row, ['rate_amount', 'rate']),
+        page: numberFromRecord(row, ['page', 'source_page']),
+        confidence: stringFromRecord(row, ['confidence']),
+      }))
+      .sort((left, right) =>
+        `${left.page ?? ''}:${left.row_id ?? ''}:${left.rate ?? ''}`.localeCompare(
+          `${right.page ?? ''}:${right.row_id ?? ''}:${right.rate ?? ''}`,
+          'en-US',
+        ),
+      )
+    : [];
+
+  return {
+    id: document.id,
+    processed_at: document.processed_at ?? null,
+    contract_analysis: {
+      rate_schedule_present: asRecord(pricingModel?.rate_schedule_present)?.value ?? null,
+      rate_schedule_rows: rows,
+    },
+  };
+}
+
+export function buildValidationInputsSnapshotHash(params: {
+  ticketCount: number;
+  factCount: number;
+  documentSnapshots: readonly ProjectDocumentInputSnapshot[];
+  precedenceFingerprint: string;
+  validationPhase: string | null;
+}): string {
+  return createHash('sha1')
+    .update(JSON.stringify({
+      ticketCount: params.ticketCount,
+      factCount: params.factCount,
+      documentCount: params.documentSnapshots.length,
+      documents: params.documentSnapshots
+        .map(contractTraceFingerprint)
+        .sort((left, right) => {
+          const leftId = asRecord(left)?.id;
+          const rightId = asRecord(right)?.id;
+          return String(leftId ?? '').localeCompare(String(rightId ?? ''), 'en-US');
+        }),
+      precedenceFingerprint: params.precedenceFingerprint,
+      validationPhase: params.validationPhase ?? 'contract_setup',
+    }))
+    .digest('hex');
+}
+
+async function loadProjectDocumentInputSnapshots(projectId: string): Promise<ProjectDocumentInputSnapshot[]> {
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('documents')
-    .select('id')
+    .select('id, processed_at, intelligence_trace')
     .eq('project_id', projectId);
 
   if (error) {
     throw new Error(`Failed to load project documents: ${error.message}`);
   }
 
-  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
+  return ((data ?? []) as ProjectDocumentInputSnapshot[]).map((row) => ({
+    id: row.id,
+    processed_at: row.processed_at ?? null,
+    intelligence_trace: row.intelligence_trace ?? null,
+  }));
 }
 
 async function loadProjectOrganizationId(projectId: string): Promise<string | null> {
@@ -329,11 +434,27 @@ export type TriggerProjectValidationResult =
       error: string;
     };
 
+export type TriggerProjectValidationOptions = {
+  force?: boolean;
+};
+
+export function shouldSkipUnchangedValidationInputs(params: {
+  lastCompletedSnapshotHash: string | null;
+  inputsSnapshotHash: string;
+  force?: boolean;
+}): boolean {
+  return (
+    !params.force &&
+    params.lastCompletedSnapshotHash != null &&
+    params.lastCompletedSnapshotHash === params.inputsSnapshotHash
+  );
+}
+
 async function loadValidationTriggerMetrics(
   projectId: string,
 ): Promise<ValidationTriggerMetrics> {
-  const documentIds = await loadProjectDocumentIds(projectId);
-  const documentCount = documentIds.length;
+  const documentSnapshots = await loadProjectDocumentInputSnapshots(projectId);
+  const documentIds = documentSnapshots.map((document) => document.id);
 
   const [
     mobileTicketCount,
@@ -365,7 +486,13 @@ async function loadValidationTriggerMetrics(
     relationshipCount;
 
   return {
-    inputsSnapshotHash: `${ticketCount}:${factCount}:${documentCount}:${precedenceFingerprint}:${validationPhase ?? 'contract_setup'}`,
+    inputsSnapshotHash: buildValidationInputsSnapshotHash({
+      ticketCount,
+      factCount,
+      documentSnapshots,
+      precedenceFingerprint,
+      validationPhase,
+    }),
     relevantRecordCount: ticketCount + invoiceLineCount,
   };
 }
@@ -447,6 +574,7 @@ export async function triggerProjectValidation(
   projectId: string,
   source: ValidationTriggerSource,
   userId?: string,
+  options: TriggerProjectValidationOptions = {},
 ): Promise<TriggerProjectValidationResult> {
   try {
     if (await hasRecentInFlightRun(projectId)) {
@@ -459,10 +587,11 @@ export async function triggerProjectValidation(
     const triggerMetrics = await loadValidationTriggerMetrics(projectId);
     const lastCompletedSnapshotHash = await loadLastCompletedSnapshotHash(projectId);
 
-    if (
-      lastCompletedSnapshotHash != null &&
-      lastCompletedSnapshotHash === triggerMetrics.inputsSnapshotHash
-    ) {
+    if (shouldSkipUnchangedValidationInputs({
+      lastCompletedSnapshotHash,
+      inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+      force: options.force,
+    })) {
       return {
         status: 'skipped',
         reason: 'unchanged',

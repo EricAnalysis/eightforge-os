@@ -76,10 +76,14 @@ function createExecutionItem(): ProjectExecutionItemRow {
 function createAdminMock(params: {
   executionItem: ProjectExecutionItemRow;
   finding: MockFindingRow;
+  overrides?: Array<Record<string, unknown>>;
+  reviews?: Array<Record<string, unknown>>;
 }) {
   const state = {
     executionItem: { ...params.executionItem },
     finding: { ...params.finding },
+    overrides: params.overrides ?? [],
+    reviews: params.reviews ?? [],
   };
 
   return {
@@ -162,6 +166,41 @@ function createAdminMock(params: {
           };
         }
 
+        if (table === 'document_fact_overrides' || table === 'document_fact_reviews') {
+          const rows = table === 'document_fact_overrides' ? state.overrides : state.reviews;
+          const filters: Array<{ type: 'eq' | 'in' | 'gte'; field: string; value: unknown }> = [];
+          const query = {
+            select() {
+              return query;
+            },
+            eq(field: string, value: unknown) {
+              filters.push({ type: 'eq', field, value });
+              return query;
+            },
+            in(field: string, value: unknown) {
+              filters.push({ type: 'in', field, value });
+              return query;
+            },
+            gte(field: string, value: unknown) {
+              filters.push({ type: 'gte', field, value });
+              return query;
+            },
+            limit: async () => {
+              const data = rows.filter((row) =>
+                filters.every((filter) => {
+                  const rowValue = row[filter.field];
+                  if (filter.type === 'eq') return rowValue === filter.value;
+                  if (filter.type === 'in') return Array.isArray(filter.value) && filter.value.includes(rowValue);
+                  if (filter.type === 'gte') return typeof rowValue === 'string' && typeof filter.value === 'string' && rowValue >= filter.value;
+                  return true;
+                }),
+              );
+              return { data, error: null };
+            },
+          };
+          return query;
+        }
+
         throw new Error(`Unexpected table: ${table}`);
       },
     },
@@ -176,6 +215,143 @@ afterEach(() => {
 });
 
 describe('execution item outcome route', () => {
+  it('keeps correct non-final when no canonical truth mutation was written', async () => {
+    const executionItem = createExecutionItem();
+    const adminMock = createAdminMock({
+      executionItem,
+      finding: {
+        id: 'finding-1',
+        project_id: 'project-1',
+        status: 'open',
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      },
+    });
+
+    getActorContextMock.mockResolvedValue({
+      ok: true,
+      actor: {
+        actorId: 'user-1',
+        organizationId: 'org-1',
+        displayName: 'Operator',
+        role: 'admin',
+      },
+    });
+    getSupabaseAdminMock.mockReturnValue(adminMock.admin);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/execution-items/execution-1/outcome', {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'correct' }),
+        headers: {
+          'content-type': 'application/json',
+        },
+      }),
+      { params: Promise.resolve({ id: 'execution-1' }) },
+    );
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+
+    assert.equal(body.status, 'resolvable');
+    assert.equal(body.outcome, null);
+    assert.equal(body.resolved_at, null);
+    assert.equal(adminMock.state.finding.status, 'open');
+    assert.equal(adminMock.state.finding.resolved_by_user_id, null);
+
+    expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      event_type: 'execution_item_corrected',
+      new_value: expect.objectContaining({
+        execution_item_id: 'execution-1',
+        finding_id: 'finding-1',
+        new_status: 'resolvable',
+        evidence_refs: ['document:doc-1:page:3', 'record:invoice-line-1'],
+        status: 'resolvable',
+        outcome: null,
+        canonical_truth_mutation_recorded: false,
+      }),
+    }));
+    expect(triggerProjectValidationMock).toHaveBeenCalledWith(
+      'project-1',
+      'review_corrected',
+      'user-1',
+    );
+  });
+
+  it('finalizes correct when linked canonical override evidence exists', async () => {
+    const executionItem = {
+      ...createExecutionItem(),
+      evidence_refs: ['document:doc-1:field:contract_rate'],
+      fact_refs: ['fact:doc-1:contract_rate'],
+    };
+    const adminMock = createAdminMock({
+      executionItem,
+      finding: {
+        id: 'finding-1',
+        project_id: 'project-1',
+        status: 'open',
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      },
+      overrides: [{
+        id: 'override-1',
+        organization_id: 'org-1',
+        document_id: 'doc-1',
+        field_key: 'contract_rate',
+        is_active: true,
+        created_at: '2026-05-06T01:00:00.000Z',
+      }],
+    });
+
+    getActorContextMock.mockResolvedValue({
+      ok: true,
+      actor: {
+        actorId: 'user-1',
+        organizationId: 'org-1',
+        displayName: 'Operator',
+        role: 'admin',
+      },
+    });
+    getSupabaseAdminMock.mockReturnValue(adminMock.admin);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/execution-items/execution-1/outcome', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          action: 'correct',
+          canonicalMutation: {
+            documentId: 'doc-1',
+            fieldKey: 'contract_rate',
+          },
+        }),
+        headers: {
+          'content-type': 'application/json',
+        },
+      }),
+      { params: Promise.resolve({ id: 'execution-1' }) },
+    );
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+
+    assert.equal(body.status, 'resolved');
+    assert.equal(body.outcome, 'resolved');
+    assert.equal(adminMock.state.finding.status, 'resolved');
+    expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      event_type: 'execution_item_corrected',
+      new_value: expect.objectContaining({
+        execution_item_id: 'execution-1',
+        finding_id: 'finding-1',
+        canonical_truth_mutation_recorded: true,
+        canonical_truth_mutation_verified: true,
+      }),
+    }));
+  });
+
   it('persists override reason, suppression signature, and override audit metadata', async () => {
     const executionItem = createExecutionItem();
     const adminMock = createAdminMock({
@@ -228,8 +404,17 @@ describe('execution item outcome route', () => {
 
     expect(logActivityEventMock).toHaveBeenCalledTimes(1);
     expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
       event_type: 'execution_item_overridden',
+      old_value: expect.objectContaining({
+        execution_item_id: 'execution-1',
+        finding_id: 'finding-1',
+        previous_status: 'open',
+      }),
       new_value: expect.objectContaining({
+        execution_item_id: 'execution-1',
+        finding_id: 'finding-1',
+        new_status: 'resolved',
         override_reason: 'Approved as an operator exception.',
         suppression_signature: body.suppression_signature,
       }),

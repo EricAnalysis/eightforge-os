@@ -123,10 +123,10 @@ export function evaluateFindingRouting(
 
     return {
       decision_eligible: false,
-      action_eligible: true,
+      action_eligible: blocked,
       routing_reason: blocked
         ? 'Approval-blocking findings route to an action when no decision is required.'
-        : 'Review findings route to an action when operator follow-up is required.',
+        : 'Review-only findings stay visible in validation diagnostics without creating execution work.',
     };
   }
 

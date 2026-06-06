@@ -562,6 +562,87 @@ describe('invoice transaction reconciliation validator', () => {
     assert.equal(finding?.variance, 250);
   });
 
+  it('aggregates missing invoice transaction links into one data quality finding', () => {
+    const input = buildInput({
+      invoiceRows: [
+        {
+          id: 'invoice-row-agg',
+          source_document_id: 'invoice-doc-agg',
+          invoice_number: 'INV-AGG',
+        },
+      ],
+      invoiceLines: [
+        {
+          id: 'line-agg-1',
+          source_document_id: 'invoice-doc-agg',
+          invoice_id: 'invoice-row-agg',
+          invoice_number: 'INV-AGG',
+          rate_code: 'RC-01',
+          quantity: 10,
+          unit_price: 25,
+          line_total: 250,
+        },
+      ],
+      transactionRows: [
+        makeTransactionRow({
+          id: 'tx-missing-1',
+          invoiceNumber: null,
+          transactionNumber: 'TX-MISSING-1',
+          rateCode: 'RC-01',
+          quantity: 4,
+          rate: 25,
+          cost: 0,
+          material: 'Vegetative',
+          siteType: 'Landfill',
+          sourceRowNumber: 2,
+        }),
+        makeTransactionRow({
+          id: 'tx-missing-2',
+          invoiceNumber: null,
+          transactionNumber: 'TX-MISSING-2',
+          rateCode: 'RC-01',
+          quantity: 6,
+          rate: 25,
+          cost: 0,
+          material: 'Vegetative',
+          siteType: 'Landfill',
+          sourceRowNumber: 3,
+        }),
+      ],
+      rateScheduleItems: [makeRateItem('RC-01', 25)],
+    });
+
+    const result = evaluateInvoiceTransactionReconciliation(input);
+    const missingLinkFindings = result.findings.filter(
+      (finding) => finding.rule_id === 'TRANSACTION_MISSING_INVOICE_LINK',
+    );
+
+    assert.equal(result.summary.orphan_transactions, 2);
+    assert.equal(missingLinkFindings.length, 1);
+    assert.equal(missingLinkFindings[0]?.subject_type, 'transaction_group');
+    assert.equal(missingLinkFindings[0]?.subject_id, 'missing_invoice_number');
+    assert.match(missingLinkFindings[0]?.actual ?? '', /2 rows missing invoice number/);
+    assert.match(missingLinkFindings[0]?.actual ?? '', /total_extended_cost=0/);
+    assert.equal(missingLinkFindings[0]?.action_eligible, false);
+    const groupEvidence = missingLinkFindings[0]?.evidence.find(
+      (evidence) => evidence.evidence_type === 'transaction_group'
+        && evidence.field_name === 'invoice_number',
+    );
+    assert.ok(groupEvidence);
+    assert.match(groupEvidence.field_value ?? '', /"row_count":2/);
+    assert.match(groupEvidence.field_value ?? '', /"zero_cost_row_count":2/);
+    assert.match(groupEvidence.field_value ?? '', /"invoice_impact":0/);
+    assert.match(groupEvidence.field_value ?? '', /non-billable/);
+    assert.equal(
+      missingLinkFindings[0]?.evidence.some((evidence) => evidence.evidence_type === 'transaction_row'),
+      true,
+    );
+    assert.equal(
+      missingLinkFindings[0]?.evidence.some((evidence) => evidence.evidence_type === 'transaction_group'),
+      true,
+    );
+  });
+
   it('flags duplicate billed lines when the same line repeats on an invoice', () => {
     const input = buildInput({
       invoiceRows: [

@@ -53,4 +53,32 @@ describe('projectExecutionResolution', () => {
     });
     assert.equal(result.successMessage, 'Execution item overridden.');
   });
+
+  it('routes correct through Execution without claiming final resolution', async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'resolvable', outcome: null }),
+    }));
+
+    const result = await executeProjectExecutionResolution({
+      executionItemId: 'execution-3',
+      action: 'correct',
+      accessToken: 'token-3',
+      fetcher,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [path, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    assert.equal(path, '/api/execution-items/execution-3/outcome');
+    assert.equal(init.method, 'PATCH');
+    assert.deepEqual(JSON.parse(String(init.body)), {
+      action: 'correct',
+      reason: null,
+    });
+    assert.equal(
+      result.successMessage,
+      'Correction recorded for review. Update canonical truth before final resolution.',
+    );
+  });
 });

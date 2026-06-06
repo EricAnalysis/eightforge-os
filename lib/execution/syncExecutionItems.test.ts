@@ -262,6 +262,232 @@ describe('syncExecutionItems', () => {
     expect(logActivityEventMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not create execution items for diagnostic warning findings', async () => {
+    const finding = makeFinding({
+      id: 'finding-warning-1',
+      rule_id: 'TRANSACTION_MISSING_INVOICE_LINK',
+      check_key: 'TRANSACTION_MISSING_INVOICE_LINK:missing_invoice_number',
+      severity: 'warning',
+      subject_type: 'transaction_group',
+      subject_id: 'missing_invoice_number',
+      field: 'invoice_number',
+      expected: 'linked invoice number',
+      actual: '283 rows missing invoice number; total_extended_cost=0',
+      blocked_reason: null,
+      business_severity: 'medium',
+      approval_gate_effect: 'requires_operator_review',
+      finding_disposition: 'warning',
+      action_eligible: false,
+      decision_eligible: false,
+      affected_amount: null,
+    });
+    const adminMock = createAdminMock({
+      validationFindings: [{
+        id: finding.id,
+        check_key: finding.check_key,
+        status: 'open',
+        linked_action_id: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      }],
+    });
+
+    const result = await syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      actorId: 'user-1',
+      findings: [finding],
+    });
+
+    assert.equal(result.created, 0);
+    assert.equal(result.updated, 0);
+    assert.equal(adminMock.state.executionItems.length, 0);
+    assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, null);
+    expect(logActivityEventMock).not.toHaveBeenCalled();
+  });
+
+  it('does not relink a diagnostic warning to a stale execution item with the same source key', async () => {
+    const finding = makeFinding({
+      id: 'finding-warning-stale',
+      rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+      check_key: 'FINANCIAL_RATE_CODE_MISSING:invoice:INV-001:line:1A',
+      severity: 'warning',
+      subject_type: 'invoice_line',
+      subject_id: 'INV-001:1A',
+      field: 'rate_code',
+      expected: 'rate code present',
+      actual: 'missing',
+      blocked_reason: null,
+      business_severity: 'medium',
+      approval_gate_effect: 'requires_operator_review',
+      finding_disposition: 'warning',
+      action_eligible: false,
+      decision_eligible: false,
+      affected_amount: null,
+    });
+    const adminMock = createAdminMock({
+      executionItems: [{
+        id: 'execution-stale-1',
+        organization_id: 'org-1',
+        project_id: 'project-1',
+        source_type: 'validator_finding',
+        source_id: 'prior-finding-id',
+        source_key: finding.check_key,
+        severity: 'medium',
+        title: 'Missing rate code',
+        problem: 'Missing rate code',
+        expected_value: 'rate code present',
+        actual_value: 'missing',
+        impact: 'Prior diagnostic item.',
+        required_action: 'Review prior diagnostic item.',
+        status: 'open',
+        outcome: null,
+        evidence_refs: null,
+        fact_refs: null,
+        validator_rule_key: finding.rule_id,
+        override_reason: null,
+        suppression_signature: null,
+        created_at: TS,
+        updated_at: TS,
+        last_seen_at: TS,
+        overridden_at: null,
+        resolved_at: null,
+      }],
+      validationFindings: [{
+        id: finding.id,
+        check_key: finding.check_key,
+        status: 'open',
+        linked_action_id: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      }],
+    });
+
+    const result = await syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      actorId: 'user-1',
+      findings: [finding],
+    });
+
+    assert.equal(result.created, 0);
+    assert.equal(result.updated, 0);
+    assert.equal(result.resolvable, 0);
+    assert.equal(result.staleResolved, 1);
+    assert.equal(result.executionItemIdsBySourceKey.size, 0);
+    assert.equal(adminMock.state.executionItems[0]?.status, 'resolved');
+    assert.equal(adminMock.state.executionItems[0]?.outcome, 'resolved');
+    assert.ok(adminMock.state.executionItems[0]?.resolved_at);
+    assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, null);
+    expect(logActivityEventMock).toHaveBeenCalledTimes(1);
+    expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      entity_type: 'execution_item',
+      entity_id: 'execution-stale-1',
+      event_type: 'status_changed',
+    }));
+  });
+
+  it('resolves stale prior-run items when the latest run no longer emits an actionable finding', async () => {
+    const activeFinding = makeFinding({
+      id: 'finding-active-1',
+      check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:active',
+    });
+    const adminMock = createAdminMock({
+      executionItems: [
+        {
+          id: 'execution-stale-prior',
+          organization_id: 'org-1',
+          project_id: 'project-1',
+          source_type: 'validator_finding',
+          source_id: 'prior-finding-id',
+          source_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:stale',
+          severity: 'critical',
+          title: 'Prior blocker',
+          problem: 'Prior blocker',
+          expected_value: 'rate',
+          actual_value: 'missing',
+          impact: 'Prior impact.',
+          required_action: 'Prior action.',
+          status: 'open',
+          outcome: null,
+          evidence_refs: null,
+          fact_refs: null,
+          validator_rule_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+          override_reason: null,
+          suppression_signature: null,
+          created_at: TS,
+          updated_at: TS,
+          last_seen_at: TS,
+          overridden_at: null,
+          resolved_at: null,
+        },
+        {
+          id: 'execution-active-latest',
+          organization_id: 'org-1',
+          project_id: 'project-1',
+          source_type: 'validator_finding',
+          source_id: activeFinding.id,
+          source_key: activeFinding.check_key,
+          severity: 'critical',
+          title: 'Active blocker',
+          problem: 'Active blocker',
+          expected_value: activeFinding.expected,
+          actual_value: activeFinding.actual,
+          impact: activeFinding.impact ?? 'Active impact.',
+          required_action: activeFinding.required_action ?? 'Active action.',
+          status: 'open',
+          outcome: null,
+          evidence_refs: ['document:doc-1:page:1', 'record:record-1', 'field:rate'],
+          fact_refs: [],
+          validator_rule_key: activeFinding.rule_id,
+          override_reason: null,
+          suppression_signature: buildExecutionItemSuppressionSignature({
+            project_id: 'project-1',
+            validator_rule_key: activeFinding.rule_id,
+            source_key: activeFinding.check_key,
+            expected_value: activeFinding.expected,
+            actual_value: activeFinding.actual,
+            evidence_refs: ['document:doc-1:page:1', 'record:record-1', 'field:rate'],
+            fact_refs: [],
+          }),
+          created_at: TS,
+          updated_at: TS,
+          last_seen_at: TS,
+          overridden_at: null,
+          resolved_at: null,
+        },
+      ],
+      validationFindings: [{
+        id: activeFinding.id,
+        check_key: activeFinding.check_key,
+        status: 'open',
+        linked_action_id: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      }],
+    });
+
+    const result = await syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      actorId: 'user-1',
+      findings: [activeFinding],
+    });
+
+    assert.equal(result.created, 0);
+    assert.equal(result.staleResolved, 1);
+    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.status, 'resolved');
+    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.outcome, 'resolved');
+    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-active-latest')?.status, 'open');
+    assert.equal(findValidationFinding(adminMock.state, activeFinding.id).linked_action_id, 'execution-active-latest');
+  });
+
   it('updates the same open execution item idempotently across reruns', async () => {
     const firstFinding = makeFinding({
       id: 'finding-open-1',

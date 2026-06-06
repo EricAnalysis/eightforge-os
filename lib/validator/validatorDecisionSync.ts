@@ -806,7 +806,9 @@ export function buildValidatorDecisionRecords(params: {
     .map((finding) => normalizeValidationFinding(finding) as PersistableValidationFinding);
 
   const actionableFindings = normalizedOpenFindings.filter(
-    (finding) => isBlockingFinding(finding) || isReviewFinding(finding) || finding.decision_eligible,
+    (finding) =>
+      finding.action_eligible === true
+      && (isBlockingFinding(finding) || isReviewFinding(finding) || finding.decision_eligible),
   );
 
   const hasApprovalContext =
@@ -822,7 +824,7 @@ export function buildValidatorDecisionRecords(params: {
 
   const gate = evaluateApprovalGate({
     ...params.result,
-    findings: normalizedOpenFindings,
+    findings: actionableFindings,
   });
   const exposureInvoices = params.result.exposure?.invoices ?? [];
   const invoiceRecords = gate.invoices.map((invoice, invoiceIndex) => {
@@ -855,6 +857,25 @@ export function buildValidatorDecisionRecords(params: {
     params.result.summary.unsupported_amount
     ?? params.result.exposure?.total_unreconciled_amount
     ?? null;
+  const totalAtRiskAmount =
+    params.result.summary.at_risk_amount
+    ?? params.result.exposure?.total_at_risk_amount
+    ?? null;
+  const hasOperatorDecisionWork =
+    actionableFindings.length > 0
+    || (totalRequiresVerificationAmount ?? 0) > 0
+    || (unsupportedAmount ?? 0) > 0
+    || (totalAtRiskAmount ?? 0) > 0;
+  const projectGate = hasOperatorDecisionWork
+    ? gate.project
+    : {
+        ...gate.project,
+        approval_status: 'approved' as const,
+        reasons: [],
+        finding_ids: [],
+        blocked_amount: 0,
+        at_risk_amount: 0,
+      };
   const projectFindingsForDetails =
     projectScopedFindings.length > 0
       ? projectScopedFindings
@@ -863,7 +884,7 @@ export function buildValidatorDecisionRecords(params: {
     ? buildProjectDecisionRecord({
         projectId: params.projectId,
         runId: params.runId,
-        gate: gate.project,
+        gate: projectGate,
         findings: projectFindingsForDetails,
         sourceFindingIds: actionableFindings.map((finding) => finding.id),
         linkFindingIds: projectScopedFindings.map((finding) => finding.id),

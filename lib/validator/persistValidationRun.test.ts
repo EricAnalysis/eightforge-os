@@ -8,6 +8,8 @@ import {
 } from '@/lib/validator/persistValidationRun';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
+import { syncValidatorDecisions } from '@/lib/validator/validatorDecisionSync';
+import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import type { ValidationEvidence, ValidatorResult } from '@/types/validator';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({
@@ -20,6 +22,11 @@ vi.mock('@/lib/server/activity/logActivityEvent', () => ({
 
 vi.mock('@/lib/execution/syncExecutionItems', () => ({
   syncExecutionItems: vi.fn().mockResolvedValue({
+    created: 0,
+    updated: 0,
+    resolvable: 0,
+    staleResolved: 0,
+    suppressed: 0,
     suppressedFindingIds: new Set(),
     executionItemIdsBySourceKey: new Map(),
   }),
@@ -64,13 +71,15 @@ function evidence(overrides: Partial<ValidationEvidence>): ValidationEvidence {
   };
 }
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+type TestFinding = ValidatorResult['findings'][number];
+type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
 
 class MockQuery {
-  private filters: { column: string; value: any }[] = [];
-  private inFilter: { column: string; values: any[] } | null = null;
+  private filters: { column: string; value: unknown }[] = [];
+  private inFilter: { column: string; values: unknown[] } | null = null;
   private selected = '';
-  private payload: any = null;
+  private payload: Row | Row[] | null = null;
 
   constructor(
     private readonly db: MockDatabase,
@@ -83,11 +92,11 @@ class MockQuery {
     return this;
   }
 
-  insert(payload: any) {
+  insert(payload: Row | Row[]) {
     return new MockQuery(this.db, this.table, 'insert').withPayload(payload);
   }
 
-  update(payload: any) {
+  update(payload: Row) {
     return new MockQuery(this.db, this.table, 'update').withPayload(payload);
   }
 
@@ -95,12 +104,12 @@ class MockQuery {
     return new MockQuery(this.db, this.table, 'delete');
   }
 
-  eq(column: string, value: any) {
+  eq(column: string, value: unknown) {
     this.filters.push({ column, value });
     return this;
   }
 
-  in(column: string, values: any[]) {
+  in(column: string, values: unknown[]) {
     this.inFilter = { column, values };
     return this;
   }
@@ -121,11 +130,11 @@ class MockQuery {
     return this.execute(true, true);
   }
 
-  then(resolve: (value: any) => void, reject: (error: unknown) => void) {
+  then(resolve: (value: unknown) => void, reject: (error: unknown) => void) {
     return this.execute().then(resolve, reject);
   }
 
-  private withPayload(payload: any) {
+  private withPayload(payload: Row | Row[]) {
     this.payload = payload;
     return this;
   }
@@ -150,6 +159,8 @@ class MockQuery {
 }
 
 class MockDatabase {
+  existingFindingCheckKeyBatchSizes: number[] = [];
+
   projects: Row[] = [{
     id: PROJECT_ID,
     organization_id: 'org-1',
@@ -180,9 +191,9 @@ class MockDatabase {
   execute(query: {
     table: string;
     op: 'select' | 'insert' | 'update' | 'delete';
-    filters: { column: string; value: any }[];
-    inFilter: { column: string; values: any[] } | null;
-    payload: any;
+    filters: { column: string; value: unknown }[];
+    inFilter: { column: string; values: unknown[] } | null;
+    payload: Row | Row[] | null;
     selected: string;
   }) {
     if (query.op === 'insert') return this.insert(query);
@@ -199,6 +210,13 @@ class MockDatabase {
 
   private selectRows(query: Parameters<MockDatabase['execute']>[0]) {
     let rows = [...this.tableRows(query.table)];
+    if (
+      query.table === 'project_validation_findings'
+      && query.inFilter?.column === 'check_key'
+    ) {
+      this.existingFindingCheckKeyBatchSizes.push(query.inFilter.values.length);
+    }
+
     for (const filter of query.filters) {
       rows = rows.filter((row) => row[filter.column] === filter.value);
     }
@@ -215,13 +233,13 @@ class MockDatabase {
 
   private insert(query: Parameters<MockDatabase['execute']>[0]) {
     if (query.table === 'project_validation_runs') {
-      const row = { id: RUN_ID, ...query.payload };
+      const row = { id: RUN_ID, ...(query.payload as Row) };
       this.runs.push(row);
       return { data: [{ id: row.id }], error: null };
     }
 
     if (query.table === 'project_validation_findings') {
-      const row = { id: `finding-${this.findings.length}`, ...query.payload };
+      const row = { id: `finding-${this.findings.length}`, ...(query.payload as Row) };
       this.findings.push(row);
       return { data: [{ id: row.id }], error: null };
     }
@@ -237,42 +255,49 @@ class MockDatabase {
   }
 }
 
-function validatorResult(): ValidatorResult {
+function validationFinding(overrides: Partial<TestFinding>): TestFinding {
+  return {
+    id: 'candidate-finding',
+    run_id: RUN_ID,
+    project_id: PROJECT_ID,
+    rule_id: 'NEW_RULE',
+    check_key: 'NEW_RULE:new-subject',
+    category: 'financial',
+    severity: 'critical',
+    status: 'open',
+    subject_type: 'invoice',
+    subject_id: 'new-subject',
+    field: 'total_amount',
+    expected: '10',
+    actual: '5',
+    variance: 5,
+    variance_unit: 'amount',
+    blocked_reason: null,
+    decision_eligible: false,
+    action_eligible: false,
+    linked_decision_id: null,
+    linked_action_id: null,
+    resolved_by_user_id: null,
+    resolved_at: null,
+    created_at: '2026-05-20T00:00:00.000Z',
+    updated_at: '2026-05-20T00:00:00.000Z',
+    evidence: [],
+    ...overrides,
+  } as TestFinding;
+}
+
+function validatorResult(findings: TestFinding[] = [validationFinding({})]): ValidatorResult {
   return {
     status: 'BLOCKED',
     rulesApplied: ['financial_integrity'],
     blocked_reasons: [],
-    findings: [
-      {
-        id: 'candidate-finding',
-        run_id: RUN_ID,
-        project_id: PROJECT_ID,
-        rule_id: 'NEW_RULE',
-        check_key: 'NEW_RULE:new-subject',
-        category: 'financial',
-        severity: 'critical',
-        status: 'open',
-        subject_type: 'invoice',
-        subject_id: 'new-subject',
-        field: 'total_amount',
-        expected: '10',
-        actual: '5',
-        variance: 5,
-        variance_unit: 'amount',
-        blocked_reason: null,
-        decision_eligible: false,
-        action_eligible: false,
-        linked_decision_id: null,
-        linked_action_id: null,
-        resolved_by_user_id: null,
-        resolved_at: null,
-        created_at: '2026-05-20T00:00:00.000Z',
-        updated_at: '2026-05-20T00:00:00.000Z',
-        evidence: [],
-      },
-    ],
+    findings,
     summary: {},
   } as unknown as ValidatorResult;
+}
+
+function persistedOpenFindings(db: MockDatabase) {
+  return db.findings.filter((finding) => finding.run_id === RUN_ID && finding.status === 'open');
 }
 
 beforeEach(() => {
@@ -323,7 +348,7 @@ describe('persistValidationRun evidence persistence', () => {
 describe('persistValidationRun core persistence', () => {
   it('completes the run, updates project summary, and resolves stale findings before side effects', async () => {
     const db = new MockDatabase();
-    vi.mocked(getSupabaseAdmin).mockReturnValue(db as any);
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
     vi.mocked(syncExecutionItems).mockRejectedValueOnce(new Error('execution sync failed'));
 
     await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
@@ -340,5 +365,151 @@ describe('persistValidationRun core persistence', () => {
     const stale = db.findings.find((finding) => finding.id === 'stale-finding');
     assert.equal(stale?.status, 'resolved');
     assert.ok(stale?.resolved_at);
+  });
+
+  it('suppresses financial missing-rate findings when cross-document missing-rate exists for the same subject', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const subjectId = 'typed:invoice-doc:invoice:line:1';
+
+    await persistValidationRun(PROJECT_ID, validatorResult([
+      validationFinding({
+        id: 'financial-overlap',
+        rule_id: 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+        check_key: `FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT:${subjectId}`,
+        subject_type: 'invoice_line',
+        subject_id: subjectId,
+        field: 'rate_code',
+      }),
+      validationFinding({
+        id: 'cross-overlap',
+        rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        check_key: `CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:${subjectId}`,
+        subject_type: 'invoice_line',
+        subject_id: subjectId,
+        field: 'contract_rate',
+      }),
+      validationFinding({
+        id: 'unrelated',
+        rule_id: 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE',
+        check_key: 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE:2026002::1A',
+        subject_type: 'invoice_rate_group',
+        subject_id: '2026002::1A',
+        field: 'extended_cost',
+      }),
+    ]), 'manual');
+
+    const persisted = persistedOpenFindings(db);
+    assert.deepEqual(
+      persisted.map((finding) => finding.rule_id).sort(),
+      [
+        'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE',
+      ],
+    );
+    assert.equal(db.runs[0].findings_count, 2);
+  });
+
+  it('preserves financial missing-rate findings when no cross-document missing-rate exists for the subject', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const subjectId = 'typed:aa3b36ac-05cd-45f4-849b-e6e40f37be28:invoice:line:1';
+
+    await persistValidationRun(PROJECT_ID, validatorResult([
+      validationFinding({
+        id: 'financial-only',
+        rule_id: 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+        check_key: `FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT:${subjectId}`,
+        subject_type: 'invoice_line',
+        subject_id: subjectId,
+        field: 'rate_code',
+      }),
+    ]), 'manual');
+
+    const persisted = persistedOpenFindings(db);
+    assert.equal(persisted.length, 1);
+    assert.equal(persisted[0].rule_id, 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT');
+    assert.equal(persisted[0].subject_id, subjectId);
+    assert.equal(db.runs[0].findings_count, 1);
+  });
+
+  it('does not suppress financial missing-rate findings for a different subject', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult([
+      validationFinding({
+        id: 'financial-different-subject',
+        rule_id: 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+        check_key: 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT:line-financial',
+        subject_type: 'invoice_line',
+        subject_id: 'line-financial',
+        field: 'rate_code',
+      }),
+      validationFinding({
+        id: 'cross-other-subject',
+        rule_id: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:line-cross',
+        subject_type: 'invoice_line',
+        subject_id: 'line-cross',
+        field: 'contract_rate',
+      }),
+    ]), 'manual');
+
+    const persisted = persistedOpenFindings(db);
+    assert.deepEqual(
+      persisted.map((finding) => finding.rule_id).sort(),
+      [
+        'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+      ],
+    );
+    assert.equal(db.runs[0].findings_count, 2);
+  });
+
+  it('loads existing open findings in check-key batches', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const manyFindings = Array.from({ length: 205 }, (_, index) => validationFinding({
+      id: `finding-${index}`,
+      rule_id: 'INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO',
+      check_key: `INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO:invoice-${index}`,
+      subject_type: 'invoice',
+      subject_id: `invoice-${index}`,
+      field: 'at_risk_amount',
+    }));
+
+    await persistValidationRun(PROJECT_ID, validatorResult(manyFindings), 'manual');
+
+    assert.deepEqual(
+      db.existingFindingCheckKeyBatchSizes,
+      [25, 25, 25, 25, 25, 25, 25, 25, 5],
+    );
+    assert.equal(db.runs[0].status, 'complete');
+    assert.equal(db.runs[0].findings_count, 205);
+  });
+
+  it('does not let validator decision sync failures fail a completed run', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    vi.mocked(syncValidatorDecisions).mockRejectedValueOnce(new Error('decisions_source_check violation'));
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    assert.equal(db.runs[0].status, 'complete');
+    assert.equal(db.runs[0].findings_count, 1);
+    assert.ok(db.runs[0].completed_at);
+  });
+
+  it('does not let approval snapshot failures fail a completed run', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    vi.mocked(persistApprovalSnapshot).mockRejectedValueOnce(new Error('project_approval_snapshots not in schema cache'));
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    assert.equal(db.runs[0].status, 'complete');
+    assert.equal(db.runs[0].findings_count, 1);
+    assert.ok(db.runs[0].completed_at);
   });
 });

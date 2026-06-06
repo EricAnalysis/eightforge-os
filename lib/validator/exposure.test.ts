@@ -379,14 +379,92 @@ describe('project exposure math', () => {
         fully_reconciled_amount: 400,
         supported_amount: 400,
         unreconciled_amount: 100,
-        at_risk_amount: 0,
-        requires_verification_amount: 0,
-        reconciliation_status: 'PARTIAL',
+        at_risk_amount: 100,
+        requires_verification_amount: 100,
+        reconciliation_status: 'MISMATCH',
       },
     ]);
     assert.equal(result.summary?.total_contract_supported_amount, 400);
     assert.equal(result.summary?.total_transaction_supported_amount, 400);
     assert.equal(result.summary?.total_fully_reconciled_amount, 400);
     assert.equal(result.summary?.total_unreconciled_amount, 100);
+    assert.equal(result.summary?.total_at_risk_amount, 100);
+  });
+
+  it('does not put fully supported invoice dollars at risk solely because warning findings exist', () => {
+    const input = buildInput({
+      invoiceRows: [
+        {
+          id: 'invoice-row-400',
+          source_document_id: 'invoice-doc-400',
+          invoice_number: 'INV-400',
+          total_amount: 250,
+        },
+      ],
+      invoiceLines: [
+        {
+          id: 'line-400-1',
+          source_document_id: 'invoice-doc-400',
+          invoice_id: 'invoice-row-400',
+          invoice_number: 'INV-400',
+          rate_code: 'RC-04',
+          quantity: 10,
+          unit_price: 25,
+          line_total: 250,
+        },
+      ],
+      transactionRows: [
+        makeTransactionRow({
+          id: 'tx-400-1',
+          invoiceNumber: 'INV-400',
+          rateCode: 'RC-04',
+          quantity: 10,
+          cost: 250,
+        }),
+      ],
+      rateScheduleItems: [
+        makeRateItem('RC-04', 25),
+      ],
+    });
+
+    const warningFindings = [
+      makeFinding({
+        projectId: PROJECT_ID,
+        ruleId: 'FINANCIAL_RATE_CODE_MISSING',
+        category: 'financial_integrity',
+        severity: 'warning',
+        subjectType: 'invoice_line',
+        subjectId: 'line-400-1',
+        field: 'rate_code',
+        expected: 'billing code',
+        actual: 'description-derived key',
+      }),
+      makeFinding({
+        projectId: PROJECT_ID,
+        ruleId: 'TRANSACTION_MISSING_INVOICE_LINK',
+        category: 'financial_integrity',
+        severity: 'warning',
+        subjectType: 'transaction_group',
+        subjectId: 'missing_invoice_number',
+        field: 'invoice_number',
+        expected: 'linked invoice number',
+        actual: '2 rows missing invoice number; total_extended_cost=0',
+      }),
+    ];
+
+    const result = evaluateProjectExposure(input, warningFindings);
+
+    assert.equal(result.summary?.invoices[0]?.supported_amount, 250);
+    assert.equal(result.summary?.invoices[0]?.unreconciled_amount, 0);
+    assert.equal(result.summary?.invoices[0]?.at_risk_amount, 0);
+    assert.equal(result.summary?.total_at_risk_amount, 0);
+    assert.equal(
+      result.findings.some((finding) => finding.rule_id === 'INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO'),
+      false,
+    );
+    assert.equal(
+      result.findings.some((finding) => finding.rule_id === 'PROJECT_EXPOSURE_AT_RISK_AMOUNT_ZERO'),
+      false,
+    );
   });
 });

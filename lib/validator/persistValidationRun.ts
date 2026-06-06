@@ -28,6 +28,9 @@ import type {
 
 const RULE_VERSION = '1.0.0';
 const UUID_PREFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID = 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT';
+const CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID = 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS';
+const EXISTING_FINDING_CHECK_KEY_BATCH_SIZE = 25;
 
 type PersistableValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
@@ -148,6 +151,21 @@ function applyFindingRouting(
     decision_eligible: routing.decision_eligible,
     action_eligible: routing.action_eligible,
   };
+}
+
+function suppressOverlappingMissingContractRateFindings(
+  findings: readonly PersistableValidationFinding[],
+): PersistableValidationFinding[] {
+  const subjectsWithCrossDocumentRate = new Set(
+    findings
+      .filter((finding) => finding.rule_id === CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID)
+      .map((finding) => finding.subject_id),
+  );
+
+  return findings.filter((finding) => !(
+    finding.rule_id === FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID
+    && subjectsWithCrossDocumentRate.has(finding.subject_id)
+  ));
 }
 
 function findingIdentity(
@@ -290,23 +308,27 @@ async function loadExistingOpenFindings(
   }
 
   const admin = requireAdminClient();
-  const uniqueCheckKeys = Array.from(new Set(checkKeys));
-  const { data, error } = await admin
-    .from('project_validation_findings')
-    .select('id, check_key')
-    .eq('project_id', projectId)
-    .eq('status', 'open')
-    .in('check_key', uniqueCheckKeys)
-    .order('updated_at', { ascending: false });
-
-  if (error) {
-    throw new Error(`Failed to load existing validation findings: ${error.message}`);
-  }
-
   const findingsByCheckKey = new Map<string, ExistingOpenFindingRow>();
-  for (const row of (data ?? []) as ExistingOpenFindingRow[]) {
-    if (!findingsByCheckKey.has(row.check_key)) {
-      findingsByCheckKey.set(row.check_key, row);
+  const uniqueCheckKeys = Array.from(new Set(checkKeys));
+
+  for (let index = 0; index < uniqueCheckKeys.length; index += EXISTING_FINDING_CHECK_KEY_BATCH_SIZE) {
+    const batch = uniqueCheckKeys.slice(index, index + EXISTING_FINDING_CHECK_KEY_BATCH_SIZE);
+    const { data, error } = await admin
+      .from('project_validation_findings')
+      .select('id, check_key')
+      .eq('project_id', projectId)
+      .eq('status', 'open')
+      .in('check_key', batch)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to load existing validation findings: ${error.message}`);
+    }
+
+    for (const row of (data ?? []) as ExistingOpenFindingRow[]) {
+      if (!findingsByCheckKey.has(row.check_key)) {
+        findingsByCheckKey.set(row.check_key, row);
+      }
     }
   }
 
@@ -722,7 +744,9 @@ export async function persistValidationRun(
   triggeredByUserId?: string,
   inputsSnapshotHash?: string | null,
 ): Promise<{ runId: string }> {
-  const findings = (result.findings as PersistableValidationFinding[]).map(applyFindingRouting);
+  const findings = suppressOverlappingMissingContractRateFindings(
+    (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
+  );
   const persistedFindings: PersistableValidationFinding[] = [];
   let runId: string | null = null;
 

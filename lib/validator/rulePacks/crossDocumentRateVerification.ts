@@ -397,13 +397,11 @@ function chooseSupportRows(
     return { rows: invoiceCategoryRows, support_basis: 'invoice_linked' };
   }
 
-  if (sameInvoice.length > 0) {
-    return { rows: sameInvoice, support_basis: 'invoice_linked' };
-  }
-
   const billingKeyRows = supportRows.filter((row) => (
     line.billing_rate_key != null
     && row.billing_rate_key === line.billing_rate_key
+    && line.normalized_invoice_number != null
+    && row.normalized_invoice_number === line.normalized_invoice_number
   ));
   if (billingKeyRows.length > 0) {
     return { rows: billingKeyRows, support_basis: 'billing_key_fallback' };
@@ -420,6 +418,14 @@ function chooseSupportRows(
   return { rows: [], support_basis: 'none' };
 }
 
+function canonicalCategoriesAlign(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  if (!left || !right) return false;
+  return left === right;
+}
+
 function classifyComparison(params: {
   line: CanonicalInvoiceLine;
   contractItem: RateScheduleItem | null;
@@ -432,6 +438,11 @@ function classifyComparison(params: {
   const invoiceCategoryKnown = hasConfidentCanonicalRateCategory(params.line);
   const contractCategory = contractCategoryResolution(params.contractItem);
   const contractCategoryKnown = hasConfidentCanonicalRateCategory(contractCategory);
+  const lineCategory = params.line.canonical_category;
+  const contractCanonicalCategory = contractCategory.canonical_category;
+  const supportConfirmsLineCategory =
+    lineCategory != null
+    && params.supportCategories.includes(lineCategory);
 
   if (!invoiceCategoryKnown) {
     return {
@@ -457,7 +468,15 @@ function classifyComparison(params: {
     };
   }
 
-  if (contractCategory.canonical_category !== params.line.canonical_category) {
+  const ratesAlign =
+    params.line.invoice_rate != null
+    && params.contractItem.rate_amount != null
+    && Math.abs(params.line.invoice_rate - params.contractItem.rate_amount) <= RATE_TOLERANCE;
+
+  if (
+    !canonicalCategoriesAlign(lineCategory, contractCanonicalCategory)
+    && !(ratesAlign && supportConfirmsLineCategory)
+  ) {
     return {
       status: 'category_mismatch',
       reason: 'Invoice line category does not match the governing contract rate category.',
@@ -488,7 +507,7 @@ function classifyComparison(params: {
     };
   }
 
-  if (!params.supportCategories.includes(params.line.canonical_category ?? '')) {
+  if (!supportConfirmsLineCategory) {
     return {
       status: 'category_mismatch',
       reason: 'Ticket support resolves to a different canonical work category than the invoice line.',
@@ -578,9 +597,11 @@ function findingForUnit(
       severity: 'critical',
       field: 'canonical_category',
       expected: unit.canonical_category,
-      actual: unit.support_observed_categories.length > 0
-        ? unit.support_observed_categories.join(', ')
-        : unit.contract_source_category,
+      actual:
+        unit.support_observed_categories.length > 0
+          ? unit.support_observed_categories.join(', ')
+          : contractCategoryResolution(contractItem).canonical_category
+            ?? unit.contract_source_category,
     },
     missing_contract_rate: {
       ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',

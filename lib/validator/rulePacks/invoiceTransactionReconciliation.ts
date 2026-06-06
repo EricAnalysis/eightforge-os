@@ -2,6 +2,7 @@ import {
   deriveBillingKeysForInvoiceLine,
   deriveBillingKeysForTransactionRecord,
   deriveInvoiceRateKey,
+  matchTransactionRowsForInvoiceGroup,
   normalizeInvoiceNumber,
   normalizeRateCode,
 } from '@/lib/validator/billingKeys';
@@ -1049,16 +1050,21 @@ export function evaluateInvoiceTransactionReconciliation(
   let costMismatches = 0;
   let quantityMismatches = 0;
   const orphanTransactionRowIds = new Set<string>();
+  const orphanTransactionRows: CanonicalTransactionRow[] = [];
   const outlierRowIds = new Set<string>();
 
   for (const group of invoiceGroups) {
-    const matchedRows =
-      (group.invoice_rate_key
-        ? transactionIndexes.byInvoiceRateKey.get(group.invoice_rate_key) ?? []
-        : group.billing_rate_key
-          ? transactionIndexes.byBillingRateKey.get(group.billing_rate_key) ?? []
-          : [])
-        .filter((row) => row.meaningful_data);
+    const matchedRows = matchTransactionRowsForInvoiceGroup(
+      {
+        invoice_rate_key: group.invoice_rate_key,
+        billing_rate_key: group.billing_rate_key,
+        normalized_invoice_number: group.normalized_invoice_number,
+      },
+      {
+        byInvoiceRateKey: transactionIndexes.byInvoiceRateKey,
+        byBillingRateKey: transactionIndexes.byBillingRateKey,
+      },
+    );
 
     if (matchedRows.length === 0) {
       unmatchedGroups += 1;
@@ -1304,10 +1310,21 @@ export function evaluateInvoiceTransactionReconciliation(
   for (const row of transactionIndexes.rows) {
     if (row.invoice_rate_key || row.normalized_invoice_number || !row.meaningful_data) continue;
     orphanTransactionRowIds.add(row.row_id);
+    orphanTransactionRows.push(row);
+  }
 
-    if (!isRuleEnabled(input.ruleStateByRuleId, 'TRANSACTION_MISSING_INVOICE_LINK')) {
-      continue;
-    }
+  if (
+    orphanTransactionRows.length > 0
+    && isRuleEnabled(input.ruleStateByRuleId, 'TRANSACTION_MISSING_INVOICE_LINK')
+  ) {
+    const totalExtendedCost = roundNumber(
+      orphanTransactionRows.reduce((sum, row) => sum + (row.extended_cost ?? 0), 0),
+      2,
+    );
+    const zeroCostRowCount = orphanTransactionRows.filter(
+      (row) => (row.extended_cost ?? 0) === 0,
+    ).length;
+    const firstRow = orphanTransactionRows[0]!;
 
     findings.push(
       makeFinding({
@@ -1315,28 +1332,44 @@ export function evaluateInvoiceTransactionReconciliation(
         ruleId: 'TRANSACTION_MISSING_INVOICE_LINK',
         category: CATEGORY,
         severity: 'warning',
-        subjectType: 'transaction_row',
-        subjectId: row.row_id,
+        subjectType: 'transaction_group',
+        subjectId: 'missing_invoice_number',
         field: 'invoice_number',
         expected: 'linked invoice number',
-        actual: 'missing',
+        actual: `${orphanTransactionRows.length} rows missing invoice number; total_extended_cost=${totalExtendedCost}`,
+        actionEligible: totalExtendedCost !== 0,
         evidence: [
-          ...invoiceContextEvidenceForTransactionRow(row, invoiceGroups),
+          ...invoiceContextEvidenceForTransactionRow(firstRow, invoiceGroups),
           ...transactionSiteGroupEvidence(
-            [row],
+            orphanTransactionRows,
             transactionRollups,
-            'Transaction grouped evidence reviewed for the orphaned transaction row.',
+            'Transaction grouped evidence reviewed for rows missing invoice numbers.',
           ),
-          transactionRowEvidence(
+          makeEvidenceInput({
+            evidence_type: 'transaction_group',
+            record_id: 'missing_invoice_number',
+            field_name: 'invoice_number',
+            field_value: {
+              row_count: orphanTransactionRows.length,
+              zero_cost_row_count: zeroCostRowCount,
+              invoice_impact: totalExtendedCost,
+              total_extended_cost: totalExtendedCost,
+              recommended_action:
+                'Confirm these rows are voided, incomplete, informational, or non-billable.',
+              sample_row_ids: orphanTransactionRows.slice(0, 10).map((row) => row.row_id),
+            },
+            note: 'Aggregated data quality signal for transaction rows missing invoice numbers.',
+          }),
+          ...orphanTransactionRows.slice(0, 10).map((row) => transactionRowEvidence(
             row,
             'invoice_number',
             row.invoice_number,
-            'Transaction row is missing an invoice link while containing reconcilable data.',
-          ),
+            'Sample transaction row missing an invoice link.',
+          )),
           groupingKeyEvidence({
-            invoiceRateKey: row.invoice_rate_key,
-            billingRateKey: row.billing_rate_key,
-            note: 'Grouping key available on the orphaned transaction row.',
+            invoiceRateKey: firstRow.invoice_rate_key,
+            billingRateKey: firstRow.billing_rate_key,
+            note: 'Grouping key sample available on the orphaned transaction rows.',
           }),
         ],
       }),

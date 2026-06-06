@@ -44,10 +44,18 @@ function fieldKeyFromFactId(factId: string | null): string | null {
   return normalizeString(normalizedFactId.slice(separatorIndex + 1));
 }
 
-function rateRowIdFromRecordId(recordId: string | null): string | null {
+function rateRowIdFromRecordId(recordId: string | null, evidenceType: string | null): string | null {
   const normalized = normalizeString(recordId);
   if (!normalized) return null;
-  return normalized.startsWith('rate_row:') ? normalized : null;
+  if (
+    normalized.startsWith('rate_row:') ||
+    normalized.startsWith('contract_rate_row:') ||
+    normalized.startsWith('exhibit_a_table:') ||
+    normalized.startsWith('exhibit_a_text_recovery:')
+  ) {
+    return normalized;
+  }
+  return evidenceType === 'rate_schedule' ? normalized : null;
 }
 
 function targetLabel(target: {
@@ -127,7 +135,8 @@ export function buildEvidenceTarget(args: {
   const page = normalizePositivePage(args.evidence.source_page);
   const factId = normalizeString(args.evidence.fact_id);
   const recordId = normalizeString(args.evidence.record_id);
-  const rateRowId = rateRowIdFromRecordId(recordId);
+  const evidenceType = normalizeString(args.evidence.evidence_type);
+  const rateRowId = rateRowIdFromRecordId(recordId, evidenceType);
   const fieldKey = normalizeString(args.evidence.field_name) ?? fieldKeyFromFactId(factId);
   const exactTarget =
     page != null

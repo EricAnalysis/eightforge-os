@@ -34,7 +34,7 @@ export async function executeProjectExecutionResolution(params: {
       action === 'approve'
         ? 'Execution item approved.'
         : action === 'correct'
-          ? 'Execution item corrected.'
+          ? 'Correction recorded for review. Update canonical truth before final resolution.'
           : 'Execution item overridden.',
   };
 }

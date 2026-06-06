@@ -8,7 +8,7 @@ import {
 } from '@/lib/documentPrecedence';
 import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
 import { collapseEffectiveFactRecords } from '@/lib/effectiveFacts';
-import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { ContractAnalysisResult, ContractRateScheduleRow } from '@/lib/contracts/types';
 import {
   isDocumentFactOverridesTableUnavailableError,
   type DocumentFactOverrideRow,
@@ -410,6 +410,73 @@ function traceEvidenceEntries(trace: PersistedDocumentExecutionTrace): EvidenceO
   });
 }
 
+function rateRowEvidenceText(row: ContractRateScheduleRow): string | null {
+  const textParts = [
+    row.raw_text,
+    ...(Array.isArray(row.raw_cells) ? row.raw_cells : []),
+    row.rate_raw,
+  ].flatMap((part) => {
+    if (typeof part !== 'string') return [];
+    const trimmed = part.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  });
+
+  return textParts.length > 0 ? textParts.join(' | ') : null;
+}
+
+function rateRowEvidenceConfidence(row: ContractRateScheduleRow): number {
+  if (row.confidence === 'high') return 0.9;
+  if (row.confidence === 'medium') return 0.75;
+  if (row.confidence === 'needs_review') return 0.45;
+  return 0.7;
+}
+
+function evidenceKindForRateRow(row: ContractRateScheduleRow): EvidenceObject['kind'] {
+  return row.source_kind === 'exhibit_a_text_recovery' ? 'text' : 'table_row';
+}
+
+function buildRateRowEvidenceById(
+  documentId: string,
+  rows: readonly ContractRateScheduleRow[] | null | undefined,
+): Map<string, EvidenceObject> {
+  const evidenceById = new Map<string, EvidenceObject>();
+  if (!Array.isArray(rows)) return evidenceById;
+
+  for (const row of rows) {
+    const anchorIds = Array.isArray(row.source_anchor_ids) ? row.source_anchor_ids : [];
+    const text = rateRowEvidenceText(row);
+    const confidence = rateRowEvidenceConfidence(row);
+
+    for (const anchorId of anchorIds) {
+      const id = typeof anchorId === 'string' ? anchorId.trim() : '';
+      if (!id || evidenceById.has(id)) continue;
+
+      evidenceById.set(id, {
+        id,
+        kind: evidenceKindForRateRow(row),
+        source_type: 'pdf',
+        description: 'Persisted contract rate row evidence',
+        text: text ?? undefined,
+        value: row.rate_amount ?? row.rate ?? null,
+        location: {
+          page: row.page ?? undefined,
+          nearby_text: text?.slice(0, 240),
+        },
+        confidence,
+        weak: row.confidence === 'needs_review',
+        source_document_id: documentId,
+        metadata: {
+          row_id: row.row_id,
+          source_anchor_id: id,
+          source_kind: row.source_kind ?? null,
+        },
+      });
+    }
+  }
+
+  return evidenceById;
+}
+
 export function buildPersistedContractValidationContextFromTrace(
   document: Pick<ValidatorDocumentRow, 'id' | 'document_type' | 'intelligence_trace'>,
 ): ValidatorContractAnalysisContext | null {
@@ -525,10 +592,11 @@ export function buildPersistedContractValidationContextFromProjectSummary(
     return null;
   }
 
+  const analysisResult = analysis as unknown as ContractAnalysisResult;
   return {
     document_id: documentId,
-    analysis: analysis as unknown as ContractAnalysisResult,
-    evidence_by_id: new Map(),
+    analysis: analysisResult,
+    evidence_by_id: buildRateRowEvidenceById(documentId, analysisResult.rate_schedule_rows),
     relationship_context: relationshipContext
       ? {
           pricing_document_ids: factValueAsStringArray(relationshipContext.pricing_document_ids),

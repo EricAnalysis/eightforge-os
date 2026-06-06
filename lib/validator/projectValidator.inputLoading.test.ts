@@ -11,6 +11,11 @@ import {
   synthesizeInvoicesFromLegacyExtractions,
   VALIDATOR_DOCUMENT_SELECT,
 } from '@/lib/validator/projectValidator';
+import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
+import {
+  RATE_BASED_CONTRACT_VALIDATION_RULES,
+  runRateBasedContractValidationRules,
+} from '@/lib/validator/rulePacks/rateBasedContractValidation';
 import { DOCUMENT_PRECEDENCE_SELECT } from '@/lib/server/documentPrecedence';
 import type { ValidatorLegacyExtractionRow } from '@/lib/validator/shared';
 import type { ResolvedDocumentPrecedenceFamily } from '@/lib/documentPrecedence';
@@ -48,6 +53,97 @@ describe('project validator input loading', () => {
     assert.equal(context?.document_id, 'contract-doc-1');
     assert.equal(context?.analysis.pricing_model.rate_schedule_present?.value, true);
     assert.equal(context?.analysis.rate_schedule_rows?.[0]?.rate, 6.9);
+  });
+
+  it('reconstructs fallback contract rate evidence from persisted summary anchors', () => {
+    const context = buildPersistedContractValidationContextFromProjectSummary({
+      contract_validation_context: {
+        document_id: 'contract-doc-1',
+        analysis: {
+          contract_identity: {},
+          pricing_model: {
+            rate_schedule_present: {
+              value: true,
+            },
+            pricing_applicability: {
+              value: 'requires_activation_scope_or_eligibility_resolution',
+              state: 'conditional',
+              evidence_anchors: ['pdf:table:p8:t1:r1'],
+            },
+          },
+          activation_model: {},
+          rate_schedule_rows: [
+            {
+              row_id: 'exhibit_a_table:pdf:table:p8:t1:r1',
+              source_kind: 'exhibit_a_table',
+              description: 'Vegetative debris haul and reduction',
+              unit: 'Cubic Yard',
+              rate: 6.9,
+              category: 'Vegetative',
+              page: 8,
+              source_anchor_ids: ['pdf:table:p8:t1:r1'],
+              rate_raw: '$6.90',
+              material_type: 'Vegetative',
+              unit_type: 'Cubic Yard',
+              rate_amount: 6.9,
+              confidence: 'high',
+              raw_cells: ['Vegetative debris haul and reduction', 'Cubic Yard', '$6.90'],
+              raw_text: 'Vegetative debris haul and reduction | Cubic Yard | $6.90',
+            },
+          ],
+        },
+      },
+    });
+
+    assert.ok(context);
+    const evidence = context.evidence_by_id.get('pdf:table:p8:t1:r1');
+    assert.ok(evidence);
+    assert.equal(evidence.id, 'pdf:table:p8:t1:r1');
+    assert.equal(evidence.source_document_id, 'contract-doc-1');
+    assert.equal(evidence.location.page, 8);
+    assert.equal(evidence.kind, 'table_row');
+    assert.match(evidence.text ?? '', /Vegetative debris/);
+
+    const findings = runRateBasedContractValidationRules({
+      project: {
+        id: 'project-1',
+      },
+      contractValidationContext: context,
+      ruleStateByRuleId: new Map(),
+      factLookups: {
+        contractCeilingType: 'rate_based',
+        contractDocumentId: 'contract-doc-1',
+        rateSchedulePresent: true,
+        rateRowCount: 8,
+        rateSchedulePagesDisplay: '8',
+        rateUnitsDetected: ['Cubic Yard'],
+      },
+      invoiceLines: [],
+      invoiceLineToRateMap: new Map(),
+      allFacts: [],
+    } as never);
+    const fallbackFinding = findings.find(
+      (finding) =>
+        finding.rule_id === RATE_BASED_CONTRACT_VALIDATION_RULES.pricing_applicability_unclear.ruleId,
+    );
+    const findingEvidence = fallbackFinding?.evidence[0] ?? null;
+
+    assert.ok(findingEvidence);
+    assert.equal(findingEvidence.source_document_id, 'contract-doc-1');
+    assert.equal(findingEvidence.source_page, 8);
+    assert.equal(findingEvidence.record_id, 'pdf:table:p8:t1:r1');
+
+    const target = buildEvidenceTarget({
+      projectId: 'project-1',
+      evidence: findingEvidence,
+      findingId: fallbackFinding?.id,
+    });
+
+    assert.equal(target.exactTarget, true);
+    assert.ok(target.href);
+    assert.match(target.href, /contract-doc-1/);
+    assert.match(target.href, /page=8/);
+    assert.match(target.href, /recordId=pdf%3Atable%3Ap8%3At1%3Ar1/);
   });
 
   it('prefers fresh persisted contract trace rows over stale project validation summary rows', () => {

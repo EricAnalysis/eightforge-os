@@ -981,25 +981,19 @@ function invoiceReconciliationDisplay(invoice: ProjectOverviewInvoiceItem): stri
   return fullySupported ? 'MATCH' : invoice.reconciliation_status;
 }
 
-function approvalPanelReconciliationDisplay(model: ProjectOverviewModel): string | null {
+export function approvalPanelReconciliationDisplay(model: ProjectOverviewModel): string | null {
   const rawStatus = model.validator_summary.reconciliation_overall;
-  if (!rawStatus) return null;
-  const approvalLabel = approvalStatusLabelForProjectFacts({
-    status: model.validator_summary.status,
-    validator_status: model.validator_summary.validator_readiness,
-  });
-  const fullySupported =
-    approvalLabel === 'Approved'
-    && model.validator_summary.approval_blocker_count === 0
-    && (model.validator_summary.total_at_risk == null || model.validator_summary.total_at_risk <= 0)
-    && (
-      model.validator_summary.requires_verification_amount == null
-      || model.validator_summary.requires_verification_amount <= 0
-    )
-    && model.validator_summary.invoice_summaries.length > 0
-    && model.validator_summary.invoice_summaries.every((invoice) => invoiceReconciliationDisplay(invoice) === 'MATCH');
-
-  return fullySupported ? 'Reconciled' : rawStatus;
+  switch (rawStatus) {
+    case 'MATCH':
+      return 'Reconciled';
+    case 'PARTIAL':
+      return 'Partial';
+    case 'MISSING':
+    case null:
+      return null;
+    default:
+      return rawStatus;
+  }
 }
 
 function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {

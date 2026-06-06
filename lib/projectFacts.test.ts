@@ -5,6 +5,7 @@ import type { ValidationFinding } from '@/types/validator';
 import {
   approvalStatusLabelForProjectFacts,
   buildCanonicalTransactionSummaryFromRows,
+  type CanonicalProjectTransactionDatasetInput,
   deriveCanonicalProjectInvoiceApprovalStatus,
   resolveCanonicalProjectOverviewBriefing,
   resolveCanonicalProjectFacts,
@@ -52,6 +53,20 @@ function buildValidationFinding(
     resolved_at: overrides.resolved_at ?? null,
     created_at: overrides.created_at ?? '2026-04-20T12:00:00Z',
     updated_at: overrides.updated_at ?? '2026-04-20T12:00:00Z',
+  };
+}
+
+function buildTransactionDataset(
+  overrides: Partial<CanonicalProjectTransactionDatasetInput> = {},
+): CanonicalProjectTransactionDatasetInput {
+  return {
+    document_id: overrides.document_id ?? 'transaction-dataset-1',
+    row_count: overrides.row_count ?? 12,
+    date_range_start: overrides.date_range_start ?? null,
+    date_range_end: overrides.date_range_end ?? null,
+    summary_json: overrides.summary_json ?? null,
+    created_at: overrides.created_at ?? '2026-04-20T12:00:00Z',
+    rows: overrides.rows,
   };
 }
 
@@ -278,6 +293,87 @@ describe('resolveCanonicalProjectFacts', () => {
     assert.equal(summary.info_count, 0);
     assert.equal(summary.validation_phase, 'billing_review');
     assert.deepEqual(summary.blocked_reasons, ['Invoice mismatch']);
+  });
+
+  it('keeps SOURCES_NO_TICKET_DATA findings blocking when canonical transaction data is absent', () => {
+    const staleTicketFinding = buildValidationFinding({
+      id: 'williamson-ticket-data-absent',
+      project_id: 'williamson',
+      rule_id: 'SOURCES_NO_TICKET_DATA',
+      check_key: 'sources.ticket_data',
+      category: 'required_sources',
+      problem: 'No ticket data source is linked.',
+    });
+
+    const absentDatasetSummary = resolveValidationSummaryFromProjectFacts({
+      validationStatus: 'FINDINGS_OPEN',
+      validationSummary: {
+        validation_phase: 'billing_review',
+      },
+      validationFindings: [staleTicketFinding],
+    });
+    const emptyDatasetSummary = resolveValidationSummaryFromProjectFacts({
+      validationStatus: 'FINDINGS_OPEN',
+      validationSummary: {
+        validation_phase: 'billing_review',
+      },
+      validationFindings: [staleTicketFinding],
+      transactionDatasets: [],
+    });
+
+    for (const summary of [absentDatasetSummary, emptyDatasetSummary]) {
+      assert.equal(summary.status, 'BLOCKED');
+      assert.equal(summary.validator_status, 'BLOCKED');
+      assert.equal(summary.readiness, 'BLOCKED');
+      assert.equal(summary.blocker_count, 1);
+      assert.equal(summary.validator_blockers[0]?.rule_id, 'SOURCES_NO_TICKET_DATA');
+    }
+  });
+
+  it('suppresses stale SOURCES_NO_TICKET_DATA findings after canonical transaction data exists', () => {
+    const staleTicketFinding = buildValidationFinding({
+      id: 'williamson-stale-ticket-data',
+      project_id: 'williamson',
+      rule_id: 'SOURCES_NO_TICKET_DATA',
+      check_key: 'sources.ticket_data',
+      category: 'required_sources',
+      problem: 'No ticket data source is linked.',
+    });
+    const williamsonDataset = buildTransactionDataset({
+      document_id: 'williamson-ticket-workbook',
+      row_count: 0,
+      summary_json: {
+        project_operations_overview: {
+          total_tickets: 42,
+          total_invoiced_amount: 815559.35,
+        },
+      },
+    });
+    const canonicalParams = {
+      validationStatus: 'FINDINGS_OPEN' as const,
+      validationSummary: {
+        validation_phase: 'billing_review',
+      },
+      validationFindings: [staleTicketFinding],
+      transactionDatasets: [williamsonDataset],
+    };
+
+    const summary = resolveValidationSummaryFromProjectFacts(canonicalParams);
+    const snapshot = resolveCanonicalProjectValidationSnapshot(canonicalParams);
+    const workspace = resolveCanonicalProjectValidatorWorkspace(canonicalParams);
+    const readinessItem = workspace.status_items.find((item) => item.key === 'readiness');
+    const blockerItem = workspace.status_items.find((item) => item.key === 'blockers');
+
+    assert.equal(summary.status, 'VALIDATED');
+    assert.equal(summary.validator_status, 'READY');
+    assert.equal(summary.readiness, 'READY');
+    assert.equal(summary.blocker_count, 0);
+    assert.equal(summary.validator_blockers.length, 0);
+    assert.equal(snapshot.facts.status, summary.status);
+    assert.equal(snapshot.facts.validator_status, summary.validator_status);
+    assert.equal(snapshot.facts.blocker_count, summary.blocker_count);
+    assert.equal(readinessItem?.value, 'Validated');
+    assert.equal(blockerItem?.value, '0');
   });
 
   it('projects cross-document rate verification through shared canonical facts', () => {

@@ -911,21 +911,63 @@ function deriveValidatorStatusFromFindings(
     : 'READY';
 }
 
+function canonicalTransactionSummaryRecord(
+  dataset: CanonicalProjectTransactionDatasetInput,
+): Record<string, unknown> | null {
+  const summary = dataset.summary_json;
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) {
+    return null;
+  }
+
+  const overview = summary.project_operations_overview;
+  return isRecord(overview) ? overview : summary;
+}
+
+function hasCanonicalTransactionDatasetData(
+  datasets?: readonly CanonicalProjectTransactionDatasetInput[] | null,
+): boolean {
+  return (datasets ?? []).some((dataset) => {
+    if ((dataset.row_count ?? 0) > 0) return true;
+
+    const summary = canonicalTransactionSummaryRecord(dataset);
+    const totalTickets = readNumber(summary?.total_tickets);
+    const totalInvoicedAmount = readNumber(summary?.total_invoiced_amount);
+
+    return (totalTickets ?? 0) > 0 || (totalInvoicedAmount ?? 0) > 0;
+  });
+}
+
+function validationFindingsForCanonicalProjectFacts(params: {
+  validationFindings: readonly ValidationFinding[];
+  transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[] | null;
+}): readonly ValidationFinding[] {
+  if (!hasCanonicalTransactionDatasetData(params.transactionDatasets)) {
+    return params.validationFindings;
+  }
+
+  return params.validationFindings.filter((finding) => finding.rule_id !== 'SOURCES_NO_TICKET_DATA');
+}
+
 function overlayCanonicalProjectFactsWithValidationFindings(
   facts: CanonicalProjectFacts,
   validationFindings?: readonly ValidationFinding[] | null,
+  transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[] | null,
 ): CanonicalProjectFacts {
   if (!Array.isArray(validationFindings)) {
     return facts;
   }
 
-  const openFindings = validationFindings.filter((finding) => finding.status === 'open');
+  const canonicalFindings = validationFindingsForCanonicalProjectFacts({
+    validationFindings,
+    transactionDatasets,
+  });
+  const openFindings = canonicalFindings.filter((finding) => finding.status === 'open');
   const validatorOpenItems = openFindings.map(toCanonicalValidatorSummaryItem);
   const validatorBlockers = openFindings
     .filter((finding) => isBlockingFinding(finding))
     .map(toCanonicalValidatorSummaryItem);
-  const derivedStatus = deriveValidationStatusFromFindings(facts.status, validationFindings);
-  const derivedValidatorStatus = deriveValidatorStatusFromFindings(facts.status, validationFindings);
+  const derivedStatus = deriveValidationStatusFromFindings(facts.status, canonicalFindings);
+  const derivedValidatorStatus = deriveValidatorStatusFromFindings(facts.status, canonicalFindings);
   const blockedReasons = uniqueDefinedValues(
     validatorBlockers.map((item) => item.problem ?? item.message ?? null),
   );
@@ -1042,6 +1084,7 @@ export function resolveCanonicalProjectFacts(params: {
   validationSummary?: unknown;
   validationFindings?: readonly ValidationFinding[] | null;
   decisions?: readonly CanonicalProjectDecisionInput[] | null;
+  transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[] | null;
 }): CanonicalProjectFacts {
   const raw = isRecord(params.validationSummary) ? params.validationSummary : null;
   const rawExposure =
@@ -1174,6 +1217,7 @@ export function resolveCanonicalProjectFacts(params: {
     overlayCanonicalProjectFactsWithValidationFindings(
       resolvedFacts,
       params.validationFindings,
+      params.transactionDatasets,
     ),
     params.decisions,
   );
@@ -1199,6 +1243,7 @@ export function resolveCanonicalProjectValidationSnapshot(params: {
   validationSummary?: unknown;
   validationFindings?: readonly ValidationFinding[] | null;
   decisions?: readonly CanonicalProjectDecisionInput[] | null;
+  transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[] | null;
 }): CanonicalProjectValidationSnapshot {
   const facts = resolveCanonicalProjectFacts(params);
   const baseInvoiceSummaries = (facts.exposure?.invoices ?? []).map((invoice) => {
@@ -1272,6 +1317,7 @@ export function resolveValidationSummaryFromProjectFacts(params: {
   validationSummary?: unknown;
   validationFindings?: readonly ValidationFinding[] | null;
   decisions?: readonly CanonicalProjectDecisionInput[] | null;
+  transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[] | null;
   fallback?: Partial<ValidationSummary> | null;
 }): ValidationSummary {
   const fallbackStatus = isValidationStatus(params.validationStatus)
@@ -1285,6 +1331,7 @@ export function resolveValidationSummaryFromProjectFacts(params: {
     validationSummary: params.validationSummary,
     validationFindings: params.validationFindings,
     decisions: params.decisions,
+    transactionDatasets: params.transactionDatasets,
   });
   const hasLiveValidationFindings = Array.isArray(params.validationFindings);
 
@@ -3761,6 +3808,7 @@ export function resolveCanonicalProjectTruthSections(params: {
     validationSummary: params.validationSummary,
     validationFindings: params.validationFindings,
     decisions: params.decisions,
+    transactionDatasets: params.transactionDatasets,
   });
   const facts = snapshot.facts;
   const approvalStatus = approvalStatusLabelForProjectFacts(facts);
@@ -3904,6 +3952,7 @@ export function resolveCanonicalProjectOverviewBriefing(params: {
     validationSummary: params.validationSummary,
     validationFindings: params.validationFindings,
     decisions: params.decisions,
+    transactionDatasets: params.transactionDatasets,
   });
   const facts = snapshot.facts;
   const approvalStatus = approvalStatusLabelForProjectFacts(facts);
@@ -4528,6 +4577,7 @@ export function resolveCanonicalProjectValidatorWorkspace(params: {
     validationSummary: params.validationSummary,
     validationFindings: params.validationFindings,
     decisions: params.decisions,
+    transactionDatasets: params.transactionDatasets,
   });
   const facts = snapshot.facts;
   const approvalStatus = approvalStatusLabelForProjectFacts(facts);

@@ -133,135 +133,17 @@ function isValidationStatus(value: unknown): value is ValidationStatus {
   );
 }
 
-function blockedReasonsFromFindings(findings: ValidationFinding[]): string[] {
-  return Array.from(
-    new Set(
-      findings
-        .filter((finding) => isBlockingFinding(finding))
-        .map((finding) => normalizeValidationFinding(finding).problem)
-        .filter(
-          (value): value is string => typeof value === 'string' && value.trim().length > 0,
-        ),
-    ),
-  );
-}
-
-function readNumericDatasetValue(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function canonicalTransactionSummaryRecord(
-  dataset: CanonicalProjectTransactionDatasetInput,
-): Record<string, unknown> | null {
-  if (!dataset.summary_json || typeof dataset.summary_json !== 'object' || Array.isArray(dataset.summary_json)) {
-    return null;
-  }
-
-  const summary = dataset.summary_json as Record<string, unknown>;
-  const overview = summary.project_operations_overview;
-  return overview && typeof overview === 'object' && !Array.isArray(overview)
-    ? overview as Record<string, unknown>
-    : summary;
-}
-
-function hasCanonicalTransactionDatasetData(
-  datasets: readonly CanonicalProjectTransactionDatasetInput[],
-): boolean {
-  return datasets.some((dataset) => {
-    if ((dataset.row_count ?? 0) > 0) return true;
-
-    const summary = canonicalTransactionSummaryRecord(dataset);
-    const totalTickets = readNumericDatasetValue(summary?.total_tickets);
-    const totalInvoicedAmount = readNumericDatasetValue(summary?.total_invoiced_amount);
-
-    return (totalTickets ?? 0) > 0 || (totalInvoicedAmount ?? 0) > 0;
-  });
-}
-
-function filterFindingsAgainstCanonicalTruth(
-  findings: ValidationFinding[],
-  transactionDatasets: readonly CanonicalProjectTransactionDatasetInput[],
-): ValidationFinding[] {
-  if (!hasCanonicalTransactionDatasetData(transactionDatasets)) {
-    return findings;
-  }
-
-  return findings.filter((finding) => finding.rule_id !== 'SOURCES_NO_TICKET_DATA');
-}
-
-function deriveStatusFromFindings(
-  fallbackStatus: ValidationStatus,
-  findings: ValidationFinding[],
-): ValidationStatus {
-  const hasOpenCritical = findings.some(
-    (finding) => finding.status === 'open' && isBlockingFinding(finding),
-  );
-  if (hasOpenCritical) return 'BLOCKED';
-
-  const hasOpenFindings = findings.some((finding) => finding.status === 'open');
-  if (hasOpenFindings) return 'FINDINGS_OPEN';
-
-  return fallbackStatus === 'NOT_READY' && findings.length === 0
-    ? 'NOT_READY'
-    : 'VALIDATED';
-}
-
-function buildFallbackSummary(
-  status: ValidationStatus,
-  findings: ValidationFinding[],
-): ValidationSummary {
-  return {
-    status: deriveStatusFromFindings(status, findings),
-    last_run_at: null,
-    critical_count: findings.filter((finding) => isBlockingFinding(finding)).length,
-    warning_count: findings.filter(
-      (finding) => normalizeValidationFinding(finding).finding_disposition === 'warning',
-    ).length,
-    info_count: findings.filter(
-      (finding) => normalizeValidationFinding(finding).finding_disposition === 'info',
-    ).length,
-    blocker_count: findings.filter((finding) => isBlockingFinding(finding)).length,
-    requires_review_count: findings.filter(
-      (finding) => normalizeValidationFinding(finding).finding_disposition === 'requires_review',
-    ).length,
-    open_count: findings.filter((finding) => finding.status === 'open').length,
-    blocked_reasons: blockedReasonsFromFindings(findings),
-    trigger_source: null,
-    validator_status:
-      findings.some((finding) => finding.status === 'open' && isBlockingFinding(finding))
-        ? 'BLOCKED'
-        : findings.some((finding) => finding.status === 'open')
-          ? 'NEEDS_REVIEW'
-          : 'READY',
-    readiness: deriveStatusFromFindings(status, findings),
-    validator_open_items: [],
-    validator_blockers: [],
-    contract_invoice_reconciliation: null,
-    invoice_transaction_reconciliation: null,
-    cross_document_rate_verification: null,
-    reconciliation: null,
-    exposure: null,
-  };
-}
-
 function parseSummary(
   raw: unknown,
   fallbackStatus: ValidationStatus,
   findings: ValidationFinding[],
+  transactionDatasets: readonly CanonicalProjectTransactionDatasetInput[],
 ): ValidationSummary {
   return resolveValidationSummaryFromProjectFacts({
     validationStatus: fallbackStatus,
     validationSummary: raw,
-    fallback: buildFallbackSummary(fallbackStatus, findings),
+    validationFindings: findings,
+    transactionDatasets,
   });
 }
 
@@ -649,6 +531,18 @@ function sortCriticalIssues(findings: ValidationFinding[]): ValidationFinding[] 
   });
 }
 
+function isCanonicalValidatorBlockerFinding(
+  finding: ValidationFinding,
+  summary: ValidationSummary,
+): boolean {
+  return summary.validator_blockers.some((item) => (
+    item.rule_id === finding.rule_id
+    && item.subject_type === finding.subject_type
+    && item.subject_id === finding.subject_id
+    && (item.field ?? null) === (finding.field ?? null)
+  ));
+}
+
 function ReadinessGapCard(props: {
   item: CanonicalProjectValidatorCoverageItem;
   label: string;
@@ -893,12 +787,7 @@ export function ValidatorTab({
         validation_status: 'NOT_READY',
         validation_summary_json: null,
       }) as ValidatorProjectRow;
-      const loadedFindings = sortFindings(
-        filterFindingsAgainstCanonicalTruth(
-          (findingsResult.data ?? []) as ValidationFinding[],
-          transactionDatasets,
-        ),
-      );
+      const loadedFindings = sortFindings((findingsResult.data ?? []) as ValidationFinding[]);
       const status = isValidationStatus(validatorProject.validation_status)
         ? validatorProject.validation_status
         : 'NOT_READY';
@@ -906,11 +795,19 @@ export function ValidatorTab({
         validatorProject.validation_summary_json,
         status,
         loadedFindings,
+        transactionDatasets,
       );
-      const runtimeSummary = buildFallbackSummary(status, loadedFindings);
       const prioritizedIssueId = sortCriticalIssues(
-        loadedFindings.filter(isCriticalIssueFinding),
+        loadedFindings.filter((finding) => (
+          isCriticalIssueFinding(finding)
+          && isCanonicalValidatorBlockerFinding(finding, nextSummary)
+        )),
       )[0]?.id ?? null;
+      const canonicalBlockerFindingIds = new Set(
+        loadedFindings
+          .filter((finding) => isCanonicalValidatorBlockerFinding(finding, nextSummary))
+          .map((finding) => finding.id),
+      );
       const loadedFindingIds = loadedFindings.map((finding) => finding.id);
       const evidenceByLoadedFindingId: Record<string, ValidationEvidence[]> = {};
       if (loadedFindingIds.length > 0) {
@@ -928,16 +825,7 @@ export function ValidatorTab({
         }
       }
 
-      setSummary({
-        ...nextSummary,
-        status: runtimeSummary.status,
-        critical_count: runtimeSummary.critical_count,
-        warning_count: runtimeSummary.warning_count,
-        info_count: runtimeSummary.info_count,
-        open_count: runtimeSummary.open_count,
-        blocked_reasons: runtimeSummary.blocked_reasons,
-        validator_status: runtimeSummary.validator_status,
-      });
+      setSummary(nextSummary);
       setFindings(loadedFindings);
       setEvidenceByFindingId((current) => ({
         ...current,
@@ -945,7 +833,7 @@ export function ValidatorTab({
       }));
       setLatestRun((runResult.data ?? null) as ValidatorRunRow | null);
       setSelectedFindingId((current) => {
-        if (current && loadedFindings.some((finding) => finding.id === current)) {
+        if (current && canonicalBlockerFindingIds.has(current)) {
           return current;
         }
 
@@ -1165,8 +1053,13 @@ export function ValidatorTab({
     ? latestRun.rules_applied.length
     : 0;
   const criticalIssues = useMemo(
-    () => sortCriticalIssues(findings.filter(isCriticalIssueFinding)),
-    [findings],
+    () => sortCriticalIssues(
+      findings.filter((finding) => (
+        isCriticalIssueFinding(finding)
+        && isCanonicalValidatorBlockerFinding(finding, summary)
+      )),
+    ),
+    [findings, summary],
   );
   const validatorWorkspace = useMemo(
     () => resolveCanonicalProjectValidatorWorkspace({
@@ -1186,10 +1079,14 @@ export function ValidatorTab({
   );
   const gateTone = approvalGateTone(status);
   const gateAmount = approvalGateAmount(summary);
+  const canonicalBlockerCount =
+    summary.blocker_count
+    ?? summary.critical_count
+    ?? summary.validator_blockers.length;
   const gateExplanation = approvalGateExplanation({
     status,
     summary,
-    criticalCount: criticalIssues.length,
+    criticalCount: canonicalBlockerCount,
   });
 
   return (
@@ -1255,13 +1152,13 @@ export function ValidatorTab({
           />
           <ForgeMetricCard
             label="Critical Mismatches"
-            value={String(criticalIssues.length)}
+            value={String(canonicalBlockerCount)}
             supporting={
-              criticalIssues.length === 1
+              canonicalBlockerCount === 1
                 ? 'One blocker is still open.'
-                : `${criticalIssues.length} blockers are still open.`
+                : `${canonicalBlockerCount} blockers are still open.`
             }
-            tone={metricToneForGate(criticalIssues.length > 0 ? 'critical' : gateTone)}
+            tone={metricToneForGate(canonicalBlockerCount > 0 ? 'critical' : gateTone)}
             radius="sm"
             valueSize="lg"
             labelWeight="bold"

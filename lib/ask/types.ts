@@ -3,11 +3,12 @@
 // inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
 // at 22/22, 0 gaps. See Ask workstream closeout.
 import type { GuardedEvidenceItem } from '@/lib/ask/canonicalReadGuard';
+import type { ActionableGapResponse } from '@/lib/ask/actionableGapResponse';
 import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
 import type { UpstreamGap } from '@/lib/ask/upstreamGapDetector';
 import type { ProjectExecutionSummary } from '@/lib/execution/executionSummary';
 
-export type { GuardedEvidenceItem, PortfolioHandoffContext, UpstreamGap };
+export type { ActionableGapResponse, GuardedEvidenceItem, PortfolioHandoffContext, UpstreamGap };
 
 export type QuestionIntent =
   | 'fact_question'
@@ -151,6 +152,7 @@ export interface AskProjectSections {
   gateImpact: string;
   nextAction: string;
   upstreamGap: UpstreamGap | null;
+  actionableGap?: ActionableGapResponse | null;
   handoffContext?: PortfolioHandoffContext;
 }
 
@@ -278,6 +280,7 @@ export interface AskResponse {
   conflict?: AskConflictState;
   override?: AskOverrideState;
   handoffContext?: PortfolioHandoffContext;
+  actionableGap?: ActionableGapResponse;
 }
 
 export interface ValidatorContext {

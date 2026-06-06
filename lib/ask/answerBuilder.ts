@@ -25,6 +25,12 @@ import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext'
 import { ASK_PROJECT_SYSTEM_PROMPT_VERSION } from '@/lib/ask/canonicalPrompts';
 import { guardProjectRead } from '@/lib/ask/canonicalReadGuard';
 import { detectUpstreamGap } from '@/lib/ask/upstreamGapDetector';
+import {
+  buildAmbiguousGapResponse,
+  buildProjectUpstreamGap,
+  detectDeferredGap,
+  type ActionableGapResponse,
+} from '@/lib/ask/actionableGapResponse';
 import { selectProjectAnswer } from '@/lib/ask/selectors';
 import { classifyQueryIntent, type RouterResult } from '@/lib/ask/router/intentRouter';
 
@@ -46,8 +52,16 @@ function buildProjectClarificationResponse(params: {
   retrievalUsed: RetrievalResult['rawData']['matchedLayer'];
   handoffContext?: PortfolioHandoffContext;
 }): AskResponse {
+  const actionableGap = buildAmbiguousGapResponse({
+    candidates: params.routerResult.candidates,
+    clarificationPrompt: params.routerResult.clarificationPrompt,
+  });
   return {
-    answer: params.routerResult.clarificationPrompt,
+    answer: [
+      actionableGap.answer,
+      '',
+      actionableGap.clarificationPrompt,
+    ].filter(Boolean).join('\n'),
     confidence: 'low',
     confidenceScore: 35,
     sources: [],
@@ -61,9 +75,10 @@ function buildProjectClarificationResponse(params: {
     promptVersion: ASK_PROJECT_SYSTEM_PROMPT_VERSION,
     validationState: 'Requires Review',
     gateImpact: 'No approval, execution, or truth state was changed.',
-    nextAction: 'No action required',
+    nextAction: actionableGap.nextAction,
+    actionableGap,
     sections: {
-      answer: params.routerResult.clarificationPrompt,
+      answer: actionableGap.answer,
       confidenceState: 'Requires Review',
       evidence: [],
       validatorFindings: [],
@@ -71,10 +86,105 @@ function buildProjectClarificationResponse(params: {
       blockerCount: 0,
       warningCount: 0,
       gateImpact: 'No approval, execution, or truth state was changed.',
-      nextAction: 'No action required',
+      nextAction: actionableGap.nextAction,
       upstreamGap: null,
+      actionableGap,
       handoffContext: params.handoffContext,
     },
+    handoffContext: params.handoffContext,
+  };
+}
+
+function suggestedActionForGap(gap: ActionableGapResponse): SuggestedAction {
+  switch (gap.nextAction) {
+    case 'Open Validator':
+    case 'Run Validator':
+      return { type: 'check_validator', label: gap.nextAction, target: 'validator' };
+    case 'Open Execution Queue':
+      return { type: 'assign_action', label: gap.nextAction, target: 'execution' };
+    case 'Open Execution Item':
+    case 'Create Execution Item':
+      return { type: 'create_decision', label: gap.nextAction, target: 'execution' };
+    case 'Open Communication Review':
+      return { type: 'assign_action', label: gap.nextAction, target: 'communication-review' };
+    case 'Reprocess Document':
+      return { type: 'upload_document', label: gap.nextAction, target: 'documents' };
+    case 'Open Evidence':
+      return { type: 'view_document', label: gap.nextAction, target: 'evidence' };
+    case 'Open Portfolio':
+    case 'Open Ask Project':
+    case 'No action required':
+    default:
+      return { type: 'assign_action', label: gap.nextAction };
+  }
+}
+
+function formatActionableGapAnswer(gap: ActionableGapResponse): string {
+  return [
+    'Answer:',
+    gap.answer,
+    '',
+    'Missing:',
+    gap.missing,
+    '',
+    'Resolution Workflow:',
+    gap.resolutionWorkflow,
+    '',
+    'Next Action:',
+    gap.nextAction,
+  ].join('\n');
+}
+
+function buildActionableProjectGapResponse(params: {
+  question: ClassifiedQuestion;
+  gap: ActionableGapResponse;
+  projectId: string;
+  orgId: string;
+  retrievalUsed: RetrievalResult['rawData']['matchedLayer'];
+  handoffContext?: PortfolioHandoffContext;
+}): AskResponse {
+  const answer = formatActionableGapAnswer(params.gap);
+  return {
+    answer,
+    confidence: 'low',
+    confidenceScore: 30,
+    sources: [],
+    reasoning: 'Deterministic Ask returned an actionable non-answer without producing new truth.',
+    promptVersion: ASK_PROJECT_SYSTEM_PROMPT_VERSION,
+    validationState: 'Not Found',
+    gateImpact: 'No approval, execution, or truth state was changed.',
+    nextAction: params.gap.nextAction,
+    actionableGap: params.gap,
+    sections: {
+      answer: params.gap.answer,
+      confidenceState: 'Not Found',
+      evidence: [],
+      validatorFindings: [],
+      validationState: 'Not Found',
+      blockerCount: 0,
+      warningCount: 0,
+      gateImpact: 'No approval, execution, or truth state was changed.',
+      nextAction: params.gap.nextAction,
+      upstreamGap: params.gap.gapClass === 'upstream'
+        ? {
+            ...params.gap,
+            fieldKey: params.gap.missing,
+            expectedSource: 'canonical project truth',
+            message: params.gap.answer,
+          }
+        : null,
+      actionableGap: params.gap,
+      handoffContext: params.handoffContext,
+    },
+    limitations: [params.gap.missing],
+    suggestedActions: [suggestedActionForGap(params.gap)],
+    intent: params.question.intent,
+    retrievalUsed: params.retrievalUsed ?? 'documents',
+    originalQuestion: params.question.originalQuestion,
+    projectId: params.projectId,
+    orgId: params.orgId,
+    createdAt: new Date().toISOString(),
+    fallbackUsed: false,
     handoffContext: params.handoffContext,
   };
 }
@@ -962,6 +1072,34 @@ function buildActionAnswer(params: {
   };
 }
 
+function directCanonicalReadAnswer(params: {
+  question: ClassifiedQuestion;
+  retrieval: RetrievalResult;
+}): {
+  answer: string;
+  sources: Source[];
+  limitations: string[];
+} | null {
+  const matchedLayer = params.retrieval.rawData.matchedLayer;
+
+  if (matchedLayer === 'relationships' && params.retrieval.relationships.length > 0) {
+    return buildRelationshipAnswer({
+      relationships: params.retrieval.relationships,
+      retrieval: params.retrieval,
+    });
+  }
+
+  if (
+    matchedLayer === 'facts' &&
+    params.question.intent === 'fact_question' &&
+    params.retrieval.facts.length > 0
+  ) {
+    return buildFactAnswer(params.retrieval.facts);
+  }
+
+  return null;
+}
+
 export function buildAskResponse(params: {
   question: ClassifiedQuestion;
   retrieval: RetrievalResult;
@@ -975,8 +1113,30 @@ export function buildAskResponse(params: {
   let answer = '';
   let sources: Source[] = [];
   let limitations: string[] = [];
+  const deferredGap = detectDeferredGap(params.question);
+  if (deferredGap) {
+    return buildActionableProjectGapResponse({
+      question: params.question,
+      gap: deferredGap,
+      projectId: params.projectId,
+      orgId: params.orgId,
+      retrievalUsed: matchedLayer,
+      handoffContext: params.handoffContext,
+    });
+  }
+
+  const directAnswer = directCanonicalReadAnswer({
+    question: params.question,
+    retrieval: params.retrieval,
+  });
+  if (directAnswer) {
+    answer = directAnswer.answer;
+    sources = directAnswer.sources;
+    limitations = directAnswer.limitations;
+  }
+
   const routerResult = classifyQueryIntent(params.question.originalQuestion, 'project');
-  if (routerResult.intent === 'ambiguous') {
+  if (routerResult.intent === 'ambiguous' && !answer) {
     return buildProjectClarificationResponse({
       question: params.question,
       routerResult,
@@ -987,14 +1147,33 @@ export function buildAskResponse(params: {
     });
   }
 
-  const selectorAnswer = selectProjectAnswer({
+  const selectorAnswer = routerResult.intent === 'ambiguous'
+    ? null
+    : selectProjectAnswer({
+        question: params.question,
+        retrieval: params.retrieval,
+        project: params.project,
+        projectId: params.projectId,
+      }, routerResult.intent);
+  const selectorReturnedGap = selectorAnswer?.confidence === 'not_found';
+
+  const selectorGap = buildProjectUpstreamGap({
     question: params.question,
     retrieval: params.retrieval,
-    project: params.project,
-    projectId: params.projectId,
-  }, routerResult.intent);
+    selectorReturnedGap,
+  });
+  if (selectorReturnedGap && selectorGap) {
+    return buildActionableProjectGapResponse({
+      question: params.question,
+      gap: selectorGap,
+      projectId: params.projectId,
+      orgId: params.orgId,
+      retrievalUsed: matchedLayer,
+      handoffContext: params.handoffContext,
+    });
+  }
 
-  if (selectorAnswer?.value && selectorAnswer.sourceId) {
+  if (!answer && selectorAnswer?.value && selectorAnswer.sourceId) {
     answer = selectorAnswer.value;
     sources = selectorAnswer.sources;
     limitations = [];
@@ -1120,6 +1299,21 @@ export function buildAskResponse(params: {
     }
   }
 
+  const emptyReadGap = buildProjectUpstreamGap({
+    question: params.question,
+    retrieval: params.retrieval,
+  });
+  if ((!answer || sources.length === 0) && emptyReadGap) {
+    return buildActionableProjectGapResponse({
+      question: params.question,
+      gap: emptyReadGap,
+      projectId: params.projectId,
+      orgId: params.orgId,
+      retrievalUsed: matchedLayer,
+      handoffContext: params.handoffContext,
+    });
+  }
+
   if (!answer || sources.length === 0) {
     const fallback = fallbackAnswer(params.project, params.question);
     answer = fallback.answer;
@@ -1160,7 +1354,6 @@ export function buildAskResponse(params: {
     question: params.question,
     retrieval: params.retrieval,
   });
-  const selectorReturnedGap = selectorAnswer?.confidence === 'not_found';
   const selectorReturnedExecutionSummary = selectorAnswer?.confidence === 'verified' && selectorAnswer.sourceLayer === 'execution_summary';
   const canonical = formatCanonicalProjectAnswer({
     answer,
@@ -1238,6 +1431,7 @@ export function buildAskResponse(params: {
       gateImpact: canonical.gateImpact,
       nextAction: canonical.nextAction,
       upstreamGap,
+      actionableGap: upstreamGap,
       handoffContext: params.handoffContext,
     },
     limitations: limitations.length > 0 ? Array.from(new Set(limitations)) : undefined,
@@ -1251,5 +1445,6 @@ export function buildAskResponse(params: {
     createdAt: new Date().toISOString(),
     fallbackUsed,
     handoffContext: params.handoffContext,
+    actionableGap: upstreamGap ?? undefined,
   };
 }

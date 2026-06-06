@@ -3,11 +3,11 @@
 // inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
 // at 22/22, 0 gaps. See Ask workstream closeout.
 import type { ClassifiedQuestion, RetrievalResult } from '@/lib/ask/types';
+import type { ActionableGapResponse } from '@/lib/ask/actionableGapResponse';
 
-export type UpstreamGap = {
+export type UpstreamGap = ActionableGapResponse & {
   fieldKey: string;
   expectedSource: string;
-  resolutionWorkflow: string;
   message: string;
 };
 
@@ -48,9 +48,17 @@ export function detectUpstreamGap(params: {
         : 'Open Evidence';
 
   return {
+    gapClass: 'upstream',
+    answer: "This isn't answerable from current canonical project truth.",
     fieldKey,
     expectedSource,
     resolutionWorkflow,
+    missing: `${fieldKey} is not available in ${expectedSource}`,
+    nextAction: resolutionWorkflow === 'Open Validator'
+      ? 'Open Validator'
+      : resolutionWorkflow === 'Reprocess Document'
+        ? 'Reprocess Document'
+        : 'Open Evidence',
     message: 'This cannot be answered from current canonical system truth.',
   };
 }

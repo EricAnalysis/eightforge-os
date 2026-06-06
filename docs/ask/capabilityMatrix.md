@@ -96,6 +96,37 @@ This matrix is the specification of record for deterministic Ask expansion befor
 - CM-044, CM-045, CM-046: Communication Intelligence owner must persist communication events.
 - CM-047, CM-048: AI/Communication Intelligence owner must extract intent/delta from communication context before deterministic Ask can read it.
 
+## Resolution Workflows For Gap Rows
+
+These workflows are the source of record for actionable gap responses. Ask may only name the workflow listed here for the matching matrix row.
+
+| ID | Gap Class | Missing Source | Resolution Workflow | Next Action |
+|---|---|---|---|---|
+| CM-003 | upstream | `recommended_next_action` with source item and priority reason | Create Execution Item | Create Execution Item |
+| CM-004 | upstream | waiting-party event or canonical owner state | Open Communication Review | Open Communication Review |
+| CM-005 | upstream | `invoice_exception_eligibility.open_ticket_count` and approval gate basis | Run Validator | Run Validator |
+| CM-010 | upstream | `invoice_exception_eligibility.exception_type` and required approval condition | Run Validator | Run Validator |
+| CM-012 | upstream | ticket eligibility review deltas | Run Validator | Run Validator |
+| CM-015 | upstream | duplicate-ticket findings across invoice scope | Run Validator | Run Validator |
+| CM-016 | upstream | ticket added-after-review events | Reprocess Document | Reprocess Document |
+| CM-024 | upstream | mileage tier comparison results | Run Validator | Run Validator |
+| CM-027 | upstream | FEMA reimbursability facts with evidence | Reprocess Document | Reprocess Document |
+| CM-032 | upstream | stump eligibility facts with evidence | Reprocess Document | Reprocess Document |
+| CM-035 | upstream | `reviewed_documents_with_warnings[]` with warning count and review event source | Run Validator | Run Validator |
+| CM-038 | upstream | `first_document_to_inspect` with risk reason and priority source | Create Execution Item | Create Execution Item |
+| CM-039 | upstream | `open_execution_items[]` with status, required action, and blocker flag | Create Execution Item | Create Execution Item |
+| CM-043 | upstream | `payment_release_blockers[]` with action ID, blocker basis, and gate impact | Create Execution Item | Create Execution Item |
+| CM-044 | deferred | structured communication event for the ticket waiting-party thread | Open Communication Review | Open Communication Review |
+| CM-045 | deferred | structured communication event for the next-response owner | Open Communication Review | Open Communication Review |
+| CM-046 | deferred | structured communication event for the email thread | Open Communication Review | Open Communication Review |
+| CM-047 | deferred | structured AI extraction for the requested communication decision | Open Communication Review | Open Communication Review |
+| CM-048 | deferred | interpretive communication analysis for initial-to-full review delta | Open Communication Review | Open Communication Review |
+| CM-049 | upstream | `blocked_projects[]` and `blocked_project_count` | Open Portfolio | Open Portfolio |
+| CM-053 | upstream | `approval_ready_projects[]` and `approval_ready_project_count` | Open Portfolio | Open Portfolio |
+| CM-054 | upstream | `stale_validation_projects[]` and `stale_validation_project_count` | Open Portfolio | Open Portfolio |
+| CM-055 | upstream | contractor issue repetition aggregates | Open Portfolio | Open Portfolio |
+| CM-056 | upstream | contract ceiling proximity summaries | Open Portfolio | Open Portfolio |
+
 ## Boundary Integrity Check
 
 - [ ] Every Portfolio-surface row has Read Boundary = portfolio-safe-aggregate

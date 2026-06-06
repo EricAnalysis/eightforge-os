@@ -89,6 +89,7 @@ export type AskAnswerContract = {
   generatedBy?: 'deterministic_aggregate' | 'existing_project_ask' | 'search' | 'safe_fallback';
   promptVersion?: string;
   portfolioSections?: AskPortfolioSections;
+  actionableGap?: import('@/lib/ask/actionableGapResponse').ActionableGapResponse;
 };
 
 const PORTFOLIO_INTENT_PATTERN =

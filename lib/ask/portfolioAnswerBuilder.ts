@@ -12,6 +12,7 @@ import type { OperationalQueueModel } from '@/lib/server/operationalQueue';
 import type { PortfolioStalenessState } from '@/lib/ask/portfolioStalenessCheck';
 import { selectPortfolioProjectStatus } from '@/lib/ask/selectors';
 import { buildPortfolioProjectStatusAggregate } from '@/lib/ask/portfolioProjectStatusAggregate';
+import { buildAmbiguousGapResponse, buildPortfolioUpstreamGap } from '@/lib/ask/actionableGapResponse';
 import { classifyQueryIntent, type RouterResult } from '@/lib/ask/router/intentRouter';
 
 function formatCurrency(amount: number): string {
@@ -78,14 +79,22 @@ function buildPortfolioClarificationAnswer(params: {
   promptVersion: string;
   routerResult: Extract<RouterResult, { intent: 'ambiguous' }>;
 }): AskAnswerContract {
+  const actionableGap = buildAmbiguousGapResponse({
+    candidates: params.routerResult.candidates,
+    clarificationPrompt: params.routerResult.clarificationPrompt,
+  });
   return {
     scope: 'portfolio',
     question: params.question,
-    answer: params.routerResult.clarificationPrompt,
+    answer: [
+      actionableGap.answer,
+      '',
+      actionableGap.clarificationPrompt,
+    ].filter(Boolean).join('\n'),
     evidence: [],
     sources: ['Deterministic Ask intent router'],
     checkedSources: ['intent classification map'],
-    nextActions: [{ label: 'No action required' }],
+    nextActions: [{ label: actionableGap.nextAction }],
     availability: 'available',
     dataFound: false,
     generatedBy: 'safe_fallback',
@@ -93,7 +102,45 @@ function buildPortfolioClarificationAnswer(params: {
     validationState: 'Requires Review',
     portfolioSignalState: 'No Verified Data',
     gateImpact: 'No approval, execution, or truth state was changed.',
-    recommendedAction: 'No action required',
+    recommendedAction: actionableGap.nextAction,
+    actionableGap,
+  };
+}
+
+function buildPortfolioGapAnswer(params: {
+  question: string;
+  promptVersion: string;
+  gap: NonNullable<ReturnType<typeof buildPortfolioUpstreamGap>>;
+}): AskAnswerContract {
+  return {
+    scope: 'portfolio',
+    question: params.question,
+    answer: [
+      'Answer:',
+      params.gap.answer,
+      '',
+      'Missing:',
+      params.gap.missing,
+      '',
+      'Resolution Workflow:',
+      params.gap.resolutionWorkflow,
+      '',
+      'Next Action:',
+      params.gap.nextAction,
+    ].join('\n'),
+    evidence: [],
+    sources: ['Ask capability matrix'],
+    checkedSources: ['portfolio-safe-aggregate availability', 'Ask capability matrix resolution workflow'],
+    nextActions: [{ label: params.gap.nextAction, href: '/platform/portfolio' }],
+    availability: 'unavailable',
+    dataFound: false,
+    generatedBy: 'safe_fallback',
+    promptVersion: params.promptVersion,
+    validationState: 'Not Found',
+    portfolioSignalState: 'No Verified Data',
+    gateImpact: 'No approval, execution, or truth state was changed.',
+    recommendedAction: params.gap.nextAction,
+    actionableGap: params.gap,
   };
 }
 
@@ -110,6 +157,14 @@ export function buildPortfolioAskAnswer(params: {
       question: params.question,
       promptVersion: params.promptVersion,
       routerResult,
+    });
+  }
+  const upstreamGap = buildPortfolioUpstreamGap(params.question);
+  if (upstreamGap) {
+    return buildPortfolioGapAnswer({
+      question: params.question,
+      promptVersion: params.promptVersion,
+      gap: upstreamGap,
     });
   }
 

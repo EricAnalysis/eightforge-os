@@ -63,6 +63,10 @@ describe('classifyQueryIntent', () => {
 
     expect(result.intent).toBe('ambiguous');
     expect(result.confidence).toBe('low');
+    if (result.intent === 'ambiguous') {
+      expect(result.candidates.length).toBeGreaterThan(0);
+      expect(result.clarificationPrompt).toContain('Which are you asking about?');
+    }
   });
 
   it('routes portfolio surface queries to the portfolio group regardless of keywords', () => {

@@ -1873,28 +1873,29 @@ describe('document intelligence view model', () => {
           rate_schedule_rows: [
             {
               row_id: 'row-1',
-              description: 'Vegetative Debris Removal',
-              unit: 'CY',
-              rate: 36.33,
-              category: 'Debris',
+              description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+              unit: 'Cubic Yard',
+              rate: 6.9,
+              category: 'Vegetative Collect, Remove & Haul',
               page: 8,
               source_anchor_ids: ['anchor-1'],
-              rate_raw: '$36.33',
-              material_type: null,
-              unit_type: null,
-              rate_amount: 36.33,
+              rate_raw:
+                'Vegetative Collect, Remove & Haul | from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles | Cubic Yard | $6.90',
+              material_type: 'Vegetative Collect, Remove & Haul',
+              unit_type: 'Cubic Yard',
+              rate_amount: 6.9,
             },
             {
               row_id: 'row-2',
-              description: 'Construction & Demolition Debris',
-              unit: null,
+              description: 'from ROW to DMS 0 to 15 Miles',
+              unit: 'Cubic Yard',
               rate: null,
-              category: null,
-              page: 9,
+              category: 'C&D Collect, Remove & Haul',
+              page: 8,
               source_anchor_ids: [],
-              rate_raw: null,
-              material_type: 'C&D',
-              unit_type: 'TN',
+              rate_raw: 'C&D Collect, Remove & Haul | from ROW to DMS 0 to 15 Miles | Cubic Yard | $87.86',
+              material_type: 'C&D Collect, Remove & Haul',
+              unit_type: 'Cubic Yard',
               rate_amount: 87.86,
             },
           ],
@@ -1905,23 +1906,33 @@ describe('document intelligence view model', () => {
     assert.deepEqual(model.contractRateRows, [
       {
         rowId: 'row-1',
-        description: 'Vegetative Debris Removal',
-        unit: 'CY',
-        rate: 36.33,
-        category: 'Debris',
+        description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
+        rate: 6.9,
+        category: 'Vegetative Collect, Remove & Haul',
         page: 8,
         sourceAnchorIds: ['anchor-1'],
       },
       {
         rowId: 'row-2',
-        description: 'Construction & Demolition Debris',
-        unit: 'TN',
+        description: 'from ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
         rate: 87.86,
-        category: 'C&D',
-        page: 9,
+        category: 'C&D Collect, Remove & Haul',
+        page: 8,
         sourceAnchorIds: [],
       },
     ]);
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.id, 'row-1');
+    assert.equal(
+      model.contractPricingAssemblyRows?.[0]?.description,
+      'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+    );
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.unit, 'Cubic Yard');
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.rate, 6.9);
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.sourceAnchor, 'anchor-1');
+    assert.equal(model.contractPricingAssemblyRows?.[1]?.id, 'row-2');
+    assert.equal(model.contractPricingAssemblyRows?.[1]?.rate, 87.86);
   });
 
   it('does not synthesize contract rate rows from legacy extraction signals alone', () => {
@@ -2675,6 +2686,93 @@ describe('document intelligence view model', () => {
     assert.equal(model.spreadsheetReviewDataset?.rollups?.total_tickets, 2);
     assert.equal(model.spreadsheetReviewDataset?.groupedByRateCode[0]?.rate_code, 'RC-01');
     assert.equal(model.spreadsheetReviewDataset?.rollups?.groupedByRateCode?.[0]?.rate_code, 'RC-01');
+  });
+
+  it('does not derive final spreadsheet readiness from legacy extraction when normalized rows exist', () => {
+    const model = buildDocumentIntelligenceViewModel({
+      documentId: 'spreadsheet-readiness-normalized-doc',
+      documentType: 'transaction_data',
+      documentName: 'ticket_query.xlsx',
+      documentTitle: 'Ticket Query Export',
+      projectName: 'Storm Debris Cleanup',
+      preferredExtraction: null,
+      relatedDocs: [],
+      normalizedDecisions: [],
+      extractionGaps: [],
+      auditNotes: [],
+      nodeTraces: [],
+      executionTrace: {
+        facts: {
+          source_type: 'transaction_data',
+          row_count: 1,
+        },
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-04-18T12:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {
+          sourceType: 'transaction_data',
+          records: [
+            {
+              id: 'stale-row-1',
+              invoice_number: 'STALE-INV',
+              transaction_number: 'STALE-TX',
+            },
+          ],
+          invoiceReadinessSummary: {
+            status: 'ready',
+            total_tickets: 999,
+            invoiced_ticket_count: 999,
+            distinct_invoice_count: 999,
+            total_invoiced_amount: 999,
+            uninvoiced_line_count: 0,
+            rows_with_missing_rate_code: 0,
+            rows_with_missing_quantity: 0,
+            rows_with_missing_extended_cost: 0,
+            rows_with_zero_cost: 0,
+            rows_with_extreme_unit_rate: 0,
+            outlier_row_count: 0,
+            blocking_reasons: [],
+            record_ids: ['stale-row-1'],
+            evidence_refs: [],
+          },
+        },
+      },
+      extractionHistory: [],
+      factOverrides: [],
+      factAnchors: [],
+      factReviews: [],
+      transactionDatasets: [
+        {
+          id: 'dataset-without-summary',
+          summary_json: null,
+        },
+      ],
+      transactionRows: [
+        {
+          id: 'row-1',
+          record_json: {
+            id: 'row-1',
+            invoice_number: 'INV-100',
+            transaction_number: 'TX-1001',
+            transaction_quantity: 10,
+            extended_cost: 1000,
+            source_sheet_name: 'ticket_query',
+            source_row_number: 3,
+          },
+          raw_row_json: {
+            'Invoice #': 'INV-100',
+            'Transaction #': 'TX-1001',
+          },
+        },
+      ],
+      reviewedDecisionIds: [],
+    });
+
+    assert.ok(model.spreadsheetReviewDataset);
+    assert.equal(model.spreadsheetReviewDataset?.records[0]?.invoice_number, 'INV-100');
+    assert.notEqual(model.spreadsheetReviewDataset?.invoiceReadinessSummary?.status, 'ready');
+    assert.equal(model.spreadsheetReviewDataset?.invoiceReadinessSummary?.total_tickets, 0);
   });
 
   it('uses canonical grouped eligibility counts when persisted group record ids no longer resolve', () => {
@@ -4799,6 +4897,60 @@ describe('normalizeInvoiceSurfaceLineItem passthrough and InvoiceSurface ledger 
       family: 'invoice',
     },
   } as Record<string, unknown>;
+
+  it('builds InvoiceSurface extraction from reviewed and overridden facts before stale machine values', () => {
+    const model = buildModel({
+      documentId: 'invoice-effective-facts',
+      documentType: 'invoice',
+      documentName: 'invoice.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-STale',
+            vendor_name: 'Stale Machine Vendor',
+            total_amount: 916,
+            line_items: [{
+              line_code: '6A',
+              line_description: 'Monitor tower',
+              quantity: 916,
+              unit_price: 14.5,
+              line_total: 13_282,
+            }],
+          },
+        },
+        extraction: {
+          evidence_v1: {},
+        },
+      },
+      executionTrace: executionTraceMinimal as never,
+      factOverrides: [
+        makeFactOverride({
+          id: 'override-vendor',
+          documentId: 'invoice-effective-facts',
+          fieldKey: 'vendor_name',
+          valueJson: 'Corrected Vendor LLC',
+          actionType: 'correct',
+          createdAt: '2026-05-06T10:00:00.000Z',
+        }),
+      ],
+      factReviews: [
+        makeFactReview({
+          id: 'review-total',
+          documentId: 'invoice-effective-facts',
+          fieldKey: 'total_amount',
+          reviewStatus: 'corrected',
+          reviewedValueJson: 13_282,
+          reviewedAt: '2026-05-06T10:01:00.000Z',
+        }),
+      ],
+    });
+
+    assert.equal(model.invoiceExtraction?.contractorName, 'Corrected Vendor LLC');
+    assert.equal(model.invoiceExtraction?.vendor_name, 'Corrected Vendor LLC');
+    assert.equal(model.invoiceExtraction?.totalAmount, 13_282);
+    assert.equal(model.invoiceExtraction?.lineItems?.[0]?.unitPrice, 14.5);
+  });
 
   it('preserves raw_text / rawText / line_text / text on normalized surface lines', () => {
     const raw = '1A Vegetative Collect Remove Haul 43,894 CYD';

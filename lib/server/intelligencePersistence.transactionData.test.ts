@@ -26,11 +26,14 @@ afterEach(() => {
 
 describe('generateAndPersistCanonicalIntelligence transaction_data persistence', () => {
   it('persists normalized transaction data after the pipeline normalize stage', async () => {
-    const persistTransactionDataForDocument = vi.fn(async () => ({
-      persisted: true,
-      skipped: false,
-      rowCount: 1,
-    }));
+    const persistTransactionDataForDocument = vi.fn(async (_params: unknown) => {
+      void _params;
+      return {
+        persisted: true,
+        skipped: false,
+        rowCount: 1,
+      };
+    });
 
     const extracted = {
       sourceType: 'transaction_data',
@@ -189,12 +192,15 @@ describe('generateAndPersistCanonicalIntelligence transaction_data persistence',
   });
 
   it('surfaces transaction data persistence failure details in the canonical result', async () => {
-    const persistTransactionDataForDocument = vi.fn(async () => ({
-      persisted: false,
-      skipped: true,
-      reason: 'missing_project_id' as const,
-      rowCount: 0,
-    }));
+    const persistTransactionDataForDocument = vi.fn(async (_params: unknown) => {
+      void _params;
+      return {
+        persisted: false,
+        skipped: true,
+        reason: 'missing_project_id' as const,
+        rowCount: 0,
+      };
+    });
 
     const extracted = {
       sourceType: 'transaction_data',
@@ -325,13 +331,16 @@ describe('generateAndPersistCanonicalIntelligence transaction_data persistence',
   });
 
   it('compacts persisted spreadsheet execution traces before updating documents.intelligence_trace', async () => {
-    const persistTransactionDataForDocument = vi.fn(async () => ({
-      persisted: true,
-      skipped: false,
-      rowCount: 1,
-    }));
+    const persistTransactionDataForDocument = vi.fn(async (_params: unknown) => {
+      void _params;
+      return {
+        persisted: true,
+        skipped: false,
+        rowCount: 1,
+      };
+    });
 
-    let persistedDocumentUpdate: Record<string, unknown> | null = null;
+    const persistedDocumentUpdates: Record<string, unknown>[] = [];
 
     vi.doMock('@/lib/documentIntelligence', () => ({
       buildDocumentIntelligence: vi.fn(() => ({
@@ -530,7 +539,7 @@ describe('generateAndPersistCanonicalIntelligence transaction_data persistence',
             return chain;
           },
           update(payload: Record<string, unknown>) {
-            persistedDocumentUpdate = payload;
+            persistedDocumentUpdates.push(payload);
             return updateChain;
           },
         };
@@ -547,7 +556,9 @@ describe('generateAndPersistCanonicalIntelligence transaction_data persistence',
     });
 
     assert.equal(result.execution_trace_persisted, true);
-    const persistedTrace = persistedDocumentUpdate?.intelligence_trace as Record<string, unknown>;
+    const persistedDocumentUpdate = persistedDocumentUpdates[0];
+    assert.ok(persistedDocumentUpdate);
+    const persistedTrace = persistedDocumentUpdate.intelligence_trace as Record<string, unknown>;
     assert.ok(persistedTrace);
 
     const persistedFacts = persistedTrace.facts as Record<string, unknown>;

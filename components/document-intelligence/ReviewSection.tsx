@@ -110,7 +110,7 @@ export function ReviewSection({ documentId, orgId }: ReviewSectionProps) {
             disabled={status === 'approved' || saving}
             className="rounded-md border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-3 py-1.5 text-[11px] text-[var(--ef-success)] hover:bg-[var(--ef-success-a20)] disabled:opacity-40 disabled:cursor-default transition-colors"
           >
-            Approve
+            Confirm Document Review
           </button>
           <button
             type="button"

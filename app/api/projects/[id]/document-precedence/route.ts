@@ -808,6 +808,10 @@ export async function PATCH(
             source_document_title: documentLabel(sourceDocument),
             target_document_id: auditPlan.targetDocumentId,
             target_document_title: documentLabel(targetDocument),
+            affected_document_ids: [
+              auditPlan.sourceDocumentId,
+              auditPlan.targetDocumentId,
+            ],
             relationship_type: auditPlan.relationshipType,
             relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
           },
@@ -833,6 +837,10 @@ export async function PATCH(
             source_document_title: documentLabel(sourceDocument),
             target_document_id: auditPlan.targetDocumentId,
             target_document_title: documentLabel(targetDocument),
+            affected_document_ids: [
+              auditPlan.sourceDocumentId,
+              auditPlan.targetDocumentId,
+            ],
             relationship_type: auditPlan.relationshipType,
             relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
           },

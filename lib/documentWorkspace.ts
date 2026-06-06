@@ -1,4 +1,5 @@
 import { buildDocumentsDocumentHref } from '@/lib/documentNavigation';
+import { resolveDocumentOperationalStatus } from '@/lib/documentOperationalStatus';
 import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
 
 export type DocumentReviewStatus =
@@ -64,6 +65,25 @@ export type DocumentWorkspaceReviewRow = {
   document_id: string;
   status: DocumentReviewStatus;
   reviewed_at: string | null;
+};
+
+export type DocumentWorkspaceDecisionRow = {
+  id: string;
+  document_id: string | null;
+  status: string;
+  severity: string | null;
+  details?: Record<string, unknown> | null;
+  last_detected_at?: string | null;
+  created_at?: string | null;
+};
+
+export type DocumentWorkspaceTaskRow = {
+  id: string;
+  document_id: string | null;
+  decision_id?: string | null;
+  status: string;
+  priority: string | null;
+  created_at?: string | null;
 };
 
 export type DocumentWorkspaceItem = {
@@ -204,40 +224,6 @@ function reviewStatusLabel(status: DocumentReviewStatus): string {
   }
 }
 
-function workspaceStatus(params: {
-  processingStatus: string;
-  blockedCount: number;
-  needsReview: boolean;
-}): { label: string; tone: DocumentWorkspaceTone } {
-  const { processingStatus, blockedCount, needsReview } = params;
-
-  if (processingStatus === 'failed') {
-    return { label: 'Failed', tone: 'danger' };
-  }
-
-  if (blockedCount > 0) {
-    return { label: 'Blocked', tone: 'danger' };
-  }
-
-  if (needsReview) {
-    return { label: 'Needs Review', tone: 'warning' };
-  }
-
-  if (processingStatus === 'decisioned') {
-    return { label: 'Operationally Clear', tone: 'success' };
-  }
-
-  if (processingStatus === 'processing') {
-    return { label: 'Processing', tone: 'info' };
-  }
-
-  if (processingStatus === 'extracted') {
-    return { label: 'Extracted', tone: 'info' };
-  }
-
-  return { label: titleize(processingStatus), tone: 'muted' };
-}
-
 function latestTimestamp(values: Array<string | null | undefined>): string {
   const timestamps = values
     .filter((value): value is string => Boolean(value))
@@ -331,37 +317,60 @@ function compareItems(
 export function buildDocumentWorkspaceItems(params: {
   documents: DocumentWorkspaceDocRow[];
   reviews: DocumentWorkspaceReviewRow[];
+  decisions?: DocumentWorkspaceDecisionRow[];
+  tasks?: DocumentWorkspaceTaskRow[];
 }): DocumentWorkspaceItem[] {
   const reviewByDocumentId = new Map(
     params.reviews.map((review) => [review.document_id, review]),
   );
+  const openDecisionStatuses = new Set(['open', 'in_review', 'needs_review']);
+  const openTaskStatuses = new Set(['open', 'in_progress', 'blocked']);
+  const decisionsByDocumentId = new Map<string, DocumentWorkspaceDecisionRow[]>();
+  const tasksByDocumentId = new Map<string, DocumentWorkspaceTaskRow[]>();
+
+  for (const decision of params.decisions ?? []) {
+    if (!decision.document_id || !openDecisionStatuses.has(decision.status)) continue;
+    const current = decisionsByDocumentId.get(decision.document_id) ?? [];
+    current.push(decision);
+    decisionsByDocumentId.set(decision.document_id, current);
+  }
+
+  for (const task of params.tasks ?? []) {
+    if (!task.document_id || !openTaskStatuses.has(task.status)) continue;
+    const current = tasksByDocumentId.get(task.document_id) ?? [];
+    current.push(task);
+    tasksByDocumentId.set(task.document_id, current);
+  }
 
   return params.documents.map((document) => {
     const project = resolveProjectRelation(document.projects);
     const trace = parseDocumentTrace(document.intelligence_trace);
     const review = reviewByDocumentId.get(document.id) ?? null;
-    const unresolvedFindingCount =
-      trace?.decisions.filter((decision) => decision.family !== 'confirmed').length ?? 0;
-    const pendingActionCount = trace?.flow_tasks.length ?? 0;
+    const persistedDecisions = decisionsByDocumentId.get(document.id) ?? [];
+    const persistedTasks = tasksByDocumentId.get(document.id) ?? [];
+    const persistedDecisionIds = new Set(persistedDecisions.map((decision) => decision.id));
+    const persistedTaskIds = new Set(persistedTasks.map((task) => task.id));
+    const traceDecisions = (trace?.decisions ?? []).filter(
+      (decision) => decision.family !== 'confirmed' && !persistedDecisionIds.has(decision.id),
+    );
+    const traceTasks = (trace?.flow_tasks ?? []).filter(
+      (task) => !persistedTaskIds.has(task.id),
+    );
+    const unresolvedFindingCount = persistedDecisions.length + traceDecisions.length;
+    const pendingActionCount = persistedTasks.length + traceTasks.length;
     const blockedCount =
-      trace?.decisions.filter((decision) => decision.family === 'mismatch').length ?? 0;
-    const missingSupportCount =
-      trace?.decisions.filter((decision) => decision.family === 'missing').length ?? 0;
+      persistedTasks.filter((task) => task.status === 'blocked').length +
+      persistedDecisions.filter((decision) => decision.severity === 'critical').length +
+      traceDecisions.filter((decision) => decision.family === 'mismatch').length;
+    const missingSupportCount = traceDecisions.filter((decision) => decision.family === 'missing').length;
     const reviewStatus = review?.status ?? 'not_reviewed';
-    const needsReview =
-      reviewStatus !== 'approved' &&
-      (
-        reviewStatus === 'needs_correction' ||
-        reviewStatus === 'in_review' ||
-        blockedCount > 0 ||
-        missingSupportCount > 0 ||
-        unresolvedFindingCount > 0 ||
-        pendingActionCount > 0
-      );
-    const workspace = workspaceStatus({
+    const workspace = resolveDocumentOperationalStatus({
       processingStatus: document.processing_status,
+      reviewStatus,
+      unresolvedFindingCount,
+      pendingActionCount,
       blockedCount,
-      needsReview,
+      missingSupportCount,
     });
     const title = document.title?.trim() || document.name;
     const latestActivityAt = latestTimestamp([
@@ -393,7 +402,7 @@ export function buildDocumentWorkspaceItems(params: {
       unresolvedFindingCount,
       pendingActionCount,
       blockedCount,
-      needsReview,
+      needsReview: workspace.needsReview,
       workspaceStatusLabel: workspace.label,
       workspaceTone: workspace.tone,
       domain: document.domain,

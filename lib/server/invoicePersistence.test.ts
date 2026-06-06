@@ -339,7 +339,9 @@ describe('persistCanonicalInvoiceForDocument', () => {
     assert.equal(result.invoices[0]?.billed_amount, 100.5);
     assert.equal(result.invoices[0]?.invoice_number_raw, 'INV-100');
     assert.equal(result.invoices[0]?.invoice_number_normalized, 'INV-100');
-    assert.equal(result.invoices[0]?.line_items?.length, 1);
+    const lineItems = result.invoices[0]?.line_items;
+    assert.ok(Array.isArray(lineItems));
+    assert.equal(lineItems.length, 1);
     assert.equal(result.invoiceLines[0]?.line_total, 100.5);
     assert.deepEqual(harness.calls[0]?.filters, [{ column: 'project_id', value: 'project-1' }]);
     assert.deepEqual(harness.calls[1]?.filters, [{ column: 'project_id', value: 'project-1' }]);

@@ -27,12 +27,15 @@ afterEach(() => {
 
 describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
   it('writes canonical invoice rows from the shared extraction blob on the invoice path', async () => {
-    const persistCanonicalInvoiceForDocument = vi.fn(async () => ({
-      persisted: true,
-      skipped: false,
-      invoiceCount: 1,
-      lineCount: 2,
-    }));
+    const persistCanonicalInvoiceForDocument = vi.fn(async (_params: unknown) => {
+      void _params;
+      return {
+        persisted: true,
+        skipped: false,
+        invoiceCount: 1,
+        lineCount: 2,
+      };
+    });
     const persistTransactionDataForDocument = vi.fn(async () => ({
       persisted: false,
       skipped: true,

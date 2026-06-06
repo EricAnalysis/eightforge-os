@@ -930,13 +930,15 @@ function invoiceLineHasCompleteAmounts(value: unknown): boolean {
   );
 }
 
-function invoiceLineQuality(lines: readonly unknown[]): {
+type InvoiceLineQualitySummary = {
   count: number;
   codeCount: number;
   completeAmountCount: number;
   proseCount: number;
-} {
-  return lines.reduce(
+};
+
+function invoiceLineQuality(lines: readonly unknown[]): InvoiceLineQualitySummary {
+  return lines.reduce<InvoiceLineQualitySummary>(
     (summary, line) => {
       summary.count += 1;
       if (invoiceLineCodeToken(line)) summary.codeCount += 1;

@@ -10,6 +10,10 @@ import {
   type DocumentFact,
   type DocumentFactGroup,
 } from '@/lib/documentIntelligenceViewModel';
+import {
+  formatContractPricingRate,
+  type ContractPricingAssemblyRow,
+} from '@/lib/contracts/contractPricingAssembly';
 import type { DocumentFamily } from '@/lib/types/documentIntelligence';
 
 function stateClass(state: DocumentFact['reviewState']): string {
@@ -498,6 +502,99 @@ function InvoiceRateLinesSection({
         </p>
       ) : null}
     </button>
+  );
+}
+
+function pricingStateLabel(row: ContractPricingAssemblyRow): string {
+  switch (row.confidence) {
+    case 'high':
+      return 'Confirmed';
+    case 'medium':
+      return 'Derived';
+    case 'needs_review':
+      return 'Needs review';
+    default:
+      return row.sourceAnchor ? 'Derived' : 'Missing evidence';
+  }
+}
+
+function pricingStateClass(row: ContractPricingAssemblyRow): string {
+  switch (row.confidence) {
+    case 'high':
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
+    case 'medium':
+      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
+    default:
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
+  }
+}
+
+export function ContractPricingAssemblySection({
+  rows,
+}: {
+  rows: readonly ContractPricingAssemblyRow[];
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="border-b border-white/8 bg-white/[0.02] px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-accent)]">
+            Contract Pricing Assembly
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--ef-text-soft)]">
+            Assembled pricing structures from the contract rate schedule. Used by validation to compare invoice work against governing contract pricing.
+          </p>
+        </div>
+        <span className="rounded border border-[var(--ef-border-white-10)] bg-white/[0.03] px-2 py-0.5 text-[10px] text-[var(--ef-text-secondary)]">
+          {rows.length} row{rows.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[40rem] text-[11px]">
+          <thead>
+            <tr className="border-b border-[var(--ef-border-white-10)] text-[var(--ef-text-soft)]">
+              <th className="pb-2 pr-3 text-left font-semibold">Category</th>
+              <th className="pb-2 pr-3 text-left font-semibold">Description or Scope</th>
+              <th className="pb-2 pr-3 text-left font-semibold">Unit</th>
+              <th className="pb-2 pr-3 text-right font-semibold">Rate</th>
+              <th className="pb-2 pr-3 text-left font-semibold">Source</th>
+              <th className="pb-2 text-left font-semibold">State</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--ef-border-white-06)]">
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="py-2 pr-3 text-[var(--ef-text-secondary)]">{row.category ?? 'Unavailable'}</td>
+                <td className="py-2 pr-3 text-[var(--ef-text-primary)]">
+                  <div>{row.description}</div>
+                  {row.rawText ? (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[10px] text-[var(--ef-text-faint)]">Raw row</summary>
+                      <p className="mt-1 text-[10px] text-[var(--ef-text-soft)]">{row.rawText}</p>
+                    </details>
+                  ) : null}
+                </td>
+                <td className="py-2 pr-3 text-[var(--ef-text-secondary)]">{row.unit ?? 'Unavailable'}</td>
+                <td className="py-2 pr-3 text-right font-semibold tabular-nums text-[var(--ef-text-primary)]">
+                  {formatContractPricingRate(row.rate)}
+                </td>
+                <td className="py-2 pr-3 text-[var(--ef-text-secondary)]">
+                  {row.page != null ? `Page ${row.page}` : row.sourceAnchor ? 'Evidence anchor' : 'Unavailable'}
+                </td>
+                <td className="py-2">
+                  <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${pricingStateClass(row)}`}>
+                    {pricingStateLabel(row)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

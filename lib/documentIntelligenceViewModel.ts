@@ -24,6 +24,10 @@ import {
   isRatePriceNoCeilingMachineClassification,
 } from '@/lib/contracts/contractCeiling';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import {
+  assembleContractPricingRows,
+  type ContractPricingAssemblyRow,
+} from '@/lib/contracts/contractPricingAssembly';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import {
   resolveCanonicalProjectFacts,
@@ -425,6 +429,7 @@ export type DocumentIntelligenceViewModel = {
   transactionDataExtraction: TransactionDataExtraction | null;
   spreadsheetReviewDataset: SpreadsheetReviewDataset | null;
   contractRateRows?: DocumentContractRateRow[];
+  contractPricingAssemblyRows?: ContractPricingAssemblyRow[];
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -1526,17 +1531,21 @@ function toSpreadsheetReviewDataset(
   });
 
   const hasCanonicalDatasetData = canonicalSummary != null || canonicalRecords.length > 0;
+  const hasNormalizedDatasetTables =
+    (canonical?.transactionDatasets?.length ?? 0) > 0 ||
+    (canonical?.transactionRows?.length ?? 0) > 0;
+  const legacyExtraction = hasNormalizedDatasetTables ? null : extraction;
   if (!extraction && !hasCanonicalDatasetData) return null;
 
-  const records = canonicalRecords.length > 0 ? canonicalRecords : (extraction?.records ?? []);
+  const records = canonicalRecords.length > 0 ? canonicalRecords : (legacyExtraction?.records ?? []);
   const rawSummary =
     (canonicalSummary as TransactionDataExtraction['summary'] | null)
-    ?? extraction?.summary
+    ?? legacyExtraction?.summary
     ?? null;
-  const rollups = toCanonicalConsistentRollups(canonicalSummary, extraction?.rollups ?? null);
+  const rollups = toCanonicalConsistentRollups(canonicalSummary, legacyExtraction?.rollups ?? null);
   const projectOperationsOverview = sanitizeProjectOperationsOverview(
     (asRecord(canonicalSummary?.project_operations_overview) as TransactionDataProjectOperationsOverview | null)
-    ?? extraction?.projectOperationsOverview
+    ?? legacyExtraction?.projectOperationsOverview
     ?? null,
   );
   const summaryEligibilityCounts = coerceSpreadsheetEligibilityCounts({
@@ -1554,18 +1563,18 @@ function toSpreadsheetReviewDataset(
   });
   const baseInvoiceReadinessSummary =
     (asRecord(canonicalSummary?.invoice_readiness_summary) as TransactionDataInvoiceReadinessSummary | null)
-    ?? extraction?.invoiceReadinessSummary
+    ?? legacyExtraction?.invoiceReadinessSummary
     ?? null;
   const dmsFdsLifecycleSummary =
     (asRecord(canonicalSummary?.dms_fds_lifecycle_summary) as TransactionDataDmsFdsLifecycleSummary | null)
-    ?? extraction?.dmsFdsLifecycleSummary
+    ?? legacyExtraction?.dmsFdsLifecycleSummary
     ?? null;
 
   const groupedByRateCode =
     (Array.isArray(canonicalSummary?.grouped_by_rate_code)
       ? (canonicalSummary.grouped_by_rate_code as TransactionDataRateCodeGroup[])
       : null)
-    ?? extraction?.summary?.grouped_by_rate_code
+    ?? legacyExtraction?.summary?.grouped_by_rate_code
     ?? rollups?.groupedByRateCode
     ?? rollups?.grouped_by_rate_code
     ?? [];
@@ -1573,8 +1582,8 @@ function toSpreadsheetReviewDataset(
     (Array.isArray(canonicalSummary?.grouped_by_service_item)
       ? (canonicalSummary.grouped_by_service_item as TransactionDataServiceItemGroup[])
       : null)
-    ?? extraction?.groupedByServiceItem
-    ?? extraction?.summary?.grouped_by_service_item
+    ?? legacyExtraction?.groupedByServiceItem
+    ?? legacyExtraction?.summary?.grouped_by_service_item
     ?? rollups?.groupedByServiceItem
     ?? rollups?.grouped_by_service_item
     ?? [];
@@ -1582,8 +1591,8 @@ function toSpreadsheetReviewDataset(
     (Array.isArray(canonicalSummary?.grouped_by_material)
       ? (canonicalSummary.grouped_by_material as TransactionDataMaterialGroup[])
       : null)
-    ?? extraction?.groupedByMaterial
-    ?? extraction?.summary?.grouped_by_material
+    ?? legacyExtraction?.groupedByMaterial
+    ?? legacyExtraction?.summary?.grouped_by_material
     ?? rollups?.groupedByMaterial
     ?? rollups?.grouped_by_material
     ?? [];
@@ -1591,8 +1600,8 @@ function toSpreadsheetReviewDataset(
     (Array.isArray(canonicalSummary?.grouped_by_disposal_site)
       ? (canonicalSummary.grouped_by_disposal_site as TransactionDataDisposalSiteGroup[])
       : null)
-    ?? extraction?.groupedByDisposalSite
-    ?? extraction?.summary?.grouped_by_disposal_site
+    ?? legacyExtraction?.groupedByDisposalSite
+    ?? legacyExtraction?.summary?.grouped_by_disposal_site
     ?? rollups?.groupedByDisposalSite
     ?? rollups?.grouped_by_disposal_site
     ?? [];
@@ -1600,8 +1609,8 @@ function toSpreadsheetReviewDataset(
     (Array.isArray(canonicalSummary?.grouped_by_site_type)
       ? (canonicalSummary.grouped_by_site_type as TransactionDataSiteTypeGroup[])
       : null)
-    ?? extraction?.groupedBySiteType
-    ?? extraction?.summary?.grouped_by_site_type
+    ?? legacyExtraction?.groupedBySiteType
+    ?? legacyExtraction?.summary?.grouped_by_site_type
     ?? rollups?.groupedBySiteType
     ?? rollups?.grouped_by_site_type
     ?? [];
@@ -1609,8 +1618,8 @@ function toSpreadsheetReviewDataset(
     (Array.isArray(canonicalSummary?.outlier_rows)
       ? (canonicalSummary.outlier_rows as TransactionDataOutlierRow[])
       : null)
-    ?? extraction?.outlierRows
-    ?? extraction?.summary?.outlier_rows
+    ?? legacyExtraction?.outlierRows
+    ?? legacyExtraction?.summary?.outlier_rows
     ?? rollups?.outlierRows
     ?? rollups?.outlier_rows
     ?? [];
@@ -2886,6 +2895,24 @@ function applyFactReviews(
   }
 
   if (latest.reviewStatus === 'confirmed') {
+    if (latest.reviewedValueJson != null) {
+      const resolvedValueType = resolvedValueTypeForDisplay(
+        fact.fieldKey,
+        fact.valueType,
+        latest.reviewedValueJson,
+      );
+      const reviewedDisplay = formatFactValue(latest.reviewedValueJson, resolvedValueType);
+      return {
+        ...reviewedBase,
+        valueType: resolvedValueType,
+        reviewState: 'reviewed',
+        statusLabel: reviewStatusLabel(latest.reviewStatus),
+        displayValue: reviewedDisplay,
+        humanValue: latest.reviewedValueJson,
+        humanDisplay: reviewedDisplay,
+      };
+    }
+
     return {
       ...reviewedBase,
       reviewState: 'reviewed',
@@ -5242,18 +5269,70 @@ function normalizeInvoiceSurfaceLineItem(
   return out;
 }
 
+function effectiveInvoiceFactValue(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): unknown {
+  if (!facts || facts.length === 0) return null;
+  const wanted = new Set(keys.map((key) => canonicalFieldKey(key, family)));
+  const fact = facts.find((candidate) =>
+    wanted.has(canonicalFieldKey(candidate.fieldKey, family)),
+  );
+  if (!fact) return null;
+  return fact.humanValue ?? fact.normalizedValue ?? fact.valueText ?? null;
+}
+
+function effectiveInvoiceFactString(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): string | null {
+  const value = effectiveInvoiceFactValue(facts, family, keys);
+  return readLooseString(value);
+}
+
+function effectiveInvoiceFactNumber(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): number | null {
+  const value = effectiveInvoiceFactValue(facts, family, keys);
+  return asLooseNumber(value);
+}
+
+function effectiveInvoiceFactArray(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): unknown[] | null {
+  if (!facts || facts.length === 0) return null;
+  const wanted = new Set(keys.map((key) => canonicalFieldKey(key, family)));
+  const fact = facts.find((candidate) =>
+    wanted.has(canonicalFieldKey(candidate.fieldKey, family)) &&
+    (candidate.reviewState === 'reviewed' || candidate.reviewState === 'overridden'),
+  );
+  if (!fact) return null;
+  const value = fact.humanValue ?? fact.normalizedValue;
+  return Array.isArray(value) ? value : null;
+}
+
 function toInvoiceSurfaceExtraction(params: {
   typedFields: Record<string, unknown>;
   extracted: Record<string, unknown>;
   extractionData?: Record<string, unknown> | null;
+  effectiveFacts?: readonly DocumentFact[];
+  family?: DocumentFamily;
 }): InvoiceExtraction | null {
   const source = {
     ...params.extracted,
     ...params.typedFields,
   };
+  const family = params.family ?? 'invoice';
 
   const invoiceNumberRaw =
-    readLooseString(source.invoice_number_raw)
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['invoice_number'])
+    ?? readLooseString(source.invoice_number_raw)
     ?? readLooseString(source.invoice_number)
     ?? readLooseString(source.invoiceNumber);
   const invoiceNumber =
@@ -5266,22 +5345,26 @@ function toInvoiceSurfaceExtraction(params: {
     readLooseString(source.invoice_date)
     ?? readLooseString(source.invoiceDate);
   const periodFrom =
-    readLooseString(source.service_period_start)
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['period_start', 'service_period_start'])
+    ?? readLooseString(source.service_period_start)
     ?? readLooseString(source.period_start)
     ?? readLooseString(source.periodFrom);
   const periodTo =
-    readLooseString(source.service_period_end)
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['period_end', 'service_period_end'])
+    ?? readLooseString(source.service_period_end)
     ?? readLooseString(source.period_end)
     ?? readLooseString(source.periodTo);
   const periodThrough =
     readLooseString(source.period_through)
     ?? readLooseString(source.periodThrough);
   const vendorNameRaw =
-    readLooseString(source.vendor_name)
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['contractor_name', 'vendor_name'])
+    ?? readLooseString(source.vendor_name)
     ?? readLooseString(source.contractorName);
   const vendorName = normalizeInvoiceContractorDisplay(vendorNameRaw) ?? vendorNameRaw ?? null;
   const clientName =
-    readLooseString(source.client_name)
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['client_name', 'owner_name', 'bill_to_name'])
+    ?? readLooseString(source.client_name)
     ?? readLooseString(source.clientName)
     ?? readLooseString(source.ownerName)
     ?? readLooseString(source.bill_to_name);
@@ -5289,7 +5372,8 @@ function toInvoiceSurfaceExtraction(params: {
     asLooseNumber(source.subtotal_amount)
     ?? asLooseNumber(source.subtotalAmount);
   const totalAmount =
-    asLooseNumber(source.total_amount)
+    effectiveInvoiceFactNumber(params.effectiveFacts, family, ['billed_amount', 'total_amount', 'invoice_total'])
+    ?? asLooseNumber(source.total_amount)
     ?? asLooseNumber(source.totalAmount)
     ?? asLooseNumber(source.billed_amount)
     ?? asLooseNumber(source.current_amount_due)
@@ -5299,7 +5383,9 @@ function toInvoiceSurfaceExtraction(params: {
     ?? asLooseNumber(source.currentPaymentDue)
     ?? totalAmount;
 
-  const persistedLineItems = asArray<unknown>(source.line_items ?? source.lineItems);
+  const persistedLineItems =
+    effectiveInvoiceFactArray(params.effectiveFacts, family, ['invoice_line_items', 'line_items'])
+    ?? asArray<unknown>(source.line_items ?? source.lineItems);
   persistedLineItems.forEach((line, index) => {
     const record = asRecord(line);
     if (!record) return;
@@ -5717,6 +5803,8 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
           typedFields,
           extracted,
           extractionData,
+          effectiveFacts: factsWithAnchors,
+          family,
         })
       : null;
   const preferredTransactionDataExtraction: TransactionDataExtraction | null =
@@ -5733,6 +5821,15 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   const contractRateRows =
     family === 'contract'
       ? toDocumentContractRateRows(params.executionTrace?.contract_analysis?.rate_schedule_rows)
+      : [];
+  const contractPricingAssemblyRows =
+    family === 'contract'
+      ? assembleContractPricingRows(params.executionTrace?.contract_analysis?.rate_schedule_rows, {
+          canonicalRows: asArray(
+            asRecord(extracted.canonicalContractRateScheduleAssembly)?.rows,
+          ),
+          typedRows: asArray(typedFields.rate_table),
+        })
       : [];
   const spreadsheetReviewDataset = toSpreadsheetReviewDataset(transactionDataExtraction, {
     projectValidationSummary: params.projectValidationSummary ?? null,
@@ -5793,5 +5890,6 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     transactionDataExtraction,
     spreadsheetReviewDataset,
     contractRateRows,
+    contractPricingAssemblyRows,
   };
 }

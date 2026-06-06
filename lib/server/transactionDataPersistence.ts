@@ -502,21 +502,68 @@ async function loadDatasetsByDocumentIds(
     .order('created_at', { ascending: false });
 }
 
+const TRANSACTION_DATA_ROW_PAGE_SIZE = 1000;
+
+async function loadTransactionRowsPaginated(
+  fetchPage: (from: number, to: number) => Promise<{ data: unknown; error: TableError }>,
+): Promise<{ data: Record<string, unknown>[]; error: TableError }> {
+  const rows: Record<string, unknown>[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await fetchPage(
+      offset,
+      offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1,
+    );
+    if (error) {
+      return { data: rows, error };
+    }
+
+    const batch = asRecordArray(data);
+    rows.push(...batch);
+    if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+      break;
+    }
+    offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
+  }
+
+  return { data: rows, error: null };
+}
+
+async function loadTransactionRowsForProject(
+  admin: SupabaseClient,
+  projectId: string,
+): Promise<{ data: Record<string, unknown>[]; error: TableError }> {
+  return loadTransactionRowsPaginated(async (from, to) =>
+    await admin
+      .from('transaction_data_rows')
+      .select(TRANSACTION_DATA_ROW_SELECT)
+      .eq('project_id', projectId)
+      .order('invoice_date', { ascending: true })
+      .order('source_sheet_name', { ascending: true })
+      .order('source_row_number', { ascending: true })
+      .range(from, to),
+  );
+}
+
 async function loadRowsByDocumentIds(
   admin: SupabaseClient,
   documentIds: readonly string[],
-): Promise<{ data: unknown; error: TableError }> {
+): Promise<{ data: Record<string, unknown>[]; error: TableError }> {
   if (documentIds.length === 0) {
     return { data: [], error: null };
   }
 
-  return admin
-    .from('transaction_data_rows')
-    .select(TRANSACTION_DATA_ROW_SELECT)
-    .in('document_id', [...documentIds])
-    .order('invoice_date', { ascending: true })
-    .order('source_sheet_name', { ascending: true })
-    .order('source_row_number', { ascending: true });
+  return loadTransactionRowsPaginated(async (from, to) =>
+    await admin
+      .from('transaction_data_rows')
+      .select(TRANSACTION_DATA_ROW_SELECT)
+      .in('document_id', [...documentIds])
+      .order('invoice_date', { ascending: true })
+      .order('source_sheet_name', { ascending: true })
+      .order('source_row_number', { ascending: true })
+      .range(from, to),
+  );
 }
 
 export async function getCanonicalTransactionDataForProject(params: {
@@ -537,13 +584,7 @@ export async function getCanonicalTransactionDataForProject(params: {
       .select(TRANSACTION_DATASET_SELECT)
       .eq('project_id', params.projectId)
       .order('created_at', { ascending: false }),
-    admin
-      .from('transaction_data_rows')
-      .select(TRANSACTION_DATA_ROW_SELECT)
-      .eq('project_id', params.projectId)
-      .order('invoice_date', { ascending: true })
-      .order('source_sheet_name', { ascending: true })
-      .order('source_row_number', { ascending: true }),
+    loadTransactionRowsForProject(admin, params.projectId),
   ]);
 
   if (
@@ -574,7 +615,7 @@ export async function getCanonicalTransactionDataForProject(params: {
       ) ||
       (
         projectRowsResult.error == null &&
-        asRecordArray(projectRowsResult.data).length === 0
+        projectRowsResult.data.length === 0
       )
     );
 
@@ -603,7 +644,7 @@ export async function getCanonicalTransactionDataForProject(params: {
 
   return {
     datasets: asRecordArray(datasetsResult.data).map(mapPersistedDataset),
-    rows: asRecordArray(rowsResult.data).map(mapPersistedRow),
+    rows: rowsResult.data.map(mapPersistedRow),
   };
 }
 

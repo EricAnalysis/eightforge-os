@@ -3,11 +3,19 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { PortfolioCommandCenter } from '@/components/PortfolioCommandCenter';
+import { AskScopeEntry } from '@/components/platform/AskScopeEntry';
+import { OperationalDiagnostics } from '@/components/platform/OperationalDiagnostics';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
+import { useOperationalModel } from '@/lib/useOperationalModel';
 import type { PortfolioOverview } from '@/lib/server/portfolioCommandCenter';
 
 export default function PortfolioPage() {
   const { organization, loading: orgLoading } = useCurrentOrg();
+  const {
+    data: operationalModel,
+    loading: operationalLoading,
+    error: operationalError,
+  } = useOperationalModel(!orgLoading && !!organization?.id);
   const [portfolio, setPortfolio] = useState<PortfolioOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +105,27 @@ export default function PortfolioPage() {
   }
 
   return (
-    <div className="px-6 pt-8 pb-24">
+    <div className="space-y-6 px-6 pt-8 pb-24">
       <PortfolioPageHeader projectCount={portfolio.totalProjects} />
+      <AskScopeEntry
+        scope="portfolio"
+        scopeLabel="Portfolio"
+        placeholder="Ask across projects, approvals, exposure, review work, and vendor risk."
+        chips={[
+          'Which projects need review?',
+          'Which projects are ready for approval?',
+          'What is the total at risk amount?',
+          'Show vendor risk',
+          'Show blocked approvals',
+          'What changed this week?',
+        ]}
+      />
       <PortfolioCommandCenter portfolio={portfolio} />
+      <OperationalDiagnostics
+        operationalModel={operationalModel}
+        loading={operationalLoading}
+        error={operationalError}
+      />
     </div>
   );
 }

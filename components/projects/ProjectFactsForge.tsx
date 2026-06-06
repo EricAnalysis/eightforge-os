@@ -7,6 +7,7 @@ import { ForgeDetailPanel } from '@/components/forge/ForgeDetailPanel';
 import { ForgeSectionCard } from '@/components/forge/ForgeSectionCard';
 import { useMemo, useState } from 'react';
 import {
+  buildContractPricingRowsHref,
   buildProjectDocumentHref,
   buildProjectDocumentsForgeHref,
 } from '@/lib/documentNavigation';
@@ -43,6 +44,7 @@ type FactsForgeRowModel = {
   domainLabel: string;
   confidenceLabel: string;
   impactLabel: string;
+  pricingRowsHref: string | null;
   relatedDocuments: ProjectDocumentRow[];
   primaryDocument: ProjectDocumentRow | null;
   hasExistingOverride: boolean;
@@ -173,6 +175,30 @@ function matchesPrimaryDocument(
   if (row.source_label.includes(title)) return true;
   if (row.key === 'governing_contract' && document.authority_status === 'governing') return true;
   return false;
+}
+
+function isRateSchedulePresent(row: CanonicalProjectTruthRow): boolean {
+  const normalizedKey = row.key.trim().toLowerCase();
+  const normalizedLabel = row.label.trim().toLowerCase();
+  const normalizedValue = row.value.trim().toLowerCase();
+  return (
+    (normalizedKey === 'rate_schedule' || normalizedLabel.includes('rate schedule')) &&
+    (
+      normalizedValue.includes('rate schedule present') ||
+      normalizedValue.includes('present') ||
+      normalizedValue.includes('pricing basis confirmed')
+    )
+  );
+}
+
+function selectGoverningContractDocument(
+  documents: readonly ProjectDocumentRow[],
+): ProjectDocumentRow | null {
+  const contractDocuments = documents.filter((document) => documentDomain(document) === 'contract');
+  return (
+    contractDocuments.find((document) => document.authority_status === 'governing')
+    ?? (contractDocuments.length === 1 ? contractDocuments[0] ?? null : null)
+  );
 }
 
 function confidenceLabelForRow(row: CanonicalProjectTruthRow): string {
@@ -333,6 +359,10 @@ export function ProjectFactsForge({
     () => decisions.filter((decision) => isOpenDecisionStatus(decision.status_key)),
     [decisions],
   );
+  const governingContractDocument = useMemo(
+    () => selectGoverningContractDocument(documents),
+    [documents],
+  );
 
   const rowModels = useMemo(() => {
     return truthSections
@@ -352,6 +382,10 @@ export function ProjectFactsForge({
           const canonicalHref = primaryDocument
             ? buildFactEvidenceHref(projectId, primaryDocument.id, row.key)
             : buildProjectDocumentsForgeHref(projectId);
+          const pricingRowsHref =
+            isRateSchedulePresent(row) && governingContractDocument
+              ? buildContractPricingRowsHref(governingContractDocument.id, projectId)
+              : null;
           const candidates: FactsForgeCandidate[] = [
             {
               id: `${section.key}:${row.key}:canonical`,
@@ -387,6 +421,7 @@ export function ProjectFactsForge({
               validatorSummary,
               openDecisionCount: openDecisions.length,
             }),
+            pricingRowsHref,
             relatedDocuments,
             primaryDocument,
             hasExistingOverride,
@@ -401,7 +436,7 @@ export function ProjectFactsForge({
         if (domainDelta !== 0) return domainDelta;
         return left.row.label.localeCompare(right.row.label);
       });
-  }, [documents, openDecisions.length, projectId, truthSections, validatorSummary]);
+  }, [documents, governingContractDocument, openDecisions.length, projectId, truthSections, validatorSummary]);
 
   const filteredRows = useMemo(() => {
     const search = searchValue.trim().toLowerCase();
@@ -490,6 +525,7 @@ export function ProjectFactsForge({
         ? 0
         : openDecisions.length;
   const selectedChallengeHref = openDecisions[0]?.href ?? '#project-validator';
+  const selectedPricingRowsHref = selectedRow?.pricingRowsHref ?? null;
 
   const tabCounts = useMemo(
     () => ({
@@ -609,8 +645,8 @@ export function ProjectFactsForge({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(21rem,0.95fr)]">
         <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)]">
-          <div className="hidden border-b border-[var(--ef-surface-elevated)] px-4 py-3 xl:grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.15fr)_110px_120px_minmax(0,0.95fr)_minmax(0,1fr)] xl:gap-3">
-            {['Fact Name', 'Resolved Value', 'Confidence', 'State', 'Source', 'Impact'].map((label) => (
+          <div className="hidden border-b border-[var(--ef-surface-elevated)] px-4 py-3 xl:grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.15fr)_110px_120px_minmax(0,0.95fr)_minmax(0,1fr)_140px] xl:gap-3">
+            {['Fact Name', 'Resolved Value', 'Confidence', 'State', 'Source', 'Impact', 'Actions'].map((label) => (
               <p
                 key={label}
                 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]"
@@ -641,78 +677,97 @@ export function ProjectFactsForge({
                   ) ?? row.candidates[0] ?? null;
 
                 return (
-                  <button
+                  <div
                     key={row.id}
-                    type="button"
-                    onClick={() => setSelectedRowId(row.id)}
-                    className={`grid w-full gap-3 px-4 py-4 text-left transition xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.15fr)_110px_120px_minmax(0,0.95fr)_minmax(0,1fr)] xl:items-center ${
+                    className={`grid gap-3 px-4 py-4 transition xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.15fr)_110px_120px_minmax(0,0.95fr)_minmax(0,1fr)_140px] xl:items-center ${
                       isSelected
                         ? 'bg-[var(--ef-surface-elevated)]'
                         : 'hover:bg-[var(--ef-surface-elevated)]'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        Fact Name
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-[12px] font-semibold text-[var(--ef-text-primary)]">
-                          {row.row.label}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRowId(row.id)}
+                      className="grid min-w-0 gap-3 text-left xl:col-span-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.15fr)_110px_120px_minmax(0,0.95fr)_minmax(0,1fr)] xl:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          Fact Name
                         </p>
-                        <span className="rounded-full border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-0.5 text-[10px] font-medium text-[var(--ef-text-muted)]">
-                          {row.domainLabel}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-[12px] font-semibold text-[var(--ef-text-primary)]">
+                            {row.row.label}
+                          </p>
+                          <span className="rounded-full border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-0.5 text-[10px] font-medium text-[var(--ef-text-muted)]">
+                            {row.domainLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          Resolved Value
+                        </p>
+                        <p className="truncate text-[12px] text-[var(--ef-text-secondary)]">
+                          {previewValueForRow(row, overridePreview, currentCandidate)}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          Confidence
+                        </p>
+                        <p className="text-[12px] text-[var(--ef-text-primary)]">-</p>
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+                          {row.confidenceLabel}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          State
+                        </p>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${stateBadgeClass(row.row.state, overridePreview)}`}
+                        >
+                          {overridePreview ? 'Override Preview' : truthStateLabel(row.row.state)}
                         </span>
                       </div>
-                    </div>
 
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          Source
+                        </p>
+                        <p className="truncate text-[11px] leading-relaxed text-[var(--ef-text-muted)]">
+                          {previewSourceForRow(row, overridePreview, currentCandidate)}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
+                          Impact
+                        </p>
+                        <p className="text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
+                          {row.impactLabel}
+                        </p>
+                      </div>
+                    </button>
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        Resolved Value
+                        Actions
                       </p>
-                      <p className="truncate text-[12px] text-[var(--ef-text-secondary)]">
-                        {previewValueForRow(row, overridePreview, currentCandidate)}
-                      </p>
+                      {row.pricingRowsHref ? (
+                        <Link
+                          href={row.pricingRowsHref}
+                          className="mt-2 inline-flex items-center justify-center rounded-lg border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-1.5 text-[11px] font-medium text-[var(--ef-text-primary)] transition hover:border-[var(--ef-purple-primary-a60)] hover:text-[var(--ef-purple-glow)] xl:mt-0"
+                        >
+                          View Pricing Rows
+                        </Link>
+                      ) : (
+                        <span className="mt-2 inline-flex text-[11px] text-[var(--ef-text-muted)] xl:mt-0">-</span>
+                      )}
                     </div>
-
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        Confidence
-                      </p>
-                      <p className="text-[12px] text-[var(--ef-text-primary)]">-</p>
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
-                        {row.confidenceLabel}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        State
-                      </p>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${stateBadgeClass(row.row.state, overridePreview)}`}
-                      >
-                        {overridePreview ? 'Override Preview' : truthStateLabel(row.row.state)}
-                      </span>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        Source
-                      </p>
-                      <p className="truncate text-[11px] leading-relaxed text-[var(--ef-text-muted)]">
-                        {previewSourceForRow(row, overridePreview, currentCandidate)}
-                      </p>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] xl:hidden">
-                        Impact
-                      </p>
-                      <p className="text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
-                        {row.impactLabel}
-                      </p>
-                    </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -896,6 +951,14 @@ export function ProjectFactsForge({
                     >
                       Edit Fact
                     </Link>
+                    {selectedPricingRowsHref ? (
+                      <Link
+                        href={selectedPricingRowsHref}
+                        className="inline-flex items-center justify-center rounded-xl border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-4 py-2 text-[11px] font-medium text-[var(--ef-text-primary)] transition hover:border-[var(--ef-purple-primary-a60)] hover:text-[var(--ef-purple-glow)]"
+                      >
+                        View Pricing Rows
+                      </Link>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>

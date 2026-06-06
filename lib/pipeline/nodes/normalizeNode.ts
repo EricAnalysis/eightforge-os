@@ -50,6 +50,27 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function toPdfTable(value: unknown): PdfTable | null {
+  const record = asRecord(value);
+  if (
+    record == null
+    || typeof record.id !== 'string'
+    || typeof record.page_number !== 'number'
+    || !Array.isArray(record.rows)
+  ) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    page_number: record.page_number,
+    headers: asArray<string>(record.headers),
+    header_context: asArray<string>(record.header_context),
+    rows: record.rows,
+    confidence: typeof record.confidence === 'number' ? record.confidence : 1,
+  };
+}
+
 function diagnosticsFromExtractionData(
   extractionData: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
@@ -2929,13 +2950,19 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
         (a.index - b.index),
       )[0]
     ?? null;
-  const rateTables = acceptedRateTables.map((t) => t._table);
+  const rateTables: PdfTable[] = [];
+  for (const table of acceptedRateTables.map((t) => t._table)) {
+    const pdfTable = toPdfTable(table);
+    if (pdfTable) {
+      rateTables.push(pdfTable);
+    }
+  }
   const contractRateScheduleKind = determineContractRateScheduleKind(acceptedRateTables);
   const contractRateScheduleAdapter = acceptedRateTables.length > 0
     ? adaptContractRateScheduleFragments({
         document_id: document.document_id,
         source_family: 'contract',
-        tables: rateTables as PdfTable[],
+        tables: rateTables,
         schedule_kind: contractRateScheduleKind,
       })
     : null;

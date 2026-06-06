@@ -551,7 +551,7 @@ export default function DecisionsPage() {
   const [filterDue, setFilterDue] = useState<string>(searchParams.get('due') ?? '');
   const [filterAge, setFilterAge] = useState<string>(searchParams.get('age') ?? '');
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [frameAction, setFrameAction] = useState<'approve' | 'correct' | 'override' | 'escalate' | 'verify' | null>(null);
+  const [frameAction, setFrameAction] = useState<'escalate' | 'verify' | null>(null);
   const [frameNotes, setFrameNotes] = useState('');
   const [frameSaving, setFrameSaving] = useState(false);
   const [frameMessage, setFrameMessage] = useState<string | null>(null);
@@ -753,40 +753,27 @@ export default function DecisionsPage() {
       setFrameError('Choose an operator action first.');
       return;
     }
-    if (frameAction === 'override' && frameNotes.trim().length === 0) {
-      setFrameError('Override requires a reason.');
-      return;
-    }
-
     setFrameSaving(true);
     setFrameError(null);
     setFrameMessage(null);
 
     try {
-      if (frameAction === 'approve') {
-        const response = await fetch(`/api/decisions/${decisionId}/status`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'resolved' }),
-        });
-        if (!response.ok) throw new Error('Approval status update failed.');
-      } else {
-        const payload = {
-          is_correct: false,
-          feedback_type: frameAction === 'override' ? 'override' : 'needs_review',
-          disposition: frameAction === 'escalate' ? 'escalate' : frameAction === 'override' ? 'accept' : null,
-          review_error_type: frameAction === 'correct' ? 'extraction_error' : 'edge_case',
-          notes: frameNotes.trim() || null,
-        };
-        const response = await fetch(`/api/decisions/${decisionId}/feedback`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error('Decision feedback update failed.');
-      }
+      const payload = {
+        is_correct: false,
+        feedback_type: 'needs_review',
+        disposition: frameAction === 'escalate' ? 'escalate' : null,
+        review_error_type: 'edge_case',
+        operator_action: frameAction,
+        notes: frameNotes.trim() || null,
+      };
+      const response = await fetch(`/api/decisions/${decisionId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('Decision feedback update failed.');
 
-      setFrameMessage('Decision frame action recorded.');
+      setFrameMessage('Decision triage action recorded. Open Execution to finalize approval-impacting outcomes.');
       setFrameNotes('');
       setFrameAction(null);
       if (includeHistory && organizationId) {
@@ -1078,7 +1065,7 @@ export default function DecisionsPage() {
                   <div className="space-y-3 border-t border-[var(--ef-surface-elevated)] pt-4">
                     <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">Operator action controls</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['approve', 'correct', 'override', 'escalate', 'verify'] as const).map((action) => (
+                      {(['escalate', 'verify'] as const).map((action) => (
                         <button
                           key={action}
                           type="button"
@@ -1096,7 +1083,7 @@ export default function DecisionsPage() {
                     <textarea
                       value={frameNotes}
                       onChange={(event) => setFrameNotes(event.target.value)}
-                      placeholder={frameAction === 'override' ? 'Override reason required' : 'Notes optional for Correct, Escalate, or Verify'}
+                      placeholder="Notes optional for escalation or verification triage"
                       className="min-h-24 w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[12px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
                     />
                     <button

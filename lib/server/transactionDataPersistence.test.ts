@@ -49,6 +49,7 @@ function createAdmin(options: PersistenceAdminOptions = {}) {
             selection,
             filters: [],
             orders: [],
+            range: null,
           };
           calls.push(call);
 
@@ -57,8 +58,23 @@ function createAdmin(options: PersistenceAdminOptions = {}) {
               (call.filters as Array<Record<string, unknown>>).push({ column, value });
               return chain;
             },
-            order(column: string, options?: Record<string, unknown>) {
-              (call.orders as Array<Record<string, unknown>>).push({ column, options: options ?? null });
+            in(column: string, value: unknown) {
+              (call.filters as Array<Record<string, unknown>>).push({
+                column,
+                op: 'in',
+                value,
+              });
+              return chain;
+            },
+            order(column: string, orderOptions?: Record<string, unknown>) {
+              (call.orders as Array<Record<string, unknown>>).push({
+                column,
+                options: orderOptions ?? null,
+              });
+              return chain;
+            },
+            range(from: number, to: number) {
+              call.range = { from, to };
               return chain;
             },
             then(resolve: (value: QueryResult) => unknown, reject?: (reason: unknown) => unknown) {
@@ -464,5 +480,60 @@ describe('transactionDataPersistence', () => {
       && ((call.filters as Array<Record<string, unknown>>).some((filter) => filter.column === 'document_id')),
     );
     assert.equal(documentScopedSelects.length, 2);
+  });
+
+  it('paginates transaction rows beyond the default Supabase page size', async () => {
+    const rows = Array.from({ length: 1500 }, (_, index) => ({
+      id: `row-${index}`,
+      document_id: 'doc-1',
+      project_id: 'project-1',
+      invoice_number: index < 1000 ? '2026-002' : '2026-003',
+      transaction_number: `TX-${index}`,
+      rate_code: '2A',
+      billing_rate_key: '2A',
+      description_match_key: null,
+      site_material_key: null,
+      invoice_rate_key: index < 1000 ? '2026002::2A' : '2026003::2A',
+      transaction_quantity: 1,
+      extended_cost: 10,
+      invoice_date: '2026-01-05',
+      source_sheet_name: 'ticket_query',
+      source_row_number: index + 1,
+      record_json: { invoice_number: index < 1000 ? '2026-002' : '2026-003' },
+      raw_row_json: {},
+      created_at: '2026-04-04T17:00:00Z',
+    }));
+
+    const { admin } = createAdmin({
+      selectResults: {
+        transaction_data_datasets: { data: [], error: null },
+      },
+      onSelect(table, call) {
+        if (table !== 'transaction_data_rows') {
+          return { data: [], error: null };
+        }
+
+        const range = call.range as { from: number; to: number } | null;
+        if (!range) {
+          return { data: [], error: null };
+        }
+
+        return {
+          data: rows.slice(range.from, range.to + 1),
+          error: null,
+        };
+      },
+    });
+
+    const result = await getCanonicalTransactionDataForProject({
+      projectId: 'project-1',
+      admin: admin as never,
+    });
+
+    assert.equal(result.rows.length, 1500);
+    assert.equal(
+      result.rows.filter((row) => row.invoice_number === '2026-003').length,
+      500,
+    );
   });
 });

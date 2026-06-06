@@ -5,6 +5,11 @@ import type { ForgeGeneratedDecision } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
+import {
+  loadProjectActivityEvents,
+  type ActivityQueryBuilder,
+  type ActivityQueryClient,
+} from '@/lib/projectActivityEvents';
 import type {
   CanonicalProjectTransactionDatasetInput,
   CanonicalProjectTransactionRowInput,
@@ -40,12 +45,49 @@ const TRANSACTION_DATA_ROW_SELECT =
   'id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at';
 const TRANSACTION_DATA_ROW_PAGE_SIZE = 1000;
 
+const activityQueryClient: ActivityQueryClient = {
+  from(table) {
+    return {
+      select(columns) {
+        return supabase.from(table).select(columns) as unknown as ActivityQueryBuilder;
+      },
+    };
+  },
+};
+
+export function isNonCoreWorkspaceLoadError(
+  label: string,
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  if (!error?.message) return false;
+  const normalizedLabel = label.toLowerCase();
+  const message = error.message.toLowerCase();
+
+  return (
+    normalizedLabel === 'audit events'
+    && (
+      message.includes('bad request')
+      || message.includes('activity_events')
+      || message.includes('schema cache')
+    )
+  );
+}
+
 function collectError(
   messageParts: string[],
   label: string,
-  error: { message?: string | null } | null | undefined,
+  error: { code?: string | null; message?: string | null } | null | undefined,
 ) {
   if (error?.message) {
+    if (isNonCoreWorkspaceLoadError(label, error)) {
+      console.warn('[project workspace non-core load issue]', {
+        label,
+        error: error.message,
+        code: error.code ?? null,
+      });
+      return;
+    }
+
     messageParts.push(`${label}: ${error.message}`);
   }
 }
@@ -624,36 +666,20 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         ? ((validationEvidenceResult.data ?? []) as ValidationEvidence[])
         : [];
 
-      const activityResult = await supabase
-        .from('activity_events')
-        .select('id, project_id, entity_type, entity_id, event_type, old_value, new_value, changed_by, created_at')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(150);
+      const activityResult = await loadProjectActivityEvents({
+        client: activityQueryClient,
+        organizationId,
+        scope: {
+          projectId,
+          projectDecisionIds,
+          projectTaskIds,
+          projectDocumentIds: projectDocumentIdSet,
+          executionItemIds,
+          executionFindingIds,
+        },
+      });
 
       collectError(issues, 'Audit events', activityResult.error);
-
-      const filteredActivityEvents = ((activityResult.data ?? []) as ProjectActivityEventRow[]).filter((event) => {
-        if (event.entity_type === 'decision') return projectDecisionIds.has(event.entity_id);
-        if (event.entity_type === 'workflow_task') return projectTaskIds.has(event.entity_id);
-        if (event.entity_type === 'execution_item') return executionItemIds.has(event.entity_id);
-        if (event.entity_type === 'project_validation_finding') {
-          return executionFindingIds.has(event.entity_id);
-        }
-        if (event.entity_type === 'project') return event.entity_id === projectId;
-        if (event.entity_type === 'project_validation_run') return event.project_id === projectId;
-        if (event.entity_type === 'document') {
-          if (projectDocumentIdSet.has(event.entity_id)) return true;
-          const oldProjectId = typeof event.old_value?.project_id === 'string'
-            ? event.old_value.project_id
-            : null;
-          const newProjectId = typeof event.new_value?.project_id === 'string'
-            ? event.new_value.project_id
-            : null;
-          return oldProjectId === projectId || newProjectId === projectId;
-        }
-        return false;
-      });
 
       if (cancelled) return;
 
@@ -668,7 +694,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setGeneratedDecisions(generated);
       setDecisions(projectDecisions);
       setTasks(projectTasks);
-      setActivityEvents(filteredActivityEvents);
+      setActivityEvents(activityResult.data);
       setLoadIssue(issues.length > 0 ? `Project loaded with partial data issues. ${issues.join(' | ')}` : null);
       setLoading(false);
     };

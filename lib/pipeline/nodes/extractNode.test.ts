@@ -30,7 +30,7 @@ describe('extract node family routing', () => {
     expect(result.primaryDocument.family).toBe('contract');
   });
 
-  it('rehydrates pdf text-block evidence before falling back to weak legacy page text', () => {
+  it('rehydrates pdf text-block evidence and keeps legacy page text available for fallback recovery', () => {
     const result = extractNode({
       documentId: 'doc-2',
       documentType: 'contract',
@@ -74,7 +74,7 @@ describe('extract node family routing', () => {
       relatedDocs: [],
     });
 
-    expect(result.primaryDocument.evidence).toHaveLength(1);
+    expect(result.primaryDocument.evidence).toHaveLength(2);
     expect(result.primaryDocument.evidence[0]).toMatchObject({
       id: 'pdf:text:block:2:1',
       kind: 'text',
@@ -93,7 +93,15 @@ describe('extract node family routing', () => {
         line_end: 4,
       }),
     });
-    expect(result.primaryDocument.evidence[0]?.id).not.toContain(':legacy:text:');
+    expect(result.primaryDocument.evidence[1]).toMatchObject({
+      id: 'doc-2:legacy:text:2',
+      text: 'Legacy page text fallback that should not win',
+      confidence: 0.55,
+      weak: true,
+      metadata: expect.objectContaining({
+        source_extraction_path: 'legacy_evidence_v1_page_text',
+      }),
+    });
   });
 
   it('still falls back to weak legacy page text when pdf content-layer evidence is truly empty', () => {

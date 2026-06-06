@@ -22,6 +22,7 @@ import type {
   DetectedClausePattern,
 } from '@/lib/contracts/types';
 import type { EvidenceObject } from '@/lib/extraction/types';
+import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 import { buildContractIssues } from '@/lib/server/buildContractIssues';
 import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage';
@@ -107,6 +108,16 @@ function numberArray(value: unknown): number[] {
   }
 
   return [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function evidenceText(evidence: EvidenceObject): string {
@@ -1003,6 +1014,7 @@ export function analyzeContractIntelligence(
   ]).map((value) => Number.parseInt(value, 10));
   const rateScheduleRows = buildContractRateScheduleRows({
     rateTable: input.primaryDocument.typed_fields.rate_table,
+    pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),
     rateSchedulePages,
     sourceEntries: input.primaryDocument.evidence.map((evidence) => ({
       id: evidence.id,

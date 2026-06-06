@@ -844,7 +844,7 @@ export function DocumentSourceViewer({
         </div>
         <div className={isWorkspace ? 'flex min-h-0 flex-1 items-center justify-center p-4' : 'p-4'}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={signedUrl} alt={filename} className={`${isWorkspace ? 'max-h-full' : 'max-h-[760px]'} w-full rounded-xl object-contain`} />
+          <img src={signedUrl ?? undefined} alt={filename} className={`${isWorkspace ? 'max-h-full' : 'max-h-[760px]'} w-full rounded-xl object-contain`} />
         </div>
       </div>
     );

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { EightForgeLogo } from '@/components/ui/EightForgeLogo';
+import { AskEightForgeCommandBar } from '@/components/platform/AskEightForgeCommandBar';
 
 type PlatformTopNavProps = {
   workspaceName: string;
@@ -262,16 +263,7 @@ export function PlatformTopNav({ workspaceName, onSignOut }: PlatformTopNavProps
             </span>
           </div>
 
-          <label className="relative hidden sm:block">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ef-text-muted)]">
-              <PlatformIcon name="search" className="h-4 w-4" />
-            </span>
-            <input
-              type="text"
-              placeholder="Search intelligence..."
-              className="w-44 rounded-full border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] py-2 pl-9 pr-4 text-[12px] text-[var(--ef-text-primary)] outline-none transition placeholder:text-[var(--ef-text-muted)] focus:border-[var(--ef-purple-primary)] focus:ring-1 focus:ring-[var(--ef-purple-glow)] lg:w-72"
-            />
-          </label>
+          <AskEightForgeCommandBar icon={<PlatformIcon name="search" className="h-4 w-4" />} />
 
           <div className="flex items-center gap-2">
             <ShellActionIconLink href="/platform/issues" label="Signals" icon="bell" />

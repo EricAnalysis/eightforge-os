@@ -148,6 +148,7 @@ export async function POST(
             review_id: previousReview.id,
             field_key: previousReview.field_key,
             review_status: previousReview.review_status,
+            previous_status: previousReview.review_status,
             reviewed_value_json: previousReview.reviewed_value_json,
             notes: previousReview.notes,
             reviewed_at: previousReview.reviewed_at,
@@ -159,10 +160,17 @@ export async function POST(
         review_id: inserted.id,
         field_key: inserted.field_key,
         review_status: inserted.review_status,
+        new_status: inserted.review_status,
         reviewed_value_json: inserted.reviewed_value_json,
+        effective_value: inserted.reviewed_value_json,
         notes: inserted.notes,
         document_id: documentId,
         document_title: documentLabel(document),
+        evidence: {
+          document_id: documentId,
+          field_key: inserted.field_key,
+          source_label: 'fact_ledger_review',
+        },
       },
     });
 

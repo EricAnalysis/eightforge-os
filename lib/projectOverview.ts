@@ -5,6 +5,7 @@ import {
   resolveDecisionReason,
 } from '@/lib/decisionActions';
 import { buildProjectDocumentHref } from '@/lib/documentNavigation';
+import { resolveDocumentOperationalStatus } from '@/lib/documentOperationalStatus';
 import { formatDueDate } from '@/lib/dateUtils';
 import {
   getDocumentRelationshipLabel,
@@ -601,7 +602,7 @@ function formatOpenApprovalFindingSummary(
   return `${parts.join(' and ')} ${totalCount === 1 ? 'is' : 'are'} open`;
 }
 
-function resolveProjectStatus(
+export function resolveProjectStatus(
   project: ProjectRecord,
   rollup: ProjectOperationalRollup,
   validatorSummary: ProjectValidatorSummarySnapshot,
@@ -616,6 +617,42 @@ function resolveProjectStatus(
     validatorSummary.required_review_total,
     openDecisionCount,
   );
+  const cleanApprovedContext =
+    approvalStatus === 'Approved'
+    && approvalBlockerCount === 0
+    && (validatorSummary.total_at_risk == null || validatorSummary.total_at_risk <= 0)
+    && (
+      validatorSummary.requires_verification_amount == null
+      || validatorSummary.requires_verification_amount <= 0
+    );
+  const linkedDocumentCount = processedDocumentCountForStatus(rollup);
+  const nonBlockingWarningCount =
+    validatorSummary.warning_count + validatorSummary.requires_review_count;
+
+  if (cleanApprovedContext && nonBlockingWarningCount > 0) {
+    return {
+      key: 'operationally_clear',
+      label: 'Approved',
+      tone: 'success',
+      detail:
+        `${linkedDocumentCount} linked document${linkedDocumentCount === 1 ? '' : 's'} are reconciled in the current approval context. `
+        + `${nonBlockingWarningCount} non-blocking warning${nonBlockingWarningCount === 1 ? '' : 's'} remain.`,
+      is_clear: linkedDocumentCount > 0,
+    };
+  }
+
+  if (cleanApprovedContext) {
+    return {
+      key: 'operationally_clear',
+      label: 'Approved',
+      tone: 'success',
+      detail:
+        linkedDocumentCount > 0
+          ? `${linkedDocumentCount} linked document${linkedDocumentCount === 1 ? '' : 's'} are reconciled in the current approval context.`
+          : `No processed documents are linked to ${shortProjectId(project)} yet. Upload and process to begin approval analysis.`,
+      is_clear: linkedDocumentCount > 0,
+    };
+  }
 
   if (approvalBlockerCount > 0 || approvalStatus === 'Blocked') {
     return {
@@ -675,10 +712,10 @@ function resolveProjectStatus(
     key: 'operationally_clear',
     label: 'Approved',
     tone: 'success',
-    detail: processedDocumentCountForStatus(rollup) > 0
+    detail: linkedDocumentCount > 0
       ? 'Invoice claims are supported by contract and transaction data. No open approval blockers.'
       : `No processed documents are linked to ${shortProjectId(project)} yet. Upload and process to begin approval analysis.`,
-    is_clear: processedDocumentCountForStatus(rollup) > 0,
+    is_clear: linkedDocumentCount > 0,
   };
 }
 
@@ -1196,8 +1233,8 @@ export function buildProjectOperationalRollup(params: {
   } = params;
 
   const processedDocuments = documents.filter(isProcessedDocument);
-  const reviewStatusByDocumentId = new Map(
-    documentReviews.map((review) => [review.document_id, review.status] as const),
+  const reviewByDocumentId = new Map(
+    documentReviews.map((review) => [review.document_id, review] as const),
   );
   const currentDecisions = filterCurrentQueueRecords(decisions);
   const currentTasks = filterCurrentQueueRecords(tasks);
@@ -1398,53 +1435,32 @@ export function buildProjectOperationalRollup(params: {
     const documentMissingSupportCount =
       persistedDocumentDecisions.filter(isMissingSupportPersistedDecision).length +
       traceDecisions.filter(isMissingSupportTraceDecision).length;
-    const reviewStatus = reviewStatusByDocumentId.get(document.id) ?? 'not_reviewed';
+    const review = reviewByDocumentId.get(document.id);
+    const reviewStatus = review?.status ?? 'not_reviewed';
     const extractionFollowUpRequired = documentNeedsExtractionFollowUp(document, trace);
-    const openOperatorDocumentReview =
-      reviewStatus === 'needs_correction' || reviewStatus === 'in_review';
-    const unresolvedForgeWorkRemaining =
-      documentUnresolvedFindingCount > 0 ||
-      documentPendingActionCount > 0 ||
-      documentMissingSupportCount > 0 ||
-      documentBlockedCount > 0;
-    /** Operator-facing extraction / normalization debt (parties gaps, OCR gaps). */
-    const documentNeedsLedgerReview =
-      openOperatorDocumentReview ||
-      extractionFollowUpRequired ||
-      (reviewStatus !== 'approved' && unresolvedForgeWorkRemaining);
-    /** Document marked approved despite linked queue/trace work remaining (non-blocking escalation). */
-    const approvedWhileQueueIncomplete =
-      reviewStatus === 'approved' &&
-      unresolvedForgeWorkRemaining &&
-      !documentNeedsLedgerReview;
-
-    const documentNeedsReview = documentNeedsLedgerReview;
-
     unresolvedFindingCount += documentUnresolvedFindingCount;
     blockedCount += documentBlockedCount;
 
-    if (document.processing_status === 'failed') {
-      documentStatusById[document.id] = { label: 'Failed', tone: 'danger' };
-      continue;
-    }
+    const documentStatus = resolveDocumentOperationalStatus({
+      processingStatus: document.processing_status,
+      reviewStatus,
+      reviewedAt: review?.reviewed_at ?? null,
+      processedAt: document.processed_at,
+      unresolvedFindingCount: documentUnresolvedFindingCount,
+      pendingActionCount: documentPendingActionCount,
+      blockedCount: documentBlockedCount,
+      missingSupportCount: documentMissingSupportCount,
+      extractionFollowUpRequired,
+    });
 
-    if (documentBlockedCount > 0) {
-      documentStatusById[document.id] = { label: 'Blocked', tone: 'danger' };
-      continue;
-    }
-
-    if (documentNeedsReview) {
+    if (documentStatus.needsReview) {
       needsReviewDocumentCount += 1;
-      documentStatusById[document.id] = { label: 'Needs review', tone: 'warning' };
-      continue;
     }
 
-    if (approvedWhileQueueIncomplete) {
-      documentStatusById[document.id] = { label: 'Attention required', tone: 'info' };
-      continue;
-    }
-
-    documentStatusById[document.id] = { label: 'Operationally clear', tone: 'success' };
+    documentStatusById[document.id] = {
+      label: documentStatus.label,
+      tone: documentStatus.tone,
+    };
   }
 
   const decisionIdsWithOpenTasks = new Set(

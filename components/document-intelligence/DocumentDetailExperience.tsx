@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
@@ -34,7 +34,7 @@ type BreadcrumbItem = {
 
 type DocumentExperienceTab = 'extraction' | 'facts' | 'evidence' | 'insights';
 
-type ContractRateRow = NonNullable<DocumentIntelligenceViewModel['contractRateRows']>[number];
+type ContractRateRow = NonNullable<DocumentIntelligenceViewModel['contractPricingAssemblyRows']>[number];
 
 function statusClass(status: string): string {
   switch (status) {
@@ -350,9 +350,23 @@ function buildRateRowHref(params: {
   if (params.navigationSource) query.set('source', params.navigationSource);
   if (params.navigationProjectId) query.set('projectId', params.navigationProjectId);
   query.set('fieldKey', 'rate_schedule_pages');
-  query.set('rateRowId', params.row.rowId);
+  query.set('rateRowId', params.row.id);
   if (params.row.page != null) query.set('page', String(params.row.page));
   return `/platform/documents/${params.documentId}?${query.toString()}`;
+}
+
+function pricingStateLabel(row: ContractRateRow): string {
+  switch (row.confidence) {
+    case 'high':
+      return 'Confirmed';
+    case 'medium':
+    case 'low':
+      return 'Derived';
+    case 'needs_review':
+      return 'Needs review';
+    default:
+      return row.sourceAnchor ? 'Derived' : 'Missing evidence';
+  }
 }
 
 function ContractRateTablePanel({
@@ -371,28 +385,29 @@ function ContractRateTablePanel({
   if (rows.length === 0) return null;
 
   return (
-    <section className="rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
+    <section id="rate-table" className="scroll-mt-24 rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">
           Rate Table
         </p>
         <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
-          Canonical contract rate rows from the persisted contract analysis. Select a row to inspect its source context.
+          Clean contract pricing rows assembled from the persisted contract analysis. Select a row to inspect its source context.
         </p>
       </div>
 
       <div className="overflow-x-auto">
-        <div className="hidden min-w-[760px] border-b border-white/8 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)] md:grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.6fr)] md:gap-3">
-          <span>Description</span>
+        <div className="hidden min-w-[820px] border-b border-white/8 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-soft)] md:grid md:grid-cols-[minmax(0,1.3fr)_minmax(0,3.1fr)_minmax(0,0.75fr)_minmax(0,0.75fr)_minmax(0,0.7fr)_minmax(0,0.9fr)] md:gap-3">
+          <span>Category</span>
+          <span>Description or Scope</span>
           <span>Unit</span>
           <span>Rate</span>
-          <span>Category</span>
           <span>Page</span>
+          <span>State</span>
         </div>
 
-        <div className="min-w-[760px] divide-y divide-white/8">
+        <div className="min-w-[820px] divide-y divide-white/8">
           {rows.map((row) => {
-            const isSelected = selectedRateRowId === row.rowId;
+            const isSelected = selectedRateRowId === row.id;
             const href = buildRateRowHref({
               documentId,
               row,
@@ -402,18 +417,19 @@ function ContractRateTablePanel({
 
             return (
               <Link
-                key={row.rowId}
+                key={row.id}
                 href={href}
                 scroll={false}
                 className={`block px-5 py-3 transition ${
                   isSelected ? 'bg-[var(--ef-purple-primary-a10)]' : 'hover:bg-white/[0.03]'
                 }`}
               >
-                <div className="grid gap-3 md:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.6fr)] md:items-start">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,3.1fr)_minmax(0,0.75fr)_minmax(0,0.75fr)_minmax(0,0.7fr)_minmax(0,0.9fr)] md:items-start">
+                  <div className="text-sm text-[var(--ef-text-secondary)]">{row.category ?? 'Needs review'}</div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-semibold text-[var(--ef-text-primary)]">
-                        {row.description ?? 'Untitled rate row'}
+                        {row.description}
                       </p>
                       {isSelected ? (
                         <span className="rounded-full border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a12)] px-2 py-0.5 text-[10px] font-medium text-[var(--ef-purple-glow)]">
@@ -422,23 +438,22 @@ function ContractRateTablePanel({
                       ) : null}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--ef-text-soft)]">
-                      <span className="font-mono text-[10px] text-[var(--ef-text-soft)]">{row.rowId}</span>
-                      {row.sourceAnchorIds.length > 0 ? (
-                        <span>
-                          {row.sourceAnchorIds.length} source anchor{row.sourceAnchorIds.length === 1 ? '' : 's'}
-                        </span>
+                      <span className="font-mono text-[10px] text-[var(--ef-text-soft)]">{row.id}</span>
+                      {row.sourceAnchor ? (
+                        <span>1 source anchor</span>
                       ) : (
                         <span>Page-level source context</span>
                       )}
+                      {row.rawText ? <span>Raw row retained</span> : null}
                     </div>
                   </div>
 
                   <div className="text-sm text-[var(--ef-text-secondary)]">{row.unit ?? 'N/A'}</div>
                   <div className="text-sm font-medium text-[var(--ef-text-primary)]">{formatRateValue(row.rate)}</div>
-                  <div className="text-sm text-[var(--ef-text-secondary)]">{row.category ?? 'N/A'}</div>
                   <div className="text-sm text-[var(--ef-text-secondary)]">
                     {row.page != null ? `Page ${row.page}` : 'Context'}
                   </div>
+                  <div className="text-sm text-[var(--ef-text-secondary)]">{pricingStateLabel(row)}</div>
                 </div>
               </Link>
             );
@@ -499,6 +514,8 @@ export function DocumentDetailExperience({
   initialSelectedFactId,
   initialSelectedFieldKey,
   initialPage,
+  initialTab,
+  initialSection,
   navigationKey,
   selectedRecordId,
   selectedRateRowId,
@@ -587,6 +604,8 @@ export function DocumentDetailExperience({
   initialSelectedFactId?: string | null;
   initialSelectedFieldKey?: string | null;
   initialPage?: number | null;
+  initialTab?: DocumentExperienceTab | null;
+  initialSection?: string | null;
   navigationKey?: string | null;
   selectedRecordId?: string | null;
   selectedRateRowId?: string | null;
@@ -619,7 +638,14 @@ export function DocumentDetailExperience({
             : isSpreadsheetDocument && selectedRecordId
               ? 'Selected spreadsheet row is highlighted below for exact evidence review.'
               : 'Select a fact to jump directly into its source evidence.';
-  const [activeTab, setActiveTab] = useState<DocumentExperienceTab>('evidence');
+  const [activeTab, setActiveTab] = useState<DocumentExperienceTab>(initialTab ?? 'evidence');
+
+  useEffect(() => {
+    if (initialSection !== 'rate-table' || activeTab !== 'extraction') return;
+    window.requestAnimationFrame(() => {
+      document.getElementById('rate-table')?.scrollIntoView({ block: 'start' });
+    });
+  }, [activeTab, initialSection]);
 
   return (
     <div className="space-y-5">
@@ -863,10 +889,10 @@ export function DocumentDetailExperience({
               ) : (
                 <>
                   {intelligenceViewModel.family === 'contract' &&
-                  (intelligenceViewModel.contractRateRows?.length ?? 0) > 0 ? (
+                  (intelligenceViewModel.contractPricingAssemblyRows?.length ?? 0) > 0 ? (
                     <ContractRateTablePanel
                       documentId={documentId}
-                      rows={intelligenceViewModel.contractRateRows ?? []}
+                      rows={intelligenceViewModel.contractPricingAssemblyRows ?? []}
                       selectedRateRowId={selectedRateRowId}
                       navigationSource={navigationSource}
                       navigationProjectId={navigationProjectId}

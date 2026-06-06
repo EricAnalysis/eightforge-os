@@ -8,8 +8,9 @@ import type { ProjectDecisionLifecycleState, ProjectOverviewDecisionCard } from 
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 
-type ProjectDecisionFrameAction = 'approve' | 'correct' | 'override' | 'escalate' | 'verify';
+type ProjectDecisionFrameAction = 'escalate' | 'verify';
 type ProjectDecisionBucketKey = ProjectDecisionLifecycleState;
+export const PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS = ['escalate', 'verify'] as const;
 
 type ProjectDecisionQueueFrameProps = {
   decisions: readonly ProjectOverviewDecisionCard[];
@@ -28,8 +29,6 @@ const BUCKETS: Array<{ key: ProjectDecisionBucketKey; label: string }> = [
 ];
 
 function lifecycleForAction(action: ProjectDecisionFrameAction): ProjectDecisionLifecycleState {
-  if (action === 'approve') return 'resolved';
-  if (action === 'override') return 'overridden';
   if (action === 'escalate') return 'escalated';
   return 'needs_verification';
 }
@@ -142,7 +141,7 @@ function IssueDetailSurface({
         {canRecordDecisionAction ? (
           <>
             <div className="grid grid-cols-2 gap-2">
-              {(['approve', 'correct', 'override', 'escalate', 'verify'] as const).map((nextAction) => (
+              {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
                 <button
                   key={nextAction}
                   type="button"
@@ -160,7 +159,7 @@ function IssueDetailSurface({
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              placeholder={action === 'override' ? 'Override reason required' : 'Notes optional for Correct, Escalate, or Verify'}
+              placeholder="Notes optional for escalation or verification triage"
               className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
             <button
@@ -173,7 +172,7 @@ function IssueDetailSurface({
             </button>
           </>
         ) : (
-          <p className="text-sm text-[var(--ef-text-muted)]">This finding needs a decision before operator decision actions are available.</p>
+          <p className="text-sm text-[var(--ef-text-muted)]">This finding needs a decision before triage actions are available.</p>
         )}
         {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
         {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
@@ -336,11 +335,6 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
       setError('Choose a decision and operator action first.');
       return;
     }
-    if (action === 'override' && notes.trim().length === 0) {
-      setError('Override requires a reason.');
-      return;
-    }
-
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -349,29 +343,24 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
     try {
       const nextLifecycle = lifecycleForAction(action);
       const nextActionLabel = actionLabel(action);
-      const response = action === 'approve'
-        ? await authorizedFetch(`/api/decisions/${actionDecisionId}/status`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'resolved', operator_action: action }),
-          })
-        : await authorizedFetch(`/api/decisions/${actionDecisionId}/feedback`, {
-            method: 'POST',
-            body: JSON.stringify({
-              is_correct: false,
-              feedback_type: action === 'override' ? 'override' : 'needs_review',
-              disposition: action === 'escalate' ? 'escalate' : action === 'override' ? 'accept' : null,
-              review_error_type: action === 'correct' ? 'extraction_error' : 'edge_case',
-              operator_action: action,
-              notes: notes.trim() || null,
-            }),
-          });
+      const response = await authorizedFetch(`/api/decisions/${actionDecisionId}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify({
+          is_correct: false,
+          feedback_type: 'needs_review',
+          disposition: action === 'escalate' ? 'escalate' : null,
+          review_error_type: 'edge_case',
+          operator_action: action,
+          notes: notes.trim() || null,
+        }),
+      });
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(typeof body.error === 'string' ? body.error : 'Decision action failed.');
       }
 
-      setMessage('Decision frame action recorded.');
+      setMessage('Decision triage action recorded. Open Execution to finalize approval-impacting outcomes.');
       setLocalLifecycleById((current) => ({
         ...current,
         [selected.id]: nextLifecycle,
@@ -525,9 +514,9 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             </div>
 
             <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator workflow actions</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator triage actions</p>
               <div className="grid grid-cols-2 gap-2">
-                {(['approve', 'correct', 'override', 'escalate', 'verify'] as const).map((nextAction) => (
+                {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
                   <button
                     key={nextAction}
                     type="button"
@@ -545,7 +534,7 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder={action === 'override' ? 'Override reason required' : 'Notes optional for Correct, Escalate, or Verify'}
+                placeholder="Notes optional for escalation or verification triage"
                 className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
               />
               <button

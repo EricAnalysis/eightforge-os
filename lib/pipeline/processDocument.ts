@@ -608,12 +608,15 @@ export async function processDocument(params: {
       try {
         await logActivityEvent({
           organization_id: params.organizationId,
-          entity_type: 'decision',
+          project_id: projectId,
+          entity_type: 'document',
           entity_id: params.documentId,
-          event_type: 'created',
+          event_type: 'updated',
           changed_by: null,
           new_value: {
             action: 'pipeline_processing_canonical_intelligence',
+            document_id: params.documentId,
+            project_id: projectId,
             family: canonicalResult.family,
             decisions_created: canonicalResult.decisions_created,
             decisions_updated: canonicalResult.decisions_updated,
@@ -621,6 +624,7 @@ export async function processDocument(params: {
             tasks_created: canonicalResult.tasks_created,
             tasks_updated: canonicalResult.tasks_updated,
             tasks_preserved: canonicalResult.tasks_preserved,
+            validation_refresh_requested: Boolean(projectId),
           },
         });
       } catch {
@@ -704,18 +708,22 @@ export async function processDocument(params: {
           try {
             await logActivityEvent({
               organization_id: params.organizationId,
-              entity_type: 'decision',
+              project_id: projectId,
+              entity_type: 'document',
               entity_id: params.documentId,
-              event_type: 'created',
+              event_type: 'updated',
               changed_by: null,
               new_value: {
                 action: 'pipeline_processing',
+                document_id: params.documentId,
+                project_id: projectId,
                 domain,
                 document_type: documentType,
                 rules_matched: matched.length,
                 decisions_created: deterministicResult.created,
                 decisions_updated: deterministicResult.updated,
                 tasks_created: tasksCreated,
+                validation_refresh_requested: Boolean(projectId),
               },
             });
           } catch {

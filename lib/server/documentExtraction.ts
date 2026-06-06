@@ -940,7 +940,7 @@ async function extractPdfPageTextViaOcr(
     const langPath = getLocalTesseractLangPath();
     const worker = await createWorker('eng', undefined, { langPath });
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: 6 as unknown as never });
+      await worker.setParameters({ tessedit_pageseg_mode: '11' as unknown as never });
       const out: PageTextEvidence[] = [];
       const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];

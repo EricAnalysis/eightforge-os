@@ -1001,7 +1001,7 @@ describe('fema disaster mock corpus automation', () => {
     const usedFailureModes = new Set(
       FEMA_DISASTER_MOCK_FIXTURES
         .map((f) => f.expected.issue_expectations.expected_failure_mode)
-        .filter((m): m is string => m !== undefined),
+        .filter((m): m is NonNullable<typeof m> => m !== undefined),
     );
 
     const orphaned = FEMA_DISASTER_EXPECTED_FAILURE_MODES.filter((mode) => !usedFailureModes.has(mode));

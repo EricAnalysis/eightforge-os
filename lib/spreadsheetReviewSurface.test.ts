@@ -169,7 +169,7 @@ describe('SpreadsheetReviewSurface', () => {
     assert.ok(!html.includes('<th class="px-4 py-3 font-semibold">Quantity</th>'));
     assert.ok(!html.includes('<th class="px-4 py-3 font-semibold">Unit</th>'));
     assert.ok(html.includes('Load Monitoring'));
-    assert.ok(html.includes('<td class="px-4 py-3 text-[#F5F7FA]">—</td>'));
+    assert.ok(html.includes('<td class="px-4 py-3 text-[var(--ef-text-primary)]">\u2014</td>'));
   });
   it('renders the exact spreadsheet evidence row and return paths when a validator target is selected', () => {
     const html = renderToStaticMarkup(

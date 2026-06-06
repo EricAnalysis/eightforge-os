@@ -301,6 +301,7 @@ function parseDocumentExecutionTrace(
     extraction_gaps: Array.isArray(candidate.extraction_gaps) ? candidate.extraction_gaps : undefined,
     audit_notes: Array.isArray(candidate.audit_notes) ? candidate.audit_notes : undefined,
     node_traces: Array.isArray(candidate.node_traces) ? candidate.node_traces : undefined,
+    contract_analysis: candidate.contract_analysis,
   };
 }
 
@@ -611,6 +612,15 @@ export default function DocumentDetailPage({
   const requestedRateRowId = searchParams.get('rateRowId');
   const requestedAction = searchParams.get('action');
   const requestedDecisionId = searchParams.get('decisionId');
+  const requestedTabParam = searchParams.get('tab');
+  const requestedTab =
+    requestedTabParam === 'extraction' ||
+    requestedTabParam === 'facts' ||
+    requestedTabParam === 'evidence' ||
+    requestedTabParam === 'insights'
+      ? requestedTabParam
+      : null;
+  const requestedSection = searchParams.get('section');
   const evidenceNavigationKey = useMemo(
     () => {
       if (
@@ -1749,6 +1759,8 @@ export default function DocumentDetailPage({
         initialSelectedFactId={requestedEvidenceFactId}
         initialSelectedFieldKey={requestedEvidenceFieldKey}
         initialPage={requestedEvidencePage}
+        initialTab={requestedTab}
+        initialSection={requestedSection}
         navigationKey={evidenceNavigationKey}
         selectedRecordId={requestedRecordId}
         selectedRateRowId={requestedRateRowId}

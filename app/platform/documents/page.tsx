@@ -17,9 +17,11 @@ import {
   sortDocumentWorkspaceItems,
   summarizeDocumentWorkspaceItems,
   type DocumentReviewStatus,
+  type DocumentWorkspaceDecisionRow,
   type DocumentWorkspaceDocRow,
   type DocumentWorkspaceItem,
   type DocumentWorkspaceReviewRow,
+  type DocumentWorkspaceTaskRow,
   type DocumentWorkspaceTone,
 } from '@/lib/documentWorkspace';
 import { buildProjectDocumentsForgeHref } from '@/lib/documentNavigation';
@@ -653,6 +655,8 @@ export default function DocumentsPage() {
 
   const [documents, setDocuments] = useState<DocumentWorkspaceDocRow[]>([]);
   const [reviews, setReviews] = useState<DocumentWorkspaceReviewRow[]>([]);
+  const [decisions, setDecisions] = useState<DocumentWorkspaceDecisionRow[]>([]);
+  const [tasks, setTasks] = useState<DocumentWorkspaceTaskRow[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [workspaceWarning, setWorkspaceWarning] = useState<string | null>(null);
@@ -683,7 +687,7 @@ export default function DocumentsPage() {
     setWorkspaceWarning(null);
 
     try {
-      const [documentsResult, reviewsResult] = await Promise.all([
+      const [documentsResult, reviewsResult, decisionsResult, tasksResult] = await Promise.all([
         supabase
           .from('documents')
           .select(DOCUMENT_SELECT)
@@ -693,12 +697,24 @@ export default function DocumentsPage() {
           .from('document_reviews')
           .select('document_id, status, reviewed_at')
           .eq('organization_id', currentOrgId),
+        supabase
+          .from('decisions')
+          .select('id, document_id, status, severity, details, last_detected_at, created_at')
+          .eq('organization_id', currentOrgId)
+          .in('status', ['open', 'in_review', 'needs_review']),
+        supabase
+          .from('workflow_tasks')
+          .select('id, document_id, decision_id, status, priority, created_at')
+          .eq('organization_id', currentOrgId)
+          .in('status', ['open', 'in_progress', 'blocked']),
       ]);
 
       if (documentsResult.error) {
         setDocsError('Failed to load documents.');
         setDocuments([]);
         setReviews([]);
+        setDecisions([]);
+        setTasks([]);
         setDocsLoading(false);
         return;
       }
@@ -713,10 +729,30 @@ export default function DocumentsPage() {
       } else {
         setReviews((reviewsResult.data ?? []) as DocumentWorkspaceReviewRow[]);
       }
+
+      if (decisionsResult.error) {
+        setDecisions([]);
+        setWorkspaceWarning(
+          'Decision state is unavailable. Workspace status may be incomplete.',
+        );
+      } else {
+        setDecisions((decisionsResult.data ?? []) as DocumentWorkspaceDecisionRow[]);
+      }
+
+      if (tasksResult.error) {
+        setTasks([]);
+        setWorkspaceWarning(
+          'Execution task state is unavailable. Workspace status may be incomplete.',
+        );
+      } else {
+        setTasks((tasksResult.data ?? []) as DocumentWorkspaceTaskRow[]);
+      }
     } catch {
       setDocsError('Failed to load documents.');
       setDocuments([]);
       setReviews([]);
+      setDecisions([]);
+      setTasks([]);
     } finally {
       setDocsLoading(false);
     }
@@ -803,8 +839,8 @@ export default function DocumentsPage() {
   }, [fetchWorkspaceData, organizationId, orgLoading]);
 
   const workspaceItems = useMemo(
-    () => buildDocumentWorkspaceItems({ documents, reviews }),
-    [documents, reviews],
+    () => buildDocumentWorkspaceItems({ documents, reviews, decisions, tasks }),
+    [decisions, documents, reviews, tasks],
   );
 
   const filteredWorkspaceItems = useMemo(

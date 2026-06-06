@@ -37,7 +37,7 @@ export async function POST(
   if (projectError) return jsonError(projectError.message, 'PROJECT_LOOKUP_FAILED', 500);
   if (!projectRow) return jsonError('Not authorized for project', 'PROJECT_ACCESS_DENIED', 403);
 
-  const result = await triggerProjectValidation(projectId, 'manual', actorId);
+  const result = await triggerProjectValidation(projectId, 'manual', actorId, { force: true });
   console.info('[projects/revalidate] trigger result', {
     projectId,
     actorId,

@@ -201,7 +201,75 @@ describe('project operational rollup', () => {
     const completeTrace = parseDocumentExecutionTrace(completeInvoice.intelligence_trace);
     assert.ok(completeTrace);
     assert.equal(documentNeedsExtractionFollowUp(completeInvoice, completeTrace), false);
-    assert.equal(rollupComplete.document_status_by_id[completeInvoice.id]?.label, 'Operationally clear');
+    assert.equal(rollupComplete.document_status_by_id[completeInvoice.id]?.label, 'Reviewed');
+  });
+
+  it('keeps reviewed documents out of Needs Review when only non-blocking warnings remain', () => {
+    const document = buildDocument({
+      intelligence_trace: {
+        facts: {},
+        decisions: [
+          {
+            id: 'trace-warning-1',
+            family: 'risk',
+            severity: 'warning',
+            title: 'OCR confidence warning',
+            detail: 'A low-confidence diagnostic remains visible for operator awareness.',
+            suggested_actions: [],
+          },
+        ],
+        flow_tasks: [],
+        generated_at: '2026-03-20T01:00:00Z',
+        engine_version: 'document_intelligence:v2',
+      },
+    });
+
+    const rollup = buildProjectOperationalRollup({
+      project: baseProject,
+      documents: [document],
+      decisions: [],
+      tasks: [],
+      documentReviews: [
+        {
+          document_id: document.id,
+          status: 'approved',
+          reviewed_at: '2026-03-20T02:00:00Z',
+        },
+      ],
+    });
+
+    assert.equal(rollup.needs_review_document_count, 0);
+    assert.equal(rollup.document_status_by_id[document.id]?.label, 'Warning');
+  });
+
+  it('returns a stale approved document to Needs Review after a newer extraction', () => {
+    const document = buildDocument({
+      processed_at: '2026-03-20T03:00:00Z',
+      intelligence_trace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-20T03:00:00Z',
+        engine_version: 'document_intelligence:v2',
+      },
+    });
+
+    const rollup = buildProjectOperationalRollup({
+      project: baseProject,
+      documents: [document],
+      decisions: [],
+      tasks: [],
+      documentReviews: [
+        {
+          document_id: document.id,
+          status: 'approved',
+          reviewed_at: '2026-03-20T02:00:00Z',
+        },
+      ],
+    });
+
+    assert.equal(rollup.needs_review_document_count, 1);
+    assert.equal(rollup.document_status_by_id[document.id]?.label, 'Needs review');
   });
 
   it('tracks linked documents separately from processed document counts', () => {
@@ -628,6 +696,79 @@ describe('project operational rollup', () => {
     assert.deepEqual(
       model.validator_summary.invoice_summaries.map((invoice) => invoice.invoice_number).sort(),
       ['2026-002', '2026-003'],
+    );
+  });
+
+  it('uses reconciled approval-context subtitle for approved projects with only non-blocking warnings', () => {
+    const model = buildProjectOverviewModel({
+      project: {
+        ...baseProject,
+        validation_status: 'VALIDATED',
+        validation_summary_json: {
+          validator_status: 'READY',
+          critical_count: 0,
+          warning_count: 6,
+          requires_review_count: 0,
+          open_count: 6,
+          exposure: {
+            total_billed_amount: 815559.35,
+            total_contract_supported_amount: 815559.35,
+            total_transaction_supported_amount: 815559.35,
+            total_fully_reconciled_amount: 815559.35,
+            total_unreconciled_amount: 0,
+            total_at_risk_amount: 0,
+            total_requires_verification_amount: 0,
+            support_gap_tolerance_amount: 500,
+            at_risk_tolerance_amount: 500,
+            moderate_severity: 'warning',
+            invoices: [
+              {
+                invoice_number: '2026-002',
+                billed_amount: 534757.1,
+                billed_amount_source: 'invoice_total',
+                contract_supported_amount: 534757.1,
+                transaction_supported_amount: 534757.1,
+                fully_reconciled_amount: 534757.1,
+                supported_amount: 534757.1,
+                unreconciled_amount: 0,
+                at_risk_amount: 0,
+                requires_verification_amount: 0,
+                reconciliation_status: 'MATCH',
+              },
+              {
+                invoice_number: '2026-003',
+                billed_amount: 280802.25,
+                billed_amount_source: 'invoice_total',
+                contract_supported_amount: 280802.25,
+                transaction_supported_amount: 280802.25,
+                fully_reconciled_amount: 280802.25,
+                supported_amount: 280802.25,
+                unreconciled_amount: 0,
+                at_risk_amount: 0,
+                requires_verification_amount: 0,
+                reconciliation_status: 'MATCH',
+              },
+            ],
+          },
+        },
+      },
+      documents: [
+        buildDocument({ id: 'doc-contract', title: 'Contract', name: 'contract.pdf', document_type: 'contract' }),
+        buildDocument({ id: 'doc-invoice-002', title: 'Invoice 2026-002', name: 'invoice-002.pdf', document_type: 'invoice' }),
+        buildDocument({ id: 'doc-invoice-003', title: 'Invoice 2026-003', name: 'invoice-003.pdf', document_type: 'invoice' }),
+        buildDocument({ id: 'doc-support', title: 'Support Workbook', name: 'support.xlsx', document_type: 'transaction_data' }),
+      ],
+      documentReviews: [],
+      decisions: [],
+      tasks: [],
+      activityEvents: [],
+      members: [],
+    });
+
+    assert.equal(model.status.label, 'Approved');
+    assert.equal(
+      model.status.detail,
+      '4 linked documents are reconciled in the current approval context. 6 non-blocking warnings remain.',
     );
   });
 

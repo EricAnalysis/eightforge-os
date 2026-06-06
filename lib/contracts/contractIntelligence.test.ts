@@ -75,7 +75,7 @@ describe('contract intelligence analysis', () => {
     );
   });
 
-  it('keeps effective date distinct from work authorization when notice to proceed controls activation', () => {
+  it('suppresses work-authorization activation review when execution is confirmed', () => {
     const analysis = runContractAnalysis({
       textPreview:
         'This emergency debris removal agreement is effective as of March 1, 2026. '
@@ -99,7 +99,12 @@ describe('contract intelligence analysis', () => {
       true,
     );
     assert.ok(
-      analysis.issues.some((issue) => issue.issue_type === 'conditional_without_trigger_status'),
+      analysis.issues.every((issue) => issue.issue_type !== 'conditional_without_trigger_status'),
+    );
+    assert.ok(
+      analysis.trace_summary.suppressed_issues.some(
+        (issue) => issue.issue_id === 'activation_trigger_status_unresolved',
+      ),
     );
   });
 

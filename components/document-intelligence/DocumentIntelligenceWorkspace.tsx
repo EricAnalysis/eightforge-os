@@ -9,7 +9,10 @@ import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
 import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { FactEvidencePanel } from '@/components/document-intelligence/FactEvidencePanel';
-import { FactLedger } from '@/components/document-intelligence/FactLedger';
+import {
+  ContractPricingAssemblySection,
+  FactLedger,
+} from '@/components/document-intelligence/FactLedger';
 import { DocumentSourceViewer } from '@/components/document-intelligence/DocumentSourceViewer';
 
 const RATE_SCHEDULE_FIELD_KEYS = new Set([
@@ -234,6 +237,11 @@ export function DocumentIntelligenceWorkspace({
               selectedFactId={resolvedSelectedFactId}
               onSelectFact={handleSelectFact}
               variant="workspace"
+              belowFiltersSlot={
+                model.family === 'contract' && model.contractPricingAssemblyRows?.length
+                  ? <ContractPricingAssemblySection rows={model.contractPricingAssemblyRows} />
+                  : null
+              }
             />
           </aside>
 

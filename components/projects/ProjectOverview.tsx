@@ -349,14 +349,17 @@ function documentImpact(
   if (status?.tone === 'danger') {
     return { label: status.label === 'Failed' ? 'Blocked' : 'Blocking', tone: 'danger' };
   }
-  if (status?.tone === 'warning') {
+  if (status?.label.toLowerCase() === 'needs review') {
     return { label: 'Needs Review', tone: 'warning' };
   }
+  if (status?.label.toLowerCase() === 'warning') {
+    return { label: 'Warning', tone: 'info' };
+  }
   if (status?.tone === 'info') {
-    return { label: 'Requires Review', tone: 'info' };
+    return { label: status.label, tone: 'info' };
   }
   if (status?.tone === 'success') {
-    return { label: 'Clear', tone: 'success' };
+    return { label: status.label === 'Reviewed' ? 'Reviewed' : 'Clear', tone: 'success' };
   }
   if (document.processing_status === 'failed') {
     return { label: 'Blocked', tone: 'danger' };
@@ -957,7 +960,7 @@ function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceIt
                 {fmtMoney(inv.requires_verification_amount)}
               </td>
               <td className="py-2 font-mono text-[10px] text-[#5A7090]">
-                {inv.reconciliation_status}
+                {invoiceReconciliationDisplay(inv)}
               </td>
             </tr>
           ))}
@@ -965,6 +968,38 @@ function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceIt
       </table>
     </div>
   );
+}
+
+function invoiceReconciliationDisplay(invoice: ProjectOverviewInvoiceItem): string {
+  const fullySupported =
+    invoice.approval_status === 'approved'
+    && invoice.billed_amount != null
+    && invoice.supported_amount != null
+    && invoice.supported_amount >= invoice.billed_amount
+    && (invoice.at_risk_amount == null || invoice.at_risk_amount <= 0)
+    && (invoice.requires_verification_amount == null || invoice.requires_verification_amount <= 0);
+  return fullySupported ? 'MATCH' : invoice.reconciliation_status;
+}
+
+function approvalPanelReconciliationDisplay(model: ProjectOverviewModel): string | null {
+  const rawStatus = model.validator_summary.reconciliation_overall;
+  if (!rawStatus) return null;
+  const approvalLabel = approvalStatusLabelForProjectFacts({
+    status: model.validator_summary.status,
+    validator_status: model.validator_summary.validator_readiness,
+  });
+  const fullySupported =
+    approvalLabel === 'Approved'
+    && model.validator_summary.approval_blocker_count === 0
+    && (model.validator_summary.total_at_risk == null || model.validator_summary.total_at_risk <= 0)
+    && (
+      model.validator_summary.requires_verification_amount == null
+      || model.validator_summary.requires_verification_amount <= 0
+    )
+    && model.validator_summary.invoice_summaries.length > 0
+    && model.validator_summary.invoice_summaries.every((invoice) => invoiceReconciliationDisplay(invoice) === 'MATCH');
+
+  return fullySupported ? 'Reconciled' : rawStatus;
 }
 
 function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
@@ -994,6 +1029,7 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
     : approvalLabel === 'Blocked' ? 'danger'
     : approvalLabel === 'Needs Review' ? 'warning'
     : 'muted';
+  const reconciliationDisplay = approvalPanelReconciliationDisplay(model);
 
   const panelBorder =
     approvalTone === 'danger' ? 'border-[#EF4444]/25 bg-[#0E0810]'
@@ -1071,10 +1107,10 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
         ) : null}
 
         {/* Reconciliation pill */}
-        {model.validator_summary.reconciliation_overall ? (
+        {reconciliationDisplay ? (
           <div className="ml-auto shrink-0">
             <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-mono text-[#8FA1BC]">
-              {model.validator_summary.reconciliation_overall}
+              {reconciliationDisplay}
             </span>
           </div>
         ) : null}

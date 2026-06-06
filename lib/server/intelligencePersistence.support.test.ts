@@ -28,12 +28,15 @@ afterEach(() => {
 
 describe('generateAndPersistCanonicalIntelligence support persistence', () => {
   it('writes canonical support rows for non-transaction support workbooks', async () => {
-    const persistCanonicalSupportForDocument = vi.fn(async () => ({
-      persisted: true,
-      skipped: false,
-      mobileTicketCount: 2,
-      loadTicketCount: 0,
-    }));
+    const persistCanonicalSupportForDocument = vi.fn(async (_params: unknown) => {
+      void _params;
+      return {
+        persisted: true,
+        skipped: false,
+        mobileTicketCount: 2,
+        loadTicketCount: 0,
+      };
+    });
     const persistTransactionDataForDocument = vi.fn(async () => ({
       persisted: false,
       skipped: true,

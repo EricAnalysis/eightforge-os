@@ -19,6 +19,8 @@ import {
   matchesProjectDecision,
   matchesProjectTask,
   parseDocumentExecutionTrace,
+  resolveProjectStatus,
+  resolveProjectValidatorSummary,
   type ProjectDecisionRow,
   type ProjectDocumentReviewRow,
   type ProjectDocumentRow,
@@ -641,6 +643,27 @@ function resolveTraceDecisionActionTitle(decision: NormalizedDecision): string {
   );
 }
 
+function isActivationBasisWorkAuthorizationText(value: string | null | undefined): boolean {
+  const normalized = nonEmptyString(value)?.toLowerCase().replace(/[-\s]+/g, ' ');
+  return Boolean(
+    normalized?.includes('confirm the activation basis before treating the contract as work authorizing'),
+  );
+}
+
+function isActivationBasisWorkAuthorizationDecision(item: OperationalDecisionQueueItem): boolean {
+  return (
+    isActivationBasisWorkAuthorizationText(item.title)
+    || isActivationBasisWorkAuthorizationText(item.summary)
+  );
+}
+
+function isActivationBasisWorkAuthorizationAction(item: ProjectOverviewActionItem): boolean {
+  return (
+    isActivationBasisWorkAuthorizationText(item.title)
+    || isActivationBasisWorkAuthorizationText(item.next_step)
+  );
+}
+
 function buildTraceDecisionType(decision: NormalizedDecision): string {
   return decision.rule_id ?? decision.field_key ?? decision.family ?? decision.id;
 }
@@ -755,18 +778,6 @@ function augmentRollupWithValidatorActions(
       detail: `${blockedFindingCount} validator finding${blockedFindingCount === 1 ? '' : 's'} are blocking approval.`,
       is_clear: false,
     };
-  } else if (
-    blockedFindingCount === 0
-    && reviewFindingCount > 0
-    && rollup.status.key === 'operationally_clear'
-  ) {
-    status = {
-      key: 'needs_review',
-      label: 'Needs Review',
-      tone: 'warning',
-      detail: `${reviewFindingCount} validator finding${reviewFindingCount === 1 ? '' : 's'} require operator review.`,
-      is_clear: false,
-    };
   }
 
   return {
@@ -808,8 +819,6 @@ function statusFromUnresolvedExecutionItems(
   unresolvedItems: ProjectExecutionItemRow[],
 ): ProjectOperationalRollup['status'] | null {
   const blockedTier = unresolvedItems.filter(executionItemIsBlockedTier);
-  const blockedIds = new Set(blockedTier.map((entry) => entry.id));
-  const atRisk = unresolvedItems.filter((entry) => !blockedIds.has(entry.id));
 
   if (blockedTier.length > 0) {
     return {
@@ -817,16 +826,6 @@ function statusFromUnresolvedExecutionItems(
       label: 'Blocked',
       tone: 'danger',
       detail: `${blockedTier.length} execution item${blockedTier.length === 1 ? '' : 's'} block approval or are critical.`,
-      is_clear: false,
-    };
-  }
-
-  if (atRisk.length > 0) {
-    return {
-      key: 'attention_required',
-      label: 'At Risk',
-      tone: 'warning',
-      detail: `${atRisk.length} execution item${atRisk.length === 1 ? '' : 's'} still need resolution.`,
       is_clear: false,
     };
   }
@@ -850,6 +849,30 @@ function mergeOperationalRollupStatus(
   };
 }
 
+function suppressApprovedActivationBasisActions(
+  rollup: ProjectOperationalRollup,
+): ProjectOperationalRollup {
+  if (rollup.status.label !== 'Approved') {
+    return rollup;
+  }
+
+  const pendingActions = rollup.pending_actions.filter(
+    (action) => !isActivationBasisWorkAuthorizationAction(action),
+  );
+  const suppressedCount = rollup.pending_actions.length - pendingActions.length;
+
+  if (suppressedCount === 0) {
+    return rollup;
+  }
+
+  return {
+    ...rollup,
+    open_document_action_count: Math.max(0, rollup.open_document_action_count - suppressedCount),
+    unresolved_finding_count: Math.max(0, rollup.unresolved_finding_count - suppressedCount),
+    pending_actions: pendingActions,
+  };
+}
+
 /**
  * Merges execution-item queue data into a project rollup without discarding
  * document, trace, or validator-derived operational status (Command Center shaping).
@@ -864,7 +887,7 @@ export function mergeProjectRollupWithExecutionItems(params: {
   const mergedStatus = mergeOperationalRollupStatus(rollup.status, execStatus);
   const blockedTierCount = unresolvedItems.filter(executionItemIsBlockedTier).length;
 
-  return {
+  return suppressApprovedActivationBasisActions({
     ...rollup,
     status: mergedStatus,
     project_clear: mergedStatus.is_clear,
@@ -872,7 +895,7 @@ export function mergeProjectRollupWithExecutionItems(params: {
     unresolved_finding_count: rollup.unresolved_finding_count + unresolvedItems.length,
     blocked_count: rollup.blocked_count + blockedTierCount,
     pending_actions: [...pendingExecutionActions, ...rollup.pending_actions],
-  };
+  });
 }
 
 export function buildOperationalQueueModel(params: {
@@ -1535,16 +1558,30 @@ export function buildOperationalQueueModel(params: {
       scopedDocumentIds.has(review.document_id),
     );
 
+    const baseRollup = buildProjectOperationalRollup({
+      project,
+      documents: scopedDocuments,
+      decisions: scopedDecisions,
+      tasks: scopedTasks,
+      documentReviews: scopedDocumentReviews,
+    });
+    const validatorSummary = resolveProjectValidatorSummary(project, scopedDocuments, undefined, scopedDecisions);
+    const canonicalStatus = resolveProjectStatus(
+      project,
+      baseRollup,
+      validatorSummary,
+      scopedDecisions.filter((decision) => DECISION_OPEN_STATUSES.includes(decision.status)).length,
+    );
+    const canonicalRollup = {
+      ...baseRollup,
+      status: canonicalStatus,
+      project_clear: canonicalStatus.is_clear,
+    };
+
     return {
       project,
       rollup: augmentRollupWithValidatorActions(
-        buildProjectOperationalRollup({
-          project,
-          documents: scopedDocuments,
-          decisions: scopedDecisions,
-          tasks: scopedTasks,
-          documentReviews: scopedDocumentReviews,
-        }),
+        canonicalRollup,
         validatorFindingActionsByProjectId.get(project.id) ?? [],
       ),
       href: `/platform/projects/${project.id}`,
@@ -1917,6 +1954,27 @@ export async function loadOperationalQueueModel(params: {
       }),
     };
   });
+  const approvedProjectIds = new Set(
+    updatedRollups
+      .filter((rollupItem) => rollupItem.rollup.status.label === 'Approved')
+      .map((rollupItem) => rollupItem.project.id),
+  );
+  const commandCenterDecisionQueueItems = mergedDecisionQueueItems.filter(
+    (item) =>
+      !(
+        item.project_id != null
+        && approvedProjectIds.has(item.project_id)
+        && isActivationBasisWorkAuthorizationDecision(item)
+      ),
+  );
+  const commandCenterPersistedDecisionItems = persistedDecisionQueueItems.filter(
+    (item) =>
+      !(
+        item.project_id != null
+        && approvedProjectIds.has(item.project_id)
+        && isActivationBasisWorkAuthorizationDecision(item)
+      ),
+  );
   const sortedUpdatedRollups = [...updatedRollups].sort((left, right) => {
     const statusRank = (status: ProjectOperationalRollup['status']['key']) => {
       if (status === 'blocked') return 0;
@@ -1950,16 +2008,16 @@ export async function loadOperationalQueueModel(params: {
   return {
     ...legacyModel,
     warnings,
-    decisions: mergedDecisionQueueItems,
+    decisions: commandCenterDecisionQueueItems,
     actions: [],
     intelligence: {
       ...legacyModel.intelligence,
-      open_decisions_count: mergedDecisionQueueItems.length,
+      open_decisions_count: commandCenterDecisionQueueItems.length,
       open_actions_count: resolvableCount,
       blocked_count: blockingCount,
       high_risk_count: unresolvedExecutionItems.filter(
         (item) => item.severity === 'critical' || item.severity === 'high',
-      ).length + persistedDecisionQueueItems.filter(
+      ).length + commandCenterPersistedDecisionItems.filter(
         (item) => item.severity === 'critical' || item.severity === 'high',
       ).length,
     },

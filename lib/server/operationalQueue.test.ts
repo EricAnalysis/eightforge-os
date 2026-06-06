@@ -87,6 +87,88 @@ function buildTask(
 }
 
 describe('buildOperationalQueueModel', () => {
+  it('keeps canonical approved projects approved when only non-blocking validator actions remain', () => {
+    const project = {
+      ...baseProject,
+      validation_status: 'VALIDATED' as const,
+      validation_summary_json: {
+        validator_status: 'READY',
+        critical_count: 0,
+        warning_count: 6,
+        requires_review_count: 0,
+        open_count: 6,
+        exposure: {
+          total_billed_amount: 815559.35,
+          total_contract_supported_amount: 815559.35,
+          total_transaction_supported_amount: 815559.35,
+          total_fully_reconciled_amount: 815559.35,
+          total_unreconciled_amount: 0,
+          total_at_risk_amount: 0,
+          total_requires_verification_amount: 0,
+          support_gap_tolerance_amount: 500,
+          at_risk_tolerance_amount: 500,
+          invoices: [
+            {
+              invoice_number: '2026-002',
+              billed_amount: 534757.1,
+              billed_amount_source: 'invoice_total',
+              contract_supported_amount: 534757.1,
+              transaction_supported_amount: 534757.1,
+              fully_reconciled_amount: 534757.1,
+              supported_amount: 534757.1,
+              unreconciled_amount: 0,
+              at_risk_amount: 0,
+              requires_verification_amount: 0,
+              reconciliation_status: 'MATCH',
+            },
+          ],
+        },
+      },
+    };
+    const validatorActionsByProjectId = new Map([
+      [
+        project.id,
+        [
+          {
+            id: 'finding-warning-1',
+            href: `/platform/projects/${project.id}#project-validator`,
+            title: 'Confirm activation basis',
+            due_label: 'Review',
+            due_tone: 'warning' as const,
+            assignee_label: 'Unassigned',
+            priority_label: 'Medium',
+            priority_tone: 'warning' as const,
+            status_label: 'Open',
+            source_document_title: null,
+            source_document_type: 'validator',
+            approval_status: 'needs_review' as const,
+            next_step: 'Confirm the activation basis before treating the contract as work authorizing.',
+          },
+        ],
+      ],
+    ]);
+
+    const model = buildOperationalQueueModel({
+      projects: [project],
+      documents: [
+        buildDocument({ id: 'doc-contract', title: 'Contract', document_type: 'contract' }),
+        buildDocument({ id: 'doc-invoice', title: 'Invoice 2026-002', document_type: 'invoice' }),
+        buildDocument({ id: 'doc-support', title: 'Support Workbook', document_type: 'transaction_data' }),
+        buildDocument({ id: 'doc-rates', title: 'Rate Schedule', document_type: 'rate_schedule' }),
+      ],
+      decisions: [],
+      tasks: [],
+      documentReviews: [],
+      validatorFindingActionsByProjectId: validatorActionsByProjectId,
+    });
+
+    const rollup = model.project_rollups[0]?.rollup;
+    assert.equal(rollup?.status.label, 'Approved');
+    assert.equal(rollup?.blocked_count, 0);
+    assert.equal(rollup?.pending_actions.length, 1);
+    assert.equal(rollup?.pending_actions[0]?.approval_status, 'needs_review');
+  });
+
   it('promotes trace decisions and trace tasks into shared queue items', () => {
     const document = buildDocument({
       intelligence_trace: {
@@ -374,7 +456,7 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
     assert.equal(merged.pending_actions.length, base.pending_actions.length);
   });
 
-  it('surfaces At Risk when only non-blocking execution items are unresolved', () => {
+  it('keeps approved status when only non-blocking execution items are unresolved', () => {
     const base = baseRollupFixture({
       status: {
         key: 'operationally_clear',
@@ -393,9 +475,68 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
       pendingExecutionActions: [],
     });
 
-    assert.equal(merged.status.key, 'attention_required');
-    assert.equal(merged.status.label, 'At Risk');
-    assert.equal(merged.project_clear, false);
+    assert.equal(merged.status.key, 'operationally_clear');
+    assert.equal(merged.status.label, 'Approved');
+    assert.equal(merged.project_clear, true);
+    assert.equal(merged.pending_actions.length, base.pending_actions.length);
+  });
+
+  it('suppresses stale activation-basis actions on approved rollups', () => {
+    const base = baseRollupFixture({
+      status: {
+        key: 'operationally_clear',
+        label: 'Approved',
+        tone: 'success',
+        detail: 'No blockers.',
+        is_clear: true,
+      },
+      needs_review_document_count: 0,
+      project_clear: true,
+      pending_actions: [
+        {
+          id: 'stale-activation',
+          href: '/platform/projects/project-1#project-decisions',
+          title: 'Activation trigger detected but status unresolved',
+          due_label: 'Decision follow-up',
+          due_tone: 'warning',
+          assignee_label: 'Ops',
+          priority_label: 'High',
+          priority_tone: 'warning',
+          status_label: 'Open',
+          source_document_title: 'Contract',
+          source_document_type: 'contract',
+          approval_status: 'needs_review',
+          next_step: 'Confirm the activation basis before treating the contract as work-authorizing.',
+        },
+        {
+          id: 'valid-follow-up',
+          href: '/platform/projects/project-1#project-decisions',
+          title: 'Confirm derived expiration date',
+          due_label: 'Decision follow-up',
+          due_tone: 'warning',
+          assignee_label: 'Ops',
+          priority_label: 'Medium',
+          priority_tone: 'warning',
+          status_label: 'Open',
+          source_document_title: 'Contract',
+          source_document_type: 'contract',
+          approval_status: 'needs_review',
+          next_step: 'Confirm the derived expiration date against the cited term clause.',
+        },
+      ],
+      open_document_action_count: 2,
+      unresolved_finding_count: 2,
+    });
+    const merged = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(merged.status.label, 'Approved');
+    assert.deepEqual(merged.pending_actions.map((action) => action.id), ['valid-follow-up']);
+    assert.equal(merged.open_document_action_count, 1);
+    assert.equal(merged.unresolved_finding_count, 1);
   });
 
   it('escalates to Blocked when an open execution item blocks approval', () => {

@@ -67,6 +67,27 @@ export type ApprovalSnapshotDiff = {
   resolved_blocking_reasons: string[];
 };
 
+function normalizeProjectApprovalStatus(
+  label: ProjectApprovalSnapshot['approval_status'] | string | null | undefined,
+): ProjectApprovalSnapshot['approval_status'] {
+  switch (String(label ?? '').trim().toLowerCase()) {
+    case 'approved':
+      return 'approved';
+    case 'approved with exceptions':
+    case 'approved_with_exceptions':
+      return 'approved_with_exceptions';
+    case 'needs review':
+    case 'needs_review':
+      return 'needs_review';
+    case 'blocked':
+      return 'blocked';
+    case 'not evaluated':
+    case 'not_evaluated':
+    default:
+      return 'not_evaluated';
+  }
+}
+
 /**
  * Persist a new approval snapshot when validation completes
  * Appends to history without overwriting previous snapshots (audit trail)
@@ -80,7 +101,7 @@ export async function persistApprovalSnapshot(
   if (!admin) return null;
 
   // Compute project-level snapshot from validator summary + rollup
-  const approvalStatus = rollup.status.label as any;
+  const approvalStatus = normalizeProjectApprovalStatus(rollup.status.label);
   const invoices = validatorSummary?.invoice_summaries || [];
 
   // Count invoices by status

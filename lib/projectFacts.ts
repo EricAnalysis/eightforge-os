@@ -55,11 +55,12 @@ import {
 import {
   buildInvoiceGroups,
   buildRateCodeGroups,
+  buildTicketGrainQuantityFacts,
   effectiveMaterial,
   hasInvoiceLink,
   normalizeEligibility,
-  normalizeLooseText,
   roundNumber,
+  ticketGrainKey,
   uniqueStrings,
   type NormalizedTransactionDataRecord,
 } from '@/lib/extraction/xlsx/normalizeTransactionData';
@@ -2937,7 +2938,7 @@ export function buildCanonicalTransactionSummaryFromRows(
   const normalizedInvoicedTransactionNumberSet = new Set<string>();
 
   for (const record of records) {
-    const transactionNumber = normalizeLooseText(record.transaction_number);
+    const transactionNumber = ticketGrainKey(record);
     if (!transactionNumber) continue;
     normalizedTransactionNumberSet.add(transactionNumber);
     if (hasInvoiceLink(record)) {
@@ -2953,10 +2954,8 @@ export function buildCanonicalTransactionSummaryFromRows(
     records.reduce((sum, record) => sum + (record.transaction_quantity ?? 0), 0),
     3,
   );
-  const totalCyd = roundNumber(
-    records.reduce((sum, record) => sum + (record.cyd ?? 0), 0),
-    3,
-  );
+  const ticketGrainQuantityFacts = buildTicketGrainQuantityFacts(records);
+  const totalCyd = ticketGrainQuantityFacts.total_cyd_ticket_grain;
   const totalInvoicedAmount = roundNumber(
     records.reduce((sum, record) => sum + (hasInvoiceLink(record) ? (record.extended_cost ?? 0) : 0), 0),
     2,
@@ -2990,6 +2989,7 @@ export function buildCanonicalTransactionSummaryFromRows(
     total_transaction_quantity: totalTransactionQuantity,
     total_tickets: normalizedTransactionNumberSet.size,
     total_cyd: totalCyd,
+    ...ticketGrainQuantityFacts,
     invoiced_ticket_count: normalizedInvoicedTransactionNumberSet.size,
     distinct_invoice_count: distinctInvoiceCount,
     total_invoiced_amount: totalInvoicedAmount,
@@ -3010,6 +3010,14 @@ export function buildCanonicalTransactionSummaryFromRows(
     total_tickets: summary.total_tickets,
     total_transaction_quantity: totalTransactionQuantity,
     total_cyd: totalCyd,
+    total_cyd_ticket_grain: ticketGrainQuantityFacts.total_cyd_ticket_grain,
+    total_cyd_ticket_grain_full: ticketGrainQuantityFacts.total_cyd_ticket_grain_full,
+    total_mileage_ticket_grain: ticketGrainQuantityFacts.total_mileage_ticket_grain,
+    total_mileage_ticket_grain_full: ticketGrainQuantityFacts.total_mileage_ticket_grain_full,
+    total_diameter: ticketGrainQuantityFacts.total_diameter,
+    total_diameter_full: ticketGrainQuantityFacts.total_diameter_full,
+    total_net_tonnage: ticketGrainQuantityFacts.total_net_tonnage,
+    total_net_tonnage_full: ticketGrainQuantityFacts.total_net_tonnage_full,
     total_invoiced_amount: totalInvoicedAmount,
     distinct_invoice_count: distinctInvoiceCount,
     invoiced_ticket_count: summary.invoiced_ticket_count,
@@ -3703,7 +3711,13 @@ function resolveTransactionTruthRows(
   });
   const totalCyd = resolveCanonicalTransactionMetric({
     datasets: metricDatasets,
-    readValue: (dataset) => readNumber(readTransactionOverview(dataset)?.total_cyd),
+    readValue: (dataset) => {
+      const overview = readTransactionOverview(dataset);
+      return (
+        readNumber(overview?.total_cyd_ticket_grain)
+        ?? readNumber(overview?.total_cyd)
+      );
+    },
     sourceLabel,
   });
   const eligibility = resolveCanonicalTransactionMetric({

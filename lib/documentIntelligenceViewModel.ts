@@ -30,8 +30,10 @@ import {
 } from '@/lib/contracts/contractPricingAssembly';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import {
+  buildCanonicalTransactionSummaryFromRows,
   resolveCanonicalProjectFacts,
   spreadsheetReviewReadinessStatusForProjectFacts,
+  type CanonicalProjectTransactionRowInput,
 } from '@/lib/projectFacts';
 import {
   normalizeCanonicalInvoiceNumber,
@@ -834,11 +836,13 @@ function determineVolumeBasis(params: {
   groupedBySiteType: readonly TransactionDataSiteTypeGroup[];
 }): SpreadsheetReviewVolumeBasis {
   const totalCyd =
-    asLooseNumber(params.summary?.total_cyd)
+    asLooseNumber(params.summary?.total_cyd_ticket_grain)
+    ?? asLooseNumber(params.summary?.total_cyd)
     ?? asLooseNumber(params.projectOperationsOverview?.total_cyd)
+    ?? asLooseNumber(params.rollups?.total_cyd_ticket_grain)
     ?? asLooseNumber(params.rollups?.total_cyd)
     ?? asLooseNumber(params.rollups?.totalCyd)
-    ?? sumRecordNumberField(params.records, 'cyd');
+    ?? null;
   const totalNetTonnage = sumRecordNumberField(params.records, 'net_tonnage');
   const hasGroupedCyd =
     params.groupedByMaterial.some((group) => Math.abs(group.total_cyd) > 0)
@@ -1337,7 +1341,9 @@ function toCanonicalConsistentRollups(
     ?? asLooseNumber(extractionRollups?.total_tickets)
     ?? asLooseNumber(extractionRollups?.totalTickets);
   const totalCyd =
-    asLooseNumber(canonicalSummary.total_cyd)
+    asLooseNumber(canonicalSummary.total_cyd_ticket_grain)
+    ?? asLooseNumber(canonicalSummary.total_cyd)
+    ?? asLooseNumber(extractionRollups?.total_cyd_ticket_grain)
     ?? asLooseNumber(extractionRollups?.total_cyd)
     ?? asLooseNumber(extractionRollups?.totalCyd);
   const totalExtendedCost =
@@ -1447,6 +1453,22 @@ function toCanonicalConsistentRollups(
     totalTickets,
     total_cyd: totalCyd,
     totalCyd,
+    total_cyd_ticket_grain: totalCyd,
+    totalCydTicketGrain: totalCyd,
+    total_cyd_ticket_grain_full: asLooseNumber(canonicalSummary.total_cyd_ticket_grain_full)
+      ?? asLooseNumber(extractionRollups?.total_cyd_ticket_grain_full),
+    total_mileage_ticket_grain: asLooseNumber(canonicalSummary.total_mileage_ticket_grain)
+      ?? asLooseNumber(extractionRollups?.total_mileage_ticket_grain),
+    total_mileage_ticket_grain_full: asLooseNumber(canonicalSummary.total_mileage_ticket_grain_full)
+      ?? asLooseNumber(extractionRollups?.total_mileage_ticket_grain_full),
+    total_diameter: asLooseNumber(canonicalSummary.total_diameter)
+      ?? asLooseNumber(extractionRollups?.total_diameter),
+    total_diameter_full: asLooseNumber(canonicalSummary.total_diameter_full)
+      ?? asLooseNumber(extractionRollups?.total_diameter_full),
+    total_net_tonnage: asLooseNumber(canonicalSummary.total_net_tonnage)
+      ?? asLooseNumber(extractionRollups?.total_net_tonnage),
+    total_net_tonnage_full: asLooseNumber(canonicalSummary.total_net_tonnage_full)
+      ?? asLooseNumber(extractionRollups?.total_net_tonnage_full),
     total_extended_cost: totalExtendedCost,
     totalExtendedCost,
     total_transaction_quantity: totalTransactionQuantity,
@@ -1717,8 +1739,10 @@ function toSpreadsheetReviewDataset(
       rollups?.totalTickets ??
       distinctTransactionCount,
     totalCyd:
+      summary?.total_cyd_ticket_grain ??
       summary?.total_cyd ??
       projectOperationsOverview?.total_cyd ??
+      rollups?.total_cyd_ticket_grain ??
       rollups?.totalCyd ??
       null,
     totalNetTonnage,
@@ -1776,11 +1800,12 @@ function toSpreadsheetReviewDataset(
   const totalProjectVolume =
     volumeBasis.metric === 'cyd'
       ? (
-        asLooseNumber(summary?.total_cyd)
+        asLooseNumber(summary?.total_cyd_ticket_grain)
+        ?? asLooseNumber(summary?.total_cyd)
         ?? asLooseNumber(projectOperationsOverview?.total_cyd)
+        ?? asLooseNumber(rollups?.total_cyd_ticket_grain)
         ?? asLooseNumber(rollups?.total_cyd)
         ?? asLooseNumber(rollups?.totalCyd)
-        ?? sumRecordNumberField(records, 'cyd')
       )
       : (
         volumeBasis.metric === 'net_tonnage'
@@ -2648,6 +2673,29 @@ function inferValueType(fieldKey: string, value: unknown): DocumentFactValueType
   if (typeof value === 'number') {
     if (fieldKey === 'rate_row_count') return 'number';
     if (/(percent|pct|ratio|rate_pct|rate_percent)/i.test(fieldKey)) return 'percent';
+    // Count fields are tallies, not money. Classify them before the currency
+    // heuristic below so keys containing `total` (e.g. `total_tickets`) or ending in
+    // `_count` (`row_count`, `eligible_count`) are not rendered with a `$`.
+    if (
+      /^total_tickets$/i.test(fieldKey) ||
+      /(^|_)row_count$/i.test(fieldKey) ||
+      /(^|_)count$/i.test(fieldKey)
+    ) {
+      return 'number';
+    }
+    // Volume / physical-quantity fields carry units (CYD, miles, tons, in), not
+    // dollars. Classify them as plain numbers so the broad currency regex does not
+    // force a `$`. (Unit-bearing display is deferred to a future `quantity` type.)
+    if (
+      /(^|_)cyd(_|$)/i.test(fieldKey) ||
+      /(^|_)mileage(_|$)/i.test(fieldKey) ||
+      /(^|_)diameter(_|$)/i.test(fieldKey) ||
+      /(^|_)tonnage(_|$)/i.test(fieldKey) ||
+      /(^|_)transaction_quantity(_|$)/i.test(fieldKey) ||
+      /_quantity$/i.test(fieldKey)
+    ) {
+      return 'number';
+    }
     if (/(amount|total|sum|ceiling|due|cost|fee|price|rate|balance|retainage|payment)/i.test(fieldKey)) {
       return 'currency';
     }
@@ -4149,6 +4197,143 @@ function buildOverrideOnlyFacts(params: {
   return facts;
 }
 
+/**
+ * Schema-group keys whose Fact Ledger facts represent spreadsheet/transaction truth
+ * (Dataset Summary, Grouped Review Tables, Flags/Outliers). These are the groups that
+ * must read the row-backed canonical summary rather than the extraction blob. The
+ * Document Identity / References / Extracted Signals / Additional Extracted Fields
+ * groups are intentionally excluded so they keep their (correct) blob sourcing.
+ */
+const ROW_BACKED_SPREADSHEET_GROUP_KEYS = new Set<string>([
+  'dataset_summary',
+  'grouped_review_tables',
+  'flags_outliers',
+]);
+
+const ROW_BACKED_CANONICAL_FACT_NOTE = 'Sourced from row-backed canonical transaction summary.';
+
+function repointFactToCanonicalValue(
+  fact: DocumentFact,
+  fieldKey: string,
+  value: unknown,
+): DocumentFact {
+  const valueType = inferValueType(fieldKey, value);
+  const normalizedDisplay = formatFactValue(value, valueType);
+  const normalizationNotes = fact.normalizationNotes.includes(ROW_BACKED_CANONICAL_FACT_NOTE)
+    ? fact.normalizationNotes
+    : [...fact.normalizationNotes, ROW_BACKED_CANONICAL_FACT_NOTE];
+  return {
+    ...fact,
+    valueType,
+    valueText: typeof value === 'string' ? value : scalarToString(value),
+    valueNumber: typeof value === 'number' ? value : null,
+    valueDate: valueType === 'date' ? formatFactValue(value, 'date') : null,
+    valueBoolean: typeof value === 'boolean' ? value : null,
+    normalizedValue: value,
+    normalizedDisplay,
+    reviewState: 'derived',
+    statusLabel: factStatusLabel('derived'),
+    derivationKind: 'row_backed_canonical_summary',
+    normalizationNotes,
+    displaySource: 'auto',
+    displayValue: normalizedDisplay,
+    machineValue: value,
+    machineDisplay: normalizedDisplay,
+  };
+}
+
+/**
+ * Re-points the Fact Ledger's spreadsheet/transaction-truth facts at the same
+ * row-backed canonical summary the review surface and Forge already consume, instead
+ * of the (often empty) extraction blob. This is a read, not a recompute: it reuses
+ * `buildCanonicalTransactionSummaryFromRows` rather than summing rows a second time.
+ *
+ * Existing auto facts in the transaction-truth groups are overwritten with the
+ * canonical value; human-reviewed / overridden facts are left untouched. Expected
+ * spreadsheet fields that the blob never produced (but the rows do) are appended so
+ * the ledger no longer shows them as MISSING.
+ */
+function applyRowBackedSpreadsheetFacts(params: {
+  facts: DocumentFact[];
+  family: DocumentFamily;
+  rowBackedSummary: Record<string, unknown> | null;
+  documentId: string;
+}): DocumentFact[] {
+  const { facts, family, rowBackedSummary, documentId } = params;
+  if (family !== 'spreadsheet' || rowBackedSummary == null) return facts;
+
+  const canonicalValueForKey = (fieldKey: string): { key: string; value: unknown } | null => {
+    const canon = canonicalFieldKey(fieldKey, family);
+    if (Object.prototype.hasOwnProperty.call(rowBackedSummary, canon)) {
+      return { key: canon, value: rowBackedSummary[canon] };
+    }
+    if (Object.prototype.hasOwnProperty.call(rowBackedSummary, fieldKey)) {
+      return { key: fieldKey, value: rowBackedSummary[fieldKey] };
+    }
+    return null;
+  };
+
+  const seenCanonicalKeys = new Set<string>();
+  const repointed = facts.map((fact) => {
+    const canon = canonicalFieldKey(fact.fieldKey, family);
+    seenCanonicalKeys.add(canon);
+    if (!ROW_BACKED_SPREADSHEET_GROUP_KEYS.has(fact.schemaGroup)) return fact;
+    // Preserve human review / override decisions; only re-point machine values.
+    if (fact.displaySource !== 'auto') return fact;
+    const resolved = canonicalValueForKey(fact.fieldKey);
+    if (resolved == null || resolved.value == null) return fact;
+    return repointFactToCanonicalValue(fact, resolved.key, resolved.value);
+  });
+
+  const additions: DocumentFact[] = [];
+  for (const key of FIELD_PRIORITY.spreadsheet) {
+    const canon = canonicalFieldKey(key, family);
+    if (seenCanonicalKeys.has(canon)) continue;
+    if (!Object.prototype.hasOwnProperty.call(rowBackedSummary, canon)) continue;
+    const value = rowBackedSummary[canon];
+    if (value == null) continue;
+    const group = resolveSchemaGroup(family, canon);
+    if (!ROW_BACKED_SPREADSHEET_GROUP_KEYS.has(group.key)) continue;
+    seenCanonicalKeys.add(canon);
+    const valueType = inferValueType(canon, value);
+    const normalizedDisplay = formatFactValue(value, valueType);
+    additions.push(
+      withDisplayMetadata({
+        id: `${documentId}:${canon}`,
+        documentId,
+        fieldKey: canon,
+        fieldLabel: fieldLabelForKey(canon),
+        schemaGroup: group.key,
+        schemaGroupLabel: group.label,
+        valueType,
+        valueText: typeof value === 'string' ? value : scalarToString(value),
+        valueNumber: typeof value === 'number' ? value : null,
+        valueDate: valueType === 'date' ? formatFactValue(value, 'date') : null,
+        valueBoolean: typeof value === 'boolean' ? value : null,
+        normalizedValue: value,
+        normalizedDisplay,
+        rawValue: null,
+        rawDisplay: null,
+        confidence: 0.9,
+        confidenceLabel: confidenceLabel(0.9),
+        confidenceReason: ROW_BACKED_CANONICAL_FACT_NOTE,
+        reviewState: 'derived',
+        statusLabel: factStatusLabel('derived'),
+        evidenceCount: 0,
+        primaryPage: null,
+        anchors: [],
+        normalizationNotes: [ROW_BACKED_CANONICAL_FACT_NOTE],
+        missingSourceContext: [],
+        derivationKind: 'row_backed_canonical_summary',
+        relatedDecisionIds: [],
+        relatedDecisionTitles: [],
+      }),
+    );
+  }
+
+  return [...repointed, ...additions];
+}
+
 function buildStrip(params: {
   sourceModeLabel: string;
   parserStatus: string;
@@ -5532,6 +5717,15 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     relatedDocuments,
   };
   const family = primaryDocument.family;
+  // Row-backed canonical transaction summary — the same source the Spreadsheet Review
+  // surface and Forge consume. The Fact Ledger's spreadsheet facts are re-pointed at
+  // this (instead of the extraction blob) further below.
+  const rowBackedCanonicalTransactionSummary =
+    family === 'spreadsheet' && (params.transactionRows?.length ?? 0) > 0
+      ? buildCanonicalTransactionSummaryFromRows(
+          (params.transactionRows ?? []) as unknown as CanonicalProjectTransactionRowInput[],
+        )
+      : null;
   const rawValueMap = buildRawSourceMap({
     typedFields,
     structuredFields,
@@ -5727,7 +5921,12 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     anchorRecord: humanRateScheduleAnchorRecord,
   });
 
-  const facts = filterDisplayFactsForFamily(rateScheduleOverlay.facts, family).sort((left, right) => {
+  const facts = applyRowBackedSpreadsheetFacts({
+    facts: filterDisplayFactsForFamily(rateScheduleOverlay.facts, family),
+    family,
+    rowBackedSummary: rowBackedCanonicalTransactionSummary,
+    documentId: params.documentId,
+  }).sort((left, right) => {
     const leftGroup = resolveSchemaGroup(family, left.fieldKey);
     const rightGroup = resolveSchemaGroup(family, right.fieldKey);
     if (leftGroup.order !== rightGroup.order) return leftGroup.order - rightGroup.order;

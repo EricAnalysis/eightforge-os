@@ -55,6 +55,14 @@ export type TransactionDataSummaryFieldKey =
   | 'total_transaction_quantity'
   | 'total_tickets'
   | 'total_cyd'
+  | 'total_cyd_ticket_grain'
+  | 'total_cyd_ticket_grain_full'
+  | 'total_mileage_ticket_grain'
+  | 'total_mileage_ticket_grain_full'
+  | 'total_diameter'
+  | 'total_diameter_full'
+  | 'total_net_tonnage'
+  | 'total_net_tonnage_full'
   | 'invoiced_ticket_count'
   | 'distinct_invoice_count'
   | 'total_invoiced_amount'
@@ -350,6 +358,14 @@ export interface TransactionDataDatasetSummary {
   total_transaction_quantity: number;
   total_tickets: number;
   total_cyd: number;
+  total_cyd_ticket_grain?: number;
+  total_cyd_ticket_grain_full?: number;
+  total_mileage_ticket_grain?: number;
+  total_mileage_ticket_grain_full?: number;
+  total_diameter?: number;
+  total_diameter_full?: number;
+  total_net_tonnage?: number;
+  total_net_tonnage_full?: number;
   invoiced_ticket_count: number;
   distinct_invoice_count: number;
   total_invoiced_amount: number;
@@ -436,6 +452,14 @@ export const TRANSACTION_DATA_SUMMARY_SCHEMA: Record<
   total_transaction_quantity: { type: 'number', required: true, nullable: false },
   total_tickets: { type: 'integer', required: true, nullable: false },
   total_cyd: { type: 'number', required: true, nullable: false },
+  total_cyd_ticket_grain: { type: 'number', required: false, nullable: false },
+  total_cyd_ticket_grain_full: { type: 'number', required: false, nullable: false },
+  total_mileage_ticket_grain: { type: 'number', required: false, nullable: false },
+  total_mileage_ticket_grain_full: { type: 'number', required: false, nullable: false },
+  total_diameter: { type: 'number', required: false, nullable: false },
+  total_diameter_full: { type: 'number', required: false, nullable: false },
+  total_net_tonnage: { type: 'number', required: false, nullable: false },
+  total_net_tonnage_full: { type: 'number', required: false, nullable: false },
   invoiced_ticket_count: { type: 'integer', required: true, nullable: false },
   distinct_invoice_count: { type: 'integer', required: true, nullable: false },
   total_invoiced_amount: { type: 'currency', required: true, nullable: false },

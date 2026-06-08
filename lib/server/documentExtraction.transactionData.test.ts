@@ -217,6 +217,8 @@ describe('extractDocument transaction_data routing', () => {
           distinct_invoice_numbers: ['INV-100', 'INV-101'],
           uninvoiced_line_count: 0,
           invoiced_ticket_count: 2,
+          eligible_count: 0,
+          ineligible_count: 2,
           record_ids: [
             'transaction:ticket_query:3',
             'transaction:ticket_query:4',

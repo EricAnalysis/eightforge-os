@@ -94,7 +94,8 @@ describe('validator finding queue actions', () => {
     );
     assert.equal(
       action.href,
-      '/platform/documents/invoice-doc-1?source=project&projectId=project-1&page=3&fieldKey=rate_code',
+      '/platform/documents/invoice-doc-1?source=project&projectId=project-1&page=3&fieldKey=rate_code&recordId=line-6A',
     );
   });
 });
+

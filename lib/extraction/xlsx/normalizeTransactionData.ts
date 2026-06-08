@@ -17,6 +17,7 @@ import type {
   TransactionDataSiteTypeGroup,
   TransactionDataSiteMaterialGroup,
   TransactionDataOutlierRow,
+  TransactionDataPrimitive,
 } from '@/lib/types/transactionData';
 import {
   TRANSACTION_DATA_AMOUNT_FIELDS,
@@ -52,6 +53,14 @@ export interface TransactionDataRollups {
   total_transaction_quantity: number;
   total_tickets: number;
   total_cyd: number;
+  total_cyd_ticket_grain: number;
+  total_cyd_ticket_grain_full: number;
+  total_mileage_ticket_grain: number;
+  total_mileage_ticket_grain_full: number;
+  total_diameter: number;
+  total_diameter_full: number;
+  total_net_tonnage: number;
+  total_net_tonnage_full: number;
   invoiced_ticket_count: number;
   distinct_invoice_count: number;
   total_invoiced_amount: number;
@@ -248,6 +257,140 @@ export function uniqueStrings(values: Array<string | null | undefined>): string[
 
 export function roundNumber(value: number, digits: number): number {
   return Number(value.toFixed(digits));
+}
+
+type TicketGrainQuantityField = 'cyd' | 'mileage' | 'diameter' | 'net_tonnage';
+
+export type TicketGrainQuantityFacts = {
+  total_cyd_ticket_grain: number;
+  total_cyd_ticket_grain_full: number;
+  total_mileage_ticket_grain: number;
+  total_mileage_ticket_grain_full: number;
+  total_diameter: number;
+  total_diameter_full: number;
+  total_net_tonnage: number;
+  total_net_tonnage_full: number;
+};
+
+const RAW_TICKET_KEYS = ['Ticket No', 'Ticket ID'] as const;
+const RAW_QUANTITY_KEYS: Record<TicketGrainQuantityField, readonly string[]> = {
+  cyd: ['CYD'],
+  mileage: ['Mileage'],
+  diameter: ['Diameter'],
+  net_tonnage: ['Net Tonnage'],
+};
+
+const TICKET_GRAIN_FIELD_OUTPUTS: Record<TicketGrainQuantityField, keyof TicketGrainQuantityFacts> = {
+  cyd: 'total_cyd_ticket_grain',
+  mileage: 'total_mileage_ticket_grain',
+  diameter: 'total_diameter',
+  net_tonnage: 'total_net_tonnage',
+};
+
+const TICKET_GRAIN_FULL_FIELD_OUTPUTS: Record<TicketGrainQuantityField, keyof TicketGrainQuantityFacts> = {
+  cyd: 'total_cyd_ticket_grain_full',
+  mileage: 'total_mileage_ticket_grain_full',
+  diameter: 'total_diameter_full',
+  net_tonnage: 'total_net_tonnage_full',
+};
+
+function rawRowText(
+  rawRow: Record<string, TransactionDataPrimitive>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = rawRow[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function parseTicketGrainNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const normalized = value.replace(/[$,\s]/g, '');
+    if (normalized.length === 0) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function rawRowNumber(
+  rawRow: Record<string, TransactionDataPrimitive>,
+  keys: readonly string[],
+): number | null {
+  for (const key of keys) {
+    const parsed = parseTicketGrainNumber(rawRow[key]);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+export function ticketGrainKey(record: NormalizedTransactionDataRecord): string {
+  return (
+    normalizeLooseText(record.transaction_number)
+    ?? normalizeLooseText(rawRowText(record.raw_row, RAW_TICKET_KEYS))
+    ?? `record:${record.id}`
+  );
+}
+
+function ticketGrainValue(
+  record: NormalizedTransactionDataRecord,
+  field: TicketGrainQuantityField,
+): number | null {
+  const rawValue = rawRowNumber(record.raw_row, RAW_QUANTITY_KEYS[field]);
+  if (rawValue != null) return rawValue;
+  return parseTicketGrainNumber(record[field]);
+}
+
+function sumTicketGrainField(
+  records: readonly NormalizedTransactionDataRecord[],
+  field: TicketGrainQuantityField,
+  invoicedOnly: boolean,
+): number {
+  const valuesByTicket = new Map<string, number>();
+
+  for (const record of records) {
+    if (invoicedOnly && !hasInvoiceLink(record)) continue;
+
+    const value = ticketGrainValue(record, field);
+    if (value == null) continue;
+
+    const ticketKey = ticketGrainKey(record);
+    const existing = valuesByTicket.get(ticketKey);
+    if (existing != null && existing !== value) {
+      throw new Error(
+        `Transaction quantity grain violation: ticket ${ticketKey} has non-uniform ${field} values (${existing} vs ${value}).`,
+      );
+    }
+    valuesByTicket.set(ticketKey, value);
+  }
+
+  return roundNumber([...valuesByTicket.values()].reduce((sum, value) => sum + value, 0), 3);
+}
+
+export function buildTicketGrainQuantityFacts(
+  records: readonly NormalizedTransactionDataRecord[],
+): TicketGrainQuantityFacts {
+  const facts: TicketGrainQuantityFacts = {
+    total_cyd_ticket_grain: 0,
+    total_cyd_ticket_grain_full: 0,
+    total_mileage_ticket_grain: 0,
+    total_mileage_ticket_grain_full: 0,
+    total_diameter: 0,
+    total_diameter_full: 0,
+    total_net_tonnage: 0,
+    total_net_tonnage_full: 0,
+  };
+
+  for (const field of Object.keys(RAW_QUANTITY_KEYS) as TicketGrainQuantityField[]) {
+    facts[TICKET_GRAIN_FIELD_OUTPUTS[field]] = sumTicketGrainField(records, field, true);
+    facts[TICKET_GRAIN_FULL_FIELD_OUTPUTS[field]] = sumTicketGrainField(records, field, false);
+  }
+
+  return facts;
 }
 
 function parseText(value: SpreadsheetPrimitive): string | null {
@@ -895,7 +1038,6 @@ function buildSiteMaterialGroups(
 type ReviewGroupAccumulator = {
   row_count: number;
   total_qty: number;
-  total_cyd: number;
   total_cost: number;
   invoiced_ticket_ids: Set<string>;
   uninvoiced_line_count: number;
@@ -903,6 +1045,7 @@ type ReviewGroupAccumulator = {
   ineligible_ticket_ids: Set<string>;
   invoice_numbers: Set<string>;
   rate_codes: Set<string>;
+  records: NormalizedTransactionDataRecord[];
   record_ids: string[];
   evidence_refs: string[];
 };
@@ -911,7 +1054,6 @@ function createReviewGroupAccumulator(): ReviewGroupAccumulator {
   return {
     row_count: 0,
     total_qty: 0,
-    total_cyd: 0,
     total_cost: 0,
     invoiced_ticket_ids: new Set<string>(),
     uninvoiced_line_count: 0,
@@ -919,13 +1061,14 @@ function createReviewGroupAccumulator(): ReviewGroupAccumulator {
     ineligible_ticket_ids: new Set<string>(),
     invoice_numbers: new Set<string>(),
     rate_codes: new Set<string>(),
+    records: [],
     record_ids: [],
     evidence_refs: [],
   };
 }
 
 function reviewGroupTicketKey(record: NormalizedTransactionDataRecord): string {
-  return normalizeLooseText(record.transaction_number) ?? `record:${record.id}`;
+  return ticketGrainKey(record);
 }
 
 function pushReviewGroupRecord(
@@ -934,7 +1077,6 @@ function pushReviewGroupRecord(
 ): void {
   accumulator.row_count += 1;
   accumulator.total_qty += record.transaction_quantity ?? 0;
-  accumulator.total_cyd += record.cyd ?? 0;
   accumulator.total_cost += record.extended_cost ?? 0;
 
   const invoiceNumber = invoiceRawForDistinct(record);
@@ -956,6 +1098,7 @@ function pushReviewGroupRecord(
     accumulator.ineligible_ticket_ids.add(ticketKey);
   }
 
+  accumulator.records.push(record);
   accumulator.record_ids.push(record.id);
   accumulator.evidence_refs.push(record.evidence_ref);
 }
@@ -980,7 +1123,7 @@ function finalizeReviewGroupBase(
   return {
     row_count: accumulator.row_count,
     total_transaction_quantity: roundNumber(accumulator.total_qty, 3),
-    total_cyd: roundNumber(accumulator.total_cyd, 3),
+    total_cyd: buildTicketGrainQuantityFacts(accumulator.records).total_cyd_ticket_grain,
     total_extended_cost: roundNumber(accumulator.total_cost, 2),
     invoiced_ticket_count: accumulator.invoiced_ticket_ids.size,
     uninvoiced_line_count: accumulator.uninvoiced_line_count,
@@ -1268,10 +1411,10 @@ function buildLifecycleSummary(
 ): TransactionDataDmsFdsLifecycleSummary {
   const groups = new Map<string, {
     row_count: number;
-    total_cyd: number;
     total_extended_cost: number;
     disposal_sites: Set<string>;
     materials: Set<string>;
+    records: NormalizedTransactionDataRecord[];
     record_ids: string[];
     evidence_refs: string[];
   }>();
@@ -1281,15 +1424,14 @@ function buildLifecycleSummary(
     const stage = lifecycleStageForRecord(record);
     const existing = groups.get(stage) ?? {
       row_count: 0,
-      total_cyd: 0,
       total_extended_cost: 0,
       disposal_sites: new Set<string>(),
       materials: new Set<string>(),
+      records: [] as NormalizedTransactionDataRecord[],
       record_ids: [] as string[],
       evidence_refs: [] as string[],
     };
     existing.row_count += 1;
-    existing.total_cyd += record.cyd ?? 0;
     existing.total_extended_cost += record.extended_cost ?? 0;
     const disposalSite = extractDisposalSiteRaw(record);
     const material = effectiveMaterial(record);
@@ -1300,6 +1442,7 @@ function buildLifecycleSummary(
       stages.add(stage);
       materialStageMap.set(normalizeLooseText(material) ?? material, stages);
     }
+    existing.records.push(record);
     existing.record_ids.push(record.id);
     existing.evidence_refs.push(record.evidence_ref);
     groups.set(stage, existing);
@@ -1309,7 +1452,7 @@ function buildLifecycleSummary(
     .map(([stage, group]) => ({
       lifecycle_stage: stage as TransactionDataDmsFdsLifecycleSummary['lifecycle_groups'][number]['lifecycle_stage'],
       row_count: group.row_count,
-      total_cyd: roundNumber(group.total_cyd, 3),
+      total_cyd: buildTicketGrainQuantityFacts(group.records).total_cyd_ticket_grain,
       total_extended_cost: roundNumber(group.total_extended_cost, 2),
       disposal_sites: sortDistinctStrings(group.disposal_sites),
       materials: sortDistinctStrings(group.materials),
@@ -1964,8 +2107,7 @@ export function normalizeTransactionData(params: {
   const normalizedTransactionNumberSet = new Set<string>();
   const normalizedInvoicedTransactionNumberSet = new Set<string>();
   for (const record of records) {
-    const transactionNumber = normalizeLooseText(record.transaction_number);
-    if (!transactionNumber) continue;
+    const transactionNumber = ticketGrainKey(record);
     normalizedTransactionNumberSet.add(transactionNumber);
     if (hasInvoiceLink(record)) normalizedInvoicedTransactionNumberSet.add(transactionNumber);
   }
@@ -1978,10 +2120,8 @@ export function normalizeTransactionData(params: {
     records.reduce((sum, record) => sum + (record.transaction_quantity ?? 0), 0),
     3,
   );
-  const totalCyd = roundNumber(
-    records.reduce((sum, record) => sum + (record.cyd ?? 0), 0),
-    3,
-  );
+  const ticketGrainQuantityFacts = buildTicketGrainQuantityFacts(records);
+  const totalCyd = ticketGrainQuantityFacts.total_cyd_ticket_grain;
   const totalInvoicedAmount = roundNumber(
     records.reduce((sum, record) => sum + (hasInvoiceLink(record) ? (record.extended_cost ?? 0) : 0), 0),
     2,
@@ -2038,6 +2178,7 @@ export function normalizeTransactionData(params: {
     total_transaction_quantity: totalTransactionQuantity,
     total_tickets: distinctTicketCount,
     total_cyd: totalCyd,
+    ...ticketGrainQuantityFacts,
     invoiced_ticket_count: invoicedTicketCount,
     distinct_invoice_count: distinctInvoiceCount,
     total_invoiced_amount: totalInvoicedAmount,
@@ -2098,6 +2239,14 @@ export function normalizeTransactionData(params: {
     total_transaction_quantity: rollups.total_transaction_quantity,
     total_tickets: rollups.total_tickets,
     total_cyd: rollups.total_cyd,
+    total_cyd_ticket_grain: rollups.total_cyd_ticket_grain,
+    total_cyd_ticket_grain_full: rollups.total_cyd_ticket_grain_full,
+    total_mileage_ticket_grain: rollups.total_mileage_ticket_grain,
+    total_mileage_ticket_grain_full: rollups.total_mileage_ticket_grain_full,
+    total_diameter: rollups.total_diameter,
+    total_diameter_full: rollups.total_diameter_full,
+    total_net_tonnage: rollups.total_net_tonnage,
+    total_net_tonnage_full: rollups.total_net_tonnage_full,
     invoiced_ticket_count: rollups.invoiced_ticket_count,
     distinct_invoice_count: rollups.distinct_invoice_count,
     total_invoiced_amount: rollups.total_invoiced_amount,
@@ -2162,3 +2311,4 @@ export function normalizeTransactionData(params: {
     gaps,
   };
 }
+

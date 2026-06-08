@@ -199,15 +199,29 @@ describe('transactionDataPersistence', () => {
     const datasetInsert = calls.find((call) =>
       call.table === 'transaction_data_datasets' && call.action === 'insert',
     );
+    const emptyQuantityFacts = {
+      total_cyd_ticket_grain: 0,
+      total_cyd_ticket_grain_full: 0,
+      total_mileage_ticket_grain: 0,
+      total_mileage_ticket_grain_full: 0,
+      total_diameter: 0,
+      total_diameter_full: 0,
+      total_net_tonnage: 0,
+      total_net_tonnage_full: 0,
+    };
     assert.deepEqual(datasetInsert?.payload, {
       document_id: 'doc-1',
       project_id: 'project-1',
       row_count: 2,
       total_extended_cost: 325.5,
       total_transaction_quantity: 19,
+      ...emptyQuantityFacts,
       date_range_start: '2026-01-05',
       date_range_end: '2026-01-06',
-      summary_json: sampleExtracted.summary,
+      summary_json: {
+        ...sampleExtracted.summary,
+        ...emptyQuantityFacts,
+      },
     });
 
     const rowsInsert = calls.find((call) =>

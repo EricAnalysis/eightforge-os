@@ -86,10 +86,10 @@ function buildCurrentWorkbookRows(): unknown[][] {
     [
       ...makeEarlyValues(3),
       'TID-1002',
-      'TK-1002-ALT',
+      'TK-1002',
       1,
-      8,
-      3.5,
+      4,
+      1.5,
       'INV-101',
       'RC-02',
       5,
@@ -162,18 +162,18 @@ describe('spreadsheet review integration', () => {
     assert.equal(normalized.records[0]?.cyd, 10);
     assert.equal(normalized.records[0]?.net_tonnage, 2.5);
     assert.equal(normalized.summary.total_tickets, 3);
-    assert.equal(normalized.summary.total_cyd, 22);
+    assert.equal(normalized.summary.total_cyd, 14);
     assert.equal(normalized.summary.distinct_invoice_count, 2);
     assert.equal(normalized.summary.total_invoiced_amount, 2800);
     assert.equal(normalized.summary.eligible_count, 2);
     assert.equal(normalized.summary.ineligible_count, 2);
     assert.equal(normalized.summary.project_operations_overview?.total_tickets, 3);
-    assert.equal(normalized.summary.project_operations_overview?.total_cyd, 22);
+    assert.equal(normalized.summary.project_operations_overview?.total_cyd, 14);
     assert.equal(normalized.summary.project_operations_overview?.total_invoiced_amount, 2800);
     assert.equal(normalized.summary.project_operations_overview?.distinct_invoice_count, 2);
     assert.equal(normalized.summary.project_operations_overview?.eligible_count, 2);
     assert.equal(normalized.summary.project_operations_overview?.ineligible_count, 2);
-    assert.equal(normalizedNetTonnage, 8.5);
+    assert.equal(normalizedNetTonnage, 6.5);
     assert.deepEqual(
       [...normalized.rollups.distinct_service_items].sort((left, right) => left.localeCompare(right, 'en-US')),
       ['Grinding', 'Hauling', 'Load Management'],
@@ -288,8 +288,8 @@ describe('spreadsheet review integration', () => {
     assert.ok(model.spreadsheetReviewDataset);
     assert.equal(model.spreadsheetReviewDataset?.records.length, 4);
     assert.equal(model.spreadsheetReviewDataset?.kpis.totalTickets, 3);
-    assert.equal(model.spreadsheetReviewDataset?.kpis.totalCyd, 22);
-    assert.equal(model.spreadsheetReviewDataset?.kpis.totalNetTonnage, 8.5);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalCyd, 14);
+    assert.equal(model.spreadsheetReviewDataset?.kpis.totalNetTonnage, 6.5);
     assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoices, 2);
     assert.equal(model.spreadsheetReviewDataset?.kpis.totalInvoicedAmount, 2800);
     assert.equal(model.spreadsheetReviewDataset?.kpis.eligible, 2);
@@ -323,3 +323,7 @@ describe('spreadsheet review integration', () => {
     );
   });
 });
+
+
+
+

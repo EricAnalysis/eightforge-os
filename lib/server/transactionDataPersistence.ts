@@ -17,6 +17,14 @@ type PersistableTransactionData = {
   rowCount: number;
   totalExtendedCost: number;
   totalTransactionQuantity: number;
+  totalCydTicketGrain: number;
+  totalCydTicketGrainFull: number;
+  totalMileageTicketGrain: number;
+  totalMileageTicketGrainFull: number;
+  totalDiameter: number;
+  totalDiameterFull: number;
+  totalNetTonnage: number;
+  totalNetTonnageFull: number;
   dateRangeStart: string | null;
   dateRangeEnd: string | null;
   summaryJson: Record<string, unknown>;
@@ -37,6 +45,14 @@ export type PersistedTransactionDataDataset = {
   row_count: number;
   total_extended_cost: number;
   total_transaction_quantity: number;
+  total_cyd_ticket_grain: number;
+  total_cyd_ticket_grain_full: number;
+  total_mileage_ticket_grain: number;
+  total_mileage_ticket_grain_full: number;
+  total_diameter: number;
+  total_diameter_full: number;
+  total_net_tonnage: number;
+  total_net_tonnage_full: number;
   date_range_start: string | null;
   date_range_end: string | null;
   summary_json: Record<string, unknown>;
@@ -70,7 +86,7 @@ export type ProjectTransactionData = {
 };
 
 const TRANSACTION_DATASET_SELECT =
-  'id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, date_range_start, date_range_end, summary_json, created_at';
+  'id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, total_cyd_ticket_grain, total_cyd_ticket_grain_full, total_mileage_ticket_grain, total_mileage_ticket_grain_full, total_diameter, total_diameter_full, total_net_tonnage, total_net_tonnage_full, date_range_start, date_range_end, summary_json, created_at';
 const TRANSACTION_DATA_ROW_SELECT =
   'id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at';
 
@@ -198,6 +214,22 @@ function coercePersistableTransactionData(
       firstNumber(summary.total_extended_cost, rollups.totalExtendedCost, rollups.total_extended_cost) ?? 0,
     totalTransactionQuantity:
       firstNumber(summary.total_transaction_quantity, rollups.totalTransactionQuantity, rollups.total_transaction_quantity) ?? 0,
+    totalCydTicketGrain:
+      firstNumber(summary.total_cyd_ticket_grain, summary.total_cyd, rollups.total_cyd_ticket_grain, rollups.totalCydTicketGrain, rollups.total_cyd, rollups.totalCyd) ?? 0,
+    totalCydTicketGrainFull:
+      firstNumber(summary.total_cyd_ticket_grain_full, rollups.total_cyd_ticket_grain_full, rollups.totalCydTicketGrainFull) ?? 0,
+    totalMileageTicketGrain:
+      firstNumber(summary.total_mileage_ticket_grain, rollups.total_mileage_ticket_grain, rollups.totalMileageTicketGrain) ?? 0,
+    totalMileageTicketGrainFull:
+      firstNumber(summary.total_mileage_ticket_grain_full, rollups.total_mileage_ticket_grain_full, rollups.totalMileageTicketGrainFull) ?? 0,
+    totalDiameter:
+      firstNumber(summary.total_diameter, rollups.total_diameter, rollups.totalDiameter) ?? 0,
+    totalDiameterFull:
+      firstNumber(summary.total_diameter_full, rollups.total_diameter_full, rollups.totalDiameterFull) ?? 0,
+    totalNetTonnage:
+      firstNumber(summary.total_net_tonnage, rollups.total_net_tonnage, rollups.totalNetTonnage) ?? 0,
+    totalNetTonnageFull:
+      firstNumber(summary.total_net_tonnage_full, rollups.total_net_tonnage_full, rollups.totalNetTonnageFull) ?? 0,
     dateRangeStart: firstDate(summary.inferred_date_range_start, inferredDateRange?.start),
     dateRangeEnd: firstDate(summary.inferred_date_range_end, inferredDateRange?.end),
     summaryJson: summary,
@@ -210,15 +242,35 @@ function mapDatasetInsert(
   projectId: string,
   data: PersistableTransactionData,
 ): Record<string, unknown> {
+  const summaryJson = {
+    ...data.summaryJson,
+    total_cyd_ticket_grain: data.totalCydTicketGrain,
+    total_cyd_ticket_grain_full: data.totalCydTicketGrainFull,
+    total_mileage_ticket_grain: data.totalMileageTicketGrain,
+    total_mileage_ticket_grain_full: data.totalMileageTicketGrainFull,
+    total_diameter: data.totalDiameter,
+    total_diameter_full: data.totalDiameterFull,
+    total_net_tonnage: data.totalNetTonnage,
+    total_net_tonnage_full: data.totalNetTonnageFull,
+  };
+
   return {
     document_id: documentId,
     project_id: projectId,
     row_count: data.rowCount,
     total_extended_cost: data.totalExtendedCost,
     total_transaction_quantity: data.totalTransactionQuantity,
+    total_cyd_ticket_grain: data.totalCydTicketGrain,
+    total_cyd_ticket_grain_full: data.totalCydTicketGrainFull,
+    total_mileage_ticket_grain: data.totalMileageTicketGrain,
+    total_mileage_ticket_grain_full: data.totalMileageTicketGrainFull,
+    total_diameter: data.totalDiameter,
+    total_diameter_full: data.totalDiameterFull,
+    total_net_tonnage: data.totalNetTonnage,
+    total_net_tonnage_full: data.totalNetTonnageFull,
     date_range_start: data.dateRangeStart,
     date_range_end: data.dateRangeEnd,
-    summary_json: data.summaryJson,
+    summary_json: summaryJson,
   };
 }
 
@@ -450,6 +502,19 @@ export async function persistTransactionDataForDocument(params: {
 }
 
 function mapPersistedDataset(row: Record<string, unknown>): PersistedTransactionDataDataset {
+  const baseSummaryJson = asRecord(row.summary_json) ?? {};
+  const summaryJson = {
+    ...baseSummaryJson,
+    total_cyd_ticket_grain: firstNumber(baseSummaryJson.total_cyd_ticket_grain, row.total_cyd_ticket_grain) ?? 0,
+    total_cyd_ticket_grain_full: firstNumber(baseSummaryJson.total_cyd_ticket_grain_full, row.total_cyd_ticket_grain_full) ?? 0,
+    total_mileage_ticket_grain: firstNumber(baseSummaryJson.total_mileage_ticket_grain, row.total_mileage_ticket_grain) ?? 0,
+    total_mileage_ticket_grain_full: firstNumber(baseSummaryJson.total_mileage_ticket_grain_full, row.total_mileage_ticket_grain_full) ?? 0,
+    total_diameter: firstNumber(baseSummaryJson.total_diameter, row.total_diameter) ?? 0,
+    total_diameter_full: firstNumber(baseSummaryJson.total_diameter_full, row.total_diameter_full) ?? 0,
+    total_net_tonnage: firstNumber(baseSummaryJson.total_net_tonnage, row.total_net_tonnage) ?? 0,
+    total_net_tonnage_full: firstNumber(baseSummaryJson.total_net_tonnage_full, row.total_net_tonnage_full) ?? 0,
+  };
+
   return {
     id: asString(row.id) ?? '',
     document_id: asString(row.document_id) ?? '',
@@ -457,9 +522,17 @@ function mapPersistedDataset(row: Record<string, unknown>): PersistedTransaction
     row_count: firstInteger(row.row_count) ?? 0,
     total_extended_cost: firstNumber(row.total_extended_cost) ?? 0,
     total_transaction_quantity: firstNumber(row.total_transaction_quantity) ?? 0,
+    total_cyd_ticket_grain: firstNumber(row.total_cyd_ticket_grain) ?? 0,
+    total_cyd_ticket_grain_full: firstNumber(row.total_cyd_ticket_grain_full) ?? 0,
+    total_mileage_ticket_grain: firstNumber(row.total_mileage_ticket_grain) ?? 0,
+    total_mileage_ticket_grain_full: firstNumber(row.total_mileage_ticket_grain_full) ?? 0,
+    total_diameter: firstNumber(row.total_diameter) ?? 0,
+    total_diameter_full: firstNumber(row.total_diameter_full) ?? 0,
+    total_net_tonnage: firstNumber(row.total_net_tonnage) ?? 0,
+    total_net_tonnage_full: firstNumber(row.total_net_tonnage_full) ?? 0,
     date_range_start: firstDate(row.date_range_start),
     date_range_end: firstDate(row.date_range_end),
-    summary_json: asRecord(row.summary_json) ?? {},
+    summary_json: summaryJson,
     created_at: asString(row.created_at) ?? '',
   };
 }

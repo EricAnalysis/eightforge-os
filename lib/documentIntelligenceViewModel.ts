@@ -72,6 +72,10 @@ import {
   normalizeSpreadsheetEligibility,
   ticketTypeBucketFromRawRow,
 } from '@/lib/spreadsheetDocumentReview';
+import {
+  RAW_TICKET_KEYS,
+  rawRowText,
+} from '@/lib/extraction/xlsx/normalizeTransactionData';
 
 export { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 
@@ -1133,7 +1137,11 @@ function buildRiskPresentation(params: {
     const record = params.recordsById.get(row.record_id) ?? null;
     const materialOrServiceItem = record?.material ?? record?.service_item ?? null;
     const ticketNumber = preferredTicketNumber(
-      [row.transaction_number, record?.transaction_number],
+      [
+        row.transaction_number,
+        record?.transaction_number,
+        rawRowText(record?.raw_row ?? {}, RAW_TICKET_KEYS),
+      ],
       [row.record_id],
     );
     const amount =

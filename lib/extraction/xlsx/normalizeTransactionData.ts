@@ -272,7 +272,7 @@ export type TicketGrainQuantityFacts = {
   total_net_tonnage_full: number;
 };
 
-const RAW_TICKET_KEYS = ['Ticket No', 'Ticket ID'] as const;
+export const RAW_TICKET_KEYS = ['Ticket No', 'Ticket ID'] as const;
 const RAW_QUANTITY_KEYS: Record<TicketGrainQuantityField, readonly string[]> = {
   cyd: ['CYD'],
   mileage: ['Mileage'],
@@ -294,7 +294,7 @@ const TICKET_GRAIN_FULL_FIELD_OUTPUTS: Record<TicketGrainQuantityField, keyof Ti
   net_tonnage: 'total_net_tonnage_full',
 };
 
-function rawRowText(
+export function rawRowText(
   rawRow: Record<string, TransactionDataPrimitive>,
   keys: readonly string[],
 ): string | null {

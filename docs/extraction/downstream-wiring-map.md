@@ -1,22 +1,34 @@
 # Downstream Wiring Map — Every Surface, What It Reads, Whether It's Correct
 
-**Status:** READ-ONLY audit. No code, no fix, no surface change. This map scopes the downstream fix work.
-**Date:** 2026-06-07
+**Status:** READ-ONLY audit + ongoing resolution tracking. No code changes in this file.
+**Created:** 2026-06-07
+**Last updated:** 2026-06-08
 **Root cause class:** `ui_consumption_issue` + `state_synchronization_issue`
 **Source of truth used for cross-check:** `docs/extraction/cyd-grain-confirmation.md` (live Williamson values) and `docs/extraction/grain-verification.md`.
 
 ---
 
+## Update log
+
+| Date | Item | Change |
+|---|---|---|
+| 2026-06-08 | Standing Ledger Item 2 — RLS on 6 tables | **COMPLETE.** Migration `supabase/migrations/20260609000000_enable_rls_six_tables.sql` applied to project `jpzeckefppmiujwajgvk`. Enables RLS and org-scoped policies on `workflows`, `decision_policies`, `decision_rules`, `project_rule_overrides`, `workflow_templates`, `document_fields`. Advisor shows zero `rls_disabled_in_public` ERRORs. |
+| 2026-06-08 | Display bugs D1, D2, D3 (Standing Ledger Item 1) | **RESOLVED.** D1 (count guard) and D2/D3 (quantity value type) both resolved in `lib/documentIntelligenceViewModel.ts`. See Step 5 table for details. Fix #3 in the prioritized fix list is closed. |
+| 2026-06-08 | Standing Ledger Item 3 — Tonnage grain confirmation | **DEFERRED — BLOCKER.** Dev database has 5,063 rows in `transaction_data_rows`, all with `net_tonnage = NULL`. `buildTicketGrainQuantityFacts` handles NULL silently (`if (value == null) continue`). Phase B/C grain verification deferred until a non-NULL tonnage fixture exists in the dev DB. No code change. |
+| 2026-06-08 | Line references in this doc | Updated all `documentIntelligenceViewModel.ts` line refs to match the current file after the +~25 line insertion from this session's edits (QuantityValueType type block, inferValueType quantity rewrites, formatFactValue quantity handler). |
+
+---
+
 ## TL;DR — one mis-wire explains almost everything
 
-The Facts/Evidence tab and the spreadsheet review/Forge panels are produced by the **same** function (`buildDocumentIntelligenceViewModel`, `lib/documentIntelligenceViewModel.ts:5521`) from the **same** inputs — but they read **two different sources**:
+The Facts/Evidence tab and the spreadsheet review/Forge panels are produced by the **same** function (`buildDocumentIntelligenceViewModel`, `lib/documentIntelligenceViewModel.ts:5706`) from the **same** inputs — but they read **two different sources**:
 
 - **Fact Ledger** (`model.facts` / `model.groups`) is built **only from the extraction blob** `preferredExtraction.data` (via `extractNode` → `normalizeNode` → `buildAdditionalFacts`). It **never looks at `params.transactionRows`**.
 - **Spreadsheet Review dataset** (`model.spreadsheetReviewDataset`) is built from `params.transactionRows`, reading canonical values out of **`raw_row_json`** (`toSpreadsheetReviewDataset`, line 1525; `raw_row_json` merge at line 1545–1549).
 
 For the Williamson dataset the extraction blob carries **no** spreadsheet summary (canonical truth now lives in `transaction_data_rows.raw_row_json`; `transaction_data_summaries` has **0 rows**). So every Dataset-Summary fact the Fact Ledger tries to show resolves to null → **MISSING / 0 / $0**, while the review surface (and Forge truth) recompute the same numbers correctly from the rows.
 
-**Therefore:** the Facts-tab `MISSING/0/$0` block is a single **MIS-WIRED** consumer (Fact Ledger reads the blob, not the canonical rows). The `$`-on-counts (`Total Tickets: $0`, `Count $5,063`) is a separate **DISPLAY-BUG** in `inferValueType`. `Total CYD` is genuinely **FACT-ABSENT**. `Resolved Volume = 215,729` is **RECOMPUTING** (row-grain). These four causes account for the full anomaly set.
+**Therefore:** the Facts-tab `MISSING/0/$0` block is a single **MIS-WIRED** consumer (Fact Ledger reads the blob, not the canonical rows). The `$`-on-counts (`Total Tickets: $0`, `Count $5,063`) was a separate **DISPLAY-BUG** in `inferValueType` — **now RESOLVED**. `Total CYD` is genuinely **FACT-ABSENT**. `Resolved Volume = 215,729` is **RECOMPUTING** (row-grain). These four causes account for the full anomaly set.
 
 ---
 
@@ -41,15 +53,15 @@ Failure modes: **CORRECT** · **FACT-ABSENT** (canonical fact doesn't exist) · 
 
 ### Workspace — Fact Ledger (Dataset Summary group)
 
-These facts are flattened from the blob. The "Dataset Summary" group matches keys `row_count`, `total_*`, `distinct_*`, `eligible_count`, `ineligible_count` (`GROUP_DEFINITIONS.spreadsheet`, line 2307–2328). Because the blob has none of them for Williamson, each is synthesized as a `missing` fact, and `formatFactValue(null, …)` returns the literal string `"Missing"` (line 2695).
+These facts are flattened from the blob. The "Dataset Summary" group matches keys `row_count`, `total_*`, `distinct_*`, `eligible_count`, `ineligible_count` (`GROUP_DEFINITIONS.spreadsheet`, line 2322–2343). Because the blob has none of them for Williamson, each is synthesized as a `missing` fact, and `formatFactValue(null, …)` returns the literal string `"Missing"` (line 2735).
 
 | Surface | Field | Displayed | Real value | Source it reads | Mode | Notes |
 |---|---|---|---|---|---|---|
 | Fact Ledger | Total Extended Cost | `Missing` | **$815,559.35** | blob `total_extended_cost` (absent) | **MIS-WIRED** | Exists in `raw_row_json.Extended Cost`; the review surface recomputes it correctly (RECOMPUTING). Ledger never reads rows. `inferValueType` types it `currency` (label correct). |
-| Fact Ledger | Transaction Row Count (`row_count`) | `0` | **5,063** | blob `row_count` (absent) | **MIS-WIRED** | Real count is `transactionRows.length`. `row_count` does **not** match the currency regex (line 2674) so it renders as a plain number — hence `0`, not `$0`. |
-| Fact Ledger | Total Tickets | `$0` | **2,388** | blob `total_tickets` (absent) | **MIS-WIRED** + **DISPLAY-BUG** | Value missing → `0`; `inferValueType` matches `/total/` → forces `currency` → renders `$0`. Double fault. |
-| Fact Ledger | Total CYD | `Missing` | **none persisted** (row-grain recompute = 215,729; ticket-grain target = 74,737) | blob `total_cyd` (absent) | **FACT-ABSENT** | No canonical CYD fact exists anywhere (`transaction_data_summaries` empty, no CYD column). Grain fix builds it. Would also be DISPLAY-BUG if shown (`/total/`→currency on a volume). |
-| Fact Ledger | Total Transaction Quantity | `Missing`/`$…` | row-sum | blob (absent) | **MIS-WIRED** + **DISPLAY-BUG** | `/total/`→currency on a quantity. |
+| Fact Ledger | Transaction Row Count (`row_count`) | `0` | **5,063** | blob `row_count` (absent) | **MIS-WIRED** | Real count is `transactionRows.length`. `row_count` does **not** match the currency regex (line 2714) so it renders as a plain number — hence `0`, not `$0`. |
+| Fact Ledger | Total Tickets | ~~`$0`~~ → `0` (**DISPLAY-BUG D1 RESOLVED**) | **2,388** | blob `total_tickets` (absent) | **MIS-WIRED** | Value missing → `0`. Was `$0` before D1 fix; `inferValueType` count guard (line 2692–2698) now forces `number` before the currency regex. Still MIS-WIRED (value absent), display bug cleared. |
+| Fact Ledger | Total CYD | `Missing` | **none persisted** (row-grain recompute = 215,729; ticket-grain target = 74,737) | blob `total_cyd` (absent) | **FACT-ABSENT** | No canonical CYD fact exists anywhere (`transaction_data_summaries` empty, no CYD column). Grain fix builds it. Would have been DISPLAY-BUG if shown — resolved by D2/D3 fix: `*_cyd` fields now get `valueType = { type: 'quantity', unitLabel: 'CYD' }`. |
+| Fact Ledger | Total Transaction Quantity | `Missing` | row-sum | blob (absent) | **MIS-WIRED** | `transaction_quantity` now typed `number` (generic `_quantity` guard, line 2708–2713). |
 | Fact Ledger | Eligible / Ineligible count, distinct_* | `Missing`/`0` | recomputable | blob (absent) | **MIS-WIRED** | Same blob-vs-rows split. |
 
 ### Workspace — Fact Ledger (other groups)
@@ -68,7 +80,7 @@ These facts are flattened from the blob. The "Dataset Summary" group matches key
 | Total Extended Cost (KPI) | correct | $815,559.35 | `sumRecordNumberField(records,'extended_cost')` fallback | **RECOMPUTING** (correct) | line 1782–1788: `?? sumRecordNumberField(records,'extended_cost')` — amounts at row grain are correct. |
 | Total Tickets (KPI) | correct-ish | 2,388 | `distinctTransactionCount` fallback | **RECOMPUTING** | line 1733–1738: `summary?.total_tickets ?? … ?? distinctTransactionCount`. Distinct on `record.transaction_number` from raw rows. |
 | Total CYD (KPI) | blank | none | `summary?.total_cyd_ticket_grain ?? … ?? null` | **FACT-ABSENT** | line 1739–1745 — no canonical CYD and the KPI deliberately does **not** row-sum CYD, so it shows null rather than an inflated number. |
-| Total Net Tonnage (KPI) | 0/blank | none (all NULL) | `sumRecordNumberField(records,'net_tonnage')` | **FACT-ABSENT** | line 1675–1679 — field carries no data in Williamson. |
+| Total Net Tonnage (KPI) | 0/blank | none (all NULL) | `sumRecordNumberField(records,'net_tonnage')` | **FACT-ABSENT** | line 1675–1679 — field carries no data in Williamson. Confirmed: all 5,063 dev DB rows have NULL `net_tonnage` (Item 3 audit, 2026-06-08). |
 | Material Flow / By-Site / By-Disposal / By-Rate-Code tables | empty | non-empty | `canonicalSummary.grouped_by_* ?? legacyExtraction…` | **FACT-ABSENT** (on this surface) | lines 1593–1645. `canonicalSummary` (summary_json) is empty AND `legacyExtraction` is nulled when rows are present (`hasNormalizedDatasetTables` → line 1557). No recompute-from-rows path for groups here, so the workspace grouped tables are empty — matching the "Grouped-by tables: MISSING" anomaly. |
 
 ### Project (Forge) — Transaction Truth panel (`resolveTransactionTruthRows`, line 3687)
@@ -113,9 +125,9 @@ This path **does** read the rows (`readProjectRowBackedTransactionSummary` → `
 
 There is **no separate persistence** behind the mapped/missing counts. The "mapping layer" is a **render-time computation** in the view-model builder:
 
-1. The set of *expected* spreadsheet fields is the schema list `FIELD_KEY_ALIASES.spreadsheet` (`documentIntelligenceViewModel.ts:2045–2093`: `row_count`, `total_tickets`, `total_cyd`, `total_extended_cost`, …).
-2. Actual facts are flattened from the **blob** (`buildRawSourceMap` + `buildAdditionalFacts`, lines 3558–3562, 3906–3928).
-3. Expected-but-absent fields become **synthetic `missing` facts** (`buildSyntheticMissingFacts`, line 4059) or carry `reviewState === 'missing'` when their value is null (`factState` → `'missing'`, line ~3792).
+1. The set of *expected* spreadsheet fields is the schema list `FIELD_KEY_ALIASES.spreadsheet` (`documentIntelligenceViewModel.ts:2060–2108`: `row_count`, `total_tickets`, `total_cyd`, `total_extended_cost`, …).
+2. Actual facts are flattened from the **blob** (`buildRawSourceMap` + `buildAdditionalFacts`, lines 3597–3601, 3954–3972).
+3. Expected-but-absent fields become **synthetic `missing` facts** (`buildSyntheticMissingFacts`, line 4107) or carry `reviewState === 'missing'` when their value is null (`reviewState`, line 3776).
 4. The Fact Ledger's per-group header recomputes `factCount` / `missingCount` live from `fact.reviewState === 'missing'` (`FactLedger.tsx:643–644`). The "58 mapped / 13 missing"-style counts are exactly `factCount` vs `missingCount`.
 
 **Why facts that exist downstream ($815,559.35) show as "missing" here:** the mapping layer only ever inspects the **extraction blob**, never `transaction_data_rows`. The value exists in `raw_row_json` and is reachable by the review surface, but the ledger's expected-vs-blob diff has no line of sight to the rows, so it reports the field "missing." It is therefore the **render-time computation failing against an empty source** — *not* an unpopulated persistence and *not* a lookup against `transaction_data_summaries` (the ledger doesn't query that table at all). This layer is the prime suspect for the Facts-tab MISSING block, and it is fixed by pointing the ledger's spreadsheet facts at the same row-backed summary the review surface/Forge already use.
@@ -141,14 +153,14 @@ Confirmed in `cyd-grain-confirmation.md`: typed columns `cyd`, `net_tonnage`, `m
 
 ## STEP 5 — Display / unit bug catalog (render bugs, separate from wiring)
 
-| # | Bug | Where | Cause | Fix surface |
-|---|---|---|---|---|
-| D1 | `$` on count fields — `Total Tickets: $0`, `Count $5,063` | Fact Ledger via `inferValueType` | `inferValueType` regex `/(amount\|total\|sum\|…)/i` matches any key containing **`total`** and forces `valueType='currency'` (`documentIntelligenceViewModel.ts:2674`). Counts like `total_tickets` get a `$`. | Exclude count keys (`total_tickets`, `total_transaction_quantity`, `*_count`, `row_count`) from the currency regex, or whitelist count fields to `number`. |
-| D2 | `$` on volume fields — `Total CYD` would render as currency | same | `total_cyd` matches `/total/` → currency; CYD is a volume (unit `CYD`), not money. | Same regex fix; give CYD a `quantity`/unit-aware type with `CYD` suffix. |
-| D3 | CYD shown without unit elsewhere | Forge Resolved Volume appends `CYD` manually (`projectFacts.ts:3770`); the ledger would not | Unit is hard-coded per surface instead of carried on the fact's value type. | Centralize a `quantity` value type carrying `unitLabel`. |
-| D4 | `Missing` literal vs `0` inconsistency | `formatFactValue(null,…)` returns string `"Missing"` (line 2695) while numeric-absent paths show `0` | Two different "no value" renderings for the same root cause (blob empty). | Cosmetic; resolves once D1/wiring fixed. |
+| # | Bug | Where | Cause | Fix surface | Status |
+|---|---|---|---|---|---|
+| D1 | `$` on count fields — `Total Tickets: $0`, `Count $5,063` | Fact Ledger via `inferValueType` | `inferValueType` regex `/(amount\|total\|sum\|…)/i` matches any key containing **`total`** and forces `valueType='currency'` (`documentIntelligenceViewModel.ts:2714`). Counts like `total_tickets` get a `$`. | Count guard added at lines 2692–2698: `total_tickets`, `*_row_count`, `*_count` return `'number'` before the currency heuristic. | **RESOLVED** |
+| D2 | `$` on volume fields — `Total CYD` would render as currency | same | `total_cyd` matches `/total/` → currency; CYD is a volume (unit `CYD`), not money. | Resolved by D3 fix: `*_cyd` fields now return `{ type: 'quantity', unitLabel: 'CYD' }` at line 2702, which never matches the currency branch. | **RESOLVED** |
+| D3 | CYD shown without unit elsewhere | Forge Resolved Volume appended `CYD` manually (`projectFacts.ts:3770`); the ledger would not | Unit was hard-coded per surface instead of carried on the fact's value type. | `QuantityValueType = { type: 'quantity'; unitLabel: string }` added (`documentIntelligenceViewModel.ts:92–103`). `inferValueType` returns typed quantity for `*_cyd` (line 2702), `*_mileage` (2703), `*_tonnage` (2704), `*_diameter` (2705). `formatFactValue` handler at lines 2737–2743 appends `unitLabel` using `Intl.NumberFormat`. Unit is now canonical on the fact, not per-surface. | **RESOLVED** (2026-06-08) |
+| D4 | `Missing` literal vs `0` inconsistency | `formatFactValue(null,…)` returns string `"Missing"` (line 2735) while numeric-absent paths show `0` | Two different "no value" renderings for the same root cause (blob empty). | Cosmetic; resolves once D1/wiring fixed. | **OPEN** (cosmetic, deferred) |
 
-These are independent of the wiring fix: even after the ledger reads correct values, `total_tickets` would still render as `$2,388` until `inferValueType` is corrected.
+These display bugs are independent of the wiring fix. D1/D2/D3 are now resolved at the `inferValueType`/`formatFactValue` layer. D4 remains cosmetic and clears naturally once Fix #1 (re-point ledger) lands.
 
 ---
 
@@ -161,17 +173,20 @@ These are independent of the wiring fix: even after the ledger reads correct val
 | **MIS-WIRED** | ~9 | Fact Ledger: Total Extended Cost, Transaction Row Count, Total Tickets, Total Transaction Quantity, eligible/ineligible, Grouped Review Tables, Flags/Outliers, Row-Level Drilldown |
 | **FACT-ABSENT** | ~5 | Total CYD (ledger + review KPI), Net Tonnage, workspace grouped tables, Forge Material/Site/Disposal groups |
 | **RECOMPUTING** | ~7 | Review KPIs (Extended Cost, Tickets), Forge Truth panel (Rows, Unique Tickets, Resolved Volume=inflated, Invoiced Amount), Cost Drivers By-Rate-Code |
-| **DISPLAY-BUG** | ~4 | `$` on Total Tickets, `$` on Total Transaction Quantity, `$`/no-unit on Total CYD, `Missing`/`0` inconsistency |
+| **DISPLAY-BUG** | ~~4~~ → 1 open | ~~`$` on Total Tickets~~, ~~`$` on Total Transaction Quantity~~, ~~`$`/no-unit on Total CYD~~ (D1/D2/D3 **RESOLVED** 2026-06-08); `Missing`/`0` inconsistency (D4, cosmetic, open) |
 | **CORRECT** | portfolio amount rollups, Ask selectors (read-through) | — |
 
 ### Prioritized fix list, grouped by cause (fix once → many surfaces resolve)
 
-1. **[ROOT — fix once, resolves the whole Facts-tab MISSING block] Re-point the Fact Ledger's spreadsheet facts at the row-backed canonical summary.** The ledger must read the same `buildCanonicalTransactionSummaryFromRows(transactionRows)` the review surface/Forge already use, instead of the extraction blob, for the Dataset Summary / Grouped / Flags / Drilldown groups. This single change clears: Total Extended Cost MISSING, Transaction Row Count 0, Total Tickets 0, grouped/flags/drilldown MISSING. (MIS-WIRED group.)
-2. **[GRAIN — separate task, already scoped in `cyd-grain-confirmation.md`] Build the canonical ticket-grain CYD / net-tonnage / mileage / diameter facts and persist them in the dataset summary; make every surface READ them.** This resolves the FACT-ABSENT `Total CYD` and corrects the RECOMPUTING `Resolved Volume` (215,729 → 74,737) and the inflated grouped volumes. Keep amounts at row grain.
-3. **[DISPLAY — small, independent] Fix `inferValueType` (`documentIntelligenceViewModel.ts:2674`)** so `total_tickets`, `total_transaction_quantity`, `row_count`, and `*_count` are typed as counts (and `total_cyd` as a unit-bearing quantity), not currency. Removes the `$`-on-count/volume bugs regardless of the wiring fix.
-4. **[GAP — medium] Add a recompute-from-rows path for the workspace grouped tables** (By-Material / By-Site / By-Disposal) in `toSpreadsheetReviewDataset`, or build those groups in `buildCanonicalTransactionSummaryFromRows`, so the workspace matches Forge. (FACT-ABSENT on the workspace side only.)
+1. **[ROOT — open] Re-point the Fact Ledger's spreadsheet facts at the row-backed canonical summary.** The ledger must read the same `buildCanonicalTransactionSummaryFromRows(transactionRows)` the review surface/Forge already use, instead of the extraction blob, for the Dataset Summary / Grouped / Flags / Drilldown groups. This single change clears: Total Extended Cost MISSING, Transaction Row Count 0, Total Tickets 0, grouped/flags/drilldown MISSING. (MIS-WIRED group.) **STATUS: OPEN.**
 
-Items 1 and 3 together fully explain and clear the live `MISSING / 0 / $0` anomalies; item 2 is the already-confirmed grain fix; item 4 closes the remaining workspace grouped-table gap.
+2. **[GRAIN — open, blocker] Build the canonical ticket-grain CYD / net-tonnage / mileage / diameter facts and persist them in the dataset summary; make every surface READ them.** This resolves the FACT-ABSENT `Total CYD` and corrects the RECOMPUTING `Resolved Volume` (215,729 → 74,737) and the inflated grouped volumes. Keep amounts at row grain. **STATUS: OPEN. BLOCKER (Item 3, 2026-06-08): dev DB has 0 non-NULL `net_tonnage` rows; tonnage grain verification deferred until a fixture is present. CYD grain path in `buildTicketGrainQuantityFacts` (`normalizeTransactionData.ts:374`) handles NULL via `continue` — no crash, but no end-to-end test possible until the fixture exists.**
+
+3. **[DISPLAY — resolved] Fix `inferValueType` (`documentIntelligenceViewModel.ts:2683`)** so `total_tickets`, `total_transaction_quantity`, `row_count`, and `*_count` are typed as counts (and `total_cyd` as a unit-bearing quantity), not currency. **STATUS: RESOLVED (2026-06-08).** Count guard at lines 2692–2698; quantity type at lines 2699–2713; `QuantityValueType` at lines 92–103; `formatFactValue` handler at lines 2737–2743.
+
+4. **[GAP — open] Add a recompute-from-rows path for the workspace grouped tables** (By-Material / By-Site / By-Disposal) in `toSpreadsheetReviewDataset`, or build those groups in `buildCanonicalTransactionSummaryFromRows`, so the workspace matches Forge. (FACT-ABSENT on the workspace side only.) **STATUS: OPEN.**
+
+Items 1 and 3 together fully explain and clear the live `MISSING / 0 / $0` anomalies; item 2 is the already-confirmed grain fix (blocker: tonnage fixture); item 4 closes the remaining workspace grouped-table gap. Item 3 (display bugs) is resolved.
 
 ---
 
@@ -181,10 +196,12 @@ Items 1 and 3 together fully explain and clear the live `MISSING / 0 / $0` anoma
 - [x] **Transaction Row Count 5,063 exists** → Fact Ledger shows 0 ⇒ classified **MIS-WIRED** (real count = `transactionRows.length`, ignored by the ledger). ✅
 - [x] **Total CYD has no canonical fact** → classified **FACT-ABSENT** (`transaction_data_summaries` empty, no CYD column; grain fix builds it). ✅
 - [x] **Resolved Volume 215,729 = row-grain** → classified **RECOMPUTING** (self-computed from rows; grain fix corrects to 74,737 ticket-grain). ✅
+- [x] **Display bugs D1/D2/D3 resolved** → `inferValueType` count guard + `QuantityValueType` with `unitLabel`. CYD fields now render as `74,617 CYD`; `total_tickets` no longer forces `$`. ✅ (2026-06-08)
+- [x] **net_tonnage null in all dev DB rows** → `buildTicketGrainQuantityFacts` silently skips via `continue`; returns 0 for `total_net_tonnage`. Grain B/C deferred. ✅ (confirmed 2026-06-08)
 
 ## Acceptance checklist
 
-- [x] `docs/extraction/downstream-wiring-map.md` produced — read-only, no fix
+- [x] `docs/extraction/downstream-wiring-map.md` produced — read-only, no fix (original 2026-06-07)
 - [x] Every downstream consumer enumerated (workspace, project, portfolio, Ask)
 - [x] Each consumer × field traced with quoted read path (file:line)
 - [x] Each classified: CORRECT / FACT-ABSENT / MIS-WIRED / RECOMPUTING / DISPLAY-BUG
@@ -193,3 +210,4 @@ Items 1 and 3 together fully explain and clear the live `MISSING / 0 / $0` anoma
 - [x] Display/unit bugs cataloged distinctly (`$` on counts via `inferValueType`)
 - [x] SUMMARY: counts per failure mode + prioritized fix list grouped by cause
 - [x] No code, fix, migration, or surface change made
+- [x] Update log added 2026-06-08: D1/D2/D3 resolved, RLS migration applied, tonnage blocker recorded, line refs updated

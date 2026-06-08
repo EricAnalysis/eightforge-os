@@ -1160,7 +1160,7 @@ function buildServiceItemGroups(
     .sort((left, right) => (left.service_item ?? '').localeCompare(right.service_item ?? '', 'en-US'));
 }
 
-function buildMaterialGroups(
+export function buildMaterialGroups(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataMaterialGroup[] {
   const groups = new Map<string, {
@@ -1197,7 +1197,7 @@ function buildMaterialGroups(
     .sort((left, right) => (left.material ?? '').localeCompare(right.material ?? '', 'en-US'));
 }
 
-function buildSiteTypeGroups(
+export function buildSiteTypeGroups(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataSiteTypeGroup[] {
   const groups = new Map<string, {
@@ -1234,7 +1234,7 @@ function buildSiteTypeGroups(
     .sort((left, right) => (left.site_type ?? '').localeCompare(right.site_type ?? '', 'en-US'));
 }
 
-function buildDisposalSiteGroups(
+export function buildDisposalSiteGroups(
   records: readonly NormalizedTransactionDataRecord[],
 ): TransactionDataDisposalSiteGroup[] {
   const groups = new Map<string, {

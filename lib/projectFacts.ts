@@ -53,8 +53,11 @@ import {
   PROJECT_TERM_WORKBOOK_INVOICED_AMOUNT,
 } from '@/lib/projectTerminology';
 import {
+  buildDisposalSiteGroups,
   buildInvoiceGroups,
+  buildMaterialGroups,
   buildRateCodeGroups,
+  buildSiteTypeGroups,
   buildTicketGrainQuantityFacts,
   effectiveMaterial,
   hasInvoiceLink,
@@ -2975,6 +2978,9 @@ export function buildCanonicalTransactionSummaryFromRows(
   }, { eligible: 0, ineligible: 0 });
   const groupedByRateCode = buildRateCodeGroups(records);
   const groupedByInvoice = buildInvoiceGroups(records);
+  const groupedByMaterial = buildMaterialGroups(records);
+  const groupedBySiteType = buildSiteTypeGroups(records);
+  const groupedByDisposalSite = buildDisposalSiteGroups(records);
   const reviewedSheetNames = uniqueStrings(records.map((record) => record.source_sheet_name));
   const recordIds = records.map((record) => record.id);
   const evidenceRefs = uniqueStrings(records.map((record) => record.evidence_ref));
@@ -3003,6 +3009,9 @@ export function buildCanonicalTransactionSummaryFromRows(
     rows_with_zero_cost: records.filter((record) => record.extended_cost === 0).length,
     grouped_by_rate_code: groupedByRateCode,
     grouped_by_invoice: groupedByInvoice,
+    grouped_by_material: groupedByMaterial,
+    grouped_by_site_type: groupedBySiteType,
+    grouped_by_disposal_site: groupedByDisposalSite,
   };
 
   summary.project_operations_overview = {
@@ -3026,8 +3035,8 @@ export function buildCanonicalTransactionSummaryFromRows(
     ineligible_count: eligibilityCounts.ineligible,
     distinct_service_item_count: distinctServiceItems.length,
     distinct_material_count: distinctMaterials.length,
-    distinct_site_type_count: 0,
-    distinct_disposal_site_count: 0,
+    distinct_site_type_count: groupedBySiteType.filter((g) => g.site_type != null).length,
+    distinct_disposal_site_count: groupedByDisposalSite.filter((g) => g.disposal_site != null).length,
     reviewed_sheet_names: reviewedSheetNames,
     record_ids: recordIds,
     evidence_refs: evidenceRefs,

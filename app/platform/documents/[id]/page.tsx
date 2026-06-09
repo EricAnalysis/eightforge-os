@@ -797,7 +797,9 @@ export default function DocumentDetailPage({
           .maybeSingle(),
         supabase
           .from('project_validation_findings')
-          .select('*')
+          .select(
+            'id, rule_id, check_key, category, severity, status, subject_type, subject_id, field, expected, actual, variance, variance_unit, blocked_reason, finding_disposition, business_severity, problem, impact, required_action, evidence_refs, source_family, affected_amount, approval_gate_effect, exposure_type',
+          )
           .eq('project_id', linkedProjectId)
           .eq('status', 'open'),
       ]);

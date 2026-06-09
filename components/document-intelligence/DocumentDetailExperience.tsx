@@ -872,21 +872,32 @@ export function DocumentDetailExperience({
             </div>
           </section>
 
+          {/* Single SpreadsheetReviewSurface instance hoisted above tab conditionals.
+              CSS-hidden (display:none via HTML hidden attribute) when not on Extraction
+              or Evidence tab so the DOM node stays alive and React does not tear it down
+              on every tab switch. aria-hidden mirrors visibility for screen readers. */}
+          {isSpreadsheetDocument && intelligenceViewModel.spreadsheetReviewDataset ? (
+            <div
+              hidden={activeTab !== 'extraction' && activeTab !== 'evidence'}
+              aria-hidden={activeTab !== 'extraction' && activeTab !== 'evidence' ? true : undefined}
+            >
+              <SpreadsheetReviewSurface
+                dataset={intelligenceViewModel.spreadsheetReviewDataset}
+                selectedRecordId={selectedRecordId}
+                navigationAction={navigationAction}
+                decisionContextHref={navigationDecisionHref}
+                validatorHref={navigationValidatorHref}
+              />
+            </div>
+          ) : null}
+
           {activeTab === 'extraction' ? (
             <section className="space-y-4">
               <DocumentIntelligenceStrip items={intelligenceViewModel.strip} />
 
-              {isSpreadsheetDocument ? (
-                intelligenceViewModel.spreadsheetReviewDataset ? (
-                  <SpreadsheetReviewSurface
-                    dataset={intelligenceViewModel.spreadsheetReviewDataset}
-                    selectedRecordId={selectedRecordId}
-                    navigationAction={navigationAction}
-                    decisionContextHref={navigationDecisionHref}
-                    validatorHref={navigationValidatorHref}
-                  />
-                ) : null
-              ) : (
+              {/* SpreadsheetReviewSurface for spreadsheet docs is hoisted above and
+                  shown/hidden via CSS — only render non-spreadsheet content here. */}
+              {isSpreadsheetDocument ? null : (
                 <>
                   {intelligenceViewModel.family === 'contract' &&
                   (intelligenceViewModel.contractPricingAssemblyRows?.length ?? 0) > 0 ? (
@@ -965,47 +976,37 @@ export function DocumentDetailExperience({
             </section>
           ) : null}
 
-          {activeTab === 'evidence' ? (
-            isSpreadsheetDocument ? (
-              intelligenceViewModel.spreadsheetReviewDataset ? (
-                <SpreadsheetReviewSurface
-                  dataset={intelligenceViewModel.spreadsheetReviewDataset}
-                  selectedRecordId={selectedRecordId}
-                  navigationAction={navigationAction}
-                  decisionContextHref={navigationDecisionHref}
-                  validatorHref={navigationValidatorHref}
+          {/* Evidence tab: SpreadsheetReviewSurface for spreadsheet docs is handled by
+              the hoisted div above. Only render the non-spreadsheet workspace here. */}
+          {activeTab === 'evidence' && !isSpreadsheetDocument ? (
+            <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
+              <div className="border-b border-white/8 px-5 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">
+                  Evidence
+                </p>
+                <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
+                  Viewer highlights stay synced with the evidence inspector so overrides remain deliberate and traceable.
+                </p>
+              </div>
+              <div className="min-h-[840px]">
+                <DocumentIntelligenceWorkspace
+                  key={`${documentId}:${navigationKey ?? 'default'}:${initialSelectedFactId ?? initialSelectedFieldKey ?? selectedRateRowId ?? 'workspace'}`}
+                  model={intelligenceViewModel}
+                  signedUrl={signedUrl}
+                  fileExt={fileExt}
+                  filename={filename}
+                  initialSelectedFactId={initialSelectedFactId}
+                  initialSelectedFieldKey={initialSelectedFieldKey}
+                  initialPage={initialPage}
+                  navigationKey={navigationKey}
+                  onSaveFactOverride={onSaveFactOverride}
+                  onSaveFactReview={onSaveFactReview}
+                  onSaveFactAnchor={onSaveFactAnchor}
+                  onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
+                  variant="workspace"
                 />
-              ) : null
-            ) : (
-              <section className="overflow-hidden rounded-3xl border border-[var(--ef-surface-hover)] bg-[var(--ef-background-primary)]">
-                <div className="border-b border-white/8 px-5 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--ef-purple-accent)]">
-                    Evidence
-                  </p>
-                  <p className="mt-1 text-[12px] text-[var(--ef-text-soft)]">
-                    Viewer highlights stay synced with the evidence inspector so overrides remain deliberate and traceable.
-                  </p>
-                </div>
-                <div className="min-h-[840px]">
-                  <DocumentIntelligenceWorkspace
-                    key={`${documentId}:${navigationKey ?? 'default'}:${initialSelectedFactId ?? initialSelectedFieldKey ?? selectedRateRowId ?? 'workspace'}`}
-                    model={intelligenceViewModel}
-                    signedUrl={signedUrl}
-                    fileExt={fileExt}
-                    filename={filename}
-                    initialSelectedFactId={initialSelectedFactId}
-                    initialSelectedFieldKey={initialSelectedFieldKey}
-                    initialPage={initialPage}
-                    navigationKey={navigationKey}
-                    onSaveFactOverride={onSaveFactOverride}
-                    onSaveFactReview={onSaveFactReview}
-                    onSaveFactAnchor={onSaveFactAnchor}
-                    onSaveRateScheduleAnchor={onSaveRateScheduleAnchor}
-                    variant="workspace"
-                  />
-                </div>
-              </section>
-            )
+              </div>
+            </section>
           ) : null}
 
           {activeTab === 'insights' ? (

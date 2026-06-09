@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { DiagnosticsDrawerModel } from '@/lib/documentIntelligenceViewModel';
 
 export function DiagnosticsDrawer({
@@ -7,8 +8,24 @@ export function DiagnosticsDrawer({
 }: {
   drawer: DiagnosticsDrawerModel;
 }) {
+  // Defer JSON.stringify until the drawer is first expanded by the user.
+  // React renders <details> children immediately regardless of open state,
+  // so computing the stringified content eagerly causes a synchronous main-thread
+  // freeze on every Insights tab mount. We cache the result so subsequent
+  // expand/collapse cycles do not re-stringify.
+  const [cachedJson, setCachedJson] = useState<string | null>(null);
+
+  function handleToggle(event: React.SyntheticEvent<HTMLDetailsElement>) {
+    if (event.currentTarget.open && cachedJson === null && !drawer.textBlocks) {
+      setCachedJson(JSON.stringify(drawer.json, null, 2));
+    }
+  }
+
   return (
-    <details className="overflow-hidden rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
+    <details
+      className="overflow-hidden rounded-2xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]"
+      onToggle={handleToggle}
+    >
       <summary className="cursor-pointer list-none px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -60,7 +77,7 @@ export function DiagnosticsDrawer({
           </div>
         ) : (
           <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)] p-4 text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
-            {JSON.stringify(drawer.json, null, 2)}
+            {cachedJson}
           </pre>
         )}
       </div>

@@ -364,6 +364,8 @@ export type SpreadsheetReviewDataset = {
   dmsFdsLifecycleSummary: TransactionDataDmsFdsLifecycleSummary | null;
   kpis: SpreadsheetReviewKpis;
   totalExtendedCost: number | null;
+  /** Pre-computed invoiced transaction count. Avoids an O(N) filter over records at render time. */
+  invoicedTransactionCount: number;
   volumeBasis: SpreadsheetReviewVolumeBasis;
   rateCodeRows: SpreadsheetReviewRateCodeRow[];
   serviceItemRows: SpreadsheetReviewServiceItemRow[];
@@ -1897,6 +1899,18 @@ function toSpreadsheetReviewDataset(
     siteByRecordId,
   });
 
+  // Pre-compute invoicedTransactionCount to avoid an O(N) filter over records at render time.
+  // Mirrors the exact logic previously inlined in SpreadsheetReviewSurface.invoicedTransactionCount().
+  const totalTransactionsForInvoicedCount =
+    summary?.row_count
+    ?? invoiceReadinessSummary?.record_ids.length
+    ?? records.length;
+  const precomputedInvoicedTransactionCount = invoiceReadinessSummary
+    ? Math.max(totalTransactionsForInvoicedCount - invoiceReadinessSummary.uninvoiced_line_count, 0)
+    : records.filter((record) =>
+        typeof record.invoice_number === 'string' && record.invoice_number.trim().length > 0,
+      ).length;
+
   return {
     records,
     summary,
@@ -1912,6 +1926,7 @@ function toSpreadsheetReviewDataset(
     dmsFdsLifecycleSummary,
     kpis,
     totalExtendedCost,
+    invoicedTransactionCount: precomputedInvoicedTransactionCount,
     volumeBasis,
     rateCodeRows,
     serviceItemRows,
@@ -4713,7 +4728,6 @@ function buildDiagnostics(params: {
       json: params.extractionHistory.map((row) => ({
         id: row.id,
         created_at: row.created_at,
-        data: row.data,
       })),
     },
   ].filter((drawer): drawer is DiagnosticsDrawerModel => {

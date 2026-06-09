@@ -52,22 +52,10 @@ function formatReadinessStatus(value: string | null | undefined): string {
     .join(' ');
 }
 
-function hasLinkedInvoice(invoiceNumber: string | null | undefined): boolean {
-  return typeof invoiceNumber === 'string' && invoiceNumber.trim().length > 0;
-}
-
 function transactionCount(dataset: SpreadsheetReviewDataset): number {
   return dataset.summary?.row_count
     ?? dataset.invoiceReadinessSummary?.record_ids.length
     ?? dataset.records.length;
-}
-
-function invoicedTransactionCount(dataset: SpreadsheetReviewDataset): number {
-  const totalTransactions = transactionCount(dataset);
-  if (dataset.invoiceReadinessSummary) {
-    return Math.max(totalTransactions - dataset.invoiceReadinessSummary.uninvoiced_line_count, 0);
-  }
-  return dataset.records.filter((record) => hasLinkedInvoice(record.invoice_number)).length;
 }
 
 function reviewLabelValueRows(rows: Array<{ label: string; value: string }>) {
@@ -252,7 +240,7 @@ function kpiCards(params: {
 }) {
   const { dataset, kpis } = params;
   const totalTransactions = transactionCount(dataset);
-  const invoicedTransactions = invoicedTransactionCount(dataset);
+  const invoicedTransactions = dataset.invoicedTransactionCount;
   const volumeValue =
     dataset.volumeBasis.metric === 'cyd'
       ? formatQuantity(kpis.totalCyd)
@@ -663,7 +651,7 @@ export function SpreadsheetReviewSurface({
                 { label: PROJECT_TERM_TOTAL_TRANSACTION_ROWS, value: formatInteger(transactionCount(dataset), '0') },
                 {
                   label: PROJECT_TERM_INVOICED_TRANSACTION_ROWS,
-                  value: formatInteger(invoicedTransactionCount(dataset), '0'),
+                  value: formatInteger(dataset.invoicedTransactionCount, '0'),
                 },
                 { label: 'Invoice Count', value: formatInteger(dataset.invoiceReadinessSummary.distinct_invoice_count, '0') },
                 { label: PROJECT_TERM_WORKBOOK_INVOICED_AMOUNT, value: formatCurrency(dataset.invoiceReadinessSummary.total_invoiced_amount, '$0.00') },

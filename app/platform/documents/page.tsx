@@ -659,7 +659,7 @@ export default function DocumentsPage() {
   const [tasks, setTasks] = useState<DocumentWorkspaceTaskRow[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const [workspaceWarning, setWorkspaceWarning] = useState<string | null>(null);
+  const [workspaceWarnings, setWorkspaceWarnings] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
@@ -684,7 +684,7 @@ export default function DocumentsPage() {
   const fetchWorkspaceData = useCallback(async (currentOrgId: string) => {
     setDocsLoading(true);
     setDocsError(null);
-    setWorkspaceWarning(null);
+    setWorkspaceWarnings([]);
 
     try {
       const [documentsResult, reviewsResult, decisionsResult, tasksResult] = await Promise.all([
@@ -723,27 +723,18 @@ export default function DocumentsPage() {
 
       if (reviewsResult.error) {
         setReviews([]);
-        setWorkspaceWarning(
-          'Document review state is unavailable. Needs Review filters may be incomplete.',
-        );
       } else {
         setReviews((reviewsResult.data ?? []) as DocumentWorkspaceReviewRow[]);
       }
 
       if (decisionsResult.error) {
         setDecisions([]);
-        setWorkspaceWarning(
-          'Decision state is unavailable. Workspace status may be incomplete.',
-        );
       } else {
         setDecisions((decisionsResult.data ?? []) as DocumentWorkspaceDecisionRow[]);
       }
 
       if (tasksResult.error) {
         setTasks([]);
-        setWorkspaceWarning(
-          'Execution task state is unavailable. Workspace status may be incomplete.',
-        );
       } else {
         setTasks((tasksResult.data ?? []) as DocumentWorkspaceTaskRow[]);
       }
@@ -1253,9 +1244,16 @@ export default function DocumentsPage() {
         </div>
       </section>
 
-      {workspaceWarning ? (
-        <div className="rounded-lg border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-4 py-3 text-[11px] text-[var(--ef-warning-soft)]">
-          {workspaceWarning}
+      {workspaceWarnings.length > 0 ? (
+        <div className="grid gap-2">
+          {workspaceWarnings.map((warning) => (
+            <div
+              key={warning}
+              className="rounded-lg border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-4 py-3 text-[11px] text-[var(--ef-warning-soft)]"
+            >
+              {warning}
+            </div>
+          ))}
         </div>
       ) : null}
 

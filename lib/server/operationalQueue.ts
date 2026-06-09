@@ -1789,13 +1789,13 @@ export async function loadOperationalQueueModel(params: {
   }
 
   if (reviewsResult.error) {
-    warnings.push('Document review state is unavailable. Review-based signals may be incomplete.');
+    console.warn('[operationalQueue] document_reviews unavailable:', reviewsResult.error.message);
   }
   if (feedbackResult.error) {
-    warnings.push('Recent feedback is unavailable. Intelligence exceptions may be incomplete.');
+    console.warn('[operationalQueue] decision_feedback unavailable:', feedbackResult.error.message);
   }
   if (recentDocumentsResult.error) {
-    warnings.push('Recent document counts are unavailable.');
+    console.warn('[operationalQueue] recent documents unavailable:', recentDocumentsResult.error.message);
   }
 
   const rawDecisions = (decisionsResult.data ?? []) as ProjectDecisionRow[];
@@ -1819,7 +1819,7 @@ export async function loadOperationalQueueModel(params: {
       .eq('status', 'open');
 
     if (findingsResult.error) {
-      warnings.push('Validator findings are unavailable. Queue-backed line issues may be incomplete.');
+      console.warn('[operationalQueue] project_validation_findings unavailable:', findingsResult.error.message);
     } else {
       queueFindings = (findingsResult.data ?? []) as QueueFindingRow[];
       const findingIds = queueFindings.map((finding) => finding.id);
@@ -1833,7 +1833,7 @@ export async function loadOperationalQueueModel(params: {
           .in('finding_id', findingIds);
 
         if (evidenceResult.error) {
-          warnings.push('Validator evidence links are unavailable. Queue deep links may fall back to the validator tab.');
+          console.warn('[operationalQueue] project_validation_evidence unavailable:', evidenceResult.error.message);
         } else {
           queueEvidence = (evidenceResult.data ?? []) as QueueFindingEvidenceRow[];
         }

@@ -1539,21 +1539,41 @@ export function buildOperationalQueueModel(params: {
   const sortedActions = sortActionItems(actionItems);
   const sortedSignals = sortDocumentSignals(documentSignals);
 
+  // Pre-index: build a per-project document map and cache resolved source-document IDs
+  // for every decision and task once, eliminating O(N×M) filter scans and double
+  // resolver calls inside the project loop.
+  const documentsByProjectId = new Map<string, ProjectDocumentRow[]>();
+  for (const document of documents) {
+    if (!document.project_id) continue;
+    const current = documentsByProjectId.get(document.project_id) ?? [];
+    current.push(document);
+    documentsByProjectId.set(document.project_id, current);
+  }
+  const resolvedDecisionDocId = new Map<string, string | null>();
+  for (const decision of currentDecisions) {
+    resolvedDecisionDocId.set(decision.id, resolveDecisionSourceDocumentId(decision));
+  }
+  const resolvedTaskDocId = new Map<string, string | null>();
+  for (const task of currentTasks) {
+    resolvedTaskDocId.set(task.id, resolveTaskSourceDocumentId(task, decisionById));
+  }
+
   const projectRollups = projects.map((project) => {
-    const scopedDocuments = documents.filter((document) => document.project_id === project.id);
+    const scopedDocuments = documentsByProjectId.get(project.id) ?? [];
     const scopedDocumentIds = new Set(scopedDocuments.map((document) => document.id));
-    const scopedDecisions = currentDecisions.filter((decision) =>
-      (resolveDecisionSourceDocumentId(decision) != null &&
-        scopedDocumentIds.has(resolveDecisionSourceDocumentId(decision) as string)) ||
-      matchesProjectDecision(decision, project),
-    );
+    const scopedDecisions = currentDecisions.filter((decision) => {
+      const docId = resolvedDecisionDocId.get(decision.id);
+      return (docId != null && scopedDocumentIds.has(docId)) || matchesProjectDecision(decision, project);
+    });
     const scopedDecisionIds = new Set(scopedDecisions.map((decision) => decision.id));
-    const scopedTasks = currentTasks.filter((task) =>
-      (resolveTaskSourceDocumentId(task, decisionById) != null &&
-        scopedDocumentIds.has(resolveTaskSourceDocumentId(task, decisionById) as string)) ||
-      (task.decision_id != null && scopedDecisionIds.has(task.decision_id)) ||
-      matchesProjectTask(task, project, scopedDecisionIds),
-    );
+    const scopedTasks = currentTasks.filter((task) => {
+      const docId = resolvedTaskDocId.get(task.id);
+      return (
+        (docId != null && scopedDocumentIds.has(docId)) ||
+        (task.decision_id != null && scopedDecisionIds.has(task.decision_id)) ||
+        matchesProjectTask(task, project, scopedDecisionIds)
+      );
+    });
     const scopedDocumentReviews = documentReviews.filter((review) =>
       scopedDocumentIds.has(review.document_id),
     );
@@ -1727,8 +1747,11 @@ export async function loadOperationalQueueModel(params: {
       .order('created_at', { ascending: false }),
     admin
       .from('execution_items')
-      .select('*')
+      .select(
+        'id, project_id, status, severity, title, problem, expected_value, actual_value, impact, required_action, source_type, source_id, evidence_refs, validator_rule_key, source_key, created_at, updated_at',
+      )
       .eq('organization_id', organizationId)
+      .neq('status', 'resolved')
       .order('updated_at', { ascending: false }),
     admin
       .from('document_reviews')

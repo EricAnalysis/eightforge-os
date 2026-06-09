@@ -53,3 +53,6 @@ next-env.d.ts
 .claude/settings.local.json
 eng.traineddata
 supabase/.temp/
+
+# Claude/Codex agent skills submodule
+.agents/skills/

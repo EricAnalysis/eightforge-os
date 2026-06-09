@@ -1,9 +1,3 @@
--- DRAFT — DO NOT APPLY UNTIL SCHEMA DRIFT
--- RESOLUTION IS COMPLETE
--- Prereq: decision_feedback FK fix must be
--- applied first
--- See: docs/decisions/OPERATOR_DECISION_PROPAGATION.md
---
 -- ============================================================================
 -- MIGRATION: Operator decision assertion propagation schema
 -- Date: 2026-06-09

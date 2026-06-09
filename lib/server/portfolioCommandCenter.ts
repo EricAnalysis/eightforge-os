@@ -102,39 +102,128 @@ export async function buildPortfolioCommandCenter(
       return null;
     }
 
-    // 2. Fetch latest approval snapshot for each project
+    if (projects.length === 0) {
+      return {
+        totalProjects: 0,
+        totalRequiresVerification: 0,
+        totalAtRisk: 0,
+        totalBlocked: 0,
+        projectsByStatus: { healthy: 0, at_risk: 0, blocked: 0, requires_review: 0 },
+        topRiskProjects: [],
+        vendorRiskSummary: [],
+        issueTypeRanking: [],
+        recentActivity: [],
+      };
+    }
+
+    // 2. Batch all 5 per-project queries in parallel
+    const projectIds = projects.map((p) => p.id);
+
+    const [
+      snapshotsResult,
+      issueCountsResult,
+      decisionsResult,
+      recentActionsResult,
+      overdueResult,
+    ] = await Promise.all([
+      // Query 1: Latest approval snapshot per project (ordered desc; first per project_id = latest)
+      admin
+        .from('project_approval_snapshots')
+        .select('*')
+        .in('project_id', projectIds)
+        .order('created_at', { ascending: false }),
+
+      // Query 2: Resolved decision detections — fetch project_id only, count in memory per project
+      admin
+        .from('decision_detections')
+        .select('project_id')
+        .in('project_id', projectIds)
+        .neq('resolved_at', null),
+
+      // Query 3: Decision detection metadata for issue-type breakdown
+      admin
+        .from('decision_detections')
+        .select('project_id, metadata')
+        .in('project_id', projectIds),
+
+      // Query 4: Latest workflow event per project (ordered desc; first per project_id = latest)
+      admin
+        .from('workflow_events')
+        .select('project_id, created_at')
+        .in('project_id', projectIds)
+        .order('created_at', { ascending: false }),
+
+      // Query 5: Overdue pending workflow events — fetch project_id only, count in memory per project
+      admin
+        .from('workflow_events')
+        .select('project_id')
+        .in('project_id', projectIds)
+        .eq('status', 'pending')
+        .lt('due_date', new Date().toISOString()),
+    ]);
+
+    // 3. Group results by project_id in memory
+
+    // Query 1: take first (latest) snapshot per project (data already ordered desc)
+    const latestSnapshotByProjectId = new Map<string, Record<string, unknown>>();
+    for (const row of snapshotsResult.data ?? []) {
+      if (!latestSnapshotByProjectId.has(row.project_id)) {
+        latestSnapshotByProjectId.set(row.project_id, row as Record<string, unknown>);
+      }
+    }
+
+    // Query 2: count resolved decisions per project
+    const issueCountByProjectId = new Map<string, number>();
+    for (const row of issueCountsResult.data ?? []) {
+      issueCountByProjectId.set(
+        row.project_id,
+        (issueCountByProjectId.get(row.project_id) ?? 0) + 1
+      );
+    }
+
+    // Query 3: group decision rows by project_id
+    const decisionsByProjectId = new Map<string, { project_id: string; metadata: unknown }[]>();
+    for (const row of decisionsResult.data ?? []) {
+      const arr = decisionsByProjectId.get(row.project_id) ?? [];
+      arr.push(row as { project_id: string; metadata: unknown });
+      decisionsByProjectId.set(row.project_id, arr);
+    }
+
+    // Query 4: take first (latest) created_at per project (data already ordered desc)
+    const latestActivityByProjectId = new Map<string, string>();
+    for (const row of recentActionsResult.data ?? []) {
+      if (!latestActivityByProjectId.has(row.project_id)) {
+        latestActivityByProjectId.set(row.project_id, row.created_at);
+      }
+    }
+
+    // Query 5: count overdue events per project
+    const overdueCountByProjectId = new Map<string, number>();
+    for (const row of overdueResult.data ?? []) {
+      overdueCountByProjectId.set(
+        row.project_id,
+        (overdueCountByProjectId.get(row.project_id) ?? 0) + 1
+      );
+    }
+
+    // 4. Build per-project metrics using pre-fetched grouped data (no await inside loop)
     const projectMetrics: PortfolioMetrics[] = [];
 
     for (const project of projects) {
-      // Get latest project approval snapshot
-      const { data: latestSnapshot } = await admin
-        .from('project_approval_snapshots')
-        .select('*')
-        .eq('project_id', project.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      // Get issue counts (detect via decision_detections or similar)
-      const { count: issueCount } = await admin
-        .from('decision_detections')
-        .select('*', { count: 'exact' })
-        .eq('project_id', project.id)
-        .neq('resolved_at', null);
+      const latestSnapshot = latestSnapshotByProjectId.get(project.id) ?? null;
+      const issueCount = issueCountByProjectId.get(project.id) ?? 0;
+      const decisions = decisionsByProjectId.get(project.id) ?? [];
+      const lastActivityAt = latestActivityByProjectId.get(project.id) ?? project.created_at;
+      const overdueCount = overdueCountByProjectId.get(project.id) ?? 0;
 
       // Issue type breakdown (from decision_detections metadata)
-      const { data: decisions } = await admin
-        .from('decision_detections')
-        .select('metadata')
-        .eq('project_id', project.id);
-
       const issueTypeCounts = {
         rateMismatch: 0,
         missingSupport: 0,
         quantityMismatch: 0,
       };
 
-      decisions?.forEach((d) => {
+      decisions.forEach((d) => {
         const meta = d.metadata as Record<string, any>;
         if (meta?.issueType === 'rate_mismatch') issueTypeCounts.rateMismatch++;
         else if (meta?.issueType === 'missing_support')
@@ -143,28 +232,17 @@ export async function buildPortfolioCommandCenter(
           issueTypeCounts.quantityMismatch++;
       });
 
-      // Get recent activity
-      const { data: recentActions } = await admin
-        .from('workflow_events')
-        .select('*')
-        .eq('project_id', project.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      const lastActivityAt =
-        recentActions?.[0]?.created_at || project.created_at;
-
       // Calculate risk score
-      const requiresVerification = latestSnapshot?.blocked_amount ?? 0;
-      const atRisk = latestSnapshot?.at_risk_amount ?? 0;
-      const blockedInvoiceCount = latestSnapshot?.blocked_invoice_count ?? 0;
+      const requiresVerification = (latestSnapshot?.blocked_amount as number) ?? 0;
+      const atRisk = (latestSnapshot?.at_risk_amount as number) ?? 0;
+      const blockedInvoiceCount = (latestSnapshot?.blocked_invoice_count as number) ?? 0;
 
       const riskScore = Math.min(
         100,
         (requiresVerification / 100000) * 50 + // Blocked amount weight
           (atRisk / 100000) * 30 + // At-risk amount weight
           (blockedInvoiceCount * 5) + // Blocked invoice count weight
-          (issueCount || 0) * 2 // Total issue count weight
+          issueCount * 2 // Total issue count weight
       );
 
       let priority: 'critical' | 'high' | 'medium' | 'low';
@@ -179,14 +257,6 @@ export async function buildPortfolioCommandCenter(
       else if (atRisk > 0) status = 'at_risk';
       else status = 'healthy';
 
-      // Get overdue actions
-      const { count: overdueCount } = await admin
-        .from('workflow_events')
-        .select('*', { count: 'exact' })
-        .eq('project_id', project.id)
-        .eq('status', 'pending')
-        .lt('due_date', new Date().toISOString());
-
       projectMetrics.push({
         projectId: project.id,
         projectName: project.name,
@@ -196,24 +266,24 @@ export async function buildPortfolioCommandCenter(
         atRiskAmount: atRisk,
         blockedAmount: 0, // For future enhancement
         blockedInvoices: blockedInvoiceCount,
-        totalInvoices: latestSnapshot?.invoice_count ?? 0,
-        issuesCount: issueCount || 0,
+        totalInvoices: (latestSnapshot?.invoice_count as number) ?? 0,
+        issuesCount: issueCount,
         rateMismatchCount: issueTypeCounts.rateMismatch,
         missingSupportCount: issueTypeCounts.missingSupport,
         quantityMismatchCount: issueTypeCounts.quantityMismatch,
         lastActivityAt,
-        overdueActionsCount: overdueCount || 0,
+        overdueActionsCount: overdueCount,
         riskScore: Math.round(riskScore),
         priority,
       });
     }
 
-    // 3. Sort by risk score (highest first)
+    // 5. Sort by risk score (highest first)
     const topRiskProjects = [...projectMetrics]
       .sort((a, b) => b.riskScore - a.riskScore)
       .slice(0, 10);
 
-    // 4. Build vendor risk summary (aggregate by vendor code extracted from project metadata)
+    // 6. Build vendor risk summary (aggregate by vendor code extracted from project metadata)
     const vendorRiskMap = new Map<string, VendorRiskItem>();
     projectMetrics.forEach((pm) => {
       const vendor = pm.projectCode.split('-')[0]; // Assume vendor is in code prefix
@@ -235,7 +305,7 @@ export async function buildPortfolioCommandCenter(
       .sort((a, b) => b.requiresVerificationAmount - a.requiresVerificationAmount)
       .slice(0, 10);
 
-    // 5. Issue type ranking
+    // 7. Issue type ranking
     const totalRateMismatch = projectMetrics.reduce(
       (sum, p) => sum + p.rateMismatchCount,
       0
@@ -271,7 +341,7 @@ export async function buildPortfolioCommandCenter(
       },
     ] satisfies IssueTypeCount[]).sort((a, b) => b.count - a.count);
 
-    // 6. Recent activity across projects
+    // 8. Recent activity across projects
     const { data: recentEvents } = await admin
       .from('workflow_events')
       .select('*')
@@ -291,7 +361,7 @@ export async function buildPortfolioCommandCenter(
       };
     });
 
-    // 7. Compute portfolio summary
+    // 9. Compute portfolio summary
     const statusCounts = {
       healthy: projectMetrics.filter((p) => p.status === 'healthy').length,
       at_risk: projectMetrics.filter((p) => p.status === 'at_risk').length,

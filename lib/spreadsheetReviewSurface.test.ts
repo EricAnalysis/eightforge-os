@@ -22,6 +22,7 @@ function buildDataset(
     outlierRows: [],
     invoiceReadinessSummary: null,
     dmsFdsLifecycleSummary: null,
+    invoicedTransactionCount: 0,
     kpis: {
       totalTickets: 12,
       totalCyd: 64,

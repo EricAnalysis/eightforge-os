@@ -39,9 +39,20 @@ export interface FindingEvaluationContext {
   subject_entity_id: string | null;
   /** Derived as rateScheduleItems.some(i => i.rate_code != null) || contractCeilingType === 'rate_based'. */
   contract_has_codes: boolean | null;
-  /** Unit of measure on the subject entity, if available. */
+  /**
+   * Unit of measure on the subject entity, if available.
+   * - invoice_line-subject findings: populated from the line row's unit of measure
+   *   field (`unit_type`, falling back to `unit` or `uom` if null)
+   * - ticket-subject findings: null — ticket rows carry quantity keys (CYD, tonnage)
+   *   but no generic unit of measure field
+   * - project/contract findings: null
+   */
   unit: string | null;
-  /** Match priority label in scope for this finding, if applicable. */
+  /**
+   * Match priority label in scope for this finding, if applicable.
+   * @deferred match_priority evaluation is NOT implemented — this field is
+   * present on context for future use only. No evaluator logic reads it.
+   */
   match_priority: string | null;
   finding_type: string;
 }
@@ -94,6 +105,31 @@ const SCOPE_PRIORITY: Record<ScopeLevel, number> = {
 };
 
 // ============================================================================
+// INTERNAL UTILITIES
+// ============================================================================
+
+/**
+ * Normalizes a unit string to its canonical form for equality comparison.
+ * Applied to both sides of a unit_match_required check so that variant spellings
+ * (e.g. 'CY', 'cy', 'Cubic Yard') all resolve to the same canonical token.
+ *
+ * Normalization map:
+ *   CY | CYD | CUBIC_YARD | CUBIC_YARDS → CYD
+ *   TON | TONS                          → TON
+ *   (all others)                        → uppercased trimmed input
+ */
+function normalizeUnit(unit: string): string {
+  const u = unit.trim().toUpperCase();
+  if (['CY', 'CYD', 'CUBIC_YARD', 'CUBIC_YARDS'].includes(u)) {
+    return 'CYD';
+  }
+  if (['TON', 'TONS'].includes(u)) {
+    return 'TON';
+  }
+  return u;
+}
+
+// ============================================================================
 // EXPORTED FUNCTIONS
 // ============================================================================
 
@@ -104,9 +140,13 @@ const SCOPE_PRIORITY: Record<ScopeLevel, number> = {
  * 1. confidence_binding.contract_has_codes: if binding specifies a boolean value
  *    and context.contract_has_codes is null, return false (never assume).
  *    If both are non-null and differ, return false.
- * 2. confidence_binding.requires_fields: every listed field must be non-null on
+ * 2. confidence_binding.unit_match_required: if true, both binding.expected_unit
+ *    and context.unit must be non-null, and normalizeUnit(context.unit) must equal
+ *    normalizeUnit(binding.expected_unit). If either value is null/missing, return
+ *    false (safe-fail — do not assume a match).
+ * 3. confidence_binding.requires_fields: every listed field must be non-null on
  *    context. Return false on the first missing or null field.
- * 3. Return false on any missing/non-matching condition; never throw.
+ * 4. Return false on any missing/non-matching condition; never throw.
  *
  * NEVER reads assertion.rationale.
  */
@@ -124,6 +164,19 @@ export function evaluateAssertionApplies(
       return false;
     }
     if (context.contract_has_codes !== binding.contract_has_codes) {
+      return false;
+    }
+  }
+
+  // Check unit_match_required: both expected_unit and context.unit must be present
+  // and normalize to the same canonical value. Safe-fail if either is null/missing.
+  if (binding.unit_match_required === true) {
+    if (!binding.expected_unit) return false;
+    if (!context.unit) return false;
+    if (
+      normalizeUnit(context.unit) !==
+      normalizeUnit(binding.expected_unit)
+    ) {
       return false;
     }
   }

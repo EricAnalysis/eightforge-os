@@ -85,6 +85,12 @@ export interface ConfidenceBinding {
   contract_has_codes?: boolean | null;
   /** Whether the unit of measure on the subject must match the assertion's canonical unit. */
   unit_match_required?: boolean;
+  // Canonical unit for equality check.
+  // Required when unit_match_required is true.
+  // Normalized before comparison —
+  // CY/CYD/CUBIC_YARD/CUBIC_YARDS → CYD,
+  // TON/TONS → TON
+  expected_unit?: string | null;
   /** Catch-all for domain-specific binding conditions not covered above. */
   custom_conditions?: Record<string, unknown>;
 }
@@ -128,7 +134,7 @@ export type DecisionAssertionInsert = Omit<DecisionAssertion, 'id' | 'created_at
 /**
  * Subset read by the validator.
  * rationale is intentionally excluded — validator logic must never branch on it.
- */
+ **/
 export type DecisionAssertionQuery = Pick<
   DecisionAssertion,
   | 'id'

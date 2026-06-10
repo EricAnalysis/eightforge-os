@@ -233,10 +233,12 @@ describe('resolveAssertionsForFinding', () => {
       },
       confidence_binding: {
         contract_has_codes: false,
-        requires_fields: ['unit'],
+        unit_match_required: true,
+        expected_unit: 'CYD',
       },
     });
 
+    // unit='CY' normalizes to 'CYD' — matches expected_unit 'CYD' → assertion applies
     const context = makeContext({
       project_id: 'proj-williamson',
       contract_has_codes: false,
@@ -309,6 +311,72 @@ describe('evaluateAssertionApplies', () => {
     expect(
       evaluateAssertionApplies(assertion, makeContext({ contract_has_codes: null })),
     ).toBe(true);
+  });
+});
+
+describe('evaluateAssertionApplies — unit_match_required', () => {
+  // Test 7: exact match
+  it('test 7: unit_match_required true, expected_unit CYD, context.unit CYD → true', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'CYD' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'CYD' }))).toBe(true);
+  });
+
+  // Test 8: unit mismatch
+  it('test 8: unit_match_required true, expected_unit CYD, context.unit TON → false', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'CYD' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'TON' }))).toBe(false);
+  });
+
+  // Test 9: safe-fail — context.unit is null
+  it('test 9: unit_match_required true, expected_unit CYD, context.unit null → false (safe-fail)', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'CYD' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: null }))).toBe(false);
+  });
+
+  // Test 10: safe-fail — expected_unit is null
+  it('test 10: unit_match_required true, expected_unit null, context.unit CYD → false (safe-fail)', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: null },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'CYD' }))).toBe(false);
+  });
+
+  // Test 11: normalization — CY → CYD
+  it('test 11: unit_match_required true, expected_unit CY, context.unit CYD → true (CY normalizes to CYD)', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'CY' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'CYD' }))).toBe(true);
+  });
+
+  // Test 12: case-insensitive + normalization
+  it('test 12: unit_match_required true, expected_unit cy (lowercase), context.unit CYD → true', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'cy' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'CYD' }))).toBe(true);
+  });
+
+  // Test 13: normalization — TONS → TON
+  it('test 13: unit_match_required true, expected_unit TON, context.unit TONS → true (TONS normalizes to TON)', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'TON' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'TONS' }))).toBe(true);
+  });
+
+  // Test 14: cross-type mismatch after normalization
+  it('test 14: unit_match_required true, expected_unit CYD, context.unit TONS → false (CYD !== TON after normalize)', () => {
+    const assertion = makeAssertion({
+      confidence_binding: { unit_match_required: true, expected_unit: 'CYD' },
+    });
+    expect(evaluateAssertionApplies(assertion, makeContext({ unit: 'TONS' }))).toBe(false);
   });
 });
 

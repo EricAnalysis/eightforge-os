@@ -153,7 +153,7 @@ describe('spreadsheet review integration', () => {
     const normalizedNetTonnage = normalized.records.reduce((sum, record) => sum + (record.net_tonnage ?? 0), 0);
 
     assert.equal(normalized.row_count, 4);
-    assert.equal(normalized.header_map.transaction_number?.[0]?.column_name, 'Ticket ID');
+    assert.equal(normalized.header_map.transaction_number?.[0]?.column_name, 'Ticket No');
     assert.equal(normalized.header_map.ticket_notes?.[0]?.column_name, 'Ticket Notes');
     assert.equal(normalized.header_map.cyd?.[0]?.column_name, 'CYD');
     assert.equal(normalized.header_map.net_tonnage?.[0]?.column_name, 'Net Tonnage');

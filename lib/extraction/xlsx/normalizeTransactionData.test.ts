@@ -711,7 +711,7 @@ describe('normalizeTransactionData', () => {
     assert.equal(normalized.rollups.grouped_by_material[1]?.total_extended_cost, 70);
   });
 
-  it('does not bind discrepancy or ticket numbers into cyd or ticket notes when those headers are absent', async () => {
+  it('prefers Ticket No over Ticket ID for transaction_number', async () => {
     const workbook = await parseWorkbook(
       workbookBytes([
         {
@@ -732,8 +732,8 @@ describe('normalizeTransactionData', () => {
               'Line Total',
             ],
             [
-              'TID-1001',
-              'TK-1001',
+              'BBC6926A-E209-4503-A952-00097515333D',
+              '200000-2669-53725',
               3,
               'INV-100',
               'RC-01',
@@ -757,7 +757,14 @@ describe('normalizeTransactionData', () => {
 
     assert.equal(normalized.header_map.cyd, undefined);
     assert.equal(normalized.header_map.ticket_notes, undefined);
-    assert.equal(normalized.records[0]?.transaction_number, 'TID-1001');
+    assert.equal(normalized.header_map.transaction_number?.[0]?.column_name, 'Ticket No');
+    assert.equal(normalized.records[0]?.transaction_number, '200000-2669-53725');
+    assert.notEqual(normalized.records[0]?.transaction_number, 'BBC6926A-E209-4503-A952-00097515333D');
+    assert.equal(
+      normalized.records[0]?.raw_row['Ticket ID'],
+      'BBC6926A-E209-4503-A952-00097515333D',
+    );
+    assert.equal(normalized.records[0]?.raw_row['Ticket No'], '200000-2669-53725');
     assert.equal(normalized.records[0]?.invoice_number, 'INV-100');
     assert.equal(normalized.records[0]?.rate_code, 'RC-01');
     assert.equal(normalized.records[0]?.service_item, 'Hauling');

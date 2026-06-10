@@ -552,14 +552,13 @@ export const TRANSACTION_DATA_FIELD_ORDER: readonly TransactionDataFieldKey[] = 
 
 export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, readonly string[]> = {
   transaction_number: [
+    'ticket no',
+    'ticket no.',
+    'ticket num',
     'transaction #',
     'transaction number',
     'ticket #',
     'ticket number',
-    'ticket no',
-    'ticket no.',
-    'ticket num',
-    'ticket id',
     'ticket',
     'load ticket',
     'load ticket #',

@@ -13,6 +13,7 @@ import {
   type IssueSeverity,
   type IssueStatus,
 } from '@/lib/issueObjects';
+import { DECISION_OPEN_STATUSES } from '@/lib/overdue';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
@@ -342,6 +343,33 @@ function statusForExecutionItem(item: ProjectExecutionItemRow): IssueStatus {
   return item.status === 'resolved' ? 'COMPLETE' : 'EXECUTING';
 }
 
+function isPipelineBLegacyDecision(decision: ProjectDecisionRow): boolean {
+  return decision.source === 'deterministic' || decision.source === 'rule_engine';
+}
+
+function severityForDecision(decision: ProjectDecisionRow): IssueSeverity {
+  switch (decision.severity) {
+    case 'critical':
+    case 'high':
+    case 'medium':
+    case 'low':
+      return decision.severity;
+    case 'warning':
+      return 'medium';
+    default:
+      return 'low';
+  }
+}
+
+function lifecycleForLegacyDecision(decision: ProjectDecisionRow): IssueLifecycleState {
+  if (decision.status === 'in_review') return 'needs_verification';
+  return 'ready_for_auth';
+}
+
+function legacyDecisionHref(projectId: string, decisionId: string): string {
+  return `/platform/projects/${projectId}?decisionId=${decisionId}#project-decisions`;
+}
+
 function syntheticFindingForExecutionItem(item: ProjectExecutionItemRow): ValidationFinding {
   const lifecycleState = queueLifecycleForExecutionItem(item);
   const severity = item.severity === 'critical' ? 'critical' : item.severity === 'low' ? 'info' : 'warning';
@@ -382,6 +410,48 @@ function syntheticFindingForExecutionItem(item: ProjectExecutionItemRow): Valida
     resolved_at: item.resolved_at,
     created_at: item.created_at,
     updated_at: item.updated_at,
+  };
+}
+
+function syntheticFindingForLegacyDecision(decision: ProjectDecisionRow, projectId: string): ValidationFinding {
+  const severity = severityForDecision(decision) === 'critical' ? 'critical' : severityForDecision(decision) === 'low' ? 'info' : 'warning';
+  const summary = decision.summary ?? decision.title;
+
+  return {
+    id: `decision:${decision.id}`,
+    run_id: `decision:${decision.id}`,
+    project_id: projectId,
+    rule_id: decision.decision_type,
+    check_key: decision.decision_type,
+    category: 'financial_integrity',
+    severity,
+    status: 'open',
+    subject_type: 'decision',
+    subject_id: decision.id,
+    field: null,
+    expected: null,
+    actual: null,
+    variance: null,
+    variance_unit: null,
+    blocked_reason: null,
+    finding_disposition: 'requires_review',
+    business_severity: severityForDecision(decision),
+    problem: summary,
+    impact: summary,
+    required_action: 'Review contract intelligence decision',
+    evidence_refs: [],
+    source_family: 'project',
+    affected_amount: null,
+    approval_gate_effect: 'requires_operator_review',
+    exposure_type: 'other',
+    decision_eligible: true,
+    action_eligible: false,
+    linked_decision_id: decision.id,
+    linked_action_id: null,
+    resolved_by_user_id: null,
+    resolved_at: null,
+    created_at: decision.created_at,
+    updated_at: decision.updated_at ?? decision.created_at,
   };
 }
 
@@ -433,6 +503,59 @@ function buildExecutionBackedIssueObject(params: {
     createdAt: toDate(executionItem.created_at),
     decisionMadeAt: null,
     executedAt: executedAt(executionItem),
+  };
+}
+
+function buildLegacyDecisionIssueObject(params: {
+  input: IssueObjectResolverInput;
+  decision: ProjectDecisionRow;
+  activityEvents: readonly ActivityLike[];
+}): IssueObject | null {
+  const { input, decision, activityEvents } = params;
+  if (!decision.project_id || decision.project_id !== input.projectId) {
+    console.warn('[resolveProjectIssueObjects] omitted legacy decision issue with missing or mismatched project_id', {
+      decisionId: decision.id,
+      decisionProjectId: decision.project_id ?? null,
+      projectId: input.projectId,
+    });
+    return null;
+  }
+
+  const finding = syntheticFindingForLegacyDecision(decision, input.projectId);
+  const decisionId = decision.id;
+  const executionItemId = null;
+  const status: IssueStatus = 'DECIDED';
+  const lifecycleState = lifecycleForLegacyDecision(decision);
+  const auditChain = activityEvents
+    .filter((event) => eventMatchesIssue({ event, finding, decisionId, executionItemId }))
+    .map(auditEntryForEvent)
+    .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
+  const summary = decision.summary ?? decision.title;
+
+  return {
+    issueId: decision.id,
+    projectId: decision.project_id,
+    findingId: finding.id,
+    decisionId,
+    executionItemId,
+    finding,
+    decision,
+    executionItem: null,
+    evidenceTargets: [],
+    auditChain,
+    status,
+    lifecycleState,
+    title: decision.title,
+    summary,
+    issueType: decision.decision_type,
+    severity: severityForDecision(decision),
+    confidence: clamp(decision.confidence ?? 1, 0, 1),
+    exposureAmount: null,
+    nextAction: 'Review decision',
+    nextHref: legacyDecisionHref(input.projectId, decision.id),
+    createdAt: toDate(decision.created_at),
+    decisionMadeAt: toDate(decision.updated_at ?? decision.created_at),
+    executedAt: null,
   };
 }
 
@@ -520,5 +643,15 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
     .map((executionItem) => buildExecutionBackedIssueObject({ input, executionItem, activityEvents }))
     .filter((issue): issue is IssueObject => issue != null);
 
-  return sortIssueObjects([...findingBackedIssueObjects, ...executionBackedIssueObjects]);
+  const existingIssueObjects = [...findingBackedIssueObjects, ...executionBackedIssueObjects];
+  const legacyDecisionIssueObjects = decisions
+    .filter((decision) =>
+      DECISION_OPEN_STATUSES.includes(decision.status)
+      && isPipelineBLegacyDecision(decision)
+      && existingIssueObjects.every((issue) => issue.decisionId !== decision.id)
+    )
+    .map((decision) => buildLegacyDecisionIssueObject({ input, decision, activityEvents }))
+    .filter((issue): issue is IssueObject => issue != null);
+
+  return sortIssueObjects([...findingBackedIssueObjects, ...executionBackedIssueObjects, ...legacyDecisionIssueObjects]);
 }

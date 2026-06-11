@@ -363,7 +363,7 @@ function severityForDecision(decision: ProjectDecisionRow): IssueSeverity {
 
 function lifecycleForLegacyDecision(decision: ProjectDecisionRow): IssueLifecycleState {
   if (decision.status === 'in_review') return 'needs_verification';
-  return 'ready_for_auth';
+  return 'needs_verification';
 }
 
 function legacyDecisionHref(projectId: string, decisionId: string): string {

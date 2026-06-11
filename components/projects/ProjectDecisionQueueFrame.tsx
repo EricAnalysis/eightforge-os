@@ -8,9 +8,9 @@ import type { ProjectDecisionLifecycleState, ProjectOverviewDecisionCard } from 
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 
-type ProjectDecisionFrameAction = 'escalate' | 'verify';
+type ProjectDecisionFrameAction = 'confirm' | 'override' | 'needs_review';
 type ProjectDecisionBucketKey = ProjectDecisionLifecycleState;
-export const PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS = ['escalate', 'verify'] as const;
+export const PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS = ['confirm', 'override', 'needs_review'] as const;
 
 type ProjectDecisionQueueFrameProps = {
   decisions: readonly ProjectOverviewDecisionCard[];
@@ -21,7 +21,7 @@ type ProjectDecisionQueueFrameProps = {
 
 const BUCKETS: Array<{ key: ProjectDecisionBucketKey; label: string }> = [
   { key: 'blocked', label: 'Blocked' },
-  { key: 'needs_verification', label: 'Needs verification' },
+  { key: 'needs_verification', label: 'Needs review' },
   { key: 'ready_for_authorization', label: 'Ready for authorization' },
   { key: 'escalated', label: 'Escalated' },
   { key: 'overridden', label: 'Overridden' },
@@ -29,7 +29,8 @@ const BUCKETS: Array<{ key: ProjectDecisionBucketKey; label: string }> = [
 ];
 
 function lifecycleForAction(action: ProjectDecisionFrameAction): ProjectDecisionLifecycleState {
-  if (action === 'escalate') return 'escalated';
+  if (action === 'confirm') return 'ready_for_authorization';
+  if (action === 'override') return 'overridden';
   return 'needs_verification';
 }
 
@@ -38,7 +39,59 @@ function labelForLifecycle(state: ProjectDecisionLifecycleState): string {
 }
 
 function actionLabel(action: ProjectDecisionFrameAction): string {
+  if (action === 'needs_review') return 'Needs Review';
   return action.charAt(0).toUpperCase() + action.slice(1);
+}
+
+function feedbackPayloadForAction(action: ProjectDecisionFrameAction, notes: string) {
+  const trimmedNotes = notes.trim();
+  if (action === 'confirm') {
+    return {
+      is_correct: true,
+      feedback_type: 'correct',
+      disposition: 'accept',
+      review_error_type: null,
+      operator_action: action,
+      notes: trimmedNotes || null,
+    };
+  }
+  if (action === 'override') {
+    return {
+      is_correct: false,
+      feedback_type: 'override',
+      disposition: null,
+      review_error_type: 'edge_case',
+      operator_action: action,
+      notes: trimmedNotes || null,
+    };
+  }
+  return {
+    is_correct: false,
+    feedback_type: 'needs_review',
+    disposition: null,
+    review_error_type: 'edge_case',
+    operator_action: action,
+    notes: trimmedNotes || null,
+  };
+}
+
+function buttonClassForAction(action: ProjectDecisionFrameAction, selected: boolean): string {
+  const base = 'rounded-sm border px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-colors disabled:cursor-not-allowed disabled:opacity-60';
+  if (action === 'confirm') {
+    return `${base} border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)] hover:border-[var(--ef-purple-primary-a70)]`;
+  }
+  if (action === 'override') {
+    return `${base} ${
+      selected
+        ? 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]'
+        : 'border-[var(--ef-warning-a35)] text-[var(--ef-warning-soft)] hover:bg-[var(--ef-warning-bg)]'
+    }`;
+  }
+  return `${base} ${
+    selected
+      ? 'border-[var(--ef-purple-primary-a60)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)]'
+      : 'border-[var(--ef-border-subtle)] text-[var(--ef-text-secondary)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]'
+  }`;
 }
 
 function isResolvedDecision(decision: ProjectOverviewDecisionCard): boolean {
@@ -71,7 +124,6 @@ function formatIssueMoney(value: number | null): string {
 function IssueDetailSurface({
   issue,
   action,
-  setAction,
   notes,
   setNotes,
   submitAction,
@@ -81,10 +133,9 @@ function IssueDetailSurface({
 }: {
   issue: IssueObject;
   action: ProjectDecisionFrameAction | null;
-  setAction: (action: ProjectDecisionFrameAction) => void;
   notes: string;
   setNotes: (notes: string) => void;
-  submitAction: () => void;
+  submitAction: (action: ProjectDecisionFrameAction) => void;
   saving: boolean;
   message: string | null;
   error: string | null;
@@ -144,36 +195,25 @@ function IssueDetailSurface({
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
         {canRecordDecisionAction ? (
           <>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
                 <button
                   key={nextAction}
                   type="button"
-                  onClick={() => setAction(nextAction)}
-                  className={`rounded-sm border px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-colors ${
-                    action === nextAction
-                      ? 'border-[var(--ef-purple-primary-a60)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)]'
-                      : 'border-[var(--ef-border-subtle)] text-[var(--ef-text-secondary)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]'
-                  }`}
+                  onClick={() => submitAction(nextAction)}
+                  disabled={saving}
+                  className={buttonClassForAction(nextAction, action === nextAction)}
                 >
-                  {nextAction}
+                  {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
                 </button>
               ))}
             </div>
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              placeholder="Notes optional for escalation or verification triage"
+              placeholder="Notes optional; required when recording an override"
               className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
-            <button
-              type="button"
-              onClick={submitAction}
-              disabled={saving}
-              className="w-full rounded-sm border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a12)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition-colors hover:border-[var(--ef-purple-primary-a70)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? 'Recording...' : 'Record action'}
-            </button>
           </>
         ) : (
           <p className="text-sm text-[var(--ef-text-muted)]">This finding needs a decision before triage actions are available.</p>
@@ -388,30 +428,28 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
     return response;
   }
 
-  async function submitAction() {
+  async function submitAction(nextAction: ProjectDecisionFrameAction) {
+    setAction(nextAction);
+    setError(null);
+    setMessage(null);
     const actionDecisionId = selectedIssue?.decisionId ?? selected?.id ?? null;
-    if (!selected || !action || !actionDecisionId) {
+    if (!selected || !actionDecisionId) {
       setError('Choose a decision and operator action first.');
       return;
     }
+    if (nextAction === 'override' && notes.trim().length === 0) {
+      setError('Override requires a reason.');
+      return;
+    }
     setSaving(true);
-    setError(null);
-    setMessage(null);
     scrollTopBeforeSave.current = queueScrollRef.current?.scrollTop ?? 0;
 
     try {
-      const nextLifecycle = lifecycleForAction(action);
-      const nextActionLabel = actionLabel(action);
+      const nextLifecycle = lifecycleForAction(nextAction);
+      const nextActionLabel = actionLabel(nextAction);
       const response = await authorizedFetch(`/api/decisions/${actionDecisionId}/feedback`, {
         method: 'POST',
-        body: JSON.stringify({
-          is_correct: false,
-          feedback_type: 'needs_review',
-          disposition: action === 'escalate' ? 'escalate' : null,
-          review_error_type: 'edge_case',
-          operator_action: action,
-          notes: notes.trim() || null,
-        }),
+        body: JSON.stringify(feedbackPayloadForAction(nextAction, notes)),
       });
 
       if (!response.ok) {
@@ -419,7 +457,8 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
         throw new Error(typeof body.error === 'string' ? body.error : 'Decision action failed.');
       }
 
-      setMessage('Decision triage action recorded. Open Execution to finalize approval-impacting outcomes.');
+      setError(null);
+      setMessage('Decision action recorded. Open Execution to finalize approval-impacting outcomes.');
       setLocalLifecycleById((current) => ({
         ...current,
         [selected.id]: nextLifecycle,
@@ -431,6 +470,7 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
       setAction(null);
       setNotes('');
       await onProjectRefresh?.();
+      setError(null);
       window.requestAnimationFrame(() => {
         if (queueScrollRef.current) queueScrollRef.current.scrollTop = scrollTopBeforeSave.current;
       });
@@ -570,10 +610,9 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
           <IssueDetailSurface
             issue={selectedIssue}
             action={action}
-            setAction={setAction}
             notes={notes}
             setNotes={setNotes}
-            submitAction={() => void submitAction()}
+            submitAction={(nextAction) => void submitAction(nextAction)}
             saving={saving}
             message={message}
             error={error}
@@ -631,37 +670,26 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             </div>
 
             <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator triage actions</p>
-              <div className="grid grid-cols-2 gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
+              <div className="grid gap-2 sm:grid-cols-3">
                 {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
                   <button
                     key={nextAction}
                     type="button"
-                    onClick={() => setAction(nextAction)}
-                    className={`rounded-sm border px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-colors ${
-                      action === nextAction
-                        ? 'border-[var(--ef-purple-primary-a60)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)]'
-                        : 'border-[var(--ef-border-subtle)] text-[var(--ef-text-secondary)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]'
-                    }`}
+                    onClick={() => void submitAction(nextAction)}
+                    disabled={saving}
+                    className={buttonClassForAction(nextAction, action === nextAction)}
                   >
-                    {nextAction}
+                    {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
                   </button>
                 ))}
               </div>
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="Notes optional for escalation or verification triage"
+                placeholder="Notes optional; required when recording an override"
                 className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
               />
-              <button
-                type="button"
-                onClick={() => void submitAction()}
-                disabled={saving}
-                className="w-full rounded-sm border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a12)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--ef-purple-glow)] transition-colors hover:border-[var(--ef-purple-primary-a70)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? 'Recording...' : 'Record action'}
-              </button>
               {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
               {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
             </div>

@@ -72,6 +72,7 @@ type RevalidateTriggerResult =
     };
 
 type GateTone = 'critical' | 'warning' | 'success';
+type ApprovalGateDisplayState = 'blocked' | 'needs_review' | 'not_ready' | 'validated';
 
 const EMPTY_SUMMARY: ValidationSummary = {
   status: 'NOT_READY',
@@ -406,27 +407,39 @@ function findingCategoryLabel(finding: ValidationFinding): string {
   return humanizeTruthToken(finding.category);
 }
 
-function approvalGateLabel(status: ValidationStatus): string {
-  switch (status) {
-    case 'BLOCKED':
+function approvalGateState(params: {
+  status: ValidationStatus;
+  blockerCount: number;
+  openFindingCount: number;
+}): ApprovalGateDisplayState {
+  if (params.status === 'VALIDATED') return 'validated';
+  if (params.status === 'BLOCKED' || params.blockerCount > 0) return 'blocked';
+  if (params.status === 'NOT_READY' && params.openFindingCount === 0) return 'not_ready';
+  return 'needs_review';
+}
+
+function approvalGateLabel(state: ApprovalGateDisplayState): string {
+  switch (state) {
+    case 'blocked':
       return 'Blocked';
-    case 'VALIDATED':
+    case 'validated':
       return 'Clear';
-    case 'FINDINGS_OPEN':
-    case 'NOT_READY':
+    case 'not_ready':
+      return 'Not Ready';
+    case 'needs_review':
     default:
-      return 'Requires Verification';
+      return 'Needs Review';
   }
 }
 
-function approvalGateTone(status: ValidationStatus): GateTone {
-  switch (status) {
-    case 'BLOCKED':
+function approvalGateTone(state: ApprovalGateDisplayState): GateTone {
+  switch (state) {
+    case 'blocked':
       return 'critical';
-    case 'VALIDATED':
+    case 'validated':
       return 'success';
-    case 'FINDINGS_OPEN':
-    case 'NOT_READY':
+    case 'needs_review':
+    case 'not_ready':
     default:
       return 'warning';
   }
@@ -469,29 +482,29 @@ function approvalGateLabelClassName(tone: GateTone): string {
 }
 
 function approvalGateExplanation(params: {
-  status: ValidationStatus;
+  state: ApprovalGateDisplayState;
   summary: ValidationSummary;
   criticalCount: number;
 }): string {
   const blockedReason = params.summary.blocked_reasons.find(
     (reason) => typeof reason === 'string' && reason.trim().length > 0,
   );
-  if (blockedReason) {
+  if (params.state === 'blocked' && blockedReason) {
     return blockedReason;
   }
 
-  switch (params.status) {
-    case 'BLOCKED':
+  switch (params.state) {
+    case 'blocked':
       return params.criticalCount === 1
         ? 'One approval blocker still prevents this project from moving forward.'
         : `${params.criticalCount} approval blockers still prevent this project from moving forward.`;
-    case 'VALIDATED':
+    case 'validated':
       return 'Validator is not showing any active blocker-level mismatches right now.';
-    case 'FINDINGS_OPEN':
-      return 'Approval is waiting on operator review before the project can move forward.';
-    case 'NOT_READY':
+    case 'not_ready':
+      return 'No blockers are open, but approval readiness has not settled.';
+    case 'needs_review':
     default:
-      return 'Validation has not produced a clear approval signal yet.';
+      return 'Operator review is required before approval can proceed.';
   }
 }
 
@@ -1077,14 +1090,23 @@ export function ValidatorTab({
       .slice(0, 3),
     [validatorWorkspace.coverage_items],
   );
-  const gateTone = approvalGateTone(status);
   const gateAmount = approvalGateAmount(summary);
   const canonicalBlockerCount =
     summary.blocker_count
     ?? summary.critical_count
     ?? summary.validator_blockers.length;
-  const gateExplanation = approvalGateExplanation({
+  const openFindingCount =
+    summary.open_count
+    ?? summary.validator_open_items.length
+    ?? findings.filter((finding) => finding.status === 'open').length;
+  const gateDisplayState: ApprovalGateDisplayState = approvalGateState({
     status,
+    blockerCount: canonicalBlockerCount,
+    openFindingCount,
+  });
+  const gateTone = approvalGateTone(gateDisplayState);
+  const gateExplanation = approvalGateExplanation({
+    state: gateDisplayState,
     summary,
     criticalCount: canonicalBlockerCount,
   });
@@ -1099,7 +1121,7 @@ export function ValidatorTab({
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h2 className={`text-3xl font-bold tracking-tight ${approvalGateLabelClassName(gateTone)}`}>
-                {approvalGateLabel(status)}
+                {approvalGateLabel(gateDisplayState)}
               </h2>
               {validationInProgress ? (
                 <span className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-surface-elevated)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-primary)]">
@@ -1112,32 +1134,43 @@ export function ValidatorTab({
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="#approval-blockers"
-              className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-            >
-              Review Blockers
-            </Link>
-            <Link
-              href="#project-decisions"
-              className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
-            >
-              View Execution
-            </Link>
-            <button
-              type="button"
-              onClick={triggerManualRevalidate}
-              disabled={!allowManualRevalidate}
-              className={`rounded-sm border px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
-                allowManualRevalidate
-                  ? 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)] hover:border-[var(--ef-text-primary)] hover:text-white'
-                  : 'cursor-not-allowed border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] text-[var(--ef-text-soft)]'
-              }`}
-            >
-              {revalidateLoading ? 'Revalidating...' : 'Revalidate Project'}
-            </button>
-          </div>
+          {gateDisplayState === 'needs_review' ? null : (
+            <div className="flex flex-wrap gap-2">
+              {gateDisplayState === 'not_ready' ? null : (
+                <>
+                  <Link
+                    href="#approval-blockers"
+                    className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
+                  >
+                    Review Blockers
+                  </Link>
+                  <Link
+                    href="#project-decisions"
+                    className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+                  >
+                    View Execution
+                  </Link>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={triggerManualRevalidate}
+                disabled={!allowManualRevalidate}
+                className={`rounded-sm border px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
+                  allowManualRevalidate
+                    ? 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)] hover:border-[var(--ef-text-primary)] hover:text-white'
+                    : 'cursor-not-allowed border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] text-[var(--ef-text-soft)]'
+                }`}
+              >
+                {revalidateLoading ? 'Revalidating...' : 'Revalidate Project'}
+              </button>
+              {gateDisplayState === 'not_ready' ? (
+                <p className="basis-full text-xs leading-5 text-[var(--ef-text-secondary)]">
+                  No blockers are open. Revalidate the project to refresh the approval state.
+                </p>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1165,13 +1198,15 @@ export function ValidatorTab({
           />
           <ForgeMetricCard
             label="Approval State"
-            value={approvalGateLabel(status)}
+            value={approvalGateLabel(gateDisplayState)}
             supporting={
-              status === 'VALIDATED'
+              gateDisplayState === 'validated'
                 ? 'Validator currently clears the project for approval.'
-                : status === 'BLOCKED'
+                : gateDisplayState === 'blocked'
                   ? 'Approval cannot move forward until blockers are resolved.'
-                  : 'Operator review is still required before approval can clear.'
+                  : gateDisplayState === 'not_ready'
+                    ? 'Approval readiness needs a fresh validation signal.'
+                    : 'Operator review is still required before approval can clear.'
             }
             tone={metricToneForGate(gateTone)}
             radius="sm"

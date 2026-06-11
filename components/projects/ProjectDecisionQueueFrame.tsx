@@ -41,6 +41,10 @@ function actionLabel(action: ProjectDecisionFrameAction): string {
   return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
+function isResolvedDecision(decision: ProjectOverviewDecisionCard): boolean {
+  return ['resolved', 'overridden'].includes(decision.lifecycle_state);
+}
+
 function FrameRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-3">
@@ -227,7 +231,9 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
   const searchParams = useSearchParams();
   const requestedDecisionId = searchParams.get('decisionId');
   const requestedIssueId = searchParams.get('selectedIssue');
+  const requestedExecutionItemId = searchParams.get('executionItemId');
   const [selectedId, setSelectedId] = useState<string | null>(decisions[0]?.id ?? null);
+  const [showResolved, setShowResolved] = useState(false);
   const [action, setAction] = useState<ProjectDecisionFrameAction | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -237,26 +243,6 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
   const [localActionById, setLocalActionById] = useState<Record<string, string>>({});
   const queueScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollTopBeforeSave = useRef(0);
-
-  useEffect(() => {
-    if (decisions.length === 0) {
-      setSelectedId(null);
-      return;
-    }
-    const requestedSelection =
-      requestedIssueId && decisions.some((decision) => decision.id === requestedIssueId)
-        ? requestedIssueId
-        : requestedDecisionId && decisions.some((decision) => decision.id === requestedDecisionId)
-          ? requestedDecisionId
-          : null;
-    if (requestedSelection && selectedId !== requestedSelection) {
-      setSelectedId(requestedSelection);
-      return;
-    }
-    if (!selectedId || !decisions.some((decision) => decision.id === selectedId)) {
-      setSelectedId(requestedSelection ?? decisions[0]?.id ?? null);
-    }
-  }, [decisions, requestedDecisionId, requestedIssueId, selectedId]);
 
   const renderedDecisions = useMemo(
     () => decisions.map((decision) => {
@@ -276,7 +262,64 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
     [decisions, localActionById, localLifecycleById],
   );
 
-  const buckets = useMemo(() => {
+  const activeDecisions = useMemo(
+    () => renderedDecisions.filter((decision) => !isResolvedDecision(decision)),
+    [renderedDecisions],
+  );
+
+  const resolvedDecisions = useMemo(
+    () => renderedDecisions.filter(isResolvedDecision),
+    [renderedDecisions],
+  );
+
+  useEffect(() => {
+    if (renderedDecisions.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    const requestedExecutionIssue = requestedExecutionItemId
+      ? issues.find((issue) =>
+          issue.executionItemId === requestedExecutionItemId
+          || issue.issueId === `exec:${requestedExecutionItemId}`,
+        ) ?? null
+      : null;
+    const requestedExecutionSelection =
+      requestedExecutionIssue && renderedDecisions.some((decision) => decision.id === requestedExecutionIssue.issueId)
+        ? requestedExecutionIssue.issueId
+        : null;
+    const requestedSelection =
+      requestedExecutionSelection
+        ?? (requestedIssueId && renderedDecisions.some((decision) => decision.id === requestedIssueId)
+          ? requestedIssueId
+          : requestedDecisionId && renderedDecisions.some((decision) => decision.id === requestedDecisionId)
+            ? requestedDecisionId
+            : null);
+    if (
+      requestedExecutionSelection
+      && resolvedDecisions.some((decision) => decision.id === requestedExecutionSelection)
+    ) {
+      setShowResolved(true);
+    }
+    if (requestedSelection && selectedId !== requestedSelection) {
+      setSelectedId(requestedSelection);
+      return;
+    }
+    if (!selectedId || !renderedDecisions.some((decision) => decision.id === selectedId)) {
+      setSelectedId(requestedSelection ?? activeDecisions[0]?.id ?? (showResolved ? resolvedDecisions[0]?.id ?? null : null));
+    }
+  }, [
+    activeDecisions,
+    issues,
+    renderedDecisions,
+    requestedDecisionId,
+    requestedExecutionItemId,
+    requestedIssueId,
+    resolvedDecisions,
+    selectedId,
+    showResolved,
+  ]);
+
+  const activeBuckets = useMemo(() => {
     const grouped: Record<ProjectDecisionBucketKey, ProjectOverviewDecisionCard[]> = {
       blocked: [],
       needs_verification: [],
@@ -285,11 +328,27 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
       overridden: [],
       resolved: [],
     };
-    for (const decision of renderedDecisions) grouped[decision.lifecycle_state].push(decision);
+    for (const decision of activeDecisions) grouped[decision.lifecycle_state].push(decision);
     return grouped;
-  }, [renderedDecisions]);
+  }, [activeDecisions]);
 
-  const selected = renderedDecisions.find((decision) => decision.id === selectedId) ?? renderedDecisions[0] ?? null;
+  const resolvedBuckets = useMemo(() => {
+    const grouped: Record<ProjectDecisionBucketKey, ProjectOverviewDecisionCard[]> = {
+      blocked: [],
+      needs_verification: [],
+      ready_for_authorization: [],
+      escalated: [],
+      overridden: [],
+      resolved: [],
+    };
+    for (const decision of resolvedDecisions) grouped[decision.lifecycle_state].push(decision);
+    return grouped;
+  }, [resolvedDecisions]);
+
+  const selectedCandidate = renderedDecisions.find((decision) => decision.id === selectedId) ?? null;
+  const selected = selectedCandidate && (showResolved || !isResolvedDecision(selectedCandidate))
+    ? selectedCandidate
+    : activeDecisions[0] ?? (showResolved ? resolvedDecisions[0] ?? null : null);
   const issuesById = useMemo(() => new Map(issues.map((issue) => [issue.issueId, issue] as const)), [issues]);
   const selectedIssue = selected ? issuesById.get(selected.id) ?? null : null;
 
@@ -401,17 +460,17 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
       <div ref={queueScrollRef} className="max-h-[72vh] space-y-4 overflow-auto pr-1">
-        {BUCKETS.map((bucket) => (
+        {BUCKETS.filter((bucket) => bucket.key !== 'resolved' && bucket.key !== 'overridden').map((bucket) => (
           <section key={bucket.key} className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)]">
             <div className="flex items-center justify-between border-b border-[var(--ef-border-subtle-a70)] px-4 py-3">
               <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-primary)]">{bucket.label}</h3>
-              <span className="text-[10px] text-[var(--ef-text-muted)]">{buckets[bucket.key].length}</span>
+              <span className="text-[10px] text-[var(--ef-text-muted)]">{activeBuckets[bucket.key].length}</span>
             </div>
-            {buckets[bucket.key].length === 0 ? (
+            {activeBuckets[bucket.key].length === 0 ? (
               <p className="px-4 py-3 text-sm text-[var(--ef-text-muted)]">No decisions in this state.</p>
             ) : (
               <div className="divide-y divide-[var(--ef-border-subtle-a70)]">
-                {buckets[bucket.key].map((decision) => (
+                {activeBuckets[bucket.key].map((decision) => (
                   <button
                     key={decision.id}
                     type="button"
@@ -445,6 +504,64 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             )}
           </section>
         ))}
+        {resolvedDecisions.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowResolved((current) => !current)}
+            className="w-full rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] transition-colors hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]"
+          >
+            {showResolved ? 'Hide resolved history' : `Show resolved history (${resolvedDecisions.length})`}
+          </button>
+        ) : null}
+        {showResolved && resolvedDecisions.length > 0 ? (
+          <section className="space-y-4">
+            <h3 className="px-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Resolved / History</h3>
+            {BUCKETS.filter((bucket) => bucket.key === 'overridden' || bucket.key === 'resolved').map((bucket) => (
+              <section key={bucket.key} className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)]">
+                <div className="flex items-center justify-between border-b border-[var(--ef-border-subtle-a70)] px-4 py-3">
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-primary)]">{bucket.label}</h3>
+                  <span className="text-[10px] text-[var(--ef-text-muted)]">{resolvedBuckets[bucket.key].length}</span>
+                </div>
+                {resolvedBuckets[bucket.key].length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-[var(--ef-text-muted)]">No decisions in this state.</p>
+                ) : (
+                  <div className="divide-y divide-[var(--ef-border-subtle-a70)]">
+                    {resolvedBuckets[bucket.key].map((decision) => (
+                      <button
+                        key={decision.id}
+                        type="button"
+                        onClick={() => setSelectedId(decision.id)}
+                        className={`w-full px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] ${
+                          selected?.id === decision.id ? 'border-l-2 border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)]' : 'border-l-2 border-transparent'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{decision.title}</p>
+                            <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{decision.reason}</p>
+                          </div>
+                          <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
+                            {decision.lifecycle_label}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+                          <span>Evidence: {decision.evidence_refs.length}</span>
+                          <span>ID: {decision.id.slice(0, 8)}</span>
+                          <span>Owner: {decision.assigned_operator}</span>
+                          {decision.last_operator_action ? <span>Last: {decision.last_operator_action}</span> : null}
+                          {decision.source_identity_key ? <span>Key: {decision.source_identity_key}</span> : null}
+                          {decision.exposure_amount != null ? <span>Exposure: ${Math.round(decision.exposure_amount).toLocaleString()}</span> : null}
+                          <span>{decision.freshness_label}</span>
+                          {decision.due_label ? <span>{decision.due_label}</span> : null}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
+          </section>
+        ) : null}
       </div>
 
       <aside className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-5">

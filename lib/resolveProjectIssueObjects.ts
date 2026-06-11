@@ -327,6 +327,133 @@ function executedAt(item: ProjectExecutionItemRow | null): Date | null {
   );
 }
 
+function executionItemHref(projectId: string, executionItemId: string): string {
+  return `/platform/projects/${projectId}?executionItemId=${executionItemId}#project-decisions`;
+}
+
+function queueLifecycleForExecutionItem(item: ProjectExecutionItemRow): IssueLifecycleState {
+  if (item.status === 'resolved') return 'resolved';
+  if (item.status === 'open') return 'blocked';
+  if (item.status === 'resolvable') return 'needs_verification';
+  return 'open';
+}
+
+function statusForExecutionItem(item: ProjectExecutionItemRow): IssueStatus {
+  return item.status === 'resolved' ? 'COMPLETE' : 'EXECUTING';
+}
+
+function syntheticFindingForExecutionItem(item: ProjectExecutionItemRow): ValidationFinding {
+  const lifecycleState = queueLifecycleForExecutionItem(item);
+  const severity = item.severity === 'critical' ? 'critical' : item.severity === 'low' ? 'info' : 'warning';
+  const findingId = item.source_id || item.id;
+
+  return {
+    id: findingId,
+    run_id: `execution:${item.id}`,
+    project_id: item.project_id,
+    rule_id: item.validator_rule_key ?? item.source_key,
+    check_key: item.source_key,
+    category: 'financial_integrity',
+    severity,
+    status: item.status === 'resolved' ? 'resolved' : 'open',
+    subject_type: item.source_type,
+    subject_id: item.source_id,
+    field: null,
+    expected: item.expected_value,
+    actual: item.actual_value,
+    variance: null,
+    variance_unit: null,
+    blocked_reason: item.status === 'open' ? item.problem : null,
+    finding_disposition: item.status === 'open' ? 'blocker' : 'requires_review',
+    business_severity: item.severity,
+    problem: item.problem,
+    impact: item.impact,
+    required_action: item.required_action,
+    evidence_refs: item.evidence_refs,
+    source_family: 'project',
+    affected_amount: null,
+    approval_gate_effect: lifecycleState === 'blocked' ? 'blocks_approval' : 'requires_operator_review',
+    exposure_type: 'other',
+    decision_eligible: true,
+    action_eligible: true,
+    linked_decision_id: null,
+    linked_action_id: item.id,
+    resolved_by_user_id: null,
+    resolved_at: item.resolved_at,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  };
+}
+
+function buildExecutionBackedIssueObject(params: {
+  input: IssueObjectResolverInput;
+  executionItem: ProjectExecutionItemRow;
+  activityEvents: readonly ActivityLike[];
+}): IssueObject | null {
+  const { input, executionItem, activityEvents } = params;
+  if (!executionItem.project_id) {
+    console.warn('[resolveProjectIssueObjects] omitted execution-backed issue with missing project_id', {
+      executionItemId: executionItem.id,
+    });
+    return null;
+  }
+
+  const finding = syntheticFindingForExecutionItem(executionItem);
+  const decisionId = null;
+  const executionItemId = executionItem.id;
+  const status = statusForExecutionItem(executionItem);
+  const lifecycleState = queueLifecycleForExecutionItem(executionItem);
+  const auditChain = activityEvents
+    .filter((event) => eventMatchesIssue({ event, finding, decisionId, executionItemId }))
+    .map(auditEntryForEvent)
+    .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
+  const summary = executionItem.problem || executionItem.title;
+
+  return {
+    issueId: `exec:${executionItem.id}`,
+    projectId: executionItem.project_id,
+    findingId: finding.id,
+    decisionId,
+    executionItemId,
+    finding,
+    decision: null,
+    executionItem,
+    evidenceTargets: [],
+    auditChain,
+    status,
+    lifecycleState,
+    title: executionItem.title,
+    summary,
+    issueType: executionItem.validator_rule_key ?? executionItem.source_key,
+    severity: executionItem.severity,
+    confidence: 1,
+    exposureAmount: null,
+    nextAction: nextActionForIssue({ decision: null, executionItem, status }),
+    nextHref: executionItemHref(input.projectId, executionItem.id),
+    createdAt: toDate(executionItem.created_at),
+    decisionMadeAt: null,
+    executedAt: executedAt(executionItem),
+  };
+}
+
+function sortIssueObjects(issues: IssueObject[]): IssueObject[] {
+  return [...issues].sort((left, right) => {
+    const lifecycleRank: Record<IssueLifecycleState, number> = {
+      blocked: 0,
+      escalated: 1,
+      needs_verification: 2,
+      ready_for_auth: 3,
+      open: 4,
+      resolved: 5,
+    };
+    const lifecycleDelta = lifecycleRank[left.lifecycleState] - lifecycleRank[right.lifecycleState];
+    if (lifecycleDelta !== 0) return lifecycleDelta;
+    const exposureDelta = (right.exposureAmount ?? 0) - (left.exposureAmount ?? 0);
+    if (exposureDelta !== 0) return exposureDelta;
+    return right.createdAt.getTime() - left.createdAt.getTime();
+  });
+}
+
 export function resolveProjectIssueObjects(input: IssueObjectResolverInput): IssueObject[] {
   const documentsById = new Map((input.documents ?? []).map((document) => [document.id, document] as const));
   const decisions = input.decisions ?? [];
@@ -334,7 +461,7 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
   const evidenceRows = (input.evidence ?? []) as ValidationEvidence[];
   const activityEvents = input.activityEvents ?? [];
 
-  return input.findings.map((finding) => {
+  const findingBackedIssueObjects = input.findings.map((finding) => {
     const decision =
       decisions.find((candidate) => decisionMatchesFinding(candidate, finding))
       ?? (finding.linked_decision_id ? decisions.find((candidate) => candidate.id === finding.linked_decision_id) ?? null : null);
@@ -384,19 +511,14 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
       decisionMadeAt: decision ? toDate(decision.updated_at ?? decision.created_at) : null,
       executedAt: executedAt(executionItem),
     };
-  }).sort((left, right) => {
-    const lifecycleRank: Record<IssueLifecycleState, number> = {
-      blocked: 0,
-      escalated: 1,
-      needs_verification: 2,
-      ready_for_auth: 3,
-      open: 4,
-      resolved: 5,
-    };
-    const lifecycleDelta = lifecycleRank[left.lifecycleState] - lifecycleRank[right.lifecycleState];
-    if (lifecycleDelta !== 0) return lifecycleDelta;
-    const exposureDelta = (right.exposureAmount ?? 0) - (left.exposureAmount ?? 0);
-    if (exposureDelta !== 0) return exposureDelta;
-    return right.createdAt.getTime() - left.createdAt.getTime();
   });
+
+  const executionBackedIssueObjects = executionItems
+    .filter((executionItem) => !findingBackedIssueObjects.some((issue) =>
+      issue.executionItemId === executionItem.id || issue.findingId === executionItem.source_id,
+    ))
+    .map((executionItem) => buildExecutionBackedIssueObject({ input, executionItem, activityEvents }))
+    .filter((issue): issue is IssueObject => issue != null);
+
+  return sortIssueObjects([...findingBackedIssueObjects, ...executionBackedIssueObjects]);
 }

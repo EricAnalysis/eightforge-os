@@ -18,6 +18,7 @@ import { useOperationalModel } from '@/lib/useOperationalModel';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { DECISION_OPEN_STATUSES, OverdueBadge, isDecisionOverdue } from '@/lib/overdue';
 import type { OperationalDecisionQueueItem, OperationalProjectRollupItem } from '@/lib/server/operationalQueue';
+import type { CurrentActionableItem } from '@/types/executionQueue';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 type AssigneeRef = { id: string; display_name: string | null } | null;
@@ -562,6 +563,9 @@ export default function DecisionsPage() {
     isHistoryStatusFilter(filterStatus, DECISION_OPEN_STATUSES);
   const { data: operationalModel, loading: operationalLoading, error: operationalError } =
     useOperationalModel(!orgLoading && !!organizationId && !includeHistory);
+  const [canonicalItems, setCanonicalItems] = useState<CurrentActionableItem[]>([]);
+  const [canonicalItemsLoading, setCanonicalItemsLoading] = useState(false);
+  const [canonicalItemsError, setCanonicalItemsError] = useState<string | null>(null);
 
   const [historyDecisions, setHistoryDecisions] = useState<HistoryDecisionRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -605,6 +609,66 @@ export default function DecisionsPage() {
       window.clearTimeout(timeoutId);
     };
   }, [fetchHistoryDecisions, includeHistory, organizationId, orgLoading]);
+
+  const fetchCanonicalItems = useCallback(async () => {
+    if (includeHistory || orgLoading || !organizationId) {
+      setCanonicalItems([]);
+      setCanonicalItemsLoading(false);
+      setCanonicalItemsError(null);
+      return;
+    }
+
+    setCanonicalItemsLoading(true);
+    setCanonicalItemsError(null);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        setCanonicalItems([]);
+        setCanonicalItemsError('Authentication required.');
+        setCanonicalItemsLoading(false);
+        return;
+      }
+
+      const params = new URLSearchParams();
+      if (filterProject) params.set('project_id', filterProject);
+      const response = await fetch(
+        `/api/actionable-items${params.toString() ? `?${params.toString()}` : ''}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error((body as { error?: string }).error ?? 'Failed to load actionable items.');
+      }
+
+      setCanonicalItems((body as { items?: CurrentActionableItem[] }).items ?? []);
+    } catch (error) {
+      setCanonicalItems([]);
+      setCanonicalItemsError(
+        error instanceof Error ? error.message : 'Failed to load actionable items.',
+      );
+    } finally {
+      setCanonicalItemsLoading(false);
+    }
+  }, [filterProject, includeHistory, organizationId, orgLoading]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void fetchCanonicalItems();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [fetchCanonicalItems]);
 
   const projectFilterLabel = useMemo(() => {
     if (!filterProject || !operationalModel) return null;
@@ -733,6 +797,17 @@ export default function DecisionsPage() {
     return buckets;
   }, [filteredDecisions]);
 
+  const activeCanonicalItems = useMemo(
+    () => canonicalItems.filter((item) => item.queue_state !== 'resolved'),
+    [canonicalItems],
+  );
+
+  const canonicalScanSummary = useMemo(() => ({
+    open: canonicalItems.filter((item) => item.queue_state !== 'resolved').length,
+    blocked: canonicalItems.filter((item) => item.queue_state === 'blocked').length,
+    needsVerification: canonicalItems.filter((item) => item.queue_state === 'needs_verification').length,
+  }), [canonicalItems]);
+
   const selectedGroup = useMemo(() => (
     filteredDecisions.find((group) => group.groupId === selectedGroupId) ?? filteredDecisions[0] ?? null
   ), [filteredDecisions, selectedGroupId]);
@@ -786,8 +861,8 @@ export default function DecisionsPage() {
     }
   }, [fetchHistoryDecisions, frameAction, frameNotes, includeHistory, organizationId, selectedGroup]);
 
-  const isLoading = orgLoading || (includeHistory ? historyLoading : operationalLoading);
-  const listError = includeHistory ? historyError : operationalError;
+  const isLoading = orgLoading || (includeHistory ? historyLoading : operationalLoading || canonicalItemsLoading);
+  const listError = includeHistory ? historyError : operationalError ?? canonicalItemsError;
   const hasActiveFilter = !!(
     filterStatus
     || filterSeverity
@@ -933,6 +1008,40 @@ export default function DecisionsPage() {
           </div>
         ) : null}
 
+        {!includeHistory && !isLoading ? (
+          <section className="mb-4 rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-primary)]">
+            <div className="flex items-center justify-between border-b border-[var(--ef-surface-elevated)] px-3 py-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ef-text-primary)]">Active Work</h3>
+              <span className="text-[10px] text-[var(--ef-text-faint)]">{activeCanonicalItems.length}</span>
+            </div>
+            {activeCanonicalItems.length === 0 ? (
+              <p className="px-3 py-3 text-[11px] text-[var(--ef-text-muted)]">No canonical active work items are open.</p>
+            ) : (
+              <div className="divide-y divide-[var(--ef-surface-elevated)]">
+                {activeCanonicalItems.map((item) => (
+                  <div key={item.id} className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SeverityBadge severity={item.severity} />
+                        <StatusBadge status={item.queue_state} />
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">{item.project_name}</span>
+                      </div>
+                      <p className="mt-2 text-[12px] font-semibold text-[var(--ef-text-primary)]">{item.title}</p>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[var(--ef-text-muted)]">{item.summary}</p>
+                    </div>
+                    <Link
+                      href={item.href}
+                      className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-2 py-1 text-[11px] font-medium text-[var(--ef-purple-glow)] hover:border-[var(--ef-purple-primary-a60)]"
+                    >
+                      {item.action_label}
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
         {!isLoading && filteredDecisions.length > 0 ? (
           <div className="mb-3 flex flex-wrap items-center gap-4 border-b border-[var(--ef-surface-elevated)] pb-3">
             <span className="text-[11px] font-semibold text-[var(--ef-text-primary)]">
@@ -962,15 +1071,15 @@ export default function DecisionsPage() {
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-primary)] p-3">
                   <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">Open decisions</p>
-                  <p className="mt-1 text-xl font-semibold text-[var(--ef-text-primary)]">{scanSummary.open}</p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--ef-text-primary)]">{includeHistory ? scanSummary.open : canonicalScanSummary.open}</p>
                 </div>
                 <div className="rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-3">
                   <p className="text-[10px] uppercase tracking-wide text-[var(--ef-critical-soft)]">Blocked</p>
-                  <p className="mt-1 text-xl font-semibold text-[var(--ef-critical)]">{scanSummary.blocked}</p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--ef-critical)]">{includeHistory ? scanSummary.blocked : canonicalScanSummary.blocked}</p>
                 </div>
                 <div className="rounded-md border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] p-3">
                   <p className="text-[10px] uppercase tracking-wide text-[var(--ef-warning)]">Needs verification</p>
-                  <p className="mt-1 text-xl font-semibold text-[var(--ef-warning)]">{scanSummary.needsVerification}</p>
+                  <p className="mt-1 text-xl font-semibold text-[var(--ef-warning)]">{includeHistory ? scanSummary.needsVerification : canonicalScanSummary.needsVerification}</p>
                 </div>
                 <div className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-primary)] p-3">
                   <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">Highest exposure</p>

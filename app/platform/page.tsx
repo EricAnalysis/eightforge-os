@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useDeferredValue, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
 import type {
   OperationalDecisionQueueItem,
   OperationalProjectRollupItem,
 } from '@/lib/server/operationalQueue';
+import type { ActionableItemSummary } from '@/types/executionQueue';
 
 type QueueAction = OperationalProjectRollupItem['rollup']['pending_actions'][number];
 
@@ -43,6 +45,15 @@ type ProjectRollupRow = {
   nextAction: string;
   lastActivityLabel: string;
   searchText: string;
+};
+
+const EMPTY_ACTIONABLE_SUMMARY: ActionableItemSummary = {
+  total: 0,
+  blocked: 0,
+  needs_review: 0,
+  needs_verification: 0,
+  by_project: {},
+  highest_severity: null,
 };
 
 function buildProjectTabHref(params: {
@@ -266,10 +277,68 @@ export default function PlatformDashboardPage() {
   const { organization, loading: orgLoading } = useCurrentOrg();
   const { data: operationalModel, loading, error, reload } =
     useOperationalModel(!orgLoading && !!organization?.id);
+  const [actionableSummary, setActionableSummary] = useState<ActionableItemSummary>(
+    EMPTY_ACTIONABLE_SUMMARY,
+  );
+  const [actionableSummaryLoading, setActionableSummaryLoading] = useState(false);
   const [projectSearchValue, setProjectSearchValue] = useState('');
   const deferredProjectSearch = useDeferredValue(projectSearchValue);
 
-  const isLoading = orgLoading || loading;
+  const loadActionableSummary = useCallback(async () => {
+    if (orgLoading || !organization?.id) {
+      setActionableSummary(EMPTY_ACTIONABLE_SUMMARY);
+      setActionableSummaryLoading(false);
+      return;
+    }
+
+    setActionableSummaryLoading(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        setActionableSummary(EMPTY_ACTIONABLE_SUMMARY);
+        setActionableSummaryLoading(false);
+        return;
+      }
+
+      const response = await fetch('/api/actionable-summary', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error((body as { error?: string }).error ?? 'Failed to load actionable summary.');
+      }
+
+      setActionableSummary(
+        (body as { summary?: ActionableItemSummary }).summary ?? EMPTY_ACTIONABLE_SUMMARY,
+      );
+    } catch (summaryError) {
+      console.warn(
+        '[platform] actionable summary unavailable:',
+        summaryError instanceof Error ? summaryError.message : summaryError,
+      );
+      setActionableSummary(EMPTY_ACTIONABLE_SUMMARY);
+    } finally {
+      setActionableSummaryLoading(false);
+    }
+  }, [orgLoading, organization?.id]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadActionableSummary();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadActionableSummary]);
+
+  const isLoading = orgLoading || loading || actionableSummaryLoading;
   const decisions = useMemo(
     () => operationalModel?.decisions ?? [],
     [operationalModel?.decisions],
@@ -290,17 +359,6 @@ export default function PlatformDashboardPage() {
       counts.set(decision.project_id, (counts.get(decision.project_id) ?? 0) + 1);
     }
     return counts;
-  }, [decisions]);
-
-  const highRiskProjectCount = useMemo(() => {
-    const ids = new Set<string>();
-    for (const decision of decisions) {
-      if (!decision.project_id) continue;
-      if (decision.severity === 'critical' || decision.severity === 'high') {
-        ids.add(decision.project_id);
-      }
-    }
-    return ids.size;
   }, [decisions]);
 
   const decisionByProjectId = useMemo(() => {
@@ -328,6 +386,7 @@ export default function PlatformDashboardPage() {
     const blockedProjects = rollups.filter(
       (item) => item.rollup.status.key === 'blocked' || item.rollup.blocked_count > 0,
     ).length;
+    const actionableProjectCount = Object.keys(actionableSummary.by_project).length;
 
     return [
       {
@@ -340,19 +399,21 @@ export default function PlatformDashboardPage() {
       },
       {
         label: 'High Risk Projects',
-        value: isLoading ? '...' : highRiskProjectCount,
+        value: isLoading ? '...' : actionableProjectCount,
         subtext: isLoading
           ? 'Refreshing high-severity items'
-          : `${operationalModel?.intelligence.high_risk_count ?? 0} high-severity queue item${(operationalModel?.intelligence.high_risk_count ?? 0) === 1 ? '' : 's'} open`,
-        tone: highRiskProjectCount > 0 ? 'warning' : 'muted',
+          : actionableSummary.blocked > 0
+            ? `${actionableSummary.blocked} blocked items open`
+            : `${actionableSummary.needs_review} items need review`,
+        tone: actionableProjectCount > 0 ? 'warning' : 'muted',
       },
       {
         label: 'Pending Decisions',
-        value: isLoading ? '...' : operationalModel?.intelligence.open_decisions_count ?? 0,
+        value: isLoading ? '...' : actionableSummary.total,
         subtext: isLoading
           ? 'Refreshing decision queue'
-          : `${decisions.length} routed decision${decisions.length === 1 ? '' : 's'} ready for operator review`,
-        tone: (operationalModel?.intelligence.open_decisions_count ?? 0) > 0 ? 'brand' : 'muted',
+          : 'Current operator actions awaiting review',
+        tone: actionableSummary.total > 0 ? 'brand' : 'muted',
       },
       {
         label: 'Needs Review',
@@ -363,7 +424,7 @@ export default function PlatformDashboardPage() {
         tone: (operationalModel?.intelligence.needs_review_count ?? 0) > 0 ? 'warning' : 'muted',
       },
     ];
-  }, [decisions.length, highRiskProjectCount, isLoading, operationalModel, rollups]);
+  }, [actionableSummary, decisions.length, isLoading, operationalModel, rollups]);
 
   const criticalActions = useMemo<CriticalActionCardItem[]>(() => {
     const rollupActions = rollups.flatMap((rollupItem) =>

@@ -1090,6 +1090,14 @@ export function ValidatorTab({
       .slice(0, 3),
     [validatorWorkspace.coverage_items],
   );
+  const actionableReadinessGaps = useMemo(
+    () => readinessGaps.filter((item) => item.state !== 'derived'),
+    [readinessGaps],
+  );
+  const readinessContextItems = useMemo(
+    () => readinessGaps.filter((item) => item.state === 'derived'),
+    [readinessGaps],
+  );
   const gateAmount = approvalGateAmount(summary);
   const canonicalBlockerCount =
     summary.blocker_count
@@ -1256,9 +1264,13 @@ export function ValidatorTab({
           <div className="rounded-sm border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-4 py-5 text-sm text-[var(--ef-text-secondary)]">
             Validator is not showing a support, evidence, or missing-field readiness gap right now.
           </div>
+        ) : actionableReadinessGaps.length === 0 ? (
+          <div className="rounded-sm border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-4 py-5 text-sm text-[var(--ef-text-secondary)]">
+            No coverage gaps require action in this phase.
+          </div>
         ) : (
           <div className="grid gap-4 xl:grid-cols-3">
-            {readinessGaps.map((item) => (
+            {actionableReadinessGaps.map((item) => (
               <ReadinessGapCard
                 key={item.key}
                 item={item}
@@ -1268,6 +1280,29 @@ export function ValidatorTab({
           </div>
         )}
       </section>
+
+      {readinessContextItems.length > 0 ? (
+        <section className="space-y-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+              Readiness Context
+            </p>
+            <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-secondary)]">
+              These items are not yet required for this project phase.
+            </h3>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            {readinessContextItems.map((item) => (
+              <ReadinessGapCard
+                key={item.key}
+                item={item}
+                label={COVERAGE_ITEM_CONFIG[item.key]?.label ?? item.label}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section
         id="approval-blockers"

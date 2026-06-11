@@ -98,6 +98,10 @@ function isResolvedDecision(decision: ProjectOverviewDecisionCard): boolean {
   return ['resolved', 'overridden'].includes(decision.lifecycle_state);
 }
 
+function isHistoryLifecycleState(state: string | null | undefined): boolean {
+  return state === 'resolved' || state === 'overridden';
+}
+
 function FrameRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-3">
@@ -130,6 +134,7 @@ function IssueDetailSurface({
   saving,
   message,
   error,
+  isHistoryRecord,
 }: {
   issue: IssueObject;
   action: ProjectDecisionFrameAction | null;
@@ -139,10 +144,11 @@ function IssueDetailSurface({
   saving: boolean;
   message: string | null;
   error: string | null;
+  isHistoryRecord: boolean;
 }) {
   const decision = issue.decision;
   const execution = issue.executionItem;
-  const canRecordDecisionAction = issue.decisionId != null;
+  const canRecordDecisionAction = issue.decisionId != null && !isHistoryRecord;
 
   return (
     <div className="mt-5 space-y-5">
@@ -191,36 +197,38 @@ function IssueDetailSurface({
         <FrameRow label="Decision status" value={decision?.status ?? 'No decision record yet'} />
       </div>
 
-      <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
-        {canRecordDecisionAction ? (
-          <>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
-                <button
-                  key={nextAction}
-                  type="button"
-                  onClick={() => submitAction(nextAction)}
-                  disabled={saving}
-                  className={buttonClassForAction(nextAction, action === nextAction)}
-                >
-                  {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
-                </button>
-              ))}
-            </div>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="Notes optional; required when recording an override"
-              className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
-            />
-          </>
-        ) : (
-          <p className="text-sm text-[var(--ef-text-muted)]">This finding needs a decision before triage actions are available.</p>
-        )}
-        {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
-        {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
-      </div>
+      {isHistoryRecord ? null : (
+        <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
+          {canRecordDecisionAction ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
+                  <button
+                    key={nextAction}
+                    type="button"
+                    onClick={() => submitAction(nextAction)}
+                    disabled={saving}
+                    className={buttonClassForAction(nextAction, action === nextAction)}
+                  >
+                    {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Notes optional; required when recording an override"
+                className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+              />
+            </>
+          ) : (
+            <p className="text-sm text-[var(--ef-text-muted)]">This finding needs a decision before triage actions are available.</p>
+          )}
+          {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
+          {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
+        </div>
+      )}
 
       <div className="grid gap-3">
         <FrameRow label="Execution outcome" value={execution ? [
@@ -391,6 +399,16 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
     : activeDecisions[0] ?? (showResolved ? resolvedDecisions[0] ?? null : null);
   const issuesById = useMemo(() => new Map(issues.map((issue) => [issue.issueId, issue] as const)), [issues]);
   const selectedIssue = selected ? issuesById.get(selected.id) ?? null : null;
+  const selectedHistoryState = isHistoryLifecycleState(selected?.lifecycle_state)
+    ? selected.lifecycle_state
+    : selectedIssue?.lifecycleState ?? selected?.lifecycle_state ?? null;
+  const selectedIsHistoryRecord = isHistoryLifecycleState(selectedHistoryState);
+  const selectedHistoryBanner =
+    selectedHistoryState === 'overridden'
+      ? 'Overridden — history record'
+      : selectedHistoryState === 'resolved'
+        ? 'Resolved — history record'
+        : null;
 
   const metrics = useMemo(() => {
     const startOfToday = new Date();
@@ -604,7 +622,12 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
         ) : null}
       </div>
 
-      <aside className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-5">
+      <aside className="space-y-4 rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-5">
+        {selectedHistoryBanner ? (
+          <div className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-[11px] font-bold text-[var(--ef-text-secondary)]">
+            {selectedHistoryBanner}
+          </div>
+        ) : null}
         <h3 className="text-base font-bold text-[var(--ef-text-primary)]">Decision Frame</h3>
         {selectedIssue ? (
           <IssueDetailSurface
@@ -616,6 +639,7 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             saving={saving}
             message={message}
             error={error}
+            isHistoryRecord={selectedIsHistoryRecord}
           />
         ) : selected ? (
           <div className="mt-5 space-y-5">
@@ -669,30 +693,32 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
               ].filter(Boolean).join(' / ') || 'No linked execution, finding, or evidence references are attached yet.'} />
             </div>
 
-            <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
-                  <button
-                    key={nextAction}
-                    type="button"
-                    onClick={() => void submitAction(nextAction)}
-                    disabled={saving}
-                    className={buttonClassForAction(nextAction, action === nextAction)}
-                  >
-                    {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
-                  </button>
-                ))}
+            {selectedIsHistoryRecord ? null : (
+              <div className="space-y-3 border-t border-[var(--ef-border-subtle-a70)] pt-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">Operator actions</p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {PROJECT_DECISION_QUEUE_TRIAGE_ACTIONS.map((nextAction) => (
+                    <button
+                      key={nextAction}
+                      type="button"
+                      onClick={() => void submitAction(nextAction)}
+                      disabled={saving}
+                      className={buttonClassForAction(nextAction, action === nextAction)}
+                    >
+                      {saving && action === nextAction ? 'Recording...' : actionLabel(nextAction)}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Notes optional; required when recording an override"
+                  className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+                />
+                {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
+                {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
               </div>
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Notes optional; required when recording an override"
-                className="min-h-24 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-sm text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
-              />
-              {message ? <p className="text-sm text-[var(--ef-success)]">{message}</p> : null}
-              {error ? <p className="text-sm text-[var(--ef-critical)]">{error}</p> : null}
-            </div>
+            )}
 
             <FrameRow label="Audit summary" value={selected.audit_summary} />
 

@@ -172,7 +172,7 @@ function primaryRiskAmount(action: QueueAction): number | null {
 }
 
 function formatRiskLabel(amount: number | null): string {
-  return amount != null && amount > 0 ? formatShortCurrency(amount) : '--';
+  return amount != null && amount > 0 ? formatShortCurrency(amount) : 'Not calculated';
 }
 
 function buildActionContext(action: QueueAction): string {

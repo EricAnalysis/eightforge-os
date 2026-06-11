@@ -1512,7 +1512,7 @@ export function ProjectOverview({
               The Forge
             </p>
             <p className="mt-1 text-[11px] text-[#64748B]">
-              Documents -&gt; Truth -&gt; Validator -&gt; Decisions -&gt; Audit
+              Documents -&gt; Facts -&gt; Validator -&gt; Decisions -&gt; Audit
             </p>
           </div>
 
@@ -1544,9 +1544,12 @@ export function ProjectOverview({
               subtitle={
                 blockedFilterActive
                   ? `${visibleDecisionTotal} blocked decision${visibleDecisionTotal === 1 ? '' : 's'}`
-                  : `${model.decision_total} linked decision record${model.decision_total === 1 ? '' : 's'} in this project context`
+                  : `${model.decision_total} linked validator decision records`
               }
             />
+            <p className="-mt-4 text-[11px] text-[#94A3B8]">
+              Counters reflect all active project issues.
+            </p>
 
             <ProjectIssueBoard
               issues={visibleIssues}

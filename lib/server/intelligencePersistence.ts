@@ -1476,21 +1476,47 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     };
   }
 
-  const decisionResult = validatorManagedPrimaryFamily
-    ? {
-        decisionIdsByLocalId: new Map<string, string>(),
-        created: 0,
-        updated: 0,
-        deleted: 0,
-        preserved: 0,
-      }
-    : await upsertV2Decisions(params.admin, {
+  const VALIDATOR_MANAGED_DECISION_TYPES = new Set([
+    'validator_finding',
+    'validator_invoice_approval',
+    'validator_project_approval',
+  ]);
+  const validatorManagedDecisions = mapped.decisions.filter((decision) =>
+    VALIDATOR_MANAGED_DECISION_TYPES.has(decision.decision_type),
+  );
+  const intelligenceOnlyDecisions = mapped.decisions.filter((decision) =>
+    !VALIDATOR_MANAGED_DECISION_TYPES.has(decision.decision_type),
+  );
+  type UpsertV2DecisionsResult = Awaited<ReturnType<typeof upsertV2Decisions>>;
+  let decisionResult: UpsertV2DecisionsResult;
+
+  if (validatorManagedPrimaryFamily) {
+    // Persist intelligence-only decisions that have no other persistence path.
+    // Skip validator-managed decisions because the validator pipeline owns them.
+    decisionResult = intelligenceOnlyDecisions.length > 0
+      ? await upsertV2Decisions(params.admin, {
+          documentId: params.documentId,
+          organizationId: params.organizationId,
+          projectId: params.projectId ?? null,
+          decisions: intelligenceOnlyDecisions,
+          allowLegacyTypeFallback: false,
+        })
+      : {
+          decisionIdsByLocalId: new Map<string, string>(),
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          preserved: 0,
+        };
+  } else {
+    decisionResult = await upsertV2Decisions(params.admin, {
         documentId: params.documentId,
         organizationId: params.organizationId,
         projectId: params.projectId ?? null,
         decisions: mapped.decisions,
         allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
       });
+  }
 
   const taskResult = await upsertV2Tasks(params.admin, {
     documentId: params.documentId,

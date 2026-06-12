@@ -5,6 +5,7 @@ import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
+import { mergeConfirmedFacts } from '@/lib/server/mergeConfirmedFacts';
 import type {
   DocumentPipelineResult,
   ExtractNodeInput,
@@ -120,12 +121,26 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
   const normalized = normalizeNode(extracted);
   const primaryDocument = applyContractorIdentityResolutionToNormalizedDocument(normalized.primaryDocument);
   const relatedDocuments = normalized.relatedDocuments.map(applyContractorIdentityResolutionToNormalizedDocument);
+  const analysisFactMap =
+    input.confirmedFactReviews &&
+    input.confirmedFactReviews.length > 0
+      ? mergeConfirmedFacts(
+          primaryDocument.fact_map,
+          input.confirmedFactReviews,
+        )
+      : primaryDocument.fact_map;
+
+  const primaryDocumentForAnalysis =
+    analysisFactMap !== primaryDocument.fact_map
+      ? { ...primaryDocument, fact_map: analysisFactMap }
+      : primaryDocument;
+
   const analyzed = {
     ...normalized,
     primaryDocument,
     relatedDocuments,
     contractAnalysis: analyzeContractIntelligence({
-      primaryDocument,
+      primaryDocument: primaryDocumentForAnalysis,
       relatedDocuments,
     }),
   };

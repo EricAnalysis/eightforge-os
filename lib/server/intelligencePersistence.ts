@@ -8,6 +8,7 @@ import {
   pipelineResultToIntelligence,
   runDocumentPipeline,
 } from '@/lib/pipeline/documentPipeline';
+import { loadDocumentFactReviews } from '@/lib/validator/projectValidator';
 import {
   isContractInvoicePrimaryDocumentType,
   isContractInvoicePrimaryFamily,
@@ -1271,6 +1272,22 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     };
   }
 
+  // Load operator-confirmed fact reviews so the
+  // document intelligence pipeline can suppress
+  // findings for facts already confirmed by operators.
+  // If the query fails, default to empty array —
+  // analysis proceeds without suppression rather
+  // than blocking document processing.
+  const confirmedFactReviews = await loadDocumentFactReviews(
+    [params.documentId],
+  ).catch((err) => {
+    console.warn(
+      '[intelligencePersistence] failed to load fact reviews:',
+      err,
+    );
+    return [] as Awaited<ReturnType<typeof loadDocumentFactReviews>>;
+  });
+
   const pipelineResult = runDocumentPipeline({
     documentId: params.documentId,
     documentType: buildContext.buildParams.documentType,
@@ -1279,6 +1296,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     projectName: buildContext.buildParams.projectName,
     extractionData: buildContext.buildParams.extractionData,
     relatedDocs: buildContext.buildParams.relatedDocs,
+    confirmedFactReviews,
   });
 
   await persistExtractionInspectionSnapshots(params.admin, {

@@ -10,6 +10,7 @@ export interface PdfToken {
   y: number;
   width: number;
   height: number;
+  source?: 'pdfjs' | 'ocr_fallback';
 }
 
 export interface PdfLayoutLine {
@@ -21,11 +22,13 @@ export interface PdfLayoutLine {
   x_min: number;
   x_max: number;
   y: number;
+  source?: 'pdfjs' | 'ocr_fallback';
 }
 
 export interface PdfLayoutPage {
   page_number: number;
   lines: PdfLayoutLine[];
+  source?: 'pdfjs' | 'ocr_fallback' | 'mixed';
 }
 
 export interface PdfLayout {
@@ -80,7 +83,7 @@ function buildGap(input: Omit<ExtractionGap, 'id' | 'source'> & { source?: Extra
   };
 }
 
-function classifyLine(text: string, tokens: PdfToken[]): PdfLayoutLine['kind'] {
+export function classifyLine(text: string, tokens: PdfToken[]): PdfLayoutLine['kind'] {
   const normalized = text.trim();
   if (!normalized) return 'text';
 

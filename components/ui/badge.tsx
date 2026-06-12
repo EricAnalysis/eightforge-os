@@ -11,10 +11,10 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default: 'border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#93C5FD]',
-  destructive: 'border-red-500/40 bg-red-500/10 text-red-300',
-  secondary: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
-  outline: 'border-[#2F3B52]/80 bg-transparent text-[#94A3B8]',
+  default: 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]',
+  destructive: 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]',
+  secondary: 'border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
+  outline: 'border-[var(--ef-border-subtle-a80)] bg-transparent text-[var(--ef-text-muted)]',
 };
 
 export function Badge({ variant = 'default', className, ...props }: BadgeProps) {

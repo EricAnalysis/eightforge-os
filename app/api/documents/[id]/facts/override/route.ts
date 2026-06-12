@@ -4,12 +4,23 @@ import {
   mapDocumentFactOverrideRow,
   type DocumentFactOverrideRow,
 } from '@/lib/documentFactOverrides';
+import { buildDocumentOverrideActivityInput } from '@/lib/documentFactActivity';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
+import { requestFactOverrideRevalidation } from '@/lib/validator/revalidationRequests';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function extractionValue(row: Record<string, unknown> | null): unknown {
+  if (!row) return null;
+  return row.field_value_text
+    ?? row.field_value_number
+    ?? row.field_value_date
+    ?? row.field_value_boolean
+    ?? null;
 }
 
 export async function POST(
@@ -58,7 +69,7 @@ export async function POST(
 
   const { data: document, error: documentError } = await admin
     .from('documents')
-    .select('id, organization_id, project_id')
+    .select('id, organization_id, project_id, title, name')
     .eq('id', documentId)
     .maybeSingle();
 
@@ -69,7 +80,7 @@ export async function POST(
 
   const { data: activeOverrides, error: activeOverridesError } = await admin
     .from('document_fact_overrides')
-    .select('id')
+    .select('id, field_key, value_json, raw_value, action_type, reason')
     .eq('organization_id', organizationId)
     .eq('document_id', documentId)
     .eq('field_key', fieldKey)
@@ -79,7 +90,19 @@ export async function POST(
   if (activeOverridesError) return jsonError(activeOverridesError.message, 500);
 
   const supersedesOverrideId =
-    (activeOverrides as Array<{ id: string }> | null)?.[0]?.id ?? null;
+    (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0]?.id ?? null;
+  const previousOverride =
+    (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0] ?? null;
+  const { data: machineExtraction } = await admin
+    .from('document_extractions')
+    .select('field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, page_number')
+    .eq('organization_id', organizationId)
+    .eq('document_id', documentId)
+    .eq('field_key', fieldKey)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if ((activeOverrides?.length ?? 0) > 0) {
     const { error: deactivateError } = await admin
@@ -119,8 +142,60 @@ export async function POST(
       ? document.project_id
       : null;
   if (projectId) {
+    const activityResult = await logActivityEvent(
+      buildDocumentOverrideActivityInput({
+        organizationId,
+        actorId,
+        projectId,
+        document: {
+          id: documentId,
+          title: document.title,
+          name: document.name,
+        },
+        previousOverride,
+        insertedOverride: {
+          id: inserted.id,
+          field_key: inserted.field_key,
+          value_json: inserted.value_json,
+          raw_value: inserted.raw_value,
+          action_type: inserted.action_type,
+          reason: inserted.reason,
+          supersedes_override_id: inserted.supersedes_override_id,
+        },
+        originalMachineValue: machineExtraction
+          ? {
+              value: extractionValue(machineExtraction as Record<string, unknown>),
+              confidence:
+                typeof machineExtraction.confidence === 'number'
+                  ? machineExtraction.confidence
+                  : null,
+              page:
+                typeof machineExtraction.page_number === 'number'
+                  ? machineExtraction.page_number
+                  : null,
+              source_label: 'document_extractions',
+              field_key: fieldKey,
+            }
+          : null,
+      }),
+    );
+
+    if (!activityResult.ok) {
+      console.error('[document-fact-override] failed to log activity event', {
+        documentId,
+        projectId,
+        fieldKey,
+        error: activityResult.error,
+      });
+    }
+  }
+
+  if (projectId) {
     // Fire-and-forget so validation never blocks fact override saves.
-    void triggerProjectValidation(projectId, 'fact_override', actorId);
+    void requestFactOverrideRevalidation({
+      projectId,
+      actorId,
+    });
   }
 
   return NextResponse.json({

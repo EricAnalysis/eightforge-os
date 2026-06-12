@@ -21,6 +21,7 @@ function jsonError(
 
 export async function POST(req: Request) {
   try {
+    console.log('[documents/process] reprocess request received');
     const actorResult = await getActorContext(req);
     if (!actorResult.ok) {
       return NextResponse.json(

@@ -5,14 +5,14 @@ import { supabase } from '@/lib/supabaseClient';
 
 const STATUS_STYLES: Record<string, string> = {
   // Raw pipeline statuses (legacy / fallback)
-  uploaded:      'bg-[#1A1A3E] text-[#8B94A3] border border-white/5',
-  extracted:     'bg-sky-500/20 text-sky-400 border border-sky-500/40',
-  decisioned:    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+  uploaded:      'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-white/5',
+  extracted:     'bg-[var(--ef-purple-primary-a20)] text-[var(--ef-purple-accent)] border border-[var(--ef-purple-primary-a40)]',
+  decisioned:    'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]',
   // Derived statuses (canonical — passed from derivedDocumentStatus)
-  processing:    'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse',
-  needs_review:  'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-  ready:         'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-  failed:        'bg-red-500/20 text-red-400 border border-red-500/40',
+  processing:    'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)] animate-pulse',
+  needs_review:  'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+  ready:         'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]',
+  failed:        'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
 };
 
 export function DocumentProcessingStatus({
@@ -97,9 +97,9 @@ export function DocumentProcessingStatus({
   const visibleError = liveError ?? (displayStatus === 'failed' ? processingError : null);
 
   return (
-    <div className="rounded-lg border border-white/5 bg-[#0E0E2A] p-4">
+    <div className="rounded-lg border border-white/5 bg-[var(--ef-background-secondary)] p-4">
       <div className="flex items-center gap-3">
-        <span className="text-[11px] font-medium text-[#8B94A3]">Processing Status</span>
+        <span className="text-[11px] font-medium text-[var(--ef-text-muted)]">Processing Status</span>
         <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
           {displayStatus}
         </span>
@@ -108,22 +108,22 @@ export function DocumentProcessingStatus({
           <button
             type="button"
             onClick={handleReprocess}
-            className="rounded-md border border-[#8B5CFF]/30 px-3 py-1 text-[11px] font-medium text-[#8B5CFF] hover:bg-[#8B5CFF]/10 hover:text-[#B794FF]"
+            className="rounded-md border border-[var(--ef-purple-primary-a30)] px-3 py-1 text-[11px] font-medium text-[var(--ef-purple-primary)] hover:bg-[var(--ef-purple-primary-a10)] hover:text-[var(--ef-purple-glow)]"
           >
             Reprocess
           </button>
         )}
 
         {processing && (
-          <span className="text-[11px] text-[#8B94A3]">Processing…</span>
+          <span className="text-[11px] text-[var(--ef-text-muted)]">Processing…</span>
         )}
       </div>
 
       {/* Prominent error callout — shown for both live API errors and stored DB errors */}
       {visibleError && (
-        <div className="mt-3 rounded-md border border-red-500/20 bg-red-500/[0.06] px-3 py-2">
-          <p className="text-[11px] font-medium text-red-400">Processing error</p>
-          <p className="mt-0.5 text-[11px] text-red-300/80">{visibleError}</p>
+        <div className="mt-3 rounded-md border border-[var(--ef-critical-a20)] bg-[var(--ef-critical-a05)] px-3 py-2">
+          <p className="text-[11px] font-medium text-[var(--ef-critical)]">Processing error</p>
+          <p className="mt-0.5 text-[11px] text-[var(--ef-critical-soft)]">{visibleError}</p>
         </div>
       )}
     </div>

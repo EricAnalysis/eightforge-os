@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import type {
   ContractInvoiceReconciliationSummary,
+  CrossDocumentRateVerificationSummary,
   InvoiceExposureSummary,
   InvoiceTransactionReconciliationSummary,
   ProjectExposureSummary,
@@ -13,6 +14,7 @@ import type {
 
 const validationStatusValues = ['NOT_READY', 'BLOCKED', 'VALIDATED', 'FINDINGS_OPEN'] as const;
 const validatorStatusValues = ['READY', 'BLOCKED', 'NEEDS_REVIEW'] as const;
+const projectValidationPhaseValues = ['contract_setup', 'execution', 'billing_review', 'closeout'] as const;
 const contractInvoiceReconciliationStatusValues = [
   'MATCH',
   'MISMATCH',
@@ -20,6 +22,27 @@ const contractInvoiceReconciliationStatusValues = [
   'PARTIAL',
 ] as const;
 const validationSeverityValues = ['critical', 'warning', 'info'] as const;
+const validationFindingDispositionValues = [
+  'blocker',
+  'warning',
+  'info',
+  'requires_review',
+] as const;
+const validationBusinessSeverityValues = ['critical', 'high', 'medium', 'low'] as const;
+const validationSourceFamilyValues = [
+  'contract',
+  'invoice',
+  'transaction',
+  'support',
+  'project',
+  'cross_document',
+  'system',
+] as const;
+const validationApprovalGateEffectValues = [
+  'blocks_approval',
+  'requires_operator_review',
+  'informational',
+] as const;
 const validationCategoryValues = [
   'required_sources',
   'identity_consistency',
@@ -29,6 +52,10 @@ const validationCategoryValues = [
 const validationTriggerSourceValues = [
   'document_processed',
   'fact_override',
+  'review_confirmed',
+  'review_flagged',
+  'review_corrected',
+  'override_applied',
   'relationship_change',
   'manual',
 ] as const;
@@ -52,6 +79,15 @@ export const validationFindingSchema: z.ZodType<ValidationFinding> = z
     variance: z.number().finite().nullable(),
     variance_unit: z.string().nullable(),
     blocked_reason: z.string().nullable(),
+    finding_disposition: z.enum(validationFindingDispositionValues).nullable().optional(),
+    business_severity: z.enum(validationBusinessSeverityValues).nullable().optional(),
+    problem: z.string().nullable().optional(),
+    impact: z.string().nullable().optional(),
+    required_action: z.string().nullable().optional(),
+    evidence_refs: z.array(z.string()).nullable().optional(),
+    source_family: z.enum(validationSourceFamilyValues).nullable().optional(),
+    affected_amount: z.number().finite().nullable().optional(),
+    approval_gate_effect: z.enum(validationApprovalGateEffectValues).nullable().optional(),
     decision_eligible: z.boolean(),
     action_eligible: z.boolean(),
     linked_decision_id: z.string().uuid().nullable(),
@@ -79,6 +115,15 @@ export const validatorSummaryItemSchema: z.ZodType<ValidatorSummaryItem> = z.obj
   field: z.string().nullable(),
   fact_keys: z.array(z.string()),
   message: z.string(),
+  finding_disposition: z.enum(validationFindingDispositionValues).nullable().optional(),
+  business_severity: z.enum(validationBusinessSeverityValues).nullable().optional(),
+  problem: z.string().nullable().optional(),
+  impact: z.string().nullable().optional(),
+  required_action: z.string().nullable().optional(),
+  evidence_refs: z.array(z.string()).optional(),
+  source_family: z.enum(validationSourceFamilyValues).nullable().optional(),
+  affected_amount: z.number().finite().nullable().optional(),
+  approval_gate_effect: z.enum(validationApprovalGateEffectValues).nullable().optional(),
 });
 
 export const contractInvoiceReconciliationSummarySchema: z.ZodType<ContractInvoiceReconciliationSummary> =
@@ -115,6 +160,75 @@ export const projectReconciliationSummarySchema: z.ZodType<ProjectReconciliation
     orphan_transactions: z.number().int().nonnegative(),
   });
 
+const crossDocumentRateComparisonStatusValues = [
+  'match',
+  'rate_mismatch',
+  'category_mismatch',
+  'missing_contract_rate',
+  'missing_support',
+  'unsupported_work',
+  'needs_review',
+] as const;
+
+const crossDocumentRateCategoryBasisValues = [
+  'existing',
+  'source_category',
+  'descriptor',
+  'combined',
+  'unresolved',
+] as const;
+
+const crossDocumentRateSupportBasisValues = [
+  'invoice_linked',
+  'project_level',
+  'billing_key_fallback',
+  'none',
+] as const;
+
+export const crossDocumentRateVerificationSummarySchema: z.ZodType<CrossDocumentRateVerificationSummary> =
+  z.object({
+    comparable_units: z.number().int().nonnegative(),
+    matched_units: z.number().int().nonnegative(),
+    rate_mismatch_units: z.number().int().nonnegative(),
+    category_mismatch_units: z.number().int().nonnegative(),
+    missing_contract_rate_units: z.number().int().nonnegative(),
+    missing_support_units: z.number().int().nonnegative(),
+    unsupported_work_units: z.number().int().nonnegative(),
+    needs_review_units: z.number().int().nonnegative(),
+    validation_units: z.array(z.object({
+      validation_unit_id: z.string(),
+      invoice_line_id: z.string(),
+      invoice_number: z.string().nullable(),
+      billing_rate_key: z.string().nullable(),
+      canonical_category: z.string().nullable(),
+      category_confidence: z.number().finite().nullable(),
+      category_basis: z.enum(crossDocumentRateCategoryBasisValues),
+      invoice_source_descriptor: z.string().nullable(),
+      invoice_rate: z.number().finite().nullable(),
+      contract_rate_found: z.boolean(),
+      contract_rate: z.number().finite().nullable(),
+      contract_source_category: z.string().nullable(),
+      contract_source_descriptor: z.string().nullable(),
+      supported_quantity: z.number().finite().nullable(),
+      support_row_count: z.number().int().nonnegative(),
+      support_basis: z.enum(crossDocumentRateSupportBasisValues),
+      support_families: z.array(z.string()),
+      support_observed_categories: z.array(z.string()),
+      comparison_status: z.enum(crossDocumentRateComparisonStatusValues),
+      reason: z.string(),
+      source_documents: z.object({
+        invoice_document_id: z.string().nullable(),
+        contract_document_ids: z.array(z.string()),
+        support_document_ids: z.array(z.string()),
+      }),
+      source_rows: z.object({
+        invoice_record_id: z.string(),
+        contract_record_ids: z.array(z.string()),
+        support_record_ids: z.array(z.string()),
+      }),
+    })),
+  });
+
 export const invoiceExposureSummarySchema: z.ZodType<InvoiceExposureSummary> = z.object({
   invoice_number: z.string().nullable(),
   billed_amount: z.number().finite().nullable(),
@@ -149,16 +263,29 @@ export const validationSummarySchema: z.ZodType<ValidationSummary> = z.object({
   critical_count: z.number().int().nonnegative(),
   warning_count: z.number().int().nonnegative(),
   info_count: z.number().int().nonnegative(),
+  blocker_count: z.number().int().nonnegative().optional(),
+  requires_review_count: z.number().int().nonnegative().optional(),
   open_count: z.number().int().nonnegative(),
   blocked_reasons: z.array(z.string()),
   trigger_source: z.enum(validationTriggerSourceValues).nullable(),
   validator_status: z.enum(validatorStatusValues),
+  readiness: z.union([
+    z.enum(validationStatusValues),
+    z.enum(validatorStatusValues),
+    z.literal('NOT_READY'),
+  ]).optional(),
+  validation_phase: z.enum(projectValidationPhaseValues).nullable().optional(),
   validator_open_items: z.array(validatorSummaryItemSchema),
   validator_blockers: z.array(validatorSummaryItemSchema),
   contract_invoice_reconciliation: contractInvoiceReconciliationSummarySchema.nullable().optional(),
   invoice_transaction_reconciliation:
     invoiceTransactionReconciliationSummarySchema.nullable().optional(),
   reconciliation: projectReconciliationSummarySchema.nullable().optional(),
+  cross_document_rate_verification:
+    crossDocumentRateVerificationSummarySchema.nullable().optional(),
   exposure: projectExposureSummarySchema.nullable().optional(),
   requires_verification_amount: z.number().finite().nullable().optional(),
+  requires_verification: z.boolean().nullable().optional(),
+  at_risk_amount: z.number().finite().nullable().optional(),
+  unsupported_amount: z.number().finite().nullable().optional(),
 });

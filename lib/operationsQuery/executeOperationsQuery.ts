@@ -28,7 +28,7 @@ function routesForProject(projectId: string): OperationsRoutingAction[] {
     { label: 'Open project decisions', href: `/platform/projects/${projectId}#project-decisions` },
     { label: 'Open project documents', href: `/platform/projects/${projectId}#project-documents` },
     { label: 'Open validator', href: `/platform/projects/${projectId}#project-validator` },
-    { label: 'Open pending actions', href: `/platform/projects/${projectId}#project-actions` },
+    { label: 'Open decision execution', href: `/platform/projects/${projectId}#project-decisions` },
   ];
 }
 

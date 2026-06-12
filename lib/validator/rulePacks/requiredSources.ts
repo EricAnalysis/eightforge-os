@@ -13,9 +13,10 @@ export function runRequiredSourcesRules(
 ): ValidatorFindingResult[] {
   const findings: ValidatorFindingResult[] = [];
 
-  const contractDocumentIds = input.familyDocumentIds.contract;
+  const phase = input.validationPhase;
+  const contractDocumentIds = input.truthCategoryDocumentIds.contract_identity;
   const rateScheduleDocumentIds = [
-    ...input.familyDocumentIds.contract,
+    ...input.truthCategoryDocumentIds.pricing,
     ...input.familyDocumentIds.rate_sheet,
   ];
   const hasContract = contractDocumentIds.length > 0;
@@ -25,6 +26,25 @@ export function runRequiredSourcesRules(
     (input.transactionData?.rows?.length ?? 0) > 0
     || (input.transactionData?.datasets?.some((dataset) => (dataset.row_count ?? 0) > 0) ?? false);
   const hasTicketLikeOperationalData = hasTickets || hasTransactionData;
+  const hasInvoiceData =
+    input.invoices.length > 0
+    || input.invoiceLines.length > 0
+    || input.governingDocumentIds.invoice.length > 0
+    || input.familyDocumentIds.invoice.length > 0;
+  const requiresPricingSchedule =
+    input.factLookups.contractCeilingType === 'rate_based'
+    || input.factLookups.rateSchedulePresent === true
+    || (input.factLookups.rateRowCount ?? 0) > 0;
+  const hasPricingSchedule =
+    input.factLookups.hasRateScheduleFacts
+    || rateScheduleDocumentIds.length > 0;
+  const requiresTicketData =
+    phase === 'execution'
+    || phase === 'billing_review'
+    || phase === 'closeout';
+  const requiresInvoiceData =
+    phase === 'billing_review'
+    || phase === 'closeout';
 
   if (
     !hasContract &&
@@ -58,8 +78,8 @@ export function runRequiredSourcesRules(
 
   if (
     hasContract &&
-    !input.factLookups.hasRateScheduleFacts &&
-    input.factLookups.contractCeilingType !== 'rate_based' &&
+    requiresPricingSchedule &&
+    !hasPricingSchedule &&
     isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_RATE_SCHEDULE')
   ) {
     findings.push(
@@ -73,14 +93,14 @@ export function runRequiredSourcesRules(
         field: 'rate_schedule',
         expected: 'extracted rate schedule facts',
         actual: 'missing',
-        blockedReason: 'Contract linked but rate schedule facts not extracted',
+        blockedReason: 'Governing contract requires pricing support but no pricing schedule is linked',
         actionEligible: true,
         evidence: rateScheduleDocumentIds.map((documentId) =>
           makeEvidenceInput({
             evidence_type: 'document',
             source_document_id: documentId,
             record_id: documentId,
-            note: 'Contract or rate-sheet document is linked, but rate schedule facts are unavailable.',
+            note: 'The project needs pricing schedule support in the canonical contract context.',
           }),
         ),
       }),
@@ -88,6 +108,38 @@ export function runRequiredSourcesRules(
   }
 
   if (
+    requiresInvoiceData &&
+    !hasInvoiceData &&
+    isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_INVOICE_DATA')
+  ) {
+    findings.push(
+      makeFinding({
+        projectId: input.project.id,
+        ruleId: 'SOURCES_NO_INVOICE_DATA',
+        category: CATEGORY,
+        severity: 'critical',
+        subjectType: 'project',
+        subjectId: input.project.id,
+        field: 'invoice_data',
+        expected: 'linked invoice documents or extracted invoice rows',
+        actual: 'none',
+        blockedReason: 'Invoice data is required for the current validation phase',
+        actionEligible: true,
+        evidence: [
+          makeEvidenceInput({
+            evidence_type: 'project',
+            record_id: input.project.id,
+            field_name: 'validation_phase',
+            field_value: phase,
+            note: 'Billing and closeout validation require invoice source data in the canonical project truth.',
+          }),
+        ],
+      }),
+    );
+  }
+
+  if (
+    requiresTicketData &&
     !hasTicketLikeOperationalData &&
     isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_TICKET_DATA')
   ) {
@@ -102,7 +154,7 @@ export function runRequiredSourcesRules(
         field: 'ticket_data',
         expected: 'mobile_tickets, load_tickets, or transaction_data rows',
         actual: 'none',
-        blockedReason: 'No ticket or transaction data associated with this project',
+        blockedReason: 'Ticket or transaction support is required for the current validation phase',
         actionEligible: true,
         evidence: [
           makeEvidenceInput({

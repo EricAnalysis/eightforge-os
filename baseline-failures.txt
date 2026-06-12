@@ -1,0 +1,9 @@
+﻿lib/spreadsheetReviewSurface.test.ts > SpreadsheetReviewSurface > renders the cleaned up service item columns and uses an em dash when diameter units are missing
+lib/server/documentExtraction.transactionData.test.ts > extractDocument transaction_data routing > routes explicit transaction_data uploads through the dedicated spreadsheet normalization path
+lib/server/transactionDataPersistence.test.ts > transactionDataPersistence > falls back to document-scoped canonical transaction rows when project-scoped queries are empty
+lib/validator/queueFindingActions.test.ts > validator finding queue actions > builds a Williamson-style queue action for a rate mismatch finding
+lib/validator/shared.test.ts > validator fact priority > persists contract validation context in the shared validation summary shape
+lib/pipeline/nodes/normalizeNode.transactionData.test.ts > normalizeNode transaction_data > emits canonical transaction facts, row records, and rollups for spreadsheet transaction data
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > canProjectProceed > returns blocked when snapshot has needs_review status
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > canInvoiceProceed > returns allowed when project and invoice are both approved
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > getBlockingReasons > returns default reason when snapshot is null or empty

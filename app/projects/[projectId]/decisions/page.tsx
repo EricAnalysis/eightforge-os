@@ -18,32 +18,32 @@ function statusColors(status: OperatorApprovalLabel): {
   switch (status) {
     case 'Requires Verification':
       return {
-        badge: 'border-[#EF4444]/30 bg-[#EF4444]/10 text-[#F87171]',
-        dot: 'bg-[#EF4444]',
+        badge: 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]',
+        dot: 'bg-[var(--ef-critical)]',
         label: 'Requires Verification',
       };
     case 'Needs Review':
       return {
-        badge: 'border-[#F59E0B]/30 bg-[#F59E0B]/10 text-[#FBBF24]',
-        dot: 'bg-[#F59E0B]',
+        badge: 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
+        dot: 'bg-[var(--ef-warning)]',
         label: 'Needs Review',
       };
     case 'Approved with Notes':
       return {
-        badge: 'border-[#3B82F6]/30 bg-[#3B82F6]/10 text-[#93C5FD]',
-        dot: 'bg-[#3B82F6]',
+        badge: 'border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]',
+        dot: 'bg-[var(--ef-purple-primary)]',
         label: 'Approved with Notes',
       };
     case 'Approved':
       return {
-        badge: 'border-[#22C55E]/30 bg-[#22C55E]/10 text-[#4ADE80]',
-        dot: 'bg-[#22C55E]',
+        badge: 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]',
+        dot: 'bg-[var(--ef-success)]',
         label: 'Approved',
       };
     default:
       return {
-        badge: 'border-[#2F3B52]/60 bg-[#1A2333] text-[#64748B]',
-        dot: 'bg-[#2F3B52]',
+        badge: 'border-[var(--ef-border-subtle-a60)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-faint)]',
+        dot: 'bg-[var(--ef-border-subtle)]',
         label: status,
       };
   }
@@ -87,21 +87,21 @@ export default async function ClientDecisionsPage({ params }: PageProps) {
     <div className="mx-auto max-w-2xl px-4 py-10">
       {/* Header */}
       <div className="mb-8">
-        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#475569]">
+        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--ef-text-faint)]">
           Project review
         </p>
-        <h1 className="mt-1 text-[22px] font-semibold text-[#E5EDF7]">
+        <h1 className="mt-1 text-[22px] font-semibold text-[var(--ef-text-primary)]">
           {projectName ?? 'Project'}
         </h1>
-        <p className="mt-1.5 text-[12px] text-[#64748B]">
+        <p className="mt-1.5 text-[12px] text-[var(--ef-text-faint)]">
           Current items requiring your attention.
         </p>
       </div>
 
       {/* Decision list */}
       {sorted.length === 0 ? (
-        <div className="rounded-xl border border-[#2F3B52]/50 bg-[#111827] px-6 py-8 text-center">
-          <p className="text-[13px] text-[#475569]">No items to review at this time.</p>
+        <div className="rounded-xl border border-[var(--ef-border-subtle-a50)] bg-[var(--ef-background-secondary)] px-6 py-8 text-center">
+          <p className="text-[13px] text-[var(--ef-text-faint)]">No items to review at this time.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -110,7 +110,7 @@ export default async function ClientDecisionsPage({ params }: PageProps) {
             return (
               <div
                 key={item.id}
-                className="rounded-xl border border-[#2F3B52]/50 bg-[#0D1526] px-5 py-4"
+                className="rounded-xl border border-[var(--ef-border-subtle-a50)] bg-[var(--ef-background-secondary)] px-5 py-4"
               >
                 {/* Status badge */}
                 <div className="mb-3 flex items-center gap-2">
@@ -121,18 +121,18 @@ export default async function ClientDecisionsPage({ params }: PageProps) {
                     {colors.label}
                   </span>
                   {item.amount != null ? (
-                    <span className="ml-auto font-mono text-[11px] tabular-nums text-[#F87171]">
+                    <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--ef-critical-soft)]">
                       {fmtAmount(item.amount)} requiring verification
                     </span>
                   ) : null}
                 </div>
 
                 {/* Reason */}
-                <p className="text-[13px] leading-5 text-[#C7D2E3]">{item.reason}</p>
+                <p className="text-[13px] leading-5 text-[var(--ef-text-secondary)]">{item.reason}</p>
 
                 {/* Next step */}
-                <p className="mt-2.5 text-[11px] leading-5 text-[#475569]">
-                  <span className="font-semibold text-[#64748B]">Next step: </span>
+                <p className="mt-2.5 text-[11px] leading-5 text-[var(--ef-text-faint)]">
+                  <span className="font-semibold text-[var(--ef-text-faint)]">Next step: </span>
                   {item.nextStep}
                 </p>
               </div>
@@ -142,7 +142,7 @@ export default async function ClientDecisionsPage({ params }: PageProps) {
       )}
 
       {/* Footer */}
-      <p className="mt-8 text-center text-[10px] text-[#2F3B52]">
+      <p className="mt-8 text-center text-[10px] text-[var(--ef-border-subtle)]">
         For detailed information, contact your project operator.
       </p>
     </div>

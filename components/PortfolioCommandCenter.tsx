@@ -3,11 +3,9 @@
 import React from 'react';
 import {
   AlertCircle,
-  TrendingUp,
   AlertTriangle,
   CheckCircle2,
   Clock,
-  DollarSign,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -76,25 +74,25 @@ function PortfolioStatusStrip({ portfolio }: { portfolio: PortfolioOverview }) {
       <MetricCard
         label="Requires Verification"
         value={formatCurrency(portfolio.totalRequiresVerification)}
-        icon={<AlertCircle className="w-5 h-5 text-red-500" />}
+        icon={<AlertCircle className="w-5 h-5 text-[var(--ef-critical)]" />}
         status="critical"
       />
       <MetricCard
         label="At Risk Amount"
         value={formatCurrency(portfolio.totalAtRisk)}
-        icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+        icon={<AlertTriangle className="w-5 h-5 text-[var(--ef-warning)]" />}
         status="warning"
       />
       <MetricCard
         label="Projects Requiring Review"
         value={portfolio.projectsByStatus.requires_review.toString()}
-        icon={<Clock className="w-5 h-5 text-blue-500" />}
+        icon={<Clock className="w-5 h-5 text-[var(--ef-purple-primary)]" />}
         status="info"
       />
       <MetricCard
         label="Healthy Projects"
         value={portfolio.projectsByStatus.healthy.toString()}
-        icon={<CheckCircle2 className="w-5 h-5 text-green-500" />}
+        icon={<CheckCircle2 className="w-5 h-5 text-[var(--ef-success)]" />}
         status="success"
       />
     </div>
@@ -117,17 +115,17 @@ function MetricCard({
   status: 'critical' | 'warning' | 'info' | 'success';
 }) {
   const bgColors = {
-    critical: 'bg-red-50 dark:bg-red-950/30',
-    warning: 'bg-amber-50 dark:bg-amber-950/30',
-    info: 'bg-blue-50 dark:bg-blue-950/30',
-    success: 'bg-green-50 dark:bg-green-950/30',
+    critical: 'bg-[var(--ef-critical-bg)] dark:bg-[var(--ef-critical-bg)]',
+    warning: 'bg-[var(--ef-warning-bg)] dark:bg-[var(--ef-warning-bg)]',
+    info: 'bg-[var(--ef-purple-primary-a08)] dark:bg-[var(--ef-purple-primary-a10)]',
+    success: 'bg-[var(--ef-success-bg)] dark:bg-[var(--ef-success-bg)]',
   };
 
   return (
     <Card className={`p-4 ${bgColors[status]}`}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+          <p className="text-xs font-medium text-[var(--ef-text-muted)]">
             {label}
           </p>
           <p className="text-2xl font-bold mt-1">{value}</p>
@@ -146,7 +144,7 @@ function ProjectStack({ projects }: { projects: PortfolioMetrics[] }) {
   if (projects.length === 0) {
     return (
       <Card className="p-12 text-center">
-        <p className="text-gray-500">No projects with risk scoring</p>
+        <p className="text-[var(--ef-text-muted)]">No projects with risk scoring</p>
       </Card>
     );
   }
@@ -166,19 +164,23 @@ function ProjectStack({ projects }: { projects: PortfolioMetrics[] }) {
  */
 function ProjectCard({ project }: { project: PortfolioMetrics }) {
   const statusColors = {
-    healthy: 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/20',
+    healthy: 'border-[var(--ef-success-a20)] dark:border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] dark:bg-[var(--ef-success-bg)]',
     at_risk:
-      'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20',
-    blocked: 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20',
+      'border-[var(--ef-warning-a20)] dark:border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] dark:bg-[var(--ef-warning-bg)]',
+    blocked: 'border-[var(--ef-critical-a20)] dark:border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] dark:bg-[var(--ef-critical-bg)]',
     requires_review:
-      'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20',
+      'border-[var(--ef-purple-primary-a20)] dark:border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a08)] dark:bg-[var(--ef-purple-primary-a08)]',
   };
 
   const priorityColors = {
-    critical: 'bg-red-500 text-white',
-    high: 'bg-orange-500 text-white',
-    medium: 'bg-amber-500 text-white',
-    low: 'bg-green-500 text-white',
+    critical:
+      'border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]',
+    high:
+      'border border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
+    medium:
+      'border border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
+    low:
+      'border border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]',
   };
 
   return (
@@ -189,7 +191,7 @@ function ProjectCard({ project }: { project: PortfolioMetrics }) {
         {/* Left: Project Identity */}
         <div className="col-span-3">
           <h3 className="font-semibold text-sm">{project.projectName}</h3>
-          <p className="text-xs text-gray-600 dark:text-gray-400">
+          <p className="text-xs text-[var(--ef-text-muted)]">
             {project.projectCode}
           </p>
         </div>
@@ -200,7 +202,7 @@ function ProjectCard({ project }: { project: PortfolioMetrics }) {
             <div className="flex-shrink-0">
               <div className="text-center">
                 <div className="text-xl font-bold">{project.riskScore}</div>
-                <div className="text-xs text-gray-600 dark:text-gray-400">
+                <div className="text-xs text-[var(--ef-text-muted)]">
                   Risk
                 </div>
               </div>
@@ -236,21 +238,21 @@ function ProjectCard({ project }: { project: PortfolioMetrics }) {
           <div className="flex items-center justify-end gap-4">
             <div className="text-xs text-right">
               {project.issuesCount > 0 && (
-                <div className="text-red-600 dark:text-red-400 font-semibold">
+                <div className="text-[var(--ef-critical)] dark:text-[var(--ef-critical)] font-semibold">
                   {project.issuesCount} issue{project.issuesCount !== 1 ? 's' : ''}
                 </div>
               )}
               {project.overdueActionsCount > 0 && (
-                <div className="text-amber-600 dark:text-amber-400">
+                <div className="text-[var(--ef-warning)] dark:text-[var(--ef-warning)]">
                   {project.overdueActionsCount} overdue
                 </div>
               )}
               {project.issuesCount === 0 && project.overdueActionsCount === 0 && (
-                <div className="text-green-600 dark:text-green-400">
+                <div className="text-[var(--ef-success-soft)]">
                   On track
                 </div>
               )}
-              <div className="text-gray-600 dark:text-gray-400 text-xs mt-1">
+              <div className="mt-1 text-xs text-[var(--ef-text-muted)]">
                 {new Date(project.lastActivityAt).toLocaleDateString()}
               </div>
             </div>
@@ -274,7 +276,7 @@ function VendorRiskTable({ vendors }: { vendors: VendorRiskItem[] }) {
   if (vendors.length === 0) {
     return (
       <Card className="p-12 text-center">
-        <p className="text-gray-500">No vendor risk data available</p>
+        <p className="text-[var(--ef-text-muted)]">No vendor risk data available</p>
       </Card>
     );
   }
@@ -283,7 +285,7 @@ function VendorRiskTable({ vendors }: { vendors: VendorRiskItem[] }) {
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+          <thead className="border-b border-[var(--ef-border-subtle)] bg-[var(--ef-surface-panel)]">
             <tr>
               <th className="px-4 py-3 text-left font-semibold">Vendor</th>
               <th className="px-4 py-3 text-right font-semibold">
@@ -297,11 +299,11 @@ function VendorRiskTable({ vendors }: { vendors: VendorRiskItem[] }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="divide-y divide-[var(--ef-border-subtle)]">
             {vendors.map((vendor) => (
-              <tr key={vendor.vendor} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+              <tr key={vendor.vendor} className="hover:bg-[var(--ef-surface-hover)]">
                 <td className="px-4 py-3 font-medium">{vendor.vendor}</td>
-                <td className="px-4 py-3 text-right text-red-600 dark:text-red-400 font-semibold">
+                <td className="px-4 py-3 text-right text-[var(--ef-critical)] dark:text-[var(--ef-critical)] font-semibold">
                   {formatCurrency(vendor.requiresVerificationAmount)}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -333,9 +335,9 @@ function IssueTypeRanking({ issues }: { issues: IssueTypeCount[] }) {
   };
 
   const issueColors = {
-    rate_mismatch: 'bg-red-500',
-    missing_support: 'bg-amber-500',
-    quantity_mismatch: 'bg-orange-500',
+    rate_mismatch: 'bg-[var(--ef-critical)]',
+    missing_support: 'bg-[var(--ef-warning)]',
+    quantity_mismatch: 'bg-[var(--ef-warning)]',
   };
 
   const totalIssues = issues.reduce((sum, i) => sum + i.count, 0);
@@ -343,7 +345,7 @@ function IssueTypeRanking({ issues }: { issues: IssueTypeCount[] }) {
   if (totalIssues === 0) {
     return (
       <Card className="p-12 text-center">
-        <p className="text-gray-500">No issues reported</p>
+        <p className="text-[var(--ef-text-muted)]">No issues reported</p>
       </Card>
     );
   }
@@ -360,7 +362,7 @@ function IssueTypeRanking({ issues }: { issues: IssueTypeCount[] }) {
               {issue.count} ({issue.percentage.toFixed(1)}%)
             </span>
           </div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--ef-surface-elevated)]">
             <div
               className={`h-full ${issueColors[issue.type]}`}
               style={{ width: `${issue.percentage}%` }}
@@ -396,12 +398,12 @@ function RecentActivityStrip({
       <div className="space-y-2">
         {activities.slice(0, 5).map((activity, i) => (
           <div key={i} className="flex items-start gap-3 text-sm">
-            <Clock className="w-4 h-4 mt-0.5 flex-shrink-0 text-gray-400" />
+            <Clock className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--ef-text-soft)]" />
             <div className="flex-grow">
-              <p className="text-gray-900 dark:text-gray-100">
+              <p className="text-[var(--ef-text-primary)]">
                 {activity.event}
               </p>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
+              <p className="text-xs text-[var(--ef-text-muted)]">
                 {activity.projectName} •{' '}
                 {new Date(activity.timestamp).toLocaleString()}
               </p>

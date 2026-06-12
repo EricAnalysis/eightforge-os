@@ -12,6 +12,10 @@
 
 # testing
 /coverage
+current-test-output.txt
+tsc-errors.txt
+scripts/ask/artifacts/*.json
+scripts/audit-golden-phase-a-output.json
 
 # next.js
 /.next/
@@ -48,3 +52,7 @@ next-env.d.ts
 # local-only machine files
 .claude/settings.local.json
 eng.traineddata
+supabase/.temp/
+
+# Claude/Codex agent skills submodule
+.agents/skills/

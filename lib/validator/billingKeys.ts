@@ -264,17 +264,29 @@ export type RateScheduleMatchable = RateScheduleBillingSource & {
   rate_amount?: number | null;
   billing_rate_key?: string | null;
   description_match_key?: string | null;
+  canonical_category?: string | null;
+  source_category?: string | null;
+  source_kind?: string | null;
+  source_quality?: string | null;
+  confidence?: string | null;
+  raw_value?: unknown;
 };
 
 export type InvoiceLineMatchable = InvoiceLineBillingSource & {
   billing_rate_key?: string | null;
   description_match_key?: string | null;
   unit_price?: number | null;
+  unit_type?: string | null;
+  unit?: string | null;
+  canonical_category?: string | null;
+  line_total?: number | null;
+  quantity?: number | null;
 };
 
 export type BillingScheduleIndex<T> = {
   byBillingKey: Map<string, T[]>;
   byDescriptionKey: Map<string, T[]>;
+  items: readonly T[];
 };
 
 export function indexRateScheduleItemsByCanonicalKeys<T extends RateScheduleMatchable>(
@@ -300,27 +312,45 @@ export function indexRateScheduleItemsByCanonicalKeys<T extends RateScheduleMatc
     }
   }
 
-  return { byBillingKey, byDescriptionKey };
+  return { byBillingKey, byDescriptionKey, items };
+}
+
+type ExactCandidateReason = 'exact_billing_key' | 'exact_description_key';
+type RateScheduleMatchReason = ExactCandidateReason | 'operational_fallback';
+
+function findExactRateScheduleCandidatesForInvoiceLine<T extends RateScheduleMatchable>(
+  line: InvoiceLineMatchable,
+  index: BillingScheduleIndex<T>,
+): {
+  candidates: T[];
+  reason: ExactCandidateReason | null;
+} {
+  const billingKey =
+    line.billing_rate_key ?? deriveBillingKeysForInvoiceLine(line).billing_rate_key;
+  if (billingKey) {
+    const candidates = index.byBillingKey.get(billingKey) ?? [];
+    if (candidates.length > 0) {
+      return { candidates, reason: 'exact_billing_key' };
+    }
+  }
+
+  const descriptionKey =
+    line.description_match_key ?? deriveDescriptionMatchKey(line.description);
+  if (descriptionKey) {
+    const candidates = index.byDescriptionKey.get(descriptionKey) ?? [];
+    if (candidates.length > 0) {
+      return { candidates, reason: 'exact_description_key' };
+    }
+  }
+
+  return { candidates: [], reason: null };
 }
 
 export function findRateScheduleCandidatesForInvoiceLine<T extends RateScheduleMatchable>(
   line: InvoiceLineMatchable,
   index: BillingScheduleIndex<T>,
 ): T[] {
-  const billingKey =
-    line.billing_rate_key ?? deriveBillingKeysForInvoiceLine(line).billing_rate_key;
-  if (billingKey) {
-    const candidates = index.byBillingKey.get(billingKey) ?? [];
-    if (candidates.length > 0) return candidates;
-  }
-
-  const descriptionKey =
-    line.description_match_key ?? deriveDescriptionMatchKey(line.description);
-  if (descriptionKey) {
-    return index.byDescriptionKey.get(descriptionKey) ?? [];
-  }
-
-  return [];
+  return findExactRateScheduleCandidatesForInvoiceLine(line, index).candidates;
 }
 
 export function selectBestRateScheduleItemForInvoiceLine<T extends RateScheduleMatchable>(
@@ -384,16 +414,494 @@ export function selectBestRateScheduleItemForInvoiceLine<T extends RateScheduleM
   ))[0] ?? null;
 }
 
+const OPERATIONAL_RATE_TOLERANCE = 0.01;
+const MIN_OPERATIONAL_DESCRIPTION_SCORE = 0.45;
+const MIN_NEEDS_REVIEW_DESCRIPTION_SCORE = 0.75;
+const AMBIGUOUS_SCORE_TOLERANCE = 0.0001;
+
+const DESCRIPTION_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'from',
+  'for',
+  'in',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'with',
+]);
+
+type OperationalScoredCandidate<T> = {
+  item: T;
+  score: number;
+  descriptionScore: number;
+  rateMatches: boolean;
+  rateDelta: number | null;
+};
+
+export type OperationalRateScheduleCandidateResult<T> = {
+  candidates: T[];
+  candidate_count: number;
+  ambiguous: boolean;
+  match: T | null;
+};
+
+function primitiveRawText(value: unknown): string[] {
+  if (value == null) return [];
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => primitiveRawText(entry));
+  }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).flatMap((entry) =>
+      primitiveRawText(entry));
+  }
+  return [];
+}
+
+function candidateSearchText(item: RateScheduleMatchable): string {
+  return [
+    item.description,
+    item.service_item,
+    item.material_type,
+    item.source_category,
+    item.canonical_category,
+    item.unit_type,
+    ...primitiveRawText(item.raw_value),
+  ]
+    .filter((value): value is string => value != null && value.length > 0)
+    .join(' ');
+}
+
+function normalizeOperationalText(value: string | null | undefined): string {
+  return (value ?? '')
+    .toLowerCase()
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/&/g, ' and ')
+    .replace(/\bfds\b/g, 'final disposal')
+    .replace(/\bmiles?from\b/g, 'miles from')
+    .replace(/\bt6\b/g, 'to')
+    .replace(/[^a-z0-9-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function operationalTokens(value: string | null | undefined): string[] {
+  const text = normalizeOperationalText(value);
+  if (!text) return [];
+  return text
+    .replace(/-/g, ' ')
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && !DESCRIPTION_STOP_WORDS.has(token));
+}
+
+function editDistance(left: string, right: string): number {
+  if (left === right) return 0;
+  if (left.length === 0) return right.length;
+  if (right.length === 0) return left.length;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + cost,
+      );
+    }
+    for (let index = 0; index < previous.length; index += 1) {
+      previous[index] = current[index] ?? 0;
+    }
+  }
+
+  return previous[right.length] ?? Math.max(left.length, right.length);
+}
+
+function tokensCompatible(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (/^\d+$/.test(left) || /^\d+$/.test(right)) return false;
+  if (left.length < 5 || right.length < 5) return false;
+  return editDistance(left, right) <= (Math.max(left.length, right.length) >= 10 ? 2 : 1);
+}
+
+function descriptionTokenScore(
+  invoiceDescription: string | null | undefined,
+  contractText: string,
+): number {
+  const invoiceTokens = operationalTokens(invoiceDescription);
+  if (invoiceTokens.length === 0) return 0;
+  const contractTokens = operationalTokens(contractText);
+  if (contractTokens.length === 0) return 0;
+
+  let matched = 0;
+  for (const invoiceToken of invoiceTokens) {
+    if (contractTokens.some((contractToken) => tokensCompatible(invoiceToken, contractToken))) {
+      matched += 1;
+    }
+  }
+
+  return matched / invoiceTokens.length;
+}
+
+function detectRoute(value: string | null | undefined): string | null {
+  const text = normalizeOperationalText(value);
+  if (/\brow\b/.test(text) && /\bdms\b/.test(text)) return 'row_to_dms';
+  return null;
+}
+
+function detectDistanceBand(value: string | null | undefined): { start: number; end: number } | null {
+  const text = normalizeOperationalText(value);
+  const match = text.match(/\b(\d+)\s*(?:to|-)\s*(\d+)\b/);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return { start: Math.min(start, end), end: Math.max(start, end) };
+}
+
+function distanceBandsOverlap(
+  left: { start: number; end: number } | null,
+  right: { start: number; end: number } | null,
+): boolean {
+  if (!left || !right) return false;
+  return left.start <= right.end && right.start <= left.end;
+}
+
+function operationalDescriptionScore(line: InvoiceLineMatchable, item: RateScheduleMatchable): number {
+  const contractText = candidateSearchText(item);
+  let score = descriptionTokenScore(line.description, contractText);
+  const lineRoute = detectRoute(line.description);
+  const contractRoute = detectRoute(contractText);
+  if (lineRoute != null && contractRoute === lineRoute) {
+    score += 0.05;
+  }
+
+  const lineDistance = detectDistanceBand(line.description);
+  const contractDistance = detectDistanceBand(contractText);
+  if (distanceBandsOverlap(lineDistance, contractDistance)) {
+    score += 0.05;
+  }
+
+  return Math.min(1, score);
+}
+
+function inferOperationalCategory(value: string | null | undefined): string | null {
+  const text = normalizeOperationalText(value);
+  if (!text) return null;
+
+  if (
+    /\bfinal\s+disposal\b/.test(text)
+    || (/\bdms\b/.test(text) && /\bfinal\b/.test(text) && /\bdisposal\b/.test(text))
+  ) {
+    return 'final_disposal';
+  }
+  if (
+    /\bmanagement\b/.test(text)
+    || /\breduction\b/.test(text)
+    || /\bgrinding\b/.test(text)
+    || /\bchipping\b/.test(text)
+    || /\bair\s+curtain\b/.test(text)
+    || /\bopen\s+burning\b/.test(text)
+  ) {
+    return 'management_reduction';
+  }
+  if (/\btree\b/.test(text) || /\btrees\b/.test(text) || /\bhazardous\b/.test(text) || /\blimb/.test(text)) {
+    return 'tree_operations';
+  }
+  if (/\bc\s+and\s+d\b/.test(text) || /\bc\s+d\b/.test(text) || /\bconstruction\b/.test(text)) {
+    return 'construction_demolition';
+  }
+  if (
+    /\bvegetative\b/.test(text)
+    || /\brural\b/.test(text)
+    || /\bunincorporated\b/.test(text)
+    || (/\brow\b/.test(text) && /\bdms\b/.test(text))
+  ) {
+    return 'vegetative_removal';
+  }
+
+  return null;
+}
+
+function categoriesCompatible(line: InvoiceLineMatchable, item: RateScheduleMatchable): boolean {
+  const invoiceCategory = normalizeRateDescription(line.canonical_category ?? line.material);
+  const contractCategory = normalizeRateDescription(
+    item.canonical_category ?? item.source_category ?? item.material_type,
+  );
+  const inferredInvoiceCategory = inferOperationalCategory(line.description);
+  const inferredContractCategory = inferOperationalCategory(candidateSearchText(item));
+  if (
+    inferredInvoiceCategory != null
+    && inferredContractCategory != null
+    && inferredInvoiceCategory === inferredContractCategory
+  ) {
+    return true;
+  }
+  if (!invoiceCategory || !contractCategory) return true;
+  return invoiceCategory === contractCategory
+    || invoiceCategory.includes(contractCategory)
+    || contractCategory.includes(invoiceCategory);
+}
+
+function normalizeOperationalUnit(
+  unit: string | null | undefined,
+  context: string | null | undefined,
+): string | null {
+  const rawUnit = normalizeRateDescription(unit);
+  const rawContext = normalizeOperationalText(context);
+  const combined = `${rawUnit ?? ''} ${rawContext}`;
+  const hasCubicYard =
+    /\bc\s*y\b/.test(combined)
+    || /\bcyd\b/.test(combined)
+    || /\bcubic\s+yards?\b/.test(combined)
+    || /\byards?\b/.test(combined);
+  const hasMiles = /\bmiles?\b/.test(combined);
+
+  if (rawUnit === 'miles' && hasCubicYard && hasMiles) return null;
+  if (hasCubicYard) return 'cubic_yard';
+  if (rawUnit && hasMiles) return 'mile';
+  if (!rawUnit) return null;
+  return rawUnit;
+}
+
+function unitsCompatible(line: InvoiceLineMatchable, item: RateScheduleMatchable): boolean {
+  const lineUnit = normalizeOperationalUnit(line.unit_type ?? line.unit, line.description);
+  const itemUnit = normalizeOperationalUnit(item.unit_type, candidateSearchText(item));
+  if (!lineUnit || !itemUnit) return true;
+  return lineUnit === itemUnit;
+}
+
+function scoreOperationalCandidate<T extends RateScheduleMatchable>(
+  line: InvoiceLineMatchable,
+  item: T,
+): OperationalScoredCandidate<T> | null {
+  const descriptionScore = operationalDescriptionScore(line, item);
+  if (!categoriesCompatible(line, item)) return null;
+  if (!unitsCompatible(line, item)) return null;
+
+  const rateDelta =
+    line.unit_price != null && item.rate_amount != null
+      ? Math.abs(line.unit_price - item.rate_amount)
+      : null;
+  const rateMatches = rateDelta != null && rateDelta <= OPERATIONAL_RATE_TOLERANCE;
+  if (!rateMatches) return null;
+
+  if (item.source_quality === 'junk') return null;
+  const minimumDescriptionScore =
+    item.confidence === 'needs_review'
+      ? MIN_NEEDS_REVIEW_DESCRIPTION_SCORE
+      : MIN_OPERATIONAL_DESCRIPTION_SCORE;
+  if (descriptionScore < minimumDescriptionScore) return null;
+
+  const score =
+    descriptionScore
+    + (rateMatches ? 0.2 : 0)
+    + (rateDelta != null ? Math.max(0, 0.05 - Math.min(rateDelta, 0.05)) : 0);
+
+  return {
+    item,
+    score,
+    descriptionScore,
+    rateMatches,
+    rateDelta,
+  };
+}
+
+function selectOperationalCandidate<T extends RateScheduleMatchable>(
+  scored: readonly OperationalScoredCandidate<T>[],
+): {
+  match: T | null;
+  ambiguous: boolean;
+} {
+  if (scored.length === 0) return { match: null, ambiguous: false };
+  const sorted = [...scored].sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return left.item.record_id.localeCompare(right.item.record_id, 'en-US');
+  });
+  const best = sorted[0];
+  if (!best) return { match: null, ambiguous: false };
+
+  const equallyPlausible = sorted.filter((candidate) =>
+    Math.abs(candidate.score - best.score) <= AMBIGUOUS_SCORE_TOLERANCE);
+  if (equallyPlausible.length > 1) {
+    const sameContractSlot = new Set(equallyPlausible.map((candidate) => [
+      normalizeRateDescription(candidate.item.description) ?? '',
+      inferOperationalCategory(candidateSearchText(candidate.item))
+        ?? normalizeRateDescription(candidate.item.canonical_category ?? candidate.item.source_category ?? candidate.item.material_type)
+        ?? '',
+      normalizeRateDescription(candidate.item.unit_type) ?? '',
+      candidate.item.rate_amount != null ? candidate.item.rate_amount.toFixed(2) : '',
+    ].join('|')));
+    if (sameContractSlot.size === 1) {
+      const preferred = [...equallyPlausible].sort((left, right) => {
+        const sourceQualityScore = (candidate: OperationalScoredCandidate<T>) =>
+          candidate.item.source_quality === 'clean' ? 0 : 1;
+        const sourceKindScore = (candidate: OperationalScoredCandidate<T>) =>
+          candidate.item.source_kind === 'exhibit_a_table'
+            || candidate.item.source_kind === 'exhibit_a_text_recovery'
+            || candidate.item.record_id.startsWith('exhibit_a_')
+            ? 0
+            : 1;
+        const qualityDelta = sourceQualityScore(left) - sourceQualityScore(right);
+        if (qualityDelta !== 0) return qualityDelta;
+        const kindDelta = sourceKindScore(left) - sourceKindScore(right);
+        if (kindDelta !== 0) return kindDelta;
+        return left.item.record_id.localeCompare(right.item.record_id, 'en-US');
+      })[0];
+      return { match: preferred?.item ?? null, ambiguous: false };
+    }
+    return { match: null, ambiguous: true };
+  }
+
+  return { match: best.item, ambiguous: false };
+}
+
+function exactDescriptionCandidateStillFitsInvoiceLine(
+  line: InvoiceLineMatchable,
+  item: RateScheduleMatchable,
+): boolean {
+  if (item.source_quality === 'junk') return false;
+  if (!categoriesCompatible(line, item)) return false;
+  if (!unitsCompatible(line, item)) return false;
+
+  if (line.unit_price != null && item.rate_amount != null) {
+    return Math.abs(line.unit_price - item.rate_amount) <= OPERATIONAL_RATE_TOLERANCE;
+  }
+
+  return true;
+}
+
+export function findOperationalRateScheduleCandidatesForInvoiceLine<T extends RateScheduleMatchable>(
+  line: InvoiceLineMatchable,
+  index: BillingScheduleIndex<T>,
+): OperationalRateScheduleCandidateResult<T> {
+  const scored = index.items
+    .map((item) => scoreOperationalCandidate(line, item))
+    .filter((candidate): candidate is OperationalScoredCandidate<T> => candidate != null)
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.item.record_id.localeCompare(right.item.record_id, 'en-US');
+    });
+  const selection = selectOperationalCandidate(scored);
+  const candidates = scored.map((candidate) => candidate.item);
+
+  return {
+    candidates,
+    candidate_count: candidates.length,
+    ambiguous: selection.ambiguous,
+    match: selection.match,
+  };
+}
+
 export function matchRateScheduleItemForInvoiceLine<T extends RateScheduleMatchable>(
   line: InvoiceLineMatchable,
   index: BillingScheduleIndex<T>,
 ): {
   candidates: T[];
   match: T | null;
+  candidate_count: number;
+  ambiguous: boolean;
+  match_reason: RateScheduleMatchReason | null;
 } {
-  const candidates = findRateScheduleCandidatesForInvoiceLine(line, index);
+  const exact = findExactRateScheduleCandidatesForInvoiceLine(line, index);
+  if (exact.candidates.length > 0) {
+    const exactMatch = selectBestRateScheduleItemForInvoiceLine(exact.candidates, line);
+    if (
+      (exact.reason === 'exact_description_key' || line.rate_code == null)
+      && (
+        exactMatch == null
+        || !exactDescriptionCandidateStillFitsInvoiceLine(line, exactMatch)
+      )
+    ) {
+      return {
+        candidates: exact.candidates,
+        match: null,
+        candidate_count: exact.candidates.length,
+        ambiguous: false,
+        match_reason: exact.reason,
+      };
+    }
+
+    return {
+      candidates: exact.candidates,
+      match: exactMatch,
+      candidate_count: exact.candidates.length,
+      ambiguous: false,
+      match_reason: exact.reason,
+    };
+  }
+
+  const operational = findOperationalRateScheduleCandidatesForInvoiceLine(line, index);
+  if (operational.candidate_count > 0) {
+    return {
+      candidates: operational.candidates,
+      match: operational.match,
+      candidate_count: operational.candidate_count,
+      ambiguous: operational.ambiguous,
+      match_reason: 'operational_fallback',
+    };
+  }
+
   return {
-    candidates,
-    match: selectBestRateScheduleItemForInvoiceLine(candidates, line),
+    candidates: exact.candidates,
+    match: null,
+    candidate_count: exact.candidates.length,
+    ambiguous: false,
+    match_reason: exact.reason,
   };
+}
+
+export type InvoiceGroupedTransactionMatchInput = {
+  invoice_rate_key?: string | null;
+  billing_rate_key?: string | null;
+  normalized_invoice_number?: string | null;
+};
+
+export type TransactionRowMatchIndex<T> = {
+  byInvoiceRateKey: Map<string, T[]>;
+  byBillingRateKey: Map<string, T[]>;
+};
+
+type TransactionRowInvoiceScope = {
+  meaningful_data?: boolean;
+  normalized_invoice_number?: string | null;
+};
+
+/**
+ * Match persisted transaction support rows for an invoice line group.
+ * Invoice number scope is enforced before project-wide billing-rate fallback.
+ */
+export function matchTransactionRowsForInvoiceGroup<T extends TransactionRowInvoiceScope>(
+  group: InvoiceGroupedTransactionMatchInput,
+  indexes: TransactionRowMatchIndex<T>,
+): T[] {
+  const isMeaningful = (row: T) => row.meaningful_data !== false;
+
+  if (group.invoice_rate_key) {
+    const invoiceRateRows = indexes.byInvoiceRateKey.get(group.invoice_rate_key) ?? [];
+    if (invoiceRateRows.length > 0) {
+      return invoiceRateRows.filter(isMeaningful);
+    }
+  }
+
+  if (group.billing_rate_key && group.normalized_invoice_number) {
+    const rateScoped = indexes.byBillingRateKey.get(group.billing_rate_key) ?? [];
+    return rateScoped.filter(
+      (row) =>
+        isMeaningful(row)
+        && row.normalized_invoice_number === group.normalized_invoice_number,
+    );
+  }
+
+  return [];
 }

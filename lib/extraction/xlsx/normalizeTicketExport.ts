@@ -9,7 +9,9 @@ export type TicketFieldKey =
   | 'rate'
   | 'unit'
   | 'invoice_number'
-  | 'contract_line_item';
+  | 'contract_line_item'
+  | 'material'
+  | 'service_item';
 
 export interface NormalizedTicketRow {
   id: string;
@@ -22,6 +24,9 @@ export interface NormalizedTicketRow {
   rate: number | null;
   invoice_number: string | null;
   contract_line_item: string | null;
+  material: string | null;
+  service_item: string | null;
+  ticket_family: 'mobile_ticket' | 'mobile_unit_ticket';
   /** Row-level sheet_row evidence id (matches buildSpreadsheetEvidence sheet_row ids). */
   evidence_ref: string;
   /** Resolved header label per field; null when no column was matched for that field. */
@@ -57,6 +62,8 @@ const COLUMN_ALIASES = {
   rate: ['rate', 'unit price', 'price', 'unit rate'],
   invoice_number: ['invoice', 'invoice #', 'invoice number'],
   contract_line_item: ['line item', 'line', 'clin', 'item code'],
+  material: ['material', 'material type', 'debris type', 'debris category'],
+  service_item: ['service item', 'service', 'item description', 'service description'],
 } as const;
 
 function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
@@ -151,6 +158,8 @@ export function normalizeTicketExport(params: {
     const rateColumn = findColumn(sheet, COLUMN_ALIASES.rate);
     const invoiceColumn = findColumn(sheet, COLUMN_ALIASES.invoice_number);
     const lineItemColumn = findColumn(sheet, COLUMN_ALIASES.contract_line_item);
+    const materialColumn = findColumn(sheet, COLUMN_ALIASES.material);
+    const serviceItemColumn = findColumn(sheet, COLUMN_ALIASES.service_item);
 
     const columnHeaders: Record<TicketFieldKey, string | null> = {
       ticket_id: ticketColumn,
@@ -159,6 +168,8 @@ export function normalizeTicketExport(params: {
       rate: rateColumn,
       invoice_number: invoiceColumn,
       contract_line_item: lineItemColumn,
+      material: materialColumn,
+      service_item: serviceItemColumn,
     };
 
     let missingQuantityRows = 0;
@@ -171,6 +182,12 @@ export function normalizeTicketExport(params: {
       const rate = rateColumn ? parseNumber(row.values[rateColumn]) : null;
       const invoiceNumber = invoiceColumn ? parseText(row.values[invoiceColumn]) : null;
       const contractLineItem = lineItemColumn ? parseText(row.values[lineItemColumn]) : null;
+      const material = materialColumn ? parseText(row.values[materialColumn]) : null;
+      const serviceItem = serviceItemColumn ? parseText(row.values[serviceItemColumn]) : null;
+      const ticketFamily =
+        serviceItem && serviceItem.length > 0
+          ? 'mobile_unit_ticket'
+          : 'mobile_ticket';
       const missingFields = [
         !ticketId ? 'ticket_id' : null,
         quantity == null ? 'quantity' : null,
@@ -191,6 +208,8 @@ export function normalizeTicketExport(params: {
       assign('rate', rateColumn);
       assign('invoice_number', invoiceColumn);
       assign('contract_line_item', lineItemColumn);
+      assign('material', materialColumn);
+      assign('service_item', serviceItemColumn);
 
       rows.push({
         id: `ticket:${sheet.key}:${row.row_number}`,
@@ -203,6 +222,9 @@ export function normalizeTicketExport(params: {
         rate,
         invoice_number: invoiceNumber,
         contract_line_item: contractLineItem,
+        material,
+        service_item: serviceItem,
+        ticket_family: ticketFamily,
         evidence_ref: `sheet:${sheet.key}:row:${row.row_number}`,
         column_headers: { ...columnHeaders },
         field_evidence_ids: fieldEvidenceIds,

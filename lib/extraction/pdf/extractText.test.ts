@@ -63,7 +63,10 @@ describe('buildPdfTextExtraction fallback pages', () => {
         {
           page_number: 3,
           lines: [{
+            id: 'page:3:line:0',
+            page_number: 3,
             text: 'EXHIBIT A native body text',
+            tokens: [{ text: 'EXHIBIT A native body text', x: 10, y: 10, width: 120, height: 10 }],
             kind: 'text',
             x_min: 10,
             x_max: 130,

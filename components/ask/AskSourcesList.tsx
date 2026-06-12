@@ -10,36 +10,36 @@ type AskSourcesListProps = {
 
 function sourceTypeClassName(type: AskSourceViewModel['type']): string {
   if (type === 'validator') {
-    return 'border-[#F59E0B]/35 bg-[#31230F] text-[#FCD34D]';
+    return 'border-[var(--ef-warning-a35)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
   }
   if (type === 'decision') {
-    return 'border-[#38BDF8]/30 bg-[#10283A] text-[#7DD3FC]';
+    return 'border-[var(--ef-purple-glow-a30)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]';
   }
   if (type === 'document') {
-    return 'border-[#2F3B52]/80 bg-[#131A29] text-[#C7D2E3]';
+    return 'border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-secondary)]';
   }
   if (type === 'calculation') {
-    return 'border-[#A855F7]/30 bg-[#261339] text-[#D8B4FE]';
+    return 'border-[var(--ef-purple-accent-a30)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)]';
   }
-  return 'border-[#22C55E]/35 bg-[#0F2417] text-[#86EFAC]';
+  return 'border-[var(--ef-success-a35)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
 }
 
 function navigationButtonClassName(
   source: AskSourceViewModel,
 ): string {
   if (!source.isNavigable) {
-    return 'cursor-not-allowed border-[#2F3B52]/60 bg-[#0E1522] text-[#64748B]';
+    return 'cursor-not-allowed border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-faint)]';
   }
 
   if (source.navigationState === 'evidence') {
-    return 'border-[#3B82F6]/60 bg-[#101A2E] text-[#DCEBFF] hover:border-[#60A5FA] hover:text-white';
+    return 'border-[var(--ef-purple-primary-a60)] bg-[var(--ef-surface-elevated)] text-[var(--ef-purple-glow)] hover:border-[var(--ef-purple-glow)] hover:text-white';
   }
 
   if (source.navigationState === 'page') {
-    return 'border-[#2F3B52]/80 bg-[#131A29] text-[#E5EDF7] hover:border-[#3B82F6]/60 hover:text-white';
+    return 'border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary-a60)] hover:text-white';
   }
 
-  return 'border-[#2F3B52]/80 bg-[#131A29] text-[#C7D2E3] hover:border-[#3B82F6]/50 hover:text-white';
+  return 'border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-secondary)] hover:border-[var(--ef-purple-primary-a50)] hover:text-white';
 }
 
 function quoteSnippet(snippet?: string): string | null {
@@ -56,7 +56,7 @@ export function AskSourcesList({ sources }: AskSourcesListProps) {
 
   if (sources.length === 0) {
     return (
-      <div className="rounded-lg border border-[#2F3B52]/60 bg-[#0F172A] px-3 py-3 text-[11px] text-[#94A3B8]">
+      <div className="rounded-lg border border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-secondary)] px-3 py-3 text-[11px] text-[var(--ef-text-muted)]">
         No evidence sources were returned for this answer.
       </div>
     );
@@ -70,31 +70,31 @@ export function AskSourcesList({ sources }: AskSourcesListProps) {
         return (
           <div
             key={source.id}
-            className="flex flex-col gap-3 rounded-lg border border-[#2F3B52]/60 bg-[#0F172A] px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+            className="flex flex-col gap-3 rounded-lg border border-[var(--ef-border-subtle-a60)] bg-[var(--ef-background-secondary)] px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
           >
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] ${sourceTypeClassName(source.type)}`}>
                   {source.typeLabel}
                 </span>
-                <span className="text-[12px] font-semibold text-[#E5EDF7]">
+                <span className="text-[12px] font-semibold text-[var(--ef-text-primary)]">
                   {source.title}
                 </span>
               </div>
 
-              <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[#7F90AA]">
+              <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[var(--ef-text-soft)]">
                 {source.detail}
               </p>
 
               {snippet ? (
-                <p className="mt-2 max-w-[70ch] text-[11px] leading-relaxed text-[#C7D2E3]">
+                <p className="mt-2 max-w-[70ch] text-[11px] leading-relaxed text-[var(--ef-text-secondary)]">
                   {snippet}
                 </p>
               ) : null}
             </div>
 
             <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B]">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-faint)]">
                 {source.confidence}%
               </span>
               {source.isNavigable && source.href ? (
@@ -123,7 +123,7 @@ export function AskSourcesList({ sources }: AskSourcesListProps) {
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#3B82F6] transition hover:text-[#60A5FA]"
+          className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-primary)] transition hover:text-[var(--ef-purple-glow)]"
         >
           {expanded ? 'Show fewer sources' : `Show ${sources.length - 3} more source${sources.length - 3 === 1 ? '' : 's'}`}
         </button>

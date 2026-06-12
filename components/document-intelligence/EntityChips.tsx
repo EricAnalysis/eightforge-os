@@ -7,10 +7,10 @@
 import type { DetectedEntity } from '@/lib/types/documentIntelligence';
 
 const STATUS_CLASSES: Record<string, string> = {
-  ok:       'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
-  warning:  'bg-amber-500/15 border-amber-500/30 text-amber-300',
-  critical: 'bg-red-500/15 border-red-500/30 text-red-300',
-  neutral:  'bg-white/5 border-white/10 text-[#C5CAD4]',
+  ok:       'bg-[var(--ef-success-a18)] border-[var(--ef-success-a30)] text-[var(--ef-success-soft)]',
+  warning:  'bg-[var(--ef-warning-a18)] border-[var(--ef-warning-a30)] text-[var(--ef-warning-soft)]',
+  critical: 'bg-[var(--ef-critical-a15)] border-[var(--ef-critical-a30)] text-[var(--ef-critical-soft)]',
+  neutral:  'bg-white/5 border-[var(--ef-border-white-10)] text-[var(--ef-text-secondary)]',
 };
 
 interface EntityChipsProps {
@@ -30,7 +30,7 @@ export function EntityChips({ entities }: EntityChipsProps) {
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${cls}`}
             title={entity.tooltip}
           >
-            <span className="text-[#8B94A3] font-medium">{entity.label}</span>
+            <span className="text-[var(--ef-text-muted)] font-medium">{entity.label}</span>
             <span className="font-semibold">{entity.value}</span>
           </div>
         );

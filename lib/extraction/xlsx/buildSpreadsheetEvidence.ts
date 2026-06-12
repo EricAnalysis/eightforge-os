@@ -30,6 +30,8 @@ const FIELD_LABELS: Record<TicketFieldKey, string> = {
   unit: 'Unit',
   invoice_number: 'Invoice number',
   contract_line_item: 'Contract line',
+  material: 'Material',
+  service_item: 'Service item',
 };
 
 function sheetConfidenceForKey(

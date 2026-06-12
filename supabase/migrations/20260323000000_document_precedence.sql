@@ -102,6 +102,8 @@ BEGIN
       ADD CONSTRAINT document_relationships_relationship_type_check
       CHECK (
         relationship_type IN (
+          'attached_to',
+          'supplements',
           'supersedes',
           'amends',
           'governs',

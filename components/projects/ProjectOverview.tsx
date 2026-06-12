@@ -1,62 +1,85 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { inferGoverningDocumentFamily } from '@/lib/documentPrecedence';
+import {
+  PROJECT_TERM_AT_RISK_AMOUNT,
+  PROJECT_TERM_INVOICE_BILLED_AMOUNT,
+} from '@/lib/projectTerminology';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
+import { ProjectDecisionExecutionCard } from '@/components/projects/ProjectDecisionExecutionCard';
+import { ProjectIssueBoard } from '@/components/projects/ProjectIssueBoard';
 import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
 import { ApprovalActionTimeline } from '@/components/approval/ApprovalActionTimeline';
 import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
 import { ValidatorStatusChip } from '@/components/validator/ValidatorStatusChip';
+import { PROJECT_FORGE_TABS, projectTabFromHash, type ProjectTabKey } from '@/lib/projectForgeNavigation';
+import { supabase } from '@/lib/supabaseClient';
 import {
-  processedDocsEmptyState,
-  processedDocsSubtitle,
-} from '@/lib/projectOverviewCopy';
+  approvalStatusLabelForProjectFacts,
+  type CanonicalProjectDocumentRelationshipInput,
+  resolveCanonicalProjectOverviewBriefing,
+  resolveCanonicalProjectTruthSections,
+  type CanonicalProjectOverviewSignal,
+  type CanonicalProjectOverviewSummaryItem,
+  type CanonicalProjectTransactionDatasetInput,
+  type CanonicalProjectTruthRow,
+  type CanonicalProjectTruthSection,
+  type CanonicalProjectTruthState,
+} from '@/lib/projectFacts';
+import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
+import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   OverviewTone,
   ProjectDecisionRow,
   ProjectDocumentRow,
   ProjectOverviewActionItem,
   ProjectOverviewAuditItem,
-  ProjectOverviewDecisionCard,
-  ProjectOverviewDocumentItem,
-  ProjectOverviewFact,
   ProjectOverviewInvoiceItem,
-  ProjectOverviewMetric,
   ProjectOverviewModel,
   ProjectOverviewTag,
+  ProjectActivityEventRow,
   ProjectTaskRow,
 } from '@/lib/projectOverview';
+import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type ProjectOverviewProps = {
   model: ProjectOverviewModel;
   documents?: ProjectDocumentRow[];
+  documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
+  transactionDatasets?: CanonicalProjectTransactionDatasetInput[];
+  validationFindings?: readonly ValidationFinding[];
+  validationEvidence?: readonly ValidationEvidence[];
+  executionItems?: readonly ProjectExecutionItemRow[];
   decisions?: ProjectDecisionRow[];
   tasks?: ProjectTaskRow[];
+  activityEvents?: ProjectActivityEventRow[];
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
   validatorTab?: ReactNode;
 };
 
-type ProjectTabKey =
-  | 'overview'
-  | 'facts'
-  | 'decisions'
-  | 'actions'
-  | 'documents'
-  | 'validator'
-  | 'audit';
+type ProjectWorkModeKey = 'documents' | 'decisions';
+type DocumentRoleKey = 'contract' | 'invoice' | 'transaction_data' | 'support';
 
-const TABS: Array<{ key: ProjectTabKey; label: string; href: string }> = [
-  { key: 'overview', label: 'Overview', href: '#project-overview' },
-  { key: 'facts', label: 'Facts', href: '#project-facts' },
-  { key: 'decisions', label: 'Decisions', href: '#project-decisions' },
-  { key: 'actions', label: 'Actions', href: '#project-actions' },
-  { key: 'documents', label: 'Documents', href: '#project-documents' },
-  { key: 'validator', label: 'Validator', href: '#project-validator' },
-  { key: 'audit', label: 'Audit', href: '#project-audit' },
-];
+function readActiveTabFromLocation(): ProjectTabKey {
+  if (typeof window === 'undefined') return 'overview';
+  if (window.location.hash) {
+    return projectTabFromHash(window.location.hash);
+  }
+  const activeTab = new URLSearchParams(window.location.search).get('activeTab');
+  if (activeTab && PROJECT_FORGE_TABS.some((tab) => tab.key === activeTab)) {
+    return activeTab as ProjectTabKey;
+  }
+  return projectTabFromHash(window.location.hash);
+}
+
+function isWorkModeTab(tab: ProjectTabKey): tab is ProjectWorkModeKey {
+  return tab === 'documents' || tab === 'decisions';
+}
 
 function toneTextClass(tone: OverviewTone): string {
   switch (tone) {
@@ -126,13 +149,27 @@ function toneDotClass(tone: OverviewTone): string {
   }
 }
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('') || 'EF';
+function relativeTime(value: string | null | undefined): string {
+  if (!value) return 'No recent activity';
+  const diff = Date.now() - new Date(value).getTime();
+  const seconds = Math.max(0, Math.floor(diff / 1000));
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return `${Math.floor(seconds / 604800)}w ago`;
+}
+
+function formatAuditTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 function ProjectTagPill({ tag }: { tag: ProjectOverviewTag }) {
@@ -143,102 +180,8 @@ function ProjectTagPill({ tag }: { tag: ProjectOverviewTag }) {
   );
 }
 
-function MetricCard({ metric }: { metric: ProjectOverviewMetric }) {
-  return (
-    <div className={`border-l-2 ${toneBorderClass(metric.tone)} bg-[#1A2333] p-5`}>
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
-        {metric.label}
-      </p>
-      <div className="flex items-end justify-between gap-3">
-        <span className="text-2xl font-bold tracking-tight text-[#E5EDF7]">
-          {metric.value}
-        </span>
-        <span className={`text-[10px] font-medium ${toneTextClass(metric.tone)}`}>
-          {metric.supporting}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function FactCard({ fact }: { fact: ProjectOverviewFact }) {
-  return (
-    <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] px-4 py-3">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
-        {fact.label}
-      </p>
-      <p className="mt-2 text-sm font-medium text-[#E5EDF7]">
-        {fact.value}
-      </p>
-    </div>
-  );
-}
-
-function DecisionCard({ decision }: { decision: ProjectOverviewDecisionCard }) {
-  return (
-    <Link
-      href={decision.href}
-      className={`group block rounded-sm border-y border-r border-[#2F3B52]/50 border-l-2 ${toneBorderClass(decision.border_tone)} bg-[#1A2333] p-6 transition-colors hover:bg-[#243044]`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-bold tracking-tight text-[#E5EDF7]">
-              {decision.title}
-            </h3>
-            <span className={`rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.18em] ${toneBadgeClass(decision.status_tone)}`}>
-              {decision.status_label}
-            </span>
-          </div>
-          <p className="text-xs text-[#94A3B8]">
-            {decision.freshness_label}
-          </p>
-        </div>
-        <span className="text-[10px] text-[#94A3B8] transition-colors group-hover:text-[#3B82F6]">
-          View
-        </span>
-      </div>
-
-      <p className="mt-5 text-sm leading-6 text-[#C7D2E3]">
-        {decision.reason}
-      </p>
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {decision.assignees.length > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="flex -space-x-2">
-                {decision.assignees.map((assignee) => (
-                  <span
-                    key={assignee}
-                    className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#1A2333] bg-[#243044] text-[10px] font-bold text-[#E5EDF7]"
-                    title={assignee}
-                  >
-                    {initials(assignee)}
-                  </span>
-                ))}
-              </div>
-              <span className="text-[11px] text-[#C7D2E3]">
-                {decision.assignees.join(', ')}
-              </span>
-            </div>
-          )}
-          {decision.metadata.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
-              {decision.metadata.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        {decision.primary_action && (
-          <span className="rounded-sm bg-[#3B82F6] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
-            {decision.primary_action}
-          </span>
-        )}
-      </div>
-    </Link>
-  );
+function isOpenDecisionCardStatus(status: string): boolean {
+  return status === 'open' || status === 'in_review';
 }
 
 function fmtActionMoney(value: number | null | undefined): string {
@@ -322,29 +265,248 @@ function ActionRow({ action }: { action: ProjectOverviewActionItem }) {
   );
 }
 
-function DocumentRow({ document }: { document: ProjectOverviewDocumentItem }) {
+const DOCUMENT_ROLE_LABELS: Record<DocumentRoleKey, string> = {
+  contract: 'Contract',
+  invoice: 'Invoice',
+  transaction_data: 'Transaction Data',
+  support: 'Support',
+};
+
+function projectDocumentTitle(document: Pick<ProjectDocumentRow, 'title' | 'name'>): string {
+  return document.title?.trim() || document.name;
+}
+
+function formatDocumentType(value: string | null | undefined): string {
+  if (!value) return 'Unknown';
+  return value
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function documentRoleKey(document: ProjectDocumentRow): DocumentRoleKey {
+  const family = inferGoverningDocumentFamily({
+    document_role: null,
+    document_type: document.document_type,
+    title: document.title,
+    name: document.name,
+  });
+
+  switch (family) {
+    case 'contract':
+      return 'contract';
+    case 'invoice':
+      return 'invoice';
+    case 'rate_sheet':
+      return 'transaction_data';
+    case 'permit':
+    case 'ticket_support':
+      return 'support';
+    default: {
+      const normalizedType = (document.document_type ?? '').trim().toLowerCase();
+      if (
+        normalizedType.includes('transaction') ||
+        normalizedType.includes('spreadsheet') ||
+        normalizedType.includes('rate')
+      ) {
+        return 'transaction_data';
+      }
+      if (normalizedType.includes('invoice')) return 'invoice';
+      if (normalizedType.includes('contract')) return 'contract';
+      return 'support';
+    }
+  }
+}
+
+function documentRoleLabel(document: ProjectDocumentRow): string {
+  return DOCUMENT_ROLE_LABELS[documentRoleKey(document)];
+}
+
+function documentProcessingStatusLabel(status: string): string {
+  switch (status) {
+    case 'uploaded':
+      return 'Uploaded';
+    case 'processing':
+      return 'Processing';
+    case 'extracted':
+      return 'Extracted';
+    case 'decisioned':
+      return 'Decisioned';
+    case 'failed':
+      return 'Failed';
+    default:
+      return formatDocumentType(status);
+  }
+}
+
+function documentImpact(
+  document: ProjectDocumentRow,
+  model: ProjectOverviewModel,
+): { label: string; tone: OverviewTone } {
+  const status = model.document_status_by_id?.[document.id];
+  if (status?.tone === 'danger') {
+    return { label: status.label === 'Failed' ? 'Blocked' : 'Blocking', tone: 'danger' };
+  }
+  if (status?.label.toLowerCase() === 'needs review') {
+    return { label: 'Needs Review', tone: 'warning' };
+  }
+  if (status?.label.toLowerCase() === 'warning') {
+    return { label: 'Warning', tone: 'info' };
+  }
+  if (status?.tone === 'info') {
+    return { label: status.label, tone: 'info' };
+  }
+  if (status?.tone === 'success') {
+    return { label: status.label === 'Reviewed' ? 'Reviewed' : 'Clear', tone: 'success' };
+  }
+  if (document.processing_status === 'failed') {
+    return { label: 'Blocked', tone: 'danger' };
+  }
+  const looksProcessed =
+    document.processed_at != null ||
+    ['extracted', 'decisioned'].includes(document.processing_status);
+  if (looksProcessed) {
+    return { label: 'Needs Review', tone: 'warning' };
+  }
+  return { label: 'Needs Review', tone: 'warning' };
+}
+
+function documentProcessedLabel(document: ProjectDocumentRow): string {
+  return document.processed_at ? relativeTime(document.processed_at) : 'Not processed';
+}
+
+function DocumentListRow({
+  document,
+  model,
+  selected,
+  processing,
+  reprocessDisabled,
+  error,
+  onSelect,
+  onReprocess,
+}: {
+  document: ProjectDocumentRow;
+  model: ProjectOverviewModel;
+  selected: boolean;
+  processing: boolean;
+  reprocessDisabled: boolean;
+  error?: string | null;
+  onSelect: (documentId: string, selected: boolean) => void;
+  onReprocess: (documentId: string) => void;
+}) {
+  const primaryLabel = projectDocumentTitle(document);
+  const secondaryLabel =
+    document.title && document.title.trim() && document.title.trim() !== document.name
+      ? document.name
+      : null;
+  const impact = documentImpact(document, model);
+
   return (
-    <Link
-      href={document.href}
-      className="group flex items-start justify-between gap-3 rounded-sm px-2 py-2 transition-colors hover:bg-[#243044]"
-    >
+    <div className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,0.28fr)_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:items-center">
+      <div>
+        <label
+          className="inline-flex items-center gap-2 text-[11px] text-[#94A3B8]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] lg:hidden">
+            Select
+          </span>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelect(document.id, event.target.checked)}
+            aria-label={`Select ${primaryLabel}`}
+            className="h-3.5 w-3.5 rounded border-[#2F3B52] bg-[#0B1020] text-[#3B82F6] focus:ring-[#3B82F6]"
+          />
+        </label>
+      </div>
+
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-medium text-[#E5EDF7]">
-          {document.title}
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          File Name
         </p>
-        <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">
-          {document.detail}
+        <Link
+          href={`/platform/documents/${document.id}`}
+          className="block truncate text-[12px] font-medium text-[#E5EDF7] transition-colors hover:text-[#3B82F6]"
+        >
+          {primaryLabel}
+        </Link>
+        {secondaryLabel ? (
+          <p className="mt-1 truncate text-[11px] text-[#94A3B8]">
+            {secondaryLabel}
+          </p>
+        ) : null}
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Document Type
+        </p>
+        <p className="text-[12px] text-[#C7D2E3]">
+          {formatDocumentType(document.document_type)}
         </p>
       </div>
-      <div className="shrink-0 text-right">
-        <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(document.status_tone)}`}>
-          {document.status_label}
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Role
+        </p>
+        <p className="text-[12px] text-[#C7D2E3]">
+          {documentRoleLabel(document)}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Processing Status
+        </p>
+        <p className="text-[12px] text-[#C7D2E3]">
+          {documentProcessingStatusLabel(document.processing_status)}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Last Processed
+        </p>
+        <p className="text-[12px] text-[#C7D2E3]">
+          {documentProcessedLabel(document)}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Decision Impact
+        </p>
+        <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(impact.tone)}`}>
+          {impact.label}
         </span>
-        <p className="mt-1 text-[10px] text-[#94A3B8]">
-          {document.processed_label}
-        </p>
       </div>
-    </Link>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Actions
+        </p>
+        <button
+          type="button"
+          disabled={reprocessDisabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReprocess(document.id);
+          }}
+          className="rounded-sm border border-[#3B82F6]/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#93C5FD] transition-colors hover:border-[#3B82F6]/60 hover:bg-[#3B82F6]/10 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {processing ? 'Reprocessing...' : 'Reprocess'}
+        </button>
+        {error ? (
+          <p className="mt-2 text-[11px] text-[#FCA5A5]">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -355,27 +517,79 @@ function AuditTimeline({ items }: { items: ProjectOverviewAuditItem[] }) {
         <div key={item.id} className="relative">
           <div className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-[#0B1020] ${toneDotClass(item.tone)}`} />
           {item.href ? (
-            <Link href={item.href} className="block">
-              <p className="text-[12px] font-semibold text-[#E5EDF7]">
-                {item.label}
-              </p>
-              <p className="mt-1 text-[11px] text-[#C7D2E3]">
-                {item.detail}
-              </p>
+            <Link
+              href={item.href}
+              className={`block rounded-sm border-y border-r border-[#2F3B52]/50 border-l-2 ${toneBorderClass(item.tone)} bg-[#111827] p-4 transition-colors hover:bg-[#151C2C]`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-2">
+                  <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(item.tone)}`}>
+                    {item.label}
+                  </span>
+                  <p className="text-[12px] leading-6 text-[#E5EDF7]">
+                    {item.detail}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] font-medium text-[#C7D2E3]">
+                    {formatAuditTimestamp(item.timestamp_at)}
+                  </p>
+                  <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
+                    {item.timestamp_label}
+                  </p>
+                </div>
+              </div>
+              {item.object_label || item.source_label ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.object_label ? (
+                    <span className="rounded-sm border border-[#2F3B52]/60 bg-[#0F172A] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#C7D2E3]">
+                      Object: {item.object_label}
+                    </span>
+                  ) : null}
+                  {item.source_label ? (
+                    <span className="rounded-sm border border-[#2F3B52]/60 bg-[#0F172A] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
+                      Source: {item.source_label}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </Link>
           ) : (
-            <>
-              <p className="text-[12px] font-semibold text-[#E5EDF7]">
-                {item.label}
-              </p>
-              <p className="mt-1 text-[11px] text-[#C7D2E3]">
-                {item.detail}
-              </p>
-            </>
+            <div className={`rounded-sm border-y border-r border-[#2F3B52]/50 border-l-2 ${toneBorderClass(item.tone)} bg-[#111827] p-4`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-2">
+                  <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(item.tone)}`}>
+                    {item.label}
+                  </span>
+                  <p className="text-[12px] leading-6 text-[#E5EDF7]">
+                    {item.detail}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] font-medium text-[#C7D2E3]">
+                    {formatAuditTimestamp(item.timestamp_at)}
+                  </p>
+                  <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
+                    {item.timestamp_label}
+                  </p>
+                </div>
+              </div>
+              {item.object_label || item.source_label ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.object_label ? (
+                    <span className="rounded-sm border border-[#2F3B52]/60 bg-[#0F172A] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#C7D2E3]">
+                      Object: {item.object_label}
+                    </span>
+                  ) : null}
+                  {item.source_label ? (
+                    <span className="rounded-sm border border-[#2F3B52]/60 bg-[#0F172A] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
+                      Source: {item.source_label}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           )}
-          <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#94A3B8]">
-            {item.timestamp_label}
-          </p>
           <ValidationAuditEventSummary item={item} />
         </div>
       ))}
@@ -408,6 +622,271 @@ function SectionHeading({
   );
 }
 
+function truthStateTone(state: CanonicalProjectTruthState): OverviewTone {
+  switch (state) {
+    case 'resolved':
+      return 'success';
+    case 'derived':
+      return 'info';
+    case 'conflicted':
+      return 'danger';
+    case 'requires_review':
+      return 'warning';
+    case 'unresolved':
+      return 'muted';
+    case 'missing':
+    default:
+      return 'muted';
+  }
+}
+
+function truthStateLabel(state: CanonicalProjectTruthState): string {
+  switch (state) {
+    case 'resolved':
+      return 'Resolved';
+    case 'derived':
+      return 'Derived';
+    case 'conflicted':
+      return 'Conflicted';
+    case 'requires_review':
+      return 'Requires Review';
+    case 'unresolved':
+      return 'Unresolved';
+    case 'missing':
+    default:
+      return 'Missing';
+  }
+}
+
+function TruthSheetRow({ row }: { row: CanonicalProjectTruthRow }) {
+  const tone = truthStateTone(row.state);
+
+  return (
+    <div className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_auto] lg:items-center">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Fact
+        </p>
+        <p className="text-[12px] font-semibold text-[#E5EDF7]">
+          {row.label}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Resolved Value
+        </p>
+        <p className="text-[12px] text-[#C7D2E3]">
+          {row.value}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          Source
+        </p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#94A3B8]">
+          {row.source_label}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8] lg:hidden">
+          State
+        </p>
+        <span className={`inline-flex rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${toneBadgeClass(tone)}`}>
+          {truthStateLabel(row.state)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TruthSheetSection({ section }: { section: CanonicalProjectTruthSection }) {
+  return (
+    <section className="overflow-hidden rounded-sm border border-[#2F3B52]/70 bg-[#111827]">
+      <div className="border-b border-[#2F3B52]/70 px-4 py-4">
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">
+          {section.title}
+        </h3>
+      </div>
+
+      <div className="hidden border-b border-[#2F3B52]/70 px-4 py-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_auto] lg:gap-3">
+        {['Fact', 'Resolved Value', 'Source', 'State'].map((label) => (
+          <p
+            key={label}
+            className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]"
+          >
+            {label}
+          </p>
+        ))}
+      </div>
+
+      <div className="divide-y divide-[#2F3B52]/70">
+        {section.rows.map((row) => (
+          <TruthSheetRow key={`${section.key}:${row.key}`} row={row} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function signalTone(severity: CanonicalProjectOverviewSignal['severity']): OverviewTone {
+  switch (severity) {
+    case 'critical':
+      return 'danger';
+    case 'warning':
+      return 'warning';
+    case 'info':
+    default:
+      return 'info';
+  }
+}
+
+function SummaryStripItem({ item }: { item: CanonicalProjectOverviewSummaryItem }) {
+  const tone = truthStateTone(item.state);
+
+  return (
+    <div className={`border-l-2 ${toneBorderClass(tone)} bg-[#111827] px-4 py-4`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          {item.label}
+        </p>
+        <span className={`rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] ${toneBadgeClass(tone)}`}>
+          {truthStateLabel(item.state)}
+        </span>
+      </div>
+      <p className="mt-3 text-xl font-black tracking-tight text-[#E5EDF7]">
+        {item.value}
+      </p>
+    </div>
+  );
+}
+
+function CriticalSignalCard({ signal }: { signal: CanonicalProjectOverviewSignal }) {
+  const tone = signalTone(signal.severity);
+
+  return (
+    <div className={`border-l-2 ${toneBorderClass(tone)} rounded-sm border-y border-r border-[#2F3B52]/70 bg-[#111827] p-5`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#E5EDF7]">
+          {signal.title}
+        </h3>
+        <span className={`rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] ${toneBadgeClass(tone)}`}>
+          {signal.severity}
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-[#C7D2E3]">
+        {signal.description}
+      </p>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0B1020] px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            Gate Impact
+          </p>
+          <p className="mt-2 text-[12px] text-[#C7D2E3]">
+            {signal.gate_impact}
+          </p>
+        </div>
+        <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0B1020] px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+            Next Action
+          </p>
+          <p className="mt-2 text-[12px] text-[#C7D2E3]">
+            {signal.next_action}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TruthSnapshotCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: CanonicalProjectTruthRow[];
+}) {
+  return (
+    <section className="overflow-hidden rounded-sm border border-[#2F3B52]/70 bg-[#111827]">
+      <div className="border-b border-[#2F3B52]/70 px-4 py-4">
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">
+          {title}
+        </h3>
+      </div>
+      <div className="divide-y divide-[#2F3B52]/70">
+        {rows.map((row) => {
+          const tone = truthStateTone(row.state);
+          return (
+            <div key={row.key} className="flex items-start justify-between gap-4 px-4 py-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+                  {row.label}
+                </p>
+                <p className="mt-2 text-[12px] text-[#E5EDF7]">
+                  {row.value}
+                </p>
+              </div>
+              <span className={`shrink-0 rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] ${toneBadgeClass(tone)}`}>
+                {truthStateLabel(row.state)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+type OverviewActionGroup = {
+  key: 'approval_blockers' | 'verification' | 'workflow';
+  title: string;
+  subtitle: string;
+  actions: ProjectOverviewActionItem[];
+};
+
+function groupOverviewActions(actions: ProjectOverviewActionItem[]): OverviewActionGroup[] {
+  const approvalBlockers = actions.filter((action) =>
+    action.approval_status === 'blocked' || (action.blocked_amount ?? 0) > 0,
+  );
+  const verification = actions.filter((action) =>
+    !approvalBlockers.some((candidate) => candidate.id === action.id)
+    && (
+      action.approval_status === 'needs_review'
+      || (action.requires_verification_amount ?? 0) > 0
+      || (action.at_risk_amount ?? 0) > 0
+    ),
+  );
+  const workflow = actions.filter((action) =>
+    !approvalBlockers.some((candidate) => candidate.id === action.id)
+    && !verification.some((candidate) => candidate.id === action.id),
+  );
+
+  const groups: OverviewActionGroup[] = [
+    {
+      key: 'approval_blockers',
+      title: 'Approval Blockers',
+      subtitle: 'Actions that directly stop approval movement.',
+      actions: approvalBlockers,
+    },
+    {
+      key: 'verification',
+      title: 'Needs Verification',
+      subtitle: 'Actions that clear at-risk or needs-review truth.',
+      actions: verification,
+    },
+    {
+      key: 'workflow',
+      title: 'Workflow Queue',
+      subtitle: 'Remaining operator actions in the project queue.',
+      actions: workflow,
+    },
+  ];
+
+  return groups.filter((group) => group.actions.length > 0);
+}
+
 const INVOICE_APPROVAL_LABEL: Record<ProjectOverviewInvoiceItem['approval_status'], string> = {
   approved: 'Approved',
   approved_with_exceptions: 'Approved w/ Exceptions',
@@ -424,10 +903,12 @@ const INVOICE_APPROVAL_BADGE: Record<ProjectOverviewInvoiceItem['approval_status
 
 function fmtMoney(value: number | null | undefined): string {
   if (value == null) return '—';
+  const hasCents = Math.abs(value - Math.round(value)) >= 0.005;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: value >= 1000 ? 0 : 2,
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: hasCents ? 2 : 0,
   }).format(value);
 }
 
@@ -440,9 +921,9 @@ function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceIt
           <tr className="border-b border-white/[0.06]">
             <th className="pb-2 pr-4 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Invoice</th>
             <th className="pb-2 pr-4 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Status</th>
-            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Billed</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">{PROJECT_TERM_INVOICE_BILLED_AMOUNT}</th>
             <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Supported</th>
-            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">At Risk</th>
+            <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">{PROJECT_TERM_AT_RISK_AMOUNT}</th>
             <th className="pb-2 pr-4 text-right font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Requires Verification</th>
             <th className="pb-2 text-left font-semibold uppercase tracking-[0.13em] text-[#7F90AA]">Reconciliation</th>
           </tr>
@@ -479,7 +960,7 @@ function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceIt
                 {fmtMoney(inv.requires_verification_amount)}
               </td>
               <td className="py-2 font-mono text-[10px] text-[#5A7090]">
-                {inv.reconciliation_status}
+                {invoiceReconciliationDisplay(inv)}
               </td>
             </tr>
           ))}
@@ -489,11 +970,41 @@ function InvoiceApprovalTable({ invoices }: { invoices: ProjectOverviewInvoiceIt
   );
 }
 
+function invoiceReconciliationDisplay(invoice: ProjectOverviewInvoiceItem): string {
+  const fullySupported =
+    invoice.approval_status === 'approved'
+    && invoice.billed_amount != null
+    && invoice.supported_amount != null
+    && invoice.supported_amount >= invoice.billed_amount
+    && (invoice.at_risk_amount == null || invoice.at_risk_amount <= 0)
+    && (invoice.requires_verification_amount == null || invoice.requires_verification_amount <= 0);
+  return fullySupported ? 'MATCH' : invoice.reconciliation_status;
+}
+
+export function approvalPanelReconciliationDisplay(model: ProjectOverviewModel): string | null {
+  const rawStatus = model.validator_summary.reconciliation_overall;
+  switch (rawStatus) {
+    case 'MATCH':
+      return 'Reconciled';
+    case 'PARTIAL':
+      return 'Partial';
+    case 'MISSING':
+    case null:
+      return null;
+    default:
+      return rawStatus;
+  }
+}
+
 function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
   const readiness = model.validator_summary.validator_readiness;
   const totalBilled = model.validator_summary.total_billed;
   const totalAtRisk = model.validator_summary.total_at_risk;
   const requiresVerificationAmount = model.validator_summary.requires_verification_amount;
+  const requiresVerificationCount =
+    model.validator_summary.approval_blocker_count
+    + model.validator_summary.warning_count
+    + model.validator_summary.requires_review_count;
   const blockedAmount = model.validator_summary.blocked_amount;
   const invoices = model.validator_summary.invoice_summaries;
 
@@ -502,17 +1013,17 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
   const hasPanel = readiness != null || hasFinancials || hasInvoices;
   if (!hasPanel) return null;
 
-  const approvalLabel =
-    readiness === 'READY' ? 'Approved'
-    : readiness === 'BLOCKED' ? 'Blocked'
-    : readiness === 'NEEDS_REVIEW' ? 'Needs Review'
-    : 'Not Evaluated';
+  const approvalLabel = approvalStatusLabelForProjectFacts({
+    status: model.validator_summary.status,
+    validator_status: readiness,
+  });
 
   const approvalTone: OverviewTone =
-    readiness === 'READY' ? 'success'
-    : readiness === 'BLOCKED' ? 'danger'
-    : readiness === 'NEEDS_REVIEW' ? 'warning'
+    approvalLabel === 'Approved' ? 'success'
+    : approvalLabel === 'Blocked' ? 'danger'
+    : approvalLabel === 'Needs Review' ? 'warning'
     : 'muted';
+  const reconciliationDisplay = approvalPanelReconciliationDisplay(model);
 
   const panelBorder =
     approvalTone === 'danger' ? 'border-[#EF4444]/25 bg-[#0E0810]'
@@ -546,12 +1057,12 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
         {hasFinancials ? (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Total Billed</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">{PROJECT_TERM_INVOICE_BILLED_AMOUNT}</p>
               <p className="mt-0.5 text-sm font-semibold text-[#E5EDF7]">{fmtMoney(totalBilled)}</p>
             </div>
             {totalAtRisk != null ? (
               <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">At Risk</p>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">{PROJECT_TERM_AT_RISK_AMOUNT}</p>
                 <p className={`mt-0.5 text-sm font-semibold ${totalAtRisk > 0 ? 'text-[#FCD34D]' : 'text-[#4ADE80]'}`}>
                   {fmtMoney(totalAtRisk)}
                 </p>
@@ -562,6 +1073,13 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
                 <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Requires Verification</p>
                 <p className={`mt-0.5 text-sm font-semibold ${requiresVerificationAmount > 0 ? 'text-[#F87171]' : 'text-[#4ADE80]'}`}>
                   {fmtMoney(requiresVerificationAmount)}
+                </p>
+              </div>
+            ) : requiresVerificationCount > 0 ? (
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#7F90AA]">Requires Verification</p>
+                <p className="mt-0.5 text-sm font-semibold text-[#FCD34D]">
+                  {requiresVerificationCount} finding{requiresVerificationCount === 1 ? '' : 's'}
                 </p>
               </div>
             ) : null}
@@ -583,10 +1101,10 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
         ) : null}
 
         {/* Reconciliation pill */}
-        {model.validator_summary.reconciliation_overall ? (
+        {reconciliationDisplay ? (
           <div className="ml-auto shrink-0">
             <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-mono text-[#8FA1BC]">
-              {model.validator_summary.reconciliation_overall}
+              {reconciliationDisplay}
             </span>
           </div>
         ) : null}
@@ -608,39 +1126,313 @@ function ApprovalStatusPanel({ model }: { model: ProjectOverviewModel }) {
 export function ProjectOverview({
   model,
   documents = [],
+  documentRelationships = [],
+  transactionDatasets = [],
+  validationFindings,
+  validationEvidence = [],
+  executionItems = [],
   decisions = [],
   tasks = [],
+  activityEvents = [],
   loadIssue,
   onProjectRefresh,
   validatorTab,
 }: ProjectOverviewProps) {
-  const [activeTab, setActiveTab] = useState<ProjectTabKey>('overview');
+  const [activeTab, setActiveTab] = useState<ProjectTabKey>(() => readActiveTabFromLocation());
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [reprocessingDocumentIds, setReprocessingDocumentIds] = useState<Set<string>>(new Set());
+  const [reprocessErrors, setReprocessErrors] = useState<Record<string, string>>({});
+  const [bulkReprocessing, setBulkReprocessing] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const tableReprocessInFlightRef = useRef(false);
 
   useEffect(() => {
-    const syncWithHash = () => {
-      const currentHash = window.location.hash;
-      const matched = TABS.find((tab) => tab.href === currentHash);
-      if (matched) {
-        setActiveTab(matched.key);
-      }
+    const syncWithLocation = () => {
+      setActiveTab(readActiveTabFromLocation());
     };
 
-    syncWithHash();
-    window.addEventListener('hashchange', syncWithHash);
-    return () => window.removeEventListener('hashchange', syncWithHash);
+    syncWithLocation();
+    window.addEventListener('hashchange', syncWithLocation);
+    window.addEventListener('popstate', syncWithLocation);
+    return () => {
+      window.removeEventListener('hashchange', syncWithLocation);
+      window.removeEventListener('popstate', syncWithLocation);
+    };
   }, []);
 
   const blockedFilterActive =
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('filter') === 'blocked';
 
-  const visibleDecisions = blockedFilterActive
-    ? model.decisions.filter((decision) => decision.border_tone === 'danger')
-    : model.decisions;
+  const issueObjects = useMemo(() => resolveProjectIssueObjects({
+    projectId: model.project.id,
+    findings: validationFindings ?? [],
+    evidence: validationEvidence,
+    decisions,
+    executionItems,
+    activityEvents,
+    documents,
+  }), [
+    activityEvents,
+    decisions,
+    documents,
+    executionItems,
+    model.project.id,
+    validationEvidence,
+    validationFindings,
+  ]);
+
+  const visibleIssues = blockedFilterActive
+    ? issueObjects.filter((issue) => issue.lifecycleState === 'blocked')
+    : issueObjects;
 
   const visibleDecisionTotal = blockedFilterActive
-    ? visibleDecisions.length
-    : model.decision_total;
+    ? visibleIssues.length
+    : issueObjects.length;
+  const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
+  const requiredReviewCount =
+    model.validator_summary.required_review_total > 0
+      ? model.validator_summary.required_review_total
+      : requiredReviewDecisions.length;
+  const orderedDocuments = [...documents].sort((left, right) => {
+    const leftTimestamp = new Date(left.processed_at ?? left.created_at).getTime();
+    const rightTimestamp = new Date(right.processed_at ?? right.created_at).getTime();
+    return rightTimestamp - leftTimestamp;
+  });
+  const selectedOrderedDocumentIds = orderedDocuments
+    .map((document) => document.id)
+    .filter((documentId) => selectedDocumentIds.has(documentId));
+  const selectedDocumentCount = selectedOrderedDocumentIds.length;
+  const allOrderedDocumentsSelected =
+    orderedDocuments.length > 0 && selectedDocumentCount === orderedDocuments.length;
+  const documentReprocessInProgress = reprocessingDocumentIds.size > 0 || bulkReprocessing;
+
+  useEffect(() => {
+    setSelectedDocumentIds((previous) => {
+      const visibleIds = new Set(documents.map((document) => document.id));
+      const next = new Set(Array.from(previous).filter((documentId) => visibleIds.has(documentId)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [documents]);
+
+  const clearReprocessError = useCallback((documentId: string) => {
+    setReprocessErrors((previous) => {
+      if (!(documentId in previous)) return previous;
+      const next = { ...previous };
+      delete next[documentId];
+      return next;
+    });
+  }, []);
+
+  const processProjectDocument = useCallback(async (documentId: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error('Authentication required.');
+    }
+
+    const response = await fetch('/api/documents/process', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ documentId }),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.message ?? body?.error ?? 'Reprocess failed.');
+    }
+  }, []);
+
+  const refreshProject = useCallback(async () => {
+    await onProjectRefresh?.();
+  }, [onProjectRefresh]);
+
+  const handleSelectDocument = useCallback((documentId: string, selected: boolean) => {
+    setSelectedDocumentIds((previous) => {
+      const next = new Set(previous);
+      if (selected) {
+        next.add(documentId);
+      } else {
+        next.delete(documentId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllDocuments = useCallback((selected: boolean) => {
+    setSelectedDocumentIds((previous) => {
+      const next = new Set(previous);
+      for (const document of orderedDocuments) {
+        if (selected) {
+          next.add(document.id);
+        } else {
+          next.delete(document.id);
+        }
+      }
+      return next;
+    });
+  }, [orderedDocuments]);
+
+  const handleReprocessDocument = useCallback(async (documentId: string) => {
+    if (tableReprocessInFlightRef.current || bulkReprocessing) return;
+    tableReprocessInFlightRef.current = true;
+    setBulkMessage(null);
+    clearReprocessError(documentId);
+    setReprocessingDocumentIds((previous) => new Set(previous).add(documentId));
+
+    try {
+      await processProjectDocument(documentId);
+      await refreshProject();
+    } catch (error) {
+      setReprocessErrors((previous) => ({
+        ...previous,
+        [documentId]: error instanceof Error ? error.message : 'Reprocess failed.',
+      }));
+    } finally {
+      setReprocessingDocumentIds((previous) => {
+        const next = new Set(previous);
+        next.delete(documentId);
+        return next;
+      });
+      tableReprocessInFlightRef.current = false;
+    }
+  }, [bulkReprocessing, clearReprocessError, processProjectDocument, refreshProject]);
+
+  const handleBulkReprocess = useCallback(async () => {
+    if (
+      selectedOrderedDocumentIds.length === 0 ||
+      bulkReprocessing ||
+      reprocessingDocumentIds.size > 0 ||
+      tableReprocessInFlightRef.current
+    ) {
+      return;
+    }
+
+    tableReprocessInFlightRef.current = true;
+    setBulkReprocessing(true);
+    setBulkMessage(null);
+    setReprocessErrors((previous) => {
+      const next = { ...previous };
+      for (const documentId of selectedOrderedDocumentIds) {
+        delete next[documentId];
+      }
+      return next;
+    });
+
+    const failures: Array<{ documentId: string; message: string }> = [];
+
+    for (const documentId of selectedOrderedDocumentIds) {
+      setReprocessingDocumentIds((previous) => new Set(previous).add(documentId));
+      try {
+        await processProjectDocument(documentId);
+      } catch (error) {
+        failures.push({
+          documentId,
+          message: error instanceof Error ? error.message : 'Reprocess failed.',
+        });
+      } finally {
+        setReprocessingDocumentIds((previous) => {
+          const next = new Set(previous);
+          next.delete(documentId);
+          return next;
+        });
+      }
+    }
+
+    if (failures.length > 0) {
+      setReprocessErrors((previous) => {
+        const next = { ...previous };
+        for (const failure of failures) {
+          next[failure.documentId] = failure.message;
+        }
+        return next;
+      });
+      setBulkMessage(
+        `${selectedOrderedDocumentIds.length - failures.length} reprocessed, ${failures.length} failed.`,
+      );
+    } else {
+      setSelectedDocumentIds(new Set());
+      setBulkMessage(`${selectedOrderedDocumentIds.length} document${selectedOrderedDocumentIds.length === 1 ? '' : 's'} reprocessed.`);
+    }
+
+    try {
+      await refreshProject();
+    } catch (error) {
+      setBulkMessage(
+        error instanceof Error
+          ? `Reprocess finished, but refresh failed: ${error.message}`
+          : 'Reprocess finished, but refresh failed.',
+      );
+    } finally {
+      setBulkReprocessing(false);
+      tableReprocessInFlightRef.current = false;
+    }
+  }, [bulkReprocessing, processProjectDocument, refreshProject, reprocessingDocumentIds.size, selectedOrderedDocumentIds]);
+
+  const truthDocuments = documents.map((document) => ({
+    id: document.id,
+    title: document.title,
+    name: document.name,
+    created_at: document.created_at,
+    project_id: document.project_id,
+    document_type: document.document_type,
+    document_role: document.document_role ?? null,
+    authority_status: document.authority_status ?? null,
+    effective_date: document.effective_date ?? null,
+    precedence_rank: document.precedence_rank ?? null,
+    operator_override_precedence: document.operator_override_precedence ?? null,
+    intelligence_trace: document.intelligence_trace ?? null,
+  }));
+  const truthSections = resolveCanonicalProjectTruthSections({
+    validationStatus: model.project.validation_status ?? null,
+    validationSummary: model.project.validation_summary_json,
+    validationFindings,
+    decisions,
+    documents: truthDocuments,
+    documentRelationships,
+    transactionDatasets,
+  });
+  const overviewBriefing = resolveCanonicalProjectOverviewBriefing({
+    validationStatus: model.project.validation_status ?? null,
+    validationSummary: model.project.validation_summary_json,
+    validationFindings,
+    decisions,
+    documents: truthDocuments,
+    documentRelationships,
+    transactionDatasets,
+    requiredReviewCount,
+  });
+
+  function switchWorkMode(tab: ProjectWorkModeKey) {
+    if (typeof window === 'undefined') {
+      setActiveTab(tab);
+      return;
+    }
+
+    const target = PROJECT_FORGE_TABS.find((candidate) => candidate.key === tab);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.hash = target?.href.slice(1) ?? '';
+    window.history.pushState(null, '', nextUrl);
+    setActiveTab(tab);
+  }
+
+  function handleTabClick(
+    event: MouseEvent<HTMLAnchorElement>,
+    tab: { key: ProjectTabKey; href: string },
+  ) {
+    if (isWorkModeTab(tab.key)) {
+      event.preventDefault();
+      switchWorkMode(tab.key);
+      return;
+    }
+
+    setActiveTab(tab.key);
+  }
 
   return (
     <div className="bg-[#0B1020] text-[#E5EDF7]">
@@ -687,13 +1479,13 @@ export function ProjectOverview({
             <ValidatorStatusChip
               status={model.validator_status}
               criticalCount={
-                model.validator_summary.critical_count > 0
-                  ? model.validator_summary.critical_count
+                model.validator_summary.approval_blocker_count > 0
+                  ? model.validator_summary.approval_blocker_count
                   : undefined
               }
               warningCount={
-                model.validator_summary.warning_count > 0
-                  ? model.validator_summary.warning_count
+                model.validator_summary.warning_count + model.validator_summary.requires_review_count > 0
+                  ? model.validator_summary.warning_count + model.validator_summary.requires_review_count
                   : undefined
               }
               size="sm"
@@ -713,133 +1505,271 @@ export function ProjectOverview({
         <ApprovalActionTimeline projectId={model.project.id} />
       </section>
 
-      <nav className="border-b border-[#2F3B52]/40 bg-[#111827] px-8">
-        <div className="flex flex-wrap items-center gap-8">
-          {TABS.map((tab) => (
-            <a
-              key={tab.key}
-              href={tab.href}
-              onClick={() => setActiveTab(tab.key)}
-              className={`border-b-2 py-4 text-xs font-bold uppercase tracking-[0.18em] transition-colors ${
-                activeTab === tab.key
-                  ? 'border-[#3B82F6] text-[#3B82F6]'
-                  : 'border-transparent text-[#94A3B8] hover:text-[#E5EDF7]'
-              }`}
-            >
-              {tab.label}
-            </a>
-          ))}
+      <nav className="border-b border-[#2F3B52]/40 bg-[#111827] px-8 pt-3">
+        <div className="space-y-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[#94A3B8]">
+              The Forge
+            </p>
+            <p className="mt-1 text-[11px] text-[#64748B]">
+              Documents -&gt; Facts -&gt; Validator -&gt; Decisions -&gt; Audit
+            </p>
+          </div>
+
+          <div className="-mb-px flex flex-wrap items-center gap-8">
+            {PROJECT_FORGE_TABS.map((tab) => (
+              <a
+                key={tab.key}
+                href={tab.href}
+                onClick={(event) => handleTabClick(event, tab)}
+                className={`border-b-2 py-4 text-xs font-bold uppercase tracking-[0.18em] transition-colors ${
+                  activeTab === tab.key
+                    ? 'border-[#3B82F6] text-[#3B82F6]'
+                    : 'border-transparent text-[#94A3B8] hover:text-[#E5EDF7]'
+                }`}
+              >
+                {tab.label}
+              </a>
+            ))}
+          </div>
         </div>
       </nav>
 
       <div className="space-y-8 p-8">
-        <section id="project-facts" className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {model.metrics.map((metric) => (
-              <MetricCard key={metric.key} metric={metric} />
-            ))}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {model.facts.map((fact) => (
-              <FactCard key={fact.label} fact={fact} />
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <AskProjectSection
-            projectId={model.project.id}
-            validatorStatus={model.validator_status}
-            criticalFindings={model.validator_summary.critical_count ?? 0}
-            documents={documents}
-            decisions={decisions}
-            tasks={tasks}
-          />
-        </section>
-
-        <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-12">
-          <div className="space-y-6 xl:col-span-8">
+        {activeTab === 'decisions' ? (
+          <section id="project-actions" className="space-y-6">
             <SectionHeading
               id="project-decisions"
               title="Project Decisions"
               subtitle={
                 blockedFilterActive
                   ? `${visibleDecisionTotal} blocked decision${visibleDecisionTotal === 1 ? '' : 's'}`
-                  : `${model.decision_total} linked decision record${model.decision_total === 1 ? '' : 's'} in this project context`
+                  : `${model.decision_total} linked validator decision records`
               }
             />
+            <p className="-mt-4 text-[11px] text-[#94A3B8]">
+              Counters reflect all active project issues.
+            </p>
 
-            {visibleDecisions.length === 0 ? (
-              <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-6 text-sm text-[#94A3B8]">
-                {model.decision_empty_state}
-              </div>
+            <ProjectIssueBoard
+              issues={visibleIssues}
+              emptyState={model.decision_empty_state}
+              onProjectRefresh={onProjectRefresh}
+            />
+          </section>
+        ) : activeTab === 'documents' ? (
+          <section id="project-documents" className="space-y-8">
+            <section className="space-y-4">
+              <SectionHeading
+                title="Document List"
+                subtitle={`${documents.length} linked document${documents.length === 1 ? '' : 's'} in this project workspace`}
+              />
+              {orderedDocuments.length === 0 ? (
+                <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
+                  {model.document_empty_state}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-sm border border-[#2F3B52]/70 bg-[#111827]">
+                  {selectedDocumentCount > 0 || bulkMessage ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2F3B52]/70 bg-[#0B1020]/60 px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-[11px] font-medium text-[#C7D2E3]">
+                          {selectedDocumentCount} selected
+                        </p>
+                        {selectedDocumentCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDocumentIds(new Set())}
+                            disabled={bulkReprocessing}
+                            className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] hover:text-[#E5EDF7] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                        {bulkMessage ? (
+                          <p className="text-[11px] text-[#FCD34D]">
+                            {bulkMessage}
+                          </p>
+                        ) : null}
+                      </div>
+                      {selectedDocumentCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={handleBulkReprocess}
+                          disabled={bulkReprocessing || reprocessingDocumentIds.size > 0}
+                          className="rounded-sm border border-[#3B82F6]/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#93C5FD] transition-colors hover:border-[#3B82F6]/60 hover:bg-[#3B82F6]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {bulkReprocessing ? 'Reprocessing selected...' : 'Reprocess selected'}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="hidden border-b border-[#2F3B52]/70 px-4 py-3 lg:grid lg:grid-cols-[minmax(0,0.28fr)_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] lg:gap-3">
+                    <label className="inline-flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={allOrderedDocumentsSelected}
+                        onChange={(event) => handleSelectAllDocuments(event.target.checked)}
+                        aria-label="Select all documents"
+                        className="h-3.5 w-3.5 rounded border-[#2F3B52] bg-[#0B1020] text-[#3B82F6] focus:ring-[#3B82F6]"
+                      />
+                    </label>
+                    {['File Name', 'Document Type', 'Role', 'Processing Status', 'Last Processed', 'Decision Impact', 'Actions'].map((label) => (
+                      <p
+                        key={label}
+                        className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]"
+                      >
+                        {label}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="divide-y divide-[#2F3B52]/70">
+                    {orderedDocuments.map((document) => (
+                      <DocumentListRow
+                        key={document.id}
+                        document={document}
+                        model={model}
+                        selected={selectedDocumentIds.has(document.id)}
+                        processing={reprocessingDocumentIds.has(document.id)}
+                        reprocessDisabled={documentReprocessInProgress}
+                        error={reprocessErrors[document.id] ?? null}
+                        onSelect={handleSelectDocument}
+                        onReprocess={handleReprocessDocument}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <DocumentPrecedenceSection projectId={model.project.id} />
+          </section>
+        ) : activeTab === 'facts' ? (
+          <section id="project-facts" className="space-y-6">
+            <SectionHeading
+              title="Project Facts"
+              subtitle="Resolved canonical project truth across contract, invoice, transaction, and validation layers."
+            />
+            <div className="space-y-5">
+              {truthSections.map((section) => (
+                <TruthSheetSection key={section.key} section={section} />
+              ))}
+            </div>
+          </section>
+        ) : activeTab === 'validator' ? (
+          <section id="project-validator" className="space-y-4">
+            <SectionHeading
+              title="Validator"
+              subtitle="Rule-backed validation findings and approval analysis for this project."
+            />
+            {validatorTab ? (
+              validatorTab
             ) : (
-              <div className="space-y-4">
-                {visibleDecisions.map((decision) => (
-                  <DecisionCard key={decision.id} decision={decision} />
-                ))}
+              <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
+                Validator details are not available for this project yet.
               </div>
             )}
-          </div>
-
-          <div className="space-y-8 xl:col-span-4">
-            <section id="project-actions" className="space-y-4">
+          </section>
+        ) : activeTab === 'audit' ? (
+          <section id="project-audit" className="space-y-4">
+            <SectionHeading
+              title="Audit Timeline"
+              subtitle="Newest-first project history across documents, validation, and workflow state changes."
+            />
+            {model.audit.length === 0 ? (
+              <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
+                {model.audit_empty_state}
+              </div>
+            ) : (
+              <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-5">
+                <AuditTimeline items={model.audit} />
+              </div>
+            )}
+          </section>
+        ) : (
+          <>
+            <section className="space-y-4">
               <SectionHeading
-                title="Pending Actions"
-                subtitle={`${model.action_total} action${model.action_total === 1 ? '' : 's'} still open in the project queue`}
+                title="Overview"
+                subtitle="Decision-ready briefing sourced from canonical project truth."
               />
-              {model.actions.length === 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {overviewBriefing.summary_items.map((item) => (
+                  <SummaryStripItem key={item.key} item={item} />
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <AskProjectSection
+                projectId={model.project.id}
+                validatorStatus={model.validator_status}
+                criticalFindings={model.validator_summary.approval_blocker_count ?? 0}
+                documents={documents}
+                decisions={decisions}
+                tasks={tasks}
+              />
+            </section>
+
+            <section className="space-y-4">
+              <SectionHeading
+                title="Critical Signals"
+                subtitle="High-impact truth that changes approval flow, risk, or required operator verification."
+              />
+              {overviewBriefing.critical_signals.length === 0 ? (
                 <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
-                  {model.action_empty_state}
+                  No critical signals are open right now. Canonical project truth is not surfacing an approval, support, invoice, or contract risk that needs escalation.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {model.actions.map((action) => (
-                    <ActionRow key={action.id} action={action} />
+                <div className="space-y-4">
+                  {overviewBriefing.critical_signals.map((signal) => (
+                    <CriticalSignalCard key={signal.key} signal={signal} />
                   ))}
                 </div>
               )}
             </section>
 
-            <section id="project-documents" className="space-y-4">
+            <section className="space-y-4">
               <SectionHeading
-                title="Processed Docs"
-                subtitle={processedDocsSubtitle(model)}
+                title="Project Truth Snapshot"
+                subtitle="Condensed canonical truth across contract, invoice, and transaction layers."
               />
-              {model.documents.length === 0 ? (
+              <div className="grid gap-4 xl:grid-cols-3">
+                {overviewBriefing.snapshot_sections.map((section) => (
+                  <TruthSnapshotCard key={section.key} title={section.title} rows={section.rows} />
+                ))}
+              </div>
+            </section>
+
+            <section id="project-required-reviews" className="space-y-4">
+              <SectionHeading
+                title="Required Reviews"
+                subtitle={
+                  requiredReviewCount > 0
+                    ? `${requiredReviewCount} validator-backed review${requiredReviewCount === 1 ? '' : 's'} are open and ready for operator action.`
+                    : 'No validator-backed reviews are currently open.'
+                }
+              />
+              {requiredReviewDecisions.length === 0 ? (
                 <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
-                  {processedDocsEmptyState(model)}
+                  {requiredReviewCount > 0
+                    ? 'Validator findings are open, but decision execution records are not ready yet. Open the Validator tab to confirm the current blockers and review path.'
+                    : model.decision_empty_state}
                 </div>
               ) : (
-                <div className="space-y-2 rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-2">
-                  {model.documents.map((document) => (
-                    <DocumentRow key={document.id} document={document} />
+                <div className="space-y-4">
+                  {requiredReviewDecisions.map((decision) => (
+                    <ProjectDecisionExecutionCard
+                      key={decision.id}
+                      decision={decision}
+                      onProjectRefresh={onProjectRefresh}
+                    />
                   ))}
                 </div>
               )}
-              <DocumentPrecedenceSection projectId={model.project.id} />
             </section>
-
-            {validatorTab ? (
-              <section id="project-validator" className="space-y-4">
-                {validatorTab}
-              </section>
-            ) : null}
-
-            <section id="project-audit" className="space-y-4">
-              <SectionHeading title="Recent Audit" />
-              {model.audit.length === 0 ? (
-                <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
-                  {model.audit_empty_state}
-                </div>
-              ) : (
-                <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-5">
-                  <AuditTimeline items={model.audit} />
-                </div>
-              )}
-            </section>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <div className="pointer-events-none fixed bottom-6 left-1/2 z-40 hidden -translate-x-1/2 xl:block">
@@ -853,9 +1783,13 @@ export function ProjectOverview({
             <Link href="/platform/documents" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
               Upload Document
             </Link>
-            <a href="#project-actions" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
-              Pending Actions
-            </a>
+            <button
+              type="button"
+              onClick={() => switchWorkMode('decisions')}
+              className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]"
+            >
+              Decisions
+            </button>
             <a href="#project-audit" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
               Audit Trail
             </a>

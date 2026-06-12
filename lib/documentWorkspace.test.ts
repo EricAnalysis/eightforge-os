@@ -5,9 +5,17 @@ import {
   filterDocumentWorkspaceItems,
   groupDocumentWorkspaceItems,
   summarizeDocumentWorkspaceItems,
+  type DocumentWorkspaceDecisionRow,
   type DocumentWorkspaceDocRow,
   type DocumentWorkspaceReviewRow,
+  type DocumentWorkspaceTaskRow,
 } from './documentWorkspace';
+import {
+  buildProjectOperationalRollup,
+  type ProjectDecisionRow,
+  type ProjectDocumentRow,
+  type ProjectTaskRow,
+} from './projectOverview';
 
 const documents: DocumentWorkspaceDocRow[] = [
   {
@@ -97,7 +105,7 @@ describe('document workspace', () => {
       unresolvedFindingCount: 1,
       pendingActionCount: 1,
       needsReview: true,
-      workspaceStatusLabel: 'Needs Review',
+      workspaceStatusLabel: 'Needs review',
     });
 
     expect(items[1]).toMatchObject({
@@ -105,8 +113,125 @@ describe('document workspace', () => {
       isUnlinked: true,
       unresolvedFindingCount: 0,
       needsReview: false,
-      workspaceStatusLabel: 'Operationally Clear',
+      workspaceStatusLabel: 'Operationally clear',
     });
+  });
+
+  it('uses persisted Forge queue work before raw trace status fallback', () => {
+    const decisions: DocumentWorkspaceDecisionRow[] = [
+      {
+        id: 'persisted-decision-1',
+        document_id: 'doc-2',
+        status: 'open',
+        severity: 'critical',
+      },
+    ];
+    const tasks: DocumentWorkspaceTaskRow[] = [
+      {
+        id: 'persisted-task-1',
+        document_id: 'doc-2',
+        status: 'blocked',
+        priority: 'high',
+      },
+    ];
+
+    const items = buildDocumentWorkspaceItems({
+      documents,
+      reviews,
+      decisions,
+      tasks,
+    });
+    const invoice = items.find((item) => item.id === 'doc-2');
+
+    expect(invoice).toMatchObject({
+      unresolvedFindingCount: 1,
+      pendingActionCount: 1,
+      blockedCount: 2,
+      needsReview: true,
+      workspaceStatusLabel: 'Blocked',
+      workspaceTone: 'danger',
+    });
+  });
+
+  it('agrees with the Forge document rollup for the same document state', () => {
+    const decision: ProjectDecisionRow = {
+      id: 'persisted-decision-1',
+      document_id: 'doc-2',
+      project_id: 'project-1',
+      decision_type: 'validation',
+      title: 'Vendor mismatch',
+      summary: 'Vendor requires review.',
+      severity: 'critical',
+      status: 'open',
+      confidence: 0.9,
+      last_detected_at: '2026-03-21T12:00:00Z',
+      created_at: '2026-03-21T12:00:00Z',
+      due_at: null,
+      assigned_to: null,
+    };
+    const task: ProjectTaskRow = {
+      id: 'persisted-task-1',
+      decision_id: decision.id,
+      document_id: 'doc-2',
+      task_type: 'validation',
+      title: 'Resolve vendor mismatch',
+      description: null,
+      priority: 'high',
+      status: 'blocked',
+      created_at: '2026-03-21T12:05:00Z',
+      updated_at: '2026-03-21T12:05:00Z',
+      due_at: null,
+      assigned_to: null,
+    };
+    const workspaceItems = buildDocumentWorkspaceItems({
+      documents: [documents[1]],
+      reviews: [],
+      decisions: [
+        {
+          id: decision.id,
+          document_id: decision.document_id,
+          status: decision.status,
+          severity: decision.severity,
+          created_at: decision.created_at,
+        },
+      ],
+      tasks: [
+        {
+          id: task.id,
+          document_id: task.document_id,
+          decision_id: task.decision_id,
+          status: task.status,
+          priority: task.priority,
+          created_at: task.created_at,
+        },
+      ],
+    });
+    const rollup = buildProjectOperationalRollup({
+      project: {
+        id: 'project-1',
+        name: 'Debris Ops',
+        code: 'DO-1',
+        status: 'active',
+        created_at: '2026-03-20T00:00:00Z',
+      },
+      documents: [
+        {
+          ...documents[1],
+          project_id: 'project-1',
+          projects: undefined,
+        } as ProjectDocumentRow,
+      ],
+      decisions: [decision],
+      tasks: [task],
+      documentReviews: [],
+    });
+
+    expect(workspaceItems[0]?.workspaceStatusLabel).toBe(
+      rollup.document_status_by_id['doc-2']?.label,
+    );
+    expect(workspaceItems[0]?.workspaceTone).toBe(
+      rollup.document_status_by_id['doc-2']?.tone,
+    );
   });
 
   it('filters by workspace mode, project, and attention state', () => {

@@ -1,3 +1,7 @@
+// ASK BOUNDARY FILE — reads canonical truth, never produces it.
+// No summation, scoring, risk creation, severity assignment, or pattern
+// inference in this layer. Any change must pass scripts/ask/phase3Diagnostic.ts
+// at 22/22, 0 gaps. See Ask workstream closeout.
 import type {
   AskRelationship,
   CeilingVsBilledRelationship,
@@ -15,6 +19,7 @@ const BILLED_FIELD_KEYS = new Set([
   'invoice_total',
   'total_amount',
   'current_amount_due',
+  'total_billed',
 ]);
 const CONTRACTOR_FIELD_KEYS = new Set(['contractor_name', 'vendor_name']);
 
@@ -77,6 +82,14 @@ function chooseBestFact(facts: StructuredFact[]): StructuredFact | null {
 
 function sumBilledFacts(facts: StructuredFact[]): number | null {
   if (facts.length === 0) return null;
+
+  const canonicalProjectTotal = chooseBestFact(
+    facts.filter((fact) => factKey(fact) === 'total_billed'),
+  );
+  const totalBilled = canonicalProjectTotal ? numericValue(canonicalProjectTotal.value) : null;
+  if (totalBilled != null) {
+    return totalBilled;
+  }
 
   const bestByDocument = new Map<string, StructuredFact>();
 

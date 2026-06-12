@@ -13,7 +13,6 @@ import {
   isContractInvoicePrimaryFamily,
 } from '@/lib/contractInvoicePrimary';
 import {
-  hasUsableExtractionBlobData,
   pickPreferredExtractionBlob,
 } from '@/lib/blobExtractionSelection';
 import type {
@@ -31,7 +30,24 @@ import {
   type IntelligenceTaskInsert,
 } from '@/lib/server/intelligenceAdapter';
 import { loadPrecedenceAwareRelatedDocs } from '@/lib/server/documentPrecedence';
-import { persistTransactionDataForDocument } from '@/lib/server/transactionDataPersistence';
+import {
+  persistTransactionDataForDocument,
+  type PersistTransactionDataResult,
+} from '@/lib/server/transactionDataPersistence';
+import { persistCanonicalInvoiceForDocument } from '@/lib/server/invoicePersistence';
+import { persistCanonicalSupportForDocument } from '@/lib/server/supportTicketPersistence';
+import { withStageTimeout } from '@/lib/server/stageTimeout';
+import {
+  buildCanonicalOperationalRateDiff,
+} from '@/lib/operationalTables/canonicalOperationalRateDiff';
+import type {
+  CanonicalOperationalTableRow,
+} from '@/lib/operationalTables/canonicalOperationalTableRowAssembler';
+
+const EXECUTION_TRACE_PERSIST_TIMEOUT_MS = 60_000;
+const TRANSACTION_DATA_PERSIST_TIMEOUT_MS = 180_000;
+const INVOICE_PERSIST_TIMEOUT_MS = 60_000;
+const SUPPORT_PERSIST_TIMEOUT_MS = 60_000;
 
 type DocumentRow = {
   id: string;
@@ -85,6 +101,8 @@ export type PersistCanonicalIntelligenceResult = {
   family: DocumentFamily | null;
   intelligence: DocumentIntelligenceOutput | null;
   execution_trace_persisted: boolean;
+  transaction_data_persisted: boolean | null;
+  canonical_persistence_error: string | null;
   decisions_created: number;
   decisions_updated: number;
   decisions_deleted: number;
@@ -96,6 +114,458 @@ export type PersistCanonicalIntelligenceResult = {
   legacy_decisions_suppressed: number;
   legacy_tasks_cancelled: number;
 };
+
+const HEAVY_SPREADSHEET_FACT_KEYS = new Set([
+  'transaction_data_records',
+  'grouped_by_rate_code',
+  'grouped_by_invoice',
+  'grouped_by_site_material',
+  'grouped_by_service_item',
+  'grouped_by_material',
+  'grouped_by_site_type',
+  'grouped_by_disposal_site',
+  'outlier_rows',
+]);
+
+const HEAVY_SPREADSHEET_SUMMARY_KEYS = new Set([
+  'grouped_by_rate_code',
+  'grouped_by_invoice',
+  'grouped_by_site_material',
+  'grouped_by_service_item',
+  'grouped_by_material',
+  'grouped_by_site_type',
+  'grouped_by_disposal_site',
+  'outlier_rows',
+]);
+
+const HEAVY_SPREADSHEET_ROLLUP_KEYS = new Set([
+  'groupedByRateCode',
+  'groupedByInvoice',
+  'groupedBySiteMaterial',
+  'groupedByServiceItem',
+  'groupedByMaterial',
+  'groupedBySiteType',
+  'groupedByDisposalSite',
+  'outlierRows',
+  'grouped_by_rate_code',
+  'grouped_by_invoice',
+  'grouped_by_site_material',
+  'grouped_by_service_item',
+  'grouped_by_material',
+  'grouped_by_site_type',
+  'grouped_by_disposal_site',
+  'outlier_rows',
+]);
+
+const HEAVY_SPREADSHEET_EXTRACTED_KEYS = new Set([
+  'records',
+  'groupedByServiceItem',
+  'groupedByMaterial',
+  'groupedBySiteType',
+  'groupedByDisposalSite',
+  'outlierRows',
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isTransactionDataExtracted(value: unknown): boolean {
+  const extracted = asRecord(value);
+  if (!extracted) return false;
+  const sourceType = asString(extracted.sourceType) ?? asString(extracted.source_type);
+  return sourceType === 'transaction_data';
+}
+
+function isInvoiceDocumentType(value: string | null | undefined): boolean {
+  return (value ?? '').trim().toLowerCase() === 'invoice';
+}
+
+function canonicalInspectionSnapshotsFromExtracted(
+  extracted: unknown,
+): Record<string, unknown> | null {
+  const record = asRecord(extracted);
+  if (!record) return null;
+  const snapshots: Record<string, unknown> = {};
+  if (record.canonicalContractRateScheduleAssembly != null) {
+    snapshots.canonicalContractRateScheduleAssembly = record.canonicalContractRateScheduleAssembly;
+  }
+  if (record.canonicalOperationalTableRowAssembly != null) {
+    snapshots.canonicalOperationalTableRowAssembly = record.canonicalOperationalTableRowAssembly;
+  }
+  if (record.canonicalOperationalRateDiff != null) {
+    snapshots.canonicalOperationalRateDiff = record.canonicalOperationalRateDiff;
+  }
+  return Object.keys(snapshots).length > 0 ? snapshots : null;
+}
+
+function diagnosticsFromExtractionData(
+  extractionData: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  return asRecord(asRecord(extractionData?.extraction)?.diagnostics);
+}
+
+function canonicalAssemblyRowsFromExtractionData(
+  extractionData: Record<string, unknown> | null | undefined,
+  key: 'canonicalOperationalTableRowAssembly' | 'canonicalContractRateScheduleAssembly',
+): CanonicalOperationalTableRow[] {
+  const diagnostics = diagnosticsFromExtractionData(extractionData);
+  const assembly = asRecord(diagnostics?.[key]);
+  const rows = assembly?.rows;
+  return Array.isArray(rows) ? rows as CanonicalOperationalTableRow[] : [];
+}
+
+async function loadLatestExtractionSnapshot(
+  admin: SupabaseClient,
+  documentId: string,
+): Promise<{ id: string; data: Record<string, unknown> | null } | null> {
+  const { data, error } = await admin
+    .from('document_extractions')
+    .select('id, data')
+    .eq('document_id', documentId)
+    .is('field_key', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return {
+    id: typeof data.id === 'string' ? data.id : '',
+    data: asRecord(data.data),
+  };
+}
+
+async function persistExtractionDiagnostics(
+  admin: SupabaseClient,
+  params: {
+    extractionSnapshotId: string;
+    extractionData: Record<string, unknown> | null;
+    diagnosticsPatch: Record<string, unknown>;
+    logLabel: string;
+  },
+): Promise<void> {
+  if (!params.extractionSnapshotId) return;
+
+  const root = params.extractionData ?? {};
+  const extraction = asRecord(root.extraction) ?? {};
+  const diagnostics = asRecord(extraction.diagnostics) ?? {};
+  const nextData = {
+    ...root,
+    extraction: {
+      ...extraction,
+      diagnostics: {
+        ...diagnostics,
+        ...params.diagnosticsPatch,
+        inspection_snapshot_shape: 'canonical_shadow_assembly_v1',
+      },
+    },
+  };
+
+  const { error } = await admin
+    .from('document_extractions')
+    .update({ data: nextData })
+    .eq('id', params.extractionSnapshotId);
+
+  if (error) {
+    console.error(`[generateAndPersistCanonicalIntelligence] failed to persist ${params.logLabel}`, {
+      extractionSnapshotId: params.extractionSnapshotId,
+      message: error.message,
+    });
+  }
+}
+
+async function persistExtractionInspectionSnapshots(
+  admin: SupabaseClient,
+  params: {
+    documentId: string;
+    extractionSnapshotId?: string;
+    extractionData: Record<string, unknown> | null;
+    extracted: unknown;
+  },
+): Promise<void> {
+  const snapshots = canonicalInspectionSnapshotsFromExtracted(params.extracted);
+  if (!snapshots) return;
+
+  let extractionSnapshotId = params.extractionSnapshotId;
+  let root = params.extractionData ?? {};
+  if (!extractionSnapshotId) {
+    const { data, error } = await admin
+      .from('document_extractions')
+      .select('id, data')
+      .eq('document_id', params.documentId)
+      .is('field_key', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return;
+    extractionSnapshotId = typeof data.id === 'string' ? data.id : undefined;
+    root = asRecord(data.data) ?? root;
+  }
+  if (!extractionSnapshotId) return;
+
+  await persistExtractionDiagnostics(admin, {
+    extractionSnapshotId,
+    extractionData: root,
+    diagnosticsPatch: snapshots,
+    logLabel: 'inspection snapshots',
+  });
+}
+
+async function persistOperationalRateDiffFromInspectionSnapshots(
+  admin: SupabaseClient,
+  params: {
+    documentId: string;
+    projectId?: string | null;
+    relatedDocs: RelatedDocInput[];
+    extracted: unknown;
+  },
+): Promise<{
+  diff: ReturnType<typeof buildCanonicalOperationalRateDiff> | null;
+  warnings: string[];
+}> {
+  const extractedRecord = asRecord(params.extracted);
+  if (extractedRecord?.canonicalOperationalTableRowAssembly == null) {
+    return { diff: null, warnings: [] };
+  }
+
+  const latestInvoiceSnapshot = await loadLatestExtractionSnapshot(admin, params.documentId);
+  const invoiceRows = canonicalAssemblyRowsFromExtractionData(
+    latestInvoiceSnapshot?.data,
+    'canonicalOperationalTableRowAssembly',
+  );
+  const warnings: string[] = [];
+  if (invoiceRows.length === 0) {
+    warnings.push('canonicalOperationalRateDiff skipped: invoice assembly snapshot missing');
+  }
+
+  const contract = params.relatedDocs
+    .filter((document) => (document.document_type ?? '').toLowerCase().includes('contract'))
+    .map((document) => ({
+      document,
+      rows: canonicalAssemblyRowsFromExtractionData(
+        document.extraction,
+        'canonicalContractRateScheduleAssembly',
+      ),
+    }))
+    .filter((entry) => entry.rows.length > 0)
+    .sort((left, right) => {
+      const leftGoverning = left.document.is_governing ? 0 : 1;
+      const rightGoverning = right.document.is_governing ? 0 : 1;
+      if (leftGoverning !== rightGoverning) return leftGoverning - rightGoverning;
+      return left.document.id.localeCompare(right.document.id);
+    })[0] ?? null;
+
+  if (!contract) {
+    warnings.push('canonicalOperationalRateDiff skipped: contract assembly snapshot missing');
+  }
+
+  if (!latestInvoiceSnapshot?.id) {
+    return { diff: null, warnings };
+  }
+
+  if (warnings.length > 0 || !contract) {
+    await persistExtractionDiagnostics(admin, {
+      extractionSnapshotId: latestInvoiceSnapshot.id,
+      extractionData: latestInvoiceSnapshot.data,
+      diagnosticsPatch: {
+        canonicalOperationalRateDiffWarnings: warnings,
+      },
+      logLabel: 'rate diff warnings',
+    });
+    return { diff: null, warnings };
+  }
+
+  const diff = buildCanonicalOperationalRateDiff({
+    project_id: params.projectId ?? null,
+    invoice_document_id: params.documentId,
+    contract_document_id: contract.document.id,
+    invoice_rows: invoiceRows,
+    contract_rows: contract.rows,
+  });
+
+  await persistExtractionDiagnostics(admin, {
+    extractionSnapshotId: latestInvoiceSnapshot.id,
+    extractionData: latestInvoiceSnapshot.data,
+    diagnosticsPatch: {
+      canonicalOperationalRateDiff: diff,
+      canonicalOperationalRateDiffWarnings: [],
+    },
+    logLabel: 'rate diff snapshot',
+  });
+
+  return { diff, warnings: [] };
+}
+
+function hasSupportTicketRowsInExtractionData(
+  value: Record<string, unknown> | null | undefined,
+): boolean {
+  const extraction = asRecord(value?.extraction);
+  const contentLayers = asRecord(extraction?.content_layers_v1);
+  const spreadsheet = asRecord(contentLayers?.spreadsheet);
+  const normalizedTicketExport = asRecord(spreadsheet?.normalized_ticket_export);
+  return Array.isArray(normalizedTicketExport?.rows) && normalizedTicketExport.rows.length > 0;
+}
+
+function isTicketLikeExtractedPayload(value: unknown): boolean {
+  const extracted = asRecord(value);
+  if (!extracted) return false;
+
+  return (
+    asString(extracted.ticketId) != null ||
+    asString(extracted.ticket_id) != null ||
+    typeof extracted.quantityCY === 'number' ||
+    typeof extracted.quantity_cy === 'number' ||
+    asString(extracted.disposalSite) != null ||
+    asString(extracted.disposal_site) != null ||
+    asString(extracted.material) != null ||
+    asString(extracted.contractor) != null
+  );
+}
+
+function shouldPersistCanonicalSupport(params: {
+  extractionData: Record<string, unknown> | null | undefined;
+  extracted: unknown;
+}): boolean {
+  return (
+    hasSupportTicketRowsInExtractionData(params.extractionData) ||
+    isTicketLikeExtractedPayload(params.extracted)
+  );
+}
+
+function omitRecordKeys(
+  value: Record<string, unknown> | null | undefined,
+  keys: ReadonlySet<string>,
+): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+
+  const next = { ...value };
+  for (const key of keys) {
+    delete next[key];
+  }
+  return next;
+}
+
+function jsonByteLength(value: unknown): number | null {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function isSpreadsheetTransactionDataExecutionTrace(trace: DocumentExecutionTrace): boolean {
+  return trace.classification?.family === 'spreadsheet' && isTransactionDataExtracted(trace.extracted);
+}
+
+function compactSpreadsheetTransactionDataTrace(
+  executionTrace: DocumentExecutionTrace,
+): DocumentExecutionTrace {
+  const compactedFacts = omitRecordKeys(executionTrace.facts, HEAVY_SPREADSHEET_FACT_KEYS)
+    ?? executionTrace.facts;
+  const extracted = asRecord(executionTrace.extracted);
+
+  if (!extracted) {
+    return {
+      ...executionTrace,
+      facts: compactedFacts,
+      evidence: (executionTrace.evidence ?? []).filter((entry) => entry.kind === 'sheet'),
+    };
+  }
+
+  const compactedExtracted = omitRecordKeys(extracted, HEAVY_SPREADSHEET_EXTRACTED_KEYS) ?? { ...extracted };
+  const compactedSummary = omitRecordKeys(
+    asRecord(extracted.summary),
+    HEAVY_SPREADSHEET_SUMMARY_KEYS,
+  );
+  const compactedRollups = omitRecordKeys(
+    asRecord(extracted.rollups),
+    HEAVY_SPREADSHEET_ROLLUP_KEYS,
+  );
+
+  if (compactedSummary) {
+    compactedExtracted.summary = compactedSummary;
+  }
+  if (compactedRollups) {
+    compactedExtracted.rollups = compactedRollups;
+  }
+
+  return {
+    ...executionTrace,
+    facts: compactedFacts,
+    extracted: compactedExtracted,
+    evidence: (executionTrace.evidence ?? []).filter((entry) => entry.kind === 'sheet'),
+  };
+}
+
+function prepareExecutionTraceForPersistence(
+  executionTrace: DocumentExecutionTrace,
+): {
+  executionTrace: DocumentExecutionTrace;
+  compacted: boolean;
+  beforeBytes: number | null;
+  afterBytes: number | null;
+} {
+  if (!isSpreadsheetTransactionDataExecutionTrace(executionTrace)) {
+    const bytes = jsonByteLength(executionTrace);
+    return {
+      executionTrace,
+      compacted: false,
+      beforeBytes: bytes,
+      afterBytes: bytes,
+    };
+  }
+
+  const compactedTrace = compactSpreadsheetTransactionDataTrace(executionTrace);
+  return {
+    executionTrace: compactedTrace,
+    compacted: true,
+    beforeBytes: jsonByteLength(executionTrace),
+    afterBytes: jsonByteLength(compactedTrace),
+  };
+}
+
+function formatInvoicePersistenceError(
+  documentId: string,
+  result: {
+    reason?: 'missing_admin' | 'missing_project_id' | 'not_invoice' | 'no_invoice_data' | 'missing_table' | 'schema_mismatch';
+  },
+): string {
+  return `Invoice persistence failed for ${documentId}: ${result.reason ?? 'unknown'}.`;
+}
+
+function formatSupportPersistenceError(
+  documentId: string,
+  result: {
+    reason?: 'missing_admin' | 'missing_project_id' | 'no_support_rows' | 'missing_table' | 'schema_mismatch';
+  },
+): string {
+  return `Support persistence failed for ${documentId}: ${result.reason ?? 'unknown'}.`;
+}
+
+function shouldReportSupportPersistenceFailure(result: {
+  persisted: boolean;
+  reason?: 'missing_admin' | 'missing_project_id' | 'no_support_rows' | 'missing_table' | 'schema_mismatch';
+}): boolean {
+  return result.persisted !== true && result.reason !== 'no_support_rows';
+}
+
+function formatTransactionDataPersistenceError(
+  documentId: string,
+  result: PersistTransactionDataResult,
+): string {
+  if (result.reason) {
+    return `Transaction data persistence failed for ${documentId}: ${result.reason}.`;
+  }
+  return `Transaction data persistence failed for ${documentId}.`;
+}
 
 function resolveProjectName(
   raw: DocumentRow['projects'],
@@ -216,10 +686,10 @@ async function loadBuildParams(
   if (!document) return null;
 
   const extractionRecord = (() => {
-    if (params.extractionData !== undefined && hasUsableExtractionBlobData(params.extractionData)) {
+    if (params.extractionData !== undefined) {
       return Promise.resolve<PreferredBlobExtraction | null>({
         id: '',
-        data: params.extractionData,
+        data: params.extractionData ?? null,
       });
     }
     return loadPreferredBlobExtraction(admin, params.documentId);
@@ -249,25 +719,72 @@ async function persistDocumentExecutionTrace(
     organizationId: string;
     executionTrace: DocumentExecutionTrace;
   },
-): Promise<boolean> {
-  const { error } = await admin
-    .from('documents')
-    .update({
-      intelligence_trace: params.executionTrace,
-    })
-    .eq('id', params.documentId)
-    .eq('organization_id', params.organizationId);
+): Promise<{ persisted: boolean; error: string | null }> {
+  const preparedTrace = prepareExecutionTraceForPersistence(params.executionTrace);
 
-  if (error) {
-    console.error('[generateAndPersistCanonicalIntelligence] persist execution trace failed', {
+  if (preparedTrace.compacted) {
+    console.log('[generateAndPersistCanonicalIntelligence] spreadsheet execution trace payload size before reduction', {
       documentId: params.documentId,
       organizationId: params.organizationId,
-      error: error.message,
+      payloadBytes: preparedTrace.beforeBytes,
     });
-    return false;
+    console.log('[generateAndPersistCanonicalIntelligence] spreadsheet execution trace payload size after reduction', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      payloadBytes: preparedTrace.afterBytes,
+    });
   }
 
-  return true;
+  console.log('[generateAndPersistCanonicalIntelligence] execution trace persistence start', {
+    documentId: params.documentId,
+    organizationId: params.organizationId,
+    payloadBytes: preparedTrace.afterBytes,
+  });
+  try {
+    const { error } = await withStageTimeout(
+      admin
+        .from('documents')
+        .update({
+          intelligence_trace: preparedTrace.executionTrace,
+        })
+        .eq('id', params.documentId)
+        .eq('organization_id', params.organizationId),
+      'documents.intelligence_trace update',
+      EXECUTION_TRACE_PERSIST_TIMEOUT_MS,
+    );
+
+    if (error) {
+      console.error('[generateAndPersistCanonicalIntelligence] persist execution trace failed', {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        error: error.message,
+        payloadBytes: preparedTrace.afterBytes,
+      });
+      return {
+        persisted: false,
+        error: `Execution trace persistence failed for ${params.documentId}: ${error.message}`,
+      };
+    }
+
+    console.log('[generateAndPersistCanonicalIntelligence] execution trace persistence complete', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      payloadBytes: preparedTrace.afterBytes,
+    });
+    return { persisted: true, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[generateAndPersistCanonicalIntelligence] persist execution trace threw', {
+      documentId: params.documentId,
+      organizationId: params.organizationId,
+      error: message,
+      payloadBytes: preparedTrace.afterBytes,
+    });
+    return {
+      persisted: false,
+      error: `Execution trace persistence failed for ${params.documentId}: ${message}`,
+    };
+  }
 }
 
 async function loadExistingV2Decisions(
@@ -739,6 +1256,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       family: null,
       intelligence: null,
       execution_trace_persisted: false,
+      transaction_data_persisted: null,
+      canonical_persistence_error: null,
       decisions_created: 0,
       decisions_updated: 0,
       decisions_deleted: 0,
@@ -762,20 +1281,149 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     relatedDocs: buildContext.buildParams.relatedDocs,
   });
 
-  try {
-    await persistTransactionDataForDocument({
-      admin: params.admin,
+  await persistExtractionInspectionSnapshots(params.admin, {
+    documentId: params.documentId,
+    extractionSnapshotId: buildContext.extractionSnapshotId,
+    extractionData: buildContext.buildParams.extractionData,
+    extracted: pipelineResult.extracted,
+  });
+
+  const transactionDataDocument = isTransactionDataExtracted(pipelineResult.extracted);
+  const invoiceDocument = isInvoiceDocumentType(buildContext.buildParams.documentType);
+  if (invoiceDocument) {
+    const rateDiffResult = await persistOperationalRateDiffFromInspectionSnapshots(params.admin, {
       documentId: params.documentId,
       projectId: params.projectId ?? null,
+      relatedDocs: buildContext.buildParams.relatedDocs,
       extracted: pipelineResult.extracted,
     });
+    const extractedRecord = asRecord(pipelineResult.extracted);
+    if (extractedRecord && rateDiffResult.diff) {
+      extractedRecord.canonicalOperationalRateDiff = rateDiffResult.diff;
+    }
+    if (extractedRecord && rateDiffResult.warnings.length > 0) {
+      extractedRecord.canonicalOperationalRateDiffWarnings = rateDiffResult.warnings;
+    }
+  }
+  let transactionDataPersisted: boolean | null = transactionDataDocument ? false : null;
+  let canonicalPersistenceError: string | null = null;
+
+  try {
+    const transactionDataResult = await withStageTimeout(
+      persistTransactionDataForDocument({
+        admin: params.admin,
+        documentId: params.documentId,
+        projectId: params.projectId ?? null,
+        organizationId: params.organizationId,
+        extracted: pipelineResult.extracted,
+      }),
+      'persistTransactionDataForDocument',
+      TRANSACTION_DATA_PERSIST_TIMEOUT_MS,
+    );
+
+    if (transactionDataDocument) {
+      transactionDataPersisted = transactionDataResult.persisted === true && transactionDataResult.skipped !== true;
+      if (!transactionDataPersisted) {
+        canonicalPersistenceError = formatTransactionDataPersistenceError(
+          params.documentId,
+          transactionDataResult,
+        );
+        console.error('[generateAndPersistCanonicalIntelligence] transaction data persistence did not complete', {
+          documentId: params.documentId,
+          projectId: params.projectId ?? null,
+          documentType: buildContext.buildParams.documentType,
+          reason: transactionDataResult.reason ?? null,
+        });
+      }
+    }
   } catch (error) {
+    if (transactionDataDocument) {
+      transactionDataPersisted = false;
+      canonicalPersistenceError = `Transaction data persistence failed for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`;
+    }
     console.error('[generateAndPersistCanonicalIntelligence] persist transaction data failed', {
       documentId: params.documentId,
       projectId: params.projectId ?? null,
       documentType: buildContext.buildParams.documentType,
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  try {
+    if (invoiceDocument) {
+      const invoiceResult = await withStageTimeout(
+        persistCanonicalInvoiceForDocument({
+          admin: params.admin,
+          documentId: params.documentId,
+          projectId: params.projectId ?? null,
+          extractionData: buildContext.buildParams.extractionData,
+        }),
+        'persistCanonicalInvoiceForDocument',
+        INVOICE_PERSIST_TIMEOUT_MS,
+      );
+
+      if (!(invoiceResult.persisted === true && invoiceResult.skipped !== true)) {
+        canonicalPersistenceError = canonicalPersistenceError
+          ?? formatInvoicePersistenceError(params.documentId, invoiceResult);
+        console.error('[generateAndPersistCanonicalIntelligence] invoice persistence did not complete', {
+          documentId: params.documentId,
+          projectId: params.projectId ?? null,
+          documentType: buildContext.buildParams.documentType,
+          reason: invoiceResult.reason ?? null,
+        });
+      }
+    }
+  } catch (error) {
+    if (invoiceDocument) {
+      canonicalPersistenceError = canonicalPersistenceError
+        ?? `Invoice persistence failed for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    console.error('[generateAndPersistCanonicalIntelligence] persist invoice data failed', {
+      documentId: params.documentId,
+      projectId: params.projectId ?? null,
+      documentType: buildContext.buildParams.documentType,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (shouldPersistCanonicalSupport({
+    extractionData: buildContext.buildParams.extractionData,
+    extracted: pipelineResult.extracted,
+  })) {
+    try {
+      const supportResult = await withStageTimeout(
+        persistCanonicalSupportForDocument({
+          admin: params.admin,
+          documentId: params.documentId,
+          projectId: params.projectId ?? null,
+          organizationId: params.organizationId,
+          extractionData: buildContext.buildParams.extractionData,
+          extracted: asRecord(pipelineResult.extracted),
+        }),
+        'persistCanonicalSupportForDocument',
+        SUPPORT_PERSIST_TIMEOUT_MS,
+      );
+
+      if (shouldReportSupportPersistenceFailure(supportResult)) {
+        canonicalPersistenceError = canonicalPersistenceError
+          ?? formatSupportPersistenceError(params.documentId, supportResult);
+        console.error('[generateAndPersistCanonicalIntelligence] support persistence did not complete', {
+          documentId: params.documentId,
+          projectId: params.projectId ?? null,
+          documentType: buildContext.buildParams.documentType,
+          reason: supportResult.reason ?? null,
+        });
+      }
+    } catch (error) {
+      canonicalPersistenceError = canonicalPersistenceError
+        ?? `Support persistence failed for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error('[generateAndPersistCanonicalIntelligence] persist support data failed', {
+        documentId: params.documentId,
+        projectId: params.projectId ?? null,
+        documentType: buildContext.buildParams.documentType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   const contractInvoicePrimaryMode = isContractInvoicePrimaryDocumentType(
@@ -799,9 +1447,11 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     extractionSnapshotId: buildContext.extractionSnapshotId,
     relatedDocs: buildContext.buildParams.relatedDocs,
   });
+  const validatorManagedPrimaryFamily =
+    params.projectId != null && isContractInvoicePrimaryFamily(family);
 
   if (!supportsCanonicalIntelligencePersistence(family)) {
-    const executionTracePersisted = await persistDocumentExecutionTrace(params.admin, {
+    const executionTraceResult = await persistDocumentExecutionTrace(params.admin, {
       documentId: params.documentId,
       organizationId: params.organizationId,
       executionTrace: mapped.executionTrace,
@@ -810,7 +1460,9 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       handled: false,
       family,
       intelligence,
-      execution_trace_persisted: executionTracePersisted,
+      execution_trace_persisted: executionTraceResult.persisted,
+      transaction_data_persisted: transactionDataPersisted,
+      canonical_persistence_error: canonicalPersistenceError ?? executionTraceResult.error,
       decisions_created: 0,
       decisions_updated: 0,
       decisions_deleted: 0,
@@ -824,13 +1476,47 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     };
   }
 
-  const decisionResult = await upsertV2Decisions(params.admin, {
-    documentId: params.documentId,
-    organizationId: params.organizationId,
-    projectId: params.projectId ?? null,
-    decisions: mapped.decisions,
-    allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
-  });
+  const VALIDATOR_MANAGED_DECISION_TYPES = new Set([
+    'validator_finding',
+    'validator_invoice_approval',
+    'validator_project_approval',
+  ]);
+  const validatorManagedDecisions = mapped.decisions.filter((decision) =>
+    VALIDATOR_MANAGED_DECISION_TYPES.has(decision.decision_type),
+  );
+  const intelligenceOnlyDecisions = mapped.decisions.filter((decision) =>
+    !VALIDATOR_MANAGED_DECISION_TYPES.has(decision.decision_type),
+  );
+  type UpsertV2DecisionsResult = Awaited<ReturnType<typeof upsertV2Decisions>>;
+  let decisionResult: UpsertV2DecisionsResult;
+
+  if (validatorManagedPrimaryFamily) {
+    // Persist intelligence-only decisions that have no other persistence path.
+    // Skip validator-managed decisions because the validator pipeline owns them.
+    decisionResult = intelligenceOnlyDecisions.length > 0
+      ? await upsertV2Decisions(params.admin, {
+          documentId: params.documentId,
+          organizationId: params.organizationId,
+          projectId: params.projectId ?? null,
+          decisions: intelligenceOnlyDecisions,
+          allowLegacyTypeFallback: false,
+        })
+      : {
+          decisionIdsByLocalId: new Map<string, string>(),
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          preserved: 0,
+        };
+  } else {
+    decisionResult = await upsertV2Decisions(params.admin, {
+        documentId: params.documentId,
+        organizationId: params.organizationId,
+        projectId: params.projectId ?? null,
+        decisions: mapped.decisions,
+        allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
+      });
+  }
 
   const taskResult = await upsertV2Tasks(params.admin, {
     documentId: params.documentId,
@@ -841,7 +1527,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     allowLegacyTypeFallback: !isContractInvoicePrimaryFamily(family),
   });
 
-  const executionTracePersisted = await persistDocumentExecutionTrace(params.admin, {
+  const executionTraceResult = await persistDocumentExecutionTrace(params.admin, {
     documentId: params.documentId,
     organizationId: params.organizationId,
     executionTrace: materializePersistedExecutionTrace({
@@ -866,7 +1552,9 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     handled: true,
     family,
     intelligence,
-    execution_trace_persisted: executionTracePersisted,
+    execution_trace_persisted: executionTraceResult.persisted,
+    transaction_data_persisted: transactionDataPersisted,
+    canonical_persistence_error: canonicalPersistenceError ?? executionTraceResult.error,
     decisions_created: decisionResult.created,
     decisions_updated: decisionResult.updated,
     decisions_deleted: decisionResult.deleted,

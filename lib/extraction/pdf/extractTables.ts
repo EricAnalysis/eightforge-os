@@ -5,6 +5,9 @@ import { stripUnsafeTextControls } from '@/lib/extraction/textSanitization';
 export interface PdfTableCell {
   column_index: number;
   text: string;
+  x_min?: number;
+  x_max?: number;
+  source?: 'pdfjs' | 'ocr_fallback';
 }
 
 export interface PdfTableRow {
@@ -43,24 +46,20 @@ type PdfTableDraftRow = {
   raw_text: string;
 };
 
+type ColumnBand = {
+  index: number;
+  x_min: number;
+  x_max: number;
+  center: number;
+  weight: number;
+  label?: string;
+};
+
 const EXPLICIT_ROW_START_PATTERN =
   /^(?:\d+(?:\.\d+)*[A-Z]?|[A-Z](?:\d+)?|[A-Z]{1,4}-\d+)(?:[.)])?(?=\s|$)/i;
 
 const CONTINUATION_LEAD_PATTERN =
   /^(?:\(|\[|[-*•]|[:;.=]+|work\b|including\b|hauling\b|loading\b|removal\b|transport(?:ation|ing)?\b|collection\b|collect(?:ion|ed)?\b|placed\b|placement\b|from\b|to\b|the\b|and\b|or\b|for\b|of\b|on\b|in\b|at\b|with(?:out)?\b|by\b|through\b|all\b|labor\b|equipment\b|fuel\b|materials?\b|necessary\b|construction\b|management\b|operation(?:s)?\b|eligible\b|debris\b|drainage\b|retention\b|detention\b|ponds?\b|acequias?\b|arroyos?\b|culverts?\b|roadside\b|ditches?\b)/i;
-
-const DESCRIPTION_HEADER_PATTERNS = [
-  'description',
-  'service',
-  'rate description',
-  'labor class',
-  'classification',
-  'item',
-  'pay item',
-  'work',
-  'work activity',
-  'activity',
-] as const;
 
 function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
   return {
@@ -75,15 +74,29 @@ function splitIntoCells(line: PdfLayoutLine): PdfTableCell[] {
   const cells: PdfTableCell[] = [];
   let currentTokens = [line.tokens[0]];
 
+  const cellFromTokens = (tokens: typeof line.tokens): PdfTableCell => {
+    const xMin = Math.min(...tokens.map((token) => token.x));
+    const xMax = Math.max(...tokens.map((token) => token.x + token.width));
+    return {
+      column_index: cells.length,
+      text: stripUnsafeTextControls(tokens.map((candidate) => candidate.text).join(' ')).trim(),
+      x_min: xMin,
+      x_max: xMax,
+      source: tokens.some((token) => token.source === 'ocr_fallback') || line.source === 'ocr_fallback'
+        ? 'ocr_fallback'
+        : 'pdfjs',
+    };
+  };
+
   for (let index = 1; index < line.tokens.length; index += 1) {
     const previous = line.tokens[index - 1];
     const token = line.tokens[index];
     const gap = token.x - (previous.x + previous.width);
-    if (gap > Math.max(18, Math.min(48, previous.width * 1.6))) {
-      cells.push({
-        column_index: cells.length,
-        text: stripUnsafeTextControls(currentTokens.map((candidate) => candidate.text).join(' ')).trim(),
-      });
+    const gapThreshold = line.source === 'ocr_fallback' || previous.source === 'ocr_fallback' || token.source === 'ocr_fallback'
+      ? Math.max(14, Math.min(28, previous.width * 0.85))
+      : Math.max(18, Math.min(48, previous.width * 1.6));
+    if (gap > gapThreshold) {
+      cells.push(cellFromTokens(currentTokens));
       currentTokens = [token];
     } else {
       currentTokens.push(token);
@@ -91,10 +104,7 @@ function splitIntoCells(line: PdfLayoutLine): PdfTableCell[] {
   }
 
   if (currentTokens.length > 0) {
-    cells.push({
-      column_index: cells.length,
-      text: stripUnsafeTextControls(currentTokens.map((candidate) => candidate.text).join(' ')).trim(),
-    });
+    cells.push(cellFromTokens(currentTokens));
   }
 
   return cells.filter((cell) => cell.text.length > 0);
@@ -105,12 +115,16 @@ function tokenCells(line: PdfLayoutLine): PdfTableCell[] {
     .map((token, index) => ({
       column_index: index,
       text: stripUnsafeTextControls(token.text).trim(),
+      x_min: token.x,
+      x_max: token.x + token.width,
+      source: token.source === 'ocr_fallback' || line.source === 'ocr_fallback' ? 'ocr_fallback' as const : 'pdfjs' as const,
     }))
     .filter((cell) => cell.text.length > 0);
 }
 
 function renumberCells(cells: PdfTableCell[]): PdfTableCell[] {
   return cells.map((cell, index) => ({
+    ...cell,
     column_index: index,
     text: stripUnsafeTextControls(cell.text).trim(),
   })).filter((cell) => cell.text.length > 0);
@@ -205,7 +219,12 @@ function cellsForTableLine(line: PdfLayoutLine): PdfTableCell[] {
   const singleCell = tokenized.length > 0 ? tokenized : split;
   if (singleCell.length === 1) {
     const rowCells = splitSingleCellDataRowCells(line.text);
-    if (rowCells.length >= 2) return rowCells;
+    if (rowCells.length >= 2) {
+      return rowCells.map((cell) => ({
+        ...cell,
+        source: line.source === 'ocr_fallback' ? 'ocr_fallback' : cell.source,
+      }));
+    }
   }
   return singleCell;
 }
@@ -268,6 +287,186 @@ function lineHasNumericRateSignal(text: string): boolean {
 
 function normalizeLooseCellText(text: string): string {
   return stripUnsafeTextControls(text).replace(/\s+/g, ' ').trim();
+}
+
+function cellCenter(cell: PdfTableCell): number | null {
+  if (typeof cell.x_min !== 'number' || typeof cell.x_max !== 'number') return null;
+  return (cell.x_min + cell.x_max) / 2;
+}
+
+function isOcrCell(cell: PdfTableCell): boolean {
+  return cell.source === 'ocr_fallback';
+}
+
+function bandLabelKind(label: string | undefined): 'description' | 'unit' | 'rate' | 'other' {
+  const normalized = (label ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (/\b(description|service|item|activity|classification)\b/.test(normalized)) return 'description';
+  if (/\b(unit|uom)\b/.test(normalized) && !/\bprice|rate|cost\b/.test(normalized)) return 'unit';
+  if (/\b(rate|price|cost)\b/.test(normalized)) return 'rate';
+  return 'other';
+}
+
+function cellLooksLikeUnitValue(text: string): boolean {
+  return /^(?:\$?\s*)?(?:per\s+)?(?:cubic\s+yards?|cy|cyd|each|ea|tons?|tn|hours?|hrs?|day|days|tree|trees|stump|stumps|pound|pounds|unit|units|ls|lump\s+sum|lf|sf|sy)$/i.test(text.trim());
+}
+
+function cellLooksLikeRateValue(text: string): boolean {
+  return /^(?:\$?\s*[\d,]+(?:\.\d+)?|pass[-\s]?through)$/i.test(text.trim());
+}
+
+function isOcrTableCandidate(
+  rows: readonly PdfTableDraftRow[],
+  header: PdfTableHeaderCandidate | null,
+): boolean {
+  return rows.some((row) => row.cells.some(isOcrCell)) || Boolean(header?.cells.some(isOcrCell));
+}
+
+function inferColumnBands(params: {
+  rows: readonly PdfTableDraftRow[];
+  header: PdfTableHeaderCandidate | null;
+}): ColumnBand[] {
+  const headerCells = (params.header?.cells ?? []).filter((cell) => cellCenter(cell) != null);
+  if (headerCells.length >= 2) {
+    return headerCells
+      .sort((left, right) => (cellCenter(left) ?? 0) - (cellCenter(right) ?? 0))
+      .map((cell, index) => ({
+        index,
+        x_min: cell.x_min ?? cellCenter(cell) ?? 0,
+        x_max: cell.x_max ?? cellCenter(cell) ?? 0,
+        center: cellCenter(cell) ?? 0,
+        weight: 1,
+        label: cell.text,
+      }));
+  }
+
+  const cells = [
+    ...headerCells,
+    ...params.rows.flatMap((row) => row.cells),
+  ].filter((cell) => cellCenter(cell) != null);
+  if (cells.length === 0) return [];
+
+  const sorted = [...cells].sort((left, right) => (cellCenter(left) ?? 0) - (cellCenter(right) ?? 0));
+  const clusters: Array<{ centers: number[]; xMins: number[]; xMaxes: number[] }> = [];
+  const threshold = Math.max(
+    24,
+    Math.min(42, (Math.max(...sorted.map((cell) => cell.x_max ?? 0)) - Math.min(...sorted.map((cell) => cell.x_min ?? 0))) / 14),
+  );
+
+  for (const cell of sorted) {
+    const center = cellCenter(cell);
+    if (center == null) continue;
+    const current = clusters.at(-1);
+    const currentCenter = current
+      ? current.centers.reduce((sum, value) => sum + value, 0) / current.centers.length
+      : null;
+    if (current && currentCenter != null && Math.abs(center - currentCenter) <= threshold) {
+      current.centers.push(center);
+      current.xMins.push(cell.x_min ?? center);
+      current.xMaxes.push(cell.x_max ?? center);
+    } else {
+      clusters.push({
+        centers: [center],
+        xMins: [cell.x_min ?? center],
+        xMaxes: [cell.x_max ?? center],
+      });
+    }
+  }
+
+  return clusters
+    .filter((cluster) => cluster.centers.length >= 2 || params.rows.length <= 2)
+    .map((cluster, index) => {
+      const center = cluster.centers.reduce((sum, value) => sum + value, 0) / cluster.centers.length;
+      return {
+        index,
+        x_min: Math.min(...cluster.xMins),
+        x_max: Math.max(...cluster.xMaxes),
+        center,
+        weight: cluster.centers.length,
+      };
+    });
+}
+
+function nearestColumnBand(cell: PdfTableCell, bands: readonly ColumnBand[]): ColumnBand | null {
+  const center = cellCenter(cell);
+  if (center == null || bands.length === 0) return null;
+  const best = [...bands]
+    .map((band) => ({ band, distance: Math.abs(center - band.center) }))
+    .sort((left, right) => left.distance - right.distance || left.band.index - right.band.index)[0]?.band ?? null;
+  if (!best) return null;
+  const previous = bands[best.index - 1];
+  const bestKind = bandLabelKind(best.label);
+  const previousKind = bandLabelKind(previous?.label);
+  if (
+    previous &&
+    previousKind === 'description' &&
+    bestKind === 'unit' &&
+    !cellLooksLikeUnitValue(cell.text) &&
+    (cell.x_min ?? center) < best.x_min
+  ) {
+    return previous;
+  }
+  if (
+    previous &&
+    previousKind === 'unit' &&
+    bestKind === 'rate' &&
+    !cellLooksLikeRateValue(cell.text) &&
+    (cell.x_min ?? center) < best.x_min
+  ) {
+    return previous;
+  }
+  return best;
+}
+
+function alignCellsToColumnBands(
+  cells: readonly PdfTableCell[],
+  bands: readonly ColumnBand[],
+): PdfTableCell[] {
+  if (bands.length < 2) return renumberCells([...cells]);
+  const byColumn = new Map<number, PdfTableCell[]>();
+  for (const cell of cells) {
+    const band = nearestColumnBand(cell, bands);
+    const index = band?.index ?? cell.column_index;
+    const current = byColumn.get(index) ?? [];
+    current.push(cell);
+    byColumn.set(index, current);
+  }
+
+  return [...byColumn.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([columnIndex, columnCells]) => ({
+      column_index: columnIndex,
+      text: normalizeLooseCellText(columnCells.map((cell) => cell.text).join(' ')),
+      x_min: Math.min(...columnCells.map((cell) => cell.x_min ?? Number.POSITIVE_INFINITY).filter(Number.isFinite)),
+      x_max: Math.max(...columnCells.map((cell) => cell.x_max ?? Number.NEGATIVE_INFINITY).filter(Number.isFinite)),
+      source: columnCells.some(isOcrCell) ? 'ocr_fallback' as const : 'pdfjs' as const,
+    }))
+    .map((cell) => ({
+      ...cell,
+      x_min: Number.isFinite(cell.x_min) ? cell.x_min : undefined,
+      x_max: Number.isFinite(cell.x_max) ? cell.x_max : undefined,
+    }))
+    .filter((cell) => cell.text.length > 0);
+}
+
+function stabilizeOcrTableColumns(params: {
+  rows: PdfTableDraftRow[];
+  header: PdfTableHeaderCandidate | null;
+}): {
+  rows: PdfTableDraftRow[];
+  header: PdfTableHeaderCandidate | null;
+} {
+  if (!isOcrTableCandidate(params.rows, params.header)) return params;
+  const bands = inferColumnBands(params);
+  if (bands.length < 2) return params;
+  return {
+    header: params.header
+      ? { ...params.header, cells: alignCellsToColumnBands(params.header.cells, bands) }
+      : params.header,
+    rows: params.rows.map((row) => ({
+      ...row,
+      cells: alignCellsToColumnBands(row.cells, bands),
+    })),
+  };
 }
 
 function pullTrailingLooseCellValue(text: string): { remaining: string; value: string } | null {
@@ -363,6 +562,14 @@ function looksLikeScheduleFooterLine(line: PdfLayoutLine, cells: PdfTableCell[])
   return false;
 }
 
+function looksLikeStandaloneSectionHeader(line: PdfLayoutLine): boolean {
+  const text = stripUnsafeTextControls(line.text).trim();
+  if (!text) return false;
+  if (/^section\s+[A-Za-z0-9]+(?:\b|[.:)-])/i.test(text)) return true;
+  if (/^(?:category|type)\s*:/i.test(text)) return true;
+  return false;
+}
+
 function looksLikeDescriptionContinuation(
   line: PdfLayoutLine,
   cells: PdfTableCell[],
@@ -394,6 +601,7 @@ function mergeContinuationLine(
 ): boolean {
   if (!tableContextActive || !lastRow || explicitRowStart) return false;
   if (looksLikeScheduleFooterLine(line, cells)) return false;
+  if (looksLikeStandaloneSectionHeader(line)) return false;
 
   if (
     line.kind === 'text' &&
@@ -521,6 +729,17 @@ export function buildPdfTableExtraction(params: {
         return;
       }
 
+      const provisionalHeader =
+        currentHeader == null && isMostlyNonNumeric(currentRows[0]?.cells ?? [])
+          ? { lineIndex: currentRows[0]?.lineIndex ?? 0, cells: currentRows[0]?.cells ?? [] }
+          : currentHeader;
+      const stabilized = stabilizeOcrTableColumns({
+        rows: currentRows,
+        header: provisionalHeader,
+      });
+      currentRows = stabilized.rows;
+      currentHeader = currentHeader == null ? null : stabilized.header;
+
       const firstRow = currentRows[0];
       const headers = currentHeader
         ? currentHeader.cells.map((cell) => cell.text)
@@ -564,6 +783,27 @@ export function buildPdfTableExtraction(params: {
         confidence,
       });
 
+      if (process.env.EIGHTFORGE_OCR_DEBUG === '1' && isOcrTableCandidate(dataRows, currentHeader)) {
+        console.log('[pdf-tables][ocr-table-candidate]', {
+          page_number: page.page_number,
+          table_key: tableId,
+          row_count: dataRows.length,
+          column_count: Math.max(headers.length, ...dataRows.map((row) => row.cells.length)),
+          header_row_text: headers.join(' | '),
+          sample_row_text: dataRows[0]?.raw_text ?? null,
+          cell_count_per_row: dataRows.map((row) => row.cells.length),
+          x_coordinate_ranges: dataRows.slice(0, 8).map((row) =>
+            row.cells.map((cell) => ({
+              cell_index: cell.column_index,
+              text: cell.text,
+              x_min: cell.x_min ?? null,
+              x_max: cell.x_max ?? null,
+              source: cell.source ?? null,
+            })),
+          ),
+        });
+      }
+
       const lineIndices = currentRows.map((r) => r.lineIndex);
       const endIndices = currentRows.map((r) => r.endLineIndex);
       const lineSpan = Math.max(1, Math.max(...endIndices) - Math.min(...lineIndices) + 1);
@@ -598,10 +838,16 @@ export function buildPdfTableExtraction(params: {
       const descriptionCell = row.cells[descriptionIndex];
       if (descriptionCell) {
         descriptionCell.text = `${descriptionCell.text} ${sanitizedLineText}`.trim();
+        if (line.source === 'ocr_fallback') {
+          descriptionCell.source = 'ocr_fallback';
+        }
       } else {
         row.cells.push({
           column_index: row.cells.length,
           text: sanitizedLineText,
+          x_min: typeof line.x_min === 'number' ? line.x_min : undefined,
+          x_max: typeof line.x_max === 'number' ? line.x_max : undefined,
+          source: line.source === 'ocr_fallback' ? 'ocr_fallback' : 'pdfjs',
         });
       }
       row.raw_text = `${row.raw_text}\n${stripUnsafeTextControls(line.text)}`;

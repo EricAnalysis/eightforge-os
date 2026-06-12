@@ -21,6 +21,7 @@ export type TransactionDataFieldKey =
   | 'mileage'
   | 'cyd'
   | 'net_tonnage'
+  | 'diameter'
   | 'material'
   | 'service_item'
   | 'ticket_notes'
@@ -54,13 +55,20 @@ export type TransactionDataSummaryFieldKey =
   | 'total_transaction_quantity'
   | 'total_tickets'
   | 'total_cyd'
+  | 'total_cyd_ticket_grain'
+  | 'total_cyd_ticket_grain_full'
+  | 'total_mileage_ticket_grain'
+  | 'total_mileage_ticket_grain_full'
+  | 'total_diameter'
+  | 'total_diameter_full'
+  | 'total_net_tonnage'
+  | 'total_net_tonnage_full'
   | 'invoiced_ticket_count'
   | 'distinct_invoice_count'
   | 'total_invoiced_amount'
   | 'uninvoiced_line_count'
   | 'eligible_count'
   | 'ineligible_count'
-  | 'unknown_eligibility_count'
   | 'rows_with_missing_rate_code'
   | 'rows_with_missing_invoice_number'
   | 'rows_with_missing_quantity'
@@ -126,6 +134,8 @@ export interface TransactionDataReviewGroupBase {
   total_extended_cost: number;
   invoiced_ticket_count: number;
   uninvoiced_line_count: number;
+  eligible_count?: number;
+  ineligible_count?: number;
   distinct_invoice_numbers: string[];
   distinct_rate_codes: string[];
   record_ids: string[];
@@ -186,7 +196,6 @@ export interface TransactionDataProjectOperationsOverview {
   uninvoiced_line_count: number;
   eligible_count: number;
   ineligible_count: number;
-  unknown_eligibility_count: number;
   distinct_service_item_count: number;
   distinct_material_count: number;
   distinct_site_type_count: number;
@@ -318,6 +327,7 @@ export interface TransactionDataRecord {
   mileage: number | null;
   cyd: number | null;
   net_tonnage: number | null;
+  diameter?: number | null;
   material: string | null;
   service_item: string | null;
   ticket_notes: string | null;
@@ -348,13 +358,20 @@ export interface TransactionDataDatasetSummary {
   total_transaction_quantity: number;
   total_tickets: number;
   total_cyd: number;
+  total_cyd_ticket_grain?: number;
+  total_cyd_ticket_grain_full?: number;
+  total_mileage_ticket_grain?: number;
+  total_mileage_ticket_grain_full?: number;
+  total_diameter?: number;
+  total_diameter_full?: number;
+  total_net_tonnage?: number;
+  total_net_tonnage_full?: number;
   invoiced_ticket_count: number;
   distinct_invoice_count: number;
   total_invoiced_amount: number;
   uninvoiced_line_count: number;
   eligible_count: number;
   ineligible_count: number;
-  unknown_eligibility_count: number;
   rows_with_missing_rate_code: number;
   rows_with_missing_invoice_number: number;
   rows_with_missing_quantity: number;
@@ -401,6 +418,7 @@ export const TRANSACTION_DATA_ROW_SCHEMA: Record<
   mileage: { type: 'number', required: false, nullable: true },
   cyd: { type: 'number', required: false, nullable: true },
   net_tonnage: { type: 'number', required: false, nullable: true },
+  diameter: { type: 'number', required: false, nullable: true },
   material: { type: 'string', required: false, nullable: true },
   service_item: { type: 'string', required: false, nullable: true },
   ticket_notes: { type: 'string', required: false, nullable: true },
@@ -434,13 +452,20 @@ export const TRANSACTION_DATA_SUMMARY_SCHEMA: Record<
   total_transaction_quantity: { type: 'number', required: true, nullable: false },
   total_tickets: { type: 'integer', required: true, nullable: false },
   total_cyd: { type: 'number', required: true, nullable: false },
+  total_cyd_ticket_grain: { type: 'number', required: false, nullable: false },
+  total_cyd_ticket_grain_full: { type: 'number', required: false, nullable: false },
+  total_mileage_ticket_grain: { type: 'number', required: false, nullable: false },
+  total_mileage_ticket_grain_full: { type: 'number', required: false, nullable: false },
+  total_diameter: { type: 'number', required: false, nullable: false },
+  total_diameter_full: { type: 'number', required: false, nullable: false },
+  total_net_tonnage: { type: 'number', required: false, nullable: false },
+  total_net_tonnage_full: { type: 'number', required: false, nullable: false },
   invoiced_ticket_count: { type: 'integer', required: true, nullable: false },
   distinct_invoice_count: { type: 'integer', required: true, nullable: false },
   total_invoiced_amount: { type: 'currency', required: true, nullable: false },
   uninvoiced_line_count: { type: 'integer', required: true, nullable: false },
   eligible_count: { type: 'integer', required: true, nullable: false },
   ineligible_count: { type: 'integer', required: true, nullable: false },
-  unknown_eligibility_count: { type: 'integer', required: true, nullable: false },
   rows_with_missing_rate_code: { type: 'integer', required: true, nullable: false },
   rows_with_missing_invoice_number: { type: 'integer', required: true, nullable: false },
   rows_with_missing_quantity: { type: 'integer', required: true, nullable: false },
@@ -484,6 +509,7 @@ export const TRANSACTION_DATA_FIELD_LABELS: Record<TransactionDataFieldKey, stri
   mileage: 'Mileage',
   cyd: 'CYD',
   net_tonnage: 'Net tonnage',
+  diameter: 'Diameter',
   material: 'Material',
   service_item: 'Service item',
   ticket_notes: 'Ticket notes',
@@ -510,6 +536,7 @@ export const TRANSACTION_DATA_FIELD_ORDER: readonly TransactionDataFieldKey[] = 
   'mileage',
   'cyd',
   'net_tonnage',
+  'diameter',
   'material',
   'service_item',
   'ticket_notes',
@@ -525,18 +552,25 @@ export const TRANSACTION_DATA_FIELD_ORDER: readonly TransactionDataFieldKey[] = 
 
 export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, readonly string[]> = {
   transaction_number: [
+    'ticket no',
+    'ticket no.',
+    'ticket num',
     'transaction #',
     'transaction number',
     'ticket #',
     'ticket number',
-    'ticket no',
+    'ticket',
     'load ticket',
     'load ticket #',
+    'load ticket no',
+    'load ticket number',
   ],
   invoice_number: [
     'invoice #',
+    'invoice#',
     'invoice number',
     'invoice no',
+    'invoice no.',
     'invoice',
   ],
   invoice_date: [
@@ -547,20 +581,25 @@ export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, re
   ],
   rate_code: [
     'rate code',
+    'rate code #',
     'service code',
     'item code',
+    'code',
     'contract rate code',
   ],
   rate_description: [
     'rate description',
     'description',
     'rate desc',
+    'rate desc.',
+    'description of rate',
     'line description',
   ],
   transaction_quantity: [
     'transaction quantity',
     'quantity',
     'qty',
+    'qty.',
     'ticket quantity',
   ],
   transaction_rate: [
@@ -572,6 +611,9 @@ export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, re
   ],
   extended_cost: [
     'extended cost',
+    'ext cost',
+    'ext. cost',
+    'ext_cost',
     'line total',
     'extended amount',
     'total amount',
@@ -589,7 +631,10 @@ export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, re
   ],
   cyd: [
     'cyd',
+    'cyd.',
+    'cyd qty',
     'cy',
+    'cyd quantity',
     'cubic yard',
     'cubic yards',
   ],
@@ -598,6 +643,12 @@ export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, re
     'net tons',
     'tonnage',
     'tons',
+  ],
+  diameter: [
+    'diameter',
+    'diameters',
+    'dia',
+    'dia.',
   ],
   material: [
     'material',
@@ -619,6 +670,7 @@ export const TRANSACTION_DATA_HEADER_ALIASES: Record<TransactionDataFieldKey, re
     'eligibility',
     'eligible',
     'eligibility status',
+    'eligibility flag',
   ],
   eligibility_internal_comments: [
     'eligibility internal comments',
@@ -676,6 +728,7 @@ export const TRANSACTION_DATA_METRIC_FIELDS = new Set<TransactionDataFieldKey>([
   'mileage',
   'cyd',
   'net_tonnage',
+  'diameter',
   'load_latitude',
   'load_longitude',
   'disposal_latitude',

@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
     '@napi-rs/canvas',
     '@tesseract.js-data',
   ],
+  turbopack: {
+    root: __dirname,
+  },
 };
 
 export default nextConfig;

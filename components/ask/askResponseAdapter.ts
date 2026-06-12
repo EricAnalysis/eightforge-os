@@ -231,11 +231,11 @@ function actionHref(
   }
 
   if (type === 'assign_action') {
-    return `/platform/projects/${projectId}#project-actions`;
+    return `/platform/projects/${projectId}#project-decisions`;
   }
 
   if (type === 'check_validator' || type === 'review_validator') {
-    return `/platform/workspace/projects/${projectId}?tab=validator`;
+    return `/platform/projects/${projectId}#project-validator`;
   }
 
   return null;

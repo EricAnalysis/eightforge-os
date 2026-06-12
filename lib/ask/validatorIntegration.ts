@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AskProjectRecord, ValidatorContext, ValidatorFinding } from '@/lib/ask/types';
+import { resolveCanonicalProjectFacts } from '@/lib/projectFacts';
 
 type ValidationStatus = 'NOT_READY' | 'BLOCKED' | 'VALIDATED' | 'FINDINGS_OPEN';
 
@@ -15,29 +16,12 @@ type ValidationRunRow = {
   completed_at: string | null;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.filter(
-    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
-  );
-}
-
 function blockedReasonFromSummary(
-  summary: Record<string, unknown> | null,
+  blockedReasons: readonly string[],
   criticalFindings: readonly ValidatorFinding[],
 ): string {
-  const reasons = readStringArray(summary?.blocked_reasons);
-  if (reasons.length > 0) {
-    return reasons[0];
+  if (blockedReasons.length > 0) {
+    return blockedReasons[0] ?? 'No validator blocker is currently recorded';
   }
 
   if (criticalFindings.length > 0) {
@@ -61,18 +45,21 @@ export function buildValidatorContext(params: {
   latestRunAt?: string | null;
   criticalFindings: ValidatorFinding[];
 }): ValidatorContext {
-  const summary = isRecord(params.validationSummary)
-    ? params.validationSummary
-    : null;
+  const facts = resolveCanonicalProjectFacts({
+    validationStatus: params.project.validationStatus,
+    validationSummary: params.validationSummary,
+  });
   const lastRun =
-    readString(summary?.last_run_at)
-    ?? readString(params.latestRunAt)
+    facts.last_run_at
+    ?? (typeof params.latestRunAt === 'string' && params.latestRunAt.trim().length > 0
+      ? params.latestRunAt.trim()
+      : null)
     ?? new Date(0).toISOString();
 
   return {
     projectStatus: projectStatusFromValidationStatus(params.project.validationStatus),
     criticalFindings: params.criticalFindings,
-    blockedReason: blockedReasonFromSummary(summary, params.criticalFindings),
+    blockedReason: blockedReasonFromSummary(facts.blocked_reasons, params.criticalFindings),
     lastRun,
   };
 }

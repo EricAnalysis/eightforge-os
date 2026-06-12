@@ -19,23 +19,23 @@ const STATUS_LABELS: Record<ValidationStatus, string> = {
 function statusClassName(status: ValidationStatus): string {
   switch (status) {
     case 'BLOCKED':
-      return 'border-[#EF4444]/45 bg-[#3A1117] text-[#FCA5A5]';
+      return 'border-[var(--ef-critical-a45)] bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]';
     case 'VALIDATED':
-      return 'border-[#22C55E]/35 bg-[#0F2417] text-[#86EFAC]';
+      return 'border-[var(--ef-success-a35)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'FINDINGS_OPEN':
-      return 'border-[#F59E0B]/35 bg-[#2A1C08] text-[#FCD34D]';
+      return 'border-[var(--ef-warning-a35)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
     case 'NOT_READY':
     default:
-      return 'border-[#2F3B52]/80 bg-[#111827] text-[#C7D2E3]';
+      return 'border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)]';
   }
 }
 
 function countBadgeClassName(kind: 'critical' | 'warning'): string {
   if (kind === 'critical') {
-    return 'bg-[#45141B] text-[#FCA5A5]';
+    return 'bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]';
   }
 
-  return 'bg-[#31230F] text-[#FCD34D]';
+  return 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
 }
 
 export function ValidatorStatusChip({

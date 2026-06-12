@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   canProjectProceed,
   canInvoiceProceed,
@@ -6,12 +6,34 @@ import {
   getBlockingReasons,
 } from '../approvalEnforcement';
 import * as approvalSnapshots from '../approvalSnapshots';
+import * as supabaseAdmin from '../supabaseAdmin';
 import type { ProjectApprovalSnapshot, InvoiceApprovalSnapshot } from '../approvalSnapshots';
+import type { ApprovalCheckResult } from '../approvalEnforcement';
+
+type AllowedApprovalCheckResult = Extract<ApprovalCheckResult, { status: 'allowed' }>;
+type BlockedApprovalCheckResult = Extract<ApprovalCheckResult, { status: 'blocked' }>;
+type UnknownApprovalCheckResult = Extract<ApprovalCheckResult, { status: 'unknown' }>;
 
 // Mock approvalSnapshots module
 vi.mock('../approvalSnapshots', () => ({
   getLatestApprovalSnapshot: vi.fn(),
 }));
+
+vi.mock('../supabaseAdmin', () => ({
+  getSupabaseAdmin: vi.fn(),
+}));
+
+function expectAllowed(result: ApprovalCheckResult): asserts result is AllowedApprovalCheckResult {
+  expect(result.status).toBe('allowed');
+}
+
+function expectBlocked(result: ApprovalCheckResult): asserts result is BlockedApprovalCheckResult {
+  expect(result.status).toBe('blocked');
+}
+
+function expectUnknown(result: ApprovalCheckResult): asserts result is UnknownApprovalCheckResult {
+  expect(result.status).toBe('unknown');
+}
 
 describe('approvalEnforcement', () => {
   beforeEach(() => {
@@ -24,7 +46,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canProjectProceed('project-123');
 
-      expect(result.status).toBe('allowed');
+      expectAllowed(result);
       expect(result.snapshot).toBeNull();
     });
 
@@ -50,7 +72,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canProjectProceed('project-123');
 
-      expect(result.status).toBe('blocked');
+      expectBlocked(result);
       expect(result.snapshot).toBe(snapshot);
       expect(result.reason).toContain('blocked');
       expect(result.reason).toContain('$50.00');
@@ -78,9 +100,9 @@ describe('approvalEnforcement', () => {
 
       const result = await canProjectProceed('project-123');
 
-      expect(result.status).toBe('blocked');
+      expectBlocked(result);
       expect(result.snapshot).toBe(snapshot);
-      expect(result.reason).toContain('needs_review');
+      expect(result.reason).toContain('requires review');
       expect(result.reason).toContain('2 invoices');
     });
 
@@ -106,7 +128,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canProjectProceed('project-123');
 
-      expect(result.status).toBe('allowed');
+      expectAllowed(result);
       expect(result.snapshot).toBe(snapshot);
     });
 
@@ -117,7 +139,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canProjectProceed('project-123');
 
-      expect(result.status).toBe('unknown');
+      expectUnknown(result);
       expect(result.error).toContain('Could not determine approval status');
     });
   });
@@ -142,10 +164,24 @@ describe('approvalEnforcement', () => {
       };
 
       vi.mocked(approvalSnapshots.getLatestApprovalSnapshot).mockResolvedValue(projectSnapshot);
+      const invoiceSnapshotQuery = {
+        eq: vi.fn(),
+        order: vi.fn(),
+        limit: vi.fn(),
+        single: vi.fn(async () => ({ data: null, error: null })),
+      };
+      invoiceSnapshotQuery.eq.mockReturnValue(invoiceSnapshotQuery);
+      invoiceSnapshotQuery.order.mockReturnValue(invoiceSnapshotQuery);
+      invoiceSnapshotQuery.limit.mockReturnValue(invoiceSnapshotQuery);
+      vi.mocked(supabaseAdmin.getSupabaseAdmin).mockReturnValue({
+        from: vi.fn(() => ({
+          select: vi.fn(() => invoiceSnapshotQuery),
+        })),
+      } as never);
 
       const result = await canInvoiceProceed('project-123', 'INV-001');
 
-      expect(result.status).toBe('blocked');
+      expectBlocked(result);
       expect(result.snapshot).toBe(projectSnapshot);
       expect(result.reason).toContain('Cannot approve invoice');
     });
@@ -157,7 +193,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canInvoiceProceed('project-123', 'INV-001');
 
-      expect(result.status).toBe('unknown');
+      expectUnknown(result);
       expect(result.error).toContain('Could not determine approval status');
     });
 
@@ -183,7 +219,7 @@ describe('approvalEnforcement', () => {
 
       const result = await canInvoiceProceed('project-123', 'INV-001');
 
-      expect(result.status).toBe('allowed');
+      expectAllowed(result);
       expect(result.snapshot).toBeNull(); // No invoice snapshot yet
     });
   });
@@ -286,7 +322,7 @@ describe('approvalEnforcement', () => {
     });
 
     it('returns default reason when snapshot is null or empty', () => {
-      const reasons = getBlockingReasons(null as any);
+      const reasons = getBlockingReasons(null);
 
       expect(reasons).toEqual(['Approval required']);
     });

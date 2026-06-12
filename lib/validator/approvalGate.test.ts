@@ -297,7 +297,7 @@ describe('evaluateApprovalGate', () => {
       assert.ok(gate.project.reasons.includes('duplicate_billing'));
     });
 
-    it('maps FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED to activation_unresolved', () => {
+    it('maps FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED to activation_unresolved without blocking by default', () => {
       const finding = makeFinding('f-act', 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED', {
         severity: 'critical',
         status: 'open',
@@ -306,11 +306,11 @@ describe('evaluateApprovalGate', () => {
       const result = makeResult({ findings: [finding] });
       const gate = evaluateApprovalGate(result);
 
-      assert.equal(gate.project.approval_status, 'blocked');
+      assert.equal(gate.project.approval_status, 'needs_review');
       assert.ok(gate.project.reasons.includes('activation_unresolved'));
     });
 
-    it('maps FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR to pricing_applicability_unresolved', () => {
+    it('maps FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR to pricing_applicability_unresolved without blocking by default', () => {
       const finding = makeFinding('f-price', 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR', {
         severity: 'critical',
         status: 'open',
@@ -319,7 +319,7 @@ describe('evaluateApprovalGate', () => {
       const result = makeResult({ findings: [finding] });
       const gate = evaluateApprovalGate(result);
 
-      assert.equal(gate.project.approval_status, 'blocked');
+      assert.equal(gate.project.approval_status, 'needs_review');
       assert.ok(gate.project.reasons.includes('pricing_applicability_unresolved'));
     });
   });

@@ -44,6 +44,28 @@ export function buildProjectDocumentHref(documentId: string, projectId: string):
   return buildDocumentDetailHref(documentId, { source: 'project', projectId });
 }
 
+export function buildContractPricingRowsHref(documentId: string, projectId: string): string {
+  const baseHref = buildProjectDocumentHref(documentId, projectId);
+  const [pathname, existingQuery = ''] = baseHref.split('?');
+  const params = new URLSearchParams(existingQuery);
+  params.set('tab', 'extraction');
+  params.set('section', 'rate-table');
+  return `${pathname}?${params.toString()}#rate-table`;
+}
+
+export function buildProjectDocumentsForgeHref(
+  projectId: string,
+  documentId?: string | null,
+): string {
+  const params = new URLSearchParams();
+  if (documentId) {
+    params.set('documentId', documentId);
+  }
+
+  const query = params.toString();
+  return `/platform/projects/${projectId}${query ? `?${query}` : ''}#project-documents`;
+}
+
 export function resolveDocumentDetailContext(
   searchParams: SearchParamsLike,
   linkedProjectId?: string | null,

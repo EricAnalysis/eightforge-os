@@ -693,7 +693,7 @@ function detectFederalSignals(textLower: string): string[] {
 }
 
 export function buildEvidenceV1(params: {
-  pageText: PageTextEvidence[];
+  pageText: readonly PageTextEvidence[];
   documentTypeHint: string | null;
   /** Pdf.js / layout combined text (may differ from native per-page strings). Used only for term-range search. */
   layoutCombinedText?: string | null;
@@ -715,14 +715,14 @@ export function buildEvidenceV1(params: {
 
   return {
     parser_version: 'evidence_v1',
-    page_text: params.pageText,
+    page_text: [...params.pageText],
     structured_fields,
     section_signals,
   };
 }
 
 export function parseContractEvidenceV1(params: {
-  pages: PageTextEvidence[];
+  pages: readonly PageTextEvidence[];
   layoutCombinedText?: string | null;
 }): {
   structured_fields: ContractStructuredFieldsV1;

@@ -3,9 +3,12 @@ import {
   isRuleEnabled,
   makeEvidenceInput,
   makeFinding,
+  readRowString,
   uniqueStrings,
   type FindingEvidenceInput,
+  type InvoiceLineRow,
   type ProjectValidatorInput,
+  type RateScheduleItem,
   type ValidatorFactRecord,
   type ValidatorFindingResult,
 } from '@/lib/validator/shared';
@@ -34,7 +37,7 @@ export const RATE_BASED_CONTRACT_VALIDATION_RULES = {
   pricing_applicability_unclear: {
     ruleId: 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR',
     field: 'pricing_applicability',
-    severity: 'critical' as const,
+    severity: 'warning' as const,
     message: 'Pricing schedule present but applicability is unresolved',
   },
   unit_coverage_check: {
@@ -46,7 +49,7 @@ export const RATE_BASED_CONTRACT_VALIDATION_RULES = {
   activation_gate_required: {
     ruleId: 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
     field: 'activation_trigger_type',
-    severity: 'critical' as const,
+    severity: 'warning' as const,
     message: 'Activation trigger detected but status unresolved',
   },
 } as const;
@@ -128,14 +131,140 @@ function normalizedUnits(values: readonly string[]): string[] {
   );
 }
 
-function hasQuantityUnit(units: readonly string[]): boolean {
-  return units.some((unit) =>
-    /(?:cubic yard|cy\b|yard\b|ton\b|tree\b|each\b|pound\b|lb\b)/i.test(unit),
+const RECOGNIZED_UNIT_ALIASES = new Map<string, string>([
+  ['cubic yard', 'cubic_yard'],
+  ['cubic yards', 'cubic_yard'],
+  ['cy', 'cubic_yard'],
+  ['cyd', 'cubic_yard'],
+  ['c y', 'cubic_yard'],
+  ['yard', 'cubic_yard'],
+  ['yards', 'cubic_yard'],
+  ['yd', 'cubic_yard'],
+  ['hour', 'hour'],
+  ['hours', 'hour'],
+  ['hr', 'hour'],
+  ['hrs', 'hour'],
+  ['h', 'hour'],
+  ['tree', 'tree'],
+  ['trees', 'tree'],
+  ['stump', 'stump'],
+  ['stumps', 'stump'],
+  ['pound', 'pound'],
+  ['pounds', 'pound'],
+  ['lb', 'pound'],
+  ['lbs', 'pound'],
+  ['unit', 'unit'],
+  ['units', 'unit'],
+  ['ea', 'unit'],
+  ['each', 'unit'],
+  ['passthrough', 'passthrough'],
+  ['pass through', 'passthrough'],
+  ['tipping fee', 'passthrough'],
+  ['tipping fees', 'passthrough'],
+  ['ton', 'ton'],
+  ['tons', 'ton'],
+]);
+
+const INVOICE_LINE_ID_KEYS = ['id', 'invoice_line_id', 'line_id'] as const;
+const INVOICE_LINE_UNIT_KEYS = ['unit_type', 'unit', 'uom', 'unit_of_measure'] as const;
+
+function canonicalUnit(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value
+    .toLowerCase()
+    .replace(/\bc\.?\s*y\.?\b/g, 'cy')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+  return RECOGNIZED_UNIT_ALIASES.get(normalized) ?? null;
+}
+
+function invoiceLineId(row: InvoiceLineRow): string {
+  return readRowString(row, INVOICE_LINE_ID_KEYS)
+    ?? `invoice_line:${JSON.stringify(row).slice(0, 80)}`;
+}
+
+function unitCoverageSummary(input: ProjectValidatorInput): {
+  unknownUnits: string[];
+  affectedRateRows: string[];
+  affectedInvoiceLines: string[];
+  allMatchedLinesRecognized: boolean;
+} {
+  const unknownUnits = new Set<string>();
+  const affectedRateRows = new Set<string>();
+  const affectedInvoiceLines = new Set<string>();
+
+  for (const row of input.invoiceLines) {
+    const lineId = invoiceLineId(row);
+    const scheduleItem = input.invoiceLineToRateMap.get(lineId) ?? null;
+    if (!scheduleItem) continue;
+
+    const lineUnit = readRowString(row, INVOICE_LINE_UNIT_KEYS);
+    const units = uniqueStrings([lineUnit, scheduleItem.unit_type]);
+    for (const unit of units) {
+      if (canonicalUnit(unit)) continue;
+      unknownUnits.add(unit);
+      affectedInvoiceLines.add(lineId);
+      if (scheduleItem.record_id) affectedRateRows.add(scheduleItem.record_id);
+    }
+  }
+
+  if (input.invoiceLines.length === 0) {
+    for (const unit of input.factLookups.rateUnitsDetected) {
+      if (canonicalUnit(unit)) continue;
+      unknownUnits.add(unit);
+    }
+  }
+
+  return {
+    unknownUnits: [...unknownUnits].sort((left, right) => left.localeCompare(right, 'en-US')),
+    affectedRateRows: [...affectedRateRows].sort((left, right) => left.localeCompare(right, 'en-US')),
+    affectedInvoiceLines: [...affectedInvoiceLines].sort((left, right) => left.localeCompare(right, 'en-US')),
+    allMatchedLinesRecognized: unknownUnits.size === 0,
+  };
+}
+
+function fieldValueText(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (value == null) return '';
+  return String(value).toLowerCase();
+}
+
+function hasInactiveContractSignal(input: ProjectValidatorInput): boolean {
+  const inactiveKeys = /(?:inactive|void|voided|superseded|expired|active|status)/i;
+  return input.allFacts.some((fact) => {
+    if (!inactiveKeys.test(fact.key)) return false;
+    const value = fieldValueText(fact.value);
+    if (!value) return false;
+    if (fact.key.toLowerCase().includes('active') && value === 'false') return true;
+    return /\b(?:inactive|voided|void|superseded|expired)\b/.test(value);
+  });
+}
+
+export function isGoverningContractFullyExecutedAndActive(input: ProjectValidatorInput): boolean {
+  const executedField = input.contractValidationContext?.analysis.contract_identity.executed_date;
+  const executedValue = executedField?.value;
+  const hasExecutedDate =
+    executedValue != null
+    && String(executedValue).trim().length > 0
+    && (executedField?.state === 'explicit' || executedField?.state === 'derived');
+
+  return (
+    input.factLookups.contractDocumentId != null
+    && hasExecutedDate
+    && !hasInactiveContractSignal(input)
   );
 }
 
-function hasTimeUnit(units: readonly string[]): boolean {
-  return units.some((unit) => /(?:hour\b|hr\b|day\b)/i.test(unit));
+function allInvoiceLinesHaveMatchedRates(input: ProjectValidatorInput): boolean {
+  return (
+    input.invoiceLines.length > 0
+    && input.invoiceLines.every((row) => {
+      const item: RateScheduleItem | null =
+        input.invoiceLineToRateMap.get(invoiceLineId(row)) ?? null;
+      return item != null && item.source_document_id != null && item.record_id != null;
+    })
+  );
 }
 
 function isConditional(field: ContractFieldAnalysis | null | undefined): boolean {
@@ -170,7 +299,9 @@ export function runRateBasedContractValidationRules(
     input.factLookups.rateSchedulePagesFact?.value ?? ratePagesDisplay,
   );
   const units = normalizedUnits(input.factLookups.rateUnitsDetected);
-  const requiresTimeUnit = input.factLookups.timeAndMaterialsPresent;
+  const unitCoverage = unitCoverageSummary(input);
+  const contractActiveByExecution = isGoverningContractFullyExecutedAndActive(input);
+  const allLinesMatched = allInvoiceLinesHaveMatchedRates(input);
 
   if (
     isRuleEnabled(
@@ -283,7 +414,8 @@ export function runRateBasedContractValidationRules(
       input.ruleStateByRuleId,
       RATE_BASED_CONTRACT_VALIDATION_RULES.pricing_applicability_unclear.ruleId,
     ) &&
-    pricingField?.state === 'conditional'
+    pricingField?.state === 'conditional' &&
+    !(contractActiveByExecution && allLinesMatched)
   ) {
     findings.push(
       makeFinding({
@@ -311,17 +443,13 @@ export function runRateBasedContractValidationRules(
     );
   }
 
-  const unitCoverageComplete =
-    units.length > 0
-    && hasQuantityUnit(units)
-    && (!requiresTimeUnit || hasTimeUnit(units));
   if (
     rateSchedulePresent &&
     isRuleEnabled(
       input.ruleStateByRuleId,
       RATE_BASED_CONTRACT_VALIDATION_RULES.unit_coverage_check.ruleId,
     ) &&
-    !unitCoverageComplete
+    !unitCoverage.allMatchedLinesRecognized
   ) {
     findings.push(
       makeFinding({
@@ -332,10 +460,12 @@ export function runRateBasedContractValidationRules(
         subjectType,
         subjectId,
         field: RATE_BASED_CONTRACT_VALIDATION_RULES.unit_coverage_check.field,
-        expected: requiresTimeUnit
-          ? 'quantity units plus labor/time units'
-          : 'quantity-based operational units',
-        actual: units.length > 0 ? units.join(', ') : 'missing',
+        expected: 'recognized contract units for matched invoice lines',
+        actual: {
+          unknown_units: unitCoverage.unknownUnits,
+          affected_rate_rows: unitCoverage.affectedRateRows,
+          affected_invoice_lines: unitCoverage.affectedInvoiceLines,
+        },
         evidence: [
           ...factEvidence(
             input.factLookups.rateUnitsDetectedFact,
@@ -345,6 +475,19 @@ export function runRateBasedContractValidationRules(
             input.factLookups.timeAndMaterialsPresentFact,
             'Time-and-materials signal available to the validator.',
           ),
+          makeEvidenceInput({
+            evidence_type: 'rate_schedule',
+            source_document_id: input.factLookups.contractDocumentId,
+            record_id: subjectId,
+            field_name: 'unknown_units',
+            field_value: {
+              detected_units: units,
+              unknown_units: unitCoverage.unknownUnits,
+              affected_rate_rows: unitCoverage.affectedRateRows,
+              affected_invoice_lines: unitCoverage.affectedInvoiceLines,
+            },
+            note: 'Unit coverage warning is limited to unknown units used by matched invoice lines.',
+          }),
         ],
       }),
     );
@@ -364,7 +507,8 @@ export function runRateBasedContractValidationRules(
       input.ruleStateByRuleId,
       RATE_BASED_CONTRACT_VALIDATION_RULES.activation_gate_required.ruleId,
     ) &&
-    hasActivationDependency(input)
+    hasActivationDependency(input) &&
+    !contractActiveByExecution
   ) {
     findings.push(
       makeFinding({

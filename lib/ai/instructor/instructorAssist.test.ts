@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { classifyDocumentFamily } from '@/lib/ai/instructor/classifyDocumentFamily';
 import { maybeAssistTypedExtraction } from '@/lib/ai/instructor/extractionAssist';
 import type { ExtractionGap } from '@/lib/extraction/types';
+import type { InvoiceExtraction } from '@/lib/types/extractionSchemas';
 
 function mockClient(responses: Array<unknown | Error>) {
   const create = vi.fn(async () => {
@@ -22,6 +23,27 @@ function mockClient(responses: Array<unknown | Error>) {
       },
     },
     create,
+  };
+}
+
+function invoiceExtraction(overrides: Partial<InvoiceExtraction>): InvoiceExtraction {
+  return {
+    schema_type: 'invoice',
+    invoice_number: null,
+    invoice_status: null,
+    invoice_date: null,
+    period_start: null,
+    period_end: null,
+    period_through: null,
+    vendor_name: null,
+    client_name: null,
+    line_items: [],
+    line_item_count: null,
+    subtotal_amount: null,
+    total_amount: null,
+    payment_terms: null,
+    po_number: null,
+    ...overrides,
   };
 }
 
@@ -76,16 +98,12 @@ describe('Instructor extraction assist', () => {
     const { client, create } = mockClient([]);
     const result = await maybeAssistTypedExtraction({
       detectedDocumentType: 'invoice',
-      currentTypedFields: {
-        schema_type: 'invoice',
+      currentTypedFields: invoiceExtraction({
         invoice_number: 'INV-100',
         invoice_date: '2026-03-20',
         vendor_name: 'Acme Debris LLC',
-        line_items: [],
         total_amount: 1200,
-        payment_terms: null,
-        po_number: null,
-      },
+      }),
       extractionConfidence: 0.91,
       gaps: [],
       textPreview: 'Invoice INV-100 from Acme Debris LLC total amount due $1,200.',
@@ -123,16 +141,9 @@ describe('Instructor extraction assist', () => {
 
     const result = await maybeAssistTypedExtraction({
       detectedDocumentType: 'invoice',
-      currentTypedFields: {
-        schema_type: 'invoice',
+      currentTypedFields: invoiceExtraction({
         invoice_number: 'INV-KEEP',
-        invoice_date: null,
-        vendor_name: null,
-        line_items: [],
-        total_amount: null,
-        payment_terms: null,
-        po_number: null,
-      },
+      }),
       extractionConfidence: 0.44,
       gaps: importantGaps,
       textPreview: 'Acme Debris LLC Current amount due $2,450.00.',

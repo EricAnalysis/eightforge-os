@@ -51,15 +51,35 @@ const formatAbsoluteTime = (iso: string): string => {
 const getEventColor = (eventType: string) => {
   switch (eventType) {
     case 'created':
-      return { dot: 'bg-purple-500', badge: 'bg-purple-500/20 text-purple-400 border border-purple-500/40' };
+      return {
+        dot: 'bg-[var(--ef-purple-primary)]',
+        badge:
+          'bg-[var(--ef-purple-primary-a20)] text-[var(--ef-purple-glow)] border border-[var(--ef-purple-primary-a40)]',
+      };
     case 'status_changed':
-      return { dot: 'bg-blue-500', badge: 'bg-blue-500/20 text-blue-400 border border-blue-500/40' };
+      return {
+        dot: 'bg-[var(--ef-purple-glow)]',
+        badge:
+          'bg-[var(--ef-purple-primary-a20)] text-[var(--ef-purple-glow)] border border-[var(--ef-purple-primary-a40)]',
+      };
     case 'assignment_changed':
-      return { dot: 'bg-amber-500', badge: 'bg-amber-500/20 text-amber-400 border border-amber-500/40' };
+      return {
+        dot: 'bg-[var(--ef-warning)]',
+        badge:
+          'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+      };
     case 'due_date_changed':
-      return { dot: 'bg-teal-500', badge: 'bg-teal-500/20 text-teal-400 border border-teal-500/40' };
+      return {
+        dot: 'bg-[var(--ef-warning)]',
+        badge:
+          'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+      };
     default:
-      return { dot: 'bg-gray-500', badge: 'bg-gray-500/20 text-gray-400 border border-gray-500/40' };
+      return {
+        dot: 'bg-[var(--ef-text-muted)]',
+        badge:
+          'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]',
+      };
   }
 };
 
@@ -91,8 +111,8 @@ const getEntityLabel = (entityType: string): string => {
 
 const getEntityBadgeColor = (entityType: string): string => {
   return entityType === 'decision'
-    ? 'bg-[#8B5CFF]/15 text-[#B794FF]'
-    : 'bg-blue-500/15 text-blue-300';
+    ? 'bg-[var(--ef-purple-primary-a15)] text-[var(--ef-purple-glow)]'
+    : 'bg-[var(--ef-purple-primary-a15)] text-[var(--ef-purple-glow)]';
 };
 
 const formatChangeDetail = (
@@ -177,35 +197,35 @@ export default function ActivityPage() {
 
   if (orgLoading) {
     return (
-      <div className="min-h-screen bg-[#07071A] p-8">
-        <div className="text-[#8B94A3]">Loading…</div>
+      <div className="min-h-screen bg-[var(--ef-background-primary)] p-8">
+        <div className="text-[var(--ef-text-muted)]">Loading…</div>
       </div>
     );
   }
 
   if (!organization) {
     return (
-      <div className="min-h-screen bg-[#07071A] p-8">
-        <div className="text-[#8B94A3]">Organization not found</div>
+      <div className="min-h-screen bg-[var(--ef-background-primary)] p-8">
+        <div className="text-[var(--ef-text-muted)]">Organization not found</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#07071A] p-8">
+    <div className="min-h-screen bg-[var(--ef-background-primary)] p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-semibold text-[#F5F7FA]">Activity</h1>
-            <p className="text-sm text-[#8B94A3] mt-1">
+            <h1 className="text-2xl font-semibold text-[var(--ef-text-primary)]">Activity</h1>
+            <p className="text-sm text-[var(--ef-text-muted)] mt-1">
               Audit trail of status changes, assignments, and operations.
             </p>
           </div>
           <button
             onClick={fetchEvents}
             disabled={loading}
-            className="px-4 py-2 bg-[#1A1A3E] border border-[#8B5CFF]/40 rounded text-[#B794FF] text-sm font-medium hover:bg-[#1A1A3E]/80 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 bg-[var(--ef-surface-elevated)] border border-[var(--ef-purple-primary-a40)] rounded text-[var(--ef-purple-glow)] text-sm font-medium hover:bg-[var(--ef-surface-elevated-a80)] disabled:opacity-50 transition-colors"
           >
             Refresh
           </button>
@@ -214,11 +234,11 @@ export default function ActivityPage() {
         {/* Filter Bar */}
         <div className="flex gap-4 mb-8">
           <div className="flex-1">
-            <label className="block text-[11px] font-medium text-[#8B94A3] mb-2">Entity Type</label>
+            <label className="block text-[11px] font-medium text-[var(--ef-text-muted)] mb-2">Entity Type</label>
             <select
               value={entityFilter}
               onChange={(e) => setEntityFilter(e.target.value as EntityType)}
-              className="w-full px-3 py-2 bg-[#0E0E2A] border border-[#1A1A3E] rounded text-[12px] text-[#F5F7FA] focus:outline-none focus:border-[#8B5CFF] transition-colors"
+              className="w-full px-3 py-2 bg-[var(--ef-background-secondary)] border border-[var(--ef-surface-elevated)] rounded text-[12px] text-[var(--ef-text-primary)] focus:outline-none focus:border-[var(--ef-purple-primary)] transition-colors"
             >
               <option value="all">All</option>
               <option value="decision">Decisions</option>
@@ -226,11 +246,11 @@ export default function ActivityPage() {
             </select>
           </div>
           <div className="flex-1">
-            <label className="block text-[11px] font-medium text-[#8B94A3] mb-2">Event Type</label>
+            <label className="block text-[11px] font-medium text-[var(--ef-text-muted)] mb-2">Event Type</label>
             <select
               value={eventFilter}
               onChange={(e) => setEventFilter(e.target.value as EventType)}
-              className="w-full px-3 py-2 bg-[#0E0E2A] border border-[#1A1A3E] rounded text-[12px] text-[#F5F7FA] focus:outline-none focus:border-[#8B5CFF] transition-colors"
+              className="w-full px-3 py-2 bg-[var(--ef-background-secondary)] border border-[var(--ef-surface-elevated)] rounded text-[12px] text-[var(--ef-text-primary)] focus:outline-none focus:border-[var(--ef-purple-primary)] transition-colors"
             >
               <option value="all">All</option>
               <option value="created">Created</option>
@@ -243,11 +263,11 @@ export default function ActivityPage() {
 
         {/* Error Banner */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/40 rounded text-red-400 text-[12px] flex items-center justify-between">
+          <div className="mb-6 p-4 bg-[var(--ef-critical-a10)] border border-[var(--ef-critical-a40)] rounded text-[var(--ef-critical)] text-[12px] flex items-center justify-between">
             <span>{error}</span>
             <button
               onClick={fetchEvents}
-              className="text-red-400 hover:text-red-300 font-medium text-[11px]"
+              className="text-[var(--ef-critical)] hover:text-[var(--ef-critical-soft)] font-medium text-[11px]"
             >
               Retry
             </button>
@@ -257,14 +277,14 @@ export default function ActivityPage() {
         {/* Loading State */}
         {loading && (
           <div className="text-center py-12">
-            <p className="text-[#8B94A3] text-sm">Loading activity…</p>
+            <p className="text-[var(--ef-text-muted)] text-sm">Loading activity…</p>
           </div>
         )}
 
         {/* Empty State */}
         {!loading && events.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-[#8B94A3] text-sm">No activity recorded yet.</p>
+            <p className="text-[var(--ef-text-muted)] text-sm">No activity recorded yet.</p>
           </div>
         )}
 
@@ -286,7 +306,7 @@ export default function ActivityPage() {
               return (
                 <div
                   key={event.id}
-                  className="flex gap-4 py-3 px-4 bg-[#0E0E2A] border border-[#1A1A3E] rounded hover:border-[#8B5CFF]/20 transition-colors"
+                  className="flex gap-4 py-3 px-4 bg-[var(--ef-background-secondary)] border border-[var(--ef-surface-elevated)] rounded hover:border-[var(--ef-purple-primary-a20)] transition-colors"
                 >
                   {/* Accent Dot */}
                   <div className="flex-shrink-0 pt-1">
@@ -313,10 +333,10 @@ export default function ActivityPage() {
                     </div>
 
                     {/* Change Detail */}
-                    <p className="text-[11px] text-[#F5F7FA] mb-2">{changeDetail}</p>
+                    <p className="text-[11px] text-[var(--ef-text-primary)] mb-2">{changeDetail}</p>
 
                     {/* Actor & Timestamp */}
-                    <div className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
+                    <div className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
                       <span>By {actorName}</span>
                       <span>·</span>
                       <span>

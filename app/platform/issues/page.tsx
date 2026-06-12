@@ -25,12 +25,12 @@ type Signal = {
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    high: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    medium: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    low: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    critical: 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
+    high: 'bg-[var(--ef-critical-a20)] text-[var(--ef-critical)] border border-[var(--ef-critical-a40)]',
+    medium: 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+    low: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
   };
-  const cls = map[severity] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[severity] ?? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {severity}
@@ -40,11 +40,11 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    active: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
-    resolved: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
-    ignored: 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]',
+    active: 'bg-[var(--ef-warning-a20)] text-[var(--ef-warning)] border border-[var(--ef-warning-a40)]',
+    resolved: 'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]',
+    ignored: 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]',
   };
-  const cls = map[status] ?? 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]';
+  const cls = map[status] ?? 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {status}
@@ -109,24 +109,24 @@ function SignalRow({ signal, onStatusChange }: { signal: Signal; onStatusChange:
   const createdDate = new Date(signal.created_at).toLocaleString();
 
   return (
-    <div className="border-b border-[#1A1A3E] last:border-0">
+    <div className="border-b border-[var(--ef-surface-elevated)] last:border-0">
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-3 py-3 px-2 cursor-pointer hover:bg-[#12122E] transition-colors"
+        className="flex items-center gap-3 py-3 px-2 cursor-pointer hover:bg-[var(--ef-surface-elevated)] transition-colors"
       >
         {/* Severity badge */}
         <SeverityBadge severity={signal.severity} />
 
         {/* Title */}
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-medium text-[#F5F7FA] truncate">
+          <p className="text-[11px] font-medium text-[var(--ef-text-primary)] truncate">
             {signal.title}
           </p>
         </div>
 
         {/* Signal type chip */}
         <div className="flex-shrink-0">
-          <span className="inline-block rounded px-2 py-0.5 text-[11px] font-mono bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]">
+          <span className="inline-block rounded px-2 py-0.5 text-[11px] font-mono bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]">
             {signal.signal_type}
           </span>
         </div>
@@ -137,7 +137,7 @@ function SignalRow({ signal, onStatusChange }: { signal: Signal; onStatusChange:
             <Link
               href={entityLink}
               onClick={(e) => e.stopPropagation()}
-              className="text-[#8B5CFF] hover:underline"
+              className="text-[var(--ef-purple-primary)] hover:underline"
             >
               {signal.entity_type} {signal.entity_id}
             </Link>
@@ -148,31 +148,31 @@ function SignalRow({ signal, onStatusChange }: { signal: Signal; onStatusChange:
         <StatusBadge status={signal.status} />
 
         {/* Created date */}
-        <div className="flex-shrink-0 text-[11px] text-[#8B94A3] whitespace-nowrap">
+        <div className="flex-shrink-0 text-[11px] text-[var(--ef-text-muted)] whitespace-nowrap">
           {createdDate}
         </div>
       </div>
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="bg-[#12122E] px-4 py-3 border-t border-[#1A1A3E]">
+        <div className="bg-[var(--ef-surface-elevated)] px-4 py-3 border-t border-[var(--ef-surface-elevated)]">
           {/* Description */}
           {signal.description && (
             <div className="mb-3">
-              <p className="text-[11px] font-medium text-[#8B94A3] mb-1">Description</p>
-              <p className="text-[11px] text-[#F5F7FA]">{signal.description}</p>
+              <p className="text-[11px] font-medium text-[var(--ef-text-muted)] mb-1">Description</p>
+              <p className="text-[11px] text-[var(--ef-text-primary)]">{signal.description}</p>
             </div>
           )}
 
           {/* Metrics */}
           {signal.metrics && Object.keys(signal.metrics).length > 0 && (
             <div className="mb-3">
-              <p className="text-[11px] font-medium text-[#8B94A3] mb-2">Metrics</p>
+              <p className="text-[11px] font-medium text-[var(--ef-text-muted)] mb-2">Metrics</p>
               <div className="space-y-1">
                 {Object.entries(signal.metrics).map(([key, value]) => (
                   <div key={key} className="flex items-center gap-2">
-                    <span className="text-[11px] text-[#8B94A3]">{key}:</span>
-                    <span className="text-[11px] text-[#F5F7FA] font-mono">
+                    <span className="text-[11px] text-[var(--ef-text-muted)]">{key}:</span>
+                    <span className="text-[11px] text-[var(--ef-text-primary)] font-mono">
                       {typeof value === 'string' ? value : JSON.stringify(value)}
                     </span>
                   </div>
@@ -183,23 +183,23 @@ function SignalRow({ signal, onStatusChange }: { signal: Signal; onStatusChange:
 
           {/* Actions */}
           {signal.status === 'active' && (
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#1A1A3E]">
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--ef-surface-elevated)]">
               <button
                 onClick={handleResolve}
                 disabled={isUpdating}
-                className="text-[11px] px-2 py-1 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-60 transition-colors"
+                className="text-[11px] px-2 py-1 rounded border border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] text-[var(--ef-success)] hover:bg-[var(--ef-success-a20)] disabled:opacity-60 transition-colors"
               >
                 {isUpdating ? 'Updating...' : 'Resolve'}
               </button>
               <button
                 onClick={handleIgnore}
                 disabled={isUpdating}
-                className="text-[11px] px-2 py-1 rounded border border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3] hover:bg-[#1A1A3E] disabled:opacity-60 transition-colors"
+                className="text-[11px] px-2 py-1 rounded border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-muted)] hover:bg-[var(--ef-surface-elevated)] disabled:opacity-60 transition-colors"
               >
                 {isUpdating ? 'Updating...' : 'Ignore'}
               </button>
               {updateError && (
-                <span className="text-[11px] text-red-400">{updateError}</span>
+                <span className="text-[11px] text-[var(--ef-critical)]">{updateError}</span>
               )}
             </div>
           )}
@@ -290,8 +290,8 @@ export default function SignalsPage() {
       {/* Header */}
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">Signals</h2>
-          <p className="text-xs text-[#8B94A3]">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">Signals</h2>
+          <p className="text-xs text-[var(--ef-text-muted)]">
             Operational anomalies and exceptions surfaced during document processing. Signals are generated automatically when the system detects patterns that warrant attention.
           </p>
         </div>
@@ -300,29 +300,29 @@ export default function SignalsPage() {
       {/* Summary counts */}
       {!isLoading && signals.length > 0 && (
         <div className="flex flex-wrap gap-3">
-          <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2">
-            <p className="text-[11px] font-medium text-[#8B94A3]">Active</p>
-            <p className="text-sm font-semibold text-[#F5F7FA]">{summary.active}</p>
+          <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2">
+            <p className="text-[11px] font-medium text-[var(--ef-text-muted)]">Active</p>
+            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{summary.active}</p>
           </div>
-          <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2">
-            <p className="text-[11px] font-medium text-[#8B94A3]">Resolved</p>
-            <p className="text-sm font-semibold text-[#F5F7FA]">{summary.resolved}</p>
+          <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2">
+            <p className="text-[11px] font-medium text-[var(--ef-text-muted)]">Resolved</p>
+            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{summary.resolved}</p>
           </div>
-          <div className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-3 py-2">
-            <p className="text-[11px] font-medium text-[#8B94A3]">Critical</p>
-            <p className="text-sm font-semibold text-[#F5F7FA]">{summary.critical}</p>
+          <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2">
+            <p className="text-[11px] font-medium text-[var(--ef-text-muted)]">Critical</p>
+            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{summary.critical}</p>
           </div>
         </div>
       )}
 
       {/* Filter bar */}
       <section className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Status</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Status</span>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             <option value="active">Active</option>
@@ -331,12 +331,12 @@ export default function SignalsPage() {
           </select>
         </label>
 
-        <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-          <span className="font-medium text-[#F5F7FA]">Severity</span>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+          <span className="font-medium text-[var(--ef-text-primary)]">Severity</span>
           <select
             value={filterSeverity}
             onChange={(e) => setFilterSeverity(e.target.value)}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
           >
             <option value="">All</option>
             <option value="critical">Critical</option>
@@ -353,7 +353,7 @@ export default function SignalsPage() {
               setFilterStatus('');
               setFilterSeverity('');
             }}
-            className="rounded-md border border-[#1A1A3E] px-2 py-1.5 text-[11px] text-[#8B94A3] hover:bg-[#1A1A3E] hover:text-[#F5F7FA]"
+            className="rounded-md border border-[var(--ef-surface-elevated)] px-2 py-1.5 text-[11px] text-[var(--ef-text-muted)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]"
           >
             Clear filters
           </button>
@@ -361,28 +361,28 @@ export default function SignalsPage() {
       </section>
 
       {/* Signals list */}
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+      <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
         {error && (
-          <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
-            <p className="text-[11px] font-medium text-red-400">{error}</p>
+          <div className="mb-3 rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-3 py-2">
+            <p className="text-[11px] font-medium text-[var(--ef-critical)]">{error}</p>
           </div>
         )}
 
         {isLoading ? (
-          <p className="text-[11px] text-[#8B94A3]">Loading...</p>
+          <p className="text-[11px] text-[var(--ef-text-muted)]">Loading...</p>
         ) : filteredSignals.length === 0 ? (
           <div className="py-5 text-center">
-            <p className="text-[12px] font-medium text-[#F5F7FA]">
+            <p className="text-[12px] font-medium text-[var(--ef-text-primary)]">
               {hasActiveFilter ? 'No signals match the current filters' : 'No signals detected'}
             </p>
-            <p className="mt-1 text-[11px] text-[#8B94A3]">
+            <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
               {hasActiveFilter
                 ? 'Try clearing the filters to see all signals.'
                 : 'Signals appear here automatically when EightForge detects anomalies during document processing — such as rate mismatches, missing fields, or compliance flags.'}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-[#1A1A3E]">
+          <div className="divide-y divide-[var(--ef-surface-elevated)]">
             {filteredSignals.map((signal) => (
               <SignalRow
                 key={signal.id}

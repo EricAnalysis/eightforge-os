@@ -79,13 +79,28 @@ export type DocumentStatus =
 export async function setDocumentStatus(params: {
   documentId: string;
   status: DocumentStatus;
+  processingError?: string | null;
+  clearProcessingError?: boolean;
+  processedAt?: string | null;
 }): Promise<void> {
   const admin = getSupabaseAdmin();
   if (!admin) return;
 
+  const updates: Record<string, unknown> = {
+    processing_status: params.status,
+  };
+  if (params.processingError !== undefined) {
+    updates.processing_error = params.processingError;
+  } else if (params.clearProcessingError) {
+    updates.processing_error = null;
+  }
+  if (params.processedAt !== undefined) {
+    updates.processed_at = params.processedAt;
+  }
+
   await admin
     .from('documents')
-    .update({ processing_status: params.status })
+    .update(updates)
     .eq('id', params.documentId);
 }
 

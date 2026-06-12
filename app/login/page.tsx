@@ -35,23 +35,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#050514]">
-      <div className="w-full max-w-sm rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-6 text-[#F5F7FA]">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--ef-background-primary)]">
+      <div className="w-full max-w-sm rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-6 text-[var(--ef-text-primary)]">
         <div className="mb-5 flex items-center gap-2.5">
           <EightForgeLogo size={24} />
           <span className="text-sm font-semibold tracking-wider">EightForge</span>
         </div>
         <h1 className="mb-1 text-sm font-semibold">Sign in</h1>
-        <p className="mb-5 text-[11px] text-[#8B94A3]">
+        <p className="mb-5 text-[11px] text-[var(--ef-text-muted)]">
           Sign in to your EightForge workspace.
         </p>
 
         <form onSubmit={handleLogin} className="space-y-3 text-xs">
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">Email</label>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">Email</label>
             <input
               type="email"
-              className="w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]"
+              className="w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
@@ -60,10 +60,10 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">Password</label>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">Password</label>
             <input
               type="password"
-              className="w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+              className="w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -74,13 +74,13 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 w-full rounded-md bg-[#8B5CFF] px-3 py-2.5 text-[11px] font-medium text-white transition-colors hover:bg-[#7A4FE8] disabled:opacity-60"
+            className="mt-2 w-full rounded-md bg-[var(--ef-purple-primary)] px-3 py-2.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--ef-purple-glow)] disabled:opacity-60"
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
           {error && (
-            <p className="mt-2 text-[11px] text-red-400">
+            <p className="mt-2 text-[11px] text-[var(--ef-critical)]">
               {error}
             </p>
           )}

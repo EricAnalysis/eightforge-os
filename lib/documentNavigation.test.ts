@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildContractPricingRowsHref,
   buildDocumentsDocumentHref,
   buildProjectDocumentHref,
   resolveDocumentDetailContext,
@@ -10,6 +11,12 @@ describe('document navigation', () => {
   it('builds project-context document links with stable query params', () => {
     expect(buildProjectDocumentHref('doc-1', 'project-1')).toBe(
       '/platform/documents/doc-1?source=project&projectId=project-1',
+    );
+  });
+
+  it('builds contract pricing row links to the existing rate table surface', () => {
+    expect(buildContractPricingRowsHref('contract-1', 'project-1')).toBe(
+      '/platform/documents/contract-1?source=project&projectId=project-1&tab=extraction&section=rate-table#rate-table',
     );
   });
 

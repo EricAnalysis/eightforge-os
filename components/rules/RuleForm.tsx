@@ -7,8 +7,8 @@ import { RuleTestPanel } from '@/components/rules/RuleTestPanel';
 import type { ConditionJson, ActionJson } from '@/lib/types/rules';
 
 const inputCls =
-  'block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]';
-const labelCls = 'mb-1 block text-[11px] font-medium text-[#F5F7FA]';
+  'block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]';
+const labelCls = 'mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 const STATUSES = ['active', 'inactive'] as const;
@@ -98,7 +98,7 @@ export function RuleForm({
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className={labelCls}>Domain <span className="text-red-400">*</span></label>
+          <label className={labelCls}>Domain <span className="text-[var(--ef-critical)]">*</span></label>
           <input
             type="text"
             value={domain}
@@ -109,7 +109,7 @@ export function RuleForm({
           />
         </div>
         <div>
-          <label className={labelCls}>Document type <span className="text-red-400">*</span></label>
+          <label className={labelCls}>Document type <span className="text-[var(--ef-critical)]">*</span></label>
           <input
             type="text"
             value={documentType}
@@ -133,7 +133,7 @@ export function RuleForm({
       </div>
 
       <div>
-        <label className={labelCls}>Name <span className="text-red-400">*</span></label>
+        <label className={labelCls}>Name <span className="text-[var(--ef-critical)]">*</span></label>
         <input
           type="text"
           value={name}
@@ -157,7 +157,7 @@ export function RuleForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className={labelCls}>Decision type <span className="text-red-400">*</span></label>
+          <label className={labelCls}>Decision type <span className="text-[var(--ef-critical)]">*</span></label>
           <input
             type="text"
             value={decisionType}
@@ -210,13 +210,13 @@ export function RuleForm({
         </div>
       </div>
 
-      <div className="rounded-lg border border-[#1A1A3E] bg-[#0A0A20] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Conditions</div>
+      <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Conditions</div>
         <ConditionsBuilder value={conditionJson} onChange={setConditionJson} />
       </div>
 
-      <div className="rounded-lg border border-[#1A1A3E] bg-[#0A0A20] p-4">
-        <div className="mb-3 text-[11px] font-medium text-[#F5F7FA]">Actions</div>
+      <div className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+        <div className="mb-3 text-[11px] font-medium text-[var(--ef-text-primary)]">Actions</div>
         <ActionBuilder value={actionJson} onChange={setActionJson} />
       </div>
 
@@ -224,7 +224,7 @@ export function RuleForm({
         <button
           type="button"
           onClick={() => setShowTest((s) => !s)}
-          className="text-[11px] font-medium text-[#8B5CFF] hover:underline"
+          className="text-[11px] font-medium text-[var(--ef-purple-primary)] hover:underline"
           aria-label={showTest ? 'Hide rule test panel' : 'Show rule test panel'}
           title={showTest ? 'Hide rule test panel' : 'Show rule test panel'}
         >
@@ -241,18 +241,18 @@ export function RuleForm({
         )}
       </div>
 
-      <div className="flex gap-2 border-t border-[#1A1A3E] pt-4">
+      <div className="flex gap-2 border-t border-[var(--ef-surface-elevated)] pt-4">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md border border-[#1A1A3E] px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:bg-[#1A1A3E]"
+          className="rounded-md border border-[var(--ef-surface-elevated)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:bg-[var(--ef-surface-elevated)]"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={!valid || loading}
-          className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? 'Saving…' : submitLabel}
         </button>

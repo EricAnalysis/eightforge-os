@@ -1,7 +1,5 @@
-'use client';
-
-import { WorkspacePageContent } from '@/components/workspace/WorkspacePageContent';
+import { redirect } from 'next/navigation';
 
 export default function WorkspaceRoutePage() {
-  return <WorkspacePageContent />;
+  redirect('/platform/projects');
 }

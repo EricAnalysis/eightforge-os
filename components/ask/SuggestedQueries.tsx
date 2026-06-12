@@ -70,12 +70,12 @@ export function buildSuggestedQueries(params: {
 
 function categoryClassName(category: SuggestedQuery['category']): string {
   if (category === 'validator') {
-    return 'border-[#F59E0B]/30 bg-[#2B2113] text-[#FCD34D]';
+    return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
   }
   if (category === 'action') {
-    return 'border-[#3B82F6]/30 bg-[#15233A] text-[#93C5FD]';
+    return 'border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]';
   }
-  return 'border-[#2F3B52] bg-[#131A29] text-[#C7D2E3]';
+  return 'border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-secondary)]';
 }
 
 type SuggestedQueriesProps = {

@@ -36,7 +36,6 @@ export type SpreadsheetFactWorkspaceDatasetSummary = {
   uninvoicedLines: number;
   eligible: number;
   ineligible: number;
-  unknownEligibility: number;
   mobileTickets: number;
   mobileUnitTickets: number;
   loadTickets: number;
@@ -47,6 +46,10 @@ const OVERRIDE_STORAGE_KEY = 'eightforge.spreadsheetValidatorOverrides.v1';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export function isSpreadsheetFileMime(contentType: string | null | undefined): boolean {
@@ -169,11 +172,22 @@ function findTicketTypeRawFromRow(rawRow: Record<string, unknown>): string | nul
   return null;
 }
 
+export function ticketTypeBucketFromRawRow(
+  rawRow: Record<string, unknown>,
+): CanonicalTicketTypeBucket {
+  return normalizeTicketTypeLabel(findTicketTypeRawFromRow(rawRow));
+}
+
 function countRecordsWithInvoice(list: readonly TransactionDataRecord[]): number {
-  return list.filter((r) => {
+  const seen = new Set<string>();
+  for (const r of list) {
+    const ticket = r.transaction_number;
     const inv = r.invoice_number;
-    return typeof inv === 'string' && inv.trim().length > 0;
-  }).length;
+    if (typeof ticket !== 'string' || ticket.trim().length === 0) continue;
+    if (typeof inv !== 'string' || inv.trim().length === 0) continue;
+    seen.add(ticket.trim().toUpperCase());
+  }
+  return seen.size;
 }
 
 function countDistinctInvoiceNumbers(list: readonly TransactionDataRecord[]): number {
@@ -194,30 +208,75 @@ function countUninvoicedLinesFromRecords(list: readonly TransactionDataRecord[])
   }).length;
 }
 
+function countDistinctTransactionNumbers(list: readonly TransactionDataRecord[]): number {
+  const seen = new Set<string>();
+  for (const r of list) {
+    const ticket = r.transaction_number;
+    if (typeof ticket === 'string' && ticket.trim().length > 0) {
+      seen.add(ticket.trim().toUpperCase());
+    }
+  }
+  return seen.size;
+}
+
+function normalizeEligibilityLabel(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+const ELIGIBLE_SPREADSHEET_VALUES = new Set([
+  'eligible',
+  'in scope',
+  'yes',
+  'y',
+  'true',
+  '1',
+]);
+
+const INELIGIBLE_SPREADSHEET_VALUES = new Set([
+  'ineligible',
+  'out of scope',
+  'void',
+  'voided',
+  'no',
+  'n',
+  'false',
+  '0',
+  'not eligible',
+  'not approved',
+  'denied',
+]);
+
+export function normalizeSpreadsheetEligibility(
+  value: string | null | undefined,
+): 'eligible' | 'ineligible' {
+  const normalized = normalizeEligibilityLabel(value);
+  if (!normalized) return 'ineligible';
+  if (ELIGIBLE_SPREADSHEET_VALUES.has(normalized)) return 'eligible';
+  if (INELIGIBLE_SPREADSHEET_VALUES.has(normalized)) return 'ineligible';
+  return 'ineligible';
+}
+
 function eligibilityRollupsFromRecords(list: readonly TransactionDataRecord[]): {
   eligible: number;
   ineligible: number;
-  unknown: number;
 } {
   let eligible = 0;
   let ineligible = 0;
-  let unknown = 0;
   for (const r of list) {
-    const e = r.eligibility;
-    if (e == null || (typeof e === 'string' && e.trim() === '')) {
-      unknown += 1;
-      continue;
-    }
-    const v = e.trim().toLowerCase();
-    if (v === 'eligible' || v === 'yes' || v === 'y' || v === 'true' || v === '1') {
+    const status = normalizeSpreadsheetEligibility(r.eligibility);
+    if (status === 'eligible') {
       eligible += 1;
-    } else if (v === 'ineligible' || v === 'no' || v === 'n' || v === 'false' || v === '0') {
-      ineligible += 1;
     } else {
-      unknown += 1;
+      ineligible += 1;
     }
   }
-  return { eligible, ineligible, unknown };
+  return { eligible, ineligible };
 }
 
 function sumInvoicedExtendedCost(list: readonly TransactionDataRecord[]): number {
@@ -229,6 +288,27 @@ function sumInvoicedExtendedCost(list: readonly TransactionDataRecord[]): number
     if (typeof c === 'number' && Number.isFinite(c)) total += c;
   }
   return total;
+}
+
+function readOpsTotalNetTonnage(
+  ops: TransactionDataProjectOperationsOverview | null | undefined,
+): number | null {
+  if (!ops) return null;
+  const looseOps = ops as TransactionDataProjectOperationsOverview & {
+    total_net_tonnage?: unknown;
+    totalNetTonnage?: unknown;
+  };
+  return asFiniteNumber(looseOps.total_net_tonnage) ?? asFiniteNumber(looseOps.totalNetTonnage);
+}
+
+function readOpsUnknownEligibility(
+  ops: TransactionDataProjectOperationsOverview | null | undefined,
+): number {
+  if (!ops) return 0;
+  const looseOps = ops as TransactionDataProjectOperationsOverview & {
+    unknown_eligibility_count?: unknown;
+  };
+  return asFiniteNumber(looseOps.unknown_eligibility_count) ?? 0;
 }
 
 export function countTicketTypesFromRecords(
@@ -279,16 +359,16 @@ export function buildSpreadsheetFactWorkspaceDatasetSummary(params: {
     unknownTicketTypeCount: 0,
   };
 
-  let totalNetTonnage = 0;
+  let totalNetTonnageFromRecords = 0;
   for (const r of list) {
     if (typeof r.net_tonnage === 'number' && Number.isFinite(r.net_tonnage)) {
-      totalNetTonnage += r.net_tonnage;
+      totalNetTonnageFromRecords += r.net_tonnage;
     }
   }
 
   const eligRoll = list.length > 0 ? eligibilityRollupsFromRecords(list) : null;
-  /** Row-level ticket counts align with ticket-type buckets (per normalized row). */
-  const totalTickets = list.length > 0 ? list.length : (ops?.total_tickets ?? 0);
+  const totalTickets = ops != null ? ops.total_tickets : list.length > 0 ? countDistinctTransactionNumbers(list) : 0;
+  const totalNetTonnage = readOpsTotalNetTonnage(ops) ?? totalNetTonnageFromRecords;
   const invoicedTickets =
     ops != null
       ? ops.invoiced_ticket_count
@@ -314,9 +394,10 @@ export function buildSpreadsheetFactWorkspaceDatasetSummary(params: {
         ? countUninvoicedLinesFromRecords(list)
         : 0;
   const eligible = ops != null ? ops.eligible_count : eligRoll?.eligible ?? 0;
-  const ineligible = ops != null ? ops.ineligible_count : eligRoll?.ineligible ?? 0;
-  const unknownEligibility =
-    ops != null ? ops.unknown_eligibility_count : eligRoll?.unknown ?? 0;
+  const ineligible =
+    ops != null
+      ? ops.ineligible_count + readOpsUnknownEligibility(ops)
+      : eligRoll?.ineligible ?? 0;
 
   return {
     totalTickets,
@@ -327,7 +408,6 @@ export function buildSpreadsheetFactWorkspaceDatasetSummary(params: {
     uninvoicedLines,
     eligible,
     ineligible,
-    unknownEligibility,
     mobileTickets: ticketCounts.mobileTickets,
     mobileUnitTickets: ticketCounts.mobileUnitTickets,
     loadTickets: ticketCounts.loadTickets,

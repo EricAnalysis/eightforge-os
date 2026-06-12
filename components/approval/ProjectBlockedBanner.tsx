@@ -40,24 +40,24 @@ export function ProjectBlockedBanner({
   }
 
   return (
-    <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3 backdrop-blur-sm">
+    <div className="rounded-lg border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] px-4 py-3 backdrop-blur-sm">
       <div className="flex items-start gap-3">
-        <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
+        <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--ef-critical)] mt-0.5" />
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-red-100 mb-1">Project Blocked</h3>
+          <h3 className="font-semibold text-[var(--ef-critical-soft)] mb-1">Project Blocked</h3>
 
           {approval.blocked_amount && approval.blocked_amount > 0 && (
-            <p className="text-sm text-red-200/80 mb-2">
+            <p className="text-sm text-[var(--ef-critical-soft)] mb-2">
               Blocked amount: <span className="font-mono font-semibold">${(approval.blocked_amount / 100).toFixed(2)}</span>
             </p>
           )}
 
           {blockingReasons.length > 0 && (
-            <ul className="text-sm text-red-200/70 space-y-1 mb-3">
+            <ul className="text-sm text-[var(--ef-critical-soft)] space-y-1 mb-3">
               {blockingReasons.slice(0, 3).map((reason, idx) => (
                 <li key={idx} className="flex items-center gap-2">
-                  <span className="text-red-400">•</span>
+                  <span className="text-[var(--ef-critical)]">•</span>
                   {reason}
                 </li>
               ))}
@@ -66,7 +66,7 @@ export function ProjectBlockedBanner({
 
           <a
             href={`/platform/projects/${approval.project_id}#project-validator`}
-            className="inline-flex items-center gap-1 text-sm font-medium text-red-300 hover:text-red-200 transition-colors"
+            className="inline-flex items-center gap-1 text-sm font-medium text-[var(--ef-critical-soft)] hover:text-[var(--ef-critical-soft)] transition-colors"
           >
             View Blocked Items →
           </a>
@@ -75,7 +75,7 @@ export function ProjectBlockedBanner({
         {dismissible && (
           <button
             onClick={handleDismiss}
-            className="flex-shrink-0 text-red-400/60 hover:text-red-300 transition-colors p-1"
+            className="flex-shrink-0 text-[var(--ef-critical-soft)] hover:text-[var(--ef-critical-soft)] transition-colors p-1"
             aria-label="Dismiss banner"
           >
             <XCircle className="h-5 w-5" />

@@ -23,7 +23,24 @@ import {
   contractCeilingSummary,
   isRatePriceNoCeilingMachineClassification,
 } from '@/lib/contracts/contractCeiling';
+import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import {
+  assembleContractPricingRows,
+  type ContractPricingAssemblyRow,
+} from '@/lib/contracts/contractPricingAssembly';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
+import {
+  buildCanonicalTransactionSummaryFromRows,
+  resolveCanonicalProjectFacts,
+  spreadsheetReviewReadinessStatusForProjectFacts,
+  type CanonicalProjectTransactionRowInput,
+} from '@/lib/projectFacts';
+import {
+  normalizeCanonicalInvoiceNumber,
+  recoverInvoiceLineItemsFromExtractionData,
+  resolveInvoiceLineUnitPrice,
+} from '@/lib/invoices/invoiceParser';
+import { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -37,13 +54,30 @@ import type {
   TransactionDataExtraction,
 } from '@/lib/types/documentIntelligence';
 import type {
+  TransactionDataDisposalSiteGroup,
+  TransactionDataDmsFdsLifecycleSummary,
+  TransactionDataInvoiceGroup,
+  TransactionDataInvoiceReadinessSummary,
+  TransactionDataMaterialGroup,
+  TransactionDataOutlierRow,
   TransactionDataProjectOperationsOverview,
+  TransactionDataRateCodeGroup,
   TransactionDataRecord,
+  TransactionDataServiceItemGroup,
+  TransactionDataSiteMaterialGroup,
+  TransactionDataSiteTypeGroup,
 } from '@/lib/types/transactionData';
+import type { ValidationFinding } from '@/types/validator';
 import {
-  buildSpreadsheetFactWorkspaceDatasetSummary,
-  type SpreadsheetFactWorkspaceDatasetSummary,
+  normalizeSpreadsheetEligibility,
+  ticketTypeBucketFromRawRow,
 } from '@/lib/spreadsheetDocumentReview';
+import {
+  RAW_TICKET_KEYS,
+  rawRowText,
+} from '@/lib/extraction/xlsx/normalizeTransactionData';
+
+export { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 
 export type DocumentFactState =
   | 'auto'
@@ -127,6 +161,17 @@ export type DocumentFactReviewSummary = {
   notes: string | null;
 };
 
+export type DocumentFactReviewHistoryItem = {
+  id: string;
+  fieldKey: string;
+  reviewStatus: DocumentFactReviewStatus;
+  reviewedValueJson: unknown;
+  reviewedValueDisplay: string | null;
+  reviewedBy: string;
+  reviewedAt: string;
+  notes: string | null;
+};
+
 export type DocumentFact = {
   id: string;
   documentId: string;
@@ -166,6 +211,7 @@ export type DocumentFact = {
   reviewedBy: string | null;
   reviewedAt: string | null;
   reviewNotes: string | null;
+  reviewHistory: DocumentFactReviewHistoryItem[];
   humanDefinedSchedule: boolean;
   overrideHistory: DocumentFactOverrideHistoryItem[];
   /** Pipeline normalizeNode resolution path (undefined for adapter-only facts). */
@@ -208,6 +254,137 @@ export type DiagnosticsDrawerModel = {
     description?: string;
     content: string;
   }>;
+  rowInspection?: {
+    label: string;
+    rows: Array<{
+      row_id: string;
+      rate_code: string | null;
+      row_role: string;
+      confidence: number | null;
+      warnings: string[];
+    }>;
+  };
+};
+
+export type DocumentSourceTextPage = {
+  pageNumber: number;
+  sourceMethod: string | null;
+  text: string;
+};
+
+export type SpreadsheetReviewKpis = {
+  totalTickets: number;
+  totalCyd: number | null;
+  totalNetTonnage: number | null;
+  invoicedTickets: number;
+  totalInvoices: number;
+  totalInvoicedAmount: number;
+  uninvoicedLines: number;
+  eligible: number;
+  ineligible: number;
+};
+
+export type SpreadsheetReviewVolumeBasis = {
+  metric: 'cyd' | 'net_tonnage' | null;
+  unitLabel: 'CYD' | 'Tons' | null;
+  headerLabel: string;
+};
+
+export type SpreadsheetReviewRateCodeRow = {
+  rateCode: string | null;
+  description: string | null;
+  ticketCount: number;
+  amount: number | null;
+};
+
+export type SpreadsheetReviewFlowRow = {
+  label: string;
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+  volume: number | null;
+  percentOfTotalVolume: number | null;
+  amount: number | null;
+  percentOfTotalCost: number | null;
+};
+
+export type SpreadsheetReviewServiceItemRow = {
+  serviceItem: string;
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+  diameterUnits: number | null;
+  amount: number | null;
+  percentOfTotalServiceCost: number | null;
+};
+
+export type SpreadsheetReviewRiskSummary = {
+  highRiskIssues: number;
+  mediumRiskIssues: number;
+  lowRiskIssues: number;
+  ticketsAffected: number;
+  invoicesAffected: number;
+  estimatedAmountAtRisk: number | null;
+};
+
+export type SpreadsheetReviewRiskIssueRow = {
+  issueType: string;
+  severity: 'High' | 'Medium' | 'Low';
+  ticketCount: number;
+  affectedTicketPreview: string | null;
+  invoiceCount: number;
+  amountImpact: number | null;
+  whyItMatters: string;
+  actionNeeded: string;
+};
+
+export type SpreadsheetReviewRiskDrilldownRow = {
+  ticketNumber: string | null;
+  invoiceNumber: string | null;
+  issueType: string;
+  severity: 'High' | 'Medium' | 'Low';
+  materialOrServiceItem: string | null;
+  site: string | null;
+  amount: number | null;
+  reason: string;
+};
+
+export type SpreadsheetReviewDataset = {
+  records: TransactionDataRecord[];
+  summary: TransactionDataExtraction['summary'] | null;
+  rollups: TransactionDataExtraction['rollups'] | null;
+  projectOperationsOverview: TransactionDataProjectOperationsOverview | null;
+  groupedByRateCode: TransactionDataRateCodeGroup[];
+  groupedByServiceItemMobileOnly: TransactionDataServiceItemGroup[];
+  groupedByMaterialMobileOnly: TransactionDataMaterialGroup[];
+  groupedByDisposalSite: TransactionDataDisposalSiteGroup[];
+  groupedBySiteType: TransactionDataSiteTypeGroup[];
+  outlierRows: TransactionDataOutlierRow[];
+  invoiceReadinessSummary: TransactionDataInvoiceReadinessSummary | null;
+  dmsFdsLifecycleSummary: TransactionDataDmsFdsLifecycleSummary | null;
+  kpis: SpreadsheetReviewKpis;
+  totalExtendedCost: number | null;
+  /** Pre-computed invoiced transaction count. Avoids an O(N) filter over records at render time. */
+  invoicedTransactionCount: number;
+  volumeBasis: SpreadsheetReviewVolumeBasis;
+  rateCodeRows: SpreadsheetReviewRateCodeRow[];
+  serviceItemRows: SpreadsheetReviewServiceItemRow[];
+  materialRows: SpreadsheetReviewFlowRow[];
+  disposalSiteRows: SpreadsheetReviewFlowRow[];
+  siteTypeRows: SpreadsheetReviewFlowRow[];
+  riskSummary: SpreadsheetReviewRiskSummary | null;
+  groupedRiskIssues: SpreadsheetReviewRiskIssueRow[];
+  riskDrilldownRows: SpreadsheetReviewRiskDrilldownRow[];
+};
+
+export type DocumentContractRateRow = {
+  rowId: string;
+  description: string | null;
+  unit: string | null;
+  rate: number | null;
+  category: string | null;
+  page: number | null;
+  sourceAnchorIds: string[];
 };
 
 export type DocumentIntelligenceViewModel = {
@@ -222,6 +399,7 @@ export type DocumentIntelligenceViewModel = {
   parserStatus: string;
   schemaMappingStatus: string;
   sourceModeLabel: string;
+  sourceTextPages: DocumentSourceTextPage[];
   rateScheduleSource: 'auto' | 'human';
   rateSchedulePages: string | null;
   rateScheduleAnchor: DocumentEvidenceAnchor | null;
@@ -254,13 +432,12 @@ export type DocumentIntelligenceViewModel = {
   invoiceExtraction: InvoiceExtraction | null;
   /**
    * Typed extraction for transaction_data spreadsheets. Populated when family === 'spreadsheet'
-   * and document_type includes 'transaction_data'. Used by TransactionDataSurface.
+   * and document_type includes 'transaction_data'.
    */
   transactionDataExtraction: TransactionDataExtraction | null;
-  /**
-   * Read-only operational rollups for Fact Workspace dataset summary (ticket-query spreadsheets).
-   */
-  spreadsheetFactWorkspaceDatasetSummary: SpreadsheetFactWorkspaceDatasetSummary | null;
+  spreadsheetReviewDataset: SpreadsheetReviewDataset | null;
+  contractRateRows?: DocumentContractRateRow[];
+  contractPricingAssemblyRows?: ContractPricingAssemblyRow[];
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -271,6 +448,58 @@ type FlattenedField = {
   value: SupportedScalar | SupportedScalar[];
   source: 'typed_fields' | 'structured_fields' | 'section_signals' | 'trace_facts' | 'extracted';
 };
+
+function toDocumentContractRateRows(
+  rows: ContractRateScheduleRow[] | null | undefined,
+): DocumentContractRateRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row): DocumentContractRateRow | null => {
+      const rowId = typeof row.row_id === 'string' ? row.row_id.trim() : '';
+      if (!rowId) return null;
+
+      const description =
+        typeof row.description === 'string' && row.description.trim().length > 0
+          ? row.description.trim()
+          : null;
+      const unit =
+        typeof row.unit === 'string' && row.unit.trim().length > 0
+          ? row.unit.trim()
+          : typeof row.unit_type === 'string' && row.unit_type.trim().length > 0
+            ? row.unit_type.trim()
+            : null;
+      const category =
+        typeof row.category === 'string' && row.category.trim().length > 0
+          ? row.category.trim()
+          : typeof row.material_type === 'string' && row.material_type.trim().length > 0
+            ? row.material_type.trim()
+            : null;
+      const rate =
+        typeof row.rate === 'number' && Number.isFinite(row.rate)
+          ? row.rate
+          : typeof row.rate_amount === 'number' && Number.isFinite(row.rate_amount)
+            ? row.rate_amount
+            : null;
+      const page =
+        typeof row.page === 'number' && Number.isFinite(row.page) && row.page > 0 ? row.page : null;
+
+      return {
+        rowId,
+        description,
+        unit,
+        rate,
+        category,
+        page,
+        sourceAnchorIds: Array.isArray(row.source_anchor_ids)
+          ? row.source_anchor_ids.filter(
+              (anchorId): anchorId is string =>
+                typeof anchorId === 'string' && anchorId.trim().length > 0,
+            )
+          : [],
+      };
+    })
+    .filter((row): row is DocumentContractRateRow => row != null);
+}
 
 type GeometryCandidate = {
   id: string;
@@ -304,8 +533,1411 @@ type BuildParams = {
   factOverrides?: DocumentFactOverrideRecord[];
   factAnchors?: DocumentFactAnchorRecord[];
   factReviews?: DocumentFactReviewRecord[];
+  projectValidationSummary?: Record<string, unknown> | null;
+  projectValidationStatus?: string | null;
+  projectValidationFindings?: readonly ValidationFinding[];
+  transactionDatasets?: Array<Record<string, unknown>>;
+  transactionRows?: Array<Record<string, unknown>>;
   reviewedDecisionIds?: Iterable<string>;
 };
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function asLooseNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/[$,\s]/g, '').trim();
+    if (cleaned.length === 0) return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function hasMeaningfulGroupLabel(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== 'unset' && normalized !== 'unknown';
+}
+
+type SpreadsheetReviewTicketSummary = {
+  ticketCount: number;
+  eligibleTickets: number;
+  ineligibleTickets: number;
+};
+
+type SpreadsheetReviewRiskDescriptor = {
+  issueType: string;
+  whyItMatters: string;
+  actionNeeded: string;
+};
+
+function findRawRowValue(rawRow: Record<string, unknown>, fieldName: string): unknown {
+  const normalizedFieldName = fieldName.trim().toLowerCase();
+  for (const [key, value] of Object.entries(rawRow)) {
+    if (key.trim().toLowerCase() === normalizedFieldName) return value;
+  }
+  return null;
+}
+
+function findFirstRawRowValue(rawRow: Record<string, unknown>, fieldNames: readonly string[]): unknown {
+  for (const fieldName of fieldNames) {
+    const value = findRawRowValue(rawRow, fieldName);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function compareTransactionRecordOrder(left: TransactionDataRecord, right: TransactionDataRecord): number {
+  const sheetDelta = left.source_sheet_name.localeCompare(right.source_sheet_name, 'en-US');
+  if (sheetDelta !== 0) return sheetDelta;
+  const rowDelta = left.source_row_number - right.source_row_number;
+  if (rowDelta !== 0) return rowDelta;
+  return left.id.localeCompare(right.id, 'en-US');
+}
+
+function diameterValueForRecord(record: TransactionDataRecord): number | null {
+  const normalizedDiameter = asLooseNumber(record.diameter);
+  if (normalizedDiameter != null) return normalizedDiameter;
+  return asLooseNumber(findFirstRawRowValue(record.raw_row ?? {}, ['Diameter', 'Diameters']));
+}
+
+function selectTicketDiameter(records: readonly TransactionDataRecord[]): number | null {
+  const orderedRecords = [...records].sort(compareTransactionRecordOrder);
+  for (const record of orderedRecords) {
+    const value = diameterValueForRecord(record);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function sumServiceItemDiameters(records: readonly TransactionDataRecord[]): number | null {
+  const recordsByTicket = new Map<string, TransactionDataRecord[]>();
+  for (const record of records) {
+    const ticketKey = normalizeTicketIdentity(record.transaction_number, `record:${record.id}`);
+    const ticketRecords = recordsByTicket.get(ticketKey) ?? [];
+    ticketRecords.push(record);
+    recordsByTicket.set(ticketKey, ticketRecords);
+  }
+
+  let sum: number | null = null;
+  for (const ticketRecords of recordsByTicket.values()) {
+    const value = selectTicketDiameter(ticketRecords);
+    if (value == null) continue;
+    sum = (sum ?? 0) + value;
+  }
+
+  return sum;
+}
+
+function normalizeTicketIdentity(ticketNumber: string | null | undefined, fallback: string): string {
+  if (typeof ticketNumber !== 'string') return fallback;
+  const trimmed = ticketNumber.trim();
+  return trimmed.length > 0 ? trimmed.toUpperCase() : fallback;
+}
+
+function preferredTicketNumber(
+  candidates: Array<string | null | undefined>,
+  disallowedIdentities: readonly string[] = [],
+): string | null {
+  const blocked = new Set(
+    disallowedIdentities
+      .map((value) => (typeof value === 'string' ? value.trim().toUpperCase() : ''))
+      .filter((value) => value.length > 0),
+  );
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed.length === 0) continue;
+    if (blocked.has(trimmed.toUpperCase())) continue;
+    return trimmed;
+  }
+
+  return null;
+}
+
+function normalizeInvoiceIdentity(invoiceNumber: string | null | undefined): string | null {
+  if (typeof invoiceNumber !== 'string') return null;
+  const trimmed = invoiceNumber.trim();
+  return trimmed.length > 0 ? trimmed.toUpperCase() : null;
+}
+
+function normalizeEligibilityBucket(value: string | null | undefined): 'eligible' | 'ineligible' {
+  return normalizeSpreadsheetEligibility(value);
+}
+
+function readLegacyUnknownEligibilityCount(value: unknown): number {
+  const source = asRecord(value);
+  if (!source) return 0;
+  return (
+    asLooseNumber(source.unknown_eligibility_count)
+    ?? asLooseNumber(source.unknownEligibilityCount)
+    ?? 0
+  );
+}
+
+function coerceSpreadsheetEligibilityCounts(params: {
+  eligibleCount: number | null | undefined;
+  ineligibleCount: number | null | undefined;
+  legacyUnknownCount?: number | null | undefined;
+}): {
+  eligibleCount: number | null;
+  ineligibleCount: number | null;
+} {
+  const eligibleCount = params.eligibleCount ?? null;
+  const ineligibleBase = params.ineligibleCount ?? null;
+  const legacyUnknownCount = params.legacyUnknownCount ?? null;
+  const ineligibleCount =
+    ineligibleBase != null || legacyUnknownCount != null
+      ? (ineligibleBase ?? 0) + (legacyUnknownCount ?? 0)
+      : null;
+
+  return {
+    eligibleCount,
+    ineligibleCount,
+  };
+}
+
+function stripLegacyUnknownEligibilityFields<T extends object>(value: T): T {
+  const clone = { ...value } as Record<string, unknown>;
+  delete clone.unknown_eligibility_count;
+  delete clone.unknownEligibilityCount;
+  return clone as T;
+}
+
+function sumRecordNumberField(
+  records: readonly TransactionDataRecord[],
+  field: 'cyd' | 'net_tonnage' | 'extended_cost' | 'transaction_quantity',
+): number | null {
+  return records.reduce<number | null>((sum, record) => {
+    const value = asFiniteNumber(record[field]);
+    if (value == null) return sum;
+    return (sum ?? 0) + value;
+  }, null);
+}
+
+function summarizeTickets(records: readonly TransactionDataRecord[]): SpreadsheetReviewTicketSummary {
+  const buckets = new Map<string, { hasEligible: boolean; hasIneligible: boolean }>();
+  for (const record of records) {
+    const ticketKey = normalizeTicketIdentity(record.transaction_number, `record:${record.id}`);
+    const states = buckets.get(ticketKey) ?? { hasEligible: false, hasIneligible: false };
+    if (normalizeEligibilityBucket(record.eligibility) === 'eligible') {
+      states.hasEligible = true;
+    } else {
+      states.hasIneligible = true;
+    }
+    buckets.set(ticketKey, states);
+  }
+
+  let eligibleTickets = 0;
+  let ineligibleTickets = 0;
+
+  for (const states of buckets.values()) {
+    if (states.hasIneligible) {
+      ineligibleTickets += 1;
+    } else if (states.hasEligible) {
+      eligibleTickets += 1;
+    } else {
+      ineligibleTickets += 1;
+    }
+  }
+
+  return {
+    ticketCount: buckets.size,
+    eligibleTickets,
+    ineligibleTickets,
+  };
+}
+
+function percentOf(value: number | null, total: number | null): number | null {
+  if (value == null || total == null || total === 0) return null;
+  return (value / total) * 100;
+}
+
+function shouldSurfaceRateCodeCostDriverRow(group: TransactionDataRateCodeGroup): boolean {
+  const hasRateCode = hasMeaningfulGroupLabel(group.rate_code);
+  const amount = asLooseNumber(group.total_extended_cost);
+  const hasMeaningfulCostSignal = amount != null && Math.abs(amount) > 0;
+  return hasRateCode && hasMeaningfulCostSignal;
+}
+
+function buildRecordMap(records: readonly TransactionDataRecord[]): Map<string, TransactionDataRecord> {
+  const mapped = new Map<string, TransactionDataRecord>();
+
+  for (const record of records) {
+    mapped.set(record.id, record);
+
+    const rawRow = asRecord(record.raw_row);
+    const rawId = typeof rawRow?.id === 'string' ? rawRow.id.trim() : '';
+    if (rawId.length > 0 && !mapped.has(rawId)) mapped.set(rawId, record);
+  }
+
+  return mapped;
+}
+
+function groupTicketCounts(group: {
+  row_count: number;
+  eligible_count?: number | null;
+  ineligible_count?: number | null;
+}): {
+  ticketCount: number;
+  eligibleTickets: number | null;
+  ineligibleTickets: number | null;
+} {
+  const eligibleTickets = asLooseNumber(group.eligible_count);
+  const ineligibleTickets = asLooseNumber(group.ineligible_count);
+
+  return {
+    ticketCount: eligibleTickets != null || ineligibleTickets != null
+      ? Math.max(
+        group.row_count,
+        (eligibleTickets ?? 0) + (ineligibleTickets ?? 0),
+      )
+      : group.row_count,
+    eligibleTickets,
+    ineligibleTickets,
+  };
+}
+
+function resolveGroupRecords(
+  recordIds: readonly string[] | null | undefined,
+  recordsById: ReadonlyMap<string, TransactionDataRecord>,
+): TransactionDataRecord[] {
+  if (!Array.isArray(recordIds) || recordIds.length === 0) return [];
+  return recordIds.flatMap((recordId) => {
+    const record = recordsById.get(recordId);
+    return record ? [record] : [];
+  });
+}
+
+function buildRecordLabelMap<TGroup>(
+  groups: readonly TGroup[],
+  getLabel: (group: TGroup) => string | null | undefined,
+  getRecordIds: (group: TGroup) => readonly string[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const group of groups) {
+    const label = getLabel(group);
+    if (!hasMeaningfulGroupLabel(label)) continue;
+    for (const recordId of getRecordIds(group)) {
+      if (!labels.has(recordId)) labels.set(recordId, label.trim());
+    }
+  }
+  return labels;
+}
+
+function determineVolumeBasis(params: {
+  summary: TransactionDataExtraction['summary'] | null;
+  projectOperationsOverview: TransactionDataProjectOperationsOverview | null;
+  rollups: TransactionDataExtraction['rollups'] | null;
+  records: readonly TransactionDataRecord[];
+  groupedByMaterial: readonly TransactionDataMaterialGroup[];
+  groupedByDisposalSite: readonly TransactionDataDisposalSiteGroup[];
+  groupedBySiteType: readonly TransactionDataSiteTypeGroup[];
+}): SpreadsheetReviewVolumeBasis {
+  const totalCyd =
+    asLooseNumber(params.summary?.total_cyd_ticket_grain)
+    ?? asLooseNumber(params.summary?.total_cyd)
+    ?? asLooseNumber(params.projectOperationsOverview?.total_cyd)
+    ?? asLooseNumber(params.rollups?.total_cyd_ticket_grain)
+    ?? asLooseNumber(params.rollups?.total_cyd)
+    ?? asLooseNumber(params.rollups?.totalCyd)
+    ?? null;
+  const totalNetTonnage = sumRecordNumberField(params.records, 'net_tonnage');
+  const hasGroupedCyd =
+    params.groupedByMaterial.some((group) => Math.abs(group.total_cyd) > 0)
+    || params.groupedByDisposalSite.some((group) => Math.abs(group.total_cyd) > 0)
+    || params.groupedBySiteType.some((group) => Math.abs(group.total_cyd) > 0);
+
+  if ((totalCyd != null && Math.abs(totalCyd) > 0) || hasGroupedCyd) {
+    return {
+      metric: 'cyd',
+      unitLabel: 'CYD',
+      headerLabel: 'Volume (CYD)',
+    };
+  }
+
+  if (totalNetTonnage != null && Math.abs(totalNetTonnage) > 0) {
+    return {
+      metric: 'net_tonnage',
+      unitLabel: 'Tons',
+      headerLabel: 'Volume (Tons)',
+    };
+  }
+
+  return {
+    metric: totalCyd != null ? 'cyd' : (totalNetTonnage != null ? 'net_tonnage' : null),
+    unitLabel: totalCyd != null ? 'CYD' : (totalNetTonnage != null ? 'Tons' : null),
+    headerLabel:
+      totalCyd != null
+        ? 'Volume (CYD)'
+        : (totalNetTonnage != null ? 'Volume (Tons)' : 'Volume'),
+  };
+}
+
+function getGroupVolume<TGroup extends { total_cyd: number; record_ids: string[] }>(
+  group: TGroup,
+  records: readonly TransactionDataRecord[],
+  volumeBasis: SpreadsheetReviewVolumeBasis,
+): number | null {
+  if (volumeBasis.metric === 'cyd') return asLooseNumber(group.total_cyd);
+  if (volumeBasis.metric === 'net_tonnage') return sumRecordNumberField(records, 'net_tonnage');
+  return null;
+}
+
+function buildFlowRows<TGroup extends {
+  total_cyd: number;
+  total_extended_cost: number;
+  row_count: number;
+  record_ids: string[];
+  eligible_count?: number | null;
+  ineligible_count?: number | null;
+}>(params: {
+  groups: readonly TGroup[];
+  getLabel: (group: TGroup) => string | null | undefined;
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+  volumeBasis: SpreadsheetReviewVolumeBasis;
+  totalVolume: number | null;
+  totalCost: number | null;
+}): SpreadsheetReviewFlowRow[] {
+  return params.groups
+    .map((group) => {
+      const label = params.getLabel(group);
+      if (!hasMeaningfulGroupLabel(label)) return null;
+
+      const memberRecords = resolveGroupRecords(group.record_ids, params.recordsById);
+      const ticketSummary = memberRecords.length > 0 ? summarizeTickets(memberRecords) : null;
+      const fallbackTicketCounts = groupTicketCounts(group);
+      const volume = getGroupVolume(group, memberRecords, params.volumeBasis);
+      const amount = asLooseNumber(group.total_extended_cost);
+
+      return {
+        label: label.trim(),
+        ticketCount: ticketSummary?.ticketCount ?? fallbackTicketCounts.ticketCount,
+        eligibleTickets: ticketSummary?.eligibleTickets ?? fallbackTicketCounts.eligibleTickets,
+        ineligibleTickets: ticketSummary?.ineligibleTickets ?? fallbackTicketCounts.ineligibleTickets,
+        volume,
+        percentOfTotalVolume: percentOf(volume, params.totalVolume),
+        amount,
+        percentOfTotalCost: percentOf(amount, params.totalCost),
+      } satisfies SpreadsheetReviewFlowRow;
+    })
+    .filter((row): row is SpreadsheetReviewFlowRow => row != null)
+    .sort((left, right) => {
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      const volumeDelta = (right.volume ?? 0) - (left.volume ?? 0);
+      if (volumeDelta !== 0) return volumeDelta;
+      return left.label.localeCompare(right.label, 'en-US');
+    });
+}
+
+function buildServiceItemRows(params: {
+  groups: readonly TransactionDataServiceItemGroup[];
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+}): Array<Omit<SpreadsheetReviewServiceItemRow, 'percentOfTotalServiceCost'>> {
+  const rows: Array<Omit<SpreadsheetReviewServiceItemRow, 'percentOfTotalServiceCost'>> = [];
+
+  for (const group of params.groups) {
+    if (!hasMeaningfulGroupLabel(group.service_item)) continue;
+
+    const memberRecords = resolveGroupRecords(group.record_ids, params.recordsById);
+    const fallbackTicketCounts = groupTicketCounts(group);
+    if (memberRecords.length === 0) {
+      rows.push({
+        serviceItem: group.service_item.trim(),
+        ticketCount: fallbackTicketCounts.ticketCount,
+        eligibleTickets: fallbackTicketCounts.eligibleTickets,
+        ineligibleTickets: fallbackTicketCounts.ineligibleTickets,
+        diameterUnits: null,
+        amount: asLooseNumber(group.total_extended_cost),
+      });
+      continue;
+    }
+
+    const ticketSummary = summarizeTickets(memberRecords);
+    rows.push({
+      serviceItem: group.service_item.trim(),
+      ticketCount: ticketSummary.ticketCount,
+      eligibleTickets: ticketSummary.eligibleTickets,
+      ineligibleTickets: ticketSummary.ineligibleTickets,
+      diameterUnits: sumServiceItemDiameters(memberRecords),
+      amount: sumRecordNumberField(memberRecords, 'extended_cost'),
+    });
+  }
+
+  return rows.sort((left, right) => {
+    const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+    if (amountDelta !== 0) return amountDelta;
+    const serviceDelta = left.serviceItem.localeCompare(right.serviceItem, 'en-US');
+    return serviceDelta;
+  });
+}
+
+function describeRiskReason(reason: string): SpreadsheetReviewRiskDescriptor {
+  const normalized = reason.trim().toLowerCase();
+
+  if (normalized.includes('missing invoice number')) {
+    return {
+      issueType: 'Missing Invoice #',
+      whyItMatters: 'Rows without an invoice link cannot be reconciled to a bill.',
+      actionNeeded: 'Add or confirm the Invoice # before invoice review.',
+    };
+  }
+  if (normalized.includes('missing rate code')) {
+    return {
+      issueType: 'Missing Rate Code',
+      whyItMatters: 'Rows without a rate code cannot be matched to contract pricing.',
+      actionNeeded: 'Assign or confirm the rate code for the affected tickets.',
+    };
+  }
+  if (normalized.includes('missing quantity')) {
+    return {
+      issueType: 'Missing Quantity',
+      whyItMatters: 'Missing quantity prevents unit and amount validation.',
+      actionNeeded: 'Populate Quantity and confirm the billing unit.',
+    };
+  }
+  if (normalized.includes('missing extended cost')) {
+    return {
+      issueType: 'Missing Amount',
+      whyItMatters: 'Missing amount prevents invoice reconciliation and rollup validation.',
+      actionNeeded: 'Populate the billed amount before invoice review.',
+    };
+  }
+  if (normalized.includes('zero extended cost')) {
+    return {
+      issueType: 'Zero Cost Rows',
+      whyItMatters: 'Zero-amount rows can indicate incomplete billing or data issues.',
+      actionNeeded: 'Confirm whether the row is informational or requires corrected billing.',
+    };
+  }
+  if (normalized.includes('mileage review')) {
+    return {
+      issueType: 'Mileage Review',
+      whyItMatters: 'Mileage-driven charges need route and distance support.',
+      actionNeeded: 'Verify the cited mileage and confirm supporting documentation.',
+    };
+  }
+  if (normalized.includes('distance from feature review')) {
+    return {
+      issueType: 'Distance from Feature Review',
+      whyItMatters: 'Location-based charges need distance support to remain billable.',
+      actionNeeded: 'Confirm the measured distance and source evidence.',
+    };
+  }
+  if (normalized.includes('load call review')) {
+    return {
+      issueType: 'Load Call Review',
+      whyItMatters: 'Load-call support affects whether monitored work is fully auditable.',
+      actionNeeded: 'Confirm the load call documentation for the affected tickets.',
+    };
+  }
+  if (normalized.includes('duplicate')) {
+    return {
+      issueType: 'Duplicate Ticket / Invoice Review',
+      whyItMatters: 'Duplicate billing patterns can lead to overpayment risk.',
+      actionNeeded: 'Verify whether the duplicate represents a valid separate billable event.',
+    };
+  }
+  if (normalized.includes('baseline') || normalized.includes('deviates from')) {
+    return {
+      issueType: 'Rate Review',
+      whyItMatters: 'Rate outliers can indicate billing or mapping errors.',
+      actionNeeded: 'Confirm the billed rate against the expected contract rate.',
+    };
+  }
+
+  return {
+    issueType: titleize(reason),
+    whyItMatters: 'This row needs review before the project can be considered invoice-ready.',
+    actionNeeded: 'Review the affected tickets and confirm the supporting detail.',
+  };
+}
+
+function toRiskSeverity(severity: 'warning' | 'critical'): 'High' | 'Medium' | 'Low' {
+  return severity === 'critical' ? 'High' : 'Medium';
+}
+
+function riskSeverityRank(severity: 'High' | 'Medium' | 'Low'): number {
+  if (severity === 'High') return 0;
+  if (severity === 'Medium') return 1;
+  return 2;
+}
+
+function sumUniqueAmounts(values: Iterable<[string, number | null]>): number | null {
+  const seen = new Set<string>();
+  let sum: number | null = null;
+  for (const [key, value] of values) {
+    if (seen.has(key) || value == null) continue;
+    seen.add(key);
+    sum = (sum ?? 0) + value;
+  }
+  return sum;
+}
+
+function buildCompactTicketPreview(
+  ticketNumbers: readonly string[],
+  previewLimit = 3,
+): string | null {
+  if (ticketNumbers.length === 0) return null;
+  const preview = ticketNumbers.slice(0, previewLimit);
+  const overflow = ticketNumbers.length - preview.length;
+  return overflow > 0
+    ? `${preview.join(', ')} + ${overflow} more`
+    : preview.join(', ');
+}
+
+function sanitizeSpreadsheetOutlierRows(
+  outlierRows: readonly TransactionDataOutlierRow[],
+): TransactionDataOutlierRow[] {
+  return outlierRows.flatMap((row) => {
+    const reasons = row.reasons.filter((reason) => {
+      const normalized = reason.trim().toLowerCase();
+      return normalized !== 'eligibility status unresolved';
+    });
+
+    if (reasons.length === 0) return [];
+    return [{ ...row, reasons }];
+  });
+}
+
+function buildRiskPresentation(params: {
+  outlierRows: readonly TransactionDataOutlierRow[];
+  recordsById: ReadonlyMap<string, TransactionDataRecord>;
+  siteByRecordId: ReadonlyMap<string, string>;
+}): {
+  riskSummary: SpreadsheetReviewRiskSummary | null;
+  groupedRiskIssues: SpreadsheetReviewRiskIssueRow[];
+  riskDrilldownRows: SpreadsheetReviewRiskDrilldownRow[];
+} {
+  type FlatIssue = {
+    recordId: string;
+    ticketKey: string;
+    invoiceKey: string | null;
+    ticketNumber: string | null;
+    invoiceNumber: string | null;
+    issueType: string;
+    severity: 'High' | 'Medium' | 'Low';
+    amount: number | null;
+    whyItMatters: string;
+    actionNeeded: string;
+    reason: string;
+    materialOrServiceItem: string | null;
+    site: string | null;
+  };
+
+  const flatIssues: FlatIssue[] = [];
+
+  for (const row of params.outlierRows) {
+    const record = params.recordsById.get(row.record_id) ?? null;
+    const materialOrServiceItem = record?.material ?? record?.service_item ?? null;
+    const ticketNumber = preferredTicketNumber(
+      [
+        row.transaction_number,
+        record?.transaction_number,
+        rawRowText(record?.raw_row ?? {}, RAW_TICKET_KEYS),
+      ],
+      [row.record_id],
+    );
+    const amount =
+      asLooseNumber(row.metrics.extended_cost)
+      ?? asFiniteNumber(record?.extended_cost ?? null);
+
+    for (const reason of [...new Set(row.reasons.map((value) => value.trim()).filter((value) => value.length > 0))]) {
+      const descriptor = describeRiskReason(reason);
+      flatIssues.push({
+        recordId: row.record_id,
+        ticketKey: normalizeTicketIdentity(ticketNumber, `record:${row.record_id}`),
+        invoiceKey: normalizeInvoiceIdentity(row.invoice_number),
+        ticketNumber,
+        invoiceNumber: row.invoice_number,
+        issueType: descriptor.issueType,
+        severity: toRiskSeverity(row.severity),
+        amount,
+        whyItMatters: descriptor.whyItMatters,
+        actionNeeded: descriptor.actionNeeded,
+        reason,
+        materialOrServiceItem,
+        site: params.siteByRecordId.get(row.record_id) ?? null,
+      });
+    }
+  }
+
+  const groupedRiskIssues = Array.from(
+    flatIssues.reduce((map, issue) => {
+      const existing = map.get(issue.issueType) ?? {
+        issueType: issue.issueType,
+        severity: issue.severity,
+        ticketKeys: new Set<string>(),
+        ticketNumbers: [] as string[],
+        ticketNumberKeys: new Set<string>(),
+        invoiceKeys: new Set<string>(),
+        amounts: new Map<string, number | null>(),
+        whyItMatters: issue.whyItMatters,
+        actionNeeded: issue.actionNeeded,
+      };
+
+      if (riskSeverityRank(issue.severity) < riskSeverityRank(existing.severity)) {
+        existing.severity = issue.severity;
+      }
+      existing.ticketKeys.add(issue.ticketKey);
+      if (typeof issue.ticketNumber === 'string' && issue.ticketNumber.trim().length > 0) {
+        const ticketNumber = issue.ticketNumber.trim();
+        const ticketNumberKey = ticketNumber.toUpperCase();
+        if (!existing.ticketNumberKeys.has(ticketNumberKey)) {
+          existing.ticketNumberKeys.add(ticketNumberKey);
+          existing.ticketNumbers.push(ticketNumber);
+        }
+      }
+      if (issue.invoiceKey) existing.invoiceKeys.add(issue.invoiceKey);
+      existing.amounts.set(issue.recordId, issue.amount);
+      map.set(issue.issueType, existing);
+      return map;
+    }, new Map<string, {
+      issueType: string;
+      severity: 'High' | 'Medium' | 'Low';
+      ticketKeys: Set<string>;
+      ticketNumbers: string[];
+      ticketNumberKeys: Set<string>;
+      invoiceKeys: Set<string>;
+      amounts: Map<string, number | null>;
+      whyItMatters: string;
+      actionNeeded: string;
+    }>()),
+  )
+    .map(([, issue]) => ({
+      issueType: issue.issueType,
+      severity: issue.severity,
+      ticketCount: issue.ticketKeys.size,
+      affectedTicketPreview: buildCompactTicketPreview(issue.ticketNumbers),
+      invoiceCount: issue.invoiceKeys.size,
+      amountImpact: sumUniqueAmounts(issue.amounts.entries()),
+      whyItMatters: issue.whyItMatters,
+      actionNeeded: issue.actionNeeded,
+    }))
+    .sort((left, right) => {
+      const severityDelta = riskSeverityRank(left.severity) - riskSeverityRank(right.severity);
+      if (severityDelta !== 0) return severityDelta;
+      const ticketDelta = right.ticketCount - left.ticketCount;
+      if (ticketDelta !== 0) return ticketDelta;
+      return left.issueType.localeCompare(right.issueType, 'en-US');
+    });
+
+  const riskDrilldownRows = Array.from(
+    flatIssues.reduce((map, issue) => {
+      const key = `${issue.issueType}|${issue.ticketKey}|${issue.invoiceKey ?? 'no-invoice'}`;
+      const existing = map.get(key) ?? {
+        ticketNumber: issue.ticketNumber,
+        invoiceNumber: issue.invoiceNumber,
+        issueType: issue.issueType,
+        severity: issue.severity,
+        materialOrServiceItem: issue.materialOrServiceItem,
+        site: issue.site,
+        amountByRecord: new Map<string, number | null>(),
+        reasons: new Set<string>(),
+      };
+
+      if (riskSeverityRank(issue.severity) < riskSeverityRank(existing.severity)) {
+        existing.severity = issue.severity;
+      }
+      if (existing.materialOrServiceItem == null && issue.materialOrServiceItem != null) {
+        existing.materialOrServiceItem = issue.materialOrServiceItem;
+      }
+      if (existing.site == null && issue.site != null) {
+        existing.site = issue.site;
+      }
+      existing.amountByRecord.set(issue.recordId, issue.amount);
+      existing.reasons.add(issue.reason);
+      map.set(key, existing);
+      return map;
+    }, new Map<string, {
+      ticketNumber: string | null;
+      invoiceNumber: string | null;
+      issueType: string;
+      severity: 'High' | 'Medium' | 'Low';
+      materialOrServiceItem: string | null;
+      site: string | null;
+      amountByRecord: Map<string, number | null>;
+      reasons: Set<string>;
+    }>()),
+  )
+    .map(([, issue]) => ({
+      ticketNumber: issue.ticketNumber,
+      invoiceNumber: issue.invoiceNumber,
+      issueType: issue.issueType,
+      severity: issue.severity,
+      materialOrServiceItem: issue.materialOrServiceItem,
+      site: issue.site,
+      amount: sumUniqueAmounts(issue.amountByRecord.entries()),
+      reason: Array.from(issue.reasons).sort((left, right) => left.localeCompare(right, 'en-US')).join('; '),
+    }))
+    .sort((left, right) => {
+      const severityDelta = riskSeverityRank(left.severity) - riskSeverityRank(right.severity);
+      if (severityDelta !== 0) return severityDelta;
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      return (left.ticketNumber ?? '').localeCompare(right.ticketNumber ?? '', 'en-US');
+    });
+
+  if (groupedRiskIssues.length === 0) {
+    return {
+      riskSummary: null,
+      groupedRiskIssues,
+      riskDrilldownRows,
+    };
+  }
+
+  const ticketKeys = new Set(flatIssues.map((issue) => issue.ticketKey));
+  const invoiceKeys = new Set(
+    flatIssues
+      .map((issue) => issue.invoiceKey)
+      .filter((value): value is string => value != null),
+  );
+
+  return {
+    riskSummary: {
+      highRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'High').length,
+      mediumRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'Medium').length,
+      lowRiskIssues: groupedRiskIssues.filter((issue) => issue.severity === 'Low').length,
+      ticketsAffected: ticketKeys.size,
+      invoicesAffected: invoiceKeys.size,
+      estimatedAmountAtRisk: sumUniqueAmounts(flatIssues.map((issue) => [issue.recordId, issue.amount] as const)),
+    },
+    groupedRiskIssues,
+    riskDrilldownRows,
+  };
+}
+
+function sanitizeProjectOperationsOverview(
+  overview: TransactionDataProjectOperationsOverview | null | undefined,
+): TransactionDataProjectOperationsOverview | null {
+  if (!overview) return null;
+  const legacyUnknownCount = readLegacyUnknownEligibilityCount(overview);
+  const eligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount: asLooseNumber(overview.eligible_count),
+    ineligibleCount: asLooseNumber(overview.ineligible_count),
+    legacyUnknownCount,
+  });
+
+  return {
+    ...stripLegacyUnknownEligibilityFields(overview),
+    eligible_count: eligibilityCounts.eligibleCount ?? 0,
+    ineligible_count: eligibilityCounts.ineligibleCount ?? 0,
+  };
+}
+
+function toCanonicalConsistentRollups(
+  canonicalSummary: Record<string, unknown> | null,
+  extractionRollups: TransactionDataExtraction['rollups'] | null,
+): TransactionDataExtraction['rollups'] | null {
+  if (!canonicalSummary) return extractionRollups ?? null;
+
+  const legacyExtractionRollups = extractionRollups as (TransactionDataExtraction['rollups'] & {
+    distinctInvoiceNumbers?: string[];
+    distinctRateCodes?: string[];
+    distinctServiceItems?: string[];
+    distinctMaterials?: string[];
+  }) | null;
+
+  const totalTickets =
+    asLooseNumber(canonicalSummary.total_tickets)
+    ?? asLooseNumber(extractionRollups?.total_tickets)
+    ?? asLooseNumber(extractionRollups?.totalTickets);
+  const totalCyd =
+    asLooseNumber(canonicalSummary.total_cyd_ticket_grain)
+    ?? asLooseNumber(canonicalSummary.total_cyd)
+    ?? asLooseNumber(extractionRollups?.total_cyd_ticket_grain)
+    ?? asLooseNumber(extractionRollups?.total_cyd)
+    ?? asLooseNumber(extractionRollups?.totalCyd);
+  const totalExtendedCost =
+    asLooseNumber(canonicalSummary.total_extended_cost)
+    ?? asLooseNumber(extractionRollups?.total_extended_cost)
+    ?? asLooseNumber(extractionRollups?.totalExtendedCost);
+  const totalTransactionQuantity =
+    asLooseNumber(canonicalSummary.total_transaction_quantity)
+    ?? asLooseNumber(extractionRollups?.total_transaction_quantity)
+    ?? asLooseNumber(extractionRollups?.totalTransactionQuantity);
+  const invoicedTicketCount =
+    asLooseNumber(canonicalSummary.invoiced_ticket_count)
+    ?? asLooseNumber(extractionRollups?.invoiced_ticket_count)
+    ?? asLooseNumber(extractionRollups?.invoicedTicketCount);
+  const distinctInvoiceCount =
+    asLooseNumber(canonicalSummary.distinct_invoice_count)
+    ?? asLooseNumber(extractionRollups?.distinct_invoice_count)
+    ?? asLooseNumber(extractionRollups?.distinctInvoiceCount);
+  const totalInvoicedAmount =
+    asLooseNumber(canonicalSummary.total_invoiced_amount)
+    ?? asLooseNumber(extractionRollups?.total_invoiced_amount)
+    ?? asLooseNumber(extractionRollups?.totalInvoicedAmount);
+  const uninvoicedLineCount =
+    asLooseNumber(canonicalSummary.uninvoiced_line_count)
+    ?? asLooseNumber(extractionRollups?.uninvoiced_line_count)
+    ?? asLooseNumber(extractionRollups?.uninvoicedLineCount);
+  const eligibleCount =
+    asLooseNumber(canonicalSummary.eligible_count)
+    ?? asLooseNumber(extractionRollups?.eligible_count)
+    ?? asLooseNumber(extractionRollups?.eligibleCount);
+  const ineligibleCount =
+    asLooseNumber(canonicalSummary.ineligible_count)
+    ?? asLooseNumber(extractionRollups?.ineligible_count)
+    ?? asLooseNumber(extractionRollups?.ineligibleCount);
+  const eligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount,
+    ineligibleCount,
+    legacyUnknownCount:
+      readLegacyUnknownEligibilityCount(canonicalSummary)
+      + readLegacyUnknownEligibilityCount(extractionRollups),
+  });
+  const rowsWithMissingRateCode =
+    asLooseNumber(canonicalSummary.rows_with_missing_rate_code)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_rate_code)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingRateCode);
+  const rowsWithMissingInvoiceNumber =
+    asLooseNumber(canonicalSummary.rows_with_missing_invoice_number)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_invoice_number)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingInvoiceNumber);
+  const rowsWithMissingQuantity =
+    asLooseNumber(canonicalSummary.rows_with_missing_quantity)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_quantity)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingQuantity);
+  const rowsWithMissingExtendedCost =
+    asLooseNumber(canonicalSummary.rows_with_missing_extended_cost)
+    ?? asLooseNumber(extractionRollups?.rows_with_missing_extended_cost)
+    ?? asLooseNumber(extractionRollups?.rowsWithMissingExtendedCost);
+  const rowsWithZeroCost =
+    asLooseNumber(canonicalSummary.rows_with_zero_cost)
+    ?? asLooseNumber(extractionRollups?.rows_with_zero_cost)
+    ?? asLooseNumber(extractionRollups?.rowsWithZeroCost);
+  const rowsWithExtremeUnitRate =
+    asLooseNumber(canonicalSummary.rows_with_extreme_unit_rate)
+    ?? asLooseNumber(extractionRollups?.rows_with_extreme_unit_rate)
+    ?? asLooseNumber(extractionRollups?.rowsWithExtremeUnitRate);
+  const distinctInvoiceNumbers = Array.isArray(canonicalSummary.distinct_invoice_numbers)
+    ? (canonicalSummary.distinct_invoice_numbers as string[])
+    : (extractionRollups?.distinct_invoice_numbers ?? legacyExtractionRollups?.distinctInvoiceNumbers);
+  const distinctRateCodes = Array.isArray(canonicalSummary.distinct_rate_codes)
+    ? (canonicalSummary.distinct_rate_codes as string[])
+    : (extractionRollups?.distinct_rate_codes ?? legacyExtractionRollups?.distinctRateCodes);
+  const distinctServiceItems = Array.isArray(canonicalSummary.distinct_service_items)
+    ? (canonicalSummary.distinct_service_items as string[])
+    : (extractionRollups?.distinct_service_items ?? legacyExtractionRollups?.distinctServiceItems);
+  const distinctMaterials = Array.isArray(canonicalSummary.distinct_materials)
+    ? (canonicalSummary.distinct_materials as string[])
+    : (extractionRollups?.distinct_materials ?? legacyExtractionRollups?.distinctMaterials);
+  const groupedByRateCode = Array.isArray(canonicalSummary.grouped_by_rate_code)
+    ? (canonicalSummary.grouped_by_rate_code as TransactionDataRateCodeGroup[])
+    : (extractionRollups?.groupedByRateCode ?? extractionRollups?.grouped_by_rate_code);
+  const groupedByInvoice = Array.isArray(canonicalSummary.grouped_by_invoice)
+    ? (canonicalSummary.grouped_by_invoice as TransactionDataInvoiceGroup[])
+    : (extractionRollups?.groupedByInvoice ?? extractionRollups?.grouped_by_invoice);
+  const groupedBySiteMaterial = Array.isArray(canonicalSummary.grouped_by_site_material)
+    ? (canonicalSummary.grouped_by_site_material as TransactionDataSiteMaterialGroup[])
+    : (extractionRollups?.groupedBySiteMaterial ?? extractionRollups?.grouped_by_site_material);
+  const groupedByServiceItem = Array.isArray(canonicalSummary.grouped_by_service_item)
+    ? (canonicalSummary.grouped_by_service_item as TransactionDataServiceItemGroup[])
+    : (extractionRollups?.groupedByServiceItem ?? extractionRollups?.grouped_by_service_item);
+  const groupedByMaterial = Array.isArray(canonicalSummary.grouped_by_material)
+    ? (canonicalSummary.grouped_by_material as TransactionDataMaterialGroup[])
+    : (extractionRollups?.groupedByMaterial ?? extractionRollups?.grouped_by_material);
+  const groupedBySiteType = Array.isArray(canonicalSummary.grouped_by_site_type)
+    ? (canonicalSummary.grouped_by_site_type as TransactionDataSiteTypeGroup[])
+    : (extractionRollups?.groupedBySiteType ?? extractionRollups?.grouped_by_site_type);
+  const groupedByDisposalSite = Array.isArray(canonicalSummary.grouped_by_disposal_site)
+    ? (canonicalSummary.grouped_by_disposal_site as TransactionDataDisposalSiteGroup[])
+    : (extractionRollups?.groupedByDisposalSite ?? extractionRollups?.grouped_by_disposal_site);
+  const outlierRows = Array.isArray(canonicalSummary.outlier_rows)
+    ? (canonicalSummary.outlier_rows as TransactionDataOutlierRow[])
+    : (extractionRollups?.outlierRows ?? extractionRollups?.outlier_rows);
+  const sanitizedOutlierRows = sanitizeSpreadsheetOutlierRows(outlierRows ?? []);
+
+  return {
+    ...stripLegacyUnknownEligibilityFields(extractionRollups ?? {}),
+    total_tickets: totalTickets,
+    totalTickets,
+    total_cyd: totalCyd,
+    totalCyd,
+    total_cyd_ticket_grain: totalCyd,
+    totalCydTicketGrain: totalCyd,
+    total_cyd_ticket_grain_full: asLooseNumber(canonicalSummary.total_cyd_ticket_grain_full)
+      ?? asLooseNumber(extractionRollups?.total_cyd_ticket_grain_full),
+    total_mileage_ticket_grain: asLooseNumber(canonicalSummary.total_mileage_ticket_grain)
+      ?? asLooseNumber(extractionRollups?.total_mileage_ticket_grain),
+    total_mileage_ticket_grain_full: asLooseNumber(canonicalSummary.total_mileage_ticket_grain_full)
+      ?? asLooseNumber(extractionRollups?.total_mileage_ticket_grain_full),
+    total_diameter: asLooseNumber(canonicalSummary.total_diameter)
+      ?? asLooseNumber(extractionRollups?.total_diameter),
+    total_diameter_full: asLooseNumber(canonicalSummary.total_diameter_full)
+      ?? asLooseNumber(extractionRollups?.total_diameter_full),
+    total_net_tonnage: asLooseNumber(canonicalSummary.total_net_tonnage)
+      ?? asLooseNumber(extractionRollups?.total_net_tonnage),
+    total_net_tonnage_full: asLooseNumber(canonicalSummary.total_net_tonnage_full)
+      ?? asLooseNumber(extractionRollups?.total_net_tonnage_full),
+    total_extended_cost: totalExtendedCost,
+    totalExtendedCost,
+    total_transaction_quantity: totalTransactionQuantity,
+    totalTransactionQuantity,
+    invoiced_ticket_count: invoicedTicketCount,
+    invoicedTicketCount,
+    distinct_invoice_count: distinctInvoiceCount,
+    distinctInvoiceCount,
+    total_invoiced_amount: totalInvoicedAmount,
+    totalInvoicedAmount,
+    uninvoiced_line_count: uninvoicedLineCount,
+    uninvoicedLineCount,
+    eligible_count: eligibilityCounts.eligibleCount,
+    eligibleCount: eligibilityCounts.eligibleCount,
+    ineligible_count: eligibilityCounts.ineligibleCount,
+    ineligibleCount: eligibilityCounts.ineligibleCount,
+    rows_with_missing_rate_code: rowsWithMissingRateCode,
+    rowsWithMissingRateCode,
+    rows_with_missing_invoice_number: rowsWithMissingInvoiceNumber,
+    rowsWithMissingInvoiceNumber,
+    rows_with_missing_quantity: rowsWithMissingQuantity,
+    rowsWithMissingQuantity,
+    rows_with_missing_extended_cost: rowsWithMissingExtendedCost,
+    rowsWithMissingExtendedCost,
+    rows_with_zero_cost: rowsWithZeroCost,
+    rowsWithZeroCost,
+    rows_with_extreme_unit_rate: rowsWithExtremeUnitRate,
+    rowsWithExtremeUnitRate,
+    distinct_invoice_numbers: distinctInvoiceNumbers,
+    distinctInvoiceNumbers: distinctInvoiceNumbers,
+    distinct_rate_codes: distinctRateCodes,
+    distinctRateCodes: distinctRateCodes,
+    distinct_service_items: distinctServiceItems,
+    distinctServiceItems: distinctServiceItems,
+    distinct_materials: distinctMaterials,
+    distinctMaterials: distinctMaterials,
+    grouped_by_rate_code: groupedByRateCode,
+    groupedByRateCode,
+    grouped_by_invoice: groupedByInvoice,
+    groupedByInvoice,
+    grouped_by_site_material: groupedBySiteMaterial,
+    groupedBySiteMaterial,
+    grouped_by_service_item: groupedByServiceItem,
+    groupedByServiceItem,
+    grouped_by_material: groupedByMaterial,
+    groupedByMaterial,
+    grouped_by_site_type: groupedBySiteType,
+    groupedBySiteType,
+    grouped_by_disposal_site: groupedByDisposalSite,
+    groupedByDisposalSite,
+    outlier_rows: sanitizedOutlierRows,
+    outlierRows: sanitizedOutlierRows,
+  } as TransactionDataExtraction['rollups'];
+}
+
+function toSpreadsheetReviewDataset(
+  extraction: TransactionDataExtraction | null,
+  canonical?: {
+    projectValidationSummary?: Record<string, unknown> | null;
+    projectValidationStatus?: string | null;
+    projectValidationFindings?: readonly ValidationFinding[];
+    transactionDatasets?: Array<Record<string, unknown>>;
+    transactionRows?: Array<Record<string, unknown>>;
+  },
+): SpreadsheetReviewDataset | null {
+  const canonicalSummary =
+    (canonical?.transactionDatasets ?? [])
+      .map((dataset) => asRecord(dataset.summary_json))
+      .find((summaryRow): summaryRow is Record<string, unknown> => summaryRow != null)
+    ?? null;
+  const canonicalRecords = (canonical?.transactionRows ?? []).flatMap((row) => {
+    const rowRecord = asRecord(row);
+    if (!rowRecord) return [];
+    const recordJson = asRecord(rowRecord.record_json);
+    if (!recordJson) return [];
+    const rawRowJson = asRecord(rowRecord.raw_row_json);
+    const mergedRecord =
+      rawRowJson && asRecord(recordJson.raw_row) == null
+        ? { ...recordJson, raw_row: rawRowJson }
+        : recordJson;
+    return [mergedRecord as unknown as TransactionDataRecord];
+  });
+
+  const hasCanonicalDatasetData = canonicalSummary != null || canonicalRecords.length > 0;
+  const hasNormalizedDatasetTables =
+    (canonical?.transactionDatasets?.length ?? 0) > 0 ||
+    (canonical?.transactionRows?.length ?? 0) > 0;
+  const legacyExtraction = hasNormalizedDatasetTables ? null : extraction;
+  if (!extraction && !hasCanonicalDatasetData) return null;
+
+  const records = canonicalRecords.length > 0 ? canonicalRecords : (legacyExtraction?.records ?? []);
+  const rawSummary =
+    (canonicalSummary as TransactionDataExtraction['summary'] | null)
+    ?? legacyExtraction?.summary
+    ?? null;
+  const rollups = toCanonicalConsistentRollups(canonicalSummary, legacyExtraction?.rollups ?? null);
+  const projectOperationsOverview = sanitizeProjectOperationsOverview(
+    (asRecord(canonicalSummary?.project_operations_overview) as TransactionDataProjectOperationsOverview | null)
+    ?? legacyExtraction?.projectOperationsOverview
+    ?? null,
+  );
+  const summaryEligibilityCounts = coerceSpreadsheetEligibilityCounts({
+    eligibleCount:
+      asLooseNumber(rawSummary?.eligible_count)
+      ?? asLooseNumber(projectOperationsOverview?.eligible_count)
+      ?? asLooseNumber(rollups?.eligible_count)
+      ?? asLooseNumber(rollups?.eligibleCount),
+    ineligibleCount:
+      asLooseNumber(rawSummary?.ineligible_count)
+      ?? asLooseNumber(projectOperationsOverview?.ineligible_count)
+      ?? asLooseNumber(rollups?.ineligible_count)
+      ?? asLooseNumber(rollups?.ineligibleCount),
+    legacyUnknownCount: readLegacyUnknownEligibilityCount(rawSummary),
+  });
+  const baseInvoiceReadinessSummary =
+    (asRecord(canonicalSummary?.invoice_readiness_summary) as TransactionDataInvoiceReadinessSummary | null)
+    ?? legacyExtraction?.invoiceReadinessSummary
+    ?? null;
+  const dmsFdsLifecycleSummary =
+    (asRecord(canonicalSummary?.dms_fds_lifecycle_summary) as TransactionDataDmsFdsLifecycleSummary | null)
+    ?? legacyExtraction?.dmsFdsLifecycleSummary
+    ?? null;
+
+  const groupedByRateCode =
+    (Array.isArray(canonicalSummary?.grouped_by_rate_code)
+      ? (canonicalSummary.grouped_by_rate_code as TransactionDataRateCodeGroup[])
+      : null)
+    ?? legacyExtraction?.summary?.grouped_by_rate_code
+    ?? rollups?.groupedByRateCode
+    ?? rollups?.grouped_by_rate_code
+    ?? [];
+  const groupedByServiceItem =
+    (Array.isArray(canonicalSummary?.grouped_by_service_item)
+      ? (canonicalSummary.grouped_by_service_item as TransactionDataServiceItemGroup[])
+      : null)
+    ?? legacyExtraction?.groupedByServiceItem
+    ?? legacyExtraction?.summary?.grouped_by_service_item
+    ?? rollups?.groupedByServiceItem
+    ?? rollups?.grouped_by_service_item
+    ?? [];
+  const groupedByMaterial =
+    (Array.isArray(canonicalSummary?.grouped_by_material)
+      ? (canonicalSummary.grouped_by_material as TransactionDataMaterialGroup[])
+      : null)
+    ?? legacyExtraction?.groupedByMaterial
+    ?? legacyExtraction?.summary?.grouped_by_material
+    ?? rollups?.groupedByMaterial
+    ?? rollups?.grouped_by_material
+    ?? [];
+  const groupedByDisposalSite =
+    (Array.isArray(canonicalSummary?.grouped_by_disposal_site)
+      ? (canonicalSummary.grouped_by_disposal_site as TransactionDataDisposalSiteGroup[])
+      : null)
+    ?? legacyExtraction?.groupedByDisposalSite
+    ?? legacyExtraction?.summary?.grouped_by_disposal_site
+    ?? rollups?.groupedByDisposalSite
+    ?? rollups?.grouped_by_disposal_site
+    ?? [];
+  const groupedBySiteType =
+    (Array.isArray(canonicalSummary?.grouped_by_site_type)
+      ? (canonicalSummary.grouped_by_site_type as TransactionDataSiteTypeGroup[])
+      : null)
+    ?? legacyExtraction?.groupedBySiteType
+    ?? legacyExtraction?.summary?.grouped_by_site_type
+    ?? rollups?.groupedBySiteType
+    ?? rollups?.grouped_by_site_type
+    ?? [];
+  const outlierRows =
+    (Array.isArray(canonicalSummary?.outlier_rows)
+      ? (canonicalSummary.outlier_rows as TransactionDataOutlierRow[])
+      : null)
+    ?? legacyExtraction?.outlierRows
+    ?? legacyExtraction?.summary?.outlier_rows
+    ?? rollups?.outlierRows
+    ?? rollups?.outlier_rows
+    ?? [];
+  const sanitizedOutlierRows = sanitizeSpreadsheetOutlierRows(outlierRows);
+  const summary = rawSummary
+    ? ({
+        ...stripLegacyUnknownEligibilityFields(rawSummary),
+        eligible_count: summaryEligibilityCounts.eligibleCount ?? 0,
+        ineligible_count: summaryEligibilityCounts.ineligibleCount ?? 0,
+        outlier_rows: sanitizedOutlierRows,
+        project_operations_overview: projectOperationsOverview,
+      } as TransactionDataExtraction['summary'])
+    : null;
+
+  const ticketTypeByRecordId = new Map<string, string>();
+  for (const record of records) {
+    const bucket = ticketTypeBucketFromRawRow(record.raw_row ?? {});
+    ticketTypeByRecordId.set(record.id, bucket);
+  }
+
+  const groupedByServiceItemMobileOnly = groupedByServiceItem.filter((group) => {
+    if (!hasMeaningfulGroupLabel(group.service_item)) return false;
+    if (group.record_ids.length === 0) return false;
+    return group.record_ids.some((recordId) => ticketTypeByRecordId.get(recordId) === 'mobile_unit');
+  });
+
+  const groupedByMaterialMobileOnly = groupedByMaterial.filter((group) => {
+    if (!hasMeaningfulGroupLabel(group.material)) return false;
+    if (group.record_ids.length === 0) return false;
+    return group.record_ids.some((recordId) => ticketTypeByRecordId.get(recordId) === 'mobile');
+  });
+
+  const totalNetTonnage = records.reduce<number | null>((sum, record) => {
+    const value = asFiniteNumber(record.net_tonnage);
+    if (value == null) return sum;
+    return (sum ?? 0) + value;
+  }, null);
+  const distinctTransactionCount = new Set(
+    records
+      .map((record) => (typeof record.transaction_number === 'string' ? record.transaction_number.trim().toUpperCase() : ''))
+      .filter((value) => value.length > 0),
+  ).size;
+
+  const projectFacts = resolveCanonicalProjectFacts({
+    validationStatus: canonical?.projectValidationStatus,
+    validationSummary: canonical?.projectValidationSummary,
+    validationFindings: canonical?.projectValidationFindings,
+  });
+  const projectBlockedReasons = projectFacts.blocked_reasons;
+  const projectTotalInvoicedAmount =
+    projectFacts.total_billed
+    ?? projectFacts.exposure_total_billed;
+  const projectTotalInvoices = projectFacts.exposure?.invoices.length ?? null;
+
+  const invoiceReadinessStatus = spreadsheetReviewReadinessStatusForProjectFacts({
+    facts: projectFacts,
+    fallback: baseInvoiceReadinessSummary?.status ?? null,
+  });
+
+  const invoiceReadinessSummary = baseInvoiceReadinessSummary
+    ? {
+        ...baseInvoiceReadinessSummary,
+        status: invoiceReadinessStatus ?? baseInvoiceReadinessSummary.status,
+        blocking_reasons:
+          projectBlockedReasons.length > 0
+            ? projectBlockedReasons
+            : baseInvoiceReadinessSummary.blocking_reasons,
+      }
+    : (
+      invoiceReadinessStatus != null || projectBlockedReasons.length > 0
+        ? {
+            status: invoiceReadinessStatus ?? 'needs_review',
+            total_tickets: 0,
+            invoiced_ticket_count: 0,
+            distinct_invoice_count: 0,
+            total_invoiced_amount: 0,
+            uninvoiced_line_count: 0,
+            rows_with_missing_rate_code: 0,
+            rows_with_missing_quantity: 0,
+            rows_with_missing_extended_cost: 0,
+            rows_with_zero_cost: 0,
+            rows_with_extreme_unit_rate: 0,
+            outlier_row_count: 0,
+            blocking_reasons: projectBlockedReasons,
+            record_ids: [],
+            evidence_refs: [],
+          }
+        : null
+    );
+
+  const kpis: SpreadsheetReviewKpis = {
+    totalTickets:
+      summary?.total_tickets ??
+      projectOperationsOverview?.total_tickets ??
+      rollups?.totalTickets ??
+      distinctTransactionCount,
+    totalCyd:
+      summary?.total_cyd_ticket_grain ??
+      summary?.total_cyd ??
+      projectOperationsOverview?.total_cyd ??
+      rollups?.total_cyd_ticket_grain ??
+      rollups?.totalCyd ??
+      null,
+    totalNetTonnage,
+    invoicedTickets:
+      summary?.invoiced_ticket_count ??
+      projectOperationsOverview?.invoiced_ticket_count ??
+      rollups?.invoicedTicketCount ??
+      0,
+    totalInvoices:
+      projectTotalInvoices ??
+      summary?.distinct_invoice_count ??
+      projectOperationsOverview?.distinct_invoice_count ??
+      rollups?.distinctInvoiceCount ??
+      0,
+    totalInvoicedAmount:
+      projectTotalInvoicedAmount ??
+      summary?.total_invoiced_amount ??
+      projectOperationsOverview?.total_invoiced_amount ??
+      rollups?.totalInvoicedAmount ??
+      0,
+    uninvoicedLines:
+      summary?.uninvoiced_line_count ??
+      projectOperationsOverview?.uninvoiced_line_count ??
+      rollups?.uninvoicedLineCount ??
+      0,
+    eligible:
+      summary?.eligible_count ??
+      projectOperationsOverview?.eligible_count ??
+      rollups?.eligibleCount ??
+      0,
+    ineligible:
+      summary?.ineligible_count ??
+      projectOperationsOverview?.ineligible_count ??
+      rollups?.ineligibleCount ??
+      0,
+  };
+
+  const recordsById = buildRecordMap(records);
+  const totalExtendedCost =
+    asLooseNumber(summary?.total_extended_cost)
+    ?? asLooseNumber(rollups?.total_extended_cost)
+    ?? asLooseNumber(rollups?.totalExtendedCost)
+    ?? sumRecordNumberField(records, 'extended_cost')
+    ?? projectTotalInvoicedAmount
+    ?? asLooseNumber(projectOperationsOverview?.total_invoiced_amount);
+  const volumeBasis = determineVolumeBasis({
+    summary,
+    projectOperationsOverview,
+    rollups,
+    records,
+    groupedByMaterial,
+    groupedByDisposalSite,
+    groupedBySiteType,
+  });
+  const totalProjectVolume =
+    volumeBasis.metric === 'cyd'
+      ? (
+        asLooseNumber(summary?.total_cyd_ticket_grain)
+        ?? asLooseNumber(summary?.total_cyd)
+        ?? asLooseNumber(projectOperationsOverview?.total_cyd)
+        ?? asLooseNumber(rollups?.total_cyd_ticket_grain)
+        ?? asLooseNumber(rollups?.total_cyd)
+        ?? asLooseNumber(rollups?.totalCyd)
+      )
+      : (
+        volumeBasis.metric === 'net_tonnage'
+          ? totalNetTonnage
+          : null
+      );
+  const rateCodeRows = groupedByRateCode
+    .filter(shouldSurfaceRateCodeCostDriverRow)
+    .map((group) => ({
+      rateCode: group.rate_code,
+      description: group.rate_description_sample,
+      ticketCount: group.row_count,
+      amount: asLooseNumber(group.total_extended_cost),
+    }))
+    .sort((left, right) => {
+      const amountDelta = (right.amount ?? 0) - (left.amount ?? 0);
+      if (amountDelta !== 0) return amountDelta;
+      return (left.rateCode ?? left.description ?? '').localeCompare(
+        right.rateCode ?? right.description ?? '',
+        'en-US',
+      );
+    });
+
+  const rawServiceItemRows = buildServiceItemRows({
+    groups: groupedByServiceItem,
+    recordsById,
+  });
+  const totalServiceCost = rawServiceItemRows.reduce<number | null>((sum, row) => {
+    if (row.amount == null) return sum;
+    return (sum ?? 0) + row.amount;
+  }, null);
+  const serviceItemRows = rawServiceItemRows.map((row) => ({
+    ...row,
+    percentOfTotalServiceCost: percentOf(row.amount, totalServiceCost),
+  }));
+  const materialRows = buildFlowRows({
+    groups: groupedByMaterial,
+    getLabel: (group) => group.material,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const disposalSiteRows = buildFlowRows({
+    groups: groupedByDisposalSite,
+    getLabel: (group) => group.disposal_site,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const siteTypeRows = buildFlowRows({
+    groups: groupedBySiteType,
+    getLabel: (group) => group.site_type,
+    recordsById,
+    volumeBasis,
+    totalVolume: totalProjectVolume,
+    totalCost: totalExtendedCost,
+  });
+  const disposalSiteByRecordId = buildRecordLabelMap(
+    groupedByDisposalSite,
+    (group) => group.disposal_site,
+    (group) => group.record_ids,
+  );
+  const siteTypeByRecordId = buildRecordLabelMap(
+    groupedBySiteType,
+    (group) => group.site_type,
+    (group) => group.record_ids,
+  );
+  const siteByRecordId = new Map(disposalSiteByRecordId);
+  for (const [recordId, siteType] of siteTypeByRecordId.entries()) {
+    if (!siteByRecordId.has(recordId)) siteByRecordId.set(recordId, siteType);
+  }
+  const {
+    riskSummary,
+    groupedRiskIssues,
+    riskDrilldownRows,
+  } = buildRiskPresentation({
+    outlierRows: sanitizedOutlierRows,
+    recordsById,
+    siteByRecordId,
+  });
+
+  // Pre-compute invoicedTransactionCount to avoid an O(N) filter over records at render time.
+  // Mirrors the exact logic previously inlined in SpreadsheetReviewSurface.invoicedTransactionCount().
+  const totalTransactionsForInvoicedCount =
+    summary?.row_count
+    ?? invoiceReadinessSummary?.record_ids.length
+    ?? records.length;
+  const precomputedInvoicedTransactionCount = invoiceReadinessSummary
+    ? Math.max(totalTransactionsForInvoicedCount - invoiceReadinessSummary.uninvoiced_line_count, 0)
+    : records.filter((record) =>
+        typeof record.invoice_number === 'string' && record.invoice_number.trim().length > 0,
+      ).length;
+
+  return {
+    records,
+    summary,
+    rollups,
+    projectOperationsOverview,
+    groupedByRateCode,
+    groupedByServiceItemMobileOnly,
+    groupedByMaterialMobileOnly,
+    groupedByDisposalSite,
+    groupedBySiteType,
+    outlierRows: sanitizedOutlierRows,
+    invoiceReadinessSummary,
+    dmsFdsLifecycleSummary,
+    kpis,
+    totalExtendedCost,
+    invoicedTransactionCount: precomputedInvoicedTransactionCount,
+    volumeBasis,
+    rateCodeRows,
+    serviceItemRows,
+    materialRows,
+    disposalSiteRows,
+    siteTypeRows,
+    riskSummary,
+    groupedRiskIssues,
+    riskDrilldownRows,
+  };
+}
 
 type DecisionMeta = {
   ids: string[];
@@ -327,6 +1959,7 @@ type BaseDocumentFact = Omit<
   | 'reviewedBy'
   | 'reviewedAt'
   | 'reviewNotes'
+  | 'reviewHistory'
   | 'humanDefinedSchedule'
   | 'overrideHistory'
   | 'anchorCount'
@@ -360,10 +1993,21 @@ const FIELD_KEY_ALIASES: Record<DocumentFamily | 'generic', Record<string, strin
   },
   invoice: {
     vendor_name: 'contractor_name',
+    contractor: 'contractor_name',
     current_amount_due: 'billed_amount',
     current_payment_due: 'billed_amount',
     total_amount: 'billed_amount',
     amount_due: 'billed_amount',
+    lineitems: 'invoice_line_items',
+    line_items: 'invoice_line_items',
+    line_item_codes: 'line_item_codes',
+    lineitemcodes: 'line_item_codes',
+    periodfrom: 'period_from',
+    periodto: 'period_to',
+    period_start_date: 'period_start',
+    period_end_date: 'period_end',
+    service_period_start: 'period_start',
+    service_period_end: 'period_end',
   },
   payment_recommendation: {
     vendor_name: 'contractor_name',
@@ -401,11 +2045,13 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
   invoice: [
     'invoice_number',
     'contractor_name',
+    'client_name',
     'invoice_date',
     'billed_amount',
-    'billing_period',
-    'line_item_support_present',
+    'period_start',
+    'period_end',
     'line_item_count',
+    'invoice_line_items',
     'po_number',
   ],
   payment_recommendation: [
@@ -435,7 +2081,6 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
     'uninvoiced_line_count',
     'eligible_count',
     'ineligible_count',
-    'unknown_eligibility_count',
     'distinct_invoice_numbers',
     'distinct_rate_codes',
     'distinct_service_items',
@@ -491,6 +2136,7 @@ const SECONDARY_ADAPTER_FIELDS = new Set([
 
 const RAW_VALUE_ALIASES: Record<string, string[]> = {
   contractor_name: ['vendor_name', 'contractorName', 'contractor'],
+  client_name: ['customer_name', 'owner_name', 'clientName', 'ownerName', 'bill_to_name'],
   owner_name: ['ownerName', 'client_name', 'customer_name'],
   executed_date: ['contract_date', 'effective_date', 'executedDate'],
   contract_ceiling: ['nte_amount', 'notToExceedAmount', 'contract_sum'],
@@ -583,10 +2229,10 @@ const GROUP_DEFINITIONS: Record<
   ],
   invoice: [
     {
-      key: 'vendor_payee',
-      label: 'Vendor And Payee',
+      key: 'contractor_client',
+      label: 'Contractor And Client',
       order: 10,
-      patterns: [/vendor/i, /payee/i, /contractor/i, /owner/i, /applicant/i],
+      patterns: [/vendor/i, /payee/i, /contractor/i, /owner/i, /applicant/i, /client/i],
     },
     {
       key: 'invoice_identifiers',
@@ -596,7 +2242,7 @@ const GROUP_DEFINITIONS: Record<
     },
     {
       key: 'billing_period',
-      label: 'Billing Period',
+      label: 'Service Period',
       order: 30,
       patterns: [/period/i, /invoice_date/i, /billing/i, /service_date/i, /date/i],
     },
@@ -700,7 +2346,6 @@ const GROUP_DEFINITIONS: Record<
         /^uninvoiced_line_count$/i,
         /^eligible_count$/i,
         /^ineligible_count$/i,
-        /^unknown_eligibility_count$/i,
         /header_map/i,
         /sheet_names/i,
         /inferred_date_range/i,
@@ -809,6 +2454,18 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function asTransactionDataExtraction(value: unknown): TransactionDataExtraction | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const hasUsableShape =
+    record.sourceType === 'transaction_data'
+    || typeof record.rowCount === 'number'
+    || Array.isArray(record.records)
+    || asRecord(record.summary) != null
+    || asRecord(record.rollups) != null;
+  return hasUsableShape ? (record as unknown as TransactionDataExtraction) : null;
+}
+
 function titleize(value: string): string {
   return value
     .replace(/[_-]+/g, ' ')
@@ -818,8 +2475,10 @@ function titleize(value: string): string {
     .join(' ');
 }
 
-/** Human labels for stable schema keys; `owner_name` stays the stored key (contracting entity). */
+/** Human labels for stable schema keys; invoice party keys use operator-facing contractor/client language. */
 const FACT_FIELD_LABEL_OVERRIDES: Record<string, string> = {
+  contractor_name: 'Contractor',
+  client_name: 'Client',
   owner_name: 'Client',
 };
 
@@ -875,6 +2534,125 @@ function isInternalMetadataFieldKey(fieldKey: string): boolean {
   return INTERNAL_METADATA_KEY_SEGMENTS.has(lastSegment);
 }
 
+const INVOICE_DISPLAY_HIDDEN_FACT_KEYS = new Set([
+  'invoice_status',
+  'status',
+  'section',
+  'normalized',
+  'text',
+  'raw_text',
+  'rawtext',
+  'raw_section_text',
+  'section_text',
+  'period_through',
+  'period_from',
+  'period_to',
+]);
+
+const INVOICE_PERIOD_RANGE_FACT_KEYS = new Set([
+  'billing_period',
+  'invoice_period',
+  'period',
+]);
+
+function parseInvoiceDisplayAmount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const negative = /^\(.*\)$/.test(trimmed);
+  const parsed = Number.parseFloat(trimmed.replace(/[()$,\s]/g, ''));
+  if (!Number.isFinite(parsed)) return null;
+  return negative ? -parsed : parsed;
+}
+
+function invoiceFactAmountValue(fact: DocumentFact): number | null {
+  return (
+    parseInvoiceDisplayAmount(fact.normalizedValue)
+    ?? parseInvoiceDisplayAmount(fact.valueNumber)
+    ?? parseInvoiceDisplayAmount(fact.displayValue)
+    ?? parseInvoiceDisplayAmount(fact.rawValue)
+  );
+}
+
+function invoiceLineItemRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const record = asRecord(value);
+  if (!record) return [];
+  return invoiceLineItemRows(record.line_items ?? record.lineItems ?? record.items);
+}
+
+function hasInvoiceLineItemTable(facts: readonly DocumentFact[]): boolean {
+  return facts.some((fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, 'invoice');
+    if (key !== 'invoice_line_items') return false;
+    return invoiceLineItemRows(fact.normalizedValue ?? fact.machineValue).length > 0;
+  });
+}
+
+function shouldHideInvoiceDisplayFact(fact: DocumentFact, allFacts: readonly DocumentFact[]): boolean {
+  const canonical = canonicalFieldKey(fact.fieldKey, 'invoice');
+  const normalized = toSnakeCase(fact.fieldKey);
+  const hasLineItems = hasInvoiceLineItemTable(allFacts);
+  const hasServicePeriodEndpoints = allFacts.some((candidate) => {
+    const key = canonicalFieldKey(candidate.fieldKey, 'invoice');
+    return (
+      (key === 'period_start' || key === 'period_end')
+      && candidate.reviewState !== 'missing'
+      && candidate.displayValue !== 'Missing'
+    );
+  });
+
+  if (canonical === 'invoice_line_items' || canonical === 'line_item_count') return false;
+  if (canonical === 'line_item_support_present' && hasLineItems) return true;
+  if (canonical === 'line_item_codes' && hasLineItems) return true;
+
+  if (canonical === 'subtotal_amount') {
+    const billed = allFacts.find((candidate) =>
+      canonicalFieldKey(candidate.fieldKey, 'invoice') === 'billed_amount',
+    );
+    const billedAmount = billed ? invoiceFactAmountValue(billed) : null;
+    const subtotalAmount = invoiceFactAmountValue(fact);
+    if (billedAmount != null && subtotalAmount != null) {
+      return Math.abs(billedAmount - subtotalAmount) < 0.015;
+    }
+    return billed != null && billed.displayValue === fact.displayValue;
+  }
+
+  if (INVOICE_DISPLAY_HIDDEN_FACT_KEYS.has(canonical) || INVOICE_DISPLAY_HIDDEN_FACT_KEYS.has(normalized)) {
+    return true;
+  }
+
+  if (canonical === 'period_start' || canonical === 'period_end') return false;
+  if (
+    hasServicePeriodEndpoints
+    && (INVOICE_PERIOD_RANGE_FACT_KEYS.has(canonical) || INVOICE_PERIOD_RANGE_FACT_KEYS.has(normalized))
+  ) {
+    return true;
+  }
+
+  const segments = normalized.split('_').filter(Boolean);
+  const lastSegment = segments.at(-1) ?? normalized;
+  if (['text', 'helper', 'normalized', 'section'].includes(lastSegment)) return true;
+  if (normalized.includes('raw_section')) return true;
+  if (
+    normalized.includes('raw')
+    && (normalized.includes('text') || normalized.includes('helper') || normalized.includes('section'))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function filterDisplayFactsForFamily(
+  facts: readonly DocumentFact[],
+  family: DocumentFamily,
+): DocumentFact[] {
+  if (family !== 'invoice') return [...facts];
+  return facts.filter((fact) => !shouldHideInvoiceDisplayFact(fact, facts));
+}
+
 /**
  * Missing-evidence signal: any fact with zero anchors (machine or human) may need PDF grounding.
  * Override / review display precedence is unchanged; this only drives badges and strip counts.
@@ -918,6 +2696,29 @@ function inferValueType(fieldKey: string, value: unknown): DocumentFactValueType
   if (typeof value === 'number') {
     if (fieldKey === 'rate_row_count') return 'number';
     if (/(percent|pct|ratio|rate_pct|rate_percent)/i.test(fieldKey)) return 'percent';
+    // Count fields are tallies, not money. Classify them before the currency
+    // heuristic below so keys containing `total` (e.g. `total_tickets`) or ending in
+    // `_count` (`row_count`, `eligible_count`) are not rendered with a `$`.
+    if (
+      /^total_tickets$/i.test(fieldKey) ||
+      /(^|_)row_count$/i.test(fieldKey) ||
+      /(^|_)count$/i.test(fieldKey)
+    ) {
+      return 'number';
+    }
+    // Volume / physical-quantity fields carry units (CYD, miles, tons, in), not
+    // dollars. Classify them as plain numbers so the broad currency regex does not
+    // force a `$`. (Unit-bearing display is deferred to a future `quantity` type.)
+    if (
+      /(^|_)cyd(_|$)/i.test(fieldKey) ||
+      /(^|_)mileage(_|$)/i.test(fieldKey) ||
+      /(^|_)diameter(_|$)/i.test(fieldKey) ||
+      /(^|_)tonnage(_|$)/i.test(fieldKey) ||
+      /(^|_)transaction_quantity(_|$)/i.test(fieldKey) ||
+      /_quantity$/i.test(fieldKey)
+    ) {
+      return 'number';
+    }
     if (/(amount|total|sum|ceiling|due|cost|fee|price|rate|balance|retainage|payment)/i.test(fieldKey)) {
       return 'currency';
     }
@@ -965,9 +2766,41 @@ function formatFactValue(value: unknown, valueType: DocumentFactValueType): stri
     return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(value);
   }
   if (Array.isArray(value)) {
-    return value.map((item) => scalarToString(item) ?? String(item)).join(', ');
+    return value.map((item) => {
+      const scalar = scalarToString(item);
+      if (scalar != null) return scalar;
+      if (item != null && typeof item === 'object') return compactStructuredValue(item);
+      return 'Unavailable';
+    }).join(', ');
   }
+  if (typeof value === 'object') return compactStructuredValue(value);
   return String(value);
+}
+
+function compactStructuredValue(value: unknown): string {
+  if (value == null) return 'Unavailable';
+  if (Array.isArray(value)) return formatFactValue(value, 'array');
+  if (typeof value !== 'object') return String(value);
+  const record = value as Record<string, unknown>;
+  const preferred = [
+    record.line_description,
+    record.lineDescription,
+    record.description,
+    record.code,
+    record.line_code,
+    record.lineCode,
+  ]
+    .map((item) => scalarToString(item))
+    .filter((item): item is string => Boolean(item));
+  if (preferred.length > 0) return preferred.join(' / ');
+  const entries = Object.entries(record)
+    .map(([key, item]) => {
+      const scalar = scalarToString(item);
+      return scalar ? `${titleize(key)}: ${scalar}` : null;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 4);
+  return entries.length > 0 ? entries.join(' | ') : 'Unavailable';
 }
 
 function withDisplayMetadata(fact: BaseDocumentFact): DocumentFact {
@@ -986,6 +2819,7 @@ function withDisplayMetadata(fact: BaseDocumentFact): DocumentFact {
     reviewedBy: null,
     reviewedAt: null,
     reviewNotes: null,
+    reviewHistory: [],
     humanDefinedSchedule: false,
     overrideHistory: [],
   };
@@ -1074,6 +2908,31 @@ function reviewStatusLabel(status: DocumentFactReviewStatus): string {
   }
 }
 
+function toReviewHistoryItem(
+  fieldKey: string,
+  valueType: DocumentFactValueType,
+  review: DocumentFactReviewRecord,
+): DocumentFactReviewHistoryItem {
+  const reviewedValueDisplay =
+    review.reviewedValueJson == null
+      ? null
+      : formatFactValue(
+          review.reviewedValueJson,
+          resolvedValueTypeForDisplay(fieldKey, valueType, review.reviewedValueJson),
+        );
+
+  return {
+    id: review.id,
+    fieldKey,
+    reviewStatus: review.reviewStatus,
+    reviewedValueJson: review.reviewedValueJson,
+    reviewedValueDisplay,
+    reviewedBy: review.reviewedBy,
+    reviewedAt: review.reviewedAt,
+    notes: review.notes,
+  };
+}
+
 function applyFactReviews(
   fact: DocumentFact,
   reviews: DocumentFactReviewRecord[],
@@ -1081,6 +2940,9 @@ function applyFactReviews(
   if (reviews.length === 0) return fact;
 
   const latest = reviews[0];
+  const reviewHistory = reviews.map((review) =>
+    toReviewHistoryItem(fact.fieldKey, fact.valueType, review),
+  );
   const note = latest.notes && latest.notes.trim().length > 0
     ? `Fact review: ${latest.notes.trim()}`
     : `Fact review status: ${reviewStatusLabel(latest.reviewStatus)}.`;
@@ -1090,6 +2952,7 @@ function applyFactReviews(
     reviewedBy: latest.reviewedBy,
     reviewedAt: latest.reviewedAt,
     reviewNotes: latest.notes,
+    reviewHistory,
     normalizationNotes: fact.normalizationNotes.includes(note)
       ? fact.normalizationNotes
       : [note, ...fact.normalizationNotes],
@@ -1103,6 +2966,24 @@ function applyFactReviews(
   }
 
   if (latest.reviewStatus === 'confirmed') {
+    if (latest.reviewedValueJson != null) {
+      const resolvedValueType = resolvedValueTypeForDisplay(
+        fact.fieldKey,
+        fact.valueType,
+        latest.reviewedValueJson,
+      );
+      const reviewedDisplay = formatFactValue(latest.reviewedValueJson, resolvedValueType);
+      return {
+        ...reviewedBase,
+        valueType: resolvedValueType,
+        reviewState: 'reviewed',
+        statusLabel: reviewStatusLabel(latest.reviewStatus),
+        displayValue: reviewedDisplay,
+        humanValue: latest.reviewedValueJson,
+        humanDisplay: reviewedDisplay,
+      };
+    }
+
     return {
       ...reviewedBase,
       reviewState: 'reviewed',
@@ -2162,7 +4043,18 @@ function buildAdditionalFacts(params: {
     });
     const rawValue = resolveRawValue(entry.key, params.rawValueMap);
     const group = resolveSchemaGroup(params.family, entry.key);
-    const normalizedDisplay = formatFactValue(fieldValue, valueType);
+    let normalizedDisplay = formatFactValue(fieldValue, valueType);
+    const factCanon = canonicalFieldKey(entry.key, params.family);
+    if (params.family === 'invoice' && (factCanon === 'contractor_name' || entry.key === 'vendor_name')) {
+      const coerced = normalizeInvoiceContractorDisplay(
+        typeof fieldValue === 'string'
+          ? fieldValue
+          : fieldValue != null
+            ? scalarToString(fieldValue)
+            : null,
+      );
+      if (coerced) normalizedDisplay = coerced;
+    }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
     if (entry.source === 'section_signals') notes.push('Derived from parser section signals.');
@@ -2328,6 +4220,143 @@ function buildOverrideOnlyFacts(params: {
   return facts;
 }
 
+/**
+ * Schema-group keys whose Fact Ledger facts represent spreadsheet/transaction truth
+ * (Dataset Summary, Grouped Review Tables, Flags/Outliers). These are the groups that
+ * must read the row-backed canonical summary rather than the extraction blob. The
+ * Document Identity / References / Extracted Signals / Additional Extracted Fields
+ * groups are intentionally excluded so they keep their (correct) blob sourcing.
+ */
+const ROW_BACKED_SPREADSHEET_GROUP_KEYS = new Set<string>([
+  'dataset_summary',
+  'grouped_review_tables',
+  'flags_outliers',
+]);
+
+const ROW_BACKED_CANONICAL_FACT_NOTE = 'Sourced from row-backed canonical transaction summary.';
+
+function repointFactToCanonicalValue(
+  fact: DocumentFact,
+  fieldKey: string,
+  value: unknown,
+): DocumentFact {
+  const valueType = inferValueType(fieldKey, value);
+  const normalizedDisplay = formatFactValue(value, valueType);
+  const normalizationNotes = fact.normalizationNotes.includes(ROW_BACKED_CANONICAL_FACT_NOTE)
+    ? fact.normalizationNotes
+    : [...fact.normalizationNotes, ROW_BACKED_CANONICAL_FACT_NOTE];
+  return {
+    ...fact,
+    valueType,
+    valueText: typeof value === 'string' ? value : scalarToString(value),
+    valueNumber: typeof value === 'number' ? value : null,
+    valueDate: valueType === 'date' ? formatFactValue(value, 'date') : null,
+    valueBoolean: typeof value === 'boolean' ? value : null,
+    normalizedValue: value,
+    normalizedDisplay,
+    reviewState: 'derived',
+    statusLabel: factStatusLabel('derived'),
+    derivationKind: 'row_backed_canonical_summary',
+    normalizationNotes,
+    displaySource: 'auto',
+    displayValue: normalizedDisplay,
+    machineValue: value,
+    machineDisplay: normalizedDisplay,
+  };
+}
+
+/**
+ * Re-points the Fact Ledger's spreadsheet/transaction-truth facts at the same
+ * row-backed canonical summary the review surface and Forge already consume, instead
+ * of the (often empty) extraction blob. This is a read, not a recompute: it reuses
+ * `buildCanonicalTransactionSummaryFromRows` rather than summing rows a second time.
+ *
+ * Existing auto facts in the transaction-truth groups are overwritten with the
+ * canonical value; human-reviewed / overridden facts are left untouched. Expected
+ * spreadsheet fields that the blob never produced (but the rows do) are appended so
+ * the ledger no longer shows them as MISSING.
+ */
+function applyRowBackedSpreadsheetFacts(params: {
+  facts: DocumentFact[];
+  family: DocumentFamily;
+  rowBackedSummary: Record<string, unknown> | null;
+  documentId: string;
+}): DocumentFact[] {
+  const { facts, family, rowBackedSummary, documentId } = params;
+  if (family !== 'spreadsheet' || rowBackedSummary == null) return facts;
+
+  const canonicalValueForKey = (fieldKey: string): { key: string; value: unknown } | null => {
+    const canon = canonicalFieldKey(fieldKey, family);
+    if (Object.prototype.hasOwnProperty.call(rowBackedSummary, canon)) {
+      return { key: canon, value: rowBackedSummary[canon] };
+    }
+    if (Object.prototype.hasOwnProperty.call(rowBackedSummary, fieldKey)) {
+      return { key: fieldKey, value: rowBackedSummary[fieldKey] };
+    }
+    return null;
+  };
+
+  const seenCanonicalKeys = new Set<string>();
+  const repointed = facts.map((fact) => {
+    const canon = canonicalFieldKey(fact.fieldKey, family);
+    seenCanonicalKeys.add(canon);
+    if (!ROW_BACKED_SPREADSHEET_GROUP_KEYS.has(fact.schemaGroup)) return fact;
+    // Preserve human review / override decisions; only re-point machine values.
+    if (fact.displaySource !== 'auto') return fact;
+    const resolved = canonicalValueForKey(fact.fieldKey);
+    if (resolved == null || resolved.value == null) return fact;
+    return repointFactToCanonicalValue(fact, resolved.key, resolved.value);
+  });
+
+  const additions: DocumentFact[] = [];
+  for (const key of FIELD_PRIORITY.spreadsheet) {
+    const canon = canonicalFieldKey(key, family);
+    if (seenCanonicalKeys.has(canon)) continue;
+    if (!Object.prototype.hasOwnProperty.call(rowBackedSummary, canon)) continue;
+    const value = rowBackedSummary[canon];
+    if (value == null) continue;
+    const group = resolveSchemaGroup(family, canon);
+    if (!ROW_BACKED_SPREADSHEET_GROUP_KEYS.has(group.key)) continue;
+    seenCanonicalKeys.add(canon);
+    const valueType = inferValueType(canon, value);
+    const normalizedDisplay = formatFactValue(value, valueType);
+    additions.push(
+      withDisplayMetadata({
+        id: `${documentId}:${canon}`,
+        documentId,
+        fieldKey: canon,
+        fieldLabel: fieldLabelForKey(canon),
+        schemaGroup: group.key,
+        schemaGroupLabel: group.label,
+        valueType,
+        valueText: typeof value === 'string' ? value : scalarToString(value),
+        valueNumber: typeof value === 'number' ? value : null,
+        valueDate: valueType === 'date' ? formatFactValue(value, 'date') : null,
+        valueBoolean: typeof value === 'boolean' ? value : null,
+        normalizedValue: value,
+        normalizedDisplay,
+        rawValue: null,
+        rawDisplay: null,
+        confidence: 0.9,
+        confidenceLabel: confidenceLabel(0.9),
+        confidenceReason: ROW_BACKED_CANONICAL_FACT_NOTE,
+        reviewState: 'derived',
+        statusLabel: factStatusLabel('derived'),
+        evidenceCount: 0,
+        primaryPage: null,
+        anchors: [],
+        normalizationNotes: [ROW_BACKED_CANONICAL_FACT_NOTE],
+        missingSourceContext: [],
+        derivationKind: 'row_backed_canonical_summary',
+        relatedDecisionIds: [],
+        relatedDecisionTitles: [],
+      }),
+    );
+  }
+
+  return [...repointed, ...additions];
+}
+
 function buildStrip(params: {
   sourceModeLabel: string;
   parserStatus: string;
@@ -2436,10 +4465,163 @@ function schemaStatus(facts: DocumentFact[]): string {
   return 'Mapped';
 }
 
+function buildOperationalTableAssemblyDiagnostic(params: {
+  extracted: Record<string, unknown>;
+  fieldKey: string;
+  id: string;
+  title: string;
+  summary: string;
+}): DiagnosticsDrawerModel | null {
+  const result = asRecord(params.extracted[params.fieldKey]);
+  if (!result) return null;
+
+  const rows = asArray<Record<string, unknown>>(result.rows);
+  const rejectedRows = asArray<Record<string, unknown>>(result.rejected_rows);
+  const unclassifiedRows = asArray<Record<string, unknown>>(result.unclassified_rows);
+  const assemblyWarnings = asArray<unknown>(result.assembly_warnings)
+    .filter((warning): warning is string => typeof warning === 'string');
+  const rowsMissingEvidence = rows.filter((row) => asArray<unknown>(row.evidence_refs).length === 0).length;
+  const rowWarningCount = rows.reduce(
+    (sum, row) => sum + asArray<unknown>(row.warnings).length,
+    0,
+  );
+
+  return {
+    id: params.id,
+    title: params.title,
+    summary: params.summary,
+    textBlocks: [
+      {
+        id: 'summary',
+        label: 'Shadow Assembly Summary',
+        description: 'Parser remains authoritative',
+        content: [
+          `Rows reconstructed: ${rows.length}`,
+          `Rejected rows: ${rejectedRows.length}`,
+          `Unclassified rows: ${unclassifiedRows.length}`,
+          `Warnings: ${assemblyWarnings.length + rowWarningCount}`,
+          `Evidence refs: ${rowsMissingEvidence === 0 ? 'present' : `MISSING on ${rowsMissingEvidence} rows`}`,
+          'Shadow mode: active — parser authoritative',
+        ].join('\n'),
+      },
+    ],
+    rowInspection: {
+      label: 'Inspect rows',
+      rows: rows.map((row) => ({
+        row_id: typeof row.row_id === 'string' ? row.row_id : 'unknown',
+        rate_code: typeof row.rate_code === 'string' ? row.rate_code : null,
+        row_role: typeof row.row_role === 'string' ? row.row_role : 'unknown',
+        confidence: typeof row.confidence === 'number' && Number.isFinite(row.confidence)
+          ? row.confidence
+          : null,
+        warnings: asArray<unknown>(row.warnings)
+          .filter((warning): warning is string => typeof warning === 'string'),
+      })),
+    },
+  };
+}
+
+function buildOperationalRateDiffDiagnostic(
+  extracted: Record<string, unknown>,
+): DiagnosticsDrawerModel | null {
+  const diff = asRecord(extracted.canonicalOperationalRateDiff);
+  if (!diff) return null;
+  const rows = asArray<Record<string, unknown>>(diff.rows);
+  const summary = asRecord(diff.summary) ?? {};
+  const count = (key: string) => typeof summary[key] === 'number' ? summary[key] as number : 0;
+
+  return {
+    id: 'canonical_operational_rate_diff',
+    title: 'Cross Document Rate Diff',
+    summary: 'Shadow-only invoice-to-contract operational rate comparison.',
+    textBlocks: [
+      {
+        id: 'summary',
+        label: 'Shadow Diff Summary',
+        description: 'No validator or execution coupling',
+        content: [
+          `Matched rows: ${count('matched_rows')}`,
+          `Ambiguous rows: ${count('ambiguous_rows')}`,
+          `Unmatched rows: ${count('unmatched_rows')}`,
+          `Low-confidence matches: ${count('low_confidence_matches')}`,
+          `Rows exceeding contract ceiling: ${count('rows_exceeding_contract_ceiling')}`,
+          `Passthrough rows: ${count('passthrough_rows')}`,
+          `T&M rows: ${count('tm_rows')}`,
+          'Shadow mode: active - no approval or payment gating',
+        ].join('\n'),
+      },
+    ],
+    rowInspection: {
+      label: 'Inspect rate diff rows',
+      rows: rows.map((row) => ({
+        row_id: typeof row.invoice_row_id === 'string' ? row.invoice_row_id : 'unknown',
+        rate_code: typeof row.contract_row_id === 'string' ? row.contract_row_id : null,
+        row_role: typeof row.variance_status === 'string' ? row.variance_status : 'unknown',
+        confidence: typeof row.match_confidence === 'number' && Number.isFinite(row.match_confidence)
+          ? row.match_confidence
+          : null,
+        warnings: (() => {
+          const candidateCount = asArray<Record<string, unknown>>(row.candidate_matches).length;
+          return [
+            ...asArray<unknown>(row.mismatch_reasons)
+              .filter((reason): reason is string => typeof reason === 'string'),
+            ...(candidateCount > 1 ? [`candidate matches: ${candidateCount}`] : []),
+          ];
+        })(),
+      })),
+    },
+    json: {
+      project_id: diff.project_id ?? null,
+      invoice_document_id: diff.invoice_document_id ?? null,
+      contract_document_id: diff.contract_document_id ?? null,
+      generated_at: diff.generated_at ?? null,
+      rows,
+    },
+  };
+}
+
+function buildSourceTextPages(extractionData: Record<string, unknown> | null): DocumentSourceTextPage[] {
+  const extraction = asRecord(extractionData?.extraction);
+  const evidencePageText = asArray<Record<string, unknown>>(asRecord(extraction?.evidence_v1)?.page_text);
+  const contentLayerPages = asArray<Record<string, unknown>>(
+    asRecord(asRecord(asRecord(extraction?.content_layers_v1)?.pdf)?.text)?.pages,
+  );
+  const sourcePages = evidencePageText.length > 0 ? evidencePageText : contentLayerPages;
+  const pages = sourcePages
+    .map((page, index) => {
+      const text = scalarToString(page.text) ?? scalarToString(page.content) ?? '';
+      const pageNumber = typeof page.page_number === 'number'
+        ? page.page_number
+        : typeof page.pageNumber === 'number'
+          ? page.pageNumber
+          : index + 1;
+      return {
+        pageNumber,
+        sourceMethod: typeof page.source_method === 'string'
+          ? page.source_method
+          : typeof page.sourceMethod === 'string'
+            ? page.sourceMethod
+            : null,
+        text,
+      };
+    })
+    .filter((page) => page.text.trim().length > 0);
+
+  const seen = new Set<number>();
+  return pages
+    .sort((left, right) => left.pageNumber - right.pageNumber)
+    .filter((page) => {
+      if (seen.has(page.pageNumber)) return false;
+      seen.add(page.pageNumber);
+      return true;
+    });
+}
+
 function buildDiagnostics(params: {
   extractionData: Record<string, unknown> | null;
   extractionHistory: Array<{ id: string; created_at: string; data: Record<string, unknown> }>;
   executionTrace: DocumentExecutionTrace | null;
+  extracted: Record<string, unknown>;
   groups: DocumentFactGroup[];
   facts: DocumentFact[];
   auditNotes: AuditNote[];
@@ -2450,8 +4632,29 @@ function buildDiagnostics(params: {
   const contentLayers = asRecord(extraction?.content_layers_v1);
   const parsedElements = asRecord(extraction?.parsed_elements_v1);
   const pageText = asArray<Record<string, unknown>>(evidenceV1?.page_text);
+  const invoiceAssemblyDiagnostic = buildOperationalTableAssemblyDiagnostic({
+    extracted: params.extracted,
+    fieldKey: 'canonicalOperationalTableRowAssembly',
+    id: 'canonical_operational_table_row_assembly',
+    title: 'Invoice Operational Row Assembly',
+    summary: 'canonicalOperationalTableRowAssembler shadow output.',
+  });
+  const contractRateAssemblyDiagnostic = buildOperationalTableAssemblyDiagnostic({
+    extracted: params.extracted,
+    fieldKey: 'canonicalContractRateScheduleAssembly',
+    id: 'canonical_contract_rate_schedule_assembly',
+    title: 'Contract Rate Assembly',
+    summary: 'contract rate schedule shadow output.',
+  });
+  const operationalRateDiffDiagnostic = buildOperationalRateDiffDiagnostic(params.extracted);
 
+  // DEV ONLY: this project currently exposes diagnostics as a collapsed document-workspace surface,
+  // but there is no production admin/debug permission gate around the diagnostics collection.
+  // Keep assembler inspection sanitized here until a real production gate is added.
   return [
+    invoiceAssemblyDiagnostic,
+    contractRateAssemblyDiagnostic,
+    operationalRateDiffDiagnostic,
     {
       id: 'schema_map',
       title: 'Schema Map',
@@ -2525,10 +4728,10 @@ function buildDiagnostics(params: {
       json: params.extractionHistory.map((row) => ({
         id: row.id,
         created_at: row.created_at,
-        data: row.data,
       })),
     },
-  ].filter((drawer) => {
+  ].filter((drawer): drawer is DiagnosticsDrawerModel => {
+    if (drawer == null) return false;
     if (drawer.json && typeof drawer.json === 'object') {
       if (Array.isArray(drawer.json)) return drawer.json.length > 0;
       return Object.keys(drawer.json as Record<string, unknown>).length > 0;
@@ -2586,6 +4789,919 @@ function computeAnchorCoverage(facts: DocumentFact[]): DocumentIntelligenceViewM
   };
 }
 
+function readLooseString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** US short date like InvoiceSurface extraction (`Feb 22, 2026`). */
+export function formatInvoicePeriodEndpointForDisplay(raw: unknown): string {
+  if (raw == null) return '';
+  const s = typeof raw === 'string' ? raw.trim() : String(raw);
+  if (!s || s === 'Missing' || s === 'Unavailable') return '';
+  const isoDateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnly) {
+    const dt = new Date(
+      Number.parseInt(isoDateOnly[1], 10),
+      Number.parseInt(isoDateOnly[2], 10) - 1,
+      Number.parseInt(isoDateOnly[3], 10),
+    );
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  const isoTry = new Date(s);
+  if (!Number.isNaN(isoTry.getTime())) {
+    return isoTry.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  const slash = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (slash) {
+    const y = Number.parseInt(slash[3], 10);
+    const fullYear = y < 100 ? 2000 + y : y;
+    const dt = new Date(fullYear, Number.parseInt(slash[1], 10) - 1, Number.parseInt(slash[2], 10));
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  return s;
+}
+
+export function formatInvoiceServicePeriodRangeFromEndpoints(startRaw: unknown, endRaw: unknown): string {
+  const left = formatInvoicePeriodEndpointForDisplay(startRaw);
+  const right = formatInvoicePeriodEndpointForDisplay(endRaw);
+  if (left && right) return `${left} → ${right}`;
+  return left || right || '';
+}
+
+/** Max length for an embedded alphanumeric invoice rate token (e.g. 1A, 10AB). */
+export const MAX_EMBEDDED_INVOICE_RATE_CODE_LEN = 12;
+
+/** Reject ordinal-looking tokens misread as rate codes ("1st", "2024th"). */
+const EMBEDDED_INVOICE_RATE_ORDINAL_RE = /^\d{1,6}(?:st|nd|rd|th)$/i;
+
+/**
+ * Validates a leading substring as an invoice-style rate token: digits then letters only,
+ * at least one letter, bounded length — never a plain quantity ("43894", "43,894.00").
+ */
+export function isPlausibleEmbeddedInvoiceRateCode(candidate: string | null | undefined): boolean {
+  if (candidate == null || typeof candidate !== 'string') return false;
+  const code = candidate.trim();
+  if (code.length === 0 || code.length > MAX_EMBEDDED_INVOICE_RATE_CODE_LEN) return false;
+  if (!/^\d+[A-Za-z]+$/.test(code)) return false;
+  if (EMBEDDED_INVOICE_RATE_ORDINAL_RE.test(code)) return false;
+  return true;
+}
+
+/** Extract leading rate-table code from "1A Vegetative …", "1A- Vegetative …", "1A - …", "1A: …". */
+export function splitEmbeddedInvoiceRateCode(description: string | null | undefined): {
+  rateCode: string | null;
+  remainder: string;
+} {
+  if (typeof description !== 'string') return { rateCode: null, remainder: '' };
+  const trimmed = description.trim();
+  if (!trimmed) return { rateCode: null, remainder: trimmed };
+
+  const punct = trimmed.match(/^(\d+[A-Za-z]+)\s*[-–—\u2013\u2014:]\s*(.+)$/);
+  if (
+    punct
+    && isPlausibleEmbeddedInvoiceRateCode(punct[1])
+  ) {
+    const remainder = punct[2].trim();
+    return {
+      rateCode: punct[1],
+      remainder: remainder.length > 0 ? remainder : trimmed,
+    };
+  }
+
+  const spaced = trimmed.match(/^(\d+[A-Za-z]+)\s+([A-Za-z].*)$/);
+  if (
+    spaced
+    && isPlausibleEmbeddedInvoiceRateCode(spaced[1])
+  ) {
+    return { rateCode: spaced[1], remainder: spaced[2].trim() };
+  }
+
+  return { rateCode: null, remainder: trimmed };
+}
+
+function invoiceLedgerRegexEscape(value: string): string {
+  return value.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+/**
+ * First plausible invoice-style rate token anywhere in the line (digit + letters), left-to-right.
+ * Excludes plain quantities (no letters) via isPlausibleEmbeddedInvoiceRateCode.
+ */
+function findFirstPlausibleEmbeddedInvoiceRateCodeToken(text: string): string | null {
+  const re = /\b(\d{1,4}[A-Za-z]{1,12})\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const cand = match[1] ?? '';
+    if (isPlausibleEmbeddedInvoiceRateCode(cand)) return cand;
+  }
+  return null;
+}
+
+function stripFirstEmbeddedInvoiceRateCodeFromText(text: string, code: string): string {
+  const esc = invoiceLedgerRegexEscape(code);
+  const leadHyphen = new RegExp(`^\\s*${esc}(?:\\s*[-–—\u2013\u2014:]\\s*)`, 'i');
+  const leadSpace = new RegExp(`^\\s*${esc}\\s+`, 'i');
+  if (leadHyphen.test(text)) return text.replace(leadHyphen, '').trim();
+  if (leadSpace.test(text)) return text.replace(leadSpace, '').trim();
+  const once = new RegExp(`\\b${esc}\\b`, 'i');
+  return text.replace(once, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+function embeddedRateSplitFromSingleField(trimmed: string): { rateCode: string; remainder: string } | null {
+  const leading = splitEmbeddedInvoiceRateCode(trimmed);
+  if (leading.rateCode) {
+    return { rateCode: leading.rateCode, remainder: leading.remainder };
+  }
+  const token = findFirstPlausibleEmbeddedInvoiceRateCodeToken(trimmed);
+  if (!token) return null;
+  return {
+    rateCode: token,
+    remainder: stripFirstEmbeddedInvoiceRateCodeFromText(trimmed, token),
+  };
+}
+
+/** When the richest description cell still echoes the extracted rate (`1A- …`), drop that prefix so Rate Code owns the token. */
+function stripMatchedLeadingRatePrefixFromInvoiceDescription(
+  resolvedRateTokenForDisplay: string | undefined | null,
+  unifiedDescriptionColumn: string,
+): string {
+  const d = unifiedDescriptionColumn.trim();
+  if (!d.length) return d;
+  const r = resolvedRateTokenForDisplay?.trim();
+  if (!r || !isPlausibleEmbeddedInvoiceRateCode(r)) return d;
+
+  const parsed = splitEmbeddedInvoiceRateCode(unifiedDescriptionColumn);
+  if (parsed.rateCode && parsed.rateCode.toLowerCase() === r.toLowerCase()) {
+    const out = parsed.remainder.trim();
+    /** Odd punctuation-only remainders shouldn't blank the user's cell. */
+    return out.length > 0 ? out : d;
+  }
+  return d;
+}
+
+/** Fields that carry joined / OCR row text (not the human description column). */
+const INVOICE_LEDGER_RAW_ROW_TEXT_KEYS = new Set<string>([
+  'raw_text_for_display',
+  'rawTextForDisplay',
+  'full_row_text',
+  'fullRowText',
+  'raw_text',
+  'rawText',
+  'line_text',
+  'lineText',
+  'text',
+]);
+
+function invoiceLedgerFieldIsRawRowSource(key: string): boolean {
+  return INVOICE_LEDGER_RAW_ROW_TEXT_KEYS.has(key);
+}
+
+/**
+ * Parse embedded rate codes in **most-complete row text first** (full OCR/joined line), then fall back to
+ * description columns. Per field: leading code, then mid-string token scan (`findFirstPlausible…`).
+ */
+function invoiceLedgerEmbeddedRateSplit(
+  record: Record<string, unknown>,
+  descFallback: string,
+): { rateCode: string | null; remainder: string; matchedKey: string | null } {
+  const keys = [
+    'raw_text_for_display',
+    'rawTextForDisplay',
+    'full_row_text',
+    'fullRowText',
+    'raw_text',
+    'rawText',
+    'line_text',
+    'lineText',
+    'text',
+    'line_description',
+    'lineDescription',
+    'description',
+    'desc',
+  ] as const;
+  for (const key of keys) {
+    const v = record[key];
+    if (typeof v !== 'string') continue;
+    const trimmed = v.trim();
+    if (!trimmed) continue;
+    const embedded = embeddedRateSplitFromSingleField(trimmed);
+    if (embedded) return { ...embedded, matchedKey: key };
+  }
+  return { rateCode: null, remainder: descFallback, matchedKey: null };
+}
+
+/**
+ * Prefer explicit structured invoice rate codes (`line_code`) when they look real (digits + letters, not qty leak).
+ * Embeddings / OCR row scans are skipped for code when this returns a value.
+ */
+function pickStructuredPlausibleInvoiceLineCode(code: string | null | undefined, quantity: unknown): string | undefined {
+  if (!code) return undefined;
+  const t = code.trim();
+  if (!t || !isPlausibleEmbeddedInvoiceRateCode(t)) return undefined;
+  if (lineCodeLooksLikeQuantityLeak(t, quantity)) return undefined;
+  return t;
+}
+
+function cloneFullPersistedInvoiceLineRecordForDebug(record: Record<string, unknown>): Record<string, unknown> {
+  /** Shallow copy so logs show every persisted key without masking undefined vs missing. */
+  return { ...record };
+}
+
+/**
+ * Persisted rows often split work across `line_description` vs `description` / `desc` (one truncated, one full).
+ * Pick the longest non-trivial candidate so vegetative lines don't lose "0 to 15" / "16 to 30" tails that still
+ * live in a secondary column (Tree lines like 5A often work because only one column is populated).
+ */
+const UNIFIED_INVOICE_DESCRIPTION_STRUCTURED_KEYS = [
+  'line_description',
+  'lineDescription',
+  'description',
+  'desc',
+] as const;
+
+function isUsdScalarOrNumericOnlyStub(text: string): boolean {
+  const t = text.trim();
+  if (!t.length) return true;
+  const noComma = t.replace(/,/g, '');
+  /** "$6.90" or "534757.10" with no prose */
+  if (/^\$[\d.]+$/.test(t.replace(/\s/g, ''))) return true;
+  if (/^-?\d+(?:\.\d+)?$/.test(noComma) && !/[A-Za-z]/.test(t)) return true;
+  return false;
+}
+
+function pickUnifiedInvoiceStructuredDescription(record: Record<string, unknown>): string {
+  const candidates: string[] = [];
+  for (const key of UNIFIED_INVOICE_DESCRIPTION_STRUCTURED_KEYS) {
+    const raw = record[key];
+    if (typeof raw !== 'string') continue;
+    const v = raw.trim();
+    if (!v.length) continue;
+    if (isUsdScalarOrNumericOnlyStub(v)) continue;
+    candidates.push(v);
+  }
+  if (!candidates.length) return '';
+  candidates.sort((a, b) => b.length - a.length);
+  return candidates[0] ?? '';
+}
+
+function snapshotInvoiceLineRecordForDebug(record: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'lineCode',
+    'line_code',
+    'lineDescription',
+    'line_description',
+    'description',
+    'desc',
+    'raw_text_for_display',
+    'rawTextForDisplay',
+    'full_row_text',
+    'fullRowText',
+    'raw_text',
+    'rawText',
+    'line_text',
+    'lineText',
+    'text',
+    'billing_rate_key',
+    'billingRateKey',
+    'quantity',
+    'qty',
+    'unitPrice',
+    'unit_price',
+    'lineTotal',
+    'line_total',
+  ] as const;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (record[k] !== undefined) out[k] = record[k];
+  }
+  return out;
+}
+
+function isInvoiceLineDebugEnabled(): boolean {
+  return typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_INVOICE_LINE_DEBUG === '1';
+}
+
+export function logInvoiceLineDebug(
+  stage: string,
+  params: {
+    index?: number;
+    record: Record<string, unknown>;
+    row?: Partial<InvoiceLedgerLineDisplayRow>;
+    extra?: Record<string, unknown>;
+  },
+): void {
+  if (!isInvoiceLineDebugEnabled()) return;
+  const r = params.record;
+  console.info(`[EightForge invoice line ${stage}]`, {
+    stage,
+    index: params.index,
+    line_code: r.line_code,
+    lineCode: r.lineCode,
+    description: r.description,
+    desc: r.desc,
+    line_description: r.line_description,
+    lineDescription: r.lineDescription,
+    raw_text: r.raw_text,
+    rawText: r.rawText,
+    raw_text_for_display: r.raw_text_for_display,
+    rawTextForDisplay: r.rawTextForDisplay,
+    full_row_text: r.full_row_text,
+    fullRowText: r.fullRowText,
+    text: r.text,
+    line_text: r.line_text,
+    lineText: r.lineText,
+    quantity: r.quantity,
+    qty: r.qty,
+    unit_price: r.unit_price,
+    unitPrice: r.unitPrice,
+    line_total: r.line_total,
+    lineTotal: r.lineTotal,
+    billing_rate_key: r.billing_rate_key,
+    billingRateKey: r.billingRateKey,
+    resolvedRateCode: params.row?.rateCode,
+    resolvedDescription: params.row?.description,
+    resolvedUnitPrice: params.row?.unitPrice,
+    ...(params.extra ?? {}),
+  });
+}
+
+export type InvoiceLedgerLineDisplayRow = {
+  rateCode: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  lineTotal: string;
+};
+
+function invoiceLedgerPick(record: Record<string, unknown>, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    if (record[key] != null) return record[key];
+  }
+  return null;
+}
+
+function invoiceLedgerScalarText(value: unknown): string {
+  if (value == null) return 'Unavailable';
+  if (typeof value === 'string') return value.trim() || 'Unavailable';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'Unavailable';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return 'Unavailable';
+}
+
+function invoiceLedgerSanitizeLineText(value: string): string {
+  if (value === '[object Object]') return 'Unavailable';
+  const trimmed = value.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return 'Unavailable';
+  return value;
+}
+
+function invoiceLedgerFirstRawLineText(record: Record<string, unknown>): string | null {
+  for (const key of ['raw_text', 'rawText', 'line_text', 'lineText', 'text'] as const) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function invoiceLedgerFormatQuantity(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
+  }
+  return invoiceLedgerScalarText(value);
+}
+
+function invoiceLedgerFormatMoney(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+  }
+  if (typeof value === 'string' && value.trim()) return value;
+  return 'Unavailable';
+}
+
+/**
+ * Operator-facing row for invoice Fact Ledger / Evidence workspace line tables.
+ * Prefer embedded description rate codes; never show quantity as code; suppress competing billing_rate_key tokens.
+ */
+export function buildInvoiceLedgerLineDisplay(record: Record<string, unknown>): InvoiceLedgerLineDisplayRow {
+  const columnDescTrim = pickUnifiedInvoiceStructuredDescription(record);
+  const rawDescFallback = invoiceLedgerPick(record, ['lineDescription', 'line_description', 'description', 'desc']);
+  const split = invoiceLedgerEmbeddedRateSplit(record, columnDescTrim);
+  const lineCodeField = invoiceLedgerPick(record, ['lineCode', 'line_code', 'code', 'rate_code']);
+  const lineCodeRawString =
+    lineCodeField == null
+      ? null
+      : typeof lineCodeField === 'string'
+        ? lineCodeField
+        : typeof lineCodeField === 'number' && Number.isFinite(lineCodeField)
+          ? String(lineCodeField)
+          : null;
+  const billingKeyRaw = invoiceLedgerPick(record, ['billing_rate_key', 'billingRateKey']);
+  let codeRaw = invoiceLedgerScalarText(lineCodeField);
+  let description =
+    columnDescTrim.length > 0 ? columnDescTrim : invoiceLedgerScalarText(rawDescFallback);
+  const qtyPick = invoiceLedgerPick(record, ['quantity', 'qty']);
+  const quantity = invoiceLedgerFormatQuantity(qtyPick);
+  const looksNumericCode = /^[\d,]+(?:\.\d+)?$/.test((codeRaw === 'Unavailable' ? '' : codeRaw).trim());
+  const qtyMatchesCode =
+    looksNumericCode
+    && typeof qtyPick === 'number'
+    && Number.isFinite(qtyPick)
+    && Math.abs(Number.parseFloat(String(codeRaw).replace(/,/g, '')) - qtyPick) < 0.000_001;
+
+  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCodeRawString, qtyPick);
+
+  if (structuredResolved) {
+    codeRaw = structuredResolved;
+  } else if (split.rateCode) {
+    codeRaw = split.rateCode;
+    const rem = split.remainder.trim();
+    const pref = columnDescTrim;
+    const parsedFromRawRow =
+      split.matchedKey != null && invoiceLedgerFieldIsRawRowSource(split.matchedKey);
+
+    if (!pref.length && rem.length > 0) {
+      /** No clean description column — use fuller row-derived text when OCR joined code + qty + money into one blob. */
+      if (!parsedFromRawRow) {
+        description = rem;
+      } else {
+        description = rem;
+      }
+    }
+  } else {
+    const bk = billingKeyRaw != null ? String(billingKeyRaw).trim() : '';
+    const billingLooksLikeRateToken = /^\d+[A-Za-z]+$/.test(bk);
+    if (
+      (codeRaw === 'Unavailable' || qtyMatchesCode || looksNumericCode)
+      && billingLooksLikeRateToken
+    ) {
+      codeRaw = bk;
+    } else if (qtyMatchesCode || looksNumericCode) {
+      codeRaw = 'Unavailable';
+    }
+  }
+
+  if (columnDescTrim.length > 0) {
+    /** Unified column wins — strip echoed rate prefix when Rate Code duplicates it. */
+    const rateTokForStrip = codeRaw !== 'Unavailable' && codeRaw.trim() ? codeRaw.trim() : '';
+    description = stripMatchedLeadingRatePrefixFromInvoiceDescription(rateTokForStrip, columnDescTrim);
+  }
+
+  description = invoiceLedgerSanitizeLineText(description);
+  codeRaw = invoiceLedgerSanitizeLineText(codeRaw);
+
+  const lineTotalPick = invoiceLedgerPick(record, ['lineTotal', 'line_total', 'total', 'amount']);
+  const structuredUnitPick = invoiceLedgerPick(record, ['unitPrice', 'unit_price', 'price', 'unitRate', 'unit_rate']);
+  const resolvedUnitPrice = resolveInvoiceLineUnitPrice({
+    structuredUnitPrice: asLooseNumber(structuredUnitPick),
+    quantity: asLooseNumber(qtyPick),
+    lineTotal: asLooseNumber(lineTotalPick),
+    rawText: invoiceLedgerFirstRawLineText(record),
+  });
+
+  const row: InvoiceLedgerLineDisplayRow = {
+    rateCode: codeRaw,
+    description,
+    quantity,
+    unitPrice: invoiceLedgerFormatMoney(resolvedUnitPrice),
+    lineTotal: invoiceLedgerFormatMoney(lineTotalPick),
+  };
+
+  if (isInvoiceLineDebugEnabled()) {
+    logInvoiceLineDebug('buildInvoiceLedgerLineDisplay', {
+      record,
+      row,
+      extra: {
+        recordIn: snapshotInvoiceLineRecordForDebug(record),
+        lineTotalPick,
+        resolvedUnitPrice,
+        unitPriceDisplayed: row.unitPrice,
+      },
+    });
+  }
+
+  return row;
+}
+
+/** Same mapping as InvoiceSurface billed-line table inputs to `buildInvoiceLedgerLineDisplay` (single source for tests/UI). */
+export function invoiceSurfaceLineItemToLedgerRecord(item: Record<string, unknown>): Record<string, unknown> {
+  const r = item;
+  return {
+    lineCode: r.lineCode ?? r.line_code,
+    lineDescription: r.lineDescription ?? r.line_description,
+    line_description: r.line_description ?? r.lineDescription,
+    /** Explicit secondary columns — `buildInvoiceLedgerLineDisplay` unions these via `pickUnifiedInvoiceStructuredDescription`. */
+    description: r.description,
+    desc: r.desc,
+    quantity: r.quantity ?? r.qty,
+    unit_price: r.unitPrice ?? r.unit_price,
+    line_total: r.lineTotal ?? r.line_total,
+    billing_rate_key: r.billingRateKey ?? r.billing_rate_key,
+    raw_text: r.raw_text ?? r.rawText,
+    raw_text_for_display: r.raw_text_for_display ?? r.rawTextForDisplay,
+    full_row_text: r.full_row_text ?? r.fullRowText,
+    line_text: r.line_text ?? r.lineText,
+    text: r.text,
+  };
+}
+
+function compactNumberishToken(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return null;
+  return value.replace(/,/g, '').replace(/\s+/g, '').trim() || null;
+}
+
+function lineCodeLooksLikeQuantityLeak(code: string | null | undefined, quantity: unknown): boolean {
+  if (!code) return true;
+  const codeToken = compactNumberishToken(code.replace(/,/g, ''));
+  const qtyToken = compactNumberishToken(quantity);
+  if (!codeToken || !qtyToken) return /^\d[\d,]*(?:\.\d+)?$/.test(code.trim());
+  return codeToken === qtyToken;
+}
+
+/** Preserve raw row strings for downstream `invoiceLedgerEmbeddedRateSplit` (typed payloads often omit code in description only). */
+function passthroughInvoiceLineTextField(record: Record<string, unknown>, key: string): string | undefined {
+  const v = record[key];
+  return typeof v === 'string' ? v : undefined;
+}
+
+function passthroughInvoiceLineTextFields(record: Record<string, unknown>): Partial<Record<string, string>> {
+  const keys = ['raw_text', 'rawText', 'line_text', 'lineText', 'text'] as const;
+  const out: Partial<Record<string, string>> = {};
+  for (const key of keys) {
+    const s = passthroughInvoiceLineTextField(record, key);
+    if (s !== undefined) (out as Record<string, string>)[key] = s;
+  }
+  return out;
+}
+
+function passthroughInvoiceLineFullRowDisplayFields(record: Record<string, unknown>): Partial<Record<string, string>> {
+  const keys = ['raw_text_for_display', 'rawTextForDisplay', 'full_row_text', 'fullRowText'] as const;
+  const out: Partial<Record<string, string>> = {};
+  for (const key of keys) {
+    const s = passthroughInvoiceLineTextField(record, key);
+    if (s !== undefined) (out as Record<string, string>)[key] = s;
+  }
+  return out;
+}
+
+function normalizeInvoiceSurfaceLineItem(
+  value: unknown,
+  index?: number,
+): NonNullable<InvoiceExtraction['lineItems']>[number] | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  logInvoiceLineDebug('normalizeInvoiceSurfaceLineItem input', {
+    index,
+    record: record as Record<string, unknown>,
+    extra: {
+      fullPersistedRow: cloneFullPersistedInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      unifiedDescriptionPick: pickUnifiedInvoiceStructuredDescription(record as Record<string, unknown>),
+    },
+  });
+
+  const lineCode =
+    readLooseString(record.line_code)
+    ?? readLooseString(record.lineCode)
+    ?? readLooseString(record.code)
+    ?? readLooseString(record.rate_code);
+  const quantity = asLooseNumber(record.quantity ?? record.qty);
+  const unit = readLooseString(record.unit);
+  const lineTotal = asLooseNumber(record.line_total ?? record.lineTotal ?? record.total ?? record.amount);
+  const structuredUnitPrice = asLooseNumber(
+    record.unit_price
+    ?? record.unitPrice
+    ?? record.price
+    ?? record.unitRate
+    ?? record.unit_rate,
+  );
+  const rawMerged =
+    passthroughInvoiceLineTextField(record, 'raw_text')
+    ?? passthroughInvoiceLineTextField(record, 'rawText')
+    ?? passthroughInvoiceLineTextField(record, 'line_text')
+    ?? passthroughInvoiceLineTextField(record, 'lineText')
+    ?? passthroughInvoiceLineTextField(record, 'text');
+  const unitPrice = resolveInvoiceLineUnitPrice({
+    structuredUnitPrice,
+    quantity,
+    lineTotal,
+    rawText: rawMerged,
+  });
+  const billingRateKey =
+    readLooseString(record.billing_rate_key)
+    ?? readLooseString(record.billingRateKey);
+  const descriptionMatchKey =
+    readLooseString(record.description_match_key)
+    ?? readLooseString(record.descriptionMatchKey);
+
+  const unifiedDescTrim = pickUnifiedInvoiceStructuredDescription(record as Record<string, unknown>);
+  const embedded = invoiceLedgerEmbeddedRateSplit(record as Record<string, unknown>, unifiedDescTrim);
+  const codeCapturedAsQty = lineCodeLooksLikeQuantityLeak(lineCode, quantity);
+  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCode, quantity);
+
+  let resolvedCode: string | undefined;
+  let lineDescriptionOut = unifiedDescTrim;
+
+  if (structuredResolved) {
+    resolvedCode = structuredResolved;
+  } else if (embedded.rateCode) {
+    resolvedCode = embedded.rateCode;
+    if (!unifiedDescTrim.length) {
+      const rem = embedded.remainder.trim();
+      /** No structured prose cells — OCR remainder is the best available narrative text. */
+      if (rem.length > 0) lineDescriptionOut = rem;
+    }
+  } else if (codeCapturedAsQty) {
+    resolvedCode = undefined;
+  } else if (lineCode?.trim()) {
+    const lc = lineCode.trim();
+    if (!codeCapturedAsQty && isPlausibleEmbeddedInvoiceRateCode(lc)) resolvedCode = lc;
+  }
+
+  if (
+    !lineDescriptionOut
+    && !resolvedCode
+    && quantity == null
+    && unitPrice == null
+    && lineTotal == null
+  ) {
+    return null;
+  }
+
+  let outboundBillingRateKey = billingRateKey ?? undefined;
+  const suppressBillingAgainst = resolvedCode;
+  if (suppressBillingAgainst && outboundBillingRateKey) {
+    const bk = outboundBillingRateKey.trim();
+    if (/^\d+[A-Za-z]+$/.test(bk)) {
+      outboundBillingRateKey = undefined;
+    } else if (bk.toLowerCase() === suppressBillingAgainst.toLowerCase()) {
+      outboundBillingRateKey = undefined;
+    }
+  }
+
+  const rateForStrip = resolvedCode && resolvedCode.trim() ? resolvedCode.trim() : '';
+  lineDescriptionOut = stripMatchedLeadingRatePrefixFromInvoiceDescription(rateForStrip, lineDescriptionOut);
+
+  const out: NonNullable<InvoiceExtraction['lineItems']>[number] = {
+    lineCode: resolvedCode,
+    lineDescription: lineDescriptionOut || undefined,
+    quantity: quantity ?? undefined,
+    unit: unit ?? undefined,
+    unitPrice: unitPrice ?? undefined,
+    lineTotal: lineTotal ?? undefined,
+    billingRateKey: outboundBillingRateKey ?? undefined,
+    descriptionMatchKey: descriptionMatchKey ?? undefined,
+    ...passthroughInvoiceLineTextFields(record),
+    ...passthroughInvoiceLineFullRowDisplayFields(record),
+  };
+
+  logInvoiceLineDebug('normalized invoice extraction lineItems', {
+    index,
+    record: out as Record<string, unknown>,
+    row: {
+      rateCode: out.lineCode ?? 'Unavailable',
+      description: out.lineDescription ?? 'Unavailable',
+      unitPrice: out.unitPrice != null ? invoiceLedgerFormatMoney(out.unitPrice) : undefined,
+    },
+    extra: {
+      recordIn: snapshotInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      normalizedOut: { ...out },
+    },
+  });
+
+  return out;
+}
+
+function effectiveInvoiceFactValue(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): unknown {
+  if (!facts || facts.length === 0) return null;
+  const wanted = new Set(keys.map((key) => canonicalFieldKey(key, family)));
+  const fact = facts.find((candidate) =>
+    wanted.has(canonicalFieldKey(candidate.fieldKey, family)),
+  );
+  if (!fact) return null;
+  return fact.humanValue ?? fact.normalizedValue ?? fact.valueText ?? null;
+}
+
+function effectiveInvoiceFactString(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): string | null {
+  const value = effectiveInvoiceFactValue(facts, family, keys);
+  return readLooseString(value);
+}
+
+function effectiveInvoiceFactNumber(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): number | null {
+  const value = effectiveInvoiceFactValue(facts, family, keys);
+  return asLooseNumber(value);
+}
+
+function effectiveInvoiceFactArray(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+  keys: readonly string[],
+): unknown[] | null {
+  if (!facts || facts.length === 0) return null;
+  const wanted = new Set(keys.map((key) => canonicalFieldKey(key, family)));
+  const fact = facts.find((candidate) =>
+    wanted.has(canonicalFieldKey(candidate.fieldKey, family)) &&
+    (candidate.reviewState === 'reviewed' || candidate.reviewState === 'overridden'),
+  );
+  if (!fact) return null;
+  const value = fact.humanValue ?? fact.normalizedValue;
+  return Array.isArray(value) ? value : null;
+}
+
+function toInvoiceSurfaceExtraction(params: {
+  typedFields: Record<string, unknown>;
+  extracted: Record<string, unknown>;
+  extractionData?: Record<string, unknown> | null;
+  effectiveFacts?: readonly DocumentFact[];
+  family?: DocumentFamily;
+}): InvoiceExtraction | null {
+  const source = {
+    ...params.extracted,
+    ...params.typedFields,
+  };
+  const family = params.family ?? 'invoice';
+
+  const invoiceNumberRaw =
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['invoice_number'])
+    ?? readLooseString(source.invoice_number_raw)
+    ?? readLooseString(source.invoice_number)
+    ?? readLooseString(source.invoiceNumber);
+  const invoiceNumber =
+    normalizeCanonicalInvoiceNumber(invoiceNumberRaw)
+    ?? invoiceNumberRaw;
+  const invoiceStatus =
+    readLooseString(source.invoice_status)
+    ?? readLooseString(source.invoiceStatus);
+  const invoiceDate =
+    readLooseString(source.invoice_date)
+    ?? readLooseString(source.invoiceDate);
+  const periodFrom =
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['period_start', 'service_period_start'])
+    ?? readLooseString(source.service_period_start)
+    ?? readLooseString(source.period_start)
+    ?? readLooseString(source.periodFrom);
+  const periodTo =
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['period_end', 'service_period_end'])
+    ?? readLooseString(source.service_period_end)
+    ?? readLooseString(source.period_end)
+    ?? readLooseString(source.periodTo);
+  const periodThrough =
+    readLooseString(source.period_through)
+    ?? readLooseString(source.periodThrough);
+  const vendorNameRaw =
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['contractor_name', 'vendor_name'])
+    ?? readLooseString(source.vendor_name)
+    ?? readLooseString(source.contractorName);
+  const vendorName = normalizeInvoiceContractorDisplay(vendorNameRaw) ?? vendorNameRaw ?? null;
+  const clientName =
+    effectiveInvoiceFactString(params.effectiveFacts, family, ['client_name', 'owner_name', 'bill_to_name'])
+    ?? readLooseString(source.client_name)
+    ?? readLooseString(source.clientName)
+    ?? readLooseString(source.ownerName)
+    ?? readLooseString(source.bill_to_name);
+  const subtotalAmount =
+    asLooseNumber(source.subtotal_amount)
+    ?? asLooseNumber(source.subtotalAmount);
+  const totalAmount =
+    effectiveInvoiceFactNumber(params.effectiveFacts, family, ['billed_amount', 'total_amount', 'invoice_total'])
+    ?? asLooseNumber(source.total_amount)
+    ?? asLooseNumber(source.totalAmount)
+    ?? asLooseNumber(source.billed_amount)
+    ?? asLooseNumber(source.current_amount_due)
+    ?? asLooseNumber(source.currentPaymentDue);
+  const currentPaymentDue =
+    asLooseNumber(source.current_amount_due)
+    ?? asLooseNumber(source.currentPaymentDue)
+    ?? totalAmount;
+
+  const persistedLineItems =
+    effectiveInvoiceFactArray(params.effectiveFacts, family, ['invoice_line_items', 'line_items'])
+    ?? asArray<unknown>(source.line_items ?? source.lineItems);
+  persistedLineItems.forEach((line, index) => {
+    const record = asRecord(line);
+    if (!record) return;
+    logInvoiceLineDebug('document_extractions.data.fields.typed_fields.line_items', {
+      index,
+      record: record as Record<string, unknown>,
+      extra: {
+        fullPersistedRow: cloneFullPersistedInvoiceLineRecordForDebug(record as Record<string, unknown>),
+      },
+    });
+  });
+
+  const lineItemSource = recoverInvoiceLineItemsFromExtractionData({
+    lineItems: persistedLineItems,
+    extractionData: params.extractionData,
+  });
+  const lineItems = lineItemSource
+    .map((line, index) => normalizeInvoiceSurfaceLineItem(line, index))
+    .filter((line): line is NonNullable<InvoiceExtraction['lineItems']>[number] => line != null);
+  const lineItemCount =
+    asLooseNumber(source.line_item_count)
+    ?? asLooseNumber(source.lineItemCount)
+    ?? (lineItems.length > 0 ? lineItems.length : null);
+
+  if (
+    !invoiceNumber
+    && !vendorName
+    && !clientName
+    && invoiceDate == null
+    && totalAmount == null
+    && lineItems.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    invoiceNumber: invoiceNumber ?? undefined,
+    invoice_number: invoiceNumber ?? null,
+    invoice_number_raw: invoiceNumberRaw ?? null,
+    invoice_number_normalized: invoiceNumber ?? null,
+    contractorName: vendorName ?? undefined,
+    vendor_name: vendorName ?? null,
+    ownerName: clientName ?? undefined,
+    clientName: clientName ?? undefined,
+    client_name: clientName ?? null,
+    invoiceStatus: invoiceStatus ?? undefined,
+    invoice_status: invoiceStatus ?? null,
+    invoiceDate: invoiceDate ?? undefined,
+    invoice_date: invoiceDate ?? null,
+    periodFrom: periodFrom ?? undefined,
+    periodTo: periodTo ?? undefined,
+    periodThrough: periodThrough ?? undefined,
+    period_start: periodFrom ?? null,
+    period_end: periodTo ?? null,
+    period_through: periodThrough ?? null,
+    service_period_start: periodFrom ?? null,
+    service_period_end: (periodTo ?? periodThrough) ?? null,
+    subtotalAmount: subtotalAmount ?? undefined,
+    subtotal_amount: subtotalAmount ?? null,
+    totalAmount: totalAmount ?? undefined,
+    total_amount: totalAmount ?? null,
+    currentPaymentDue: currentPaymentDue ?? undefined,
+    current_amount_due: currentPaymentDue ?? null,
+    lineItemCount: lineItemCount ?? undefined,
+    line_item_count: lineItemCount ?? null,
+    lineItems,
+    line_items: lineItems.map((line) => {
+      const l = line as Record<string, unknown>;
+      return {
+        line_code: line.lineCode ?? null,
+        line_description: line.lineDescription ?? null,
+        quantity: line.quantity ?? null,
+        unit: line.unit ?? null,
+        unit_price: line.unitPrice ?? null,
+        line_total: line.lineTotal ?? null,
+        billing_rate_key: line.billingRateKey ?? null,
+        description_match_key: line.descriptionMatchKey ?? null,
+        raw_text: passthroughInvoiceLineTextField(l, 'raw_text') ?? passthroughInvoiceLineTextField(l, 'rawText') ?? null,
+        raw_text_for_display:
+          passthroughInvoiceLineTextField(l, 'raw_text_for_display')
+          ?? passthroughInvoiceLineTextField(l, 'rawTextForDisplay')
+          ?? null,
+        full_row_text:
+          passthroughInvoiceLineTextField(l, 'full_row_text')
+          ?? passthroughInvoiceLineTextField(l, 'fullRowText')
+          ?? null,
+        line_text: passthroughInvoiceLineTextField(l, 'line_text') ?? passthroughInvoiceLineTextField(l, 'lineText') ?? null,
+        text: passthroughInvoiceLineTextField(l, 'text') ?? null,
+      };
+    }),
+  };
+}
+
+function dedupePipelineAliasFacts<T extends { fieldKey: string }>(
+  facts: readonly T[],
+  family: DocumentFamily,
+): T[] {
+  const canonicalCounts = facts.reduce((map, fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, family);
+    map.set(key, (map.get(key) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
+
+  return facts.filter((fact) => {
+    const key = canonicalFieldKey(fact.fieldKey, family);
+    return fact.fieldKey === key || (canonicalCounts.get(key) ?? 0) === 1;
+  });
+}
+
 export function buildDocumentIntelligenceViewModel(params: BuildParams): DocumentIntelligenceViewModel {
   const extractionData = params.preferredExtraction?.data ?? null;
   const extraction = asRecord(extractionData?.extraction);
@@ -2593,7 +5709,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   const structuredFields = asRecord(asRecord(extraction?.evidence_v1)?.structured_fields) ?? {};
   const sectionSignals = asRecord(asRecord(extraction?.evidence_v1)?.section_signals) ?? {};
   const traceFacts = params.executionTrace?.facts ?? {};
-  const extracted = params.executionTrace?.extracted ?? {};
+  const traceExtracted = params.executionTrace?.extracted ?? {};
   const extractionVersion =
     params.executionTrace?.engine_version ??
     (typeof asRecord(extraction?.evidence_v1)?.parser_version === 'string'
@@ -2611,6 +5727,10 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     relatedDocs: params.relatedDocs,
   });
   const normalizedNode = normalizeNode(extractedNode);
+  const extracted = {
+    ...normalizedNode.extracted,
+    ...traceExtracted,
+  };
   const primaryDocument = applyContractorIdentityResolutionToNormalizedDocument(normalizedNode.primaryDocument);
   const relatedDocuments = normalizedNode.relatedDocuments.map(applyContractorIdentityResolutionToNormalizedDocument);
   const normalizedNodeForFacts = {
@@ -2619,6 +5739,15 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     relatedDocuments,
   };
   const family = primaryDocument.family;
+  // Row-backed canonical transaction summary — the same source the Spreadsheet Review
+  // surface and Forge consume. The Fact Ledger's spreadsheet facts are re-pointed at
+  // this (instead of the extraction blob) further below.
+  const rowBackedCanonicalTransactionSummary =
+    family === 'spreadsheet' && (params.transactionRows?.length ?? 0) > 0
+      ? buildCanonicalTransactionSummaryFromRows(
+          (params.transactionRows ?? []) as unknown as CanonicalProjectTransactionRowInput[],
+        )
+      : null;
   const rawValueMap = buildRawSourceMap({
     typedFields,
     structuredFields,
@@ -2637,7 +5766,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     ) ?? null;
   const evidenceById = new Map(normalizedNodeForFacts.evidence.map((evidence) => [evidence.id, evidence] as const));
 
-  const pipelineFacts = primaryDocument.facts.map((fact) => {
+  const pipelineFacts = dedupePipelineAliasFacts(primaryDocument.facts.map((fact) => {
     const anchors = dedupeAnchors(
       fact.evidence_refs
         .map((ref) => evidenceById.get(ref) ?? null)
@@ -2659,6 +5788,18 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     let normalizedDisplay = formatFactValue(fact.value, valueType);
     if (ratePriceNoOverallCeiling) {
       normalizedDisplay = contractCeilingSummary('rate_based');
+    } else if (family === 'invoice') {
+      const canon = canonicalFieldKey(fact.key, family);
+      if (canon === 'contractor_name' || fact.key === 'vendor_name') {
+        const coerced = normalizeInvoiceContractorDisplay(
+          typeof fact.value === 'string'
+            ? fact.value
+            : fact.value != null
+              ? scalarToString(fact.value)
+              : null,
+        );
+        if (coerced) normalizedDisplay = coerced;
+      }
     }
     const notes: string[] = [];
     if (rawValue && rawValue !== normalizedDisplay) notes.push(`Raw source: ${rawValue}`);
@@ -2717,15 +5858,23 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
 
     const machineSource = fact.identity_resolution_source_value;
     if (typeof machineSource === 'string' && machineSource.trim().length > 0) {
+      let machineDisplay = formatFactValue(machineSource, valueType);
+      if (family === 'invoice') {
+        const canon = canonicalFieldKey(fact.key, family);
+        if (canon === 'contractor_name' || fact.key === 'vendor_name') {
+          const display = normalizeInvoiceContractorDisplay(machineSource);
+          if (display) machineDisplay = display;
+        }
+      }
       return {
         ...baseFact,
         machineValue: machineSource,
-        machineDisplay: formatFactValue(machineSource, valueType),
+        machineDisplay,
       };
     }
 
     return baseFact;
-  });
+  }), family);
 
   const existingKeys = new Set(pipelineFacts.map((fact) => canonicalFieldKey(fact.fieldKey, family)));
   const additionalFacts = buildAdditionalFacts({
@@ -2794,7 +5943,12 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     anchorRecord: humanRateScheduleAnchorRecord,
   });
 
-  const facts = rateScheduleOverlay.facts.sort((left, right) => {
+  const facts = applyRowBackedSpreadsheetFacts({
+    facts: filterDisplayFactsForFamily(rateScheduleOverlay.facts, family),
+    family,
+    rowBackedSummary: rowBackedCanonicalTransactionSummary,
+    documentId: params.documentId,
+  }).sort((left, right) => {
     const leftGroup = resolveSchemaGroup(family, left.fieldKey);
     const rightGroup = resolveSchemaGroup(family, right.fieldKey);
     if (leftGroup.order !== rightGroup.order) return leftGroup.order - rightGroup.order;
@@ -2858,45 +6012,53 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     facts,
   });
   const schema = schemaStatus(facts);
+  const sourceTextPages = buildSourceTextPages(extractionData);
 
   const anchorCoverage = computeAnchorCoverage(facts);
 
   const hasExtractedKeys = Object.keys(extracted).length > 0;
   const isTransactionDataType = (params.documentType ?? '').toLowerCase().includes('transaction_data');
   const invoiceExtraction: InvoiceExtraction | null =
-    family === 'invoice' && hasExtractedKeys ? (extracted as unknown as InvoiceExtraction) : null;
-  const transactionDataExtraction: TransactionDataExtraction | null =
-    family === 'spreadsheet' && isTransactionDataType && hasExtractedKeys
-      ? (extracted as unknown as TransactionDataExtraction)
-      : null;
-
-  // Fallback: for spreadsheets whose data was stored via the pre-v2 pipeline path
-  // (preferredExtraction.data.extraction.evidence_v1.structured_fields) rather than
-  // executionTrace.extracted, read records and ops directly from structuredFields.
-  const spreadsheetStructuredRecords =
-    transactionDataExtraction == null &&
-    family === 'spreadsheet' &&
-    Array.isArray(structuredFields.transaction_data_records)
-      ? (structuredFields.transaction_data_records as TransactionDataRecord[])
-      : null;
-  const spreadsheetStructuredOps =
-    spreadsheetStructuredRecords != null &&
-    structuredFields.project_operations_overview != null
-      ? (structuredFields.project_operations_overview as TransactionDataProjectOperationsOverview)
-      : null;
-
-  const spreadsheetFactWorkspaceDatasetSummary =
-    transactionDataExtraction
-      ? buildSpreadsheetFactWorkspaceDatasetSummary({
-          ops: transactionDataExtraction.projectOperationsOverview ?? null,
-          records: transactionDataExtraction.records ?? [],
+    family === 'invoice'
+      ? toInvoiceSurfaceExtraction({
+          typedFields,
+          extracted,
+          extractionData,
+          effectiveFacts: factsWithAnchors,
+          family,
         })
-      : spreadsheetStructuredRecords != null
-        ? buildSpreadsheetFactWorkspaceDatasetSummary({
-            ops: spreadsheetStructuredOps,
-            records: spreadsheetStructuredRecords,
-          })
-        : null;
+      : null;
+  const preferredTransactionDataExtraction: TransactionDataExtraction | null =
+    family === 'spreadsheet' && isTransactionDataType
+      ? asTransactionDataExtraction(normalizedNode.extracted)
+      : null;
+  const traceTransactionDataExtraction: TransactionDataExtraction | null =
+    family === 'spreadsheet' && isTransactionDataType && hasExtractedKeys
+      ? asTransactionDataExtraction(extracted)
+      : null;
+  const transactionDataExtraction: TransactionDataExtraction | null =
+    preferredTransactionDataExtraction
+    ?? traceTransactionDataExtraction;
+  const contractRateRows =
+    family === 'contract'
+      ? toDocumentContractRateRows(params.executionTrace?.contract_analysis?.rate_schedule_rows)
+      : [];
+  const contractPricingAssemblyRows =
+    family === 'contract'
+      ? assembleContractPricingRows(params.executionTrace?.contract_analysis?.rate_schedule_rows, {
+          canonicalRows: asArray(
+            asRecord(extracted.canonicalContractRateScheduleAssembly)?.rows,
+          ),
+          typedRows: asArray(typedFields.rate_table),
+        })
+      : [];
+  const spreadsheetReviewDataset = toSpreadsheetReviewDataset(transactionDataExtraction, {
+    projectValidationSummary: params.projectValidationSummary ?? null,
+    projectValidationStatus: params.projectValidationStatus ?? null,
+    projectValidationFindings: params.projectValidationFindings,
+    transactionDatasets: params.transactionDatasets ?? [],
+    transactionRows: params.transactionRows ?? [],
+  });
 
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_EIGHTFORGE_ANCHOR_COVERAGE_LOG === '1') {
     console.info('[EightForge anchor coverage]', {
@@ -2927,6 +6089,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     parserStatus: parser,
     schemaMappingStatus: schema,
     sourceModeLabel: sourceMode,
+    sourceTextPages,
     rateScheduleSource: rateScheduleOverlay.rateScheduleSource,
     rateSchedulePages: rateScheduleOverlay.rateSchedulePages,
     rateScheduleAnchor: rateScheduleOverlay.rateScheduleAnchor,
@@ -2938,6 +6101,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
       extractionData,
       extractionHistory: params.extractionHistory,
       executionTrace: params.executionTrace,
+      extracted,
       groups,
       facts,
       auditNotes: params.auditNotes,
@@ -2945,6 +6109,8 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     }),
     invoiceExtraction,
     transactionDataExtraction,
-    spreadsheetFactWorkspaceDatasetSummary,
+    spreadsheetReviewDataset,
+    contractRateRows,
+    contractPricingAssemblyRows,
   };
 }

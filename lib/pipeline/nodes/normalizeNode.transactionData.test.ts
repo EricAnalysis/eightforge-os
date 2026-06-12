@@ -5,12 +5,26 @@ import { utils, write } from 'xlsx';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import type { TransactionDataExtraction } from '@/lib/types/documentIntelligence';
+
+type TransactionDataExtractionWithRollups = TransactionDataExtraction & {
+  summary: NonNullable<TransactionDataExtraction['summary']>;
+  rollups: NonNullable<TransactionDataExtraction['rollups']>;
+};
 
 function workbookBytes(rows: unknown[][]): ArrayBuffer {
   const workbook = utils.book_new();
   utils.book_append_sheet(workbook, utils.aoa_to_sheet(rows), 'ticket_query');
   const buffer = write(workbook, { type: 'buffer', bookType: 'xlsx' });
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+
+function assertTransactionDataExtraction(value: unknown): asserts value is TransactionDataExtractionWithRollups {
+  if (typeof value !== 'object' || value == null) {
+    assert.fail('Expected transaction data extraction object');
+  }
+  assert.ok('summary' in value);
+  assert.ok('rollups' in value);
 }
 
 describe('normalizeNode transaction_data', () => {
@@ -55,7 +69,7 @@ describe('normalizeNode transaction_data', () => {
     assert.equal(facts.distinct_invoice_count?.value, 2);
     assert.equal(facts.total_invoiced_amount?.value, 100.5);
     assert.equal(facts.uninvoiced_line_count?.value, 0);
-    assert.equal(facts.unknown_eligibility_count?.value, 2);
+    assert.equal(facts.ineligible_count?.value, 2);
     assert.equal(facts.rows_with_missing_rate_code?.value, 1);
     assert.equal(facts.rows_with_missing_invoice_number?.value, 0);
     assert.equal(facts.rows_with_missing_quantity?.value, 1);
@@ -140,6 +154,8 @@ describe('normalizeNode transaction_data', () => {
         total_cyd: 0,
         distinct_rate_codes: [],
         distinct_invoice_numbers: ['INV-101'],
+        eligible_count: 0,
+        ineligible_count: 1,
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 1,
         record_ids: ['transaction:ticket_query:4'],
@@ -153,6 +169,8 @@ describe('normalizeNode transaction_data', () => {
         total_cyd: 0,
         distinct_rate_codes: ['RC01'],
         distinct_invoice_numbers: ['INV-100'],
+        eligible_count: 0,
+        ineligible_count: 1,
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 1,
         record_ids: ['transaction:ticket_query:3'],
@@ -170,6 +188,8 @@ describe('normalizeNode transaction_data', () => {
         distinct_invoice_numbers: ['INV-101'],
         site_types: [],
         disposal_sites: [],
+        eligible_count: 0,
+        ineligible_count: 1,
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 1,
         record_ids: ['transaction:ticket_query:4'],
@@ -185,6 +205,8 @@ describe('normalizeNode transaction_data', () => {
         distinct_invoice_numbers: ['INV-100'],
         site_types: [],
         disposal_sites: [],
+        eligible_count: 0,
+        ineligible_count: 1,
         uninvoiced_line_count: 0,
         invoiced_ticket_count: 1,
         record_ids: ['transaction:ticket_query:3'],
@@ -205,55 +227,52 @@ describe('normalizeNode transaction_data', () => {
       reasons: string[];
       metrics: { extended_cost: number | null; transaction_quantity: number | null };
     }>;
-    assert.equal(outlierRows.length, 2);
-    assert.equal(outlierRows[0]?.record_id, 'transaction:ticket_query:3');
-    assert.equal(outlierRows[0]?.source_row_number, 3);
-    assert.deepEqual(outlierRows[0]?.reasons, ['Debris class at disposal site review']);
-    assert.equal(outlierRows[0]?.metrics.extended_cost, 100.5);
-    assert.equal(outlierRows[1]?.record_id, 'transaction:ticket_query:4');
-    assert.equal(outlierRows[1]?.source_row_number, 4);
-    assert.deepEqual(outlierRows[1]?.reasons, [
-      'Debris class at disposal site review',
+    assert.equal(outlierRows.length, 1);
+    assert.equal(outlierRows[0]?.record_id, 'transaction:ticket_query:4');
+    assert.equal(outlierRows[0]?.source_row_number, 4);
+    assert.deepEqual(outlierRows[0]?.reasons, [
       'missing extended cost',
       'missing quantity',
       'missing rate code',
     ]);
-    assert.equal(outlierRows[1]?.metrics.extended_cost, null);
+    assert.equal(outlierRows[0]?.metrics.extended_cost, null);
     assert.ok(Array.isArray(facts.transaction_data_records?.value));
     assert.equal((facts.transaction_data_records?.value as Array<unknown>).length, 2);
-    assert.deepEqual(normalized.extracted.sheetNames, ['ticket_query']);
-    assert.equal(normalized.extracted.inferredProjectName, 'Williamson County');
-    assert.equal(normalized.extracted.summary.row_count, 2);
-    assert.equal(normalized.extracted.summary.total_tickets, 2);
-    assert.equal(normalized.extracted.summary.distinct_invoice_count, 2);
-    assert.equal(normalized.extracted.summary.total_invoiced_amount, 100.5);
-    assert.equal(normalized.extracted.summary.inferred_date_range_start, '2026-01-05');
-    assert.equal(normalized.extracted.summary.inferred_date_range_end, '2026-01-06');
-    assert.equal(normalized.extracted.rollups.totalExtendedCost, 100.5);
-    assert.equal(normalized.extracted.rollups.totalTickets, 2);
-    assert.equal(normalized.extracted.rollups.totalCyd, 0);
-    assert.equal(normalized.extracted.rollups.distinctInvoiceCount, 2);
-    assert.equal(normalized.extracted.rollups.totalInvoicedAmount, 100.5);
-    assert.equal(normalized.extracted.rollups.rowsWithMissingRateCode, 1);
-    assert.equal(normalized.extracted.rollups.rowsWithMissingInvoiceNumber, 0);
-    assert.equal(normalized.extracted.rollups.rowsWithZeroCost, 0);
-    assert.equal(normalized.extracted.rollups.rowsWithExtremeUnitRate, 0);
-    assert.deepEqual(normalized.extracted.rollups.groupedByRateCode, facts.grouped_by_rate_code?.value);
-    assert.deepEqual(normalized.extracted.rollups.groupedByInvoice, facts.grouped_by_invoice?.value);
+    const transactionExtracted = normalized.extracted;
+    assertTransactionDataExtraction(transactionExtracted);
+    assert.deepEqual(transactionExtracted.sheetNames, ['ticket_query']);
+    assert.equal(transactionExtracted.inferredProjectName, 'Williamson County');
+    assert.equal(transactionExtracted.summary.row_count, 2);
+    assert.equal(transactionExtracted.summary.total_tickets, 2);
+    assert.equal(transactionExtracted.summary.distinct_invoice_count, 2);
+    assert.equal(transactionExtracted.summary.total_invoiced_amount, 100.5);
+    assert.equal(transactionExtracted.summary.inferred_date_range_start, '2026-01-05');
+    assert.equal(transactionExtracted.summary.inferred_date_range_end, '2026-01-06');
+    assert.equal(transactionExtracted.rollups.totalExtendedCost, 100.5);
+    assert.equal(transactionExtracted.rollups.totalTickets, 2);
+    assert.equal(transactionExtracted.rollups.totalCyd, 0);
+    assert.equal(transactionExtracted.rollups.distinctInvoiceCount, 2);
+    assert.equal(transactionExtracted.rollups.totalInvoicedAmount, 100.5);
+    assert.equal(transactionExtracted.rollups.rowsWithMissingRateCode, 1);
+    assert.equal(transactionExtracted.rollups.rowsWithMissingInvoiceNumber, 0);
+    assert.equal(transactionExtracted.rollups.rowsWithZeroCost, 0);
+    assert.equal(transactionExtracted.rollups.rowsWithExtremeUnitRate, 0);
+    assert.deepEqual(transactionExtracted.rollups.groupedByRateCode, facts.grouped_by_rate_code?.value);
+    assert.deepEqual(transactionExtracted.rollups.groupedByInvoice, facts.grouped_by_invoice?.value);
     assert.deepEqual(
-      normalized.extracted.rollups.groupedBySiteMaterial,
+      transactionExtracted.rollups.groupedBySiteMaterial,
       facts.grouped_by_site_material?.value,
     );
     assert.deepEqual(
-      normalized.extracted.rollups.groupedByServiceItem,
+      transactionExtracted.rollups.groupedByServiceItem,
       facts.grouped_by_service_item?.value,
     );
     assert.deepEqual(
-      normalized.extracted.rollups.groupedByMaterial,
+      transactionExtracted.rollups.groupedByMaterial,
       facts.grouped_by_material?.value,
     );
-    assert.deepEqual(normalized.extracted.projectOperationsOverview, facts.project_operations_overview?.value);
-    assert.deepEqual(normalized.extracted.invoiceReadinessSummary, facts.invoice_readiness_summary?.value);
-    assert.deepEqual(normalized.extracted.outlierRows, facts.outlier_rows?.value);
+    assert.deepEqual(transactionExtracted.projectOperationsOverview, facts.project_operations_overview?.value);
+    assert.deepEqual(transactionExtracted.invoiceReadinessSummary, facts.invoice_readiness_summary?.value);
+    assert.deepEqual(transactionExtracted.outlierRows, facts.outlier_rows?.value);
   });
 });

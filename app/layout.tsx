@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { EIGHTFORGE_THEME_STYLE_TEXT } from '@/lib/theme/colors';
 
 export const metadata: Metadata = {
   title: 'EightForge',
@@ -14,7 +15,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-[#0B1020] text-[#E5EDF7]">
+      <head>
+        <style
+          id="eightforge-theme"
+          dangerouslySetInnerHTML={{ __html: EIGHTFORGE_THEME_STYLE_TEXT }}
+        />
+      </head>
+      <body className="bg-[var(--ef-background-primary)] text-[var(--ef-text-primary)]">
         {children}
       </body>
     </html>

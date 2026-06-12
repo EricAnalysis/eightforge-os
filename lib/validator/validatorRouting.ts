@@ -1,4 +1,9 @@
 import type { ValidationFinding } from '@/types/validator';
+import {
+  isBlockingFinding,
+  isReviewFinding,
+  normalizeValidationFinding,
+} from '@/lib/validator/findingSemantics';
 
 export type FindingRoutingEvaluation = {
   decision_eligible: boolean;
@@ -6,14 +11,12 @@ export type FindingRoutingEvaluation = {
   routing_reason: string;
 };
 
-function hasBlockedReason(finding: ValidationFinding): boolean {
-  return typeof finding.blocked_reason === 'string' && finding.blocked_reason.trim().length > 0;
-}
-
 export function evaluateFindingRouting(
   finding: ValidationFinding,
 ): FindingRoutingEvaluation {
-  const blocked = hasBlockedReason(finding);
+  const normalized = normalizeValidationFinding(finding);
+  const blocked = isBlockingFinding(normalized);
+  const reviewOnly = isReviewFinding(normalized);
 
   if (finding.status === 'muted') {
     return {
@@ -31,13 +34,11 @@ export function evaluateFindingRouting(
     };
   }
 
-  if (finding.severity === 'info') {
+  if (normalized.finding_disposition === 'info') {
     return {
       decision_eligible: false,
-      action_eligible: blocked,
-      routing_reason: blocked
-        ? 'Info findings are not decision eligible, but blocked findings are eligible to route to an action.'
-        : 'Info findings do not meet the routing threshold.',
+      action_eligible: false,
+      routing_reason: 'Informational findings do not meet the routing threshold.',
     };
   }
 
@@ -45,7 +46,7 @@ export function evaluateFindingRouting(
   let decision_reason: string | null = null;
 
   if (
-    finding.severity === 'critical' &&
+    blocked &&
     finding.rule_id === 'TICKET_QTY_CYD_MISMATCH' &&
     finding.variance != null &&
     finding.variance > 5
@@ -54,28 +55,28 @@ export function evaluateFindingRouting(
     decision_reason = 'Critical CYD ticket quantity mismatches above 5 require a decision.';
   }
   else if (
-    finding.severity === 'critical' &&
+    blocked &&
     finding.rule_id === 'FINANCIAL_NTE_EXCEEDED'
   ) {
     decision_eligible = true;
     decision_reason = 'Critical not-to-exceed overages require a decision.';
   }
   else if (
-    finding.severity === 'critical' &&
+    blocked &&
     finding.rule_id === 'FINANCIAL_RATE_NOT_IN_SCHEDULE'
   ) {
     decision_eligible = true;
     decision_reason = 'Critical rate schedule mismatches require a decision.';
   }
   else if (
-    finding.severity === 'critical' &&
+    blocked &&
     finding.rule_id === 'IDENTITY_DUPLICATE_TICKET'
   ) {
     decision_eligible = true;
     decision_reason = 'Critical duplicate ticket findings require a decision.';
   }
   else if (
-    finding.severity === 'critical' &&
+    blocked &&
     finding.category === 'financial_integrity'
   ) {
     decision_eligible = true;
@@ -106,10 +107,10 @@ export function evaluateFindingRouting(
     };
   }
 
-  if (finding.severity === 'critical' || finding.severity === 'warning') {
+  if (blocked || reviewOnly) {
     if (
       finding.rule_id === 'TICKET_QTY_CYD_MISMATCH' &&
-      finding.severity === 'critical' &&
+      blocked &&
       finding.variance != null &&
       finding.variance <= 5
     ) {
@@ -122,8 +123,10 @@ export function evaluateFindingRouting(
 
     return {
       decision_eligible: false,
-      action_eligible: true,
-      routing_reason: 'Critical and warning findings route to an action when no decision is required.',
+      action_eligible: blocked,
+      routing_reason: blocked
+        ? 'Approval-blocking findings route to an action when no decision is required.'
+        : 'Review-only findings stay visible in validation diagnostics without creating execution work.',
     };
   }
 

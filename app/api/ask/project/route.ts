@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { buildAskResponse } from '@/lib/ask/answerBuilder';
 import { classifyQuestion } from '@/lib/ask/classifier';
+import type { ClassifiedQuestion } from '@/lib/ask/types';
+import type { PortfolioHandoffContext } from '@/lib/ask/portfolioHandoffContext';
 import { retrieveProjectTruth } from '@/lib/ask/retrieval';
 import { sanitizeAskQuestion, sanitizeScopedIdentifier } from '@/lib/ask/sqlGuardrails';
 import { getActorContext } from '@/lib/server/getActorContext';
@@ -12,6 +14,32 @@ type ProjectRow = {
   validation_status: string | null;
   validation_summary_json: unknown;
 };
+
+function isPortfolioHandoffContext(value: unknown): value is PortfolioHandoffContext {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.projectId === 'string' &&
+    typeof record.projectName === 'string' &&
+    typeof record.signalReason === 'string' &&
+    typeof record.suggestedProjectQuery === 'string'
+  );
+}
+
+function classifyHandoffQuestion(question: string, handoffContext: PortfolioHandoffContext): ClassifiedQuestion {
+  return {
+    intent: handoffContext.openBlockerCount > 0 ? 'validator_question' : 'action_needed',
+    confidence: 'high',
+    keywords: [
+      handoffContext.signalReason,
+      handoffContext.validationState,
+      handoffContext.snapshotIsStale ? 'stale snapshot' : '',
+      handoffContext.openBlockerCount > 0 ? 'blocked' : '',
+      handoffContext.openExecutionItemCount > 0 ? 'execution' : '',
+    ].filter((value) => value.trim().length > 0),
+    originalQuestion: question,
+  };
+}
 
 export async function POST(request: Request) {
   const actor = await getActorContext(request);
@@ -27,6 +55,9 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const projectId = sanitizeScopedIdentifier(body?.projectId);
   const question = sanitizeAskQuestion(body?.question);
+  const handoffContext = isPortfolioHandoffContext(body?.handoffContext)
+    ? body.handoffContext
+    : undefined;
 
   if (!projectId) {
     return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
@@ -48,7 +79,9 @@ export async function POST(request: Request) {
   }
 
   const project = projectData as ProjectRow;
-  const classified = classifyQuestion(question);
+  const classified = handoffContext
+    ? classifyHandoffQuestion(question, handoffContext)
+    : classifyQuestion(question);
   const retrieval = await retrieveProjectTruth({
     admin,
     question: classified,
@@ -73,6 +106,7 @@ export async function POST(request: Request) {
     },
     projectId,
     orgId: actor.actor.organizationId,
+    handoffContext,
   });
 
   return NextResponse.json(response);

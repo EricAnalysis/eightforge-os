@@ -245,8 +245,8 @@ export function createApprovalBlockResponse(
  * Extract blocking reasons from snapshot for UI display
  * Returns top 2-3 reasons
  */
-export function getBlockingReasons(snapshot: ProjectApprovalSnapshot | InvoiceApprovalSnapshot): string[] {
-  if (!snapshot) return [];
+export function getBlockingReasons(snapshot: ProjectApprovalSnapshot | InvoiceApprovalSnapshot | null): string[] {
+  if (!snapshot) return ['Approval required'];
 
   const reasons: string[] = [];
 

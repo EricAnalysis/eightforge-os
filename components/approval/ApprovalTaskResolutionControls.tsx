@@ -68,16 +68,16 @@ function ResolutionBadge({ state }: { state: TaskResolutionState }) {
 
   if (state === 'accepted_exception') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[#FBBF24]">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#F59E0B]" />
+      <span className="inline-flex items-center gap-1.5 rounded border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--ef-warning-soft)]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--ef-warning)]" />
         Exception Accepted
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded border border-[#22C55E]/30 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[#4ADE80]">
-      <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+    <span className="inline-flex items-center gap-1.5 rounded border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--ef-success-soft)]">
+      <span className="h-1.5 w-1.5 rounded-full bg-[var(--ef-success)]" />
       Resolved
     </span>
   );
@@ -111,15 +111,15 @@ function ConfirmDialog({
   const [note, setNote] = useState('');
 
   return (
-    <div className="mt-2 rounded-lg border border-[#2F3B52]/80 bg-[#111827] p-4 shadow-xl">
-      <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#E5EDF7]">
+    <div className="mt-2 rounded-lg border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-background-secondary)] p-4 shadow-xl">
+      <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[var(--ef-text-primary)]">
         {title}
       </p>
-      <p className="mt-1.5 text-[11px] leading-5 text-[#7F90AA]">{description}</p>
+      <p className="mt-1.5 text-[11px] leading-5 text-[var(--ef-text-soft)]">{description}</p>
 
       {noteLabel ? (
         <div className="mt-3">
-          <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">
+          <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
             {noteLabel}
           </label>
           <textarea
@@ -128,7 +128,7 @@ function ConfirmDialog({
             placeholder="Optional note…"
             rows={2}
             disabled={busy}
-            className="mt-1 w-full resize-none rounded border border-[#2F3B52] bg-[#0B1020] px-3 py-2 text-[12px] text-[#E5EDF7] placeholder-[#4A5E78] focus:border-[#3B82F6] focus:outline-none disabled:opacity-50"
+            className="mt-1 w-full resize-none rounded border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-[12px] text-[var(--ef-text-primary)] placeholder-[var(--ef-text-faint)] focus:border-[var(--ef-purple-primary)] focus:outline-none disabled:opacity-50"
           />
         </div>
       ) : null}
@@ -146,7 +146,7 @@ function ConfirmDialog({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="rounded border border-[#2F3B52] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] transition hover:text-[#E5EDF7] disabled:opacity-50"
+          className="rounded border border-[var(--ef-border-subtle)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-muted)] transition hover:text-[var(--ef-text-primary)] disabled:opacity-50"
         >
           Cancel
         </button>
@@ -247,13 +247,13 @@ export function ApprovalTaskResolutionControls({
             type="button"
             onClick={callInReview}
             disabled={busy}
-            className="rounded border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#60A5FA] transition hover:bg-[#3B82F6]/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-purple-glow)] transition hover:bg-[var(--ef-purple-primary-a20)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy && activeDialog === null ? 'Working…' : 'Mark in Review'}
           </button>
         ) : (
-          <span className="inline-flex items-center gap-1.5 rounded border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#60A5FA]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#3B82F6]" />
+          <span className="inline-flex items-center gap-1.5 rounded border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-purple-glow)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ef-purple-primary)]" />
             In Review
           </span>
         )}
@@ -263,7 +263,7 @@ export function ApprovalTaskResolutionControls({
           type="button"
           onClick={() => setActiveDialog(activeDialog === 'resolve' ? null : 'resolve')}
           disabled={busy}
-          className="rounded border border-[#22C55E]/40 bg-[#22C55E]/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4ADE80] transition hover:bg-[#22C55E]/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-success-soft)] transition hover:bg-[var(--ef-success-a20)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Resolve
         </button>
@@ -273,7 +273,7 @@ export function ApprovalTaskResolutionControls({
           type="button"
           onClick={() => setActiveDialog(activeDialog === 'exception' ? null : 'exception')}
           disabled={busy}
-          className="rounded border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#FBBF24] transition hover:bg-[#F59E0B]/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-warning-soft)] transition hover:bg-[var(--ef-warning-a20)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Accept Exception
         </button>
@@ -286,7 +286,7 @@ export function ApprovalTaskResolutionControls({
           description="Mark the verification issue as cleared. The approval engine will re-run to update the project's task queue."
           noteLabel="Resolution note (optional)"
           confirmLabel="Confirm Resolve"
-          confirmClass="bg-[#22C55E]/20 text-[#4ADE80] border border-[#22C55E]/40 hover:bg-[#22C55E]/30"
+          confirmClass="bg-[var(--ef-success-a20)] text-[var(--ef-success-soft)] border border-[var(--ef-success-a40)] hover:bg-[var(--ef-success-a30)]"
           onConfirm={(note) => callResolve('resolved', note)}
           onCancel={() => setActiveDialog(null)}
           busy={busy}
@@ -300,7 +300,7 @@ export function ApprovalTaskResolutionControls({
           description="Override the verification block and accept the risk. This closes the task without re-running approval checks. Document your reason below."
           noteLabel="Reason for exception (recommended)"
           confirmLabel="Accept Exception"
-          confirmClass="bg-[#F59E0B]/20 text-[#FBBF24] border border-[#F59E0B]/40 hover:bg-[#F59E0B]/30"
+          confirmClass="bg-[var(--ef-warning-a20)] text-[var(--ef-warning-soft)] border border-[var(--ef-warning-a40)] hover:bg-[var(--ef-warning-a30)]"
           onConfirm={(note) => callResolve('accepted_exception', note)}
           onCancel={() => setActiveDialog(null)}
           busy={busy}
@@ -309,7 +309,7 @@ export function ApprovalTaskResolutionControls({
 
       {/* Error message */}
       {error ? (
-        <p className="text-[11px] text-[#F87171]">{error}</p>
+        <p className="text-[11px] text-[var(--ef-critical-soft)]">{error}</p>
       ) : null}
     </div>
   );

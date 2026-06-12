@@ -135,13 +135,6 @@ function parseEvidence(
           });
         })
       : [];
-  if (pdfEvidence.length > 0 || rehydratedPdfTextEvidence.length > 0 || spreadsheetEvidence.length > 0) {
-    return withSourceDocument(
-      [...pdfEvidence, ...rehydratedPdfTextEvidence, ...spreadsheetEvidence] as EvidenceObject[],
-      documentId,
-    );
-  }
-
   const extraction = asRecord(extractionData?.extraction);
   const evidenceV1 = asRecord(extraction?.evidence_v1);
   const pageText = asArray<Record<string, unknown>>(evidenceV1?.page_text);
@@ -168,6 +161,14 @@ function parseEvidence(
       },
     };
   });
+
+  if (pdfEvidence.length > 0 || rehydratedPdfTextEvidence.length > 0 || spreadsheetEvidence.length > 0) {
+    return withSourceDocument(
+      [...pdfEvidence, ...rehydratedPdfTextEvidence, ...legacy, ...spreadsheetEvidence] as EvidenceObject[],
+      documentId,
+    );
+  }
+
   return legacy;
 }
 

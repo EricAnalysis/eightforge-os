@@ -21,9 +21,13 @@ function makeLine(params: {
   entries?: Array<[string, number]>;
   text?: string;
   pageNumber?: number;
+  source?: PdfLayoutLine['source'];
 }): PdfLayoutLine {
   const entries = params.entries ?? [[params.text ?? '', 0]];
-  const tokens = makeTokens(entries, params.y);
+  const tokens = makeTokens(entries, params.y).map((token) => ({
+    ...token,
+    source: params.source,
+  }));
   const text = params.text ?? entries.map(([value]) => value).join(' ');
   const first = tokens[0];
   const last = tokens.at(-1);
@@ -36,6 +40,7 @@ function makeLine(params: {
     x_min: first?.x ?? 0,
     x_max: last ? last.x + last.width : 0,
     y: params.y,
+    source: params.source,
   };
 }
 
@@ -855,5 +860,101 @@ describe('buildPdfTableExtraction', () => {
     const lowDensity = result.gaps.filter((g) => g.category === 'table_row_count_suspiciously_low');
     assert.ok(lowDensity.length >= 1);
     assert.equal(lowDensity[0]?.severity, 'warning');
+  });
+
+  it('stabilizes OCR-derived rate schedule columns and preserves OCR cell source', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:o0', y: 10, kind: 'text', text: 'EXHIBIT A', source: 'ocr_fallback' }),
+      makeLine({
+        id: 'p18:o1',
+        y: 22,
+        kind: 'text',
+        source: 'ocr_fallback',
+        entries: [
+          ['Category', 3],
+          ['Description', 122],
+          ['Unit', 363],
+          ['Rate', 449],
+        ],
+      }),
+      makeLine({
+        id: 'p18:o2',
+        y: 34,
+        kind: 'table_candidate',
+        source: 'ocr_fallback',
+        entries: [
+          ['Vegetative', 0],
+          ['Collect, Remove & Haul', 118],
+          ['Cubic Yard', 360],
+          ['$6.90', 446],
+        ],
+      }),
+      makeLine({
+        id: 'p18:o3',
+        y: 46,
+        kind: 'text',
+        source: 'ocr_fallback',
+        text: 'from ROW to DMS',
+      }),
+      makeLine({
+        id: 'p18:o4',
+        y: 58,
+        kind: 'table_candidate',
+        source: 'ocr_fallback',
+        entries: [
+          ['Vegetative', 7],
+          ['16-30 Miles from ROW to DMS', 126],
+          ['Cubic Yard', 358],
+          ['$7.90', 452],
+        ],
+      }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    const table = result.tables[0]!;
+    assert.deepEqual(table.headers, ['Category', 'Description', 'Unit', 'Rate']);
+    assert.equal(table.rows.length, 2);
+    assert.equal(table.rows[0]?.cells[1]?.text, 'Collect, Remove & Haul from ROW to DMS');
+    assert.equal(table.rows[0]?.cells[2]?.text, 'Cubic Yard');
+    assert.equal(table.rows[0]?.cells[3]?.text, '$6.90');
+    assert.ok(table.rows.flatMap((row) => row.cells).every((cell) => cell.source === 'ocr_fallback'));
+    assert.ok(table.rows[0]?.cells.every((cell) => typeof cell.x_min === 'number' && typeof cell.x_max === 'number'));
+  });
+
+  it('does not stitch standalone section headers into the prior operational row', () => {
+    const layout = makeLayout([
+      makeLine({ id: 'p18:sh0', y: 10, kind: 'text', text: 'EXHIBIT A' }),
+      makeLine({
+        id: 'p18:sh1',
+        y: 22,
+        kind: 'text',
+        entries: [
+          ['Category', 0],
+          ['Description', 120],
+          ['Unit', 320],
+          ['Rate', 400],
+        ],
+      }),
+      makeLine({
+        id: 'p18:sh2',
+        y: 34,
+        kind: 'table_candidate',
+        entries: [
+          ['Vegetative', 0],
+          ['Collect haul', 120],
+          ['CY', 320],
+          ['$6.90', 400],
+        ],
+      }),
+      makeLine({ id: 'p18:sh3', y: 46, kind: 'text', text: 'Section B - Time and Materials' }),
+    ]);
+
+    const result = buildPdfTableExtraction({ layout });
+
+    assert.equal(result.tables.length, 1);
+    assert.equal(result.tables[0]?.rows.length, 1);
+    assert.equal(result.tables[0]?.rows[0]?.cells[1]?.text, 'Collect haul');
   });
 });

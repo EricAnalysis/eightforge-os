@@ -1,0 +1,24 @@
+﻿BASELINE_COMMIT=d3bc3bf2 Add operational rate schedule fallback
+CURRENT_REVISION=dirty workspace after behavior-preserving regression fixes
+BASELINE_COUNT=9
+CURRENT_COUNT=5
+PRE_EXISTING_COUNT=3
+INTRODUCED_OR_CURRENT_ONLY_COUNT=2
+FIXED_COUNT=6
+
+PRE-EXISTING
+lib/server/documentExtraction.transactionData.test.ts > extractDocument transaction_data routing > routes explicit transaction_data uploads through the dedicated spreadsheet normalization path
+lib/validator/queueFindingActions.test.ts > validator finding queue actions > builds a Williamson-style queue action for a rate mismatch finding
+lib/validator/shared.test.ts > validator fact priority > persists contract validation context in the shared validation summary shape
+
+INTRODUCED_OR_CURRENT_ONLY
+lib/pipeline/processDocument.test.ts > processDocument canonical persistence gating > keeps Williamson-style contract failures at extracted and blocks all downstream decisioning
+lib/server/documentExtraction.pdfFallbackGate.test.ts > documentExtraction pdf fallback gate > uses pdf_text when meaningful native page text blocks the weak fallback gate
+
+FIXED_FROM_BASELINE
+lib/spreadsheetReviewSurface.test.ts > SpreadsheetReviewSurface > renders the cleaned up service item columns and uses an em dash when diameter units are missing
+lib/server/transactionDataPersistence.test.ts > transactionDataPersistence > falls back to document-scoped canonical transaction rows when project-scoped queries are empty
+lib/pipeline/nodes/normalizeNode.transactionData.test.ts > normalizeNode transaction_data > emits canonical transaction facts, row records, and rollups for spreadsheet transaction data
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > canProjectProceed > returns blocked when snapshot has needs_review status
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > canInvoiceProceed > returns allowed when project and invoice are both approved
+lib/server/__tests__/approvalEnforcement.test.ts > approvalEnforcement > getBlockingReasons > returns default reason when snapshot is null or empty

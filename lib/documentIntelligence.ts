@@ -85,6 +85,7 @@ export type RelatedDocInput = {
   title?: string | null;
   extraction: Record<string, unknown> | null;
   document_role?: string | null;
+  document_subtype?: string | null;
   authority_status?: string | null;
   effective_date?: string | null;
   precedence_rank?: number | null;

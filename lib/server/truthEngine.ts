@@ -8,6 +8,7 @@
  */
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { resolveCanonicalProjectFacts } from '@/lib/projectFacts';
 import {
   operatorApprovalLabel,
   approvalGateImpact,
@@ -90,30 +91,6 @@ function fmtCurrency(amount: number | null | undefined): string {
     currency: 'USD',
     maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
   }).format(amount);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function readNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'string') return null;
-
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const normalized = trimmed
-    .replace(/^\((.+)\)$/, '-$1')
-    .replace(/[$,%\s,]/g, '');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function truthFromApprovalLabel(
@@ -209,6 +186,7 @@ function isContractFinding(finding: FindingRow): boolean {
     || ruleId.includes('_NTE_')
     || ruleId === 'SOURCES_NO_CONTRACT'
     || ruleId === 'SOURCES_NO_RATE_SCHEDULE'
+    || ruleId === 'SOURCES_NO_INVOICE_DATA'
   );
 }
 
@@ -300,6 +278,9 @@ function contractNextAction(params: {
     const ruleId = worstFinding.rule_id.toUpperCase();
     if (ruleId === 'SOURCES_NO_CONTRACT') {
       return 'Attach the governing contract before continuing.';
+    }
+    if (ruleId === 'SOURCES_NO_INVOICE_DATA') {
+      return 'Attach or extract the invoice data required for this validation phase.';
     }
     if (ruleId.includes('CONTRACT_CEILING') || ruleId.includes('_NTE_')) {
       return 'Confirm the governing contract ceiling.';
@@ -475,7 +456,7 @@ async function resolveInvoiceTruth(
     gateImpact: approvalGateImpact(approvalLabel),
     nextAction: derivedNextAction,
     evidence,
-    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+    sourceHref: `/platform/projects/${projectId}#project-validator`,
   };
 }
 
@@ -514,7 +495,7 @@ async function resolveRateCodeTruth(
       gateImpact: approvalGateImpact('Approved'),
       nextAction: approvalNextAction('Approved'),
       evidence: [],
-      sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+      sourceHref: `/platform/projects/${projectId}#project-validator`,
     };
   }
 
@@ -569,7 +550,7 @@ async function resolveRateCodeTruth(
       action_eligible: worst.action_eligible,
     }),
     evidence,
-    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+    sourceHref: `/platform/projects/${projectId}#project-validator`,
   };
 }
 
@@ -652,7 +633,7 @@ async function resolveProjectTruth(projectId: string): Promise<TruthResult | nul
     gateImpact: approvalGateImpact(approvalLabel),
     nextAction: approvalNextAction(approvalLabel),
     evidence,
-    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+    sourceHref: `/platform/projects/${projectId}#project-validator`,
   };
 }
 
@@ -685,12 +666,10 @@ async function resolveContractTruth(
   const project = (projectData ?? null) as ProjectValidationRow | null;
   if (!project) return null;
 
-  const summary = isRecord(project.validation_summary_json)
-    ? project.validation_summary_json
-    : null;
-  const exposure = isRecord(summary?.exposure)
-    ? summary.exposure
-    : null;
+  const projectFacts = resolveCanonicalProjectFacts({
+    validationStatus: project.validation_status,
+    validationSummary: project.validation_summary_json,
+  });
   const findings = ((findingRows ?? []) as FindingRow[]).filter(isContractFinding);
 
   const severityOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
@@ -700,24 +679,9 @@ async function resolveContractTruth(
       )[0] ?? null
     : null;
 
-  const validatorRaw =
-    readString(summary?.validator_status)
-    ?? readString(summary?.validator_readiness)
-    ?? readString(project.validation_status)
-    ?? null;
-
-  const contractCeiling =
-    readNumber(summary?.nte_amount)
-    ?? readNumber(summary?.nteAmount)
-    ?? null;
-  const billedToDate =
-    readNumber(summary?.total_billed)
-    ?? readNumber(summary?.totalBilled)
-    ?? (exposure
-      ? readNumber(exposure.total_billed_amount)
-        ?? readNumber(exposure.totalBilledAmount)
-        ?? null
-      : null);
+  const validatorRaw = projectFacts.validator_status ?? projectFacts.status ?? null;
+  const contractCeiling = projectFacts.nte_amount;
+  const billedToDate = projectFacts.total_billed ?? projectFacts.exposure_total_billed;
 
   const hasRateBasedSignal =
     factHints.contractCeilingType === 'rate_based'
@@ -805,7 +769,7 @@ async function resolveContractTruth(
       worstFinding,
     }),
     evidence,
-    sourceHref: `/platform/workspace/projects/${projectId}?tab=validator`,
+    sourceHref: `/platform/projects/${projectId}#project-validator`,
   };
 }
 

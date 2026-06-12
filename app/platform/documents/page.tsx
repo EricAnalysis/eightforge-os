@@ -14,20 +14,17 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   buildDocumentWorkspaceItems,
   filterDocumentWorkspaceItems,
-  groupDocumentWorkspaceItems,
   sortDocumentWorkspaceItems,
   summarizeDocumentWorkspaceItems,
   type DocumentReviewStatus,
-  type DocumentWorkspaceAttentionFilter,
+  type DocumentWorkspaceDecisionRow,
   type DocumentWorkspaceDocRow,
-  type DocumentWorkspaceGroup,
   type DocumentWorkspaceItem,
-  type DocumentWorkspaceMode,
-  type DocumentWorkspaceRecentFilter,
   type DocumentWorkspaceReviewRow,
-  type DocumentWorkspaceSort,
+  type DocumentWorkspaceTaskRow,
   type DocumentWorkspaceTone,
 } from '@/lib/documentWorkspace';
+import { buildProjectDocumentsForgeHref } from '@/lib/documentNavigation';
 import { UPLOAD_DOCUMENT_TYPES } from '@/lib/documentTypes';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
@@ -48,66 +45,6 @@ type ProjectOption = {
 };
 
 const DOC_TYPES = UPLOAD_DOCUMENT_TYPES;
-
-const WORKSPACE_MODES: Array<{
-  key: DocumentWorkspaceMode;
-  label: string;
-  description: string;
-}> = [
-  {
-    key: 'all',
-    label: 'All Documents',
-    description: 'Global scan across every record in the workspace.',
-  },
-  {
-    key: 'needs_review',
-    label: 'Needs Review',
-    description: 'Focus on documents still carrying review or finding pressure.',
-  },
-  {
-    key: 'contracts',
-    label: 'Contracts',
-    description: 'Rate, contract, and source-of-truth review.',
-  },
-  {
-    key: 'invoices',
-    label: 'Invoices',
-    description: 'Billing-side verification and payment support.',
-  },
-  {
-    key: 'unlinked',
-    label: 'Unlinked',
-    description: 'Records not yet attached to an active project.',
-  },
-];
-
-const SORT_OPTIONS: Array<{ value: DocumentWorkspaceSort; label: string }> = [
-  { value: 'updated_desc', label: 'Updated newest' },
-  { value: 'created_desc', label: 'Created newest' },
-  { value: 'findings_desc', label: 'Most findings' },
-  { value: 'title_asc', label: 'Title A-Z' },
-];
-
-const ATTENTION_OPTIONS: Array<{
-  value: DocumentWorkspaceAttentionFilter;
-  label: string;
-}> = [
-  { value: '', label: 'All attention states' },
-  { value: 'needs_review', label: 'Needs review' },
-  { value: 'findings', label: 'Has findings' },
-  { value: 'blocked', label: 'Blocked / failed' },
-  { value: 'clear', label: 'Operationally clear' },
-];
-
-const RECENT_OPTIONS: Array<{
-  value: DocumentWorkspaceRecentFilter;
-  label: string;
-}> = [
-  { value: '', label: 'Any recent activity' },
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-];
 
 const DOCUMENT_SELECT =
   'id, title, name, document_type, processing_status, processing_error, created_at, processed_at, domain, project_id, intelligence_trace, projects(id, name, code)';
@@ -131,31 +68,31 @@ function formatTimestamp(value: string | null | undefined): string {
 function toneClasses(tone: DocumentWorkspaceTone): string {
   switch (tone) {
     case 'danger':
-      return 'border-red-500/30 bg-red-500/10 text-red-300';
+      return 'border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]';
     case 'warning':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+      return 'border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
     case 'info':
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-200';
+      return 'border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]';
     case 'success':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     default:
-      return 'border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3]';
+      return 'border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-muted)]';
   }
 }
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    uploaded: 'border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3]',
-    processing: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-    extracted: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
-    decisioned: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
-    failed: 'border-red-500/40 bg-red-500/10 text-red-300',
+    uploaded: 'border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-muted)]',
+    processing: 'border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
+    extracted: 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]',
+    decisioned: 'border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]',
+    failed: 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]',
   };
 
   return (
     <span
       className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${
-        map[status] ?? 'border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3]'
+        map[status] ?? 'border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-muted)]'
       }`}
     >
       {titleize(status)}
@@ -165,10 +102,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function ReviewBadge({ status }: { status: DocumentReviewStatus }) {
   const map: Record<DocumentReviewStatus, string> = {
-    not_reviewed: 'border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3]',
-    in_review: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
-    approved: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
-    needs_correction: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+    not_reviewed: 'border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-muted)]',
+    in_review: 'border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]',
+    approved: 'border-[var(--ef-success-a40)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]',
+    needs_correction: 'border-[var(--ef-warning-a40)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]',
   };
 
   return (
@@ -206,14 +143,14 @@ function WorkspaceMetric({
   detail: string;
 }) {
   return (
-    <div className="border-l border-[#1A1A3E] pl-4 first:border-l-0 first:pl-0">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B94A3]">
+    <div className="border-l border-[var(--ef-surface-elevated)] pl-4 first:border-l-0 first:pl-0">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-[#F5F7FA]">
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-[var(--ef-text-primary)]">
         {value}
       </p>
-      <p className="mt-1 text-[11px] text-[#8B94A3]">{detail}</p>
+      <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">{detail}</p>
     </div>
   );
 }
@@ -232,12 +169,12 @@ function FilterSelect({
   minWidthClass?: string;
 }) {
   return (
-    <label className="flex items-center gap-2 text-[11px] text-[#8B94A3]">
-      <span className="font-medium text-[#F5F7FA]">{label}</span>
+    <label className="flex items-center gap-2 text-[11px] text-[var(--ef-text-muted)]">
+      <span className="font-medium text-[var(--ef-text-primary)]">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`${minWidthClass} rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-2 py-1.5 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]`}
+        className={`${minWidthClass} rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]`}
       >
         {options.map((option) => (
           <option key={`${label}-${option.value || 'all'}`} value={option.value}>
@@ -249,70 +186,17 @@ function FilterSelect({
   );
 }
 
-function ModeButton({
-  active,
-  label,
-  description,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-2 text-left transition-colors ${
-        active
-          ? 'border-[#8B5CFF]/50 bg-[#8B5CFF]/10 text-[#F5F7FA]'
-          : 'border-[#1A1A3E] bg-[#0A0A20] text-[#8B94A3] hover:border-[#3B82F6]/30 hover:text-[#F5F7FA]'
-      }`}
-    >
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.18em]">
-        {label}
-      </span>
-      <span className="mt-1 block text-[11px] leading-5">{description}</span>
-    </button>
-  );
-}
-
-function LayoutToggleButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] transition-colors ${
-        active
-          ? 'bg-[#3B82F6] text-white'
-          : 'bg-[#0A0A20] text-[#8B94A3] hover:text-[#F5F7FA]'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
 function LoadingSkeleton() {
   return (
     <div className="space-y-3">
       {Array.from({ length: 5 }).map((_, index) => (
         <div
           key={`document-skeleton-${index}`}
-          className="rounded-lg border border-[#1A1A3E] bg-[#0A0A20] px-4 py-4"
+          className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-4 py-4"
         >
-          <div className="h-3 w-32 animate-pulse rounded bg-[#1A1A3E]" />
-          <div className="mt-3 h-3 w-64 animate-pulse rounded bg-[#1A1A3E]" />
-          <div className="mt-3 h-3 w-48 animate-pulse rounded bg-[#1A1A3E]" />
+          <div className="h-3 w-32 animate-pulse rounded bg-[var(--ef-surface-elevated)]" />
+          <div className="mt-3 h-3 w-64 animate-pulse rounded bg-[var(--ef-surface-elevated)]" />
+          <div className="mt-3 h-3 w-48 animate-pulse rounded bg-[var(--ef-surface-elevated)]" />
         </div>
       ))}
     </div>
@@ -331,14 +215,14 @@ function handleOpenKey(
 
 function DocumentRow({
   document,
-  showProject,
+  openHref,
   onOpen,
   onReprocess,
   isProcessing,
   processError,
 }: {
   document: DocumentWorkspaceItem;
-  showProject: boolean;
+  openHref: string;
   onOpen: () => void;
   onReprocess: () => void;
   isProcessing: boolean;
@@ -355,102 +239,137 @@ function DocumentRow({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(event) => handleOpenKey(event, onOpen)}
-      className="group flex items-start justify-between gap-4 border-b border-[#1A1A3E] px-4 py-4 text-left transition-colors hover:bg-[#12122E] last:border-b-0"
+      className="grid gap-4 border-b border-[var(--ef-surface-elevated)] px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] last:border-b-0 md:grid-cols-[minmax(0,2.1fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start"
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Document Name
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href={document.documentHref}
+            href={openHref}
             onClick={(event) => event.stopPropagation()}
-            className="text-[13px] font-semibold text-[#F5F7FA] hover:text-[#8B5CFF]"
+            className="text-[13px] font-semibold text-[var(--ef-text-primary)] hover:text-[var(--ef-purple-primary)]"
           >
             {document.title}
           </Link>
+        </div>
+        <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
+          {document.fileName}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <WorkspaceStatusBadge
             label={document.workspaceStatusLabel}
             tone={document.workspaceTone}
           />
-          <StatusBadge status={document.processingStatus} />
-          {document.reviewStatus !== 'not_reviewed' ? (
-            <ReviewBadge status={document.reviewStatus} />
-          ) : null}
-          {document.isUnlinked ? (
-            <span className="inline-flex rounded-full border border-[#1A1A3E] bg-[#111827] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#C7D2E3]">
-              Unlinked
-            </span>
-          ) : null}
+          {document.blockedCount > 0 ? <StatusBadge status="failed" /> : null}
         </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.16em] text-[#8B94A3]">
-          <span>{document.documentTypeLabel}</span>
-          {document.domain ? <span>{titleize(document.domain)}</span> : null}
-          {showProject ? (
-            document.projectHref ? (
-              <Link
-                href={document.projectHref}
-                onClick={(event) => event.stopPropagation()}
-                className="text-[#8B5CFF] hover:underline"
-              >
-                {document.projectCode
-                  ? `${document.projectName} / ${document.projectCode}`
-                  : document.projectName}
-              </Link>
-            ) : (
-              <span>Unlinked project</span>
-            )
-          ) : null}
-          <span>Created {formatTimestamp(document.createdAt)}</span>
-          <span>Updated {formatTimestamp(document.latestActivityAt)}</span>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-[#8B94A3]">
-          <span>
-            {document.unresolvedFindingCount > 0
-              ? `${document.unresolvedFindingCount} unresolved finding${document.unresolvedFindingCount === 1 ? '' : 's'}`
-              : 'No open findings'}
-          </span>
-          {document.pendingActionCount > 0 ? (
-            <span>
-              {document.pendingActionCount} pending action{document.pendingActionCount === 1 ? '' : 's'}
-            </span>
-          ) : null}
-          {document.blockedCount > 0 ? (
-            <span>
-              {document.blockedCount} blocked signal{document.blockedCount === 1 ? '' : 's'}
-            </span>
-          ) : null}
-        </div>
-
         {document.processingError ? (
-          <p className="mt-2 text-[11px] text-red-400">
+          <p className="mt-2 text-[11px] text-[var(--ef-critical)]">
             Processing error: {document.processingError}
           </p>
         ) : null}
         {processError ? (
-          <p className="mt-2 text-[11px] text-red-400">
+          <p className="mt-2 text-[11px] text-[var(--ef-critical)]">
             Reprocess failed: {processError}
           </p>
         ) : null}
       </div>
 
-      <div
-        className="flex shrink-0 flex-col items-end gap-2"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <Link
-          href={document.documentHref}
-          className="text-[11px] font-medium text-[#8B5CFF] hover:underline"
-        >
-          Open
-        </Link>
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Project
+        </p>
+        {document.projectId && document.projectName ? (
+          <Link
+            href={buildProjectDocumentsForgeHref(document.projectId, document.id)}
+            onClick={(event) => event.stopPropagation()}
+            className="text-[12px] font-medium text-[var(--ef-text-primary)] hover:text-[var(--ef-purple-primary)]"
+          >
+            {document.projectCode
+              ? `${document.projectName} / ${document.projectCode}`
+              : document.projectName}
+          </Link>
+        ) : (
+          <span className="text-[12px] text-[var(--ef-text-muted)]">Unlinked document</span>
+        )}
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Type
+        </p>
+        <p className="text-[12px] text-[var(--ef-text-secondary)]">
+          {document.documentTypeLabel}
+        </p>
+        {document.domain ? (
+          <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
+            {titleize(document.domain)}
+          </p>
+        ) : null}
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Status
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge status={document.processingStatus} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Needs Review
+        </p>
+        {document.needsReview ? (
+          <span className="inline-flex rounded-full border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-warning-soft)]">
+            Needs Review
+          </span>
+        ) : document.reviewStatus === 'approved' ? (
+          <ReviewBadge status="approved" />
+        ) : (
+          <span className="inline-flex rounded-full border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-success-soft)]">
+            Clear
+          </span>
+        )}
+      </div>
+
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Unresolved Execution
+        </p>
+        <div className="space-y-1 text-[11px] text-[var(--ef-text-muted)]">
+          <p>
+            {document.unresolvedFindingCount > 0
+              ? `${document.unresolvedFindingCount} finding${document.unresolvedFindingCount === 1 ? '' : 's'}`
+              : 'No open findings'}
+          </p>
+          <p>
+            {document.pendingActionCount > 0
+              ? `${document.pendingActionCount} action${document.pendingActionCount === 1 ? '' : 's'}`
+              : 'No open actions'}
+          </p>
+        </div>
+      </div>
+
+      <div onClick={(event) => event.stopPropagation()}>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)] md:hidden">
+          Last Updated
+        </p>
+        <p className="text-[12px] text-[var(--ef-text-secondary)]">
+          {formatTimestamp(document.latestActivityAt)}
+        </p>
         {canReprocess ? (
           isProcessing ? (
-            <span className="text-[11px] text-[#8B94A3]">Processing...</span>
+            <span className="mt-2 inline-block text-[11px] text-[var(--ef-text-muted)]">
+              Processing...
+            </span>
           ) : (
             <button
               type="button"
               onClick={onReprocess}
-              className="text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
+              className="mt-2 text-[11px] font-medium text-[var(--ef-purple-glow)] hover:text-[var(--ef-purple-primary)]"
             >
               {document.processingStatus === 'uploaded' ? 'Process' : 'Reprocess'}
             </button>
@@ -458,102 +377,6 @@ function DocumentRow({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function GroupSection({
-  group,
-  collapsed,
-  onToggle,
-  onOpenDocument,
-  onReprocess,
-  processingIds,
-  processErrors,
-}: {
-  group: DocumentWorkspaceGroup;
-  collapsed: boolean;
-  onToggle: () => void;
-  onOpenDocument: (href: string) => void;
-  onReprocess: (documentId: string) => void;
-  processingIds: Set<string>;
-  processErrors: Record<string, string>;
-}) {
-  return (
-    <section className="overflow-hidden rounded-lg border border-[#1A1A3E] bg-[#0E0E2A]">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1A1A3E] px-4 py-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-[#F5F7FA]">
-              {group.projectName}
-            </h3>
-            {group.projectCode ? (
-              <span className="rounded-full border border-[#1A1A3E] bg-[#111827] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#C7D2E3]">
-                {group.projectCode}
-              </span>
-            ) : null}
-            {group.isUnlinked ? (
-              <span className="rounded-full border border-[#1A1A3E] bg-[#111827] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#C7D2E3]">
-                Unlinked
-              </span>
-            ) : null}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.16em] text-[#8B94A3]">
-            <span>{group.totalDocuments} docs</span>
-            {group.needsReviewCount > 0 ? (
-              <span className="text-amber-300">
-                {group.needsReviewCount} need review
-              </span>
-            ) : null}
-            {group.unresolvedFindingCount > 0 ? (
-              <span className="text-red-300">
-                {group.unresolvedFindingCount} findings
-              </span>
-            ) : null}
-            {group.blockedCount > 0 ? (
-              <span className="text-red-300">
-                {group.blockedCount} blocked
-              </span>
-            ) : null}
-            <span>Updated {formatTimestamp(group.lastUpdatedAt)}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {group.projectHref ? (
-            <Link
-              href={group.projectHref}
-              className="rounded-md border border-[#2F3B52] bg-[#111827] px-3 py-2 text-[11px] font-medium text-[#C7D2E3] hover:border-[#3B82F6]/40 hover:text-[#F5F7FA]"
-            >
-              Open Project
-            </Link>
-          ) : null}
-          <button
-            type="button"
-            onClick={onToggle}
-            className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
-          >
-            {collapsed ? 'Expand' : 'Collapse'}
-          </button>
-        </div>
-      </div>
-
-      {!collapsed ? (
-        <div>
-          {group.documents.map((document) => (
-            <DocumentRow
-              key={document.id}
-              document={document}
-              showProject={false}
-              onOpen={() => onOpenDocument(document.documentHref)}
-              onReprocess={() => onReprocess(document.id)}
-              isProcessing={processingIds.has(document.id)}
-              processError={processErrors[document.id] ?? null}
-            />
-          ))}
-        </div>
-      ) : null}
-    </section>
   );
 }
 
@@ -697,15 +520,15 @@ function UploadModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-5 shadow-xl">
+      <div className="w-full max-w-md rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-[#F5F7FA]">
+          <span className="text-sm font-semibold text-[var(--ef-text-primary)]">
             Upload Document
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="text-lg leading-none text-[#8B94A3] hover:text-[#F5F7FA]"
+            className="text-lg leading-none text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]"
             aria-label="Close"
           >
             x
@@ -714,27 +537,27 @@ function UploadModal({
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
-              Title <span className="text-red-400">*</span>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+              Title <span className="text-[var(--ef-critical)]">*</span>
             </label>
             <input
               type="text"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="e.g. Q1 Compliance Report"
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3A3F5A] outline-none focus:border-[#8B5CFF]"
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
               Document Type
             </label>
             <select
               aria-label="Document Type"
               value={documentType}
               onChange={(event) => setDocumentType(event.target.value)}
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
             >
               <option value="">Select type...</option>
               {DOC_TYPES.map((type) => (
@@ -746,9 +569,9 @@ function UploadModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
               Domain{' '}
-              <span className="font-normal text-[#8B94A3]">
+              <span className="font-normal text-[var(--ef-text-muted)]">
                 (optional - used for rule matching)
               </span>
             </label>
@@ -757,21 +580,21 @@ function UploadModal({
               value={domain}
               onChange={(event) => setDomain(event.target.value)}
               placeholder="e.g. debris_ops, logistics, finance"
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3A3F5A] outline-none focus:border-[#8B5CFF]"
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
           </div>
 
           {projects.length > 0 ? (
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+              <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
                 Project{' '}
-                <span className="font-normal text-[#8B94A3]">(optional)</span>
+                <span className="font-normal text-[var(--ef-text-muted)]">(optional)</span>
               </label>
               <select
                 aria-label="Project"
                 value={projectId}
                 onChange={(event) => setProjectId(event.target.value)}
-                className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF]"
+                className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
               >
                 <option value="">None</option>
                 {projects.map((project) => (
@@ -784,35 +607,35 @@ function UploadModal({
           ) : null}
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
-              File <span className="text-red-400">*</span>
+            <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+              File <span className="text-[var(--ef-critical)]">*</span>
             </label>
             <input
               aria-label="File"
               type="file"
               accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.csv,.xlsx"
               onChange={handleFileChange}
-              className="block w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] outline-none focus:border-[#8B5CFF] file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-[#8B5CFF] file:px-3 file:py-1 file:text-[10px] file:font-medium file:text-white hover:file:bg-[#7A4FE8]"
+              className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)] file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-[var(--ef-purple-primary)] file:px-3 file:py-1 file:text-[10px] file:font-medium file:text-white hover:file:bg-[var(--ef-purple-glow)]"
             />
-            <p className="mt-1 text-[10px] text-[#3A3F5A]">
+            <p className="mt-1 text-[10px] text-[var(--ef-text-faint)]">
               PDF, DOCX, TXT, PNG, JPG, CSV, XLSX
             </p>
           </div>
 
-          {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
+          {error ? <p className="text-[11px] text-[var(--ef-critical)]">{error}</p> : null}
 
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
+              className="rounded-md px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={uploading}
-              className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? 'Uploading...' : 'Upload'}
             </button>
@@ -832,9 +655,11 @@ export default function DocumentsPage() {
 
   const [documents, setDocuments] = useState<DocumentWorkspaceDocRow[]>([]);
   const [reviews, setReviews] = useState<DocumentWorkspaceReviewRow[]>([]);
+  const [decisions, setDecisions] = useState<DocumentWorkspaceDecisionRow[]>([]);
+  const [tasks, setTasks] = useState<DocumentWorkspaceTaskRow[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const [workspaceWarning, setWorkspaceWarning] = useState<string | null>(null);
+  const [workspaceWarnings, setWorkspaceWarnings] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
@@ -849,32 +674,20 @@ export default function DocumentsPage() {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [processErrors, setProcessErrors] = useState<Record<string, string>>({});
 
-  const [workspaceMode, setWorkspaceMode] =
-    useState<DocumentWorkspaceMode>('all');
-  const [layoutMode, setLayoutMode] = useState<'grouped' | 'list'>('grouped');
   const [searchValue, setSearchValue] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
   const [selectedProcessingStatus, setSelectedProcessingStatus] = useState('');
-  const [selectedAttention, setSelectedAttention] =
-    useState<DocumentWorkspaceAttentionFilter>('');
-  const [selectedRecent, setSelectedRecent] =
-    useState<DocumentWorkspaceRecentFilter>('');
-  const [sortBy, setSortBy] =
-    useState<DocumentWorkspaceSort>('updated_desc');
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(
-    {},
-  );
 
   const loading = orgLoading || docsLoading;
 
   const fetchWorkspaceData = useCallback(async (currentOrgId: string) => {
     setDocsLoading(true);
     setDocsError(null);
-    setWorkspaceWarning(null);
+    setWorkspaceWarnings([]);
 
     try {
-      const [documentsResult, reviewsResult] = await Promise.all([
+      const [documentsResult, reviewsResult, decisionsResult, tasksResult] = await Promise.all([
         supabase
           .from('documents')
           .select(DOCUMENT_SELECT)
@@ -884,12 +697,24 @@ export default function DocumentsPage() {
           .from('document_reviews')
           .select('document_id, status, reviewed_at')
           .eq('organization_id', currentOrgId),
+        supabase
+          .from('decisions')
+          .select('id, document_id, status, severity, details, last_detected_at, created_at')
+          .eq('organization_id', currentOrgId)
+          .in('status', ['open', 'in_review', 'needs_review']),
+        supabase
+          .from('workflow_tasks')
+          .select('id, document_id, decision_id, status, priority, created_at')
+          .eq('organization_id', currentOrgId)
+          .in('status', ['open', 'in_progress', 'blocked']),
       ]);
 
       if (documentsResult.error) {
         setDocsError('Failed to load documents.');
         setDocuments([]);
         setReviews([]);
+        setDecisions([]);
+        setTasks([]);
         setDocsLoading(false);
         return;
       }
@@ -898,16 +723,27 @@ export default function DocumentsPage() {
 
       if (reviewsResult.error) {
         setReviews([]);
-        setWorkspaceWarning(
-          'Document review state is unavailable. Needs Review filters may be incomplete.',
-        );
       } else {
         setReviews((reviewsResult.data ?? []) as DocumentWorkspaceReviewRow[]);
+      }
+
+      if (decisionsResult.error) {
+        setDecisions([]);
+      } else {
+        setDecisions((decisionsResult.data ?? []) as DocumentWorkspaceDecisionRow[]);
+      }
+
+      if (tasksResult.error) {
+        setTasks([]);
+      } else {
+        setTasks((tasksResult.data ?? []) as DocumentWorkspaceTaskRow[]);
       }
     } catch {
       setDocsError('Failed to load documents.');
       setDocuments([]);
       setReviews([]);
+      setDecisions([]);
+      setTasks([]);
     } finally {
       setDocsLoading(false);
     }
@@ -994,41 +830,33 @@ export default function DocumentsPage() {
   }, [fetchWorkspaceData, organizationId, orgLoading]);
 
   const workspaceItems = useMemo(
-    () => buildDocumentWorkspaceItems({ documents, reviews }),
-    [documents, reviews],
+    () => buildDocumentWorkspaceItems({ documents, reviews, decisions, tasks }),
+    [decisions, documents, reviews, tasks],
   );
 
   const filteredWorkspaceItems = useMemo(
     () =>
       filterDocumentWorkspaceItems(workspaceItems, {
         search: searchValue,
-        mode: workspaceMode,
+        mode: 'all',
         projectId: selectedProjectId,
         documentType: selectedDocumentType,
         processingStatus: selectedProcessingStatus,
-        attention: selectedAttention,
-        recent: selectedRecent,
+        attention: '',
+        recent: '',
       }),
     [
       searchValue,
-      selectedAttention,
       selectedDocumentType,
       selectedProcessingStatus,
       selectedProjectId,
-      selectedRecent,
       workspaceItems,
-      workspaceMode,
     ],
   );
 
   const sortedWorkspaceItems = useMemo(
-    () => sortDocumentWorkspaceItems(filteredWorkspaceItems, sortBy),
-    [filteredWorkspaceItems, sortBy],
-  );
-
-  const groupedWorkspaceItems = useMemo(
-    () => groupDocumentWorkspaceItems(filteredWorkspaceItems, sortBy),
-    [filteredWorkspaceItems, sortBy],
+    () => sortDocumentWorkspaceItems(filteredWorkspaceItems, 'updated_desc'),
+    [filteredWorkspaceItems],
   );
 
   const workspaceSummary = useMemo(
@@ -1107,55 +935,38 @@ export default function DocumentsPage() {
     ];
   }, [workspaceItems]);
 
-  const modeMeta = useMemo(
-    () =>
-      WORKSPACE_MODES.find((mode) => mode.key === workspaceMode) ??
-      WORKSPACE_MODES[0],
-    [workspaceMode],
-  );
-
   const hasWorkspaceScope =
-    workspaceMode !== 'all' ||
     searchValue.trim().length > 0 ||
     selectedProjectId !== '' ||
     selectedDocumentType !== '' ||
-    selectedProcessingStatus !== '' ||
-    selectedAttention !== '' ||
-    selectedRecent !== '';
+    selectedProcessingStatus !== '';
+  const visibleItems = hasWorkspaceScope
+    ? sortedWorkspaceItems
+    : sortDocumentWorkspaceItems(workspaceItems, 'updated_desc');
   const visibleSummary = hasWorkspaceScope ? filteredSummary : workspaceSummary;
-
-  useEffect(() => {
-    setCollapsedGroups((previous) => {
-      const next: Record<string, boolean> = {};
-
-      for (const group of groupedWorkspaceItems) {
-        next[group.key] = previous[group.key] ?? false;
-      }
-
-      return next;
-    });
-  }, [groupedWorkspaceItems]);
+  const unresolvedExecutionCount = useMemo(
+    () =>
+      visibleItems.reduce(
+        (total, item) => total + item.pendingActionCount,
+        0,
+      ),
+    [visibleItems],
+  );
 
   const clearWorkspaceScope = useCallback(() => {
-    setWorkspaceMode('all');
     setSearchValue('');
     setSelectedProjectId('');
     setSelectedDocumentType('');
     setSelectedProcessingStatus('');
-    setSelectedAttention('');
-    setSelectedRecent('');
-  }, []);
-
-  const toggleGroup = useCallback((groupKey: string) => {
-    setCollapsedGroups((previous) => ({
-      ...previous,
-      [groupKey]: !previous[groupKey],
-    }));
   }, []);
 
   const handleOpenDocument = useCallback(
-    (href: string) => {
-      router.push(href);
+    (document: DocumentWorkspaceItem) => {
+      router.push(
+        document.projectId
+          ? buildProjectDocumentsForgeHref(document.projectId, document.id)
+          : document.documentHref,
+      );
     },
     [router],
   );
@@ -1265,17 +1076,17 @@ export default function DocumentsPage() {
       <div className="space-y-4">
         <section className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="mb-1 text-sm font-semibold text-[#F5F7FA]">
+            <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">
               Documents Workspace
             </h2>
-            <p className="text-xs text-[#8B94A3]">
+            <p className="text-xs text-[var(--ef-text-muted)]">
               A workspace context is required before documents can be loaded.
             </p>
           </div>
         </section>
 
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-4 py-5">
-          <p className="text-[11px] text-[#8B94A3]">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-4 py-5">
+          <p className="text-[11px] text-[var(--ef-text-muted)]">
             No active organization is available for this session.
           </p>
         </section>
@@ -1287,22 +1098,21 @@ export default function DocumentsPage() {
     <div className="space-y-4">
       <section className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-3xl">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#5B6578]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--ef-text-faint)]">
             Workspace / Documents
           </p>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-[#F5F7FA]">
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-[var(--ef-text-primary)]">
             Documents Workspace
           </h2>
-          <p className="mt-2 text-[12px] leading-6 text-[#8B94A3]">
-            Scan the full document estate, pivot into project-centered review,
-            and keep fast access to the canonical document detail route.
+          <p className="mt-2 text-[12px] leading-6 text-[var(--ef-text-muted)]">
+            Scan, review, and manage all project documents.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/platform/reviews#needs-review"
-            className="rounded-md border border-[#2F3B52] bg-[#111827] px-3 py-2 text-[11px] font-medium text-[#C7D2E3] hover:border-[#3B82F6]/40 hover:text-[#F5F7FA]"
+            className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-secondary)] hover:border-[var(--ef-purple-primary-a40)] hover:text-[var(--ef-text-primary)]"
           >
             Review Queue
           </Link>
@@ -1310,109 +1120,52 @@ export default function DocumentsPage() {
             type="button"
             onClick={() => setModalOpen(true)}
             disabled={!orgId || orgLoading}
-            className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Upload Document
           </button>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-[#1A1A3E] bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(180deg,_#12122E_0%,_#0E0E2A_100%)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1A1A3E] pb-4">
-          <div className="max-w-2xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B94A3]">
-              Operational rollup
-            </p>
-            <p className="mt-2 text-[12px] leading-6 text-[#C7D2E3]">
-              {modeMeta.description}
-            </p>
-          </div>
-          <div className="rounded-full border border-[#2F3B52] bg-[#0A0A20] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#C7D2E3]">
-            {visibleSummary.totalDocuments} documents in view
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="overflow-hidden rounded-xl border border-[var(--ef-surface-elevated)] bg-[radial-gradient(circle_at_top_left,_var(--ef-purple-primary-a16),_transparent_32%),linear-gradient(180deg,_var(--ef-surface-elevated)_0%,_var(--ef-background-secondary)_100%)] p-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <WorkspaceMetric
-            label="Documents"
+            label="Total Documents"
             value={visibleSummary.totalDocuments}
             detail={
               hasWorkspaceScope
-                ? 'Matching the current working slice.'
-                : 'Total records available to this workspace.'
-            }
-          />
-          <WorkspaceMetric
-            label="Projects"
-            value={visibleSummary.totalProjects}
-            detail={
-              visibleSummary.unlinkedCount > 0
-                ? `${visibleSummary.unlinkedCount} unlinked document${visibleSummary.unlinkedCount === 1 ? '' : 's'} remain outside a project.`
-                : 'All visible documents are project-linked.'
+                ? 'Matching the current search and filter view.'
+                : 'All documents currently available in this workspace.'
             }
           />
           <WorkspaceMetric
             label="Needs Review"
             value={visibleSummary.needsReviewCount}
-            detail="Documents still carrying review, task, or finding pressure."
+            detail="Documents still waiting on operator review or follow-up."
           />
           <WorkspaceMetric
-            label="Blocked"
+            label="Unresolved Execution"
+            value={unresolvedExecutionCount}
+            detail="Open execution work still tied to visible document records."
+          />
+          <WorkspaceMetric
+            label="Blocked Documents"
             value={visibleSummary.blockedCount}
             detail="Failed or blocked records that may need operator intervention."
           />
           <WorkspaceMetric
-            label="Unlinked"
+            label="Unlinked Documents"
             value={visibleSummary.unlinkedCount}
             detail="Records not yet attached to an operational project."
           />
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-[#1A1A3E] bg-[#0E0E2A]">
-        <div className="border-b border-[#1A1A3E] px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="max-w-2xl">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B94A3]">
-                Workspace modes
-              </p>
-              <p className="mt-2 text-[11px] leading-5 text-[#8B94A3]">
-                Shift between global scan, grouped project review, and focused
-                document slices without changing document identity or routing.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-1 rounded-lg border border-[#1A1A3E] bg-[#111827] p-1">
-              <LayoutToggleButton
-                active={layoutMode === 'grouped'}
-                label="Grouped by Project"
-                onClick={() => setLayoutMode('grouped')}
-              />
-              <LayoutToggleButton
-                active={layoutMode === 'list'}
-                label="Global List"
-                onClick={() => setLayoutMode('list')}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-            {WORKSPACE_MODES.map((mode) => (
-              <ModeButton
-                key={mode.key}
-                active={mode.key === workspaceMode}
-                label={mode.label}
-                description={mode.description}
-                onClick={() => setWorkspaceMode(mode.key)}
-              />
-            ))}
-          </div>
-        </div>
-
+      <section className="overflow-hidden rounded-xl border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)]">
         <div className="space-y-4 px-4 py-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <label className="block flex-1">
-              <span className="mb-1 block text-[11px] font-medium text-[#F5F7FA]">
+              <span className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
                 Search
               </span>
               <input
@@ -1420,23 +1173,16 @@ export default function DocumentsPage() {
                 value={searchValue}
                 onChange={(event) => setSearchValue(event.target.value)}
                 placeholder="Search title, project, code, type, or domain"
-                className="w-full rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[12px] text-[#F5F7FA] placeholder:text-[#3A3F5A] outline-none focus:border-[#8B5CFF]"
+                className="w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[12px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
               />
             </label>
 
             <div className="flex flex-wrap items-center gap-2">
-              <FilterSelect
-                label="Sort"
-                value={sortBy}
-                onChange={(value) => setSortBy(value as DocumentWorkspaceSort)}
-                options={SORT_OPTIONS}
-                minWidthClass="min-w-[170px]"
-              />
               <button
                 type="button"
                 onClick={handleRefresh}
                 disabled={!orgId || loading}
-                className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA] disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Refresh
               </button>
@@ -1444,7 +1190,7 @@ export default function DocumentsPage() {
                 <button
                   type="button"
                   onClick={clearWorkspaceScope}
-                  className="rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
+                  className="rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]"
                 >
                   Reset Workspace
                 </button>
@@ -1472,47 +1218,25 @@ export default function DocumentsPage() {
               onChange={setSelectedProcessingStatus}
               options={processingStatusOptions}
             />
-            <FilterSelect
-              label="Attention"
-              value={selectedAttention}
-              onChange={(value) =>
-                setSelectedAttention(value as DocumentWorkspaceAttentionFilter)
-              }
-              options={ATTENTION_OPTIONS}
-              minWidthClass="min-w-[180px]"
-            />
-            <FilterSelect
-              label="Recent"
-              value={selectedRecent}
-              onChange={(value) =>
-                setSelectedRecent(value as DocumentWorkspaceRecentFilter)
-              }
-              options={RECENT_OPTIONS}
-              minWidthClass="min-w-[170px]"
-            />
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-[#1A1A3E] pt-4 text-[11px] text-[#8B94A3]">
-            <span className="font-medium text-[#F5F7FA]">
-              {filteredWorkspaceItems.length} matching document
-              {filteredWorkspaceItems.length === 1 ? '' : 's'}
-            </span>
-            <span>
-              {groupedWorkspaceItems.length} visible section
-              {groupedWorkspaceItems.length === 1 ? '' : 's'}
+          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--ef-surface-elevated)] pt-4 text-[11px] text-[var(--ef-text-muted)]">
+            <span className="font-medium text-[var(--ef-text-primary)]">
+              {visibleItems.length} matching document
+              {visibleItems.length === 1 ? '' : 's'}
             </span>
             {filteredSummary.needsReviewCount > 0 ? (
-              <span className="text-amber-300">
+              <span className="text-[var(--ef-warning-soft)]">
                 {filteredSummary.needsReviewCount} need review
               </span>
             ) : null}
             {filteredSummary.blockedCount > 0 ? (
-              <span className="text-red-300">
+              <span className="text-[var(--ef-critical-soft)]">
                 {filteredSummary.blockedCount} blocked
               </span>
             ) : null}
             {filteredSummary.unlinkedCount > 0 ? (
-              <span className="text-[#C7D2E3]">
+              <span className="text-[var(--ef-text-secondary)]">
                 {filteredSummary.unlinkedCount} unlinked
               </span>
             ) : null}
@@ -1520,20 +1244,27 @@ export default function DocumentsPage() {
         </div>
       </section>
 
-      {workspaceWarning ? (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-200">
-          {workspaceWarning}
+      {workspaceWarnings.length > 0 ? (
+        <div className="grid gap-2">
+          {workspaceWarnings.map((warning) => (
+            <div
+              key={warning}
+              className="rounded-lg border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-4 py-3 text-[11px] text-[var(--ef-warning-soft)]"
+            >
+              {warning}
+            </div>
+          ))}
         </div>
       ) : null}
 
       {docsError ? (
-        <section className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-4">
+        <section className="rounded-lg border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-4 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[12px] font-medium text-red-300">
+              <p className="text-[12px] font-medium text-[var(--ef-critical-soft)]">
                 {docsError}
               </p>
-              <p className="mt-1 text-[11px] text-red-200/90">
+              <p className="mt-1 text-[11px] text-[var(--ef-critical-soft)]">
                 The document workspace could not be loaded for this
                 organization.
               </p>
@@ -1542,82 +1273,77 @@ export default function DocumentsPage() {
               type="button"
               onClick={handleRefresh}
               disabled={!orgId || loading}
-              className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-[11px] font-medium text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-3 py-2 text-[11px] font-medium text-[var(--ef-critical-soft)] hover:bg-[var(--ef-critical-a20)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Retry
             </button>
           </div>
         </section>
       ) : loading ? (
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
           <LoadingSkeleton />
         </section>
       ) : workspaceItems.length === 0 ? (
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-4 py-6">
-          <p className="text-[12px] font-medium text-[#F5F7FA]">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-4 py-6">
+          <p className="text-[12px] font-medium text-[var(--ef-text-primary)]">
             No documents have been loaded yet.
           </p>
-          <p className="mt-1 text-[11px] text-[#8B94A3]">
+          <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
             Upload a source document to start building project-linked document
             intelligence.
           </p>
         </section>
       ) : filteredWorkspaceItems.length === 0 ? (
-        <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] px-4 py-6">
-          <p className="text-[12px] font-medium text-[#F5F7FA]">
+        <section className="rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-4 py-6">
+          <p className="text-[12px] font-medium text-[var(--ef-text-primary)]">
             No documents match the current workspace view.
           </p>
-          <p className="mt-1 text-[11px] text-[#8B94A3]">
+          <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
             Adjust the filters or reset the workspace to return to the full
             document scan.
           </p>
           <button
             type="button"
             onClick={clearWorkspaceScope}
-            className="mt-4 rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] font-medium text-[#8B94A3] hover:text-[#F5F7FA]"
+            className="mt-4 rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)]"
           >
             Reset Workspace
           </button>
         </section>
-      ) : layoutMode === 'grouped' ? (
-        <div className="space-y-3">
-          {groupedWorkspaceItems.map((group) => (
-            <GroupSection
-              key={group.key}
-              group={group}
-              collapsed={collapsedGroups[group.key] ?? false}
-              onToggle={() => toggleGroup(group.key)}
-              onOpenDocument={handleOpenDocument}
-              onReprocess={reprocessDoc}
-              processingIds={processingIds}
-              processErrors={processErrors}
-            />
-          ))}
-        </div>
       ) : (
-        <section className="overflow-hidden rounded-lg border border-[#1A1A3E] bg-[#0E0E2A]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1A1A3E] px-4 py-4">
-            <div>
-              <h3 className="text-sm font-semibold text-[#F5F7FA]">
-                Global Document Scan
-              </h3>
-              <p className="mt-1 text-[11px] text-[#8B94A3]">
-                Fast document-by-document scanning across the active workspace.
-              </p>
+        <section className="overflow-hidden rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)]">
+          <div className="border-b border-[var(--ef-surface-elevated)] px-4 py-4">
+            <div className="hidden gap-4 md:grid md:grid-cols-[minmax(0,2.1fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              {[
+                'Document Name',
+                'Project',
+                'Type',
+                'Status',
+                'Needs Review',
+                'Unresolved Execution',
+                'Last Updated',
+              ].map((label) => (
+                <p
+                  key={label}
+                  className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]"
+                >
+                  {label}
+                </p>
+              ))}
             </div>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B94A3]">
-              Sorted by{' '}
-              {SORT_OPTIONS.find((option) => option.value === sortBy)?.label}
-            </span>
           </div>
 
           <div>
-            {sortedWorkspaceItems.map((document) => (
+            {visibleItems.map((document) => (
               <DocumentRow
                 key={document.id}
                 document={document}
-                showProject
-                onOpen={() => handleOpenDocument(document.documentHref)}
+                openHref={
+                  document.projectId
+                    ? buildProjectDocumentsForgeHref(document.projectId, document.id)
+                    : document.documentHref
+                }
+                onOpen={() => handleOpenDocument(document)}
                 onReprocess={() => reprocessDoc(document.id)}
                 isProcessing={processingIds.has(document.id)}
                 processError={processErrors[document.id] ?? null}

@@ -31,6 +31,10 @@ import type {
   ValidationFinding,
   ValidatorResult,
 } from '@/types/validator';
+import {
+  isBlockingFinding,
+  isReviewFinding,
+} from '@/lib/validator/findingSemantics';
 import type {
   ApprovalGateResult,
   GateReason,
@@ -48,6 +52,7 @@ const RULE_GATE_REASON: Readonly<Record<string, GateReason>> = {
   // Required sources
   SOURCES_NO_CONTRACT: 'missing_contract_support',
   SOURCES_NO_RATE_SCHEDULE: 'missing_contract_support',
+  SOURCES_NO_INVOICE_DATA: 'missing_contract_support',
   SOURCES_NO_TICKET_DATA: 'missing_transaction_support',
 
   // Contract / invoice reconciliation
@@ -184,10 +189,10 @@ function evaluateInvoice(
 
   // Gate conditions (evaluated in precedence order)
   const hasCritical = invoiceFindings.some(
-    (f) => f.severity === 'critical' && f.status === 'open',
+    (f) => f.status === 'open' && isBlockingFinding(f),
   );
   const hasWarning = invoiceFindings.some(
-    (f) => f.severity === 'warning' && f.status === 'open',
+    (f) => f.status === 'open' && isReviewFinding(f),
   );
   const isAtRiskBlocked = atRiskAmount > atRiskTolerance;
   // Support-gap blocking only applies when reconciliation is otherwise clean (MATCH).
@@ -301,8 +306,8 @@ export function evaluateApprovalGate(
   const overallRecStatus = reconciliation?.overall_reconciliation_status ?? 'MISSING';
 
   // Scalar flags for gate conditions
-  const hasCriticalFinding = openFindings.some((f) => f.severity === 'critical');
-  const hasWarningFinding = openFindings.some((f) => f.severity === 'warning');
+  const hasCriticalFinding = openFindings.some((f) => isBlockingFinding(f));
+  const hasWarningFinding = openFindings.some((f) => isReviewFinding(f));
   const worstInvoice = worstStatus(invoiceDecisions.map((inv) => inv.approval_status));
 
   // Precedence: blocked > needs_review > approved_with_exceptions > approved

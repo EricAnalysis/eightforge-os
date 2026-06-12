@@ -10,7 +10,7 @@ import {
   type ResolvedDocumentPrecedenceRecord,
 } from '@/lib/documentPrecedence';
 
-const DOCUMENT_PRECEDENCE_SELECT = [
+export const DOCUMENT_PRECEDENCE_SELECT = [
   'id',
   'project_id',
   'title',
@@ -204,6 +204,7 @@ function toRelatedDocInput(
     title: document.title ?? null,
     extraction,
     document_role: document.document_role ?? null,
+    document_subtype: document.document_subtype ?? null,
     authority_status: document.authority_status ?? null,
     effective_date: document.effective_date ?? null,
     precedence_rank: document.precedence_rank ?? null,

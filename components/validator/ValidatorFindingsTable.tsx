@@ -4,6 +4,7 @@ import {
   findingApprovalLabel,
   findingGateImpact,
   findingNextAction,
+  findingProblem,
   type OperatorApprovalLabel,
 } from '@/lib/truthToAction';
 import type {
@@ -50,30 +51,30 @@ const SEVERITY_LABELS: Record<ValidationSeverity, string> = {
 function statusClassName(status: FindingStatus): string {
   switch (status) {
     case 'resolved':
-      return 'border-[#22C55E]/30 bg-[#0F2417] text-[#86EFAC]';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'dismissed':
-      return 'border-[#2F3B52] bg-[#182132] text-[#94A3B8]';
+      return 'border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
     case 'muted':
-      return 'border-[#A855F7]/30 bg-[#261339] text-[#D8B4FE]';
+      return 'border-[var(--ef-purple-accent-a30)] bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-glow)]';
     case 'open':
     default:
-      return 'border-[#3B82F6]/30 bg-[#15233A] text-[#93C5FD]';
+      return 'border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]';
   }
 }
 
 function approvalClassName(label: OperatorApprovalLabel): string {
   switch (label) {
     case 'Requires Verification':
-      return 'border-[#EF4444]/40 bg-[#45141B] text-[#FCA5A5]';
+      return 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]';
     case 'Needs Review':
     case 'Approved with Notes':
-      return 'border-[#F59E0B]/35 bg-[#31230F] text-[#FCD34D]';
+      return 'border-[var(--ef-warning-a35)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
     case 'Approved':
-      return 'border-[#22C55E]/30 bg-[#0F2417] text-[#86EFAC]';
+      return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
     case 'Not Evaluated':
     case 'Unknown':
     default:
-      return 'border-[#2F3B52] bg-[#182132] text-[#94A3B8]';
+      return 'border-[var(--ef-border-subtle)] bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
   }
 }
 
@@ -92,27 +93,11 @@ function formatVariance(finding: ValidationFinding): string {
 }
 
 function findingValue(finding: ValidationFinding): string {
-  if (finding.blocked_reason?.trim()) {
-    return finding.blocked_reason;
-  }
-
-  if (finding.actual?.trim()) {
-    return finding.actual;
-  }
-
-  if (finding.expected?.trim()) {
-    return finding.expected;
-  }
-
-  if (finding.variance != null) {
-    return `Variance ${formatVariance(finding)}`;
-  }
-
-  return 'See the finding details in the evidence drawer.';
+  return findingProblem(finding);
 }
 
 function filterOptionClassName(): string {
-  return 'rounded-sm border border-[#2F3B52] bg-[#111827] px-3 py-2 text-xs text-[#E5EDF7] outline-none transition-colors focus:border-[#3B82F6]';
+  return 'rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-xs text-[var(--ef-text-primary)] outline-none transition-colors focus:border-[var(--ef-purple-primary)]';
 }
 
 export function ValidatorFindingsTable({
@@ -149,7 +134,7 @@ export function ValidatorFindingsTable({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <label className="space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Severity
           </span>
           <select
@@ -165,7 +150,7 @@ export function ValidatorFindingsTable({
         </label>
 
         <label className="space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Category
           </span>
           <select
@@ -183,7 +168,7 @@ export function ValidatorFindingsTable({
         </label>
 
         <label className="space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
             Record state
           </span>
           <select
@@ -201,11 +186,11 @@ export function ValidatorFindingsTable({
         </label>
       </div>
 
-      <div className="overflow-hidden rounded-sm border border-[#2F3B52]/70 bg-[#111827]">
+      <div className="overflow-hidden rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)]">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-[#2F3B52]/70 text-left">
-            <thead className="bg-[#0F172A]">
-              <tr className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+          <table className="min-w-full divide-y divide-[var(--ef-border-subtle-a70)] text-left">
+            <thead className="bg-[var(--ef-background-secondary)]">
+              <tr className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
                 <th className="px-4 py-3">Value</th>
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Validation</th>
@@ -214,10 +199,10 @@ export function ValidatorFindingsTable({
                 <th className="px-4 py-3 text-right">Open</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2F3B52]/50 text-sm text-[#E5EDF7]">
+            <tbody className="divide-y divide-[var(--ef-border-subtle-a50)] text-sm text-[var(--ef-text-primary)]">
               {filteredFindings.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#94A3B8]">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--ef-text-muted)]">
                     {findings.length === 0
                       ? 'No approval findings are currently open for this project.'
                       : 'No findings match the active filters.'}
@@ -243,29 +228,29 @@ export function ValidatorFindingsTable({
                       }}
                       className={`cursor-pointer align-top transition-colors ${
                         isSelected
-                          ? 'bg-[#16233A]'
-                          : 'hover:bg-[#182132]'
+                          ? 'bg-[var(--ef-purple-primary-a10)]'
+                          : 'hover:bg-[var(--ef-surface-elevated)]'
                       }`}
                     >
                       <td className="px-4 py-3">
                         <div className="max-w-[20rem]">
-                          <p className="font-semibold leading-snug text-[#E5EDF7]">
+                          <p className="font-semibold leading-snug text-[var(--ef-text-primary)]">
                             {findingValue(finding)}
                           </p>
-                          <div className="mt-2 space-y-1 text-xs text-[#94A3B8]">
+                          <div className="mt-2 space-y-1 text-xs text-[var(--ef-text-muted)]">
                             {finding.expected ? (
                               <p>
-                                Truth: <span className="text-[#C7D2E3]">{finding.expected}</span>
+                                Truth: <span className="text-[var(--ef-text-secondary)]">{finding.expected}</span>
                               </p>
                             ) : null}
                             {finding.actual ? (
                               <p>
-                                Observed: <span className="text-[#C7D2E3]">{finding.actual}</span>
+                                Observed: <span className="text-[var(--ef-text-secondary)]">{finding.actual}</span>
                               </p>
                             ) : null}
                             {finding.variance != null ? (
                               <p>
-                                Variance: <span className="text-[#C7D2E3]">{formatVariance(finding)}</span>
+                                Variance: <span className="text-[var(--ef-text-secondary)]">{formatVariance(finding)}</span>
                               </p>
                             ) : null}
                           </div>
@@ -273,19 +258,19 @@ export function ValidatorFindingsTable({
                       </td>
                       <td className="px-4 py-3">
                         <div className="max-w-[18rem]">
-                          <p className="font-semibold text-[#E5EDF7]">
+                          <p className="font-semibold text-[var(--ef-text-primary)]">
                             {CATEGORY_LABELS[finding.category]}
                           </p>
-                          <div className="mt-2 space-y-1 text-xs text-[#94A3B8]">
+                          <div className="mt-2 space-y-1 text-xs text-[var(--ef-text-muted)]">
                             <p>
-                              Rule: <span className="text-[#C7D2E3]">{finding.rule_id}</span>
+                              Rule: <span className="text-[var(--ef-text-secondary)]">{finding.rule_id}</span>
                             </p>
                             <p>
-                              Record: <span className="text-[#C7D2E3]">{formatSubject(finding)}</span>
+                              Record: <span className="text-[var(--ef-text-secondary)]">{formatSubject(finding)}</span>
                             </p>
                             {finding.field ? (
                               <p>
-                                Field: <span className="text-[#C7D2E3]">{finding.field}</span>
+                                Field: <span className="text-[var(--ef-text-secondary)]">{finding.field}</span>
                               </p>
                             ) : null}
                           </div>
@@ -296,9 +281,9 @@ export function ValidatorFindingsTable({
                           <span className={`inline-flex rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${approvalClassName(approvalLabel)}`}>
                             {approvalLabel}
                           </span>
-                          <div className="mt-2 space-y-1 text-xs text-[#94A3B8]">
+                          <div className="mt-2 space-y-1 text-xs text-[var(--ef-text-muted)]">
                             <p>
-                              Severity: <span className="text-[#C7D2E3]">{SEVERITY_LABELS[finding.severity]}</span>
+                              Severity: <span className="text-[var(--ef-text-secondary)]">{SEVERITY_LABELS[finding.severity]}</span>
                             </p>
                             <p>
                               Record state:{' '}
@@ -309,24 +294,24 @@ export function ValidatorFindingsTable({
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-[#C7D2E3]">
+                      <td className="px-4 py-3 text-[var(--ef-text-secondary)]">
                         <div className="max-w-[16rem] leading-relaxed">
                           {gateImpact}
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="max-w-[18rem] space-y-2">
-                          <p className="leading-relaxed text-[#E5EDF7]">
+                          <p className="leading-relaxed text-[var(--ef-text-primary)]">
                             {nextAction}
                           </p>
                           <div className="flex flex-wrap items-center gap-2">
                             {finding.decision_eligible ? (
-                              <span className="rounded-sm bg-[#15233A] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#93C5FD]">
+                              <span className="rounded-sm bg-[var(--ef-purple-primary-a10)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-purple-glow)]">
                                 Decision eligible
                               </span>
                             ) : null}
                             {finding.action_eligible ? (
-                              <span className="rounded-sm bg-[#31230F] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#FCD34D]">
+                              <span className="rounded-sm bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-warning-soft)]">
                                 Action eligible
                               </span>
                             ) : null}
@@ -341,7 +326,7 @@ export function ValidatorFindingsTable({
                               event.stopPropagation();
                               onSelectFinding(finding);
                             }}
-                            className="rounded-sm border border-[#2F3B52] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#E5EDF7] transition-colors hover:border-[#3B82F6] hover:text-[#3B82F6]"
+                            className="rounded-sm border border-[var(--ef-border-subtle)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary)] hover:text-[var(--ef-purple-primary)]"
                           >
                             Open
                           </button>

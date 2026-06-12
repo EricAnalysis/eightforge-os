@@ -20,7 +20,11 @@ export async function GET(req: Request) {
       organizationId: ctx.actor.organizationId,
     });
 
-    return NextResponse.json(model);
+    return NextResponse.json(model, {
+      headers: {
+        'Cache-Control': 'private, max-age=120, stale-while-revalidate=30',
+      },
+    });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : 'Failed to load operational model',

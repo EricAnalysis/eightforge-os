@@ -197,6 +197,28 @@ export interface ContractAnalysisTrace {
   issue_anchor_summary: ContractIssueAnchorSummary[];
 }
 
+export interface ContractRateScheduleRow {
+  row_id: string;
+  description: string | null;
+  unit: string | null;
+  rate: number | null;
+  category: string | null;
+  source_category?: string | null;
+  canonical_category?: string | null;
+  category_confidence?: number | null;
+  page: number | null;
+  source_anchor_ids: string[];
+  rate_raw: string | null;
+  material_type: string | null;
+  unit_type: string | null;
+  rate_amount: number | null;
+  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery';
+  confidence?: 'high' | 'medium' | 'needs_review';
+  raw_cells?: string[];
+  raw_text?: string;
+  recovery_reason?: string;
+}
+
 // ─── Batch 7: runtime type graduation ────────────────────────────────────────
 // These 5 types are fixture-proven concepts graduated from the mock corpus seam
 // into the runtime ContractAnalysis type. They are OPTIONAL and INERT — the engine
@@ -266,6 +288,7 @@ export interface ContractAnalysisResult {
   documentation_model: ContractFieldAnalysisMap;
   compliance_model: ContractFieldAnalysisMap;
   payment_model: ContractFieldAnalysisMap;
+  rate_schedule_rows?: ContractRateScheduleRow[];
   clause_patterns_detected: DetectedClausePattern[];
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];

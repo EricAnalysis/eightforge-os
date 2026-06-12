@@ -92,12 +92,12 @@ export function AskDocumentSection({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0F1117]">
+    <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
       <div className="flex items-center justify-between border-b border-white/8 px-5 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
           {title}
         </h3>
-        <span className="text-[10px] text-[#5B6578]">Constrained query</span>
+        <span className="text-[10px] text-[var(--ef-text-faint)]">Constrained query</span>
       </div>
 
       <div className="flex flex-col gap-2 px-5 py-3">
@@ -109,7 +109,7 @@ export function AskDocumentSection({
               onClick={() => handleQuestionClick(q)}
               className="group w-full cursor-pointer rounded-lg border border-white/8 bg-white/3 px-4 py-2.5 text-left transition-colors duration-150 hover:border-white/15 hover:bg-white/6"
             >
-              <span className="text-xs leading-relaxed text-[#C5CAD4] group-hover:text-white">
+              <span className="text-xs leading-relaxed text-[var(--ef-text-secondary)] group-hover:text-white">
                 {q.question}
               </span>
             </button>
@@ -121,16 +121,16 @@ export function AskDocumentSection({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask a supported question about grounded facts"
-            className="rounded-lg border border-white/10 bg-[#111827] px-3 py-2 text-xs text-[#E5EDF7] outline-none placeholder:text-[#5B6578] focus:border-[#3B82F6]/50"
+            className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-secondary)] px-3 py-2 text-xs text-[var(--ef-text-primary)] outline-none placeholder:text-[var(--ef-text-faint)] focus:border-[var(--ef-purple-primary-a50)]"
           />
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] text-[#5B6578]">
+            <p className="text-[10px] text-[var(--ef-text-faint)]">
               Supported: review status, missing support, next actions, grounded facts
             </p>
             <button
               type="submit"
               disabled={pending || !targetId || draft.trim().length === 0}
-              className="rounded border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#93C5FD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending ? 'Running' : 'Ask'}
             </button>
@@ -138,37 +138,37 @@ export function AskDocumentSection({
         </form>
 
         {error && (
-          <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+          <div className="rounded-lg border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-3 py-2 text-[11px] text-[var(--ef-critical-soft)]">
             {error}
           </div>
         )}
 
         {answer && (
-          <div className="rounded-lg border border-white/10 bg-[#111827] px-4 py-3">
+          <div className="rounded-lg border border-[var(--ef-border-white-10)] bg-[var(--ef-background-secondary)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] ${answer.status === 'answered' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-300'}`}>
+              <span className={`rounded px-1.5 py-0.5 text-[10px] ${answer.status === 'answered' ? 'bg-[var(--ef-success-bg)] text-[var(--ef-success)]' : 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]'}`}>
                 {answer.status === 'answered' ? 'Answered' : 'Unsupported'}
               </span>
               {answer.trace?.template_label && (
-                <span className="text-[10px] text-[#5B6578]">
+                <span className="text-[10px] text-[var(--ef-text-faint)]">
                   {answer.trace.template_label}
                 </span>
               )}
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-[#F5F7FA]">
+            <p className="mt-2 text-sm leading-relaxed text-[var(--ef-text-primary)]">
               {answer.answer}
             </p>
             {answer.support.length > 0 && (
               <div className="mt-3 space-y-1">
                 {answer.support.map((item) => (
-                  <p key={item} className="text-[11px] leading-relaxed text-[#8B94A3]">
+                  <p key={item} className="text-[11px] leading-relaxed text-[var(--ef-text-muted)]">
                     {item}
                   </p>
                 ))}
               </div>
             )}
             {answer.trace?.query_plan && (
-              <p className="mt-3 text-[10px] text-[#5B6578]">
+              <p className="mt-3 text-[10px] text-[var(--ef-text-faint)]">
                 Trace: {answer.trace.query_plan}
               </p>
             )}

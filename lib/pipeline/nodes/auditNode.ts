@@ -65,7 +65,7 @@ function buildKeyFacts(input: ActionNodeOutput): AuditNodeOutput['key_facts'] {
         'distinct_invoice_count',
         'total_invoiced_amount',
         'uninvoiced_line_count',
-        'unknown_eligibility_count',
+        'ineligible_count',
       ]
       : (keysByFamily[input.primaryDocument.family] ?? []);
   return selectedKeys

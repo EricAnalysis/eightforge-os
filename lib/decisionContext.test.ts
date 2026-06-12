@@ -39,6 +39,7 @@ describe('buildDecisionContextRows', () => {
           validator_status: 'NEEDS_REVIEW',
           exposure: {
             total_unreconciled_amount: 5000,
+            total_at_risk_amount: 5000,
           },
         },
       },
@@ -51,8 +52,8 @@ describe('buildDecisionContextRows', () => {
         'Billed to date',
         'Invoice total',
         'Remaining capacity',
-        'Requires verification amount',
-        'At risk amount',
+        'Requires Verification Amount',
+        'At Risk Amount',
         'Validator state',
         'Approval gate state',
         'Next operator move',
@@ -71,7 +72,7 @@ describe('buildDecisionContextRows', () => {
     assert.equal(rows[3]?.sourceLabel, 'Derived');
     assert.equal(rows[4]?.value, '$1,200');
     assert.equal(rows[4]?.sourceLabel, 'Queue finding');
-    assert.equal(rows[4]?.sourceHref, '/platform/workspace/projects/project-1');
+    assert.equal(rows[4]?.sourceHref, '/platform/projects/project-1#project-validator');
     assert.equal(rows[5]?.value, '$5,000');
     assert.equal(rows[5]?.sourceLabel, 'Validator finding');
     assert.equal(rows[6]?.value, 'Needs Review');
@@ -180,6 +181,39 @@ describe('buildDecisionContextRows', () => {
     assert.equal(approvalGate?.actionImpact, 'Will unblock approval');
     assert.equal(nextOperatorMove?.value, 'Review contract rate schedule');
     assert.equal(nextOperatorMove?.executionStatus, 'In progress');
+  });
+
+  it('adds invoice-line contract-rate context when the decision payload includes it', () => {
+    const rows = buildDecisionContextRows({
+      decisionDetails: {
+        approval_status: 'blocked',
+        invoice_line_contexts: [
+          {
+            invoice_number: '2026-002',
+            rate_code: '1F',
+            line_description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+            quantity: '916',
+            unit_price: '14.50',
+          },
+        ],
+      },
+      documentHref: '/platform/documents/doc-invoice-002',
+      projectId: 'project-1',
+      primaryAction: null,
+      projectValidation: null,
+    });
+
+    const invoiceLine = rows.find((row) => row.label === 'Invoice line');
+
+    assert.equal(
+      invoiceLine?.value,
+      '1F - Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+    );
+    assert.equal(invoiceLine?.sourceLabel, 'Invoice 2026-002');
+    assert.equal(
+      invoiceLine?.nextAction,
+      'Verify the contract rate schedule row, correct the line mapping, or override with a reason.',
+    );
   });
 
   it('uses the explicit operator fallbacks when no next action source is available', () => {

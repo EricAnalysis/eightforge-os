@@ -65,6 +65,68 @@ describe('ask reasoning', () => {
     assert.equal(relationships[0]?.delta, 25000);
   });
 
+  it('prefers canonical total billed over summing invoice facts when both are present', () => {
+    const relationships = buildAskRelationships({
+      question: {
+        intent: 'fact_question',
+        confidence: 'medium',
+        keywords: ['ceiling', 'billed'],
+        originalQuestion: 'Are we over the ceiling?',
+      },
+      facts: [
+        {
+          id: 'fact-ceiling',
+          label: 'contract ceiling',
+          value: 500000,
+          extractedFrom: 'doc-contract',
+          documentName: 'Master Contract',
+          confidence: 96,
+          timestamp: '2026-04-02T12:00:00.000Z',
+          factId: 'fact-ceiling',
+          fieldKey: 'contract_ceiling',
+        },
+        {
+          id: 'fact-total-billed',
+          label: 'total billed',
+          value: 490000,
+          extractedFrom: 'project:project-1',
+          documentName: 'Project truth',
+          confidence: 98,
+          timestamp: '2026-04-02T12:10:00.000Z',
+          factId: 'project:project-1:total_billed',
+          fieldKey: 'total_billed',
+        },
+        {
+          id: 'fact-billed-1',
+          label: 'invoice total',
+          value: 250000,
+          extractedFrom: 'doc-invoice-1',
+          documentName: 'Invoice 1',
+          confidence: 89,
+          timestamp: '2026-04-02T12:01:00.000Z',
+          factId: 'fact-billed-1',
+          fieldKey: 'invoice_total',
+        },
+        {
+          id: 'fact-billed-2',
+          label: 'invoice total',
+          value: 275000,
+          extractedFrom: 'doc-invoice-2',
+          documentName: 'Invoice 2',
+          confidence: 91,
+          timestamp: '2026-04-02T12:02:00.000Z',
+          factId: 'fact-billed-2',
+          fieldKey: 'invoice_total',
+        },
+      ],
+      decisions: [],
+    });
+
+    assert.equal(relationships[0]?.type, 'ceiling_vs_billed');
+    assert.equal(relationships[0]?.status, 'within');
+    assert.equal(relationships[0]?.delta, 10000);
+  });
+
   it('builds a contractor mismatch relationship when names disagree', () => {
     const relationships = buildAskRelationships({
       question: {

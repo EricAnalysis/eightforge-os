@@ -47,6 +47,50 @@ describe('ask answer builder', () => {
     assert.ok(response.confidenceScore >= 80);
   });
 
+  it('does not suggest opening a document for project-scoped canonical facts', () => {
+    const response = buildAskResponse({
+      question: {
+        intent: 'fact_question',
+        confidence: 'high',
+        keywords: ['billed', 'total'],
+        originalQuestion: 'How much has been billed so far?',
+      },
+      retrieval: {
+        facts: [
+          {
+            id: 'project-1:total_billed',
+            label: 'Total billed',
+            value: 125000,
+            extractedFrom: 'project:project-1',
+            documentName: 'Example Project project truth',
+            confidence: 96,
+            timestamp: '2026-04-22T12:00:00.000Z',
+            factId: 'project:project-1:total_billed',
+            fieldKey: 'total_billed',
+          },
+        ],
+        validatorFindings: [],
+        decisions: [],
+        documents: [],
+        relationships: [],
+        rawData: {
+          matchedLayer: 'facts',
+          structuredFactsSource: 'canonical_project_facts',
+        },
+      },
+      project: {
+        id: 'project-1',
+        name: 'Example Project',
+      },
+      projectId: 'project-1',
+      orgId: 'org-1',
+    });
+
+    assert.match(response.answer, /\$125,000/);
+    assert.ok(!response.suggestedActions?.some((action) => action.type === 'view_document'));
+    assert.equal(response.sources[0]?.documentId, undefined);
+  });
+
   it('returns validator-backed blocker answer', () => {
     const response = buildAskResponse({
       question: {
@@ -228,7 +272,7 @@ describe('ask answer builder', () => {
     assert.ok(response.sources.every((source) => source.type === 'fact'));
   });
 
-  it('returns ranked risk answer for fix-first questions', () => {
+  it('surfaces validator-backed next action without creating Ask risk assessments', () => {
     const response = buildAskResponse({
       question: {
         intent: 'action_needed',
@@ -264,20 +308,6 @@ describe('ask answer builder', () => {
         relationships: [],
         rawData: {
           matchedLayer: 'validator',
-          riskAssessments: [
-            {
-              issue: 'Missing executed contract ceiling',
-              severity: 'critical',
-              rank: 1,
-              reasoning: 'critical validator, blocking progress, open for 8 days',
-            },
-            {
-              issue: 'Review invoice exception',
-              severity: 'warning',
-              rank: 2,
-              reasoning: 'warning decision, exposure $125,000, open for 5 days',
-            },
-          ],
         },
       },
       project: {
@@ -288,8 +318,9 @@ describe('ask answer builder', () => {
       orgId: 'org-1',
     });
 
-    assert.match(response.answer, /Start with "Missing executed contract ceiling"/);
-    assert.equal(response.riskAssessments?.[0]?.rank, 1);
+    assert.match(response.answer, /Answer:\nStart with the validator blocker "Missing executed contract ceiling"/);
+    assert.match(response.answer, /Validation State:\nBlocked - 1 blocker/);
+    assert.match(response.answer, /Next Action:\nOpen Validator/);
     assert.ok(response.sources.some((source) => source.type === 'validator'));
     assert.ok(response.sources.some((source) => source.type === 'decision'));
   });

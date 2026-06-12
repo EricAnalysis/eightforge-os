@@ -14,6 +14,7 @@ import {
   sortFindings,
   type ProjectTotals,
   type ProjectValidatorInput,
+  type RateScheduleItem,
   type ValidatorContractAnalysisContext,
   type ValidatorDocumentIdsByFamily,
   type ValidatorFactLookups,
@@ -104,6 +105,7 @@ function makeEvidence(id: string, page: number, text: string): EvidenceObject {
 function buildContractAnalysis(params: {
   pricingState: ContractFieldState;
   activationState: ContractFieldState;
+  executedDate?: string | null;
 }): ValidatorContractAnalysisContext {
   const pricingEvidence = makeEvidence(
     'pricing-1',
@@ -123,7 +125,15 @@ function buildContractAnalysis(params: {
     language_engine_version: 'test',
     pattern_library_version: 'test',
     coverage_library_version: 'test',
-    contract_identity: {},
+    contract_identity: params.executedDate
+      ? {
+        executed_date: makeContractField({
+          fieldId: 'executed_date',
+          value: params.executedDate,
+          state: 'explicit',
+        }),
+      }
+      : {},
     term_model: {},
     activation_model: {
       activation_trigger_type: makeContractField({
@@ -201,6 +211,9 @@ function buildInput(params: {
   timeAndMaterialsPresent: boolean;
   contractValidationContext: ValidatorContractAnalysisContext | null;
   hasRateScheduleFacts?: boolean;
+  invoiceLines?: Array<Record<string, unknown>>;
+  rateScheduleItems?: RateScheduleItem[];
+  allFacts?: ValidatorFactRecord[];
 }): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: 'project-1',
@@ -221,6 +234,10 @@ function buildInput(params: {
     contractProjectCodeFacts: [],
     invoiceProjectCodeFacts: [],
     contractPartyNameFacts: [],
+    contractIdentityDocumentIds: [CONTRACT_DOCUMENT_ID],
+    pricingContextDocumentIds: [],
+    complianceContextDocumentIds: [],
+    amendmentContextDocumentIds: [],
     nteFact: null,
     contractDocumentId: CONTRACT_DOCUMENT_ID,
     contractCeilingTypeFact: makeFactRecord('contract_ceiling_type', params.contractCeilingType),
@@ -251,7 +268,7 @@ function buildInput(params: {
     ),
     timeAndMaterialsPresent: params.timeAndMaterialsPresent,
     rateScheduleFacts: [],
-    rateScheduleItems: [],
+    rateScheduleItems: params.rateScheduleItems ?? [],
     hasRateScheduleFacts: params.hasRateScheduleFacts ?? (params.rateSchedulePresent === true),
   };
 
@@ -265,28 +282,60 @@ function buildInput(params: {
 
   return {
     project,
+    validationPhase: 'contract_setup',
     documents: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,
     governingDocumentIds: familyDocumentIds,
+    truthCategoryDocumentIds: {
+      contract_identity: [CONTRACT_DOCUMENT_ID],
+      pricing: [CONTRACT_DOCUMENT_ID],
+      compliance: [],
+      amendments: [],
+    },
     ruleStateByRuleId: new Map(),
     factsByDocumentId: new Map(),
-    allFacts: [],
+    allFacts: params.allFacts ?? [],
     mobileTickets: [],
     loadTickets: [],
     invoices: [],
-    invoiceLines: [],
+    invoiceLines: params.invoiceLines ?? [],
     mobileToLoadsMap: new Map(),
-    invoiceLineToRateMap: new Map(),
+    invoiceLineToRateMap: new Map(
+      (params.invoiceLines ?? []).map((line) => [
+        String(line.id),
+        params.rateScheduleItems?.[0] ?? null,
+      ]),
+    ),
     projectTotals,
     factLookups,
     contractValidationContext: params.contractValidationContext,
   };
 }
 
+function makeRateItem(overrides: Partial<RateScheduleItem> = {}): RateScheduleItem {
+  return {
+    source_document_id: CONTRACT_DOCUMENT_ID,
+    record_id: overrides.record_id ?? 'rate-row-1',
+    rate_code: overrides.rate_code ?? null,
+    unit_type: overrides.unit_type ?? 'HR',
+    rate_amount: overrides.rate_amount ?? 80,
+    material_type: overrides.material_type ?? null,
+    description: overrides.description ?? 'Labor support',
+    service_item: overrides.service_item ?? null,
+    source_category: overrides.source_category ?? 'Labor',
+    canonical_category: overrides.canonical_category ?? 'labor',
+    category_confidence: overrides.category_confidence ?? 0.9,
+    source_quality: overrides.source_quality ?? null,
+    confidence: overrides.confidence ?? null,
+    source_kind: overrides.source_kind ?? null,
+    raw_value: overrides.raw_value ?? {},
+  };
+}
+
 describe('rate-based contract validator rules', () => {
-  it('keeps the Williamson baseline blocked on activation and pricing, not on a missing ceiling', () => {
+  it('keeps the Williamson baseline in review for activation and pricing, not blocked on a missing ceiling', () => {
     const input = buildInput({
       contractCeilingType: 'rate_based',
       rateSchedulePresent: true,
@@ -304,22 +353,30 @@ describe('rate-based contract validator rules', () => {
     const ruleIds = findings.map((finding) => finding.rule_id);
 
     assert.deepEqual(ruleIds, [
-      'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
       'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR',
+      'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED',
     ]);
     assert.equal(ruleIds.includes('FINANCIAL_NTE_FACT_MISSING'), false);
     assert.equal(
       findings.every((finding) => finding.evidence.some((evidence) => evidence.source_page != null)),
       true,
     );
+    assert.deepEqual(
+      findings.map((finding) => finding.severity),
+      ['warning', 'warning'],
+    );
 
     const summary = buildValidationSummary(findings, 'FINDINGS_OPEN');
-    assert.equal(summary.validator_status, 'BLOCKED');
+    assert.equal(summary.validator_status, 'NEEDS_REVIEW');
+    assert.equal(summary.blocker_count, 0);
+    assert.equal(summary.requires_review_count, 1);
+    assert.equal(summary.warning_count, 1);
+    assert.deepEqual(summary.validator_blockers, []);
     assert.deepEqual(
-      summary.validator_blockers.map((item) => item.message),
+      summary.validator_open_items.map((item) => item.message),
       [
-        'Activation trigger detected but status unresolved',
-        'Pricing schedule present but applicability is unresolved',
+        'The contract has pricing language, but the governing pricing basis for the billed work is still unresolved.',
+        'The contract includes activation language, but it is still unclear whether a separate authorization document is required for approval.',
       ],
     );
   });
@@ -390,5 +447,220 @@ describe('rate-based contract validator rules', () => {
     assert.equal(summary.validator_status, 'READY');
     assert.deepEqual(summary.validator_open_items, []);
     assert.deepEqual(summary.validator_blockers, []);
+  });
+
+  it('clears unit coverage when all matched invoice lines use recognized units', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['hr'],
+      timeAndMaterialsPresent: true,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'explicit',
+      }),
+      invoiceLines: [{
+        id: 'line-hr-1',
+        unit_type: 'Hour',
+      }],
+      rateScheduleItems: [makeRateItem({ unit_type: 'HR' })],
+    });
+
+    const findings = runFinancialIntegrityRules(input);
+    assert.equal(
+      findings.some((finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE'),
+      false,
+    );
+  });
+
+  it('downgrades missing invoice rate code to informational when semantic match is confident', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['hour'],
+      timeAndMaterialsPresent: true,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'explicit',
+      }),
+      invoiceLines: [{
+        id: 'line-missing-code-1',
+        description: 'Labor support',
+        unit_type: 'Hour',
+        unit_price: 80,
+        canonical_category: 'labor',
+        category_confidence: 0.9,
+      }],
+      rateScheduleItems: [makeRateItem({
+        rate_code: 'LABOR',
+        description: 'Labor support',
+        unit_type: 'HR',
+        rate_amount: 80,
+        canonical_category: 'labor',
+        category_confidence: 0.9,
+      })],
+    });
+
+    const finding = runFinancialIntegrityRules(input).find(
+      (candidate) => candidate.rule_id === 'FINANCIAL_RATE_CODE_MISSING',
+    );
+
+    assert.ok(finding);
+    assert.equal(finding.severity, 'info');
+    assert.equal(finding.finding_disposition, 'info');
+    assert.equal(finding.approval_gate_effect, 'informational');
+    assert.equal(finding.action_eligible, false);
+  });
+
+  it('keeps missing invoice rate code reviewable when semantic match is weak', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['hour'],
+      timeAndMaterialsPresent: true,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'explicit',
+      }),
+      invoiceLines: [{
+        id: 'line-missing-code-weak-1',
+        description: 'Labor support',
+        unit_type: 'Hour',
+        unit_price: 80,
+        canonical_category: 'labor',
+        category_confidence: 0.9,
+      }],
+      rateScheduleItems: [makeRateItem({
+        rate_code: 'LABOR',
+        description: 'Labor support',
+        unit_type: 'HR',
+        rate_amount: 80,
+        canonical_category: 'labor',
+        category_confidence: 0.9,
+        source_quality: 'suspicious_ocr',
+      })],
+    });
+
+    const finding = runFinancialIntegrityRules(input).find(
+      (candidate) => candidate.rule_id === 'FINANCIAL_RATE_CODE_MISSING',
+    );
+
+    assert.ok(finding);
+    assert.equal(finding.severity, 'warning');
+    assert.equal(finding.approval_gate_effect, 'requires_operator_review');
+  });
+
+  it('emits one targeted unit coverage warning for unknown units', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['mystery unit'],
+      timeAndMaterialsPresent: false,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'explicit',
+      }),
+      invoiceLines: [{
+        id: 'line-unknown-1',
+        unit_type: 'mystery unit',
+      }],
+      rateScheduleItems: [makeRateItem({
+        record_id: 'rate-row-unknown',
+        unit_type: 'mystery unit',
+      })],
+    });
+
+    const findings = runFinancialIntegrityRules(input).filter(
+      (finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE',
+    );
+
+    assert.equal(findings.length, 1);
+    assert.match(findings[0]?.actual ?? '', /mystery unit/);
+    assert.match(findings[0]?.actual ?? '', /line-unknown-1/);
+    assert.match(findings[0]?.actual ?? '', /rate-row-unknown/);
+  });
+
+  it('treats a fully executed governing contract as active and confirms pricing when lines are matched', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['hour'],
+      timeAndMaterialsPresent: true,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'conditional',
+        activationState: 'conditional',
+        executedDate: '2026-02-09',
+      }),
+      invoiceLines: [{
+        id: 'line-active-1',
+        unit_type: 'Hour',
+      }],
+      rateScheduleItems: [makeRateItem({ unit_type: 'HR' })],
+    });
+
+    const findings = runFinancialIntegrityRules(input);
+    assert.equal(
+      findings.some((finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED'),
+      false,
+    );
+    assert.equal(
+      findings.some((finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR'),
+      false,
+    );
+
+    const summary = buildValidationSummary(findings, 'VALIDATED', {
+      contractValidationContext: input.contractValidationContext,
+      crossDocumentRateVerification: {
+        comparable_units: 1,
+        matched_units: 1,
+        rate_mismatch_units: 0,
+        category_mismatch_units: 0,
+        missing_contract_rate_units: 0,
+        missing_support_units: 0,
+        unsupported_work_units: 0,
+        needs_review_units: 0,
+        validation_units: [],
+      },
+    });
+    assert.equal(summary.activation_gate_status, 'satisfied');
+    assert.equal(summary.pricing_applicability_status, 'confirmed');
+  });
+
+  it('keeps activation review when an inactive override signal exists', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 12,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: ['hour'],
+      timeAndMaterialsPresent: true,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'conditional',
+        executedDate: '2026-02-09',
+      }),
+      allFacts: [makeFactRecord('contract_active', false)],
+      invoiceLines: [{
+        id: 'line-inactive-1',
+        unit_type: 'Hour',
+      }],
+      rateScheduleItems: [makeRateItem({ unit_type: 'HR' })],
+    });
+
+    const findings = runFinancialIntegrityRules(input);
+    assert.equal(
+      findings.some((finding) => finding.rule_id === 'FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED'),
+      true,
+    );
   });
 });

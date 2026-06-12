@@ -5,12 +5,34 @@ import {
   mapDocumentFactReviewRow,
   type DocumentFactReviewRow,
 } from '@/lib/documentFactReviews';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
+import type { ValidationTriggerSource } from '@/types/validator';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function documentLabel(document: { title?: string | null; name?: string | null }): string {
+  return document.title?.trim() || document.name || 'Document';
+}
+
+function validationTriggerSourceForReviewStatus(
+  reviewStatus: DocumentFactReviewRow['review_status'],
+): ValidationTriggerSource {
+  switch (reviewStatus) {
+    case 'confirmed':
+    case 'missing_confirmed':
+      return 'review_confirmed';
+    case 'needs_followup':
+      return 'review_flagged';
+    case 'corrected':
+      return 'review_corrected';
+    default:
+      return 'fact_override';
+  }
 }
 
 export async function POST(
@@ -60,7 +82,7 @@ export async function POST(
 
   const { data: document, error: documentError } = await admin
     .from('documents')
-    .select('id, organization_id, project_id')
+    .select('id, organization_id, project_id, title, name')
     .eq('id', documentId)
     .maybeSingle();
 
@@ -68,6 +90,20 @@ export async function POST(
   if (!document || document.organization_id !== organizationId) {
     return jsonError('Document not found', 404);
   }
+
+  const { data: previousReviews, error: previousReviewsError } = await admin
+    .from('document_fact_reviews')
+    .select('id, field_key, review_status, reviewed_value_json, notes, reviewed_at')
+    .eq('organization_id', organizationId)
+    .eq('document_id', documentId)
+    .eq('field_key', fieldKey)
+    .order('reviewed_at', { ascending: false })
+    .limit(1);
+
+  if (previousReviewsError) return jsonError(previousReviewsError.message, 500);
+  const previousReview =
+    (previousReviews as Array<Pick<DocumentFactReviewRow, 'id' | 'field_key' | 'review_status' | 'reviewed_value_json' | 'notes' | 'reviewed_at'>> | null)?.[0]
+    ?? null;
 
   const { data: inserted, error: insertError } = await admin
     .from('document_fact_reviews')
@@ -100,8 +136,62 @@ export async function POST(
       ? document.project_id
       : null;
   if (projectId) {
+    const activityResult = await logActivityEvent({
+      organization_id: organizationId,
+      project_id: projectId,
+      entity_type: 'document',
+      entity_id: documentId,
+      event_type: reviewStatus === 'corrected' ? 'review_correction_applied' : 'review_recorded',
+      changed_by: actorId,
+      old_value: previousReview
+        ? {
+            review_id: previousReview.id,
+            field_key: previousReview.field_key,
+            review_status: previousReview.review_status,
+            previous_status: previousReview.review_status,
+            reviewed_value_json: previousReview.reviewed_value_json,
+            notes: previousReview.notes,
+            reviewed_at: previousReview.reviewed_at,
+            document_id: documentId,
+            document_title: documentLabel(document),
+          }
+        : null,
+      new_value: {
+        review_id: inserted.id,
+        field_key: inserted.field_key,
+        review_status: inserted.review_status,
+        new_status: inserted.review_status,
+        reviewed_value_json: inserted.reviewed_value_json,
+        effective_value: inserted.reviewed_value_json,
+        notes: inserted.notes,
+        document_id: documentId,
+        document_title: documentLabel(document),
+        evidence: {
+          document_id: documentId,
+          field_key: inserted.field_key,
+          source_label: 'fact_ledger_review',
+        },
+      },
+    });
+
+    if (!activityResult.ok) {
+      console.error('[document-fact-review] failed to log activity event', {
+        documentId,
+        projectId,
+        fieldKey,
+        reviewStatus,
+        error: activityResult.error,
+      });
+    }
+  }
+
+  if (projectId) {
     // Fire-and-forget so validation never blocks fact review saves.
-    void triggerProjectValidation(projectId, 'fact_override', actorId);
+    void triggerProjectValidation(
+      projectId,
+      validationTriggerSourceForReviewStatus(reviewStatus),
+      actorId,
+    );
   }
 
   return NextResponse.json({

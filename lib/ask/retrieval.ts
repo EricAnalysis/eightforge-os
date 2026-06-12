@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import { buildAskRelationships, detectReasoningCase, type AskReasoningCase } from '@/lib/ask/reasoning';
-import { isRiskAnalysisQuestion, rankProjectIssues } from '@/lib/ask/riskAnalysis';
 import { buildValidatorContext } from '@/lib/ask/validatorIntegration';
+import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
+import { buildProjectExecutionSummary } from '@/lib/execution/executionSummary';
+import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   AskDocument,
   AskProjectRecord,
@@ -133,7 +135,7 @@ const FACT_FIELD_ALIASES: Array<{
   },
   {
     phrases: ['billed amount', 'invoice amount', 'amount due', 'invoice total'],
-    fieldKeys: ['billed_amount', 'invoice_total', 'total_amount', 'current_amount_due'],
+    fieldKeys: ['total_billed', 'billed_amount', 'invoice_total', 'total_amount', 'current_amount_due'],
   },
   {
     phrases: ['approved amount', 'recommended amount', 'payment recommendation'],
@@ -153,6 +155,7 @@ const REASONING_FIELD_KEYS: Record<AskReasoningCase, string[]> = {
   ceiling_vs_billed: [
     'contract_ceiling',
     'nte_amount',
+    'total_billed',
     'billed_amount',
     'invoice_total',
     'total_amount',
@@ -273,6 +276,59 @@ function sortByScore<T>(rows: Array<{ score: number; row: T }>): T[] {
     .map((entry) => entry.row);
 }
 
+function rankFacts(params: {
+  facts: StructuredFact[];
+  question: ClassifiedQuestion;
+  alias?: ReturnType<typeof selectFactAlias>;
+}): StructuredFact[] {
+  const alias = params.alias ?? selectFactAlias(params.question);
+
+  return sortByScore(
+    params.facts.map((fact) => {
+      const baseScore = scoreMatch({
+        text: factSearchText(fact),
+        keywords: params.question.keywords,
+        exactTerms: alias.phrases,
+        preferredFieldKeys: alias.fieldKeys,
+      });
+
+      return {
+        row: fact,
+        score: baseScore > 0 ? baseScore + factSourceRankBoost(fact) : 0,
+      };
+    }),
+  );
+}
+
+function factSourceRankBoost(fact: StructuredFact): number {
+  switch (fact.sourceKind) {
+    case 'canonical_project_fact':
+      return 64;
+    case 'human_override':
+      return 58;
+    case 'human_review':
+      return 54;
+    case 'document_fact':
+      return 46;
+    default:
+      return 0;
+  }
+}
+
+function structuredFactsSourceForFact(
+  fact: StructuredFact | undefined,
+): 'canonical_project_facts' | 'document_facts' | 'document_extractions' {
+  if (fact?.sourceKind === 'canonical_project_fact') return 'canonical_project_facts';
+  if (
+    fact?.sourceKind === 'human_override' ||
+    fact?.sourceKind === 'human_review' ||
+    fact?.sourceKind === 'document_fact'
+  ) {
+    return 'document_facts';
+  }
+  return 'document_extractions';
+}
+
 function factSearchText(row: StructuredFact): string {
   return [
     row.label,
@@ -282,6 +338,116 @@ function factSearchText(row: StructuredFact): string {
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+function mapDocumentFactsRows(rows: DocumentFactsViewRow[]): StructuredFact[] {
+  return rows
+    .map((row): StructuredFact | null => {
+      const value = overrideValue(
+        row.value
+        ?? row.value_json
+        ?? row.value_number
+        ?? row.value_text
+        ?? row.raw_value
+        ?? null,
+      );
+      const documentId = readString(row.document_id) ?? readString(row.extracted_from);
+      const label = readString(row.label) ?? readString(row.field_key);
+      const fieldKey = readString(row.field_key) ?? label;
+      if (value == null || !documentId || !label || !fieldKey) return null;
+
+      return {
+        id: readString(row.id) ?? `${documentId}:${fieldKey}`,
+        label: humanizeLabel(label),
+        value,
+        unit: readString(row.unit) ?? undefined,
+        extractedFrom: documentId,
+        documentName: readString(row.document_name) ?? undefined,
+        page:
+          typeof row.page === 'number'
+            ? row.page
+            : typeof row.page_number === 'number'
+              ? row.page_number
+              : undefined,
+        confidence: normalizeConfidence(
+          typeof row.confidence === 'number' ? row.confidence : null,
+        ),
+        timestamp:
+          readString(row.timestamp)
+          ?? readString(row.created_at)
+          ?? new Date(0).toISOString(),
+        anchorId: readString(row.anchor_id) ?? undefined,
+        factId: readString(row.fact_id) ?? readString(row.id) ?? undefined,
+        fieldKey,
+        sourceKind: 'document_fact',
+        sourceLabel: 'Canonical document fact',
+      };
+    })
+    .filter((row): row is StructuredFact => row != null);
+}
+
+function buildCanonicalProjectFacts(project: AskProjectRecord): StructuredFact[] {
+  const snapshot = resolveCanonicalProjectValidationSnapshot({
+    validationStatus: project.validationStatus,
+    validationSummary: project.validationSummary,
+  });
+  const timestamp = snapshot.facts.last_run_at ?? new Date(0).toISOString();
+  const projectSourceId = `project:${project.id}`;
+  const projectLabel = `${project.name} project truth`;
+  const facts: StructuredFact[] = [];
+
+  if (snapshot.facts.nte_amount != null) {
+    const sourceDocumentId = snapshot.facts.contract_document_id ?? projectSourceId;
+    facts.push({
+      id: `${projectSourceId}:nte_amount`,
+      label: 'Contract ceiling (NTE)',
+      value: snapshot.facts.nte_amount,
+      extractedFrom: sourceDocumentId,
+      documentName: snapshot.facts.contract_document_id ? 'Governing contract' : projectLabel,
+      confidence: 96,
+      timestamp,
+      factId: `${projectSourceId}:nte_amount`,
+      fieldKey: 'nte_amount',
+      sourceKind: 'canonical_project_fact',
+      sourceLabel: 'Canonical project validation snapshot',
+    });
+  }
+
+  if (snapshot.facts.total_billed != null) {
+    facts.push({
+      id: `${projectSourceId}:total_billed`,
+      label: 'Project invoice total rollup',
+      value: snapshot.facts.total_billed,
+      extractedFrom: projectSourceId,
+      documentName: projectLabel,
+      confidence: 96,
+      timestamp,
+      factId: `${projectSourceId}:total_billed`,
+      fieldKey: 'total_billed',
+      sourceKind: 'canonical_project_fact',
+      sourceLabel: 'Canonical project validation snapshot',
+    });
+  }
+
+  for (const [index, invoice] of snapshot.invoice_summaries.entries()) {
+    if (invoice.billed_amount == null) continue;
+    const invoiceNumber = invoice.invoice_number ?? `invoice-${index + 1}`;
+    facts.push({
+      id: `${projectSourceId}:invoice:${invoiceNumber}:billed_amount`,
+      label: `Invoice ${invoiceNumber} contribution`,
+      value: invoice.billed_amount,
+      extractedFrom: projectSourceId,
+      documentName: projectLabel,
+      confidence: 94,
+      timestamp,
+      factId: `${projectSourceId}:invoice:${invoiceNumber}:billed_amount`,
+      fieldKey: 'invoice_total',
+      sourceKind: 'canonical_project_fact',
+      sourceLabel: 'Canonical project invoice rollup lineage',
+    });
+  }
+
+  return facts;
 }
 
 function decisionSearchText(row: DecisionRecord): string {
@@ -405,6 +571,18 @@ async function loadFactEnhancements(params: {
     return {
       ...fact,
       value: overriddenValue ?? reviewedValue ?? fact.value,
+      sourceKind: override
+        ? 'human_override'
+        : review
+          ? 'human_review'
+          : fact.sourceKind,
+      sourceLabel: override
+        ? 'Manual override'
+        : review
+          ? 'Reviewed document fact'
+          : fact.sourceLabel,
+      reviewStatus: review?.review_status ?? fact.reviewStatus,
+      overrideId: override?.id ?? fact.overrideId,
       confidence: override
         ? 100
         : review
@@ -422,78 +600,22 @@ async function loadStructuredFacts(params: {
   projectId: string;
   orgId: string;
   question: ClassifiedQuestion;
+  project: AskProjectRecord;
 }): Promise<{
-  source: 'document_facts' | 'document_extractions';
+  source: 'canonical_project_facts' | 'document_facts' | 'document_extractions';
   facts: StructuredFact[];
 }> {
   const alias = selectFactAlias(params.question);
-
+  const canonicalFacts = buildCanonicalProjectFacts(params.project);
   const documentFactsResult = await params.admin
     .from('document_facts')
     .select('*')
     .eq('organization_id', params.orgId)
     .eq('project_id', params.projectId)
     .limit(400);
-
-  if (!documentFactsResult.error) {
-    const mapped = ((documentFactsResult.data ?? []) as DocumentFactsViewRow[])
-      .map((row): StructuredFact | null => {
-        const value = overrideValue(
-          row.value
-          ?? row.value_json
-          ?? row.value_number
-          ?? row.value_text
-          ?? row.raw_value
-          ?? null,
-        );
-        const documentId = readString(row.document_id) ?? readString(row.extracted_from);
-        const label = readString(row.label) ?? readString(row.field_key);
-        if (value == null || !documentId || !label) return null;
-
-        return {
-          id: readString(row.id) ?? `${documentId}:${label}`,
-          label: humanizeLabel(label),
-          value,
-          unit: readString(row.unit) ?? undefined,
-          extractedFrom: documentId,
-          documentName: readString(row.document_name) ?? undefined,
-          page:
-            typeof row.page === 'number'
-              ? row.page
-              : typeof row.page_number === 'number'
-                ? row.page_number
-                : undefined,
-          confidence: normalizeConfidence(
-            typeof row.confidence === 'number' ? row.confidence : null,
-          ),
-          timestamp:
-            readString(row.timestamp)
-            ?? readString(row.created_at)
-            ?? new Date(0).toISOString(),
-          anchorId: readString(row.anchor_id) ?? undefined,
-          factId: readString(row.fact_id) ?? readString(row.id) ?? undefined,
-          fieldKey: readString(row.field_key) ?? label,
-        };
-      })
-      .filter((row): row is StructuredFact => row != null);
-
-    const ranked = sortByScore(
-      mapped.map((fact) => ({
-        row: fact,
-        score: scoreMatch({
-          text: factSearchText(fact),
-          keywords: params.question.keywords,
-          exactTerms: alias.phrases,
-          preferredFieldKeys: alias.fieldKeys,
-        }),
-      })),
-    );
-
-    return {
-      source: 'document_facts',
-      facts: ranked.slice(0, 6),
-    };
-  }
+  const documentFacts = documentFactsResult.error
+    ? []
+    : mapDocumentFactsRows((documentFactsResult.data ?? []) as DocumentFactsViewRow[]);
 
   const extractionResult = await params.admin
     .from('document_extractions')
@@ -527,6 +649,8 @@ async function loadStructuredFacts(params: {
         timestamp: row.created_at,
         factId: row.id,
         fieldKey: row.field_key,
+        sourceKind: 'document_extraction',
+        sourceLabel: 'Machine extraction',
       };
     })
     .filter((row): row is StructuredFact => row != null);
@@ -537,21 +661,28 @@ async function loadStructuredFacts(params: {
     facts: mapped,
   });
 
-  const ranked = sortByScore(
-    enhanced.map((fact) => ({
-      row: fact,
-      score: scoreMatch({
-        text: factSearchText(fact),
-        keywords: params.question.keywords,
-        exactTerms: alias.phrases,
-        preferredFieldKeys: alias.fieldKeys,
-      }),
-    })),
-  );
+  const ranked = rankFacts({
+    facts: mergeFacts(
+      mergeFacts(
+        rankFacts({ facts: canonicalFacts, question: params.question, alias }),
+        documentFacts,
+      ),
+      enhanced,
+    ),
+    question: params.question,
+    alias,
+  });
+
+  if (ranked.length > 0) {
+    return {
+      source: structuredFactsSourceForFact(ranked[0]),
+      facts: ranked.slice(0, 6),
+    };
+  }
 
   return {
     source: 'document_extractions',
-    facts: ranked.slice(0, 6),
+    facts: [],
   };
 }
 
@@ -560,8 +691,9 @@ async function loadFactsByFieldKeys(params: {
   projectId: string;
   orgId: string;
   fieldKeys: string[];
+  project: AskProjectRecord;
 }): Promise<{
-  source: 'document_facts' | 'document_extractions';
+  source: 'canonical_project_facts' | 'document_facts' | 'document_extractions';
   facts: StructuredFact[];
 }> {
   if (params.fieldKeys.length === 0) {
@@ -570,7 +702,8 @@ async function loadFactsByFieldKeys(params: {
       facts: [],
     };
   }
-
+  const canonicalFacts = buildCanonicalProjectFacts(params.project)
+    .filter((fact) => params.fieldKeys.includes(fact.fieldKey ?? ''));
   const documentFactsResult = await params.admin
     .from('document_facts')
     .select('*')
@@ -578,55 +711,9 @@ async function loadFactsByFieldKeys(params: {
     .eq('project_id', params.projectId)
     .in('field_key', params.fieldKeys)
     .limit(1000);
-
-  if (!documentFactsResult.error) {
-    const mapped = ((documentFactsResult.data ?? []) as DocumentFactsViewRow[])
-      .map((row): StructuredFact | null => {
-        const value = overrideValue(
-          row.value
-          ?? row.value_json
-          ?? row.value_number
-          ?? row.value_text
-          ?? row.raw_value
-          ?? null,
-        );
-        const documentId = readString(row.document_id) ?? readString(row.extracted_from);
-        const label = readString(row.label) ?? readString(row.field_key);
-        const fieldKey = readString(row.field_key) ?? label;
-        if (value == null || !documentId || !label || !fieldKey) return null;
-
-        return {
-          id: readString(row.id) ?? `${documentId}:${fieldKey}`,
-          label: humanizeLabel(label),
-          value,
-          unit: readString(row.unit) ?? undefined,
-          extractedFrom: documentId,
-          documentName: readString(row.document_name) ?? undefined,
-          page:
-            typeof row.page === 'number'
-              ? row.page
-              : typeof row.page_number === 'number'
-                ? row.page_number
-                : undefined,
-          confidence: normalizeConfidence(
-            typeof row.confidence === 'number' ? row.confidence : null,
-          ),
-          timestamp:
-            readString(row.timestamp)
-            ?? readString(row.created_at)
-            ?? new Date(0).toISOString(),
-          anchorId: readString(row.anchor_id) ?? undefined,
-          factId: readString(row.fact_id) ?? readString(row.id) ?? undefined,
-          fieldKey,
-        };
-      })
-      .filter((row): row is StructuredFact => row != null);
-
-    return {
-      source: 'document_facts',
-      facts: mapped,
-    };
-  }
+  const documentFacts = documentFactsResult.error
+    ? []
+    : mapDocumentFactsRows((documentFactsResult.data ?? []) as DocumentFactsViewRow[]);
 
   const extractionResult = await params.admin
     .from('document_extractions')
@@ -660,6 +747,8 @@ async function loadFactsByFieldKeys(params: {
         timestamp: row.created_at,
         factId: row.id,
         fieldKey: row.field_key,
+        sourceKind: 'document_extraction',
+        sourceLabel: 'Machine extraction',
       };
     })
     .filter((row): row is StructuredFact => row != null);
@@ -670,9 +759,17 @@ async function loadFactsByFieldKeys(params: {
     facts: mapped,
   });
 
+  const primaryFacts = mergeFacts(mergeFacts(canonicalFacts, documentFacts), enhanced);
+  if (primaryFacts.length > 0) {
+    return {
+      source: structuredFactsSourceForFact(primaryFacts[0]),
+      facts: primaryFacts,
+    };
+  }
+
   return {
     source: 'document_extractions',
-    facts: enhanced,
+    facts: [],
   };
 }
 
@@ -1036,6 +1133,25 @@ async function loadDecisions(params: {
     .slice(0, 8);
 }
 
+async function loadProjectExecutionSummary(params: {
+  admin: SupabaseClient;
+  projectId: string;
+  orgId: string;
+}) {
+  const result = await params.admin
+    .from('execution_items')
+    .select('*')
+    .eq('organization_id', params.orgId)
+    .eq('project_id', params.projectId)
+    .order('updated_at', { ascending: false });
+
+  if (result.error) {
+    throw new Error(`Failed to load project execution summary: ${result.error.message}`);
+  }
+
+  return buildProjectExecutionSummary((result.data ?? []) as ProjectExecutionItemRow[]);
+}
+
 export async function retrieveProjectTruth(params: {
   admin: SupabaseClient;
   question: ClassifiedQuestion;
@@ -1044,8 +1160,6 @@ export async function retrieveProjectTruth(params: {
   project: AskProjectRecord;
 }): Promise<RetrievalResult> {
   const reasoningCase = detectReasoningCase(params.question);
-  const riskQuery = isRiskAnalysisQuestion(params.question);
-  let allValidatorFindings: ValidatorFinding[] = [];
   const result: RetrievalResult = {
     facts: [],
     validatorFindings: [],
@@ -1058,16 +1172,23 @@ export async function retrieveProjectTruth(params: {
       totalDocumentCount: 0,
       processedDocumentCount: 0,
       openDecisionCount: 0,
+      executionSummary: null,
       reasoningCase: reasoningCase ?? undefined,
-      riskQuery,
     },
   };
+
+  result.rawData.executionSummary = await loadProjectExecutionSummary({
+    admin: params.admin,
+    projectId: params.projectId,
+    orgId: params.orgId,
+  });
 
   const factResult = await loadStructuredFacts({
     admin: params.admin,
     projectId: params.projectId,
     orgId: params.orgId,
     question: params.question,
+    project: params.project,
   });
 
   result.facts = factResult.facts;
@@ -1079,6 +1200,7 @@ export async function retrieveProjectTruth(params: {
       projectId: params.projectId,
       orgId: params.orgId,
       fieldKeys: REASONING_FIELD_KEYS[reasoningCase],
+      project: params.project,
     });
 
     result.rawData.reasoningFacts = mergeFacts(result.facts, reasoningFactsResult.facts);
@@ -1101,7 +1223,6 @@ export async function retrieveProjectTruth(params: {
       project: params.project,
     });
 
-    allValidatorFindings = validatorResult.all;
     result.validatorFindings = validatorResult.matched;
     result.rawData.validatorContext = buildValidatorContext({
       project: params.project,
@@ -1112,7 +1233,6 @@ export async function retrieveProjectTruth(params: {
 
     if (
       (params.question.intent === 'validator_question' || params.question.intent === 'missing_data')
-      && !riskQuery
       && result.validatorFindings.length > 0
     ) {
       result.rawData.matchedLayer = 'validator';
@@ -1124,7 +1244,6 @@ export async function retrieveProjectTruth(params: {
     params.question.intent === 'action_needed'
     || params.question.intent === 'status_check'
     || params.question.intent === 'missing_data'
-    || riskQuery
     || reasoningCase === 'ceiling_vs_billed'
     || (result.facts.length === 0 && result.validatorFindings.length === 0);
 
@@ -1139,25 +1258,8 @@ export async function retrieveProjectTruth(params: {
       ['open', 'in_review'].includes(decision.status),
     ).length;
 
-    if (params.question.intent === 'action_needed' && !riskQuery && result.decisions.length > 0) {
+    if (params.question.intent === 'action_needed' && result.decisions.length > 0) {
       result.rawData.matchedLayer = 'decisions';
-      return result;
-    }
-  }
-
-  if (riskQuery) {
-    const rankedIssues = rankProjectIssues({
-      findings: allValidatorFindings.length > 0 ? allValidatorFindings : result.validatorFindings,
-      decisions: result.decisions,
-    });
-
-    if (rankedIssues.length > 0) {
-      result.rawData.riskAssessments = rankedIssues;
-      result.validatorFindings = allValidatorFindings.length > 0
-        ? allValidatorFindings
-        : result.validatorFindings;
-      result.rawData.matchedLayer =
-        result.validatorFindings.length > 0 ? 'validator' : 'decisions';
       return result;
     }
   }

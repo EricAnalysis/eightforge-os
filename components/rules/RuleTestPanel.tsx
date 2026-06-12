@@ -5,8 +5,8 @@ import { evaluateRule } from '@/lib/ruleEvaluation';
 import type { Facts, RuleRow, ConditionJson } from '@/lib/types/rules';
 
 const inputCls =
-  'rounded-md border border-[#1A1A3E] bg-[#0A0A20] px-3 py-2 text-[11px] text-[#F5F7FA] placeholder:text-[#3a3f5a] outline-none focus:border-[#8B5CFF]';
-const labelCls = 'mb-1 block text-[11px] font-medium text-[#F5F7FA]';
+  'rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]';
+const labelCls = 'mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]';
 
 function parseFactValue(raw: string): string | number | boolean | null {
   const t = raw.trim();
@@ -100,9 +100,9 @@ export function RuleTestPanel({
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-      <div className="text-[11px] font-medium text-[#F5F7FA]">Rule test</div>
-      <p className="text-[10px] text-[#8B94A3]">
+    <div className="space-y-4 rounded-lg border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] p-4">
+      <div className="text-[11px] font-medium text-[var(--ef-text-primary)]">Rule test</div>
+      <p className="text-[10px] text-[var(--ef-text-muted)]">
         Enter mock facts as key/value pairs and run evaluation to see if the rule matches and which conditions pass or fail.
       </p>
 
@@ -112,7 +112,7 @@ export function RuleTestPanel({
           <button
             type="button"
             onClick={addRow}
-            className="text-[11px] font-medium text-[#8B5CFF] hover:underline"
+            className="text-[11px] font-medium text-[var(--ef-purple-primary)] hover:underline"
           >
             + Add fact
           </button>
@@ -137,7 +137,7 @@ export function RuleTestPanel({
               <button
                 type="button"
                 onClick={() => removeRow(i)}
-                className="shrink-0 rounded px-2 text-[11px] text-red-400 hover:bg-red-500/10"
+                className="shrink-0 rounded px-2 text-[11px] text-[var(--ef-critical)] hover:bg-[var(--ef-critical-a10)]"
                 aria-label="Remove row"
               >
                 Remove
@@ -150,36 +150,36 @@ export function RuleTestPanel({
       <button
         type="button"
         onClick={runTest}
-        className="rounded-md bg-[#8B5CFF] px-3 py-2 text-[11px] font-medium text-white hover:bg-[#7A4FE8]"
+        className="rounded-md bg-[var(--ef-purple-primary)] px-3 py-2 text-[11px] font-medium text-white hover:bg-[var(--ef-purple-glow)]"
       >
         Run evaluation
       </button>
 
       {result && (
-        <div className="space-y-2 border-t border-[#1A1A3E] pt-3">
+        <div className="space-y-2 border-t border-[var(--ef-surface-elevated)] pt-3">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-medium text-[#F5F7FA]">Result:</span>
+            <span className="text-[11px] font-medium text-[var(--ef-text-primary)]">Result:</span>
             <span
               className={`inline-block rounded px-2 py-0.5 text-[11px] font-medium ${
                 result.matched
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  : 'bg-[#1A1A3E] text-[#8B94A3] border border-[#1A1A3E]'
+                  ? 'bg-[var(--ef-success-a20)] text-[var(--ef-success)] border border-[var(--ef-success-a40)]'
+                  : 'bg-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] border border-[var(--ef-surface-elevated)]'
               }`}
             >
               {result.matched ? 'Matched' : 'No match'}
             </span>
           </div>
-          <div className="text-[11px] text-[#8B94A3]">Conditions:</div>
+          <div className="text-[11px] text-[var(--ef-text-muted)]">Conditions:</div>
           <ul className="space-y-1.5">
             {result.condition_results.map((cr, i) => (
               <li
                 key={i}
                 className={`rounded px-2 py-1.5 text-[11px] ${
-                  cr.passed ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'
+                  cr.passed ? 'bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]' : 'bg-[var(--ef-critical-a10)] text-[var(--ef-critical-soft)]'
                 }`}
               >
                 <span className="font-medium">{cr.field_key}</span>{' '}
-                <span className="text-[#8B94A3]">{cr.operator}</span>{' '}
+                <span className="text-[var(--ef-text-muted)]">{cr.operator}</span>{' '}
                 {cr.operator !== 'exists' && cr.operator !== 'not_exists' && (
                   <>
                     expected: <code className="rounded bg-black/20 px-1">{JSON.stringify(cr.expected)}</code>

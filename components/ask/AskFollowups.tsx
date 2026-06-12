@@ -27,7 +27,7 @@ export function AskFollowups({
           type="button"
           disabled={disabled}
           onClick={() => onSelect(question)}
-          className="inline-flex rounded-full border border-[#2F3B52]/80 bg-[#131A29] px-3 py-1.5 text-[10px] font-semibold tracking-[0.01em] text-[#C7D2E3] transition hover:border-[#3B82F6]/45 hover:text-[#F5F7FA] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex rounded-full border border-[var(--ef-border-subtle-a80)] bg-[var(--ef-surface-elevated)] px-3 py-1.5 text-[10px] font-semibold tracking-[0.01em] text-[var(--ef-text-secondary)] transition hover:border-[var(--ef-purple-primary-a45)] hover:text-[var(--ef-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {question}
         </button>

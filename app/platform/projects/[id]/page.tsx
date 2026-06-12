@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { use, useMemo } from 'react';
-import { ValidatorTab } from '@/app/platform/workspace/projects/[id]/ValidatorTab';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
+import { ValidatorTab } from '@/components/projects/ValidatorTab';
 import { buildProjectOverviewModel } from '@/lib/projectOverview';
 import { useProjectWorkspaceData } from '@/lib/useProjectWorkspaceData';
 
@@ -25,6 +25,7 @@ export default function ProjectDetailPage({
       tasks: data.tasks,
       activityEvents: data.activityEvents,
       members: data.members,
+      validationFindings: data.validationFindings,
     });
   }, [
     data.activityEvents,
@@ -34,15 +35,16 @@ export default function ProjectDetailPage({
     data.members,
     data.project,
     data.tasks,
+    data.validationFindings,
   ]);
 
   if (data.loading || data.orgLoading) {
     return (
       <div className="space-y-3 px-8 py-10">
-        <Link href="/platform/projects" className="text-[11px] text-[#3B82F6] hover:underline">
+        <Link href="/platform/projects" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           Back to projects
         </Link>
-        <p className="text-[11px] text-[#94A3B8]">Loading project overview...</p>
+        <p className="text-[11px] text-[var(--ef-text-muted)]">Loading project overview...</p>
       </div>
     );
   }
@@ -50,10 +52,10 @@ export default function ProjectDetailPage({
   if (data.pageError) {
     return (
       <div className="space-y-3 px-8 py-10">
-        <Link href="/platform/projects" className="text-[11px] text-[#3B82F6] hover:underline">
+        <Link href="/platform/projects" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           Back to projects
         </Link>
-        <div className="rounded-sm border border-[#EF4444]/30 bg-[#EF4444]/10 px-4 py-3 text-[11px] text-[#EF4444]">
+        <div className="rounded-sm border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-4 py-3 text-[11px] text-[var(--ef-critical)]">
           {data.pageError}
         </div>
       </div>
@@ -63,10 +65,10 @@ export default function ProjectDetailPage({
   if (data.notFound || !model) {
     return (
       <div className="space-y-3 px-8 py-10">
-        <Link href="/platform/projects" className="text-[11px] text-[#3B82F6] hover:underline">
+        <Link href="/platform/projects" className="text-[11px] text-[var(--ef-purple-primary)] hover:underline">
           Back to projects
         </Link>
-        <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] px-4 py-4 text-[11px] text-[#94A3B8]">
+        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-4 py-4 text-[11px] text-[var(--ef-text-muted)]">
           Project not found, or you no longer have access to it.
         </div>
       </div>
@@ -77,11 +79,26 @@ export default function ProjectDetailPage({
     <ProjectOverview
       model={model}
       documents={data.documents}
+      documentRelationships={data.documentRelationships}
+      transactionDatasets={data.transactionDatasets}
+      validationFindings={data.validationFindings}
+      validationEvidence={data.validationEvidence}
+      executionItems={data.executionItems}
       decisions={data.decisions}
       tasks={data.tasks}
+      activityEvents={data.activityEvents}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}
-      validatorTab={<ValidatorTab projectId={id} />}
+      validatorTab={
+        <ValidatorTab
+          projectId={id}
+          documents={data.documents}
+          transactionDatasets={data.transactionDatasets}
+          validationEvidence={data.validationEvidence}
+          executionItems={data.executionItems}
+          onProjectRefresh={data.refetch}
+        />
+      }
     />
   );
 }

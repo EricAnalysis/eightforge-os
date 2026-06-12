@@ -27,32 +27,32 @@ const GROUP_CONFIG: Record<DecisionDisplayGroup, {
 }> = {
   critical_risk: {
     icon: '!',
-    color: 'text-red-400 bg-red-500/10 border-red-500/20',
+    color: 'text-[var(--ef-critical)] bg-[var(--ef-critical-a10)] border-[var(--ef-critical-a20)]',
     label: 'Critical Risk',
   },
   mismatch: {
     icon: 'x',
-    color: 'text-red-400 bg-red-500/10 border-red-500/20',
+    color: 'text-[var(--ef-critical)] bg-[var(--ef-critical-a10)] border-[var(--ef-critical-a20)]',
     label: 'Mismatch',
   },
   missing: {
     icon: 'o',
-    color: 'text-[#8B94A3] bg-white/5 border-white/10',
+    color: 'text-[var(--ef-text-muted)] bg-white/5 border-[var(--ef-border-white-10)]',
     label: 'Missing',
   },
   risk: {
     icon: '!',
-    color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    color: 'text-[var(--ef-warning)] bg-[var(--ef-warning-bg)] border-[var(--ef-warning-a20)]',
     label: 'Risk',
   },
   confirmed: {
     icon: 'ok',
-    color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    color: 'text-[var(--ef-success)] bg-[var(--ef-success-bg)] border-[var(--ef-success-a20)]',
     label: 'Confirmed',
   },
   info: {
     icon: 'i',
-    color: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
+    color: 'text-[var(--ef-purple-accent)] bg-[var(--ef-purple-primary-a10)] border-[var(--ef-purple-primary-a20)]',
     label: 'Info',
   },
 };
@@ -212,58 +212,58 @@ function DecisionRow({
       </span>
       <div className="min-w-0 flex-1">
         {projectContextLabel && (
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[#5B6578]">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-text-faint)]">
             {projectContextLabel}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium text-white">{decision.title}</p>
           {typeof decision.confidence === 'number' && (
-            <span className="text-[10px] text-[#5B6578]">
+            <span className="text-[10px] text-[var(--ef-text-faint)]">
               {Math.round(decision.confidence * 100)}%
             </span>
           )}
           {taskCount > 0 && (
-            <span className="inline-flex items-center rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">
+            <span className="inline-flex items-center rounded border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--ef-warning)]">
               {taskCount} task{taskCount > 1 ? 's' : ''}
             </span>
           )}
         </div>
-        <p className="mt-0.5 text-xs leading-relaxed text-[#8B94A3]">
+        <p className="mt-0.5 text-xs leading-relaxed text-[var(--ef-text-muted)]">
           {decisionReason(decision)}
         </p>
         {evidenceObjects.length > 0 && (
           <div className="mt-2 space-y-2 rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
                 Cited spans
               </span>
-              <span className="text-[10px] text-[#5B6578]">
+              <span className="text-[10px] text-[var(--ef-text-faint)]">
                 {evidenceObjects.length} cited
               </span>
             </div>
             {evidenceObjects.slice(0, 3).map((evidence) => {
               const excerpt = evidenceExcerpt(evidence);
               return (
-                <div key={evidence.id} className="rounded border border-white/6 bg-[#0B1020] px-2.5 py-2">
+                <div key={evidence.id} className="rounded border border-white/6 bg-[var(--ef-background-primary)] px-2.5 py-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-[#C5CAD4]">
+                    <span className="rounded border border-[var(--ef-border-white-10)] bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--ef-text-secondary)]">
                       {evidenceLocationLabel(evidence)}
                     </span>
-                    <span className="text-[10px] text-[#5B6578]">
+                    <span className="text-[10px] text-[var(--ef-text-faint)]">
                       {Math.round(evidence.confidence * 100)}%
                     </span>
                     {evidence.weak && (
-                      <span className="rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                      <span className="rounded border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--ef-warning-soft)]">
                         weak signal
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-[11px] font-medium text-[#F5F7FA]">
+                  <p className="mt-1 text-[11px] font-medium text-[var(--ef-text-primary)]">
                     {evidence.description}
                   </p>
                   {excerpt && (
-                    <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-[#8B94A3]">
+                    <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-[var(--ef-text-muted)]">
                       {excerpt}
                     </p>
                   )}
@@ -273,11 +273,11 @@ function DecisionRow({
           </div>
         )}
         {(decision.source_refs ?? []).length > 0 && (
-          <div className="mt-2 rounded border border-white/6 bg-[#0B1020] px-2.5 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+          <div className="mt-2 rounded border border-white/6 bg-[var(--ef-background-primary)] px-2.5 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
               Evidence ids
             </p>
-            <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-[#5B6578]">
+            <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-[var(--ef-text-faint)]">
               {(decision.source_refs ?? []).slice(0, 8).join(' · ')}
               {(decision.source_refs ?? []).length > 8 ? ' · …' : ''}
             </p>
@@ -285,14 +285,14 @@ function DecisionRow({
         )}
         {missingSourceContext.length > 0 && (
           <div className="mt-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
               Missing source context
             </p>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {missingSourceContext.map((item) => (
                 <span
                   key={item}
-                  className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200"
+                  className="rounded border border-[var(--ef-warning-a20)] bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] text-[var(--ef-warning-soft)]"
                 >
                   {item}
                 </span>
@@ -301,25 +301,25 @@ function DecisionRow({
           </div>
         )}
         {primaryAction && (
-          <div className="mt-2 rounded-lg border border-[#8B5CFF]/20 bg-[#8B5CFF]/8 px-3 py-2">
+          <div className="mt-2 rounded-lg border border-[var(--ef-purple-primary-a20)] bg-[var(--ef-purple-primary-a08)] px-3 py-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#C5B3FF]">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ef-purple-glow)]">
                 Primary action
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] ${actionResolvable ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-300'}`}>
+              <span className={`rounded px-1.5 py-0.5 text-[10px] ${actionResolvable ? 'bg-[var(--ef-success-bg)] text-[var(--ef-success)]' : 'bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]'}`}>
                 {actionResolvable ? 'In product' : 'Manual step'}
               </span>
             </div>
-            <p className="mt-1 text-xs font-medium text-[#F5F7FA]">{primaryAction}</p>
+            <p className="mt-1 text-xs font-medium text-[var(--ef-text-primary)]">{primaryAction}</p>
             {decision.primary_action?.expected_outcome && (
-              <p className="mt-1 text-[11px] text-[#8B94A3]">
+              <p className="mt-1 text-[11px] text-[var(--ef-text-muted)]">
                 {decision.primary_action.expected_outcome}
               </p>
             )}
             {suggestedActions.length > 0 && (
               <div className="mt-2 flex flex-col gap-1">
                 {suggestedActions.map((action) => (
-                  <p key={action.id} className="text-[11px] text-[#C5CAD4]">
+                  <p key={action.id} className="text-[11px] text-[var(--ef-text-secondary)]">
                     Next: {action.description}
                   </p>
                 ))}
@@ -332,40 +332,40 @@ function DecisionRow({
             <button
               type="button"
               onClick={() => onReviewDecision(decision.id, { isCorrect: true })}
-              className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400 hover:bg-emerald-500/20"
+              className="rounded border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-2 py-1 text-[10px] text-[var(--ef-success)] hover:bg-[var(--ef-success-a20)]"
             >
               Correct
             </button>
             <button
               type="button"
               onClick={() => onReviewDecision(decision.id, { isCorrect: false, reviewErrorType: 'extraction_error' })}
-              className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-300 hover:bg-red-500/20"
+              className="rounded border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] px-2 py-1 text-[10px] text-[var(--ef-critical-soft)] hover:bg-[var(--ef-critical-a20)]"
             >
               Extraction error
             </button>
             <button
               type="button"
               onClick={() => onReviewDecision(decision.id, { isCorrect: false, reviewErrorType: 'rule_error' })}
-              className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 hover:bg-amber-500/20"
+              className="rounded border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] px-2 py-1 text-[10px] text-[var(--ef-warning-soft)] hover:bg-[var(--ef-warning-a20)]"
             >
               Rule error
             </button>
             <button
               type="button"
               onClick={() => onReviewDecision(decision.id, { isCorrect: false, reviewErrorType: 'edge_case' })}
-              className="rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-[#C5CAD4] hover:bg-white/10"
+              className="rounded border border-[var(--ef-border-white-10)] bg-white/5 px-2 py-1 text-[10px] text-[var(--ef-text-secondary)] hover:bg-white/10"
             >
               Edge case
             </button>
             {feedback && (
-              <span className={`text-[10px] ${feedback.status === 'correct' ? 'text-emerald-400' : 'text-red-300'}`}>
+              <span className={`text-[10px] ${feedback.status === 'correct' ? 'text-[var(--ef-success)]' : 'text-[var(--ef-critical-soft)]'}`}>
                 {feedback.status === 'correct'
                   ? 'Marked correct'
                   : `Marked incorrect: ${reviewErrorLabel(feedback.reviewErrorType)}`}
               </span>
             )}
             {feedbackError && (
-              <span className="text-[10px] text-red-400">{feedbackError}</span>
+              <span className="text-[10px] text-[var(--ef-critical)]">{feedbackError}</span>
             )}
           </div>
         )}
@@ -388,7 +388,7 @@ function GroupHeader({
       <span className={`text-[10px] font-semibold uppercase tracking-wider ${textColor}`}>
         {config.label}
       </span>
-      <span className="text-[10px] text-[#5B6578]">({count})</span>
+      <span className="text-[10px] text-[var(--ef-text-faint)]">({count})</span>
     </div>
   );
 }
@@ -417,14 +417,14 @@ export function DecisionsSection({
 }: DecisionsSectionProps) {
   if (unavailableMessage) {
     return (
-      <div className="rounded-xl border border-white/10 bg-[#0F1117]">
+      <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
         <div className="border-b border-white/8 px-5 py-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
             Decisions
           </h3>
         </div>
         <div className="px-5 py-4">
-          <p className="text-sm italic text-amber-200">
+          <p className="text-sm italic text-[var(--ef-warning-soft)]">
             {unavailableMessage}
           </p>
         </div>
@@ -434,14 +434,14 @@ export function DecisionsSection({
 
   if (decisions.length === 0) {
     return (
-      <div className="rounded-xl border border-white/10 bg-[#0F1117]">
+      <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
         <div className="border-b border-white/8 px-5 py-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
             Decisions
           </h3>
         </div>
         <div className="px-5 py-4">
-          <p className="text-sm italic text-[#8B94A3]">
+          <p className="text-sm italic text-[var(--ef-text-muted)]">
             No issues detected. Document looks complete.
           </p>
         </div>
@@ -478,12 +478,12 @@ export function DecisionsSection({
     .filter(({ items }) => items.length > 0);
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0F1117]">
+    <div className="rounded-xl border border-[var(--ef-border-white-10)] bg-[var(--ef-background-primary)]">
       <div className="border-b border-white/8 px-5 py-3 flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[#8B94A3]">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ef-text-muted)]">
           Decisions
         </h3>
-        <span className="ml-auto text-[10px] text-[#5B6578]">{decisions.length} total</span>
+        <span className="ml-auto text-[10px] text-[var(--ef-text-faint)]">{decisions.length} total</span>
       </div>
       <div className="divide-y divide-white/5">
         {groups.map(({ group, items }) => (
@@ -508,7 +508,7 @@ export function DecisionsSection({
 
         {hiddenLowValueDecisions.length > 0 && (
           <details className="px-5 py-3">
-            <summary className="cursor-pointer select-none text-[11px] font-medium text-[#8B94A3] hover:text-[#C5CAD4]">
+            <summary className="cursor-pointer select-none text-[11px] font-medium text-[var(--ef-text-muted)] hover:text-[var(--ef-text-secondary)]">
               Show {hiddenLowValueDecisions.length} more low-value items
             </summary>
             <div className="mt-3">

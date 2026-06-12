@@ -4,6 +4,50 @@ export type ValidationSeverity = 'critical' | 'warning' | 'info';
 
 export type ValidatorStatus = 'READY' | 'BLOCKED' | 'NEEDS_REVIEW';
 
+export const PROJECT_VALIDATION_PHASE_VALUES = [
+  'contract_setup',
+  'execution',
+  'billing_review',
+  'closeout',
+] as const;
+
+export type ProjectValidationPhase = (typeof PROJECT_VALIDATION_PHASE_VALUES)[number];
+
+export type ValidationFindingDisposition =
+  | 'blocker'
+  | 'warning'
+  | 'info'
+  | 'requires_review';
+
+export type ValidationBusinessSeverity =
+  | 'critical'
+  | 'high'
+  | 'medium'
+  | 'low';
+
+export type ValidationSourceFamily =
+  | 'contract'
+  | 'invoice'
+  | 'transaction'
+  | 'support'
+  | 'project'
+  | 'cross_document'
+  | 'system';
+
+export type ValidationApprovalGateEffect =
+  | 'blocks_approval'
+  | 'requires_operator_review'
+  | 'informational';
+
+export type ValidationExposureType =
+  | 'unsupported_amount'
+  | 'rate_mismatch'
+  | 'missing_support'
+  | 'invoice_total_mismatch'
+  | 'missing_governing_contract'
+  | 'missing_transaction_support'
+  | 'other';
+
 export type ContractInvoiceReconciliationStatus =
   | 'MATCH'
   | 'MISMATCH'
@@ -19,6 +63,10 @@ export type ValidationCategory =
 export type ValidationTriggerSource =
   | 'document_processed'
   | 'fact_override'
+  | 'review_confirmed'
+  | 'review_flagged'
+  | 'review_corrected'
+  | 'override_applied'
   | 'relationship_change'
   | 'manual';
 
@@ -60,6 +108,16 @@ export type ValidationFinding = {
   variance: number | null;
   variance_unit: string | null;
   blocked_reason: string | null;
+  finding_disposition?: ValidationFindingDisposition | null;
+  business_severity?: ValidationBusinessSeverity | null;
+  problem?: string | null;
+  impact?: string | null;
+  required_action?: string | null;
+  evidence_refs?: string[] | null;
+  source_family?: ValidationSourceFamily | null;
+  affected_amount?: number | null;
+  approval_gate_effect?: ValidationApprovalGateEffect | null;
+  exposure_type?: ValidationExposureType | null;
   decision_eligible: boolean;
   action_eligible: boolean;
   linked_decision_id: string | null;
@@ -103,6 +161,16 @@ export type ValidatorSummaryItem = {
   field: string | null;
   fact_keys: string[];
   message: string;
+  finding_disposition?: ValidationFindingDisposition | null;
+  business_severity?: ValidationBusinessSeverity | null;
+  problem?: string | null;
+  impact?: string | null;
+  required_action?: string | null;
+  evidence_refs?: string[];
+  source_family?: ValidationSourceFamily | null;
+  affected_amount?: number | null;
+  approval_gate_effect?: ValidationApprovalGateEffect | null;
+  exposure_type?: ValidationExposureType | null;
 };
 
 export type ContractInvoiceReconciliationSummary = {
@@ -136,6 +204,73 @@ export type ProjectReconciliationSummary = {
   orphan_transactions: number;
 };
 
+export type CrossDocumentRateComparisonStatus =
+  | 'match'
+  | 'rate_mismatch'
+  | 'category_mismatch'
+  | 'missing_contract_rate'
+  | 'missing_support'
+  | 'unsupported_work'
+  | 'needs_review';
+
+export type CrossDocumentRateCategoryBasis =
+  | 'existing'
+  | 'source_category'
+  | 'descriptor'
+  | 'combined'
+  | 'unresolved';
+
+export type CrossDocumentRateSupportBasis =
+  | 'invoice_linked'
+  | 'project_level'
+  | 'billing_key_fallback'
+  | 'none';
+
+export type CrossDocumentRateValidationUnit = {
+  validation_unit_id: string;
+  invoice_line_id: string;
+  invoice_number: string | null;
+  billing_rate_key: string | null;
+  canonical_category: string | null;
+  category_confidence: number | null;
+  category_basis: CrossDocumentRateCategoryBasis;
+  invoice_source_descriptor: string | null;
+  invoice_rate: number | null;
+  contract_rate_found: boolean;
+  contract_rate: number | null;
+  contract_source_category: string | null;
+  contract_source_descriptor: string | null;
+  supported_quantity: number | null;
+  support_row_count: number;
+  support_basis: CrossDocumentRateSupportBasis;
+  support_families: string[];
+  support_observed_categories: string[];
+  comparison_status: CrossDocumentRateComparisonStatus;
+  reason: string;
+  source_documents: {
+    invoice_document_id: string | null;
+    contract_document_ids: string[];
+    support_document_ids: string[];
+  };
+  source_rows: {
+    invoice_record_id: string;
+    contract_record_ids: string[];
+    support_record_ids: string[];
+  };
+};
+
+export type CrossDocumentRateVerificationSummary = {
+  comparable_units: number;
+  matched_units: number;
+  rate_mismatch_units: number;
+  category_mismatch_units: number;
+  missing_contract_rate_units: number;
+  missing_support_units: number;
+  unsupported_work_units: number;
+  needs_review_units: number;
+  validation_units: CrossDocumentRateValidationUnit[];
+};
+
 export type InvoiceExposureSummary = {
   invoice_number: string | null;
   billed_amount: number | null;
@@ -164,21 +299,46 @@ export type ProjectExposureSummary = {
   invoices: InvoiceExposureSummary[];
 };
 
+export type InvoiceExceptionEligibility = {
+  open_ticket_count: number;
+  approval_gate_basis: string;
+  exception_type: string;
+  required_approval_condition: string;
+};
+
+export type ReviewedDocumentWithWarnings = {
+  document_id: string;
+  warning_count: number;
+  review_event_source: string;
+};
+
+export type FirstDocumentToInspect = {
+  document_id: string;
+  risk_reason: string;
+  linked_action_id: string | null;
+  priority_source: string;
+};
+
 export type ValidationSummary = {
   status: ValidationStatus;
   last_run_at: string | null;
   critical_count: number;
   warning_count: number;
   info_count: number;
+  blocker_count?: number;
+  requires_review_count?: number;
   open_count: number;
   blocked_reasons: string[];
   trigger_source: ValidationTriggerSource | null;
   validator_status: ValidatorStatus;
+  readiness?: ValidationStatus | ValidatorStatus | 'NOT_READY';
+  validation_phase?: ProjectValidationPhase | null;
   validator_open_items: ValidatorSummaryItem[];
   validator_blockers: ValidatorSummaryItem[];
   contract_invoice_reconciliation?: ContractInvoiceReconciliationSummary | null;
   invoice_transaction_reconciliation?: InvoiceTransactionReconciliationSummary | null;
   reconciliation?: ProjectReconciliationSummary | null;
+  cross_document_rate_verification?: CrossDocumentRateVerificationSummary | null;
   exposure?: ProjectExposureSummary | null;
   /**
    * Denormalized for workspace overview (contract NTE / ceiling fact).
@@ -187,6 +347,17 @@ export type ValidationSummary = {
   nte_amount?: number | null;
   total_billed?: number | null;
   requires_verification_amount?: number | null;
+  requires_verification?: boolean | null;
+  at_risk_amount?: number | null;
+  unsupported_amount?: number | null;
+  invoice_exception_eligibility?: InvoiceExceptionEligibility | null;
+  reviewed_documents_with_warnings?: ReviewedDocumentWithWarnings[];
+  first_document_to_inspect?: FirstDocumentToInspect | null;
+  contract_document_id?: string | null;
+  contract_validation_context?: unknown | null;
+  activation_gate_status?: 'satisfied' | 'in_review' | 'unknown' | null;
+  activation_gate_status_reason?: string | null;
+  pricing_applicability_status?: 'confirmed' | 'in_review' | 'not_applicable' | 'unknown' | null;
 };
 
 export type ValidatorResult = {
@@ -201,5 +372,6 @@ export type ValidatorResult = {
   contract_invoice_reconciliation?: ContractInvoiceReconciliationSummary | null;
   invoice_transaction_reconciliation?: InvoiceTransactionReconciliationSummary | null;
   reconciliation?: ProjectReconciliationSummary | null;
+  cross_document_rate_verification?: CrossDocumentRateVerificationSummary | null;
   exposure?: ProjectExposureSummary | null;
 };

@@ -1,0 +1,11 @@
+export const PROJECT_TERM_TOTAL_TRANSACTION_ROWS = 'Total Transaction Rows';
+export const PROJECT_TERM_UNIQUE_TICKET_NUMBERS = 'Unique Ticket Numbers';
+export const PROJECT_TERM_ELIGIBLE_TICKET_NUMBERS = 'Eligible Ticket Numbers';
+export const PROJECT_TERM_INELIGIBLE_TICKET_NUMBERS = 'Ineligible Ticket Numbers';
+export const PROJECT_TERM_INVOICED_TRANSACTION_ROWS = 'Invoiced Transaction Rows';
+export const PROJECT_TERM_WORKBOOK_INVOICED_AMOUNT = 'Workbook Invoiced Amount';
+export const PROJECT_TERM_INVOICE_BILLED_AMOUNT = 'Invoice Billed Amount';
+export const PROJECT_TERM_AT_RISK_AMOUNT = 'At Risk Amount';
+export const PROJECT_TERM_UNSUPPORTED_AMOUNT = 'Unsupported Amount';
+export const PROJECT_TERM_AFFECTED_TICKET_NUMBERS = 'Affected Ticket Numbers';
+export const PROJECT_TERM_TICKET_NUMBERS_AFFECTED = 'Ticket Numbers Affected';

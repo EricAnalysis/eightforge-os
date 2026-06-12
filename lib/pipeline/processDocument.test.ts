@@ -28,8 +28,8 @@ type SetupParams = {
 };
 
 async function loadProcessDocument() {
-  const module = await import('@/lib/pipeline/processDocument');
-  return module.processDocument;
+  const importedProcessDocument = await import('@/lib/pipeline/processDocument');
+  return importedProcessDocument.processDocument;
 }
 
 function buildCanonicalResult(overrides: Record<string, unknown> = {}) {
@@ -38,6 +38,8 @@ function buildCanonicalResult(overrides: Record<string, unknown> = {}) {
     family: 'contract',
     intelligence: null,
     execution_trace_persisted: true,
+    transaction_data_persisted: true,
+    canonical_persistence_error: null,
     decisions_created: 0,
     decisions_updated: 0,
     decisions_deleted: 0,
@@ -129,7 +131,9 @@ async function setupProcessDocumentTest(params: SetupParams) {
     id: 'job-1',
   }));
   const updateJobStatus = vi.fn(async () => undefined);
-  const setDocumentStatus = vi.fn(async () => undefined);
+  const setDocumentStatus = vi.fn(async (_input: { status: string }) => {
+    void _input;
+  });
   const extractDocument = vi.fn(async () => extractionPayload);
   const normalizeExtraction = vi.fn(async () => undefined);
   const runAiEnrichment = vi.fn(async () => ({
@@ -342,6 +346,56 @@ describe('processDocument canonical persistence gating', () => {
     expect(spies.orchestrateWorkflows).not.toHaveBeenCalled();
   });
 
+  it('fails spreadsheet transaction_data reprocesses when canonical persistence returns a trace failure', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentId: 'spreadsheet-doc',
+      documentType: 'transaction_data',
+      extractionMode: 'spreadsheet',
+      canonicalResult: {
+        family: 'spreadsheet',
+        execution_trace_persisted: false,
+        transaction_data_persisted: true,
+        canonical_persistence_error: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+      },
+    });
+
+    const result = await processDocument({
+      documentId: 'spreadsheet-doc',
+      organizationId: 'org-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      jobId: 'job-1',
+      processing_status: 'failed',
+      error: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+    });
+    expect(spies.updateJobStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        status: 'failed',
+        completedAt: expect.any(String),
+        errorMessage: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+        resultExtractionId: null,
+      }),
+    );
+    expect(spies.setDocumentStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'spreadsheet-doc',
+        status: 'failed',
+        processingError: 'Execution trace persistence failed for spreadsheet-doc: documents.intelligence_trace update timed out',
+        processedAt: expect.any(String),
+      }),
+    );
+    expect(spies.setDocumentStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'decisioned' }),
+    );
+    expect(spies.generateAndPersistDecisions).not.toHaveBeenCalled();
+    expect(spies.orchestrateWorkflows).not.toHaveBeenCalled();
+  });
+
   it('preserves the old decisioned path for non-contract primary documents', async () => {
     const { processDocument, spies } = await setupProcessDocumentTest({
       documentId: 'notice-doc',
@@ -377,6 +431,49 @@ describe('processDocument canonical persistence gating', () => {
         jobId: 'job-1',
         status: 'completed',
         resultExtractionId: 'ext-1',
+      }),
+    );
+  });
+
+  it('logs canonical document processing as document/project activity, not decision activity', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentId: 'canonical-doc',
+      documentType: 'invoice',
+      projectId: 'project-123',
+      extractionMode: 'pdf_text',
+      canonicalResult: {
+        handled: true,
+        family: 'invoice',
+        execution_trace_persisted: true,
+      },
+    });
+
+    await processDocument({
+      documentId: 'canonical-doc',
+      organizationId: 'org-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    });
+
+    expect(spies.logActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organization_id: 'org-1',
+        project_id: 'project-123',
+        entity_type: 'document',
+        entity_id: 'canonical-doc',
+        event_type: 'updated',
+        new_value: expect.objectContaining({
+          action: 'pipeline_processing_canonical_intelligence',
+          document_id: 'canonical-doc',
+          project_id: 'project-123',
+          validation_refresh_requested: true,
+        }),
+      }),
+    );
+    expect(spies.logActivityEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        entity_type: 'decision',
+        entity_id: 'canonical-doc',
       }),
     );
   });

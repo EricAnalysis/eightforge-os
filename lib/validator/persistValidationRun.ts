@@ -1,16 +1,36 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
 import type {
+  ProjectOperationalRollup,
+  ProjectValidatorSummarySnapshot,
+} from '@/lib/projectOverview';
+import { syncValidatorDecisions } from '@/lib/validator/validatorDecisionSync';
+import { buildValidationSummary } from '@/lib/validator/shared';
+import {
+  blockerFindingCount,
+  infoFindingCount,
+  isBlockingFinding,
+  normalizeValidationFinding,
+  requiresReviewFindingCount,
+  warningFindingCount,
+} from '@/lib/validator/findingSemantics';
+import type {
   ValidationEvidence,
   ValidationFinding,
+  ValidationStatus,
   ValidationTriggerSource,
   ValidatorResult,
 } from '@/types/validator';
 
 const RULE_VERSION = '1.0.0';
+const UUID_PREFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID = 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT';
+const CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID = 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS';
+const EXISTING_FINDING_CHECK_KEY_BATCH_SIZE = 25;
 
 type PersistableValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
@@ -21,9 +41,16 @@ type ExistingOpenFindingRow = {
   check_key: string;
 };
 
+type ExistingOpenFindingStatusRow = Pick<
+  ValidationFinding,
+  'id' | 'check_key' | 'status'
+>;
+
 type ProjectValidationActivityContext = {
   id: string;
   organization_id: string;
+  name: string | null;
+  code: string | null;
 };
 
 type PreviousRunRow = {
@@ -49,30 +76,69 @@ function requireAdminClient() {
   return admin;
 }
 
-function buildEvidenceInserts(
+export function extractUuidPrefix(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const firstSegment = value.split(':')[0]?.trim() ?? '';
+  return UUID_PREFIX_PATTERN.test(firstSegment) ? firstSegment : null;
+}
+
+function firstSemanticAnchor(row: ValidationEvidence): string | null {
+  for (const value of [row.fact_id, row.source_document_id, row.record_id]) {
+    if (typeof value === 'string' && value.includes(':')) return value;
+  }
+
+  return null;
+}
+
+export function buildEvidenceInserts(
   findingId: string,
   evidence: readonly ValidationEvidence[],
 ) {
-  return evidence.map((row) => ({
-    finding_id: findingId,
-    evidence_type: row.evidence_type,
-    source_document_id: row.source_document_id,
-    source_page: row.source_page,
-    fact_id: row.fact_id,
-    record_id: row.record_id,
-    field_name: row.field_name,
-    field_value: row.field_value,
-    note: row.note,
-  }));
+  return evidence.map((row) => {
+    const semanticAnchor = firstSemanticAnchor(row);
+
+    return {
+      finding_id: findingId,
+      evidence_type: row.evidence_type,
+      source_document_id: extractUuidPrefix(row.source_document_id),
+      source_page: row.source_page,
+      fact_id: extractUuidPrefix(row.fact_id),
+      record_id: row.record_id ?? semanticAnchor,
+      field_name: row.field_name,
+      field_value: row.field_value,
+      note: row.note,
+    };
+  });
 }
 
 function summarizeFindings(findings: readonly ValidationFinding[]) {
   return {
     findings_count: findings.length,
-    critical_count: findings.filter((finding) => finding.severity === 'critical').length,
-    warning_count: findings.filter((finding) => finding.severity === 'warning').length,
-    info_count: findings.filter((finding) => finding.severity === 'info').length,
+    critical_count: blockerFindingCount(findings),
+    warning_count: warningFindingCount(findings) + requiresReviewFindingCount(findings),
+    info_count: infoFindingCount(findings),
   };
+}
+
+function deriveOperationalValidationStatus(params: {
+  baseStatus: ValidationStatus;
+  findings: readonly ValidationFinding[];
+}): ValidationStatus {
+  const openFindings = params.findings.filter((finding) => finding.status === 'open');
+
+  if (openFindings.some((finding) => isBlockingFinding(finding))) {
+    return 'BLOCKED';
+  }
+
+  if (openFindings.length > 0) {
+    return 'FINDINGS_OPEN';
+  }
+
+  if (params.baseStatus === 'NOT_READY' && params.findings.length === 0) {
+    return 'NOT_READY';
+  }
+
+  return 'VALIDATED';
 }
 
 function applyFindingRouting(
@@ -85,6 +151,21 @@ function applyFindingRouting(
     decision_eligible: routing.decision_eligible,
     action_eligible: routing.action_eligible,
   };
+}
+
+function suppressOverlappingMissingContractRateFindings(
+  findings: readonly PersistableValidationFinding[],
+): PersistableValidationFinding[] {
+  const subjectsWithCrossDocumentRate = new Set(
+    findings
+      .filter((finding) => finding.rule_id === CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID)
+      .map((finding) => finding.subject_id),
+  );
+
+  return findings.filter((finding) => !(
+    finding.rule_id === FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID
+    && subjectsWithCrossDocumentRate.has(finding.subject_id)
+  ));
 }
 
 function findingIdentity(
@@ -170,7 +251,7 @@ async function loadProjectValidationActivityContext(
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('projects')
-    .select('id, organization_id')
+    .select('id, organization_id, name, code')
     .eq('id', projectId)
     .single();
 
@@ -227,27 +308,48 @@ async function loadExistingOpenFindings(
   }
 
   const admin = requireAdminClient();
-  const uniqueCheckKeys = Array.from(new Set(checkKeys));
-  const { data, error } = await admin
-    .from('project_validation_findings')
-    .select('id, check_key')
-    .eq('project_id', projectId)
-    .eq('status', 'open')
-    .in('check_key', uniqueCheckKeys)
-    .order('updated_at', { ascending: false });
-
-  if (error) {
-    throw new Error(`Failed to load existing validation findings: ${error.message}`);
-  }
-
   const findingsByCheckKey = new Map<string, ExistingOpenFindingRow>();
-  for (const row of (data ?? []) as ExistingOpenFindingRow[]) {
-    if (!findingsByCheckKey.has(row.check_key)) {
-      findingsByCheckKey.set(row.check_key, row);
+  const uniqueCheckKeys = Array.from(new Set(checkKeys));
+
+  for (let index = 0; index < uniqueCheckKeys.length; index += EXISTING_FINDING_CHECK_KEY_BATCH_SIZE) {
+    const batch = uniqueCheckKeys.slice(index, index + EXISTING_FINDING_CHECK_KEY_BATCH_SIZE);
+    const { data, error } = await admin
+      .from('project_validation_findings')
+      .select('id, check_key')
+      .eq('project_id', projectId)
+      .eq('status', 'open')
+      .in('check_key', batch)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to load existing validation findings: ${error.message}`);
+    }
+
+    for (const row of (data ?? []) as ExistingOpenFindingRow[]) {
+      if (!findingsByCheckKey.has(row.check_key)) {
+        findingsByCheckKey.set(row.check_key, row);
+      }
     }
   }
 
   return findingsByCheckKey;
+}
+
+async function loadAllExistingOpenFindings(
+  projectId: string,
+): Promise<ExistingOpenFindingStatusRow[]> {
+  const admin = requireAdminClient();
+  const { data, error } = await admin
+    .from('project_validation_findings')
+    .select('id, check_key, status')
+    .eq('project_id', projectId)
+    .eq('status', 'open');
+
+  if (error) {
+    throw new Error(`Failed to load open validation findings for ${projectId}: ${error.message}`);
+  }
+
+  return (data ?? []) as ExistingOpenFindingStatusRow[];
 }
 
 async function insertFindingEvidence(
@@ -363,6 +465,35 @@ async function persistFinding(params: {
   return data.id;
 }
 
+async function markStaleOpenFindingsResolved(params: {
+  projectId: string;
+  currentOpenCheckKeys: Set<string>;
+  actorId?: string;
+}) {
+  const admin = requireAdminClient();
+  const existingOpenFindings = await loadAllExistingOpenFindings(params.projectId);
+  const staleFindingIds = existingOpenFindings
+    .filter((finding) => !params.currentOpenCheckKeys.has(finding.check_key))
+    .map((finding) => finding.id);
+
+  if (staleFindingIds.length === 0) return;
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from('project_validation_findings')
+    .update({
+      status: 'resolved',
+      resolved_by_user_id: params.actorId ?? null,
+      resolved_at: now,
+      updated_at: now,
+    })
+    .in('id', staleFindingIds);
+
+  if (error) {
+    throw new Error(`Failed to resolve stale validation findings for ${params.projectId}: ${error.message}`);
+  }
+}
+
 async function markRunComplete(
   runId: string,
   findings: readonly ValidationFinding[],
@@ -421,6 +552,41 @@ async function createValidationRunActivityEvent(params: {
   }
 }
 
+async function createValidationFindingGeneratedActivityEvent(params: {
+  project: ProjectValidationActivityContext;
+  findingId: string;
+  finding: PersistableValidationFinding;
+  changedBy: string | undefined;
+}) {
+  const normalized = normalizeValidationFinding(params.finding);
+  const result = await logActivityEvent({
+    organization_id: params.project.organization_id,
+    project_id: params.project.id,
+    entity_type: 'project_validation_finding',
+    entity_id: params.findingId,
+    event_type: 'validation_finding_generated',
+    changed_by: params.changedBy ?? null,
+    old_value: null,
+    new_value: {
+      check_key: params.finding.check_key,
+      rule_id: params.finding.rule_id,
+      severity: params.finding.severity,
+      status: params.finding.status,
+      problem: normalized.problem ?? null,
+      impact: normalized.impact ?? null,
+      required_action: normalized.required_action ?? null,
+    },
+  });
+
+  if (!result.ok) {
+    console.error('[persistValidationRun] failed to log validation finding event', {
+      projectId: params.project.id,
+      findingId: params.findingId,
+      error: result.error,
+    });
+  }
+}
+
 async function updateProjectValidationState(
   projectId: string,
   result: ValidatorResult,
@@ -437,6 +603,90 @@ async function updateProjectValidationState(
   if (error) {
     throw new Error(`Failed to update project validation state for ${projectId}: ${error.message}`);
   }
+}
+
+function applyExecutionItemLinksToFindings(params: {
+  findings: readonly PersistableValidationFinding[];
+  executionItemIdsBySourceKey: ReadonlyMap<string, string>;
+}): PersistableValidationFinding[] {
+  return params.findings.map((finding) => ({
+    ...finding,
+    linked_action_id:
+      params.executionItemIdsBySourceKey.get(finding.check_key)
+      ?? finding.linked_action_id
+      ?? null,
+  }));
+}
+
+function buildEffectivePersistedFindings(params: {
+  findings: readonly PersistableValidationFinding[];
+  suppressedFindingIds: ReadonlySet<string>;
+  executionItemIdsBySourceKey: ReadonlyMap<string, string>;
+}): PersistableValidationFinding[] {
+  return applyExecutionItemLinksToFindings({
+    findings: params.findings,
+    executionItemIdsBySourceKey: params.executionItemIdsBySourceKey,
+  }).filter((finding) => !params.suppressedFindingIds.has(finding.id));
+}
+
+function buildEffectiveValidatorResult(params: {
+  result: ValidatorResult;
+  findings: readonly PersistableValidationFinding[];
+  triggerSource: ValidationTriggerSource;
+}): ValidatorResult {
+  const status = deriveOperationalValidationStatus({
+    baseStatus: params.result.status,
+    findings: params.findings,
+  });
+  const summary = buildValidationSummary(params.findings, status, {
+    contractInvoiceReconciliation:
+      params.result.summary.contract_invoice_reconciliation
+      ?? params.result.contract_invoice_reconciliation
+      ?? null,
+    invoiceTransactionReconciliation:
+      params.result.summary.invoice_transaction_reconciliation
+      ?? params.result.invoice_transaction_reconciliation
+      ?? null,
+    crossDocumentRateVerification:
+      params.result.summary.cross_document_rate_verification
+      ?? params.result.cross_document_rate_verification
+      ?? null,
+    reconciliation:
+      params.result.summary.reconciliation
+      ?? params.result.reconciliation
+      ?? null,
+    exposure:
+      params.result.summary.exposure
+      ?? params.result.exposure
+      ?? null,
+    nte_amount: params.result.summary.nte_amount ?? null,
+    total_billed:
+      params.result.summary.total_billed
+      ?? params.result.exposure?.total_billed_amount
+      ?? null,
+    contractDocumentId: params.result.summary.contract_document_id ?? null,
+    contractValidationContext:
+      (params.result.summary.contract_validation_context as never) ?? null,
+    validationPhase: params.result.summary.validation_phase ?? null,
+  });
+
+  return {
+    ...params.result,
+    status,
+    blocked_reasons: summary.blocked_reasons,
+    findings: [...params.findings],
+    summary: {
+      ...params.result.summary,
+      ...summary,
+      last_run_at:
+        params.result.summary.last_run_at
+        ?? new Date().toISOString(),
+      trigger_source: params.triggerSource,
+    },
+    validator_status: summary.validator_status,
+    validator_open_items: summary.validator_open_items,
+    validator_blockers: summary.validator_blockers,
+  };
 }
 
 async function markRunFailed(runId: string): Promise<void> {
@@ -457,6 +707,36 @@ async function markRunFailed(runId: string): Promise<void> {
   }
 }
 
+function logValidationSideEffectFailure(
+  sideEffect: string,
+  context: {
+    projectId: string;
+    runId: string;
+  },
+  error: unknown,
+) {
+  console.error('[persistValidationRun] non-core side effect failed', {
+    ...context,
+    sideEffect,
+    error,
+  });
+}
+
+async function runValidationSideEffect(
+  sideEffect: string,
+  context: {
+    projectId: string;
+    runId: string;
+  },
+  action: () => Promise<void>,
+) {
+  try {
+    await action();
+  } catch (error) {
+    logValidationSideEffectFailure(sideEffect, context, error);
+  }
+}
+
 export async function persistValidationRun(
   projectId: string,
   result: ValidatorResult,
@@ -464,7 +744,10 @@ export async function persistValidationRun(
   triggeredByUserId?: string,
   inputsSnapshotHash?: string | null,
 ): Promise<{ runId: string }> {
-  const findings = (result.findings as PersistableValidationFinding[]).map(applyFindingRouting);
+  const findings = suppressOverlappingMissingContractRateFindings(
+    (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
+  );
+  const persistedFindings: PersistableValidationFinding[] = [];
   let runId: string | null = null;
 
   try {
@@ -473,11 +756,6 @@ export async function persistValidationRun(
     const previousFindings = previousCompletedRun
       ? await loadRunFindingIdentities(previousCompletedRun.id)
       : [];
-    const findingSummary = summarizeFindings(findings);
-    const findingDiff = diffFindings({
-      currentFindings: findings,
-      previousFindings,
-    });
 
     runId = await insertRunRow({
       projectId,
@@ -510,79 +788,167 @@ export async function persistValidationRun(
           id: persistedFindingId,
           check_key: finding.check_key,
         });
+
+        if (!existingOpenFindingId) {
+          await createValidationFindingGeneratedActivityEvent({
+            project,
+            findingId: persistedFindingId,
+            finding,
+            changedBy: triggeredByUserId,
+          });
+        }
       }
+
+      persistedFindings.push({
+        ...finding,
+        id: persistedFindingId,
+      });
     }
 
-    await markRunComplete(runId, findings);
-    await createValidationRunActivityEvent({
-      project,
-      runId,
-      triggerSource,
-      triggeredByUserId,
-      result,
-      findingSummary,
-      findingDiff,
+    const effectivePersistedFindings = buildEffectivePersistedFindings({
+      findings: persistedFindings,
+      suppressedFindingIds: new Set<string>(),
+      executionItemIdsBySourceKey: new Map<string, string>(),
     });
-    await updateProjectValidationState(projectId, result);
+    const effectiveResult = buildEffectiveValidatorResult({
+      result,
+      findings: effectivePersistedFindings,
+      triggerSource,
+    });
+    const currentOpenCheckKeys = new Set(
+      effectivePersistedFindings
+        .filter((finding) => finding.status === 'open')
+        .map((finding) => finding.check_key),
+    );
+    const findingSummary = summarizeFindings(effectivePersistedFindings);
+    const findingDiff = diffFindings({
+      currentFindings: effectivePersistedFindings,
+      previousFindings,
+    });
+
+    await markStaleOpenFindingsResolved({
+      projectId,
+      currentOpenCheckKeys,
+      actorId: triggeredByUserId,
+    });
+
+    await markRunComplete(runId, effectivePersistedFindings);
+    await updateProjectValidationState(projectId, effectiveResult);
+
+    const completedRunId = runId;
+    const sideEffectContext = { projectId, runId: completedRunId };
+
+    await runValidationSideEffect('syncExecutionItems', sideEffectContext, async () => {
+      const executionItemSync = await syncExecutionItems({
+        admin: requireAdminClient(),
+        projectId,
+        organizationId: project.organization_id,
+        actorId: triggeredByUserId,
+        findings: persistedFindings,
+      });
+
+      if (executionItemSync.executionItemIdsBySourceKey.size === 0) return;
+
+      const linkedFindings = applyExecutionItemLinksToFindings({
+        findings: persistedFindings,
+        executionItemIdsBySourceKey: executionItemSync.executionItemIdsBySourceKey,
+      });
+
+      for (const finding of linkedFindings) {
+        if (!finding.id || !finding.linked_action_id) continue;
+
+        const { error } = await requireAdminClient()
+          .from('project_validation_findings')
+          .update({ linked_action_id: finding.linked_action_id })
+          .eq('id', finding.id);
+
+        if (error) {
+          throw new Error(`Failed to link execution item for finding ${finding.check_key}: ${error.message}`);
+        }
+      }
+    });
+
+    await runValidationSideEffect('syncValidatorDecisions', sideEffectContext, async () => {
+      await syncValidatorDecisions({
+        admin: requireAdminClient(),
+        projectId,
+        organizationId: project.organization_id,
+        projectContext: {
+          label: project.name ?? project.code ?? project.id,
+          project_id: project.id,
+          project_code: project.code ?? null,
+        },
+        runId: completedRunId,
+        result: effectiveResult,
+        findings: effectivePersistedFindings,
+      });
+    });
+
+    await runValidationSideEffect('createValidationRunActivityEvent', sideEffectContext, async () => {
+      await createValidationRunActivityEvent({
+        project,
+        runId: completedRunId,
+        triggerSource,
+        triggeredByUserId,
+        result: effectiveResult,
+        findingSummary,
+        findingDiff,
+      });
+    });
 
     // Persist approval snapshot for audit trail (Phase 6)
     // Construct a minimal ProjectOperationalRollup from validation findings
     const rollupStatus = {
-      label: result.status === 'VALIDATED' ? 'Approved' :
-             result.status === 'BLOCKED' ? 'Blocked' :
-             result.status === 'FINDINGS_OPEN' ? 'Needs Review' : 'Not Evaluated',
+      label: effectiveResult.status === 'VALIDATED' ? 'Approved' :
+             effectiveResult.status === 'BLOCKED' ? 'Blocked' :
+             effectiveResult.status === 'FINDINGS_OPEN' ? 'Needs Review' : 'Not Evaluated',
     };
 
-    const pendingActions = findings
+    const pendingActions = effectivePersistedFindings
       .filter((f) => f.decision_eligible && f.status === 'open')
-      .map((f, index) => ({
+      .map((f, index) => {
+        const normalized = normalizeValidationFinding(f);
+        return ({
         id: `finding-${f.check_key}`,
-        title: f.blocked_reason || f.category,
-        description: f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category,
-        status_label: f.severity === 'critical' ? 'Blocked' : 'Needs Review',
-        due_tone: f.severity === 'critical' ? 'danger' : 'warning',
-        impacted_amount: null,
-        at_risk_amount: null,
+        title: normalized.problem || f.blocked_reason || f.category,
+        description: normalized.impact || (f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category),
+        status_label: isBlockingFinding(f) ? 'Blocked' : 'Needs Review',
+        due_tone: isBlockingFinding(f) ? 'danger' : 'warning',
+        impacted_amount: normalized.affected_amount ?? null,
+        at_risk_amount: normalized.affected_amount ?? null,
         blocked_amount: null,
-        next_step: `Review finding: ${f.check_key}`,
+        next_step: normalized.required_action || `Review finding: ${f.check_key}`,
         href: `/platform/projects/${projectId}#validator`,
         invoice_number: null,
         approval_status: null,
         decision_id: f.rule_id || f.check_key,
         entity_type: 'finding',
         index,
-      }));
+      })});
 
     const rollup = {
       status: rollupStatus,
-      project_clear: result.status === 'VALIDATED',
+      project_clear: effectiveResult.status === 'VALIDATED',
       pending_actions: pendingActions,
       needs_review_document_count: 0,
-      unresolved_finding_count: findings.filter((f) => f.status === 'open').length,
-      blocked_count: findings.filter((f) => f.severity === 'critical' && f.status === 'open').length,
+      unresolved_finding_count: effectivePersistedFindings.filter((f) => f.status === 'open').length,
+      blocked_count: effectivePersistedFindings.filter((f) => f.status === 'open' && isBlockingFinding(f)).length,
       open_document_action_count: 0,
     };
 
-    let approvalSnapshot = null;
-    try {
+    let approvalSnapshot: Awaited<ReturnType<typeof persistApprovalSnapshot>> | null = null;
+    await runValidationSideEffect('persistApprovalSnapshot', sideEffectContext, async () => {
       approvalSnapshot = await persistApprovalSnapshot(
         projectId,
-        (result.summary as any) || null, // ProjectValidatorSummarySnapshot
-        (rollup as any), // ProjectOperationalRollup
+        (effectiveResult.summary as unknown as ProjectValidatorSummarySnapshot) || null,
+        (rollup as unknown as ProjectOperationalRollup),
       );
-    } catch (snapshotError) {
-      console.error('[persistValidationRun] failed to persist approval snapshot', {
-        projectId,
-        runId,
-        error: snapshotError,
-      });
-      // Don't throw - snapshot failure shouldn't block validation completion
-    }
+    });
 
     // Phase 10: Execute operator graph actions from approval decision
     // Run after snapshot persists so executeApprovalActions can use the fresh snapshot.
     // Non-blocking: action execution failure must not fail the validation run.
-    try {
+    await runValidationSideEffect('executeApprovalActions', sideEffectContext, async () => {
       const actionResult = await executeApprovalActions({
         projectId,
         organizationId: project.organization_id,
@@ -593,27 +959,20 @@ export async function persistValidationRun(
       if (actionResult.errors.length > 0) {
         console.warn('[persistValidationRun] approval action engine completed with errors', {
           projectId,
-          runId,
+          runId: completedRunId,
           errors: actionResult.errors,
         });
       } else {
         console.info('[persistValidationRun] approval actions executed', {
           projectId,
-          runId,
+          runId: completedRunId,
           approval_status: actionResult.approval_status,
           tasks_created: actionResult.tasks_created,
           tasks_updated: actionResult.tasks_updated,
         });
       }
-    } catch (actionError) {
-      console.error('[persistValidationRun] approval action engine threw unexpectedly', {
-        projectId,
-        runId,
-        error: actionError,
-      });
+    });
       // Never throw — action execution is a side effect, not part of validation correctness
-    }
-
     return { runId };
   } catch (error) {
     if (runId) {

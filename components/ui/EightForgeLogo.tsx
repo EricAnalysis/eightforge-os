@@ -10,8 +10,8 @@ export function EightForgeLogo({ size = 28 }: { size?: number }) {
     >
       <defs>
         <linearGradient id="ef-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#8B5CFF" />
-          <stop offset="100%" stopColor="#B794FF" />
+          <stop offset="0%" stopColor="var(--ef-purple-primary)" />
+          <stop offset="100%" stopColor="var(--ef-purple-glow)" />
         </linearGradient>
       </defs>
       <path
@@ -37,7 +37,7 @@ export function EightForgeWordmark() {
   return (
     <div className="flex items-center gap-2.5">
       <EightForgeLogo size={28} />
-      <span className="text-[13px] font-semibold tracking-wider text-[#F5F7FA]">
+      <span className="text-[13px] font-semibold tracking-wider text-[var(--ef-text-primary)]">
         EightForge
       </span>
     </div>

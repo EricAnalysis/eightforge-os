@@ -7,8 +7,10 @@ import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
+import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
 const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
+const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'needs_review', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -33,7 +35,7 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('decisions')
-      .select('id, organization_id, status, severity')
+      .select('id, organization_id, project_id, status, severity')
       .eq('id', decisionId)
       .single();
 
@@ -49,6 +51,19 @@ export async function PATCH(
     const newStatus = typeof body?.status === 'string' ? body.status : null;
     if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
       return jsonError('Invalid status', 400);
+    }
+    const operatorAction =
+      typeof body?.operator_action === 'string' && VALID_OPERATOR_ACTIONS.includes(body.operator_action)
+        ? body.operator_action
+        : null;
+    if (
+      (newStatus === 'resolved' || newStatus === 'suppressed') &&
+      (operatorAction === 'approve' || operatorAction === 'correct' || operatorAction === 'override')
+    ) {
+      return jsonError(
+        'Approval-impacting outcomes must be finalized through Execution.',
+        409,
+      );
     }
 
     const previousStatus = (existing.status as string) ?? null;
@@ -77,12 +92,13 @@ export async function PATCH(
     if (previousStatus !== newStatus) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
+        project_id: typeof existing.project_id === 'string' ? existing.project_id : null,
         entity_type: 'decision',
         entity_id: decisionId,
         event_type: 'status_changed',
         changed_by: actorId,
         old_value: { status: previousStatus },
-        new_value: { status: newStatus },
+        new_value: { status: newStatus, operator_action: operatorAction },
       });
 
       if (!activityResult.ok) {
@@ -112,6 +128,12 @@ export async function PATCH(
           to: newStatus,
           severity: existing.severity as string | null,
         },
+      });
+
+      void requestDecisionStatusRevalidation({
+        projectId: typeof existing.project_id === 'string' ? existing.project_id : null,
+        actorId,
+        newStatus,
       });
     }
 

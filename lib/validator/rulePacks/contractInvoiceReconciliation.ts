@@ -10,6 +10,7 @@ import {
   isRuleEnabled,
   makeEvidenceInput,
   makeFinding,
+  normalizeVendorName,
   normalizeCode,
   partiesClearlyDifferent,
   readRowNumber,
@@ -45,9 +46,10 @@ const INVOICE_IDENTITY_KEYS = [
   'invoice_no',
   'number',
 ] as const;
-const INVOICE_VENDOR_KEYS = [
-  'vendor_name',
+const INVOICE_CONTRACTOR_KEYS = [
   'contractor_name',
+  'vendor_name',
+  'invoice_vendor',
   'vendor',
   'contractor',
   'payee_name',
@@ -131,11 +133,30 @@ const INVOICE_LINE_RATE_KEYS = [
   'contract_rate',
   'unit_price',
   'bill_rate',
-  'rate_amount',
   'amount_per_unit',
   'unit_cost',
   'uom_rate',
   'rate_raw',
+] as const;
+const EXPLICIT_INVOICE_LINE_RATE_KEYS = new Set<string>([
+  'billed_rate',
+  'unit_rate',
+  'rate',
+  'price',
+  'contract_rate',
+  'unit_price',
+  'bill_rate',
+  'amount_per_unit',
+  'unit_cost',
+  'uom_rate',
+]);
+const INVOICE_LINE_QUANTITY_KEYS = [
+  'quantity',
+  'qty',
+  'units',
+  'volume',
+  'cubic_yards',
+  'tons',
 ] as const;
 const INVOICE_LINE_MATERIAL_KEYS = ['material', 'material_type', 'debris_type'] as const;
 const INVOICE_LINE_SERVICE_ITEM_KEYS = [
@@ -160,6 +181,7 @@ type InvoiceMetadata = {
   source_document_id: string | null;
   invoice_number: string | null;
   vendor_name: string | null;
+  vendor_name_source: ResolvedVendorSource;
   client_name: string | null;
   period_start: string | null;
   period_end: string | null;
@@ -172,6 +194,13 @@ type InvoiceMetadata = {
   period_end_facts: ValidatorFactRecord[];
   total_facts: ValidatorFactRecord[];
 };
+
+type ResolvedVendorSource =
+  | 'human_override'
+  | 'human_review'
+  | 'canonical_fact'
+  | 'machine_fallback'
+  | null;
 
 type CanonicalInvoiceLine = {
   line_id: string;
@@ -215,6 +244,59 @@ function factStringValue(facts: readonly ValidatorFactRecord[]): string | null {
   return null;
 }
 
+function vendorSourceLabel(source: ResolvedVendorSource): string {
+  switch (source) {
+    case 'human_override':
+      return 'human override';
+    case 'human_review':
+      return 'human reviewed';
+    case 'canonical_fact':
+      return 'canonical fact';
+    case 'machine_fallback':
+      return 'machine fallback';
+    default:
+      return 'unresolved';
+  }
+}
+
+function resolvedVendorSource(fact: ValidatorFactRecord | null): ResolvedVendorSource {
+  if (!fact) return null;
+  if (fact.source === 'human_override') return 'human_override';
+  if (fact.source === 'human_review') return 'human_review';
+  if (
+    fact.source === 'canonical_contract_intelligence'
+    || fact.source === 'normalized_row'
+  ) {
+    return 'canonical_fact';
+  }
+  return 'machine_fallback';
+}
+
+function resolvedVendorValue(facts: readonly ValidatorFactRecord[]): {
+  value: string | null;
+  source: ResolvedVendorSource;
+} {
+  for (const fact of facts) {
+    if (typeof fact.value === 'string' && fact.value.trim().length > 0) {
+      return {
+        value: fact.value.trim(),
+        source: resolvedVendorSource(fact),
+      };
+    }
+  }
+
+  return { value: null, source: null };
+}
+
+function vendorNamesMatch(
+  actual: string | null | undefined,
+  expected: string | null | undefined,
+): boolean {
+  const normalizedActual = normalizeVendorName(actual);
+  const normalizedExpected = normalizeVendorName(expected);
+  return !!normalizedActual && !!normalizedExpected && normalizedActual === normalizedExpected;
+}
+
 function factNumberValue(facts: readonly ValidatorFactRecord[]): number | null {
   for (const fact of facts) {
     const value = toNumber(fact.value);
@@ -222,6 +304,36 @@ function factNumberValue(facts: readonly ValidatorFactRecord[]): number | null {
   }
 
   return null;
+}
+
+function readSemanticInvoiceUnitPrice(row: InvoiceLineRow): number | null {
+  let candidate: number | null = null;
+  let sourceKey: string | null = null;
+  for (const key of INVOICE_LINE_RATE_KEYS) {
+    candidate = readRowNumber(row, [key]);
+    if (candidate != null) {
+      sourceKey = key;
+      break;
+    }
+  }
+  if (candidate == null) return null;
+
+  const quantity = readRowNumber(row, INVOICE_LINE_QUANTITY_KEYS);
+  const lineTotal = readRowNumber(row, INVOICE_LINE_TOTAL_KEYS);
+  const explicitRateField = sourceKey != null && EXPLICIT_INVOICE_LINE_RATE_KEYS.has(sourceKey);
+  if (!explicitRateField && lineTotal != null && Math.abs(candidate - lineTotal) <= 0.01) return null;
+
+  if (!explicitRateField && quantity != null && Math.abs(candidate - quantity) <= 0.01) {
+    const derivedRate =
+      quantity > 0 && lineTotal != null
+        ? lineTotal / quantity
+        : null;
+    if (derivedRate == null || Math.abs(derivedRate - candidate) > 0.01) {
+      return null;
+    }
+  }
+
+  return candidate;
 }
 
 function evidenceFromFacts(
@@ -293,6 +405,7 @@ function createInvoiceMetadata(params: {
     source_document_id: params.sourceDocumentId ?? null,
     invoice_number: params.invoiceNumber ?? null,
     vendor_name: null,
+    vendor_name_source: null,
     client_name: null,
     period_start: null,
     period_end: null,
@@ -405,7 +518,9 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
       invoiceNumber,
     });
 
-    metadata.vendor_name = factStringValue(vendorFacts);
+    const resolvedVendor = resolvedVendorValue(vendorFacts);
+    metadata.vendor_name = resolvedVendor.value;
+    metadata.vendor_name_source = resolvedVendor.source;
     metadata.client_name = factStringValue(clientFacts);
     metadata.period_start = factStringValue(periodStartFacts);
     metadata.period_end = factStringValue(periodEndFacts);
@@ -455,7 +570,10 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
     metadata.subject_id = invoiceNumber ?? metadata.subject_id;
     metadata.source_document_id = sourceDocumentId ?? metadata.source_document_id;
     metadata.invoice_number = invoiceNumber ?? metadata.invoice_number;
-    metadata.vendor_name = readRowString(row, INVOICE_VENDOR_KEYS) ?? metadata.vendor_name;
+    if (!metadata.vendor_name) {
+      metadata.vendor_name = readRowString(row, INVOICE_CONTRACTOR_KEYS);
+      metadata.vendor_name_source = metadata.vendor_name ? 'machine_fallback' : null;
+    }
     metadata.client_name = readRowString(row, INVOICE_CLIENT_KEYS) ?? metadata.client_name;
     metadata.period_start =
       readRowString(row, INVOICE_PERIOD_START_KEYS) ?? metadata.period_start;
@@ -506,7 +624,7 @@ function buildInvoiceMetadata(input: ProjectValidatorInput): InvoiceMetadata[] {
       description: descriptionRaw,
       service_item: serviceItemRaw,
       material: materialRaw,
-      unit_price: readRowNumber(row, INVOICE_LINE_RATE_KEYS),
+      unit_price: readSemanticInvoiceUnitPrice(row),
       line_total: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
       row,
       billing_rate_key: keys.billing_rate_key,
@@ -638,7 +756,7 @@ export function evaluateContractInvoiceReconciliation(
   for (const invoice of invoices) {
     if (!contractVendor || !invoice.vendor_name) {
       vendorStatuses.push('MISSING');
-    } else if (partiesClearlyDifferent(invoice.vendor_name, contractVendor)) {
+    } else if (!vendorNamesMatch(invoice.vendor_name, contractVendor)) {
       vendorStatuses.push('MISMATCH');
       if (
         isRuleEnabled(
@@ -654,7 +772,7 @@ export function evaluateContractInvoiceReconciliation(
             severity: 'critical',
             subjectType: 'invoice',
             subjectId: invoice.subject_id,
-            field: 'vendor_name',
+            field: 'contractor_name',
             expected: contractVendor,
             actual: invoice.vendor_name,
             evidence: [
@@ -663,12 +781,20 @@ export function evaluateContractInvoiceReconciliation(
                   structuredRowEvidenceInput({
                     evidenceType: 'invoice',
                     row: invoice.row,
-                    fieldName: 'vendor_name',
+                    fieldName: 'contractor_name',
                     fieldValue: invoice.vendor_name,
-                    note: 'Invoice vendor extracted for contractor identity comparison.',
+                    note: `Invoice contractor resolved for governing contract comparison from ${vendorSourceLabel(invoice.vendor_name_source)}.`,
                   }),
                 ]
                 : evidenceFromFacts(invoice.vendor_facts)),
+              makeEvidenceInput({
+                evidence_type: 'fact',
+                source_document_id: invoice.source_document_id,
+                record_id: invoice.source_document_id,
+                field_name: 'contractor_name_source',
+                field_value: vendorSourceLabel(invoice.vendor_name_source),
+                note: 'Resolved invoice contractor source used for contractor identity comparison.',
+              }),
               ...evidenceFromFacts(contractVendorFacts),
             ],
           }),

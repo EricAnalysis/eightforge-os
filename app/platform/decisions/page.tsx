@@ -11,6 +11,7 @@ import {
   resolveDecisionReason,
 } from '@/lib/decisionActions';
 import { isHistoryStatusFilter } from '@/lib/currentWork';
+import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import { supabase } from '@/lib/supabaseClient';
 import { operatorApprovalLabel } from '@/lib/truthToAction';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
@@ -80,6 +81,8 @@ type DecisionListItem = {
 
 const STATUS_OPTIONS = ['open', 'resolvable', 'in_review', 'resolved', 'suppressed'] as const;
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'] as const;
+const FRAME_ACTIONS = ['confirm', 'override', 'needs_review'] as const;
+type FrameAction = typeof FRAME_ACTIONS[number];
 
 type GroupedDecisionListItem = {
   groupId: string;
@@ -121,6 +124,43 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function frameActionLabel(action: FrameAction): string {
+  if (action === 'needs_review') return 'Needs Review';
+  return action.charAt(0).toUpperCase() + action.slice(1);
+}
+
+function feedbackPayloadForFrameAction(action: FrameAction, notes: string) {
+  const trimmedNotes = notes.trim();
+  if (action === 'confirm') {
+    return {
+      is_correct: true,
+      feedback_type: 'correct',
+      disposition: 'accept',
+      review_error_type: null,
+      operator_action: action,
+      notes: trimmedNotes || null,
+    };
+  }
+  if (action === 'override') {
+    return {
+      is_correct: false,
+      feedback_type: 'override',
+      disposition: null,
+      review_error_type: 'edge_case',
+      operator_action: action,
+      notes: trimmedNotes || null,
+    };
+  }
+  return {
+    is_correct: false,
+    feedback_type: 'needs_review',
+    disposition: null,
+    review_error_type: 'edge_case',
+    operator_action: action,
+    notes: trimmedNotes || null,
+  };
+}
+
 function ReviewBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     approved: 'border-[var(--ef-success-a40)] text-[var(--ef-success)]',
@@ -143,6 +183,10 @@ function titleize(value: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function decisionDisplayKey(item: DecisionListItem): string {
+  return item.sourceIdentityKey || item.decisionType;
 }
 
 function resolveAssignee(ref: AssigneeRef | AssigneeRef[]): AssigneeRef {
@@ -552,7 +596,7 @@ export default function DecisionsPage() {
   const [filterDue, setFilterDue] = useState<string>(searchParams.get('due') ?? '');
   const [filterAge, setFilterAge] = useState<string>(searchParams.get('age') ?? '');
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [frameAction, setFrameAction] = useState<'escalate' | 'verify' | null>(null);
+  const [frameAction, setFrameAction] = useState<FrameAction | null>(null);
   const [frameNotes, setFrameNotes] = useState('');
   const [frameSaving, setFrameSaving] = useState(false);
   const [frameMessage, setFrameMessage] = useState<string | null>(null);
@@ -826,6 +870,12 @@ export default function DecisionsPage() {
     }
     if (!frameAction) {
       setFrameError('Choose an operator action first.');
+      setFrameMessage(null);
+      return;
+    }
+    if (frameAction === 'override' && frameNotes.trim().length === 0) {
+      setFrameError('Override requires notes before it can be recorded.');
+      setFrameMessage(null);
       return;
     }
     setFrameSaving(true);
@@ -833,14 +883,7 @@ export default function DecisionsPage() {
     setFrameMessage(null);
 
     try {
-      const payload = {
-        is_correct: false,
-        feedback_type: 'needs_review',
-        disposition: frameAction === 'escalate' ? 'escalate' : null,
-        review_error_type: 'edge_case',
-        operator_action: frameAction,
-        notes: frameNotes.trim() || null,
-      };
+      const payload = feedbackPayloadForFrameAction(frameAction, frameNotes);
       const response = await fetch(`/api/decisions/${decisionId}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -848,7 +891,8 @@ export default function DecisionsPage() {
       });
       if (!response.ok) throw new Error('Decision feedback update failed.');
 
-      setFrameMessage('Decision triage action recorded. Open Execution to finalize approval-impacting outcomes.');
+      setFrameError(null);
+      setFrameMessage('Decision action recorded. Open Execution to finalize approval-impacting outcomes.');
       setFrameNotes('');
       setFrameAction(null);
       if (includeHistory && organizationId) {
@@ -938,7 +982,7 @@ export default function DecisionsPage() {
           >
             <option value="">All</option>
             {decisionTypeOptions.map((type) => (
-              <option key={type} value={type}>{titleize(type)}</option>
+              <option key={type} value={type}>{getIssueDisplayLabel(type, titleize(type)).title}</option>
             ))}
           </select>
         </label>
@@ -1102,6 +1146,7 @@ export default function DecisionsPage() {
                       {queueBuckets[bucket.key].map((group) => {
                         const item = group.primary;
                         const selected = selectedGroup?.groupId === group.groupId;
+                        const issueDisplay = getIssueDisplayLabel(decisionDisplayKey(item), item.title);
                         return (
                           <button
                             key={group.groupId}
@@ -1115,9 +1160,9 @@ export default function DecisionsPage() {
                                   <SeverityBadge severity={item.severity} />
                                   <StatusBadge status={item.status} />
                                   {!includeHistory ? <ReviewBadge status={item.reviewStatus} /> : null}
-                                  <span className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">{titleize(item.decisionType)}</span>
+                                  <span className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]" title={item.decisionType}>{issueDisplay.category}</span>
                                 </div>
-                                <p className="mt-2 text-[12px] font-semibold text-[var(--ef-text-primary)]">{item.title}</p>
+                                <p className="mt-2 text-[12px] font-semibold text-[var(--ef-text-primary)]">{issueDisplay.title}</p>
                                 <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[var(--ef-text-muted)]">{item.summary}</p>
                               </div>
                               <div className="shrink-0 text-right text-[10px] text-[var(--ef-text-faint)]">
@@ -1148,13 +1193,14 @@ export default function DecisionsPage() {
                 <div className="mt-4 space-y-4">
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">Issue summary</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">{selectedGroup.primary.title}</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--ef-text-primary)]">{getIssueDisplayLabel(decisionDisplayKey(selectedGroup.primary), selectedGroup.primary.title).title}</p>
                     <p className="mt-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{selectedGroup.primary.summary}</p>
                   </div>
                   <div className="grid gap-3">
                     <FrameRow label="Decision question" value={recommendedAction(selectedGroup.primary)} />
                     <FrameRow label="Impact" value={selectedGroup.primary.impact ?? (selectedGroup.primary.exposureAmount != null ? `${formatCurrency(selectedGroup.primary.exposureAmount)} exposure` : 'Impact not quantified yet')} />
                     <FrameRow label="Governing truth" value={selectedGroup.primary.governingTruth ?? selectedGroup.primary.sourceDocumentTitle ?? 'Persisted decision record'} />
+                    <FrameRow label="Raw decision key" value={decisionDisplayKey(selectedGroup.primary)} />
                     <FrameRow label="Confidence / ambiguity" value={`${selectedGroup.primary.confidence != null ? `${Math.round(selectedGroup.primary.confidence * 100)}% confidence` : 'Confidence unavailable'}${selectedGroup.primary.vagueAction ? ' / action wording needs clarification' : ''}`} />
                     <FrameRow label="Recommended action" value={recommendedAction(selectedGroup.primary)} />
                   </div>
@@ -1173,26 +1219,29 @@ export default function DecisionsPage() {
                   </div>
                   <div className="space-y-3 border-t border-[var(--ef-surface-elevated)] pt-4">
                     <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">Operator action controls</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['escalate', 'verify'] as const).map((action) => (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {FRAME_ACTIONS.map((action) => (
                         <button
                           key={action}
                           type="button"
-                          onClick={() => setFrameAction(action)}
-                          className={`rounded border px-3 py-2 text-[11px] font-medium capitalize transition-colors ${
+                          onClick={() => {
+                            setFrameAction(action);
+                            setFrameError(null);
+                          }}
+                          className={`rounded border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors ${
                             frameAction === action
                               ? 'border-[var(--ef-purple-primary-a60)] bg-[var(--ef-purple-primary-a10)] text-[var(--ef-purple-glow)]'
                               : 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)] hover:bg-[var(--ef-surface-elevated)] hover:text-[var(--ef-text-primary)]'
                           }`}
                         >
-                          {action}
+                          {frameActionLabel(action)}
                         </button>
                       ))}
                     </div>
                     <textarea
                       value={frameNotes}
                       onChange={(event) => setFrameNotes(event.target.value)}
-                      placeholder="Notes optional for escalation or verification triage"
+                      placeholder="Notes optional; required when recording an override"
                       className="min-h-24 w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[12px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
                     />
                     <button
@@ -1255,6 +1304,7 @@ export default function DecisionsPage() {
                   const overdue = isDecisionOverdue(item.dueAt, item.status);
                   const isExpanded = !!expandedGroups[group.groupId];
                   const canExpand = group.occurrencesCount > 1;
+                  const issueDisplay = getIssueDisplayLabel(decisionDisplayKey(item), item.title);
                   return (
                     <>
                       <tr
@@ -1279,9 +1329,9 @@ export default function DecisionsPage() {
                             ) : null}
                             <div className="flex flex-wrap items-center gap-2">
                               <Link href={item.deepLinkTarget} className="font-medium text-[var(--ef-purple-primary)] hover:underline" title={item.title}>
-                                {item.title}
+                                {issueDisplay.title}
                               </Link>
-                              <span className="text-[10px] text-[var(--ef-text-faint)]">{titleize(item.decisionType)}</span>
+                              <span className="text-[10px] text-[var(--ef-text-faint)]" title={item.decisionType}>{issueDisplay.category}</span>
                               {item.kind === 'approval_blocker' ? (
                                 <span className="rounded bg-[var(--ef-critical-a10)] px-1.5 py-0.5 text-[10px] text-[var(--ef-critical-soft)]">
                                   Approval gate finding

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { IssueObject } from '@/lib/issueObjects';
+import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import type { ProjectDecisionLifecycleState, ProjectOverviewDecisionCard } from '@/lib/projectOverview';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
@@ -149,17 +150,20 @@ function IssueDetailSurface({
   const decision = issue.decision;
   const execution = issue.executionItem;
   const canRecordDecisionAction = issue.decisionId != null && !isHistoryRecord;
+  const issueDisplay = getIssueDisplayLabel(issue.issueType, issue.title);
+  const ruleRawKey = String(decision?.details?.decision_rule_type ?? decision?.details?.rule_id ?? issue.finding.rule_id);
 
   return (
     <div className="mt-5 space-y-5">
       <div>
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">The Issue</p>
-        <p className="mt-2 text-sm font-semibold text-[var(--ef-text-primary)]">{issue.title}</p>
-        <p className="mt-2 text-sm leading-6 text-[var(--ef-text-muted)]">{issue.summary}</p>
+        <p className="mt-2 text-sm font-semibold text-[var(--ef-text-primary)]">{issueDisplay.title}</p>
+        <p className="mt-2 text-sm leading-6 text-[var(--ef-text-muted)]">{issue.summary || issueDisplay.explanation}</p>
       </div>
 
       <div className="grid gap-3">
-        <FrameRow label="Finding type" value={issue.issueType} />
+        <FrameRow label="Finding type" value={issueDisplay.title} />
+        <FrameRow label="Raw finding key" value={issueDisplay.raw_key} />
         <FrameRow label="Confidence" value={`${Math.round(issue.confidence * 100)}%`} />
         <FrameRow label="Exposure" value={formatIssueMoney(issue.exposureAmount)} />
         <FrameRow label="Created" value={formatIssueDate(issue.createdAt)} />
@@ -191,9 +195,10 @@ function IssueDetailSurface({
 
       <div className="grid gap-3">
         <FrameRow label="Decision question" value={decision?.summary ?? issue.finding.required_action ?? issue.nextAction} />
-        <FrameRow label="Rule applied" value={String(decision?.details?.decision_rule_type ?? decision?.details?.rule_id ?? issue.finding.rule_id)} />
+        <FrameRow label="Rule applied" value={getIssueDisplayLabel(ruleRawKey, issueDisplay.title).title} />
+        <FrameRow label="Raw rule key" value={ruleRawKey} />
         <FrameRow label="Impact" value={issue.finding.impact ?? decision?.summary ?? 'Impact is captured on the validator finding and decision record.'} />
-        <FrameRow label="Recommended action" value={String(decision?.details?.recommended_action ?? issue.finding.required_action ?? issue.nextAction)} />
+        <FrameRow label="Recommended action" value={String(decision?.details?.recommended_action ?? issue.finding.required_action ?? issueDisplay.recommended_action ?? issue.nextAction)} />
         <FrameRow label="Decision status" value={decision?.status ?? 'No decision record yet'} />
       </div>
 
@@ -529,34 +534,39 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             ) : (
               <div className="divide-y divide-[var(--ef-border-subtle-a70)]">
                 {activeBuckets[bucket.key].map((decision) => (
-                  <button
-                    key={decision.id}
-                    type="button"
-                    onClick={() => setSelectedId(decision.id)}
-                    className={`w-full px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] ${
-                      selected?.id === decision.id ? 'border-l-2 border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)]' : 'border-l-2 border-transparent'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{decision.title}</p>
-                        <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{decision.reason}</p>
-                      </div>
-                      <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
-                        {decision.lifecycle_label}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
-                      <span>Evidence: {decision.evidence_refs.length}</span>
-                      <span>ID: {decision.id.slice(0, 8)}</span>
-                      <span>Owner: {decision.assigned_operator}</span>
-                      {decision.last_operator_action ? <span>Last: {decision.last_operator_action}</span> : null}
-                      {decision.source_identity_key ? <span>Key: {decision.source_identity_key}</span> : null}
-                      {decision.exposure_amount != null ? <span>Exposure: ${Math.round(decision.exposure_amount).toLocaleString()}</span> : null}
-                      <span>{decision.freshness_label}</span>
-                      {decision.due_label ? <span>{decision.due_label}</span> : null}
-                    </div>
-                  </button>
+                  (() => {
+                    const decisionDisplay = getIssueDisplayLabel(decision.source_identity_key ?? decision.decision_type, decision.title);
+                    return (
+                      <button
+                        key={decision.id}
+                        type="button"
+                        onClick={() => setSelectedId(decision.id)}
+                        className={`w-full px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] ${
+                          selected?.id === decision.id ? 'border-l-2 border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)]' : 'border-l-2 border-transparent'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{decisionDisplay.title}</p>
+                            <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{decision.reason}</p>
+                          </div>
+                          <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
+                            {decision.lifecycle_label}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+                          <span>Evidence: {decision.evidence_refs.length}</span>
+                          <span>ID: {decision.id.slice(0, 8)}</span>
+                          <span>Owner: {decision.assigned_operator}</span>
+                          {decision.last_operator_action ? <span>Last: {decision.last_operator_action}</span> : null}
+                          {decision.source_identity_key ? <span>Key: {decision.source_identity_key}</span> : null}
+                          {decision.exposure_amount != null ? <span>Exposure: ${Math.round(decision.exposure_amount).toLocaleString()}</span> : null}
+                          <span>{decision.freshness_label}</span>
+                          {decision.due_label ? <span>{decision.due_label}</span> : null}
+                        </div>
+                      </button>
+                    );
+                  })()
                 ))}
               </div>
             )}
@@ -585,34 +595,39 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
                 ) : (
                   <div className="divide-y divide-[var(--ef-border-subtle-a70)]">
                     {resolvedBuckets[bucket.key].map((decision) => (
-                      <button
-                        key={decision.id}
-                        type="button"
-                        onClick={() => setSelectedId(decision.id)}
-                        className={`w-full px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] ${
-                          selected?.id === decision.id ? 'border-l-2 border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)]' : 'border-l-2 border-transparent'
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{decision.title}</p>
-                            <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{decision.reason}</p>
-                          </div>
-                          <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
-                            {decision.lifecycle_label}
-                          </span>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
-                          <span>Evidence: {decision.evidence_refs.length}</span>
-                          <span>ID: {decision.id.slice(0, 8)}</span>
-                          <span>Owner: {decision.assigned_operator}</span>
-                          {decision.last_operator_action ? <span>Last: {decision.last_operator_action}</span> : null}
-                          {decision.source_identity_key ? <span>Key: {decision.source_identity_key}</span> : null}
-                          {decision.exposure_amount != null ? <span>Exposure: ${Math.round(decision.exposure_amount).toLocaleString()}</span> : null}
-                          <span>{decision.freshness_label}</span>
-                          {decision.due_label ? <span>{decision.due_label}</span> : null}
-                        </div>
-                      </button>
+                      (() => {
+                        const decisionDisplay = getIssueDisplayLabel(decision.source_identity_key ?? decision.decision_type, decision.title);
+                        return (
+                          <button
+                            key={decision.id}
+                            type="button"
+                            onClick={() => setSelectedId(decision.id)}
+                            className={`w-full px-4 py-4 text-left transition-colors hover:bg-[var(--ef-surface-elevated)] ${
+                              selected?.id === decision.id ? 'border-l-2 border-[var(--ef-purple-primary)] bg-[var(--ef-purple-primary-a10)]' : 'border-l-2 border-transparent'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{decisionDisplay.title}</p>
+                                <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[var(--ef-text-muted)]">{decision.reason}</p>
+                              </div>
+                              <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
+                                {decision.lifecycle_label}
+                              </span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+                              <span>Evidence: {decision.evidence_refs.length}</span>
+                              <span>ID: {decision.id.slice(0, 8)}</span>
+                              <span>Owner: {decision.assigned_operator}</span>
+                              {decision.last_operator_action ? <span>Last: {decision.last_operator_action}</span> : null}
+                              {decision.source_identity_key ? <span>Key: {decision.source_identity_key}</span> : null}
+                              {decision.exposure_amount != null ? <span>Exposure: ${Math.round(decision.exposure_amount).toLocaleString()}</span> : null}
+                              <span>{decision.freshness_label}</span>
+                              {decision.due_label ? <span>{decision.due_label}</span> : null}
+                            </div>
+                          </button>
+                        );
+                      })()
                     ))}
                   </div>
                 )}

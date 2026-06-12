@@ -9,6 +9,7 @@ import {
   executionItemProjectHref,
   type ProjectExecutionItemRow,
 } from '@/lib/executionItems';
+import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import {
   resolveCanonicalProjectValidatorWorkspace,
   resolveValidationSummaryFromProjectFacts,
@@ -376,10 +377,13 @@ function invoiceLineFindingContext(
 }
 
 function findingDescription(finding: ValidationFinding): string {
-  return findingProblem(finding);
+  return getIssueDisplayLabel(finding.check_key || finding.rule_id, findingProblem(finding)).title;
 }
 
 function findingCategoryLabel(finding: ValidationFinding): string {
+  const display = getIssueDisplayLabel(finding.check_key || finding.rule_id, finding.category);
+  if (display.category !== 'Validation') return display.category;
+
   const subject = finding.subject_type.toLowerCase();
   const sourceFamily = finding.source_family?.toLowerCase() ?? '';
 
@@ -595,6 +599,7 @@ function CriticalIssueCard(props: {
   const normalizedFinding = normalizeValidationFinding(finding);
   const impact = findingGateImpact(finding);
   const nextAction = findingNextAction(finding);
+  const issueDisplay = getIssueDisplayLabel(finding.check_key || finding.rule_id, findingProblem(finding));
   const invoiceLineContext = invoiceLineFindingContext(finding, evidence, documentTitleById);
 
   return (
@@ -625,7 +630,10 @@ function CriticalIssueCard(props: {
             {findingDescription(finding)}
           </h3>
           <p className="mt-2 text-sm leading-6 text-[var(--ef-text-secondary)]">
-            {normalizedFinding.problem ?? 'Validator found a blocking mismatch that needs operator review.'}
+            {normalizedFinding.problem ?? issueDisplay.explanation}
+          </p>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
+            Rule key: {issueDisplay.raw_key}
           </p>
         </div>
 

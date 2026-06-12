@@ -874,7 +874,7 @@ async function loadDocumentFactOverrides(
   return (data ?? []) as DocumentFactOverrideRow[];
 }
 
-async function loadDocumentFactReviews(
+export async function loadDocumentFactReviews(
   documentIds: readonly string[],
 ): Promise<DocumentFactReviewRow[]> {
   if (documentIds.length === 0) return [];

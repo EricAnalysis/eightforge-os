@@ -1,5 +1,6 @@
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { DocumentFactReviewRow } from '@/lib/documentFactReviews';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
   DetectedEntity,
@@ -134,6 +135,17 @@ export interface ExtractNodeInput {
   projectName: string | null;
   extractionData: Record<string, unknown> | null;
   relatedDocs: RelatedDocInput[];
+  /**
+   * Pre-loaded operator fact reviews for this document.
+   * When provided, facts with derivation_status
+   * 'calculated' that have been confirmed or corrected
+   * by an operator are upgraded to 'success' before
+   * contract intelligence analysis.
+   * Optional: omit for non-project or test contexts —
+   * pipeline behavior is identical to before this field
+   * when reviews are absent or empty.
+   */
+  confirmedFactReviews?: DocumentFactReviewRow[];
 }
 
 export interface ExtractNodeOutput {

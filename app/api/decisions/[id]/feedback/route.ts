@@ -14,7 +14,7 @@ import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
 const VALID_FEEDBACK_TYPES = ['correct', 'incorrect', 'needs_review', 'override'] as const;
 const VALID_DISPOSITIONS = ['accept', 'reject', 'escalate', 'suppress'] as const;
 const VALID_REVIEW_ERROR_TYPES = ['extraction_error', 'rule_error', 'edge_case'] as const;
-const VALID_OPERATOR_ACTIONS = ['approve', 'correct', 'override', 'escalate', 'verify'] as const;
+const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'needs_review', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });

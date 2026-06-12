@@ -382,7 +382,7 @@ describe('project operational rollup', () => {
         old_value: { status: 'open' },
         new_value: {
           feedback_type: 'needs_review',
-          operator_action: 'verify',
+          operator_action: 'needs_review',
           status_after_feedback: 'in_review',
         },
         changed_by: 'member-1',
@@ -402,7 +402,7 @@ describe('project operational rollup', () => {
     assert.ok(decision.source_evidence_label.includes('Validator output'));
     assert.ok(decision.source_evidence_label.includes('2 evidence refs'));
     assert.equal(decision.lifecycle_state, 'needs_verification');
-    assert.equal(decision.last_operator_action, 'Verify');
+    assert.equal(decision.last_operator_action, 'Needs Review');
     assert.equal(decision.evidence_summaries[0]?.document_title, 'Invoice 2026-003');
     assert.equal(decision.evidence_summaries[0]?.anchor_summary, '2026-003 / line-1');
   });

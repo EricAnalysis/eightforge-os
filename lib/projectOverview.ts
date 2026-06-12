@@ -1966,6 +1966,7 @@ function latestDecisionActivity(
 function operatorActionFromActivity(event: ProjectActivityEventRow | null): string | null {
   const next = event?.new_value ?? null;
   const explicitAction = extractStringValue(next, 'operator_action');
+  if (explicitAction === 'needs_review') return 'Needs Review';
   if (explicitAction) return titleize(explicitAction);
   const feedbackType = extractStringValue(next, 'feedback_type');
   const disposition = extractStringValue(next, 'disposition');
@@ -1973,7 +1974,8 @@ function operatorActionFromActivity(event: ProjectActivityEventRow | null): stri
   if (feedbackType === 'override') return 'Override';
   if (disposition === 'escalate') return 'Escalate';
   if (nextStatus === 'resolved') return 'Approve';
-  if (feedbackType === 'needs_review') return 'Verify';
+  if (feedbackType === 'correct') return 'Confirm';
+  if (feedbackType === 'needs_review') return 'Needs Review';
   return event ? titleize(event.event_type) : null;
 }
 
@@ -2008,6 +2010,7 @@ function lifecycleFromDecision(
   if (operatorAction === 'override' || feedbackType === 'override' || decision.status === 'suppressed') return 'overridden';
   if (operatorAction === 'escalate' || disposition === 'escalate') return 'escalated';
   if (decision.status === 'resolved' || latestStatus === 'resolved') return 'resolved';
+  if (operatorAction === 'confirm' || feedbackType === 'correct') return 'ready_for_authorization';
   if (
     decision.status === 'in_review'
     || decision.status === 'needs_review'
@@ -2015,6 +2018,7 @@ function lifecycleFromDecision(
     || statusAfterFeedback === 'in_review'
     || operatorAction === 'correct'
     || operatorAction === 'verify'
+    || operatorAction === 'needs_review'
   ) {
     return 'needs_verification';
   }

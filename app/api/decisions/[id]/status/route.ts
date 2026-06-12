@@ -10,7 +10,7 @@ import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowT
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
 const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
-const VALID_OPERATOR_ACTIONS = ['approve', 'correct', 'override', 'escalate', 'verify'] as const;
+const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'needs_review', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });

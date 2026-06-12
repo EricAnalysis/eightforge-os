@@ -88,6 +88,35 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    // Close linked project_validation_findings when a decision moves to a terminal status.
+    // Findings linked via linked_decision_id should not remain open after their governing
+    // decision is resolved or suppressed.
+    if (newStatus === 'resolved' || newStatus === 'suppressed') {
+      const findingStatus = newStatus === 'suppressed' ? 'dismissed' : 'resolved';
+
+      const { error: findingCloseError } = await admin
+        .from('project_validation_findings')
+        .update({
+          status: findingStatus,
+          resolved_by_user_id: actorId,
+          resolved_at: now,
+          updated_at: now,
+        })
+        .eq('linked_decision_id', decisionId)
+        .eq('project_id', existing.project_id)
+        .eq('status', 'open');
+
+      if (findingCloseError) {
+        // Log but do not fail the decision update. Finding closure is a lifecycle sync step;
+        // the decision has already been updated and must not be rolled back because finding
+        // closure failed.
+        console.error(
+          '[decision/status] failed to close linked findings:',
+          findingCloseError.message,
+        );
+      }
+    }
+
     // 6. Log activity event only when status actually changed
     if (previousStatus !== newStatus) {
       const activityResult = await logActivityEvent({

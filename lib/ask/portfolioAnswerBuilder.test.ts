@@ -53,10 +53,6 @@ describe('portfolio ask answer builder', () => {
       operations: {
         generated_at: '2026-04-02T12:00:00.000Z',
         recent_documents_count: null,
-        superseded_counts: {
-          decisions: 0,
-          actions: 0,
-        },
         warnings: [],
         decisions: [],
         actions: [],

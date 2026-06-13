@@ -32,7 +32,6 @@ function minimalModel(
   return {
     generated_at: '2024-06-01T12:00:00.000Z',
     recent_documents_count: 0,
-    superseded_counts: { decisions: 0, actions: 0 },
     warnings: [],
     decisions,
     actions: [],

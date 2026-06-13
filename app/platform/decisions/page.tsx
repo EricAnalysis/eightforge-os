@@ -13,12 +13,11 @@ import {
 import { isHistoryStatusFilter } from '@/lib/currentWork';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import { supabase } from '@/lib/supabaseClient';
-import { operatorApprovalLabel } from '@/lib/truthToAction';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOperationalModel } from '@/lib/useOperationalModel';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { DECISION_OPEN_STATUSES, OverdueBadge, isDecisionOverdue } from '@/lib/overdue';
-import type { OperationalDecisionQueueItem, OperationalProjectRollupItem } from '@/lib/server/operationalQueue';
+import type { OperationalDecisionQueueItem } from '@/lib/server/operationalQueue';
 import type { CurrentActionableItem } from '@/types/executionQueue';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
@@ -428,113 +427,11 @@ function mapOperationalDecision(item: OperationalDecisionQueueItem): DecisionLis
 
 // â”€â”€ Validator / approval-gate integration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-type ValidatorAction = OperationalProjectRollupItem['rollup']['pending_actions'][number];
-
 function formatCurrency(amount: number): string {
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `$${Math.round(amount / 1_000)}K`;
   return `$${Math.round(amount)}`;
 }
-
-function formatFinancialImpact(action: ValidatorAction): string | null {
-  const parts: string[] = [];
-  if (action.requires_verification_amount && action.requires_verification_amount > 0) {
-    parts.push(`Requires Verification: ${formatCurrency(action.requires_verification_amount)}`);
-  }
-  if (action.at_risk_amount && action.at_risk_amount > 0)
-    parts.push(`At Risk: ${formatCurrency(action.at_risk_amount)}`);
-  if (action.impacted_amount && action.impacted_amount > 0 && parts.length === 0)
-    parts.push(`Impact: ${formatCurrency(action.impacted_amount)}`);
-  return parts.length > 0 ? parts.join(' Â· ') : null;
-}
-
-/** Maps a project rollup pending_action (approval-gate finding) into the queue row format. */
-function mapValidatorAction(
-  rollupItem: OperationalProjectRollupItem,
-  action: ValidatorAction,
-): DecisionListItem {
-  const isBlocked = action.approval_status === 'blocked';
-  const approvalLabel = operatorApprovalLabel(action.approval_status ?? null);
-  const ctx = action.invoice_number ? ` â€” Invoice ${action.invoice_number}` : '';
-  const detailParts: string[] = [];
-
-  if (action.expected_value || action.actual_value || action.variance_label) {
-    const valueParts = [
-      action.expected_value ? `Expected ${action.expected_value}` : null,
-      action.actual_value ? `Actual ${action.actual_value}` : null,
-      action.variance_label ? `Variance ${action.variance_label}` : null,
-    ].filter((part): part is string => part != null);
-
-    if (valueParts.length > 0) {
-      detailParts.push(valueParts.join(', '));
-    }
-  }
-
-  if (approvalLabel !== 'Unknown') {
-    detailParts.push(`Gate impact: ${approvalLabel}`);
-  }
-
-  if (action.next_step) {
-    detailParts.push(`Next step: ${action.next_step}`);
-  }
-
-  const summary = detailParts.length > 0
-    ? detailParts.join('. ')
-    : (
-      isBlocked
-        ? 'This item is blocking payment approval. Resolve before proceeding.'
-        : 'This item requires sign-off before approval can proceed.'
-    );
-  const evidenceSummary =
-    action.expected_value || action.actual_value || action.variance_label
-      ? (action.source_document_title ? `Source: ${action.source_document_title}` : null)
-      : formatFinancialImpact(action);
-
-  return {
-    id: `approval-${rollupItem.project.id}-${action.id}`,
-    decisionId: null,
-    documentId: null,
-    decisionType: 'approval_blocker',
-    projectId: rollupItem.project.id,
-    title: `${action.title}${ctx}`,
-    summary,
-    severity: isBlocked ? 'critical' : 'high',
-    status: 'open',
-    confidence: null,
-    createdAt: new Date().toISOString(),
-    detectedAt: null,
-    dueAt: null,
-    assignedTo: null,
-    assignedName: null,
-    projectLabel: rollupItem.project.name ?? rollupItem.project.code ?? null,
-    primaryActionLabel: action.next_step ?? null,
-    expectedOutcome: null,
-    missingAction: !action.next_step,
-    vagueAction: false,
-    reviewStatus: 'not_reviewed',
-    sourceDocumentTitle:
-      action.source_document_title ??
-      (action.invoice_number ? `Invoice ${action.invoice_number}` : null),
-    sourceDocumentType: action.source_document_type ?? null,
-    sourceDocumentTarget: action.href,
-    evidenceSummary,
-    evidenceRefs: action.id ? [`validator_action:${action.id}`] : [],
-    exposureAmount:
-      action.requires_verification_amount ??
-      action.blocked_amount ??
-      action.at_risk_amount ??
-      action.impacted_amount ??
-      null,
-    sourceIdentityKey: action.id,
-    impact: approvalLabel !== 'Unknown' ? approvalLabel : null,
-    governingTruth: action.source_document_title ?? action.source_document_type ?? 'Validator approval gate',
-    deepLinkTarget: action.href,
-    actionMode: 'history',
-    kind: 'approval_blocker',
-  };
-}
-
-void mapValidatorAction;
 
 /**
  * Precedence sort for the unified queue:

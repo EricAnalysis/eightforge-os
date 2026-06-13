@@ -171,10 +171,6 @@ export type OperationalIntelligenceSummary = {
 export type OperationalQueueModel = {
   generated_at: string;
   recent_documents_count: number | null;
-  superseded_counts: {
-    decisions: number;
-    actions: number;
-  };
   warnings: string[];
   decisions: OperationalDecisionQueueItem[];
   actions: OperationalActionQueueItem[];
@@ -907,10 +903,6 @@ export function buildOperationalQueueModel(params: {
   feedback?: OperationalFeedbackRow[];
   validatorFindingActionsByProjectId?: Map<string, ProjectOverviewActionItem[]>;
   recentDocumentsCount?: number | null;
-  supersededCounts?: {
-    decisions: number;
-    actions: number;
-  };
   warnings?: string[];
 }): OperationalQueueModel {
   const {
@@ -922,7 +914,6 @@ export function buildOperationalQueueModel(params: {
     feedback = [],
     validatorFindingActionsByProjectId = new Map<string, ProjectOverviewActionItem[]>(),
     recentDocumentsCount = null,
-    supersededCounts = { decisions: 0, actions: 0 },
     warnings = [],
   } = params;
 
@@ -1663,7 +1654,6 @@ export function buildOperationalQueueModel(params: {
   return {
     generated_at: new Date().toISOString(),
     recent_documents_count: recentDocumentsCount,
-    superseded_counts: supersededCounts,
     warnings,
     decisions: sortedDecisions,
     actions: sortedActions,
@@ -1861,10 +1851,6 @@ export async function loadOperationalQueueModel(params: {
     recentDocumentsCount: recentDocumentsResult.error
       ? null
       : (recentDocumentsResult.count ?? 0),
-    supersededCounts: {
-      decisions: Math.max(0, rawDecisions.length - currentDecisions.length),
-      actions: Math.max(0, rawTasks.length - currentTasks.length),
-    },
     warnings,
   });
 

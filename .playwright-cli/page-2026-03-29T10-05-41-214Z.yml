@@ -1,0 +1,198 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - link "EightForge" [ref=e17] [cursor=pointer]:
+            - /url: /platform/workspace
+            - img [ref=e18]
+            - paragraph [ref=e22]: EightForge
+          - navigation [ref=e23]:
+            - link "Workspace" [ref=e24] [cursor=pointer]:
+              - /url: /platform/workspace
+            - link "Command Center" [ref=e25] [cursor=pointer]:
+              - /url: /platform
+            - link "Projects" [ref=e26] [cursor=pointer]:
+              - /url: /platform/projects
+            - link "Intelligence" [ref=e27] [cursor=pointer]:
+              - /url: /platform/reviews
+        - generic [ref=e28]:
+          - generic [ref=e31]: Development Org
+          - generic [ref=e32]:
+            - generic:
+              - img
+            - textbox [ref=e33]:
+              - /placeholder: Search intelligence...
+          - generic [ref=e34]:
+            - link "Signals" [ref=e35] [cursor=pointer]:
+              - /url: /platform/issues
+              - img [ref=e36]
+            - link "Audit history" [ref=e39] [cursor=pointer]:
+              - /url: /platform/agents
+              - img [ref=e40]
+            - link "Profile and settings" [ref=e44] [cursor=pointer]:
+              - /url: /platform/settings
+              - img [ref=e45]
+          - button "Sign out" [ref=e48]
+    - generic [ref=e49]:
+      - complementary [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - img [ref=e56]
+              - generic [ref=e60]:
+                - paragraph [ref=e61]: Operational Intelligence
+                - generic [ref=e64]: System Active
+            - link "Upload Document" [ref=e65] [cursor=pointer]:
+              - /url: /platform/documents
+              - img [ref=e66]
+              - text: Upload Document
+          - navigation [ref=e68]:
+            - generic [ref=e69]:
+              - link "Command Center" [ref=e70] [cursor=pointer]:
+                - /url: /platform
+                - img [ref=e71]
+                - generic [ref=e73]: Command Center
+              - link "Decision Queue" [ref=e74] [cursor=pointer]:
+                - /url: /platform/decisions
+                - img [ref=e75]
+                - generic [ref=e79]: Decision Queue
+              - link "My Actions" [ref=e80] [cursor=pointer]:
+                - /url: /platform/workflows
+                - img [ref=e81]
+                - generic [ref=e85]: My Actions
+              - link "Intelligence" [ref=e86] [cursor=pointer]:
+                - /url: /platform/reviews
+                - img [ref=e87]
+                - generic [ref=e90]: Intelligence
+              - link "Documents" [ref=e91] [cursor=pointer]:
+                - /url: /platform/documents
+                - img [ref=e92]
+                - generic [ref=e95]: Documents
+          - generic [ref=e97]:
+            - generic [ref=e98]:
+              - generic [ref=e99]: DO
+              - generic [ref=e100]:
+                - paragraph [ref=e101]: Development Org
+                - paragraph [ref=e102]: Platform
+            - button "Sign out" [ref=e103]
+      - main [ref=e104]:
+        - generic [ref=e105]:
+          - generic [ref=e107]:
+            - generic [ref=e108]:
+              - navigation [ref=e109]:
+                - link "Workspace" [ref=e110] [cursor=pointer]:
+                  - /url: /platform/workspace
+                - text: /Project
+              - heading "STL" [level=1] [ref=e111]
+              - paragraph [ref=e112]: 12345 · active
+            - generic [ref=e113]:
+              - link "Upload" [ref=e114] [cursor=pointer]:
+                - /url: /platform/documents?projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed&openUpload=1
+              - link "Classic view" [ref=e115] [cursor=pointer]:
+                - /url: /platform/projects/bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+          - generic [ref=e116]:
+            - generic [ref=e117]: Project loaded with partial data issues. Loaded decisions/tasks via document links (project_id columns not on database yet). Apply supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql.
+            - generic [ref=e119]:
+              - generic [ref=e120]:
+                - paragraph [ref=e121]: Status
+                - paragraph [ref=e122]: Clear
+              - generic [ref=e124]:
+                - generic [ref=e125]:
+                  - generic [ref=e126]: Intake
+                  - generic [ref=e127]: "0"
+                - generic [ref=e128]:
+                  - generic [ref=e129]: Extract
+                  - generic [ref=e130]: "0"
+                - generic [ref=e131]:
+                  - generic [ref=e132]: Structure
+                  - generic [ref=e133]: "0"
+                - generic [ref=e134]:
+                  - generic [ref=e135]: Decide
+                  - generic [ref=e136]: "0"
+                - generic [ref=e137]:
+                  - generic [ref=e138]: Act
+                  - generic [ref=e139]: "0"
+                - generic [ref=e140]:
+                  - generic [ref=e141]: Audit
+                  - generic [ref=e142]: "6"
+              - generic [ref=e144]:
+                - generic [ref=e145]:
+                  - text: Decisions
+                  - strong [ref=e146]: "0"
+                - generic [ref=e147]:
+                  - text: Open actions
+                  - strong [ref=e148]: "0"
+                - generic [ref=e149]:
+                  - text: Needs Review
+                  - strong [ref=e150]: "0"
+            - generic [ref=e151]:
+              - navigation "Forge stages" [ref=e152]:
+                - button "Intake 0" [ref=e153]:
+                  - generic [ref=e154]: Intake
+                  - generic [ref=e155]: "0"
+                - button "Extract 0" [ref=e156]:
+                  - generic [ref=e157]: Extract
+                  - generic [ref=e158]: "0"
+                - button "Structure 0" [ref=e159]:
+                  - generic [ref=e160]: Structure
+                  - generic [ref=e161]: "0"
+                - button "Decide 0" [ref=e162]:
+                  - generic [ref=e163]: Decide
+                  - generic [ref=e164]: "0"
+                - button "Act 0" [ref=e165]:
+                  - generic [ref=e166]: Act
+                  - generic [ref=e167]: "0"
+                - button "Audit 6" [active] [ref=e168]:
+                  - generic [ref=e169]: Audit
+                  - generic [ref=e170]: "6"
+              - complementary [ref=e171]:
+                - paragraph [ref=e172]: Pressure
+                - paragraph [ref=e173]: 6 recent audit event(s) on record for this project.
+              - generic [ref=e187]:
+                - generic [ref=e188]:
+                  - heading "Audit trail" [level=2] [ref=e189]
+                  - generic [ref=e190]: "6"
+                - list [ref=e191]:
+                  - listitem [ref=e192]:
+                    - generic [ref=e193]:
+                      - generic [ref=e194]: Document added
+                      - generic [ref=e195]: 5d ago
+                    - link "St Louis MO 0525_St Louis LGS Storms Tornadoes 0525_Contract_1" [ref=e196] [cursor=pointer]:
+                      - /url: /platform/documents/1077f997-8220-4e2d-a7b3-92720626c305?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+                  - listitem [ref=e197]:
+                    - generic [ref=e198]:
+                      - generic [ref=e199]: Document added
+                      - generic [ref=e200]: 1w ago
+                    - link "ticket_query_20260320_025419" [ref=e201] [cursor=pointer]:
+                      - /url: /platform/documents/d7a60f69-f9c5-4791-9a75-e3f9f3edfe38?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+                  - listitem [ref=e202]:
+                    - generic [ref=e203]:
+                      - generic [ref=e204]: Document added
+                      - generic [ref=e205]: 1w ago
+                    - link "STL Invoice 20260207.xlsx - AF28021_01INV" [ref=e206] [cursor=pointer]:
+                      - /url: /platform/documents/67a3b82d-2f26-4b29-bef9-0a9d17b0d843?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+                  - listitem [ref=e207]:
+                    - generic [ref=e208]:
+                      - generic [ref=e209]: Document added
+                      - generic [ref=e210]: 1w ago
+                    - link "invoice_payment_rec_template_AF28021.xlsx - AF28021_03REC_payment_recommend" [ref=e211] [cursor=pointer]:
+                      - /url: /platform/documents/4855a648-0740-466d-b091-0625684c1c0f?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+                  - listitem [ref=e212]:
+                    - generic [ref=e213]:
+                      - generic [ref=e214]: Document added
+                      - generic [ref=e215]: 1w ago
+                    - link "St Louis MO 0525_St Louis CITY Storms Tornadoes 0525_contract update1.5" [ref=e216] [cursor=pointer]:
+                      - /url: /platform/documents/04c6cab8-d831-4abb-936d-45b0372a23ce?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+                  - listitem [ref=e217]:
+                    - generic [ref=e218]:
+                      - generic [ref=e219]: Document added
+                      - generic [ref=e220]: 1w ago
+                    - link "St Louis MO 0525_St Louis LGS Storms Tornadoes 0525_Contract_1" [ref=e221] [cursor=pointer]:
+                      - /url: /platform/documents/a9f03e0a-dbb2-4ade-9b58-e72db4fb11a7?source=project&projectId=bac18e6a-7d1c-4855-9bf3-8c1fdbf5f1ed
+              - complementary [ref=e183]:
+                - paragraph [ref=e184]: Inspector
+                - paragraph [ref=e185]: Select a decision or action to preview context. Use links below when you need the full record or evidence surface.
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e13]

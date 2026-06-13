@@ -15,6 +15,7 @@ export async function generateAndPersistDecisions(params: {
   admin: SupabaseClient;
   documentId: string;
   organizationId: string;
+  projectId?: string | null;
   documentType: string | null;
   extraction: {
     fields: Record<string, unknown>;
@@ -35,6 +36,7 @@ export async function generateAndPersistDecisions(params: {
     await persistDecisions(params.admin, {
       organization_id: params.organizationId,
       document_id: params.documentId,
+      project_id: params.projectId ?? null,
       decisions: toPersist,
       source: 'system',
     });

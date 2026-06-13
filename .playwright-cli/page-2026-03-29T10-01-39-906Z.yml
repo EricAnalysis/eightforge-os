@@ -1,0 +1,167 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e25] [cursor=pointer]:
+    - img [ref=e26]
+  - alert [ref=e29]: EightForge
+  - generic [ref=e30]:
+    - banner [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - link "EightForge" [ref=e34] [cursor=pointer]:
+            - /url: /platform/workspace
+            - img [ref=e35]
+            - paragraph [ref=e39]: EightForge
+          - navigation [ref=e40]:
+            - link "Workspace" [ref=e41] [cursor=pointer]:
+              - /url: /platform/workspace
+            - link "Command Center" [ref=e42] [cursor=pointer]:
+              - /url: /platform
+            - link "Projects" [ref=e43] [cursor=pointer]:
+              - /url: /platform/projects
+            - link "Intelligence" [ref=e44] [cursor=pointer]:
+              - /url: /platform/reviews
+        - generic [ref=e45]:
+          - generic [ref=e48]: Development Org
+          - generic [ref=e49]:
+            - generic:
+              - img
+            - textbox [ref=e50]:
+              - /placeholder: Search intelligence...
+          - generic [ref=e51]:
+            - link "Signals" [ref=e52] [cursor=pointer]:
+              - /url: /platform/issues
+              - img [ref=e53]
+            - link "Audit history" [ref=e56] [cursor=pointer]:
+              - /url: /platform/agents
+              - img [ref=e57]
+            - link "Profile and settings" [ref=e61] [cursor=pointer]:
+              - /url: /platform/settings
+              - img [ref=e62]
+          - button "Sign out" [ref=e65]
+    - generic [ref=e66]:
+      - complementary [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e70]:
+            - generic [ref=e71]:
+              - img [ref=e73]
+              - generic [ref=e77]:
+                - paragraph [ref=e78]: Operational Intelligence
+                - generic [ref=e81]: System Active
+            - link "Upload Document" [ref=e82] [cursor=pointer]:
+              - /url: /platform/documents
+              - img [ref=e83]
+              - text: Upload Document
+          - navigation [ref=e85]:
+            - generic [ref=e86]:
+              - link "Command Center" [ref=e87] [cursor=pointer]:
+                - /url: /platform
+                - img [ref=e88]
+                - generic [ref=e90]: Command Center
+              - link "Decision Queue" [ref=e91] [cursor=pointer]:
+                - /url: /platform/decisions
+                - img [ref=e92]
+                - generic [ref=e96]: Decision Queue
+              - link "My Actions" [ref=e97] [cursor=pointer]:
+                - /url: /platform/workflows
+                - img [ref=e98]
+                - generic [ref=e102]: My Actions
+              - link "Intelligence" [ref=e103] [cursor=pointer]:
+                - /url: /platform/reviews
+                - img [ref=e104]
+                - generic [ref=e107]: Intelligence
+              - link "Documents" [ref=e108] [cursor=pointer]:
+                - /url: /platform/documents
+                - img [ref=e109]
+                - generic [ref=e112]: Documents
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - generic [ref=e116]: DO
+              - generic [ref=e117]:
+                - paragraph [ref=e118]: Development Org
+                - paragraph [ref=e119]: Platform
+            - button "Sign out" [ref=e120]
+      - main [ref=e121]:
+        - generic [ref=e458]:
+          - generic [ref=e460]:
+            - generic [ref=e461]:
+              - navigation [ref=e462]:
+                - link "Workspace" [ref=e463] [cursor=pointer]:
+                  - /url: /platform/workspace
+                - text: /Project
+              - heading "Willamson" [level=1] [ref=e464]
+              - paragraph [ref=e465]: W1234 · active
+            - generic [ref=e466]:
+              - link "Upload" [ref=e467] [cursor=pointer]:
+                - /url: /platform/documents?projectId=6a244b0b-bb4c-44e8-9480-da9c1678d889&openUpload=1
+              - link "Classic view" [ref=e468] [cursor=pointer]:
+                - /url: /platform/projects/6a244b0b-bb4c-44e8-9480-da9c1678d889
+          - generic [ref=e469]:
+            - generic [ref=e470]: Project loaded with partial data issues. Loaded decisions/tasks via document links (project_id columns not on database yet). Apply supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql.
+            - generic [ref=e472]:
+              - generic [ref=e473]:
+                - paragraph [ref=e474]: Status
+                - paragraph [ref=e475]: Clear
+              - generic [ref=e477]:
+                - generic [ref=e478]:
+                  - generic [ref=e479]: Intake
+                  - generic [ref=e480]: "0"
+                - generic [ref=e481]:
+                  - generic [ref=e482]: Extract
+                  - generic [ref=e483]: "0"
+                - generic [ref=e484]:
+                  - generic [ref=e485]: Structure
+                  - generic [ref=e486]: "0"
+                - generic [ref=e487]:
+                  - generic [ref=e488]: Decide
+                  - generic [ref=e489]: "0"
+                - generic [ref=e490]:
+                  - generic [ref=e491]: Act
+                  - generic [ref=e492]: "0"
+                - generic [ref=e493]:
+                  - generic [ref=e494]: Audit
+                  - generic [ref=e495]: "1"
+              - generic [ref=e497]:
+                - generic [ref=e498]:
+                  - text: Decisions
+                  - strong [ref=e499]: "0"
+                - generic [ref=e500]:
+                  - text: Open actions
+                  - strong [ref=e501]: "0"
+                - generic [ref=e502]:
+                  - text: Needs Review
+                  - strong [ref=e503]: "0"
+            - generic [ref=e504]:
+              - navigation "Forge stages" [ref=e505]:
+                - button "Intake 0" [ref=e506]:
+                  - generic [ref=e507]: Intake
+                  - generic [ref=e508]: "0"
+                - button "Extract 0" [ref=e509]:
+                  - generic [ref=e510]: Extract
+                  - generic [ref=e511]: "0"
+                - button "Structure 0" [ref=e512]:
+                  - generic [ref=e513]: Structure
+                  - generic [ref=e514]: "0"
+                - button "Decide 0" [ref=e515]:
+                  - generic [ref=e516]: Decide
+                  - generic [ref=e517]: "0"
+                - button "Act 0" [ref=e518]:
+                  - generic [ref=e519]: Act
+                  - generic [ref=e520]: "0"
+                - button "Audit 1" [ref=e521]:
+                  - generic [ref=e522]: Audit
+                  - generic [ref=e523]: "1"
+              - complementary [ref=e524]:
+                - paragraph [ref=e525]: Pressure
+                - paragraph [ref=e526]: 0 open decision(s). Upstream blockers surface as pressure before commitments harden.
+              - generic [ref=e527]:
+                - generic [ref=e528]:
+                  - generic [ref=e529]:
+                    - heading "Decision queue" [level=2]
+                  - list:
+                    - listitem [ref=e530]: No project decisions are linked right now.
+                - complementary [ref=e531]:
+                  - heading "Related actions" [level=2] [ref=e533]
+                  - list [ref=e534]:
+                    - listitem [ref=e535]: No pending actions remain in the project rollup.
+              - complementary [ref=e536]:
+                - paragraph [ref=e537]: Inspector
+                - paragraph [ref=e538]: Select a decision or action to preview context. Use links below when you need the full record or evidence surface.

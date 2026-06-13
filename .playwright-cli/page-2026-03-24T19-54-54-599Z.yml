@@ -1,0 +1,37 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e6]
+          - paragraph [ref=e10]: EightForge
+        - heading "Operational Systems Platform" [level=1] [ref=e11]
+        - paragraph [ref=e12]: Documents produce facts. Facts drive decisions. Decisions trigger workflows. Workflows produce operational outcomes.
+      - generic [ref=e13]:
+        - link "Overview Operational dashboard across decisions, workflows, and documents." [ref=e14] [cursor=pointer]:
+          - /url: /platform
+          - heading "Overview" [level=2] [ref=e15]
+          - paragraph [ref=e16]: Operational dashboard across decisions, workflows, and documents.
+        - link "Docs Document intelligence — upload, extract, and analyze operational files." [ref=e17] [cursor=pointer]:
+          - /url: /platform/documents
+          - heading "Docs" [level=2] [ref=e18]
+          - paragraph [ref=e19]: Document intelligence — upload, extract, and analyze operational files.
+        - link "Decisions Decision engine findings, severity tracking, and resolution management." [ref=e20] [cursor=pointer]:
+          - /url: /platform/decisions
+          - heading "Decisions" [level=2] [ref=e21]
+          - paragraph [ref=e22]: Decision engine findings, severity tracking, and resolution management.
+        - link "Flow Workflow orchestration — tasks, approvals, escalations, and assignments." [ref=e23] [cursor=pointer]:
+          - /url: /platform/workflows
+          - heading "Flow" [level=2] [ref=e24]
+          - paragraph [ref=e25]: Workflow orchestration — tasks, approvals, escalations, and assignments.
+        - link "Review Human-in-the-loop review queue for approvals and quality sign-off." [ref=e26] [cursor=pointer]:
+          - /url: /platform/reviews
+          - heading "Review" [level=2] [ref=e27]
+          - paragraph [ref=e28]: Human-in-the-loop review queue for approvals and quality sign-off.
+        - link "Signals Operational anomalies, exceptions, and system-detected issues." [ref=e29] [cursor=pointer]:
+          - /url: /platform/issues
+          - heading "Signals" [level=2] [ref=e30]
+          - paragraph [ref=e31]: Operational anomalies, exceptions, and system-detected issues.
+  - button "Open Next.js Dev Tools" [ref=e37] [cursor=pointer]:
+    - img [ref=e38]
+  - alert [ref=e41]

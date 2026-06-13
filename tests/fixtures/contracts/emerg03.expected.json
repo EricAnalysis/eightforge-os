@@ -1,0 +1,57 @@
+{
+  "_comment": "Reference ground truth for EMERG03 project contract (Stampede Ventures Inc).",
+  "_usage": "Pass this file as 'expected' to validateContractExtraction(actual, expected).",
+
+  "contract_name": "EMERG03 — Stampede Ventures Inc",
+
+  "contractor_name": "Stampede Ventures Inc",
+  "executed_date": "2025-11-01",
+  "term_start_date": "2025-11-01",
+  "term_end_date": "2026-10-31",
+  "not_to_exceed_amount": 30000000,
+
+  "rate_schedule_present": true,
+  "rate_row_count": 5,
+
+  "rate_rows": [
+    {
+      "material_type": "Vegetative",
+      "unit": "per cubic yard",
+      "rate_amount": 9.25
+    },
+    {
+      "material_type": "C&D",
+      "unit": "per ton",
+      "rate_amount": 14.50
+    },
+    {
+      "material_type": "White Goods",
+      "unit": "per unit",
+      "rate_amount": 35.00
+    },
+    {
+      "material_type": "E-Waste",
+      "unit": "per unit",
+      "rate_amount": 45.00
+    },
+    {
+      "material_type": "Hazardous",
+      "unit": "per ton",
+      "rate_amount": 200.00
+    }
+  ],
+
+  "expected_anchors": [
+    "contractor_name",
+    "executed_date",
+    "nte_amount",
+    "term_start_date",
+    "term_end_date"
+  ],
+
+  "tolerance": {
+    "currency_pct": 0,
+    "string_exact": false,
+    "rate_row_count_exact": true
+  }
+}

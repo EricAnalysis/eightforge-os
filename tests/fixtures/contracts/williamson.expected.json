@@ -1,0 +1,47 @@
+{
+  "_comment": "Reference ground truth for Williamson County TN debris removal contract (WilliamsonFern project).",
+  "_usage": "Pass this file as 'expected' to validateContractExtraction(actual, expected).",
+
+  "contract_name": "Williamson County TN — Aftermath Disaster Recovery",
+
+  "contractor_name": "Aftermath Disaster Recovery, Inc.",
+  "executed_date": "2025-09-15",
+  "term_start_date": "2025-09-15",
+  "term_end_date": "2025-12-14",
+  "not_to_exceed_amount": 2500000,
+
+  "rate_schedule_present": true,
+  "rate_row_count": 3,
+
+  "rate_rows": [
+    {
+      "material_type": "Vegetative",
+      "unit": "per cubic yard",
+      "rate_amount": 8.50
+    },
+    {
+      "material_type": "C&D",
+      "unit": "per ton",
+      "rate_amount": 12.00
+    },
+    {
+      "material_type": "Hazardous",
+      "unit": "per ton",
+      "rate_amount": 18.00
+    }
+  ],
+
+  "expected_anchors": [
+    "contractor_name",
+    "executed_date",
+    "nte_amount",
+    "term_start_date",
+    "term_end_date"
+  ],
+
+  "tolerance": {
+    "currency_pct": 0,
+    "string_exact": false,
+    "rate_row_count_exact": true
+  }
+}

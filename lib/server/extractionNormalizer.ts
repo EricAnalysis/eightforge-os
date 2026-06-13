@@ -23,6 +23,10 @@ type ExtractionBlob = {
   };
   extraction?: {
     detected_document_type?: string | null;
+    evidence_v1?: {
+      structured_fields?: Record<string, unknown>;
+      section_signals?: Record<string, unknown>;
+    };
   };
 };
 
@@ -112,6 +116,53 @@ export async function normalizeExtraction(params: {
         confidence: 0.7,
       });
     }
+  }
+
+  // Evidence v1: deterministic structured fields + section signals.
+  const evidence = payload.extraction?.evidence_v1 ?? null;
+  const evidenceFields: Array<[string, unknown]> = [];
+  if (evidence?.structured_fields && typeof evidence.structured_fields === 'object') {
+    for (const [k, v] of Object.entries(evidence.structured_fields)) {
+      evidenceFields.push([k, v]);
+    }
+  }
+  if (evidence?.section_signals && typeof evidence.section_signals === 'object') {
+    for (const [k, v] of Object.entries(evidence.section_signals)) {
+      evidenceFields.push([k, v]);
+    }
+  }
+
+  for (const [key, value] of evidenceFields) {
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      const joined = value
+        .map((x) => (typeof x === 'string' || typeof x === 'number' ? String(x) : ''))
+        .filter(Boolean)
+        .join(', ');
+      if (!joined) continue;
+      facts.push({
+        document_id: documentId,
+        organization_id: organizationId,
+        field_key: key,
+        field_type: 'text',
+        value: joined,
+        source: 'evidence_v1',
+        confidence: 0.85,
+      });
+      continue;
+    }
+    if (typeof value === 'object') continue;
+    const type = inferType(value);
+    facts.push({
+      document_id: documentId,
+      organization_id: organizationId,
+      field_key: key,
+      field_type: type,
+      value: coerceValue(value, type),
+      source: 'evidence_v1',
+      confidence: 0.85,
+    });
   }
 
   const detectedType = payload.fields?.detected_document_type

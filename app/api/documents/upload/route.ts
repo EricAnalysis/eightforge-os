@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
+import { normalizeDocumentTypeInput } from '@/lib/documentTypes';
 
 const BUCKET = 'documents';
 
@@ -64,6 +65,17 @@ export async function POST(req: Request) {
     const projectId = form.get('projectId');
     const file = form.get('file');
 
+    let normalizedDocumentType: string | null = null;
+    try {
+      normalizedDocumentType = normalizeDocumentTypeInput(documentType);
+    } catch (error) {
+      return jsonError(
+        'bad_request',
+        error instanceof Error ? error.message : 'Invalid documentType',
+        400,
+      );
+    }
+
     if (typeof title !== 'string' || !title.trim()) {
       return jsonError('bad_request', 'title is required', 400);
     }
@@ -97,7 +109,7 @@ export async function POST(req: Request) {
       title: title.trim(),
       name: filename,
       storage_path: uploadedPath,
-      document_type: typeof documentType === 'string' && documentType ? documentType : null,
+      document_type: normalizedDocumentType,
       domain: typeof domain === 'string' && domain.trim() ? domain.trim() : null,
       status: 'uploaded',
       processing_status: 'uploaded',

@@ -1,0 +1,11 @@
+{
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.shellIntegration.decorationsEnabled": false,
+  "terminal.integrated.shellIntegration.history": false,
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    }
+  }
+}

@@ -94,6 +94,7 @@ function buildDetails(
 export async function createDecisionsFromRules(params: {
   documentId: string;
   organizationId: string;
+  projectId?: string | null;
   matchedResults: RuleEvalResult[];
   facts: Record<string, unknown>;
 }): Promise<CreateDecisionsResult> {
@@ -107,7 +108,7 @@ export async function createDecisionsFromRules(params: {
   const admin = getSupabaseAdmin();
   if (!admin) return empty;
 
-  const { documentId, organizationId, matchedResults, facts } = params;
+  const { documentId, organizationId, projectId, matchedResults, facts } = params;
   if (matchedResults.length === 0) return empty;
 
   const now = new Date().toISOString();
@@ -172,6 +173,7 @@ export async function createDecisionsFromRules(params: {
         .insert({
           organization_id: organizationId,
           document_id: documentId,
+          project_id: projectId ?? null,
           decision_rule_id: rule.id,
           rule_id: rule.id,
           decision_type: rule.decision_type,

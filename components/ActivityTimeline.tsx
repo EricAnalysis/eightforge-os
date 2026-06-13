@@ -16,34 +16,35 @@ export type ActivityEventRow = {
 };
 
 function formatDate(value: string): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return value ? new Date(value).toLocaleString() : 'Not recorded';
 }
 
-function eventLabel(ev: ActivityEventRow): string {
-  const o = ev.old_value as Record<string, unknown> | null;
-  const n = ev.new_value as Record<string, unknown> | null;
-  switch (ev.event_type) {
+function eventLabel(event: ActivityEventRow): string {
+  const oldValue = event.old_value as Record<string, unknown> | null;
+  const newValue = event.new_value as Record<string, unknown> | null;
+
+  switch (event.event_type) {
     case 'created':
       return 'Created';
     case 'status_changed':
-      return `Status: ${String(o?.status ?? '—')} → ${String(n?.status ?? '—')}`;
+      return `Status: ${String(oldValue?.status ?? 'Unknown')} -> ${String(newValue?.status ?? 'Unknown')}`;
     case 'assignment_changed':
       return 'Assignee changed';
     case 'due_date_changed': {
-      const from = o?.due_at != null ? formatDate(String(o.due_at)) : '—';
-      const to = n?.due_at != null ? formatDate(String(n.due_at)) : 'cleared';
-      return `Due date: ${from} → ${to}`;
+      const from = oldValue?.due_at != null ? formatDate(String(oldValue.due_at)) : 'Not set';
+      const to = newValue?.due_at != null ? formatDate(String(newValue.due_at)) : 'Cleared';
+      return `Due date: ${from} -> ${to}`;
     }
     default:
-      return ev.event_type.replace(/_/g, ' ');
+      return event.event_type.replace(/_/g, ' ');
   }
 }
 
 const EVENT_TYPE_STYLES: Record<string, string> = {
-  created: 'text-[#8B5CFF]',
-  status_changed: 'text-[#B794FF]',
-  assignment_changed: 'text-[#A66BFF]',
-  due_date_changed: 'text-[#F5F7FA]',
+  created: 'text-[#3B82F6]',
+  status_changed: 'text-[#38BDF8]',
+  assignment_changed: 'text-[#C7D2E3]',
+  due_date_changed: 'text-[#E5EDF7]',
 };
 
 export function ActivityTimeline({
@@ -70,9 +71,14 @@ export function ActivityTimeline({
       setError(null);
       return;
     }
+
     let cancelled = false;
     const isRefresh = events.length > 0;
-    if (isRefresh) setRefreshing(true); else setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     const load = async () => {
@@ -83,78 +89,94 @@ export function ActivityTimeline({
         .eq('entity_type', entityType)
         .eq('entity_id', entityId)
         .order('created_at', { ascending: false });
-      if (!cancelled) {
-        if (fetchError) {
-          setError('Failed to load activity.');
-          setEvents([]);
-        } else {
-          setEvents((data ?? []) as ActivityEventRow[]);
-        }
-        setLoading(false);
-        setRefreshing(false);
+
+      if (cancelled) return;
+
+      if (fetchError) {
+        setError('Failed to load activity.');
+        setEvents([]);
+      } else {
+        setEvents((data ?? []) as ActivityEventRow[]);
       }
+      setLoading(false);
+      setRefreshing(false);
     };
+
     load();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, entityType, entityId, refreshKey]);
 
   if (loading) {
     return (
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">Activity</div>
-        <p className="text-[11px] text-[#8B94A3]">Loading…</p>
+      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+          Activity
+        </div>
+        <p className="text-[11px] text-[#94A3B8]">Loading...</p>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">Activity</div>
-        <p className="text-[11px] font-medium text-red-400">{error}</p>
+      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+          Activity
+        </div>
+        <p className="text-[11px] font-medium text-[#EF4444]">{error}</p>
       </section>
     );
   }
 
   if (events.length === 0) {
     return (
-      <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">Activity</div>
-        <p className="text-[11px] text-[#8B94A3]">No activity recorded yet.</p>
+      <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
+          Activity
+        </div>
+        <p className="text-[11px] text-[#94A3B8]">No activity recorded yet.</p>
       </section>
     );
   }
 
   return (
-    <section className="rounded-lg border border-[#1A1A3E] bg-[#0E0E2A] p-4">
-      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#8B94A3]">
+    <section className="rounded-2xl border border-[#2F3B52] bg-[#111827] p-5">
+      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
         Activity
-        {refreshing && <span className="text-[10px] font-normal normal-case tracking-normal text-[#8B94A3]">Refreshing…</span>}
+        {refreshing && (
+          <span className="text-[10px] font-normal normal-case tracking-normal text-[#94A3B8]">
+            Refreshing...
+          </span>
+        )}
       </div>
       <ul className="space-y-0">
-        {events.map((ev, i) => (
+        {events.map((event, index) => (
           <li
-            key={ev.id}
+            key={event.id}
             className={`flex items-start gap-3 py-2.5 text-[11px] ${
-              i < events.length - 1 ? 'border-b border-[#1A1A3E]' : ''
+              index < events.length - 1 ? 'border-b border-[#2F3B52]' : ''
             }`}
           >
-            <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#8B5CFF]/40" />
-            <div className="flex-1 min-w-0">
-              <span className={`font-medium ${EVENT_TYPE_STYLES[ev.event_type] ?? 'text-[#F5F7FA]'}`}>
-                {eventLabel(ev)}
+            <div className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3B82F6]/40" />
+            <div className="min-w-0 flex-1">
+              <span className={`font-medium ${EVENT_TYPE_STYLES[event.event_type] ?? 'text-[#E5EDF7]'}`}>
+                {eventLabel(event)}
               </span>
-              {ev.event_type === 'assignment_changed' && ev.new_value && typeof ev.new_value === 'object' && 'assigned_to' in ev.new_value && (
-                <span className="ml-1 text-[#8B94A3]">
-                  → {memberDisplayName(members, (ev.new_value as { assigned_to?: string }).assigned_to ?? null)}
+              {event.event_type === 'assignment_changed' && event.new_value && typeof event.new_value === 'object' && 'assigned_to' in event.new_value && (
+                <span className="ml-1 text-[#94A3B8]">
+                  {'-> '}
+                  {memberDisplayName(members, (event.new_value as { assigned_to?: string }).assigned_to ?? null)}
                 </span>
               )}
-              {ev.changed_by && (
-                <span className="ml-1 text-[#8B94A3]">by {memberDisplayName(members, ev.changed_by)}</span>
+              {event.changed_by && (
+                <span className="ml-1 text-[#94A3B8]">by {memberDisplayName(members, event.changed_by)}</span>
               )}
             </div>
-            <span className="shrink-0 text-[10px] text-[#8B94A3]/70">{formatDate(ev.created_at)}</span>
+            <span className="shrink-0 text-[10px] text-[#94A3B8]/70">{formatDate(event.created_at)}</span>
           </li>
         ))}
       </ul>

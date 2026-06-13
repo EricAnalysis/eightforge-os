@@ -43,6 +43,7 @@ export type CreateTasksResult = {
  */
 export async function createTasksFromDecisions(params: {
   organizationId: string;
+  projectId?: string | null;
   decisions: CreatedDecision[];
 }): Promise<CreateTasksResult> {
   const admin = getSupabaseAdmin();
@@ -80,6 +81,7 @@ export async function createTasksFromDecisions(params: {
   type TaskRow = {
     organization_id: string;
     document_id: string;
+    project_id: string | null;
     decision_id: string;
     task_type: string;
     title: string;
@@ -115,6 +117,7 @@ export async function createTasksFromDecisions(params: {
     toInsert.push({
       organization_id: organizationId,
       document_id: d.document_id,
+      project_id: params.projectId ?? null,
       decision_id: d.decision_id,
       task_type: taskType,
       title: formatTaskTitle(taskType, d.title),

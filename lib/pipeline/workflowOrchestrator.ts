@@ -10,6 +10,7 @@ export async function orchestrateWorkflows(params: {
   admin: SupabaseClient;
   documentId: string;
   organizationId: string;
+  projectId?: string | null;
   decisions: DocumentDecision[];
 }): Promise<{ tasksCreated: number }> {
   let tasksCreated = 0;
@@ -28,6 +29,7 @@ export async function orchestrateWorkflows(params: {
         params.organizationId,
         params.documentId,
         openDecisions,
+        params.projectId ?? null,
       );
       tasksCreated = result.created;
     }

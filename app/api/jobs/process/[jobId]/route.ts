@@ -13,6 +13,7 @@ import { runDecisionEngine } from '@/lib/server/heuristicDecisionEngine';
 import { persistDecisions, documentDecisionsToPersisted } from '@/lib/server/decisionPersistence';
 import { runWorkflowEngine } from '@/lib/server/legacyWorkflowEngine';
 import { createWorkflowTasksFromDecisions } from '@/lib/server/workflowTasks';
+import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
@@ -71,7 +72,7 @@ export async function POST(
 
     const { data: docRow, error: docError } = await admin
       .from('documents')
-      .select('id, title, name, document_type, status, storage_path, organization_id')
+      .select('id, title, name, document_type, status, storage_path, organization_id, project_id')
       .eq('id', job.document_id)
       .single();
 
@@ -228,6 +229,10 @@ export async function POST(
       resultExtractionId: inserted?.id ?? null,
     });
     await setDocumentStatus({ documentId: job.document_id, status: 'decisioned' });
+    if (typeof docRow.project_id === 'string' && docRow.project_id.length > 0) {
+      // Fire-and-forget so project validation never blocks document processing.
+      void triggerProjectValidation(docRow.project_id, 'document_processed');
+    }
 
     return NextResponse.json({
       success: true,

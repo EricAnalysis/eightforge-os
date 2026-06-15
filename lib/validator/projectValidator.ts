@@ -1542,6 +1542,18 @@ export function buildContractValidationContext(params: {
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
 }): ValidatorContractAnalysisContext | null {
+  const isConfirmedByOperator = (
+    facts: ValidatorFactRecord[],
+    ...keys: string[]
+  ): boolean =>
+    keys.some((key) =>
+      facts.some(
+        (fact) =>
+          fact.key === key
+          && (fact.source === 'human_override' || fact.source === 'human_review'),
+      ),
+    );
+
   const relationshipContext = buildContractRelationshipContext(
     params.truthCategoryDocumentIds,
   );
@@ -1557,15 +1569,27 @@ export function buildContractValidationContext(params: {
         };
       }
 
+      const contractFacts = params.factsByDocumentId.get(contractDocumentId) ?? [];
+      const confirmedGoverningScheduleResolved: boolean =
+        isConfirmedByOperator(
+          contractFacts,
+          'rate_schedule_present',
+        )
+        && isConfirmedByOperator(
+          contractFacts,
+          'rate_schedule_kind',
+          'canonical_contract_rate_schedule_assembly_schedule_kind',
+        );
       const syntheticDocument = buildSyntheticContractDocument({
         document,
-        facts: params.factsByDocumentId.get(contractDocumentId) ?? [],
+        facts: contractFacts,
         legacyRow: params.legacyRowsByDocumentId.get(contractDocumentId) ?? null,
       });
       if (syntheticDocument) {
         const analysis = analyzeContractIntelligence({
           primaryDocument: syntheticDocument,
           relatedDocuments: [],
+          confirmedGoverningScheduleResolved,
         });
         if (analysis) {
           return {

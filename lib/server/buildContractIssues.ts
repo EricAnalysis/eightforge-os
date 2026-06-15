@@ -10,6 +10,7 @@ type BuildContractIssuesInput = {
   contractAnalysis: Omit<ContractAnalysisResult, 'issues' | 'trace_summary'> & {
     coverage_status: ContractCoverageResult[];
   };
+  confirmedGoverningScheduleResolved?: boolean;
 };
 
 type BuildContractIssuesOutput = {
@@ -146,7 +147,15 @@ export function buildContractIssues(
   }
 
   if (rateField?.value === true && pricingField?.state === 'conditional') {
-    if (hasPricingSpecificAmbiguity) {
+    if (input.confirmedGoverningScheduleResolved === true) {
+      suppress(
+        'pricing_applicability_requires_context',
+        'Suppressed: operator-confirmed governing '
+          + 'contract rate schedule kind resolves '
+          + 'pricing applicability. Confirmed operator '
+          + 'truth supersedes pattern detection.',
+      );
+    } else if (hasPricingSpecificAmbiguity) {
       issues.set('pricing_applicability_requires_context', {
         issue_id: 'pricing_applicability_requires_context',
         issue_type: 'pricing_applicability_unclear',

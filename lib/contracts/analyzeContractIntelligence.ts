@@ -30,6 +30,7 @@ import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage'
 type AnalyzeContractIntelligenceInput = {
   primaryDocument: NormalizedNodeDocument;
   relatedDocuments: NormalizedNodeDocument[];
+  confirmedGoverningScheduleResolved?: boolean;
 };
 
 type FieldFamilies = Pick<
@@ -1060,6 +1061,8 @@ export function analyzeContractIntelligence(
       ...analysisWithoutIssues,
       coverage_status: coverageStatus,
     },
+    confirmedGoverningScheduleResolved:
+      input.confirmedGoverningScheduleResolved ?? false,
   });
 
   return {

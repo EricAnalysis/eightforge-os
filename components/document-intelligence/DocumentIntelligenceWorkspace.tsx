@@ -7,7 +7,10 @@ import type {
 } from '@/lib/documentFactAnchors';
 import type { DocumentFactReviewStatus } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideActionType } from '@/lib/documentFactOverrides';
-import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
+import {
+  RATE_SCHEDULE_KIND_FIELD_KEY,
+  type DocumentIntelligenceViewModel,
+} from '@/lib/documentIntelligenceViewModel';
 import { FactEvidencePanel } from '@/components/document-intelligence/FactEvidencePanel';
 import {
   ContractPricingAssemblySection,
@@ -18,6 +21,7 @@ import { DocumentSourceViewer } from '@/components/document-intelligence/Documen
 const RATE_SCHEDULE_FIELD_KEYS = new Set([
   'rate_schedule_present',
   'rate_schedule_pages',
+  RATE_SCHEDULE_KIND_FIELD_KEY,
 ]);
 
 function normalizeFieldKey(value: string | null | undefined): string | null {

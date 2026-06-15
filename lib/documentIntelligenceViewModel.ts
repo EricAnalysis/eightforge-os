@@ -1969,6 +1969,8 @@ type BaseDocumentFact = Omit<
 const CONTRACT_CEILING_RATE_PRICE_LEDGER_NOTE =
   'Rate based ceiling per schedule. No total ceiling stated; Exhibit A rates are not to exceed.';
 
+export const RATE_SCHEDULE_KIND_FIELD_KEY = 'rate_schedule_kind' as const;
+
 const ADDITIONAL_FACT_SOURCE_PRIORITY: Record<FlattenedField['source'], number> = {
   structured_fields: 0,
   typed_fields: 1,
@@ -1989,6 +1991,7 @@ const FIELD_KEY_ALIASES: Record<DocumentFamily | 'generic', Record<string, strin
     rate_section_present: 'rate_schedule_present',
     unit_price_structure_present: 'rate_schedule_present',
     rate_section_pages: 'rate_schedule_pages',
+    canonical_contract_rate_schedule_assembly_schedule_kind: RATE_SCHEDULE_KIND_FIELD_KEY,
     rate_items_detected: 'rate_row_count',
   },
   invoice: {
@@ -2038,6 +2041,7 @@ const FIELD_PRIORITY: Record<DocumentFamily | 'generic', string[]> = {
     'executed_date',
     'contract_ceiling',
     'rate_schedule_present',
+    RATE_SCHEDULE_KIND_FIELD_KEY,
     'rate_schedule_pages',
     'rate_row_count',
     'time_and_materials_present',
@@ -2480,6 +2484,7 @@ const FACT_FIELD_LABEL_OVERRIDES: Record<string, string> = {
   contractor_name: 'Contractor',
   client_name: 'Client',
   owner_name: 'Client',
+  [RATE_SCHEDULE_KIND_FIELD_KEY]: 'Rate Schedule Kind',
 };
 
 function fieldLabelForKey(fieldKey: string): string {
@@ -3969,6 +3974,7 @@ function buildAdditionalFacts(params: {
   documentId: string;
 }): DocumentFact[] {
   const flattened = [
+    ...contractRateScheduleKindFields(params),
     ...flattenFields(params.typedFields, 'typed_fields'),
     ...flattenFields(params.structuredFields, 'structured_fields'),
     ...flattenFields(params.sectionSignals, 'section_signals'),
@@ -4102,6 +4108,24 @@ function buildAdditionalFacts(params: {
       relatedDecisionTitles: decision?.titles ?? [],
     });
   });
+}
+
+function contractRateScheduleKindFields(params: {
+  extracted: Record<string, unknown>;
+  family: DocumentFamily;
+}): FlattenedField[] {
+  if (params.family !== 'contract') return [];
+
+  const assembly = asRecord(params.extracted.canonicalContractRateScheduleAssembly);
+  const value = assembly?.schedule_kind;
+  if (typeof value !== 'string' || value.trim().length === 0) return [];
+
+  return [{
+    key: RATE_SCHEDULE_KIND_FIELD_KEY,
+    label: fieldLabelForKey(RATE_SCHEDULE_KIND_FIELD_KEY),
+    value: value.trim(),
+    source: 'extracted',
+  }];
 }
 
 function buildSyntheticMissingFacts(params: {

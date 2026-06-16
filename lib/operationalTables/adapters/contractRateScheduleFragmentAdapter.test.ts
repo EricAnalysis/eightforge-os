@@ -120,6 +120,28 @@ describe('contractRateScheduleFragmentAdapter', () => {
     assert.ok(result.fragments.every((fragment) => fragment.confidence == null));
   });
 
+  it('maps origin and destination headers to origin_destination without folding them into description', () => {
+    const { adapted, assembled } = assembleContract([
+      table({
+        headers: ['Description', 'Origin/Destination', 'Unit', 'Rate'],
+        rows: [
+          {
+            row: 1,
+            cells: ['Loading and Hauling Vegetative Debris', 'From Right of Way (ROW) to DMS', 'CY', '$27.00'],
+          },
+        ],
+      }),
+    ]);
+
+    assert.deepEqual(
+      adapted.fragments.map((fragment) => fragment.extractor_hint),
+      ['description', 'origin_destination', 'unit', 'unit_price'],
+    );
+    assert.equal(assembled.rows.length, 1);
+    assert.equal(assembled.rows[0]?.description, 'Loading and Hauling Vegetative Debris');
+    assert.equal(assembled.rows[0]?.origin_destination, 'From Right of Way (ROW) to DMS');
+  });
+
   it('maps OCR source lineage and alternate cost/header labels into hints', () => {
     const result = adaptContractRateScheduleFragments({
       document_id: 'contract-1',

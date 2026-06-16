@@ -564,6 +564,36 @@ describe('extractExhibitARateTableRows', () => {
     assert.equal(rows[0]?.rate, 6.9);
   });
 
+  it('limits fallback source text parsing to accepted rate schedule pages', () => {
+    const rows = buildContractRateScheduleRows({
+      rateTable: [],
+      pdfTables: [
+        table({
+          page: 2,
+          rows: [['Not Exhibit A', 'Noise only', 'No rate']],
+        }),
+      ],
+      rateSchedulePages: [2],
+      sourceEntries: [
+        {
+          id: 'pdf:text:p1:email',
+          page: 1,
+          text: 'Email wrapper phantom service $999.00 per cubic yard',
+        },
+        {
+          id: 'pdf:text:p2:rate',
+          page: 2,
+          text: 'Loading and Hauling Vegetative Debris $27.00 per CY',
+        },
+      ],
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.page, 2);
+    assert.equal(rows[0]?.rate, 27);
+    assert.equal(rows[0]?.source_anchor_ids.includes('pdf:text:p1:email'), false);
+  });
+
   it('keeps structured Exhibit A unit ahead of fallback unit pollution', () => {
     const rows = buildContractRateScheduleRows({
       rateTable: [],

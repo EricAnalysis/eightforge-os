@@ -81,12 +81,13 @@ describe('assembleContractPricingRows', () => {
   });
 
   it('downgrades merged Dump Truck capacity rows to Needs Review', () => {
+    const extractedDescription = 'Dump Dump Truck, Truck, 21-40 16-20 Gu, Cu, Yd, Yt, Capac Capaety -';
     const [assembled] = assembleContractPricingRows([
       row({
         row_id: 'equipment-dump-merged',
         category: 'Equipment',
         source_category: 'Equipment',
-        description: 'Dump Dump Truck, Truck, 21-40 16-20 Gu, Cu, Yd, Yt, Capac Capaety -',
+        description: extractedDescription,
         unit: 'Hour',
         unit_type: 'Hour',
         rate: 170,
@@ -96,8 +97,9 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(assembled?.description, 'Raw row needs review');
+    assert.equal(assembled?.description, extractedDescription);
     assert.equal(assembled?.confidence, 'needs_review');
+    assert.equal(assembled?.state, 'needs_review');
   });
 
   it('strips Articulated Loader OCR prefixes and normalizes capacity text', () => {
@@ -312,6 +314,32 @@ describe('assembleContractPricingRows', () => {
   it('extracts ROW to DMS route', () => {
     const [assembled] = assembleContractPricingRows([row()]);
     assert.equal(assembled?.route, 'ROW to DMS');
+  });
+
+  it('preserves origin_destination as raw extracted cell text', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'price-sheet-row-1',
+        description: 'Loading and Hauling Vegetative Debris',
+        origin_destination: 'From Right of Way (ROW) to DMS',
+        unit: 'CY',
+        unit_type: 'CY',
+        rate: 27,
+        rate_amount: 27,
+        category: null,
+        source_category: null,
+        material_type: null,
+        canonical_category: null,
+        page: 2,
+        rate_raw: 'Loading and Hauling Vegetative Debris | From Right of Way (ROW) to DMS | CY | $27.00',
+      }),
+    ]);
+
+    assert.equal(assembled?.description, 'Loading and Hauling Vegetative Debris');
+    assert.equal(assembled?.origin_destination, 'From Right of Way (ROW) to DMS');
+    assert.equal(assembled?.unit, 'Cubic Yard');
+    assert.equal(assembled?.rate, 27);
+    assert.equal(assembled?.rawText?.includes('From Right of Way (ROW) to DMS'), true);
   });
 
   it('extracts distance band 0 to 15', () => {
@@ -541,18 +569,18 @@ describe('assembleContractPricingRows', () => {
 
     assert.ok(rows.length >= cases.length - 1);
     const byId = new Map(rows.map((assembled) => [assembled.id, assembled]));
-    assert.equal(byId.get('exhibit_a_table:damaged-management-roman')?.description, 'Raw row needs review');
+    assert.equal(byId.get('exhibit_a_table:damaged-management-roman')?.description, '1 Management & Reduction I');
     assert.equal(byId.get('exhibit_a_table:damaged-management-roman')?.confidence, 'needs_review');
     assert.equal(byId.get('exhibit_a_table:damaged-tree-limbs')?.description, 'Trees with Hazardous Limbs Hanging');
     assert.equal(byId.get('exhibit_a_table:damaged-tree-limbs')?.confidence, 'low');
     assert.equal(byId.get('exhibit_a_table:damaged-tree-stump')?.description, 'Hazardous Stump Removal 24 inch up');
     assert.equal(byId.get('exhibit_a_table:damaged-tree-stump')?.confidence, 'low');
-    assert.equal(byId.get('exhibit_a_table:damaged-equipment')?.description, 'Raw row needs review');
+    assert.equal(byId.get('exhibit_a_table:damaged-equipment')?.confidence, 'needs_review');
     if (byId.has('exhibit_a_table:damaged-vessel')) {
       assert.equal(byId.get('exhibit_a_table:damaged-vessel')?.description, 'Vessel Removal');
       assert.notEqual(byId.get('exhibit_a_table:damaged-vessel')?.confidence, 'high');
     }
-    assert.equal(byId.get('exhibit_a_table:damaged-vehicle')?.description, 'Raw row needs review');
+    assert.equal(byId.get('exhibit_a_table:damaged-vehicle')?.confidence, 'needs_review');
     assert.equal(byId.get('exhibit_a_table:damaged-carcass')?.description, 'Carcass Removal');
     assert.equal(byId.get('exhibit_a_table:damaged-carcass')?.confidence, 'low');
     assert.equal(byId.get('exhibit_a_table:damaged-structure')?.description, 'Demolition of Private Structure');
@@ -587,7 +615,9 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 0);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.category, null);
+    assert.equal(rows[0]?.confidence, 'needs_review');
   });
 
   it('rejects numeric and roman numeral categories', () => {
@@ -614,7 +644,8 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 0);
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((assembled) => assembled.confidence === 'needs_review'));
   });
 
   it('does not expose random OCR fragments as categories', () => {
@@ -629,7 +660,8 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 0);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.confidence, 'needs_review');
   });
 
   it('marks traceable OCR rows for review instead of displaying raw fragments as trusted rows', () => {
@@ -644,7 +676,7 @@ describe('assembleContractPricingRows', () => {
     ]);
 
     assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.description, 'Raw row needs review');
+    assert.equal(rows[0]?.description, 'Cubic Yard | $6.90 | [Category] | Description ____ | PDF text block on page 8');
     assert.equal(rows[0]?.confidence, 'needs_review');
     assert.equal(rows[0]?.sourceQuality, 'fallback');
   });
@@ -916,7 +948,8 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 0);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.confidence, 'needs_review');
   });
 
   it('caps large Exhibit A assemblies at expected category counts', () => {
@@ -1234,7 +1267,9 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 0);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.description, 'Cotte vara Joo | OR EN | po . applicable allowed | $123.00');
+    assert.equal(rows[0]?.confidence, 'needs_review');
   });
 
   it('prefers a clean canonical row over a noisy fallback row for the same pricing item', () => {
@@ -1479,7 +1514,7 @@ describe('assembleContractPricingRows', () => {
     ]);
 
     assert.equal(assembled?.id, 'rate_row:fallback:unique');
-    assert.equal(assembled?.description, 'Raw row needs review');
+    assert.equal(assembled?.description, 'Equipment | Mystery Machine | Hour | $123.00 | PDF text block on page 10');
     assert.equal(assembled?.confidence, 'needs_review');
     assert.equal(assembled?.sourceAnchor, 'pdf:text:p8:b12');
   });
@@ -1512,7 +1547,7 @@ describe('assembleContractPricingRows', () => {
         unit: 'Cubic Yard',
         description: '§ Haul LC SER 60+ fromROWto Miles LL DMS',
         rawText: 'C&D Collect, Remove & Haul | § Haul LC SER 60+ fromROWto Miles LL DMS | Cubic Yard | $12.00',
-        expectedDescription: 'Raw row needs review',
+        expectedDescription: '§ Haul LC SER 60+ fromROWto Miles LL DMS',
         expectedConfidence: 'needs_review',
       },
       {
@@ -1522,7 +1557,7 @@ describe('assembleContractPricingRows', () => {
         unit: 'Cubic Yard',
         description: '1 Management & Reduction I',
         rawText: 'Management & Reduction | 1 Management & Reduction I | Cubic Yard | $1.00',
-        expectedDescription: 'Raw row needs review',
+        expectedDescription: '1 Management & Reduction I',
         expectedConfidence: 'needs_review',
       },
       {
@@ -1552,7 +1587,7 @@ describe('assembleContractPricingRows', () => {
         unit: 'Tree',
         description: 'Operations ** TT to 36"',
         rawText: 'Tree Operations | Operations ** TT to 36" | Tree | $100.00',
-        expectedDescription: 'Raw row needs review',
+        expectedDescription: 'Operations ** TT to 36"',
         expectedConfidence: 'needs_review',
       },
       {
@@ -1632,7 +1667,7 @@ describe('assembleContractPricingRows', () => {
         unit: 'Unit',
         description: 'rooemyonment SpeofattyRemoval --- Fen unknown dment ond I',
         rawText: 'Specialty Removal | rooemyonment SpeofattyRemoval --- Fen unknown dment ond I | Unit | $20.00',
-        expectedDescription: 'Raw row needs review',
+        expectedDescription: 'rooemyonment SpeofattyRemoval --- Fen unknown dment ond I',
         expectedConfidence: 'needs_review',
       },
     ];
@@ -1659,8 +1694,10 @@ describe('assembleContractPricingRows', () => {
       assert.equal(assembled?.description, entry.expectedDescription, entry.id);
       assert.equal(assembled?.confidence, entry.expectedConfidence, entry.id);
       assert.equal(assembled?.rawText, entry.rawText, entry.id);
-      assert.ok(!assembled?.description.includes('Speofatty'), entry.id);
-      assert.ok(!assembled?.description.includes('Equiporent'), entry.id);
+      if (assembled?.confidence !== 'needs_review') {
+        assert.ok(!assembled?.description.includes('Speofatty'), entry.id);
+        assert.ok(!assembled?.description.includes('Equiporent'), entry.id);
+      }
     }
   });
 

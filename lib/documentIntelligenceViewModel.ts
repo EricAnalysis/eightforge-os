@@ -380,6 +380,7 @@ export type SpreadsheetReviewDataset = {
 export type DocumentContractRateRow = {
   rowId: string;
   description: string | null;
+  originDestination: string | null;
   unit: string | null;
   rate: number | null;
   category: string | null;
@@ -486,6 +487,10 @@ function toDocumentContractRateRows(
       return {
         rowId,
         description,
+        originDestination:
+          typeof row.origin_destination === 'string' && row.origin_destination.trim().length > 0
+            ? row.origin_destination.trim()
+            : null,
         unit,
         rate,
         category,

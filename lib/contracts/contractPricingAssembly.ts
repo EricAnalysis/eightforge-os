@@ -23,6 +23,7 @@ export type ContractPricingAssemblyRow = {
   id: string;
   category: string | null;
   description: string;
+  origin_destination?: string | null;
   route: string | null;
   distanceBand: string | null;
   unit: string | null;
@@ -30,6 +31,7 @@ export type ContractPricingAssemblyRow = {
   page: number | null;
   sourceAnchor: string | null;
   confidence: ContractPricingAssemblyConfidence;
+  state?: 'confirmed' | 'needs_review';
   sourceKind?: ContractPricingSourceKind;
   sourceQuality?: ContractPricingSourceQuality;
   rawText?: string;
@@ -1225,6 +1227,7 @@ function dedupeKey(row: ContractPricingAssemblyRow): string {
     `unit:${normalizeDedupeText(row.unit)}`,
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
+    `origin_destination:${normalizeDedupeText(row.origin_destination)}`,
     `description:${normalizeDedupeText(row.description)}`,
   ].join('|');
 }
@@ -1282,7 +1285,7 @@ function rowQualityScore(row: ContractPricingAssemblyRow): number {
   if (row.sourceKind === 'canonical') score += 40;
   if (row.sourceAnchor) score += 20;
   if (row.rawText) score += 10;
-  if (row.page != null && pageAllowsCategory(row.page, row.category)) score += 20;
+  if (row.page != null && (!row.category || pageAllowsCategory(row.page, row.category))) score += 20;
   if (row.description !== 'Raw row needs review') score += 40;
   if (row.unit) score += 20;
   if (row.rate != null) score += 20;
@@ -1300,7 +1303,7 @@ function hasUsefulPricingClue(row: ContractPricingAssemblyRow): boolean {
 
 function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
   if (row.sourceQuality === 'junk') return false;
-  if (!row.category && row.confidence !== 'needs_review') return false;
+  if (!row.category && !row.description && row.confidence !== 'needs_review') return false;
   if (
     /\bpickup\s+truck\b/i.test(`${row.description} ${row.rawText ?? ''}`) &&
     row.rate !== 25 &&
@@ -1310,7 +1313,7 @@ function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
   }
   if (row.confidence === 'needs_review') return hasUsefulPricingClue(row);
   if (!row.unit || row.rate == null || row.page == null) return false;
-  if (!pageAllowsCategory(row.page, row.category)) return false;
+  if (row.category && !pageAllowsCategory(row.page, row.category)) return false;
   if (descriptionStillLooksNoisy(row.description)) return false;
   if (row.unit === 'Mile' && (row.route || row.distanceBand)) return hasUsefulPricingClue(row);
   return true;
@@ -1340,8 +1343,12 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
   }
 
   const grouped = new Map<AllowedCategory, ContractPricingAssemblyRow[]>();
+  const uncategorized: ContractPricingAssemblyRow[] = [];
   for (const row of bestByDedupeKey.values()) {
-    if (!row.category) continue;
+    if (!row.category) {
+      uncategorized.push(row);
+      continue;
+    }
     const category = row.category as AllowedCategory;
     grouped.set(category, [...(grouped.get(category) ?? []), row]);
   }
@@ -1362,10 +1369,13 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
     );
   }
 
+  selected.push(...uncategorized);
   return selected.sort((left, right) => {
     const leftCategory = left.category as AllowedCategory;
     const rightCategory = right.category as AllowedCategory;
-    const categoryDelta = ALLOWED_CATEGORIES.indexOf(leftCategory) - ALLOWED_CATEGORIES.indexOf(rightCategory);
+    const leftCategoryIndex = left.category ? ALLOWED_CATEGORIES.indexOf(leftCategory) : ALLOWED_CATEGORIES.length;
+    const rightCategoryIndex = right.category ? ALLOWED_CATEGORIES.indexOf(rightCategory) : ALLOWED_CATEGORIES.length;
+    const categoryDelta = leftCategoryIndex - rightCategoryIndex;
     if (categoryDelta !== 0) return categoryDelta;
     const pageDelta = (left.page ?? 0) - (right.page ?? 0);
     if (pageDelta !== 0) return pageDelta;
@@ -1454,6 +1464,7 @@ function canonicalRowsToRateRows(rows: readonly unknown[] | null | undefined): C
       return {
         row_id: rowId.startsWith('contract:') ? rowId : `contract:${rowId}`,
         description: stringFromRecord(record, ['description', 'service_item']) ?? rawText,
+        origin_destination: stringFromRecord(record, ['origin_destination', 'originDestination', 'origin', 'destination']),
         unit: stringFromRecord(record, ['unit']),
         rate: numberFromRecord(record, ['unit_price', 'rate', 'rate_amount']),
         category: stringFromRecord(record, ['category']),
@@ -1487,6 +1498,7 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
           ? rowId
           : `typed_rate_table:${rowId ?? index + 1}`,
         description: stringFromRecord(record, ['description', 'service_item', 'name', 'item']) ?? rateRaw,
+        origin_destination: stringFromRecord(record, ['origin_destination', 'originDestination', 'origin', 'destination']),
         unit,
         rate,
         category,
@@ -1519,11 +1531,13 @@ export function assembleContractPricingRows(
     .map((row, index): ContractPricingAssemblyRow | null => {
       const id = clean(row.row_id) ?? `contract_pricing_row:${index + 1}`;
       const rawText = clean([row.rate_raw, row.raw_text].map(clean).filter(Boolean).join(' ')) ?? clean(row.description) ?? '';
-      const sourceDescription = clean(row.description) ?? rawText;
-      const combinedText = `${sourceDescription} ${rawText}`;
       let rate = row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
+      let unit = normalizeContractPricingUnit(clean(row.unit) ?? clean(row.unit_type), rawText);
+      const sourceDescription = clean(row.description) ?? rawText;
+      const originDestination = clean(row.origin_destination) ?? null;
+      const combinedText = `${sourceDescription} ${originDestination ?? ''} ${rawText}`;
       const focusedText = focusTextAroundRate(combinedText, rate);
-      const category = refineCategoryByContext(row, resolveCategory(row, focusedText), combinedText);
+      let category = refineCategoryByContext(row, resolveCategory(row, focusedText), combinedText);
       const sourceKind = rowSourceKind(row);
       const routeSourceText = sourceKind === 'exhibit_a_text_recovery' ? sourceDescription : focusedText;
       const rawRoute = detectRoute(routeSourceText);
@@ -1532,7 +1546,6 @@ export function assembleContractPricingRows(
       const distance = categoryAllowsRouteDistance(category)
         ? rawDistance
         : { value: null, ocrAmbiguous: false };
-      let unit = normalizeContractPricingUnit(clean(row.unit) ?? clean(row.unit_type), combinedText);
       const correction = recoverKnownExhibitADisplayCorrection({
         category,
         sourceDescription,
@@ -1566,6 +1579,9 @@ export function assembleContractPricingRows(
         rawCells: row.raw_cells,
       });
       let description = correction?.description ?? displayCleanup.displayDescription;
+      if (!category) {
+        category = refineCategoryByContext(row, canonicalCategoryFromText(description), description);
+      }
       const recovered = (Boolean(correction?.description) && !confidencePreservingCorrection) || displayCleanup.stateHint === 'derived';
 
       if ((!description || descriptionStillLooksNoisy(description)) && rate == null && !rawText) return null;
@@ -1609,7 +1625,7 @@ export function assembleContractPricingRows(
       });
 
       if (!correction?.description && (displayCleanup.stateHint === 'needs_review' || !description || descriptionStillLooksNoisy(description))) {
-        description = 'Raw row needs review';
+        description = sourceDescription.trim().length > 0 ? sourceDescription : 'Raw row needs review';
         confidence = 'needs_review';
       } else if (unit === 'Mile' && (route || distance.value)) {
         unit = pageEightCategoryUsesCubicYard(row.page, category) ? 'Cubic Yard' : null;
@@ -1626,7 +1642,7 @@ export function assembleContractPricingRows(
         hasStrongDescriptionNoise(sourceDescription) &&
         !recovered
       ) {
-        description = 'Raw row needs review';
+        description = sourceDescription.trim().length > 0 ? sourceDescription : 'Raw row needs review';
         confidence = 'needs_review';
       }
       const cleanedSourceQuality = scoreContractPricingRowSourceQuality({
@@ -1650,6 +1666,7 @@ export function assembleContractPricingRows(
         id,
         category,
         description,
+        origin_destination: originDestination,
         route,
         distanceBand: distance.value,
         unit,
@@ -1659,7 +1676,8 @@ export function assembleContractPricingRows(
         confidence,
         sourceKind,
         sourceQuality,
-        rawText: rawText || undefined,
+        state: confidence === 'needs_review' ? 'needs_review' : 'confirmed',
+        rawText,
       };
     })
     .filter((row): row is ContractPricingAssemblyRow => row != null);

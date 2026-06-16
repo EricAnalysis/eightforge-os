@@ -29,6 +29,9 @@ function hintFromHeader(header: string | null | undefined): string | undefined {
   const normalized = normalizeHeader(header ?? '');
   if (!normalized) return undefined;
   if (/\b(category|type|group)\b/.test(normalized)) return 'category';
+  if (
+    /^(?:origin|destination|from|origin\s*destination|to\s*from)$/.test(normalized)
+  ) return 'origin_destination';
   if (/\b(description|service|item|classification|labor class)\b/.test(normalized)) return 'description';
   if (/\b(unit price|unit rate|unit cost|rate|price|cost)\b/.test(normalized)) return 'unit_price';
   if (/\b(unit|uom)\b/.test(normalized)) return 'unit';
@@ -175,8 +178,10 @@ export function adaptContractRateScheduleFragments(
     }
 
     const hintsByColumn = new Map<number, string>();
+    const noisyOcrHeaderRow = table.headers.some((header) => /^[|_\-—–.;:[\]()\s]+$/.test(header.trim()));
     table.headers.forEach((header, index) => {
       const hint = hintFromHeader(header);
+      if (hint === 'origin_destination' && normalizeHeader(header) === 'from' && noisyOcrHeaderRow) return;
       if (hint) hintsByColumn.set(index, hint);
     });
     const inferOcrHints = shouldInferOcrHints(table, hintsByColumn);

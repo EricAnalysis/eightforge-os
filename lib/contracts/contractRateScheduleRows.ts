@@ -391,6 +391,7 @@ function findMatchingSourceContext(params: {
 function buildStructuredRow(params: {
   rowId: string;
   description: string | null;
+  originDestination?: string | null;
   category: string | null;
   canonicalCategory?: string | null;
   categoryConfidence?: number | null;
@@ -401,6 +402,7 @@ function buildStructuredRow(params: {
   sourceAnchorIds: readonly string[];
 }): ContractRateScheduleRow | null {
   const description = params.description ? normalizeWhitespace(params.description) : null;
+  const originDestination = params.originDestination ? normalizeWhitespace(params.originDestination) : null;
   const category = params.category ? normalizeWhitespace(params.category) : null;
   const unit = normalizeUnit(params.unit);
   const rateRaw = params.rateRaw ? normalizeWhitespace(params.rateRaw) : null;
@@ -420,6 +422,7 @@ function buildStructuredRow(params: {
   return {
     row_id: params.rowId,
     description,
+    origin_destination: originDestination,
     unit,
     rate: params.rate,
     category,
@@ -448,6 +451,9 @@ function normalizeTypedRateTableRows(params: {
     const record = asRecord(entry);
     const description = record
       ? readString(record, ['description', 'service_item', 'name', 'item'])
+      : null;
+    const originDestination = record
+      ? readString(record, ['origin_destination', 'originDestination', 'origin', 'destination'])
       : null;
     const category = record
       ? readString(record, ['category', 'material_type', 'material', 'debris_type'])
@@ -490,6 +496,7 @@ function normalizeTypedRateTableRows(params: {
     const row = buildStructuredRow({
       rowId: `rate_row:${index + 1}`,
       description,
+      originDestination,
       category,
       canonicalCategory: categoryResolution.canonical_category,
       categoryConfidence: categoryResolution.category_confidence,
@@ -586,7 +593,7 @@ function buildFallbackRowsFromSourceEntries(params: {
   const ratePages = new Set(params.rateSchedulePages);
   const candidateEntries = params.sourceEntries.filter((entry) => {
     if (normalizeWhitespace(entry.text).length === 0) return false;
-    return ratePages.size === 0 || (entry.page != null && ratePages.has(entry.page));
+    return ratePages.size > 0 && entry.page != null && ratePages.has(entry.page);
   });
 
   let rowIndex = 0;

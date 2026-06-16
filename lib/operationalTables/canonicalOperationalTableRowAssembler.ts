@@ -68,6 +68,7 @@ export type CanonicalOperationalTableRow = {
   category?: string;
   rate_code?: string;
   description?: string;
+  origin_destination?: string;
   quantity?: number;
   unit?: string;
   unit_price?: number;
@@ -778,6 +779,7 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
   category: FieldConfidence | null;
   rateCode: FieldConfidence | null;
   description: FieldConfidence | null;
+  originDestination: FieldConfidence | null;
   quantity: FieldConfidence | null;
   unit: FieldConfidence | null;
   unitPrice: FieldConfidence | null;
@@ -795,6 +797,7 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
   const fullText = normalizeWhitespace(cells.join(' '));
   const categoryText = firstHintText(group, ['category']);
   const hintedDescriptionText = firstHintText(group, ['description']);
+  const originDestinationText = firstHintText(group, ['origin_destination']);
   const passthroughRate = /\bpass[-\s]?through\b/i.test(fullText);
   const scheduleMode = mode === 'schedule_definition';
   const rateGovernance = scheduleMode ? scheduleRateGovernance(group.fragments) : null;
@@ -999,6 +1002,7 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
       if (isPlainNumericCell(fragment.cell_text) && parseNumber(fragment.cell_text) != null) return false;
       if (normalizeUnit(fragment.cell_text, mode, { explicitCell: true }) != null) return false;
       if (fragment.extractor_hint === 'category') return false;
+      if (fragment.extractor_hint === 'origin_destination') return false;
       if (fragment.extractor_hint === 'unit') return false;
       if (fragment.extractor_hint === 'unit_price') return false;
       return hasLetters(fragment.cell_text);
@@ -1034,6 +1038,13 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
       }
     : null;
   const serviceItemText = firstHintText(group, ['service_item']);
+  const originDestination: FieldConfidence | null = originDestinationText
+    ? {
+        value: normalizeWhitespace(originDestinationText),
+        confidence: 1.0,
+        fragments: fragmentsWithHint(group, ['origin_destination']),
+      }
+    : null;
   const serviceItem: FieldConfidence | null = serviceItemText && hasLetters(serviceItemText)
     ? {
         value: normalizeWhitespace(serviceItemText),
@@ -1071,6 +1082,7 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
     category,
     rateCode,
     description,
+    originDestination,
     quantity,
     unit,
     unitPrice,
@@ -1130,6 +1142,7 @@ function scheduleConfidence(row: CanonicalOperationalTableRow): number {
     ['unit_price', 3],
     ['unit', 3],
     ['description', 3],
+    ['origin_destination', 1],
     ['category', 2],
     ['mileage_tier', 1],
     ['site_type', 1],
@@ -1188,7 +1201,7 @@ function finishRow(
     row.warnings.push('row has no field evidence references');
   }
   const assignedFields = new Set(row.evidence_refs.map((ref) => ref.field_assigned));
-  for (const field of ['rate_code', 'description', 'quantity', 'unit', 'unit_price', 'line_total'] as const) {
+  for (const field of ['rate_code', 'description', 'origin_destination', 'quantity', 'unit', 'unit_price', 'line_total'] as const) {
     if ((row[field] != null) && !assignedFields.has(field)) {
       row.warnings.push(`field ${field} has no evidence ref`);
     }
@@ -1246,6 +1259,7 @@ function assembleLineRow(params: {
     setField(row, 'category', fields.category),
     setField(row, 'rate_code', fields.rateCode),
     setField(row, 'description', fields.description),
+    setField(row, 'origin_destination', fields.originDestination),
     setField(row, 'quantity', fields.quantity),
     setField(row, 'unit', fields.unit),
     setField(row, 'unit_price', fields.unitPrice),

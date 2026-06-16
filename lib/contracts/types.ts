@@ -200,6 +200,7 @@ export interface ContractAnalysisTrace {
 export interface ContractRateScheduleRow {
   row_id: string;
   description: string | null;
+  origin_destination?: string | null;
   unit: string | null;
   rate: number | null;
   category: string | null;

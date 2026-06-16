@@ -738,9 +738,11 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
             <FrameRow label="Audit summary" value={selected.audit_summary} />
 
             <div className="flex flex-wrap gap-2">
-              <Link href={selected.evidence_href} className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] hover:text-[var(--ef-text-primary)]">
-                Inspect Evidence
-              </Link>
+              {selected.evidence_href ? (
+                <Link href={selected.evidence_href} className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] hover:text-[var(--ef-text-primary)]">
+                  Inspect Evidence
+                </Link>
+              ) : null}
               {selected.linked_execution_label ? (
                 <Link href={selected.execution_href} className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] hover:text-[var(--ef-text-primary)]">
                   Open Execution
@@ -753,11 +755,6 @@ export function ProjectDecisionQueueFrame(props: ProjectDecisionQueueFrameProps)
               <Link href={selected.href} className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] hover:text-[var(--ef-text-primary)]">
                 Open Decision Context
               </Link>
-              {selected.source_document_href ? (
-                <Link href={selected.source_document_href} className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)] hover:text-[var(--ef-text-primary)]">
-                  Open evidence
-                </Link>
-              ) : null}
               <span className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[11px] text-[var(--ef-text-muted)]">
                 {selected.freshness_label}
               </span>

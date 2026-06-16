@@ -298,7 +298,9 @@ describe('normalizeNode contract rate schedule qualification', () => {
 
     const facts = normalized.primaryDocument.fact_map;
     assert.equal(facts.rate_schedule_present?.value, true);
-    assert.equal(facts.rate_row_count?.value, 3);
+    assert.equal(facts.rate_row_count?.value, 5);
+    assert.equal(facts.confirmed_rate_row_count?.value, 0);
+    assert.equal(facts.rate_schedule_state?.value, 'needs_review');
     const shadow = normalized.extracted.canonicalContractRateScheduleAssembly as Record<string, unknown>;
     assert.ok(shadow);
     const rows = shadow.rows as Array<Record<string, unknown>>;

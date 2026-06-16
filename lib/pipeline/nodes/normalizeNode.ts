@@ -2980,10 +2980,19 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     (sum, table) => sum + (table.estimated_rate_row_count || table.row_count),
     0,
   );
-  const rateSchedulePresent = acceptedRateTables.length > 0 || rateFromSignals;
+  const extractedRateRowCount = contractRateScheduleAssembly
+    ? (
+      contractRateScheduleAssembly.rows.length
+      + contractRateScheduleAssembly.rejected_rows.length
+      + contractRateScheduleAssembly.unclassified_rows.length
+    )
+    : rateRowCountFromTables;
+  const rateSchedulePresent = acceptedRateTables.length > 0 || rateFromSignals || extractedRateRowCount > 0;
   const rateRowCount = acceptedRateTables.length > 0
-    ? rateRowCountFromTables
+    ? Math.max(rateRowCountFromTables, extractedRateRowCount)
     : Number(document.section_signals.rate_items_detected ?? 0) || 0;
+  const confirmedRateRowCount = 0;
+  const rateScheduleState = rateRowCount > 0 ? 'needs_review' : 'missing';
   const inferredRatePages = acceptedRateTables.length > 0
     ? inferWeakContinuationRatePages(document, acceptedRateTables, pdfTables)
     : { pages: [] as number[], inferred_gap_pages: [] as number[] };
@@ -3446,6 +3455,24 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   addFact(
     document,
     facts,
+    'confirmed_rate_row_count',
+    'Confirmed Rate Rows',
+    confirmedRateRowCount,
+    (rateTableEvidenceRefs.length > 0 ? rateTableEvidenceRefs : rateEvidenceRefs).slice(0, 48),
+    0.68,
+  );
+  addFact(
+    document,
+    facts,
+    'rate_schedule_state',
+    'Rate Schedule State',
+    rateScheduleState,
+    (rateTableEvidenceRefs.length > 0 ? rateTableEvidenceRefs : rateEvidenceRefs).slice(0, 48),
+    rateRowCount > 0 ? 0.74 : 0.5,
+  );
+  addFact(
+    document,
+    facts,
     'rate_schedule_pages',
     'Rate Schedule Pages',
     ratePages,
@@ -3568,6 +3595,8 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
         rate_schedule_present: rateSchedulePresent,
         rate_schedule_present_reason: ratePresentReason,
         rate_row_count: rateRowCount,
+        confirmed_rate_row_count: confirmedRateRowCount,
+        rate_schedule_state: rateScheduleState,
         rate_row_count_reason: rateRowCountReason,
         rate_schedule_pages: ratePagesArray,
         inferred_weak_continuation_pages: inferredRatePages.inferred_gap_pages,

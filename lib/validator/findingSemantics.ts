@@ -339,7 +339,7 @@ function semanticExpectedValue(finding: ValidationFinding): string | null {
 
 function semanticActualValue(finding: ValidationFinding): string | null {
   if (isContractRateMatchFinding(finding)) {
-    return 'No confident contract rate-row match found';
+    return finding.actual ?? 'No confident contract rate-row match found';
   }
 
   return finding.actual;

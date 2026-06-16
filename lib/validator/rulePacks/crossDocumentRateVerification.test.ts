@@ -55,6 +55,7 @@ function buildInput(params: {
   mobileTickets?: Array<Record<string, unknown>>;
   loadTickets?: Array<Record<string, unknown>>;
   transactionRows?: Array<Record<string, unknown>>;
+  hasRateScheduleFacts?: boolean;
 }): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: 'project-1',
@@ -84,7 +85,7 @@ function buildInput(params: {
     rateSchedulePresentFact: null,
     rateSchedulePresent: true,
     rateRowCountFact: null,
-    rateRowCount: params.rateScheduleItems.length,
+    rateRowCount: params.hasRateScheduleFacts ? Math.max(params.rateScheduleItems.length, 1) : params.rateScheduleItems.length,
     rateSchedulePagesFact: null,
     rateSchedulePagesDisplay: 'page 1',
     rateUnitsDetectedFact: null,
@@ -93,7 +94,7 @@ function buildInput(params: {
     timeAndMaterialsPresent: false,
     rateScheduleFacts: [],
     rateScheduleItems: params.rateScheduleItems,
-    hasRateScheduleFacts: params.rateScheduleItems.length > 0,
+    hasRateScheduleFacts: params.hasRateScheduleFacts ?? params.rateScheduleItems.length > 0,
   };
   const projectTotals: ProjectTotals = {
     billed_total: params.invoiceLines.reduce((sum, row) => sum + (Number(row.line_total ?? 0) || 0), 0),
@@ -471,6 +472,34 @@ describe('cross document rate verification', () => {
       'construction_demolition',
     ]);
     assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CANONICAL_CATEGORY_ALIGNS');
+  });
+
+
+  it('preserves pending rate evidence messaging when rate rows exist but require review', () => {
+    const result = evaluateCrossDocumentRateVerification(buildInput({
+      rateScheduleItems: [],
+      hasRateScheduleFacts: true,
+      invoiceLines: [{
+        id: 'line:pending-rate-review',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: 'INV-006',
+        description: 'Loading Hauling Vegetative Debris',
+        unit_price: 27,
+        quantity: 4,
+        line_total: 108,
+      }],
+      mobileTickets: [{
+        id: 'mobile:veg-pending',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: 'INV-006',
+        material: 'Vegetative',
+        quantity_cyd: 4,
+      }],
+    }));
+
+    assert.equal(result.summary.missing_contract_rate_units, 1);
+    assert.equal(result.findings[0]?.rule_id, 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS');
+    assert.equal(result.findings[0]?.actual, 'Rate schedule exists but requires review before approval');
   });
 
   it('separates missing contract rate from fully unsupported invoice work', () => {

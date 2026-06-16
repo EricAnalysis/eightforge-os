@@ -183,6 +183,7 @@ type ExtractionMode =
   | 'binary_fallback';
 
 type PdfExtractionMode = 'pdf_text' | 'pdf_fallback' | 'ocr_recovery';
+const MIN_NATIVE_PAGE_TEXT_CHARS = 50;
 
 const MAX_EVIDENCE_PAGES = 200;
 
@@ -787,6 +788,20 @@ async function extractPdfPageTextNative(bytes: ArrayBuffer): Promise<string[] | 
   }
 }
 
+function getPerPageNativeTextLengths(nativePageTexts: readonly string[] | null | undefined): number[] {
+  return (nativePageTexts ?? []).map((text) => normalizeWhitespace(text ?? '').length);
+}
+
+function pageTextLayerRoutingReason(textLength: number | null | undefined): string {
+  if (typeof textLength !== 'number' || !Number.isFinite(textLength)) {
+    return 'native_text_unavailable_default_ocr_recovery';
+  }
+  return textLength >= MIN_NATIVE_PAGE_TEXT_CHARS
+    ? 'native_page_text_layer_present_pdf_text'
+    : 'native_page_text_below_threshold_ocr_recovery';
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function extractPdfTextWithOptions(
   bytes: ArrayBuffer,
   opts: { maxPages?: number },
@@ -1007,6 +1022,7 @@ async function extractPdfPageTextViaOcr(
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
   const result = await extractPdfPageTextViaOcr(bytes);
   return combinePageTextEvidence(result.pages);
@@ -1051,6 +1067,12 @@ function applyPdfExtractionMetadata(
     ocr_trigger_reason: string | null;
     ocr_pages_attempted: number;
     ocr_confidence_avg: number | null;
+    per_page_text_layer_routing?: Array<{
+      page_number: number;
+      native_text_length: number | null;
+      route: string;
+      reason: string;
+    }>;
     canonical_persisted: boolean;
     gate_context: {
       contract_like: boolean;
@@ -1335,6 +1357,9 @@ export async function extractDocument(
     let ocrConfidenceAvg: number | null = null;
     let ocrTriggerReason: string | null = null;
     let ocrGeometryPages: OcrGeometryPage[] = [];
+    const perPageNativeTextLengths = getPerPageNativeTextLengths(nativePageTexts);
+    const pageHasNativeTextLayer = (pageNumber: number): boolean =>
+      (perPageNativeTextLengths[pageNumber - 1] ?? 0) >= MIN_NATIVE_PAGE_TEXT_CHARS;
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1351,6 +1376,20 @@ export async function extractDocument(
     const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
       maxPages: MAX_EVIDENCE_PAGES,
     });
+    const perPageTextLayerRouting = Array.from(
+      { length: Math.max(pdfLayout.page_count, perPageNativeTextLengths.length) },
+      (_, index) => {
+        const pageNumber = index + 1;
+        const nativeTextLength = perPageNativeTextLengths[index] ?? null;
+        const route = pageHasNativeTextLayer(pageNumber) ? 'pdf_text' : 'ocr_recovery';
+        return {
+          page_number: pageNumber,
+          native_text_length: nativeTextLength,
+          route,
+          reason: pageTextLayerRoutingReason(nativeTextLength),
+        };
+      },
+    );
     const pdfGateTextLayer = buildPdfTextExtraction({
       layout: pdfLayout,
       fallbackText: null,
@@ -1543,6 +1582,27 @@ export async function extractDocument(
       }
     }
 
+    if (didAttemptOcr && perPageNativeTextLengths.some((length) => length >= MIN_NATIVE_PAGE_TEXT_CHARS)) {
+      const byPage = new Map<number, PageTextEvidence>();
+      for (const page of evidencePageText) byPage.set(page.page_number, page);
+      for (const [index, text] of (nativePageTexts ?? []).entries()) {
+        const pageNumber = index + 1;
+        if (!pageHasNativeTextLayer(pageNumber)) continue;
+        byPage.set(pageNumber, {
+          page_number: pageNumber,
+          text,
+          source_method: 'pdf_text' as EvidenceSourceMethod,
+        });
+      }
+      evidencePageText = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
+      ocrGeometryPages = ocrGeometryPages.filter((page) => !pageHasNativeTextLayer(page.page_number));
+      extractedText = combinePageTextEvidence(evidencePageText) ?? extractedText;
+      logPdf('per-page native text layer routing applied', {
+        per_page_text_layer_routing: perPageTextLayerRouting,
+        ocr_geometry_pages_after_native_text_filter: ocrGeometryPages.map((page) => page.page_number),
+      });
+    }
+
     const textPreview: string | null =
       extractedText != null
         ? extractedText.length > MAX_PREVIEW_CHARS
@@ -1673,6 +1733,7 @@ export async function extractDocument(
           did_attempt_ocr: didAttemptOcr,
           did_attempt_ocr_primary: didAttemptOcrPrimary,
           did_attempt_ocr_targeted: didAttemptOcrTargeted,
+          per_page_text_layer_routing: perPageTextLayerRouting,
           pdfjs_page_count: pdfLayout.page_count,
           layout_pages_parsed: pdfLayout.pages.length,
           layout_total_line_count: layoutTotalLineCount,
@@ -1724,6 +1785,7 @@ export async function extractDocument(
         ocr_trigger_reason: ocrTriggerReason,
         ocr_pages_attempted: ocrPagesAttempted,
         ocr_confidence_avg: ocrConfidenceAvg,
+        per_page_text_layer_routing: perPageTextLayerRouting,
         canonical_persisted: false,
         gate_context: {
           contract_like: contractLike,
@@ -1808,6 +1870,7 @@ export async function extractDocument(
           ocr_trigger_reason: ocrTriggerReason,
           ocr_pages_attempted: ocrPagesAttempted,
           ocr_confidence_avg: ocrConfidenceAvg,
+          per_page_text_layer_routing: perPageTextLayerRouting,
           native_page_text_lengths: nativePageTexts
             ? nativePageTexts.slice(0, 25).map((t, idx) => ({
                 page_number: idx + 1,
@@ -1840,6 +1903,7 @@ export async function extractDocument(
       ocr_trigger_reason: ocrTriggerReason,
       ocr_pages_attempted: ocrPagesAttempted,
       ocr_confidence_avg: ocrConfidenceAvg,
+      per_page_text_layer_routing: perPageTextLayerRouting,
       canonical_persisted: false,
       gate_context: {
         contract_like: contractLike,

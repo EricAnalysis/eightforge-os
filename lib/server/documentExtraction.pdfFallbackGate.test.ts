@@ -324,6 +324,96 @@ describe('documentExtraction pdf fallback gate', () => {
     expect(metadata.ocr_confidence_avg).toBe(88);
   });
 
+  it('routes OCR-recovered documents back to pdf_text evidence for pages with native text layers', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(4);
+
+    const nativePageTexts = [
+      'Email wrapper',
+      'Rate table page has native text layer with prices and units',
+      '',
+      'Signature',
+    ];
+    const pdfDoc = {
+      numPages: 4,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({
+          items: nativePageTexts[pageNumber - 1]
+            ? [{
+                str: nativePageTexts[pageNumber - 1],
+                transform: [0, 0, 0, 0, 0, 100 - pageNumber],
+              }]
+            : [],
+        })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+
+    const recognize = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { text: 'Recovered email wrapper page', confidence: 82 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered OCR table should be replaced', confidence: 82 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered attachment page', confidence: 82 } })
+      .mockResolvedValueOnce({ data: { text: 'Recovered signature page', confidence: 82 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'mixed-native-layer-contract',
+        title: 'Mixed Native Layer Contract',
+        name: 'mixed-native-layer-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/mixed-native-layer-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'mixed-native-layer-contract.pdf',
+    );
+
+    expect(payload.extraction.mode).toBe('ocr_recovery');
+    const recoveryCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
+      Array.isArray(args?.fallbackPages)
+      && args.fallbackPages.some((page) => page.page_number === 2 && page.source_method === 'pdf_text')
+      && args.fallbackPages.some((page) => page.page_number === 1 && page.source_method === 'ocr'),
+    );
+    expect(recoveryCall).toBeTruthy();
+    expect(recoveryCall?.[0].fallbackText).toContain(nativePageTexts[1]);
+    expect(recoveryCall?.[0].fallbackText).not.toContain('Recovered OCR table should be replaced');
+    expect((payload.extraction.metadata ?? {}) as Record<string, unknown>).toMatchObject({
+      extraction_mode: 'ocr_recovery',
+      per_page_text_layer_routing: expect.arrayContaining([
+        expect.objectContaining({
+          page_number: 2,
+          route: 'pdf_text',
+          reason: 'native_page_text_layer_present_pdf_text',
+        }),
+        expect.objectContaining({
+          page_number: 3,
+          route: 'ocr_recovery',
+          reason: 'native_page_text_below_threshold_ocr_recovery',
+        }),
+      ]),
+    });
+  });
+
   it('still runs OCR recovery for genuinely weak native text snippets', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});

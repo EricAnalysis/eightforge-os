@@ -608,7 +608,10 @@ function findingForUnit(
       severity: 'critical',
       field: 'contract_rate',
       expected: 'Confirmed contract schedule row for this billed line',
-      actual: 'No confident contract rate-row match found',
+      actual:
+        (input.factLookups.rateRowCount ?? 0) > 0 && input.factLookups.rateScheduleItems.length === 0
+          ? 'Rate schedule exists but requires review before approval'
+          : 'No confident contract rate-row match found',
     },
     missing_support: {
       ruleId: 'CROSS_DOCUMENT_TICKET_SUPPORT_EXISTS',

@@ -646,13 +646,15 @@ function CriticalIssueCard(props: {
               Open Decision Frame
             </Link>
           ) : null}
-          <button
-            type="button"
-            onClick={() => onSelect(finding)}
-            className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-          >
-            Inspect Evidence
-          </button>
+          {evidence.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onSelect(finding)}
+              className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
+            >
+              Inspect Evidence
+            </button>
+          ) : null}
           <Link
             href={executionHref}
             className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"

@@ -260,7 +260,7 @@ export type ProjectOverviewDecisionCard = {
   linked_execution_label: string | null;
   linked_finding_label: string | null;
   linked_evidence_label: string | null;
-  evidence_href: string;
+  evidence_href: string | null;
   execution_href: string;
   href: string;
   title: string;
@@ -2324,7 +2324,7 @@ export function resolveProjectDecisionSummary(
     ]);
     const evidenceHref = sourceDocumentHref
       ? `${sourceDocumentHref}${sourceDocumentHref.includes('?') ? '&' : '?'}decisionId=${decision.id}${sourceFindingIds[0] ? `&findingId=${sourceFindingIds[0]}` : ''}#evidence`
-      : `/platform/decisions/${decision.id}#decision-context`;
+      : null;
     const sourceFamilyLabel = normalizeSourceFamilyLabel(
       detailString(decision.details ?? null, ['source_family'])
       ?? detailString(primaryTask?.details ?? null, ['source_family'])

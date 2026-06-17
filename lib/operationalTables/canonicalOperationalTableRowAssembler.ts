@@ -10,7 +10,7 @@ export type OperationalTableFragment = {
     width: number;
     height: number;
   };
-  source?: 'pdfjs' | 'ocr_fallback';
+  source?: 'pdfjs' | 'ocr_fallback' | 'vision';
   extractor_hint?: string;
   candidate_value?: unknown;
   confidence?: number;

@@ -7,7 +7,7 @@ export interface PdfTableCell {
   text: string;
   x_min?: number;
   x_max?: number;
-  source?: 'pdfjs' | 'ocr_fallback';
+  source?: 'pdfjs' | 'ocr_fallback' | 'vision';
 }
 
 export interface PdfTableRow {

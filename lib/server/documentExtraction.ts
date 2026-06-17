@@ -38,7 +38,8 @@ import {
   type OcrGeometryWord,
   type OcrLayoutDiagnostics,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
-import { buildPdfTableExtraction } from '@/lib/extraction/pdf/extractTables';
+import { buildPdfTableExtraction, type PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
 import { buildElementEvidence } from '@/lib/extraction/pdf/buildElementEvidence';
@@ -1339,6 +1340,7 @@ export async function extractDocument(
     let ocrConfidenceAvg: number | null = null;
     let ocrTriggerReason: string | null = null;
     let ocrGeometryPages: OcrGeometryPage[] = [];
+    let ocrPageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1431,6 +1433,7 @@ export async function extractDocument(
       const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
       const ocrPages = ocrResult.pages;
       ocrGeometryPages = ocrResult.geometryPages;
+      ocrPageImages = ocrResult.pageImages ?? [];
       const extractedTextOcr = combinePageTextEvidence(ocrPages);
       const ocrLen = extractedTextOcr?.length ?? 0;
       ocrCombinedTextLength = ocrLen;
@@ -1485,6 +1488,10 @@ export async function extractDocument(
         });
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
+        ocrPageImages = [
+          ...ocrPageImages,
+          ...(ocrResult.pageImages ?? []),
+        ];
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1527,6 +1534,10 @@ export async function extractDocument(
         });
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
+        ocrPageImages = [
+          ...ocrPageImages,
+          ...(ocrResult.pageImages ?? []),
+        ];
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1586,6 +1597,42 @@ export async function extractDocument(
     const pdfTableLayer = buildPdfTableExtraction({
       layout: structuredLayout,
     });
+    const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
+
+    for (const ocrPage of ocrPageNumbers) {
+      const tablesForPage = pdfTableLayer.tables.filter(
+        (t) => t.page_number === ocrPage,
+      );
+
+      const bestTable = tablesForPage.reduce(
+        (best, t) =>
+          (t.headers?.length ?? 0) >= (best?.headers?.length ?? 0)
+            ? t : best,
+        null as PdfTable | null,
+      );
+
+      const columnCount = bestTable?.headers?.length ?? 0;
+      const hasDollarAmount = bestTable?.rows.some((r) =>
+        r.cells.some((c) => /\$\d/.test(c.text)),
+      ) ?? false;
+
+      if (columnCount < 3 && hasDollarAmount) {
+        const pageImage = ocrPageImages.find(
+          (p) => p.page_number === ocrPage,
+        );
+        if (pageImage) {
+          const tableKey = `vision:p${ocrPage}:t1`;
+          const visionTable = await extractRateTableViaVision({
+            pngBuffer: pageImage.png_buffer,
+            pageNumber: ocrPage,
+            tableKey,
+          });
+          if (visionTable) {
+            pdfTableLayer.tables.push(visionTable);
+          }
+        }
+      }
+    }
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,

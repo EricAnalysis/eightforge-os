@@ -2996,9 +2996,17 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const inferredRatePages = acceptedRateTables.length > 0
     ? inferWeakContinuationRatePages(document, acceptedRateTables, pdfTables)
     : { pages: [] as number[], inferred_gap_pages: [] as number[] };
+  const extractionMetadata = asRecord(asRecord(document.extraction_data?.extraction)?.metadata);
+  const textLayerPages: number[] = asArray<{ route?: string; page_number?: number }>(
+    extractionMetadata?.per_page_text_layer_routing,
+  )
+    .filter((p) => p.route === 'pdf_text')
+    .map((p) => p.page_number)
+    .filter((pageNumber): pageNumber is number => typeof pageNumber === 'number');
+  const sectionRatePages = asArray<number>(document.section_signals.rate_section_pages);
   const ratePagesArray = acceptedRateTables.length > 0
     ? inferredRatePages.pages
-    : asArray<number>(document.section_signals.rate_section_pages);
+    : (sectionRatePages.length > 0 ? sectionRatePages : textLayerPages);
   const ratePages = formatPageList(ratePagesArray);
   const rateTableEvidenceRefs: string[] = [];
   for (const table of rateTables) {

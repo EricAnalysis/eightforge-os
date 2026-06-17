@@ -199,7 +199,7 @@ function canonicalizeContractFacts(params: {
   if (facts.rate_table == null && rateScheduleRows.length > 0) {
     facts.rate_table = rateScheduleRows;
   }
-  if (facts.rate_row_count == null && rateScheduleRows.length > 0) {
+  if ((facts.rate_row_count == null || facts.rate_row_count === 0) && rateScheduleRows.length > 0) {
     facts.rate_row_count = rateScheduleRows.length;
   }
 

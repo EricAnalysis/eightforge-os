@@ -1604,19 +1604,13 @@ export async function extractDocument(
         (t) => t.page_number === ocrPage,
       );
 
-      const bestTable = tablesForPage.reduce(
-        (best, t) =>
-          (t.headers?.length ?? 0) >= (best?.headers?.length ?? 0)
-            ? t : best,
-        null as PdfTable | null,
-      );
+      const suspectTable = tablesForPage.find(
+        (t) =>
+          (t.headers?.length ?? 0) < 3 &&
+          t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
+      ) ?? null;
 
-      const columnCount = bestTable?.headers?.length ?? 0;
-      const hasDollarAmount = bestTable?.rows.some((r) =>
-        r.cells.some((c) => /\$\d/.test(c.text)),
-      ) ?? false;
-
-      if (columnCount < 3 && hasDollarAmount) {
+      if (suspectTable) {
         const pageImage = ocrPageImages.find(
           (p) => p.page_number === ocrPage,
         );

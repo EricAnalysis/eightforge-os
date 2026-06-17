@@ -2987,8 +2987,9 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
   const inferredRatePages = acceptedRateTables.length > 0
     ? inferWeakContinuationRatePages(document, acceptedRateTables, pdfTables)
     : { pages: [] as number[], inferred_gap_pages: [] as number[] };
+  const extractionMetadata = asRecord(asRecord(document.extraction_data?.extraction)?.metadata);
   const textLayerPages: number[] = asArray<{ route?: string; page_number?: number }>(
-    document.extraction_data?.extraction?.metadata?.per_page_text_layer_routing,
+    extractionMetadata?.per_page_text_layer_routing,
   )
     .filter((p) => p.route === 'pdf_text')
     .map((p) => p.page_number)

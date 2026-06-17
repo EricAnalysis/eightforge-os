@@ -863,6 +863,7 @@ type PdfOcrExtractionResult = {
   geometryPages: OcrGeometryPage[];
   pagesAttempted: number;
   confidenceAvg: number | null;
+  pageImages?: Array<{ page_number: number; png_buffer: Buffer }>;
 };
 
 function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
@@ -944,6 +945,7 @@ async function extractPdfPageTextViaOcr(
       const out: PageTextEvidence[] = [];
       const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];
+      const pageImages: Array<{ page_number: number; png_buffer: Buffer }> = [];
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
@@ -958,6 +960,7 @@ async function extractPdfPageTextViaOcr(
         };
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
+        pageImages.push({ page_number: pageNum, png_buffer: pngBuffer });
         const result = await worker.recognize(
           pngBuffer,
           {},
@@ -995,6 +998,7 @@ async function extractPdfPageTextViaOcr(
           confidences.length > 0
             ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
             : null,
+        pageImages,
       };
     } finally {
       await worker.terminate();

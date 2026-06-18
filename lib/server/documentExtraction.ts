@@ -39,7 +39,6 @@ import {
   type OcrLayoutDiagnostics,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPdfTableExtraction, type PdfTable } from '@/lib/extraction/pdf/extractTables';
-import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
 import { buildElementEvidence } from '@/lib/extraction/pdf/buildElementEvidence';
@@ -914,38 +913,6 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
   return words;
 }
 
-async function renderPdfPageToPng(
-  pdfBytes: ArrayBuffer,
-  pageNumber: number,
-): Promise<Buffer | null> {
-  try {
-    if (!Number.isInteger(pageNumber) || pageNumber < 1) return null;
-
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const { createCanvas } = await import('@napi-rs/canvas');
-
-    const data = new Uint8Array(pdfBytes);
-    const pdfDoc = await pdfjs.getDocument({ data }).promise;
-    if (pageNumber > pdfDoc.numPages) return null;
-
-    const page = await pdfDoc.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
-
-    const renderContext: Parameters<typeof page.render>[0] = {
-      canvas: canvas as unknown as HTMLCanvasElement,
-      canvasContext: ctx,
-      viewport,
-    };
-    await page.render(renderContext).promise;
-    return canvas.toBuffer('image/png');
-  } catch (error) {
-    console.error('[renderPdfPageToPng] failed', { pageNumber, error });
-    return null;
-  }
-}
-
 async function extractPdfPageTextViaOcr(
   bytes: ArrayBuffer,
   opts?: { pageNumbers?: number[] | null },
@@ -1372,7 +1339,6 @@ export async function extractDocument(
     let ocrConfidenceAvg: number | null = null;
     let ocrTriggerReason: string | null = null;
     let ocrGeometryPages: OcrGeometryPage[] = [];
-    let ocrPageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1465,7 +1431,6 @@ export async function extractDocument(
       const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
       const ocrPages = ocrResult.pages;
       ocrGeometryPages = ocrResult.geometryPages;
-      ocrPageImages = ocrResult.pageImages ?? [];
       const extractedTextOcr = combinePageTextEvidence(ocrPages);
       const ocrLen = extractedTextOcr?.length ?? 0;
       ocrCombinedTextLength = ocrLen;
@@ -1520,10 +1485,6 @@ export async function extractDocument(
         });
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
-        ocrPageImages = [
-          ...ocrPageImages,
-          ...(ocrResult.pageImages ?? []),
-        ];
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1566,10 +1527,6 @@ export async function extractDocument(
         });
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
-        ocrPageImages = [
-          ...ocrPageImages,
-          ...(ocrResult.pageImages ?? []),
-        ];
         const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
         if (targetedOcrLen > ocrCombinedTextLength) {
           ocrCombinedTextLength = targetedOcrLen;
@@ -1629,32 +1586,6 @@ export async function extractDocument(
     const pdfTableLayer = buildPdfTableExtraction({
       layout: structuredLayout,
     });
-    const suspectTables = pdfTableLayer.tables.filter(
-      (t) =>
-        (t.headers?.length ?? 0) < 3 &&
-        t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
-    );
-
-    for (const suspectTable of suspectTables) {
-      const pageNumber = suspectTable.page_number;
-      const existingImage = ocrPageImages.find(
-        (p) => p.page_number === pageNumber,
-      );
-      const pngBuffer = existingImage?.png_buffer
-        ?? await renderPdfPageToPng(cloneArrayBuffer(fileBytes), pageNumber);
-
-      if (pngBuffer) {
-        const tableKey = `vision:p${pageNumber}:t1`;
-        const visionTable = await extractRateTableViaVision({
-          pngBuffer,
-          pageNumber,
-          tableKey,
-        });
-        if (visionTable) {
-          pdfTableLayer.tables.push(visionTable);
-        }
-      }
-    }
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,

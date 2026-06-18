@@ -1629,33 +1629,29 @@ export async function extractDocument(
     const pdfTableLayer = buildPdfTableExtraction({
       layout: structuredLayout,
     });
-    const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
+    const suspectTables = pdfTableLayer.tables.filter(
+      (t) =>
+        (t.headers?.length ?? 0) < 3 &&
+        t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
+    );
 
-    for (const ocrPage of ocrPageNumbers) {
-      const tablesForPage = pdfTableLayer.tables.filter(
-        (t) => t.page_number === ocrPage,
+    for (const suspectTable of suspectTables) {
+      const pageNumber = suspectTable.page_number;
+      const existingImage = ocrPageImages.find(
+        (p) => p.page_number === pageNumber,
       );
+      const pngBuffer = existingImage?.png_buffer
+        ?? await renderPdfPageToPng(cloneArrayBuffer(fileBytes), pageNumber);
 
-      const suspectTable = tablesForPage.find(
-        (t) =>
-          (t.headers?.length ?? 0) < 3 &&
-          t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
-      ) ?? null;
-
-      if (suspectTable) {
-        const pageImage = ocrPageImages.find(
-          (p) => p.page_number === ocrPage,
-        );
-        if (pageImage) {
-          const tableKey = `vision:p${ocrPage}:t1`;
-          const visionTable = await extractRateTableViaVision({
-            pngBuffer: pageImage.png_buffer,
-            pageNumber: ocrPage,
-            tableKey,
-          });
-          if (visionTable) {
-            pdfTableLayer.tables.push(visionTable);
-          }
+      if (pngBuffer) {
+        const tableKey = `vision:p${pageNumber}:t1`;
+        const visionTable = await extractRateTableViaVision({
+          pngBuffer,
+          pageNumber,
+          tableKey,
+        });
+        if (visionTable) {
+          pdfTableLayer.tables.push(visionTable);
         }
       }
     }

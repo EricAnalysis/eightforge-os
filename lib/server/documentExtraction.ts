@@ -914,6 +914,38 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
   return words;
 }
 
+async function renderPdfPageToPng(
+  pdfBytes: ArrayBuffer,
+  pageNumber: number,
+): Promise<Buffer | null> {
+  try {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) return null;
+
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const { createCanvas } = await import('@napi-rs/canvas');
+
+    const data = new Uint8Array(pdfBytes);
+    const pdfDoc = await pdfjs.getDocument({ data }).promise;
+    if (pageNumber > pdfDoc.numPages) return null;
+
+    const page = await pdfDoc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+
+    const renderContext: Parameters<typeof page.render>[0] = {
+      canvas: canvas as unknown as HTMLCanvasElement,
+      canvasContext: ctx,
+      viewport,
+    };
+    await page.render(renderContext).promise;
+    return canvas.toBuffer('image/png');
+  } catch (error) {
+    console.error('[renderPdfPageToPng] failed', { pageNumber, error });
+    return null;
+  }
+}
+
 async function extractPdfPageTextViaOcr(
   bytes: ArrayBuffer,
   opts?: { pageNumbers?: number[] | null },

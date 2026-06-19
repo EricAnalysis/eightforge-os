@@ -1,5 +1,5 @@
 import type { ExtractionGap } from '@/lib/extraction/types';
-import type { PdfLayout, PdfLayoutLine } from '@/lib/extraction/pdf/extractText';
+import type { PdfLayout, PdfLayoutLine, PdfToken } from '@/lib/extraction/pdf/extractText';
 import { stripUnsafeTextControls } from '@/lib/extraction/textSanitization';
 
 export interface PdfTableCell {
@@ -7,7 +7,7 @@ export interface PdfTableCell {
   text: string;
   x_min?: number;
   x_max?: number;
-  source?: 'pdfjs' | 'ocr_fallback';
+  source?: 'pdfjs' | 'ocr_fallback' | 'vision';
 }
 
 export interface PdfTableRow {
@@ -44,6 +44,7 @@ type PdfTableDraftRow = {
   endLineIndex: number;
   cells: PdfTableCell[];
   raw_text: string;
+  tokens: PdfToken[];
 };
 
 type ColumnBand = {
@@ -53,6 +54,14 @@ type ColumnBand = {
   center: number;
   weight: number;
   label?: string;
+};
+
+type GeometryToken = {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const EXPLICIT_ROW_START_PATTERN =
@@ -285,6 +294,10 @@ function lineHasNumericRateSignal(text: string): boolean {
   return RATE_MONEY_IN_LINE_RE.test(t) || /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/.test(t);
 }
 
+function lineHasMoneySignal(text: string): boolean {
+  return /\$\s*[\d,]+(?:\.\d+)?/.test(stripUnsafeTextControls(text));
+}
+
 function normalizeLooseCellText(text: string): string {
   return stripUnsafeTextControls(text).replace(/\s+/g, ' ').trim();
 }
@@ -386,6 +399,284 @@ function inferColumnBands(params: {
     });
 }
 
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+    : sorted[middle] ?? 0;
+}
+
+function reconstructColumnsFromGeometry(tokens: GeometryToken[]): ColumnBand[] {
+  const usableTokens = tokens
+    .filter((token) =>
+      token.text.trim().length > 0 &&
+      Number.isFinite(token.x) &&
+      Number.isFinite(token.width),
+    )
+    .map((token) => ({
+      ...token,
+      x_max: token.x + Math.max(0, token.width),
+    }));
+  if (usableTokens.length === 0) return [];
+
+  const lineBuckets: Array<{ y: number; tokens: typeof usableTokens }> = [];
+  const medianHeight = median(usableTokens.map((token) => token.height).filter((height) => height > 0));
+  const yTolerance = Math.max(4, medianHeight * 0.6);
+  for (const token of usableTokens) {
+    const bucket = lineBuckets.find((candidate) => Math.abs(candidate.y - token.y) <= yTolerance);
+    if (bucket) {
+      bucket.tokens.push(token);
+    } else {
+      lineBuckets.push({ y: token.y, tokens: [token] });
+    }
+  }
+
+  const cutPositions: number[] = [];
+  for (const bucket of lineBuckets) {
+    const lineTokens = bucket.tokens.sort((left, right) => left.x - right.x);
+    const gaps = lineTokens
+      .slice(1)
+      .map((token, index) => token.x - (lineTokens[index]?.x_max ?? token.x))
+      .filter((gap) => gap > 0);
+    const lineThreshold = Math.max(24, Math.min(42, median(gaps) * 2 || 28));
+    for (let index = 1; index < lineTokens.length; index += 1) {
+      const previous = lineTokens[index - 1];
+      const token = lineTokens[index];
+      const gap = token.x - (previous.x_max ?? token.x);
+      if (gap > lineThreshold) {
+        cutPositions.push((previous.x_max + token.x) / 2);
+      }
+    }
+  }
+
+  const clusteredCuts: Array<{ values: number[] }> = [];
+  for (const cut of cutPositions.sort((left, right) => left - right)) {
+    const current = clusteredCuts.at(-1);
+    const currentCenter = current
+      ? current.values.reduce((sum, value) => sum + value, 0) / current.values.length
+      : null;
+    if (current && currentCenter != null && Math.abs(cut - currentCenter) <= 35) {
+      current.values.push(cut);
+    } else {
+      clusteredCuts.push({ values: [cut] });
+    }
+  }
+
+  const cuts = clusteredCuts
+    .filter((cluster) => cluster.values.length >= 2 || clusteredCuts.length <= 3)
+    .map((cluster) => cluster.values.reduce((sum, value) => sum + value, 0) / cluster.values.length)
+    .sort((left, right) => left - right);
+  if (cuts.length >= 2) {
+    const xMin = Math.min(...usableTokens.map((token) => token.x));
+    const xMax = Math.max(...usableTokens.map((token) => token.x_max));
+    const boundaries = [xMin - 1, ...cuts, xMax + 1];
+    return boundaries.slice(0, -1).map((left, index) => {
+      const right = boundaries[index + 1] ?? left;
+      const bandTokens = usableTokens.filter((token) => {
+        const center = token.x + (Math.max(0, token.width) / 2);
+        return center >= left && center < right;
+      });
+      const bandXMin = bandTokens.length > 0 ? Math.min(...bandTokens.map((token) => token.x)) : left;
+      const bandXMax = bandTokens.length > 0 ? Math.max(...bandTokens.map((token) => token.x_max)) : right;
+      return {
+        index,
+        x_min: bandXMin,
+        x_max: bandXMax,
+        center: (bandXMin + bandXMax) / 2,
+        weight: bandTokens.length,
+      };
+    });
+  }
+
+  const intervals = usableTokens
+    .map((token) => ({
+      x_min: token.x,
+      x_max: token.x_max,
+    }))
+    .sort((left, right) => left.x_min - right.x_min || left.x_max - right.x_max);
+
+  const positiveGaps = intervals
+    .slice(1)
+    .map((interval, index) => interval.x_min - (intervals[index]?.x_max ?? interval.x_min))
+    .filter((gap) => gap > 0);
+  const adaptiveGap = Math.max(22, Math.min(30, median(positiveGaps) * 2.4 || 24));
+  const clusters: Array<{ xMins: number[]; xMaxes: number[] }> = [];
+
+  for (const interval of intervals) {
+    const current = clusters.at(-1);
+    const currentMax = current ? Math.max(...current.xMaxes) : null;
+    if (current && currentMax != null && interval.x_min - currentMax <= adaptiveGap) {
+      current.xMins.push(interval.x_min);
+      current.xMaxes.push(interval.x_max);
+    } else {
+      clusters.push({
+        xMins: [interval.x_min],
+        xMaxes: [interval.x_max],
+      });
+    }
+  }
+
+  return clusters
+    .filter((cluster) => Math.max(...cluster.xMaxes) - Math.min(...cluster.xMins) >= 8)
+    .map((cluster, index) => {
+      const xMin = Math.min(...cluster.xMins);
+      const xMax = Math.max(...cluster.xMaxes);
+      return {
+        index,
+        x_min: xMin,
+        x_max: xMax,
+        center: (xMin + xMax) / 2,
+        weight: cluster.xMins.length,
+      };
+    });
+}
+
+function maxCellCount(rows: readonly PdfTableDraftRow[], header: PdfTableHeaderCandidate | null): number {
+  return Math.max(
+    header?.cells.length ?? 0,
+    0,
+    ...rows.map((row) => row.cells.length),
+  );
+}
+
+function hasDollarCell(rows: readonly PdfTableDraftRow[], header: PdfTableHeaderCandidate | null): boolean {
+  const texts = [
+    ...(header?.cells.map((cell) => cell.text) ?? []),
+    ...rows.flatMap((row) => [row.raw_text, ...row.cells.map((cell) => cell.text)]),
+  ];
+  return texts.some(lineHasMoneySignal);
+}
+
+function nearestGeometryBand(token: GeometryToken, bands: readonly ColumnBand[]): ColumnBand | null {
+  if (bands.length === 0) return null;
+  const center = token.x + (Math.max(0, token.width) / 2);
+  return [...bands]
+    .map((band) => {
+      const distance = center >= band.x_min && center <= band.x_max
+        ? 0
+        : Math.min(Math.abs(center - band.x_min), Math.abs(center - band.x_max));
+      return { band, distance };
+    })
+    .sort((left, right) => left.distance - right.distance || left.band.index - right.band.index)[0]?.band ?? null;
+}
+
+function geometryCellText(tokens: readonly PdfToken[]): string {
+  return normalizeLooseCellText(tokens.map((token) => token.text).join(' '));
+}
+
+function buildGeometryCells(tokens: readonly PdfToken[], bands: readonly ColumnBand[]): PdfTableCell[] {
+  const byColumn = new Map<number, PdfToken[]>();
+  for (const token of tokens) {
+    const band = nearestGeometryBand(token, bands);
+    if (!band) continue;
+    const current = byColumn.get(band.index) ?? [];
+    current.push(token);
+    byColumn.set(band.index, current);
+  }
+
+  return [...byColumn.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([columnIndex, columnTokens]) => {
+      const sorted = [...columnTokens].sort((left, right) => left.y - right.y || left.x - right.x);
+      return {
+        column_index: columnIndex,
+        text: geometryCellText(sorted),
+        x_min: Math.min(...sorted.map((token) => token.x)),
+        x_max: Math.max(...sorted.map((token) => token.x + token.width)),
+        source: sorted.some((token) => token.source === 'ocr_fallback') ? 'ocr_fallback' as const : 'pdfjs' as const,
+      };
+    })
+    .filter((cell) => cell.text.length > 0);
+}
+
+function firstTokenBand(line: PdfLayoutLine, bands: readonly ColumnBand[]): ColumnBand | null {
+  const first = line.tokens[0];
+  return first ? nearestGeometryBand(first, bands) : null;
+}
+
+function looksLikeGeometryRowStart(line: PdfLayoutLine, bands: readonly ColumnBand[]): boolean {
+  if (lineHasMoneySignal(line.text)) return false;
+  if (firstTokenBand(line, bands)?.index !== 0 && !line.text.includes('&')) return false;
+  const words = line.text.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  if (/^(?:from|to|and|or|of|yard|cubic|unit|final\s+disposal)\b/i.test(line.text.trim())) {
+    return false;
+  }
+  return true;
+}
+
+function reconstructOcrRowsFromGeometry(params: {
+  rows: readonly PdfTableDraftRow[];
+  pageLines: readonly PdfLayoutLine[];
+}): PdfTableDraftRow[] {
+  const firstLineIndex = Math.min(...params.rows.map((row) => row.lineIndex));
+  const lastLineIndex = Math.max(...params.rows.map((row) => row.endLineIndex));
+  let startLineIndex = firstLineIndex;
+  for (let index = firstLineIndex - 1; index >= Math.max(0, firstLineIndex - 8); index -= 1) {
+    const line = params.pageLines[index];
+    if (!line || line.source !== 'ocr_fallback') break;
+    startLineIndex = index;
+    if (/\bdescription\b/i.test(line.text)) break;
+  }
+
+  const candidateLines = params.pageLines
+    .slice(startLineIndex, lastLineIndex + 1)
+    .map((line, offset) => ({ line, index: startLineIndex + offset }))
+    .filter(({ line }) => line.source === 'ocr_fallback' && line.tokens.length > 0);
+  const moneyLines = candidateLines.filter(({ line }) => lineHasMoneySignal(line.text));
+  if (moneyLines.length < 2) return [];
+
+  let headerEnd = startLineIndex - 1;
+  for (const { index, line } of candidateLines) {
+    if (index >= moneyLines[0]!.index) break;
+    if (/\b(?:description|unit|measure|origin|destination|cost|rate|price)\b/i.test(line.text)) {
+      headerEnd = index;
+      continue;
+    }
+    break;
+  }
+  const dataStart = Math.max(
+    startLineIndex,
+    Math.min(headerEnd + 1, moneyLines[0]!.index - 3),
+  );
+  const dataLines = candidateLines.filter(({ index }) => index >= dataStart);
+  const bands = reconstructColumnsFromGeometry(dataLines.flatMap(({ line }) => line.tokens));
+  if (bands.length < 3) return [];
+
+  const rowStarts = dataLines
+    .filter(({ index, line }) =>
+      index > dataStart &&
+      index > moneyLines[0]!.index &&
+      looksLikeGeometryRowStart(line, bands) &&
+      moneyLines.some((moneyLine) => moneyLine.index >= index),
+    )
+    .map(({ index }) => index);
+  const anchoredRowStarts = [...new Set([dataStart, ...rowStarts])].sort((left, right) => left - right);
+  const rowAnchors = anchoredRowStarts.length >= moneyLines.length
+    ? anchoredRowStarts
+    : moneyLines.map(({ index }) => index);
+
+  return rowAnchors.map((startIndex, rowIndex) => {
+    const nextStart = rowAnchors[rowIndex + 1] ?? (lastLineIndex + 1);
+    const rowHasMoney = moneyLines.some(({ index }) => index >= startIndex && index < nextStart);
+    if (!rowHasMoney) return null;
+    const lowerBound = startIndex;
+    const upperBound = nextStart - 1;
+    const rowLines = dataLines.filter(({ index }) => index >= lowerBound && index <= upperBound);
+    const rowTokens = rowLines.flatMap(({ line }) => line.tokens);
+    const cells = buildGeometryCells(rowTokens, bands);
+    return {
+      lineIndex: rowLines[0]?.index ?? startIndex,
+      endLineIndex: rowLines.at(-1)?.index ?? startIndex,
+      cells: renumberCells(cells),
+      raw_text: rowLines.map(({ line }) => stripUnsafeTextControls(line.text)).join('\n'),
+      tokens: rowTokens,
+    };
+  }).filter((row): row is PdfTableDraftRow => row != null && row.cells.length >= 3);
+}
+
 function nearestColumnBand(cell: PdfTableCell, bands: readonly ColumnBand[]): ColumnBand | null {
   const center = cellCenter(cell);
   if (center == null || bands.length === 0) return null;
@@ -451,14 +742,26 @@ function alignCellsToColumnBands(
 function stabilizeOcrTableColumns(params: {
   rows: PdfTableDraftRow[];
   header: PdfTableHeaderCandidate | null;
+  pageLines: readonly PdfLayoutLine[];
 }): {
   rows: PdfTableDraftRow[];
   header: PdfTableHeaderCandidate | null;
 } {
   if (!isOcrTableCandidate(params.rows, params.header)) return params;
+  const lineSpan = params.rows.length > 0
+    ? Math.max(...params.rows.map((row) => row.endLineIndex)) - Math.min(...params.rows.map((row) => row.lineIndex)) + 1
+    : 0;
+  const originalMaxCellCount = maxCellCount(params.rows, params.header);
+  const shouldAttemptGeometryReconstruction =
+    hasDollarCell(params.rows, params.header) &&
+    (
+      originalMaxCellCount < 3 ||
+      (params.rows.length <= 4 && lineSpan >= 8)
+    );
   const bands = inferColumnBands(params);
-  if (bands.length < 2) return params;
-  return {
+  const stabilized = bands.length < 2
+    ? params
+    : {
     header: params.header
       ? { ...params.header, cells: alignCellsToColumnBands(params.header.cells, bands) }
       : params.header,
@@ -467,6 +770,17 @@ function stabilizeOcrTableColumns(params: {
       cells: alignCellsToColumnBands(row.cells, bands),
     })),
   };
+  if (!shouldAttemptGeometryReconstruction) {
+    return stabilized;
+  }
+
+  const reconstructedRows = reconstructOcrRowsFromGeometry({
+    rows: params.rows,
+    pageLines: params.pageLines,
+  });
+  return reconstructedRows.length > 0
+    ? { rows: reconstructedRows, header: null }
+    : stabilized;
 }
 
 function pullTrailingLooseCellValue(text: string): { remaining: string; value: string } | null {
@@ -730,12 +1044,15 @@ export function buildPdfTableExtraction(params: {
       }
 
       const provisionalHeader =
-        currentHeader == null && isMostlyNonNumeric(currentRows[0]?.cells ?? [])
+        currentHeader == null &&
+        isMostlyNonNumeric(currentRows[0]?.cells ?? []) &&
+        !lineHasNumericRateSignal(currentRows[0]?.raw_text ?? '')
           ? { lineIndex: currentRows[0]?.lineIndex ?? 0, cells: currentRows[0]?.cells ?? [] }
           : currentHeader;
       const stabilized = stabilizeOcrTableColumns({
         rows: currentRows,
         header: provisionalHeader,
+        pageLines: page.lines,
       });
       currentRows = stabilized.rows;
       currentHeader = currentHeader == null ? null : stabilized.header;
@@ -743,12 +1060,12 @@ export function buildPdfTableExtraction(params: {
       const firstRow = currentRows[0];
       const headers = currentHeader
         ? currentHeader.cells.map((cell) => cell.text)
-        : isMostlyNonNumeric(firstRow.cells)
+        : isMostlyNonNumeric(firstRow.cells) && !lineHasNumericRateSignal(firstRow.raw_text)
           ? firstRow.cells.map((cell) => cell.text)
           : [];
       const dataRows = currentHeader
         ? currentRows
-        : headers.length > 0
+        : headers.length > 0 && !lineHasNumericRateSignal(firstRow.raw_text)
           ? currentRows.slice(1)
           : currentRows;
       if (dataRows.length === 0) {
@@ -851,6 +1168,7 @@ export function buildPdfTableExtraction(params: {
         });
       }
       row.raw_text = `${row.raw_text}\n${stripUnsafeTextControls(line.text)}`;
+      row.tokens = [...row.tokens, ...line.tokens];
       row.endLineIndex = page.lines.indexOf(line);
     };
 
@@ -925,6 +1243,7 @@ export function buildPdfTableExtraction(params: {
           endLineIndex: index,
           cells: renumberCells(cells),
           raw_text: stripUnsafeTextControls(line.text),
+          tokens: line.tokens,
         });
         return;
       }

@@ -338,6 +338,12 @@ function semanticExpectedValue(finding: ValidationFinding): string | null {
 }
 
 function semanticActualValue(finding: ValidationFinding): string | null {
+  if (finding.rule_id === 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS') {
+    return finding.actual === 'Rate schedule exists but requires review before approval'
+      ? finding.actual
+      : 'No confident contract rate-row match found';
+  }
+
   if (isContractRateMatchFinding(finding)) {
     return finding.actual ?? 'No confident contract rate-row match found';
   }

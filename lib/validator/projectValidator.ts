@@ -381,11 +381,44 @@ function isCanonicalContractDocument(
   return classification?.family === 'contract';
 }
 
+function isCanonicalRateAuthorityDocument(
+  document: Pick<ValidatorDocumentRow, 'document_type' | 'intelligence_trace'>,
+  trace: PersistedDocumentExecutionTrace | null = persistedDocumentTrace(document),
+): boolean {
+  if (isCanonicalContractDocument(document, trace)) return true;
+
+  const classification = asRecord(trace?.classification);
+  if (classification?.family === 'rate_sheet' || classification?.family === 'pricing') {
+    return true;
+  }
+
+  const documentType = document.document_type?.trim().toLowerCase().replace(/[_-]+/g, ' ') ?? '';
+  return /(?:rate|price|pricing).*(?:sheet|schedule)|(?:sheet|schedule).*(?:rate|price|pricing)/.test(documentType);
+}
+
+function isPricingAuthorityDocument(
+  document: Pick<ValidatorDocumentRow, 'title' | 'name' | 'document_type' | 'intelligence_trace'> | null,
+): boolean {
+  if (!document) return false;
+  if (isCanonicalRateAuthorityDocument(document)) return true;
+
+  const label = [
+    document.title,
+    document.name,
+    document.document_type,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  return /\b(?:price|pricing|rate)\s+(?:sheet|schedule)\b|\b(?:sheet|schedule)\s+(?:price|pricing|rate)\b/.test(label);
+}
+
 export function extractCanonicalContractFacts(
   document: Pick<ValidatorDocumentRow, 'id' | 'document_type' | 'intelligence_trace'>,
 ): Array<{ key: string; value: unknown }> {
   const trace = persistedDocumentTrace(document);
-  if (!trace || !isCanonicalContractDocument(document, trace)) {
+  if (!trace || !isCanonicalRateAuthorityDocument(document, trace)) {
     return [];
   }
 
@@ -996,6 +1029,7 @@ export function buildDocumentIdsByFamily(
   const familyDocumentIds = emptyFamilyIds();
   const governingDocumentIds = emptyFamilyIds();
   const precedenceDocumentIds = new Set<string>();
+  const documentById = new Map(documents.map((document) => [document.id, document] as const));
 
   for (const family of precedenceFamilies) {
     for (const document of family.documents) {
@@ -1027,13 +1061,36 @@ export function buildDocumentIdsByFamily(
     }
   }
 
+  const resolvedTruthCategoryDocumentIds = resolveDocumentTruthCategoryIds({
+    families: precedenceFamilies,
+    relationships: documentRelationships,
+  });
+  const attachedPricingDocumentIds = uniqueDocumentIds(
+    documentRelationships.flatMap((relationship) => {
+      const relationshipType = relationship.relationship_type?.trim().toLowerCase() ?? '';
+      if (relationshipType !== 'attached_to') return [];
+      const sourceDocument = documentById.get(relationship.source_document_id) ?? null;
+      return isPricingAuthorityDocument(sourceDocument) ? [relationship.source_document_id] : [];
+    }),
+  );
+  const attachedPricingDocumentIdSet = new Set(attachedPricingDocumentIds);
+  const contractIdentityDocumentIds = resolvedTruthCategoryDocumentIds.contract_identity.filter(
+    (documentId) => !attachedPricingDocumentIdSet.has(documentId),
+  );
+
   return {
     familyDocumentIds,
     governingDocumentIds,
-    truthCategoryDocumentIds: resolveDocumentTruthCategoryIds({
-      families: precedenceFamilies,
-      relationships: documentRelationships,
-    }),
+    truthCategoryDocumentIds: {
+      ...resolvedTruthCategoryDocumentIds,
+      contract_identity: contractIdentityDocumentIds.length > 0
+        ? contractIdentityDocumentIds
+        : resolvedTruthCategoryDocumentIds.contract_identity,
+      pricing: uniqueDocumentIds([
+        ...attachedPricingDocumentIds,
+        ...resolvedTruthCategoryDocumentIds.pricing,
+      ]),
+    },
   };
 }
 
@@ -1637,6 +1694,7 @@ function buildFactLookups(params: {
     ...params.familyDocumentIds.invoice,
   ]);
   const rateFactDocumentIds = uniqueDocumentIds([
+    ...contractIdentityDocumentIds,
     ...params.truthCategoryDocumentIds.pricing,
   ]);
 

@@ -212,7 +212,7 @@ export interface ContractRateScheduleRow {
   material_type: string | null;
   unit_type: string | null;
   rate_amount: number | null;
-  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery';
+  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery' | 'structural_table';
   confidence?: 'high' | 'medium' | 'needs_review';
   raw_cells?: string[];
   raw_text?: string;

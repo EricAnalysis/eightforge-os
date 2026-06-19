@@ -2035,6 +2035,67 @@ describe('assembleContractPricingRows', () => {
     assert.equal(byId.get('specialty-freon-unit')?.unit, 'Unit');
   });
 
+  it('preserves canonical-sourced rows with no Williamson category (vision price sheet)', () => {
+    // Rows from the canonical assembly path (row_id prefix 'contract:') that have no
+    // resolvable Williamson category must appear in the operator-facing table.
+    // This covers generic FEMA price sheets surfaced via vision extraction (Goodlettsville).
+    const rows = assembleContractPricingRows([
+      row({
+        row_id: 'contract:vision_p2_t1:p2:r0',
+        category: null,
+        source_category: null,
+        material_type: null,
+        canonical_category: null,
+        description: 'Debris Removal from Public Property ROW',
+        unit: 'CY',
+        unit_type: 'CY',
+        rate: 27.0,
+        rate_amount: 27.0,
+        page: 2,
+        source_anchor_ids: ['vision:p2:t1:r0'],
+        rate_raw: 'Debris Removal from Public Property ROW | CY | $27.00',
+      }),
+      row({
+        row_id: 'contract:vision_p2_t1:p2:r1',
+        category: null,
+        source_category: null,
+        material_type: null,
+        canonical_category: null,
+        description: 'Right of Way Debris Removal',
+        unit: 'CY',
+        unit_type: 'CY',
+        rate: 31.0,
+        rate_amount: 31.0,
+        page: 2,
+        source_anchor_ids: ['vision:p2:t1:r1'],
+        rate_raw: 'Right of Way Debris Removal | CY | $31.00',
+      }),
+    ]);
+
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((assembled) => assembled.confidence === 'needs_review'));
+    assert.ok(rows.every((assembled) => assembled.category == null));
+    assert.ok(rows.every((assembled) => assembled.sourceAnchor?.startsWith('vision:')));
+  });
+
+  it('still drops OCR-noise rows with no Williamson category when not from canonical source', () => {
+    // Non-canonical source rows (e.g. fallback/rate_schedule) with null categories
+    // are OCR noise and must remain excluded from the operator-facing table.
+    const rows = assembleContractPricingRows([
+      row({
+        row_id: 'uncertain-noise',
+        category: '1',
+        source_category: '1',
+        material_type: '1',
+        canonical_category: null,
+        description: 'ROW to DMS 0 to 15 Miles',
+        rate_raw: 'ROW to DMS 0 to 15 Miles | Cubic Yard | $6.90',
+      }),
+    ]);
+
+    assert.equal(rows.length, 0);
+  });
+
   it('formats $6.90 correctly', () => {
     assert.equal(formatContractPricingRate(6.9), '$6.90');
   });

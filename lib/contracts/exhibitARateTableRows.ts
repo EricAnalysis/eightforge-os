@@ -23,6 +23,7 @@ type ContextHint = {
 };
 
 const EXHIBIT_A_PAGES = new Set([8, 9, 10, 11]);
+const MIN_CLEAN_STRUCTURAL_TABLE_CONFIDENCE = 0.55;
 
 const CATEGORY_ALIASES: Array<[RegExp, string]> = [
   [/\bveg[ae]tative\b.*\bcollect\b.*\bremove\b.*\bha?ul\b/i, 'Vegetative Collect, Remove & Haul'],
@@ -624,6 +625,71 @@ export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null 
           raw_text: rowText,
         });
       }
+    }
+  }
+
+  return dedupeRows(rows);
+}
+
+export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | null | undefined): ContractRateScheduleRow[] {
+  if (!Array.isArray(tables)) return [];
+
+  const rows: ContractRateScheduleRow[] = [];
+  for (const table of tables) {
+    if (EXHIBIT_A_PAGES.has(table.page_number)) continue;
+    if (table.confidence < MIN_CLEAN_STRUCTURAL_TABLE_CONFIDENCE) continue;
+    if (table.rows.length < 2) continue;
+
+    const contextText = [...table.headers, ...table.header_context].join(' ');
+    if (!/\b(category|description|unit|uom|measure|rate|cost|price|origin|destination)\b/i.test(contextText)) {
+      continue;
+    }
+
+    const moneyRows = table.rows.filter((row: PdfTable['rows'][number]) =>
+      row.cells.some((cell: PdfTableCell) => moneyTokens(cell.text).length > 0),
+    );
+    if (moneyRows.length === 0) continue;
+
+    const shapedMoneyRows = moneyRows.filter((row: PdfTable['rows'][number]) => row.cells.length >= 4);
+    if (shapedMoneyRows.length < Math.min(2, moneyRows.length)) continue;
+
+    for (const row of table.rows) {
+      const cells = [...row.cells].sort((left, right) => left.column_index - right.column_index);
+      if (cells.length < 4) continue;
+
+      const descriptionCell = cleanText(cells[0]?.text);
+      const unitCell = cleanText(cells[1]?.text);
+      const originDestinationCell = cleanText(cells[2]?.text);
+      const rateCell = cleanText(cells[3]?.text);
+      if (!descriptionCell || !unitCell || !rateCell || moneyTokens(rateCell).length === 0) continue;
+
+      const rate = parseNumber(rateCell);
+      if (rate == null) continue;
+
+      const description = cleanText([descriptionCell, originDestinationCell].filter(Boolean).join(' '));
+      if (!description) continue;
+
+      const sourceAnchorIds = [row.id, table.id].filter((value): value is string => Boolean(value));
+      rows.push({
+        row_id: `structural_table:${row.id}`,
+        description,
+        unit: unitCell,
+        rate,
+        category: null,
+        source_category: null,
+        canonical_category: null,
+        category_confidence: null,
+        page: row.page_number ?? table.page_number,
+        source_anchor_ids: sourceAnchorIds,
+        rate_raw: rateCell,
+        material_type: null,
+        unit_type: unitCell,
+        rate_amount: rate,
+        source_kind: 'structural_table',
+        confidence: 'medium',
+        raw_cells: row.cells.map((cell: PdfTableCell) => cell.text),
+        raw_text: row.raw_text,
+      });
     }
   }
 

@@ -6,6 +6,7 @@ import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAsse
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { extractExhibitARateTableRows } from '@/lib/contracts/exhibitARateTableRows';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { extractDocument } from '@/lib/server/documentExtraction';
 
 function table(params: {
   id?: string;
@@ -36,6 +37,36 @@ function table(params: {
       nearby_text: cells.join(' | '),
     })),
   };
+}
+
+function contentLayerTables(payload: Awaited<ReturnType<typeof extractDocument>>): PdfTable[] {
+  const layers = payload.extraction.content_layers_v1 as
+    | { pdf?: { tables?: { tables?: PdfTable[] } } }
+    | undefined;
+  return layers?.pdf?.tables?.tables ?? [];
+}
+
+function contentLayerSourceEntries(payload: Awaited<ReturnType<typeof extractDocument>>) {
+  const layers = payload.extraction.content_layers_v1 as
+    | {
+        pdf?: {
+          text?: {
+            pages?: Array<{
+              plain_text_blocks?: Array<{ id?: string; page_number?: number; text?: string }>;
+            }>;
+          };
+        };
+      }
+    | undefined;
+  return (layers?.pdf?.text?.pages ?? []).flatMap((page) =>
+    (page.plain_text_blocks ?? [])
+      .filter((block) => typeof block.text === 'string' && block.text.trim().length > 0)
+      .map((block) => ({
+        id: block.id ?? null,
+        page: block.page_number ?? null,
+        text: block.text ?? '',
+      })),
+  );
 }
 
 describe('extractExhibitARateTableRows', () => {
@@ -563,6 +594,73 @@ describe('extractExhibitARateTableRows', () => {
     assert.equal(rows[0]?.row_id, 'rate_row:fallback:1');
     assert.equal(rows[0]?.rate, 6.9);
   });
+
+  it('builds canonical rows from a clean structural page table in the Goodlettsville price sheet', async () => {
+    const bytes = readFileSync('lib/contracts/__fixtures__/goodlettsville_price_sheet.pdf');
+    const payload = await extractDocument(
+      {
+        id: 'goodlettsville-price-sheet',
+        title: 'Goodlettsville Price Sheet',
+        name: 'goodlettsville_price_sheet.pdf',
+        document_type: 'contract',
+        storage_path: 'lib/contracts/__fixtures__/goodlettsville_price_sheet.pdf',
+      },
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      'application/pdf',
+      'goodlettsville_price_sheet.pdf',
+    );
+
+    const rows = buildContractRateScheduleRows({
+      rateTable: [],
+      pdfTables: contentLayerTables(payload),
+      rateSchedulePages: [2],
+      sourceEntries: contentLayerSourceEntries(payload),
+    });
+
+    assert.equal(rows.length, 5);
+    assert.ok(rows.every((row) => row.page === 2));
+    assert.ok(rows.every((row) => !row.row_id.startsWith('rate_row:fallback:')));
+    assert.deepEqual(
+      rows.map((row) => ({
+        description: row.description,
+        unit: row.unit,
+        rate: row.rate,
+        source_kind: row.source_kind,
+      })),
+      [
+        {
+          description: 'Loading and Hauling From Right of (ROW) Way to',
+          unit: 'Cubic',
+          rate: 27,
+          source_kind: 'structural_table',
+        },
+        {
+          description: 'Debris Mgmt. Site Management N/A',
+          unit: 'Cubic (CY) Yard',
+          rate: 5,
+          source_kind: 'structural_table',
+        },
+        {
+          description: 'of Reduction Vegetative Debris N/A',
+          unit: 'Cubic Yard (CY)',
+          rate: 9.24,
+          source_kind: 'structural_table',
+        },
+        {
+          description: 'Disposal of From DMS to',
+          unit: 'Cubic',
+          rate: 1,
+          source_kind: 'structural_table',
+        },
+        {
+          description: 'Hazardous Limb (Hangers) Cutting (greater than 2" diameter) N/A',
+          unit: 'Unit',
+          rate: 135,
+          source_kind: 'structural_table',
+        },
+      ],
+    );
+  }, 120_000);
 
   it('keeps structured Exhibit A unit ahead of fallback unit pollution', () => {
     const rows = buildContractRateScheduleRows({

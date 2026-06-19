@@ -8,7 +8,7 @@ function makeTableRow(params: {
   id: string;
   page: number;
   rowIndex: number;
-  cells: Array<string | { text: string; source?: 'ocr_fallback' | 'pdfjs' }>;
+  cells: Array<string | { text: string; source?: 'ocr_fallback' | 'pdfjs' | 'vision' }>;
 }): Record<string, unknown> {
   return {
     id: params.id,
@@ -28,7 +28,7 @@ function makeTable(params: {
   page: number;
   headers?: string[];
   headerContext?: string[];
-  rows: Array<Array<string | { text: string; source?: 'ocr_fallback' | 'pdfjs' }>>;
+  rows: Array<Array<string | { text: string; source?: 'ocr_fallback' | 'pdfjs' | 'vision' }>>;
 }): Record<string, unknown> {
   return {
     id: params.id,

@@ -1340,8 +1340,18 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
   }
 
   const grouped = new Map<AllowedCategory, ContractPricingAssemblyRow[]>();
+  const uncategorized: ContractPricingAssemblyRow[] = [];
   for (const row of bestByDedupeKey.values()) {
-    if (!row.category) continue;
+    if (!row.category) {
+      // Only canonical-source rows (row_id prefix 'contract:') with no resolvable
+      // Williamson category are preserved — e.g. generic FEMA price sheets surfaced
+      // via vision extraction. OCR-noise rows (source_kind 'rate_schedule', 'fallback',
+      // 'exhibit_a_*') lack a canonical source anchor and remain dropped.
+      if (row.sourceKind === 'canonical') {
+        uncategorized.push(row);
+      }
+      continue;
+    }
     const category = row.category as AllowedCategory;
     grouped.set(category, [...(grouped.get(category) ?? []), row]);
   }
@@ -1362,7 +1372,7 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
     );
   }
 
-  return selected.sort((left, right) => {
+  const categorizedSorted = selected.sort((left, right) => {
     const leftCategory = left.category as AllowedCategory;
     const rightCategory = right.category as AllowedCategory;
     const categoryDelta = ALLOWED_CATEGORIES.indexOf(leftCategory) - ALLOWED_CATEGORIES.indexOf(rightCategory);
@@ -1371,6 +1381,14 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
     if (pageDelta !== 0) return pageDelta;
     return left.id.localeCompare(right.id);
   });
+
+  const uncategorizedSorted = uncategorized.sort((left, right) => {
+    const pageDelta = (left.page ?? 0) - (right.page ?? 0);
+    if (pageDelta !== 0) return pageDelta;
+    return left.id.localeCompare(right.id);
+  });
+
+  return [...categorizedSorted, ...uncategorizedSorted];
 }
 
 function stringFromRecord(record: Record<string, unknown>, keys: readonly string[]): string | null {

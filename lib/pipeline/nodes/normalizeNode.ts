@@ -3814,7 +3814,7 @@ function invoiceTableFragmentsFromPdfTables(
           row_index: rowIndex,
           table_key: tableKey,
           page_number: pageNumber,
-          source: cell.source === 'ocr_fallback' ? 'ocr_fallback' : cell.source === 'pdfjs' ? 'pdfjs' : undefined,
+          source: cell.source === 'ocr_fallback' ? 'ocr_fallback' : cell.source === 'pdfjs' ? 'pdfjs' : cell.source === 'vision' ? 'vision' : undefined,
           extractor_hint: 'invoice_pdf_table',
         });
       }

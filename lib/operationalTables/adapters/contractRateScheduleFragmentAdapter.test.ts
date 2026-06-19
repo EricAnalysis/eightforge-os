@@ -15,7 +15,7 @@ function table(params: {
     row: number;
     cells: Array<string | {
       text: string;
-      source?: 'pdfjs' | 'ocr_fallback';
+      source?: 'pdfjs' | 'ocr_fallback' | 'vision';
       x_min?: number;
       x_max?: number;
     }>;

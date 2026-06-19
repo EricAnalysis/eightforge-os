@@ -1,6 +1,9 @@
 import type { ContractRateScheduleRow } from './types';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
-import { extractExhibitARateTableRows } from '@/lib/contracts/exhibitARateTableRows';
+import {
+  extractCleanStructuralRateRows,
+  extractExhibitARateTableRows,
+} from '@/lib/contracts/exhibitARateTableRows';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 
 type ContractRateScheduleSourceEntry = {
@@ -645,6 +648,20 @@ export function buildContractRateScheduleRows(
         pdfTables: params.pdfTables,
       }),
     ];
+  }
+
+  // Phase 1 of retiring EXHIBIT_A_PAGES page-pinning.
+  // This branch handles tables with clean pre-separated
+  // cells (e.g. geometry-reconstructed scanned tables).
+  // Phase 2: once 3-5 more projects have run through
+  // EightForge and table shape variety is understood,
+  // unify this with the Exhibit-A path under a single
+  // structural classifier gated on input quality
+  // (clean cells vs. needs multiline reconstruction),
+  // removing the page-number gate entirely.
+  const cleanStructuralRows = extractCleanStructuralRateRows(params.pdfTables);
+  if (cleanStructuralRows.length > 0) {
+    return cleanStructuralRows;
   }
 
   const structuredRows = normalizeTypedRateTableRows({

@@ -164,6 +164,30 @@ describe('resolveDocumentPrecedence', () => {
     assert.equal(contractFamily.governing_document_id, 'base-contract');
   });
 
+  it('routes explicit price sheet documents into pricing truth without an attachment relationship', () => {
+    const families = resolveDocumentPrecedence({
+      documents: [
+        buildDocument({
+          id: 'base-contract',
+          title: 'Base Contract',
+          name: 'base-contract.pdf',
+          document_subtype: 'base_contract',
+        }),
+        buildDocument({
+          id: 'declared-price-sheet',
+          title: 'Declared Price Sheet',
+          name: 'declared-price-sheet.pdf',
+          document_type: 'price_sheet',
+        }),
+      ],
+    });
+
+    const truthCategoryDocumentIds = resolveDocumentTruthCategoryIds({ families });
+
+    assert.ok(truthCategoryDocumentIds.pricing.includes('declared-price-sheet'));
+    assert.ok(truthCategoryDocumentIds.contract_identity.includes('base-contract'));
+  });
+
   it('does not let an attached contract exhibit become governing over its parent contract', () => {
     const families = resolveDocumentPrecedence({
       documents: [

@@ -304,6 +304,7 @@ export function inferGoverningDocumentFamily(
 
   if (
     documentType === 'spreadsheet' ||
+    documentType === 'price sheet' ||
     combinedText.includes('rate sheet') ||
     combinedText.includes('rate schedule') ||
     combinedText.includes('pricing schedule') ||
@@ -747,6 +748,9 @@ export function resolveDocumentTruthCategoryIds(params: {
     contractDocs.filter((document) => document.resolved_subtype === 'compliance_requirements'),
   );
   const pricingIds = Array.from(new Set([
+    ...orderedFamilyDocumentIds(
+      contractDocs.filter((document) => normalizeText(document.document_type) === 'price sheet'),
+    ),
     ...orderedFamilyDocumentIds(
       contractDocs.filter((document) => document.resolved_subtype === 'pricing_schedule'),
     ),

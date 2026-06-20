@@ -44,6 +44,12 @@ type ProjectOption = {
   name: string;
 };
 
+type ContractOption = {
+  id: string;
+  title: string | null;
+  name: string;
+};
+
 const DOC_TYPES = UPLOAD_DOCUMENT_TYPES;
 
 const DOCUMENT_SELECT =
@@ -402,6 +408,8 @@ function UploadModal({
   const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [contractOptions, setContractOptions] = useState<ContractOption[]>([]);
+  const [governingContractId, setGoverningContractId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -422,6 +430,41 @@ function UploadModal({
       setProjectId(initialProjectId);
     }
   }, [initialProjectId]);
+
+  useEffect(() => {
+    if (documentType !== 'price_sheet') {
+      setGoverningContractId('');
+      setContractOptions([]);
+      return;
+    }
+
+    if (!projectId) {
+      setGoverningContractId('');
+      setContractOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    supabase
+      .from('documents')
+      .select('id, title, name')
+      .eq('organization_id', orgId)
+      .eq('project_id', projectId)
+      .eq('document_type', 'contract')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const options = (data ?? []) as ContractOption[];
+        setContractOptions(options);
+        setGoverningContractId((current) =>
+          current && options.some((option) => option.id === current) ? current : '',
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentType, orgId, projectId]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const picked = event.target.files?.[0] ?? null;
@@ -488,6 +531,37 @@ function UploadModal({
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
+      if (documentType === 'price_sheet' && projectId && governingContractId) {
+        const relationshipRes = await fetch(`/api/projects/${projectId}/document-precedence`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token ?? ''}`,
+          },
+          body: JSON.stringify({
+            action: 'link_relationship',
+            sourceDocumentId: insertedDoc.id,
+            targetDocumentId: governingContractId,
+            relationshipType: 'attached_to',
+          }),
+        });
+
+        if (relationshipRes.status === 401) {
+          onUnauthorized?.();
+          return;
+        }
+
+        if (!relationshipRes.ok) {
+          const relationshipJson = await relationshipRes.json().catch(() => null);
+          setError(
+            relationshipJson?.error ||
+            relationshipJson?.message ||
+            `Governing contract link failed (${relationshipRes.status})`,
+          );
+          return;
+        }
+      }
 
       const processPromise = fetch('/api/documents/process', {
         method: 'POST',
@@ -567,6 +641,27 @@ function UploadModal({
               ))}
             </select>
           </div>
+
+          {documentType === 'price_sheet' && projectId ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+                Governing Contract
+              </label>
+              <select
+                aria-label="Governing Contract"
+                value={governingContractId}
+                onChange={(event) => setGoverningContractId(event.target.value)}
+                className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+              >
+                <option value="">None</option>
+                {contractOptions.map((contract) => (
+                  <option key={contract.id} value={contract.id}>
+                    {contract.title?.trim() || contract.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div>
             <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">

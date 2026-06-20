@@ -90,6 +90,8 @@ describe('intelligence adapter contract rate schedule persistence', () => {
     assert.equal(facts.pricing_applicability, 'unit_rate_schedule_controls_pricing');
     assert.equal(facts.rate_row_count, 1);
     assert.ok(Array.isArray(facts.rate_table));
+    assert.equal((facts.rate_table as Array<Record<string, unknown>>)[0]?.unit_of_measure, 'per cubic yard');
+    assert.equal((facts.rate_table as Array<Record<string, unknown>>)[0]?.unit_type, 'per cubic yard');
     assert.equal((facts.rate_table as Array<Record<string, unknown>>)[0]?.rate_amount, 6.9);
     assert.equal((facts.rate_table as Array<Record<string, unknown>>)[0]?.canonical_category, 'vegetative_removal');
     assert.equal(governingRateTables.rate_row_count, 1);

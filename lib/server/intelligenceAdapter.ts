@@ -186,6 +186,12 @@ function canonicalizeContractFacts(params: {
   const rateScheduleRows = Array.isArray(contractAnalysis.rate_schedule_rows)
     ? contractAnalysis.rate_schedule_rows
     : [];
+  const persistedRateScheduleRows = rateScheduleRows.map((row) => ({
+    ...row,
+    unit_of_measure: row.unit,
+    unit_type: row.unit ?? row.unit_type,
+    rate_amount: row.rate_amount ?? row.rate,
+  }));
 
   if (facts.rate_schedule_present == null && typeof rateSchedulePresent === 'boolean') {
     facts.rate_schedule_present = rateSchedulePresent;
@@ -196,8 +202,8 @@ function canonicalizeContractFacts(params: {
   if (facts.pricing_applicability == null && typeof pricingApplicability === 'string') {
     facts.pricing_applicability = pricingApplicability;
   }
-  if (facts.rate_table == null && rateScheduleRows.length > 0) {
-    facts.rate_table = rateScheduleRows;
+  if (facts.rate_table == null && persistedRateScheduleRows.length > 0) {
+    facts.rate_table = persistedRateScheduleRows;
   }
   if ((facts.rate_row_count == null || facts.rate_row_count === 0) && rateScheduleRows.length > 0) {
     facts.rate_row_count = rateScheduleRows.length;
@@ -216,10 +222,10 @@ function canonicalizeContractFacts(params: {
       ...(governingRateTables.pricing_applicability == null && typeof pricingApplicability === 'string'
         ? { pricing_applicability: pricingApplicability }
         : {}),
-      ...(rateScheduleRows.length > 0
+      ...(persistedRateScheduleRows.length > 0
         ? {
-            rate_schedule_rows: rateScheduleRows,
-            rate_row_count: rateScheduleRows.length,
+            rate_schedule_rows: persistedRateScheduleRows,
+            rate_row_count: persistedRateScheduleRows.length,
           }
         : {}),
     };

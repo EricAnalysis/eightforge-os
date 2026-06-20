@@ -51,6 +51,7 @@ type ContractOption = {
 };
 
 const DOC_TYPES = UPLOAD_DOCUMENT_TYPES;
+type UploadDocumentType = (typeof UPLOAD_DOCUMENT_TYPES)[number];
 
 const DOCUMENT_SELECT =
   'id, title, name, document_type, processing_status, processing_error, created_at, processed_at, domain, project_id, intelligence_trace, projects(id, name, code)';
@@ -219,11 +220,24 @@ function handleOpenKey(
   }
 }
 
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return {
+    'Content-Type': 'application/json',
+    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  };
+}
+
 function DocumentRow({
   document,
   openHref,
   onOpen,
   onReprocess,
+  onChangeType,
+  onRemove,
   isProcessing,
   processError,
 }: {
@@ -231,13 +245,56 @@ function DocumentRow({
   openHref: string;
   onOpen: () => void;
   onReprocess: () => void;
+  onChangeType: (document: DocumentWorkspaceItem, documentType: UploadDocumentType) => Promise<void>;
+  onRemove: (document: DocumentWorkspaceItem) => Promise<void>;
   isProcessing: boolean;
   processError?: string | null;
 }) {
+  const [editingType, setEditingType] = useState(false);
+  const [selectedType, setSelectedType] = useState<UploadDocumentType>(
+    UPLOAD_DOCUMENT_TYPES.includes(document.documentType as UploadDocumentType)
+      ? (document.documentType as UploadDocumentType)
+      : UPLOAD_DOCUMENT_TYPES[0],
+  );
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [savingType, setSavingType] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const canReprocess =
     document.processingStatus === 'uploaded' ||
     document.processingStatus === 'failed' ||
     document.processingStatus === 'extracted';
+  const isProjectContract =
+    document.projectId != null && document.documentType === 'contract';
+
+  const handleChangeType = async () => {
+    setSavingType(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await onChangeType(document, selectedType);
+      setEditingType(false);
+      setActionMessage('Document type updated. Reprocess is required.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Change type failed.');
+    } finally {
+      setSavingType(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setRemoving(true);
+    setActionError(null);
+    try {
+      await onRemove(document);
+      setConfirmingRemove(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Remove failed.');
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   return (
     <div
@@ -380,6 +437,103 @@ function DocumentRow({
               {document.processingStatus === 'uploaded' ? 'Process' : 'Reprocess'}
             </button>
           )
+        ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
+          <button
+            type="button"
+            onClick={() => {
+              setEditingType((current) => !current);
+              setActionError(null);
+              setActionMessage(null);
+            }}
+            className="font-medium text-[var(--ef-purple-glow)] hover:text-[var(--ef-purple-primary)]"
+          >
+            Change Type
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingRemove(true);
+              setActionError(null);
+              setActionMessage(null);
+            }}
+            className="font-medium text-[var(--ef-critical-soft)] hover:text-[var(--ef-critical)]"
+          >
+            Remove
+          </button>
+        </div>
+        {editingType ? (
+          <div className="mt-3 space-y-2 rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-primary)] p-3">
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+              Document Type
+              <select
+                value={selectedType}
+                onChange={(event) => setSelectedType(event.target.value as UploadDocumentType)}
+                disabled={savingType}
+                className="mt-1 block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] normal-case tracking-normal text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+              >
+                {UPLOAD_DOCUMENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {titleize(type)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleChangeType}
+                disabled={savingType}
+                className="rounded-md bg-[var(--ef-purple-primary)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white hover:bg-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingType ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingType(false)}
+                disabled={savingType}
+                className="rounded-md border border-[var(--ef-surface-elevated)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {confirmingRemove ? (
+          <div className="mt-3 space-y-2 rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-3">
+            <p className="text-[11px] font-medium text-[var(--ef-critical-soft)]">
+              Remove this document? This cannot be undone.
+            </p>
+            {isProjectContract ? (
+              <p className="text-[11px] text-[var(--ef-critical-soft)]">
+                This appears to be a governing contract. Removing it will clear all validation findings for this project.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleRemove}
+                disabled={removing}
+                className="rounded-md bg-[var(--ef-critical)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white hover:bg-[var(--ef-critical-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {removing ? 'Removing...' : 'Confirm Remove'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingRemove(false)}
+                disabled={removing}
+                className="rounded-md border border-[var(--ef-critical-a30)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-critical-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {actionMessage ? (
+          <p className="mt-2 text-[11px] text-[var(--ef-success-soft)]">{actionMessage}</p>
+        ) : null}
+        {actionError ? (
+          <p className="mt-2 text-[11px] text-[var(--ef-critical)]">{actionError}</p>
         ) : null}
       </div>
     </div>
@@ -787,6 +941,7 @@ export default function DocumentsPage() {
           .from('documents')
           .select(DOCUMENT_SELECT)
           .eq('organization_id', currentOrgId)
+          .is('deleted_at', null)
           .order('created_at', { ascending: false }),
         supabase
           .from('document_reviews')
@@ -915,6 +1070,61 @@ export default function DocumentsPage() {
       });
     }
   }, [fetchWorkspaceData, orgId, router]);
+
+  const changeDocumentType = useCallback(
+    async (document: DocumentWorkspaceItem, documentType: UploadDocumentType) => {
+      const response = await fetch(`/api/documents/${document.id}`, {
+        method: 'PATCH',
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({ document_type: documentType }),
+      });
+
+      if (redirectIfUnauthorized(response, router.replace)) {
+        return;
+      }
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.error ?? `Change type failed (${response.status})`);
+      }
+
+      setDocuments((previous) =>
+        previous.map((row) =>
+          row.id === document.id
+            ? {
+                ...row,
+                document_type: documentType,
+                processing_status: 'uploaded',
+                processing_error: null,
+                processed_at: null,
+              }
+            : row,
+        ),
+      );
+    },
+    [router],
+  );
+
+  const removeDocument = useCallback(
+    async (document: DocumentWorkspaceItem) => {
+      const response = await fetch(`/api/documents/${document.id}`, {
+        method: 'DELETE',
+        headers: await getAuthHeaders(),
+      });
+
+      if (redirectIfUnauthorized(response, router.replace)) {
+        return;
+      }
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.error ?? `Remove failed (${response.status})`);
+      }
+
+      setDocuments((previous) => previous.filter((row) => row.id !== document.id));
+    },
+    [router],
+  );
 
   useEffect(() => {
     if (orgLoading || !organizationId) {
@@ -1440,6 +1650,8 @@ export default function DocumentsPage() {
                 }
                 onOpen={() => handleOpenDocument(document)}
                 onReprocess={() => reprocessDoc(document.id)}
+                onChangeType={changeDocumentType}
+                onRemove={removeDocument}
                 isProcessing={processingIds.has(document.id)}
                 processError={processErrors[document.id] ?? null}
               />

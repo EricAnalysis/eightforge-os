@@ -15,6 +15,8 @@ import {
   type DocumentFactOverrideRow,
 } from '@/lib/documentFactOverrides';
 import { isTransactionDataTableUnavailableError } from '@/lib/server/transactionDataPersistence';
+import { UPLOAD_DOCUMENT_TYPES } from '@/lib/documentTypes';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { loadPrecedenceAwareRelatedDocs } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -23,6 +25,12 @@ const DOCUMENT_SELECT =
   'id, title, name, document_type, document_subtype, status, created_at, storage_path, project_id, projects(id, name), processing_status, processing_error, processed_at, domain, intelligence_trace';
 const LEGACY_DOCUMENT_SELECT =
   'id, title, name, document_type, status, created_at, storage_path, project_id, projects(id, name), processing_status, processing_error, processed_at, domain, intelligence_trace';
+const MUTATION_DOCUMENT_SELECT =
+  'id, title, name, document_type, processing_status, project_id, deleted_at';
+
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
 
 function isMissingDocumentSubtypeColumnError(
   error: { code?: string | null; message?: string | null } | null | undefined,
@@ -71,7 +79,8 @@ export async function GET(
     .from('documents')
     .select(DOCUMENT_SELECT)
     .eq('id', id)
-    .eq('organization_id', orgId);
+    .eq('organization_id', orgId)
+    .is('deleted_at', null);
   let { data, error } = await baseQuery.maybeSingle();
 
   if (error && isMissingDocumentSubtypeColumnError(error)) {
@@ -80,6 +89,7 @@ export async function GET(
       .select(LEGACY_DOCUMENT_SELECT)
       .eq('id', id)
       .eq('organization_id', orgId)
+      .is('deleted_at', null)
       .maybeSingle());
   }
 
@@ -250,5 +260,161 @@ export async function GET(
     ),
     transactionDatasets,
     transactionRows,
+  });
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  if (!id) return jsonError('Document id is required', 400);
+
+  const actorResult = await getActorContext(request);
+  if (!actorResult.ok) return jsonError(actorResult.error, actorResult.status);
+
+  const admin = getSupabaseAdmin();
+  if (!admin) return jsonError('Server not configured', 503);
+
+  const body = await request.json().catch(() => ({}));
+  const documentType =
+    typeof body?.document_type === 'string' ? body.document_type.trim() : '';
+
+  if (!UPLOAD_DOCUMENT_TYPES.includes(documentType as (typeof UPLOAD_DOCUMENT_TYPES)[number])) {
+    return jsonError('document_type is not allowed', 400);
+  }
+
+  const { data: existing, error: loadError } = await admin
+    .from('documents')
+    .select(MUTATION_DOCUMENT_SELECT)
+    .eq('id', id)
+    .eq('organization_id', actorResult.actor.organizationId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (loadError) return jsonError(loadError.message, 500);
+  if (!existing) return jsonError('Document not found', 404);
+
+  const { data: updated, error: updateError } = await admin
+    .from('documents')
+    .update({
+      document_type: documentType,
+      processing_status: 'uploaded',
+      processing_error: null,
+      processed_at: null,
+    })
+    .eq('id', id)
+    .eq('organization_id', actorResult.actor.organizationId)
+    .is('deleted_at', null)
+    .select(MUTATION_DOCUMENT_SELECT)
+    .single();
+
+  if (updateError) return jsonError(updateError.message, 500);
+
+  const activityResult = await logActivityEvent({
+    organization_id: actorResult.actor.organizationId,
+    project_id: (updated as { project_id?: string | null }).project_id ?? null,
+    entity_type: 'document',
+    entity_id: id,
+    event_type: 'updated',
+    changed_by: actorResult.actor.actorId,
+    old_value: {
+      document_type: (existing as { document_type?: string | null }).document_type ?? null,
+      processing_status: (existing as { processing_status?: string | null }).processing_status ?? null,
+      document_title:
+        (existing as { title?: string | null }).title ??
+        (existing as { name?: string | null }).name ??
+        null,
+    },
+    new_value: {
+      document_type: documentType,
+      processing_status: 'uploaded',
+      requires_reprocess: true,
+      document_title:
+        (updated as { title?: string | null }).title ??
+        (updated as { name?: string | null }).name ??
+        null,
+    },
+  });
+  if (!activityResult.ok) {
+    console.error('[documents] type update audit log failed:', activityResult.error);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    document: updated,
+    requiresReprocess: true,
+  });
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  if (!id) return jsonError('Document id is required', 400);
+
+  const actorResult = await getActorContext(request);
+  if (!actorResult.ok) return jsonError(actorResult.error, actorResult.status);
+
+  const admin = getSupabaseAdmin();
+  if (!admin) return jsonError('Server not configured', 503);
+
+  const { data: existing, error: loadError } = await admin
+    .from('documents')
+    .select(MUTATION_DOCUMENT_SELECT)
+    .eq('id', id)
+    .eq('organization_id', actorResult.actor.organizationId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (loadError) return jsonError(loadError.message, 500);
+  if (!existing) return jsonError('Document not found', 404);
+
+  const deletedAt = new Date().toISOString();
+  const { data: updated, error: updateError } = await admin
+    .from('documents')
+    .update({ deleted_at: deletedAt })
+    .eq('id', id)
+    .eq('organization_id', actorResult.actor.organizationId)
+    .is('deleted_at', null)
+    .select(MUTATION_DOCUMENT_SELECT)
+    .single();
+
+  if (updateError) return jsonError(updateError.message, 500);
+
+  // Scoped soft-delete only: the storage object is intentionally preserved.
+  const activityResult = await logActivityEvent({
+    organization_id: actorResult.actor.organizationId,
+    project_id: (existing as { project_id?: string | null }).project_id ?? null,
+    entity_type: 'document',
+    entity_id: id,
+    event_type: 'updated',
+    changed_by: actorResult.actor.actorId,
+    old_value: {
+      deleted_at: null,
+      document_type: (existing as { document_type?: string | null }).document_type ?? null,
+      document_title:
+        (existing as { title?: string | null }).title ??
+        (existing as { name?: string | null }).name ??
+        null,
+    },
+    new_value: {
+      deleted_at: deletedAt,
+      soft_deleted: true,
+      document_title:
+        (existing as { title?: string | null }).title ??
+        (existing as { name?: string | null }).name ??
+        null,
+    },
+  });
+  if (!activityResult.ok) {
+    console.error('[documents] soft-delete audit log failed:', activityResult.error);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    deletedDocumentId: id,
+    document: updated,
   });
 }

@@ -1,17 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { DocumentIntelligenceStrip } from '@/components/document-intelligence/DocumentIntelligenceStrip';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { DocumentSourceViewer } from '@/components/document-intelligence/DocumentSourceViewer';
 import { buildProjectDocumentHref, buildProjectDocumentsForgeHref } from '@/lib/documentNavigation';
+import { UPLOAD_DOCUMENT_TYPES } from '@/lib/documentTypes';
 import { type ProjectDocumentRow } from '@/lib/projectOverview';
+import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useForgeDocumentDetail } from '@/lib/useForgeDocumentDetail';
 
 type ForgeTabKey = 'viewer' | 'content' | 'relationships' | 'activity';
+type UploadDocumentType = (typeof UPLOAD_DOCUMENT_TYPES)[number];
 
 const FORGE_TABS: Array<{ key: ForgeTabKey; label: string }> = [
   { key: 'viewer', label: 'Document Viewer' },
@@ -77,6 +80,17 @@ function relativeTime(value: string | null | undefined): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return {
+    'Content-Type': 'application/json',
+    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  };
 }
 
 function documentFamily(document: ProjectDocumentRow): 'contract' | 'invoice' | 'transaction' | 'support' {
@@ -189,18 +203,29 @@ export function ProjectDocumentsForge({
   const searchParams = useSearchParams();
   const { organization } = useCurrentOrg();
   const organizationId = organization?.id ?? null;
+  const [managedDocuments, setManagedDocuments] = useState<ProjectDocumentRow[]>(documents);
   const [searchValue, setSearchValue] = useState('');
   const [activeTab, setActiveTab] = useState<ForgeTabKey>('viewer');
   const [selectedFactId, setSelectedFactId] = useState<string | null>(null);
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<UploadDocumentType>(UPLOAD_DOCUMENT_TYPES[0]);
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [rowMessages, setRowMessages] = useState<Record<string, string>>({});
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setManagedDocuments(documents);
+  }, [documents]);
 
   const orderedDocuments = useMemo(
     () =>
-      [...documents].sort((left, right) => {
+      [...managedDocuments].sort((left, right) => {
         const leftTimestamp = new Date(left.processed_at ?? left.created_at).getTime();
         const rightTimestamp = new Date(right.processed_at ?? right.created_at).getTime();
         return rightTimestamp - leftTimestamp;
       }),
-    [documents],
+    [managedDocuments],
   );
 
   const filteredDocuments = useMemo(() => {
@@ -230,6 +255,114 @@ export function ProjectDocumentsForge({
       scroll: false,
     });
   }, [projectId, router, selectedDocument, selectedDocumentId]);
+
+  const setRowMessage = useCallback((documentId: string, message: string | null) => {
+    setRowMessages((previous) => {
+      const next = { ...previous };
+      if (message) next[documentId] = message;
+      else delete next[documentId];
+      return next;
+    });
+  }, []);
+
+  const setRowError = useCallback((documentId: string, message: string | null) => {
+    setRowErrors((previous) => {
+      const next = { ...previous };
+      if (message) next[documentId] = message;
+      else delete next[documentId];
+      return next;
+    });
+  }, []);
+
+  const openTypeEditor = useCallback((document: ProjectDocumentRow) => {
+    setEditingTypeId(document.id);
+    setSelectedType(
+      UPLOAD_DOCUMENT_TYPES.includes(document.document_type as UploadDocumentType)
+        ? (document.document_type as UploadDocumentType)
+        : UPLOAD_DOCUMENT_TYPES[0],
+    );
+    setRowMessage(document.id, null);
+    setRowError(document.id, null);
+  }, [setRowError, setRowMessage]);
+
+  const changeDocumentType = useCallback(
+    async (document: ProjectDocumentRow) => {
+      setBusyAction(`type:${document.id}`);
+      setRowMessage(document.id, null);
+      setRowError(document.id, null);
+
+      try {
+        const response = await fetch(`/api/documents/${document.id}`, {
+          method: 'PATCH',
+          headers: await getAuthHeaders(),
+          body: JSON.stringify({ document_type: selectedType }),
+        });
+        if (response.status === 401) {
+          router.replace('/login');
+          return;
+        }
+
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body?.ok) {
+          setRowError(document.id, body?.error ?? `Change type failed (${response.status})`);
+          return;
+        }
+
+        setManagedDocuments((previous) =>
+          previous.map((row) =>
+            row.id === document.id
+              ? {
+                  ...row,
+                  document_type: selectedType,
+                  processing_status: 'uploaded',
+                  processing_error: null,
+                  processed_at: null,
+                }
+              : row,
+          ),
+        );
+        setEditingTypeId(null);
+        setRowMessage(document.id, 'Document type updated. Reprocess is required.');
+      } catch (error) {
+        setRowError(document.id, error instanceof Error ? error.message : 'Change type failed.');
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [router, selectedType, setRowError, setRowMessage],
+  );
+
+  const removeDocument = useCallback(
+    async (document: ProjectDocumentRow) => {
+      setBusyAction(`remove:${document.id}`);
+      setRowError(document.id, null);
+
+      try {
+        const response = await fetch(`/api/documents/${document.id}`, {
+          method: 'DELETE',
+          headers: await getAuthHeaders(),
+        });
+        if (response.status === 401) {
+          router.replace('/login');
+          return;
+        }
+
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body?.ok) {
+          setRowError(document.id, body?.error ?? `Remove failed (${response.status})`);
+          return;
+        }
+
+        setManagedDocuments((previous) => previous.filter((row) => row.id !== document.id));
+        setConfirmingRemoveId(null);
+      } catch (error) {
+        setRowError(document.id, error instanceof Error ? error.message : 'Remove failed.');
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [router, setRowError],
+  );
 
   const detail = useForgeDocumentDetail(selectedDocument?.id ?? null, organizationId);
   const selectedModel = detail.model;
@@ -277,7 +410,7 @@ export function ProjectDocumentsForge({
                   Document List
                 </p>
                 <p className="mt-1 text-[12px] text-[var(--ef-text-muted)]">
-                  {documents.length} linked document{documents.length === 1 ? '' : 's'} in {projectName}.
+                  {managedDocuments.length} linked document{managedDocuments.length === 1 ? '' : 's'} in {projectName}.
                 </p>
               </div>
               <button
@@ -311,6 +444,11 @@ export function ProjectDocumentsForge({
               {filteredDocuments.map((document) => {
                 const isSelected = document.id === selectedDocument?.id;
                 const status = documentStatusMeta(document);
+                const isEditingType = editingTypeId === document.id;
+                const isConfirmingRemove = confirmingRemoveId === document.id;
+                const isSavingType = busyAction === `type:${document.id}`;
+                const isRemoving = busyAction === `remove:${document.id}`;
+                const isProjectContract = document.document_type === 'contract';
                 return (
                   <div
                     key={document.id}
@@ -353,6 +491,101 @@ export function ProjectDocumentsForge({
                         </Link>
                       </div>
                     </button>
+                    <div className="space-y-2 px-4 pb-4 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => openTypeEditor(document)}
+                          className="font-medium text-[var(--ef-purple-glow)] hover:text-[var(--ef-purple-primary)]"
+                        >
+                          Change Type
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfirmingRemoveId(document.id);
+                            setRowMessage(document.id, null);
+                            setRowError(document.id, null);
+                          }}
+                          className="font-medium text-[var(--ef-critical-soft)] hover:text-[var(--ef-critical)]"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      {isEditingType ? (
+                        <div className="space-y-2 rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-primary)] p-3">
+                          <label className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+                            Document Type
+                            <select
+                              value={selectedType}
+                              onChange={(event) => setSelectedType(event.target.value as UploadDocumentType)}
+                              disabled={isSavingType}
+                              className="mt-1 block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-2 py-1.5 text-[11px] normal-case tracking-normal text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+                            >
+                              {UPLOAD_DOCUMENT_TYPES.map((type) => (
+                                <option key={type} value={type}>
+                                  {formatLabel(type)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void changeDocumentType(document)}
+                              disabled={isSavingType}
+                              className="rounded-md bg-[var(--ef-purple-primary)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white hover:bg-[var(--ef-purple-glow)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isSavingType ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingTypeId(null)}
+                              disabled={isSavingType}
+                              className="rounded-md border border-[var(--ef-surface-elevated)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-muted)] hover:text-[var(--ef-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {isConfirmingRemove ? (
+                        <div className="space-y-2 rounded-md border border-[var(--ef-critical-a30)] bg-[var(--ef-critical-a10)] p-3">
+                          <p className="font-medium text-[var(--ef-critical-soft)]">
+                            Remove this document? This cannot be undone.
+                          </p>
+                          {isProjectContract ? (
+                            <p className="text-[var(--ef-critical-soft)]">
+                              This appears to be a governing contract. Removing it will clear all validation findings for this project.
+                            </p>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void removeDocument(document)}
+                              disabled={isRemoving}
+                              className="rounded-md bg-[var(--ef-critical)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white hover:bg-[var(--ef-critical-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isRemoving ? 'Removing...' : 'Confirm Remove'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingRemoveId(null)}
+                              disabled={isRemoving}
+                              className="rounded-md border border-[var(--ef-critical-a30)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ef-critical-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {rowMessages[document.id] ? (
+                        <p className="text-[var(--ef-success-soft)]">{rowMessages[document.id]}</p>
+                      ) : null}
+                      {rowErrors[document.id] ? (
+                        <p className="text-[var(--ef-critical)]">{rowErrors[document.id]}</p>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })}

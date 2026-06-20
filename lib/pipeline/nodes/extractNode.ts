@@ -58,6 +58,9 @@ function inferFamily(
     ?? documentType
     ?? ''
   ).toLowerCase();
+  if (normalizedType.includes('price_sheet') || normalizedType.includes('price sheet')) {
+    return 'contract';
+  }
   if (normalizedType.includes('transaction_data') || normalizedType.includes('transaction data')) {
     return 'spreadsheet';
   }

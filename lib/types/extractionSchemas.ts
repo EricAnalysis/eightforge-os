@@ -117,4 +117,4 @@ export type TypedExtraction =
   | InvoiceExtraction
   | ReportExtraction;
 
-export type SupportedDocumentType = 'contract' | 'invoice' | 'report';
+export type SupportedDocumentType = 'contract' | 'price_sheet' | 'invoice' | 'report';

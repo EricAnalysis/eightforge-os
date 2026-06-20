@@ -652,6 +652,9 @@ function collectRegistryRegexMatches(
 }
 
 function qualifyRateScheduleTable(table: Record<string, unknown>): RateScheduleQualificationDebug {
+  // TODO: add document_type = 'price_sheet' qualification
+  // boost in a dedicated follow-up pass after price_sheet
+  // type is stable in production.
   const headers = stringValues(table.headers);
   const headerContext = stringValues(table.header_context);
   const denseHeaderTexts = headers.map(denseText);

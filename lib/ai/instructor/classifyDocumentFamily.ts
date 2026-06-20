@@ -42,6 +42,7 @@ function labelForFamily(family: DocumentFamily): string {
 function mapDocumentTypeToFamily(documentType: string | null | undefined): DocumentFamily | null {
   const normalized = (documentType ?? '').trim().toLowerCase();
   if (!normalized) return null;
+  if (normalized.includes('price_sheet') || normalized.includes('price sheet')) return 'contract';
   if (normalized.includes('contract')) return 'contract';
   if (normalized.includes('invoice')) return 'invoice';
   if (normalized.includes('payment_rec') || normalized.includes('payment recommendation')) {

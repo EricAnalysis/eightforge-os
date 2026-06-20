@@ -1,5 +1,6 @@
 export const UPLOAD_DOCUMENT_TYPES = [
   'contract',
+  'price_sheet',
   'invoice',
   'report',
   'policy',
@@ -14,6 +15,7 @@ const DOCUMENT_TYPE_INPUT_RE = /^[a-z0-9_-]+$/;
 const DOCUMENT_TYPE_ALIASES: Record<string, string> = {
   'payment rec': 'payment_recommendation',
   'payment recommendation': 'payment_recommendation',
+  'price sheet': 'price_sheet',
   'transaction data': 'transaction_data',
   'ticket export': 'ticket',
 };

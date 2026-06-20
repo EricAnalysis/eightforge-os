@@ -12,6 +12,7 @@ export const instructorDocumentFamilySchema = z.enum([
 
 export const instructorDetectedDocumentTypeSchema = z.enum([
   'contract',
+  'price_sheet',
   'invoice',
   'payment_recommendation',
   'ticket',

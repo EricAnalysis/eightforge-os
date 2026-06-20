@@ -395,6 +395,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .select(DOCUMENT_SELECT_WITH_PRECEDENCE)
           .eq('organization_id', organizationId)
           .eq('project_id', projectId)
+          .is('deleted_at', null)
           .order('created_at', { ascending: false }),
         supabase
           .from('transaction_data_datasets')
@@ -458,6 +459,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .select(DOCUMENT_SELECT_LEGACY)
           .eq('organization_id', organizationId)
           .eq('project_id', projectId)
+          .is('deleted_at', null)
           .order('created_at', { ascending: false }) as ProjectRowsQueryResult;
       }
 

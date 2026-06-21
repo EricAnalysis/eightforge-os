@@ -51,7 +51,7 @@ describe('Goodlettsville scanned price sheet extraction', () => {
         id: 'goodlettsville-price-sheet',
         title: 'Goodlettsville Price Sheet',
         name: 'goodlettsville_price_sheet.pdf',
-        document_type: 'contract',
+        document_type: 'price_sheet',
         storage_path: 'lib/contracts/__fixtures__/goodlettsville_price_sheet.pdf',
       },
       bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),

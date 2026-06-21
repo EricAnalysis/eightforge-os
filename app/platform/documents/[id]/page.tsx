@@ -1696,8 +1696,19 @@ export default function DocumentDetailPage({
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const extractionStalenessWarning = intelligenceViewModel?.extractionStalenessWarning ?? null;
+
   return (
     <div className="space-y-5">
+      {extractionStalenessWarning ? (
+        <div className="rounded-2xl border border-[var(--ef-warning)] bg-[var(--ef-surface-elevated)] px-4 py-3 text-[12px]">
+          <span className="font-semibold text-[var(--ef-warning)]">Extraction warning: </span>
+          <span className="text-[var(--ef-text-soft)]">
+            Latest reprocessing attempt produced no usable extraction. Showing prior result from{' '}
+            {new Date(extractionStalenessWarning.showingBlobFromAt).toLocaleString()}.
+          </span>
+        </div>
+      ) : null}
       <DocumentDetailExperience
         breadcrumbs={breadcrumbs}
         contextLabel={documentContextBadgeLabel(detailContext.mode)}

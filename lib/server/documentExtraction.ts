@@ -1313,13 +1313,18 @@ export async function extractDocument(
       extractPdfPageTextNative(cloneArrayBuffer(fileBytes)),
     ]);
 
-    const contractLike =
-      (metadata.document_type ?? '').toLowerCase().includes('contract') ||
-      fileName.toLowerCase().includes('contract');
+    const ocrEligible = (() => {
+      const docType = (metadata.document_type ?? '').toLowerCase();
+      return (
+        docType.includes('contract') ||
+        docType.includes('price_sheet') ||
+        fileName.toLowerCase().includes('contract')
+      );
+    })();
 
     logPdf('pdf-parse full complete', {
       fileName,
-      contractLike,
+      ocrEligible,
       did_pdf_parse_full: true,
       extracted_text_length: extractedTextFull?.length ?? 0,
       native_page_text_count: nativePageTexts?.length ?? 0,
@@ -1375,7 +1380,7 @@ export async function extractDocument(
     const fallbackAllowed = fullWeak && !meaningfulPdfText;
     logPdf('pdf fallback gate evaluated', {
       fileName,
-      contractLike,
+      ocrEligible,
       page_count: pdfLayout.page_count,
       extracted_text_length: extractedTextFull?.length ?? 0,
       native_page_text_lengths: nativePageTexts
@@ -1415,7 +1420,7 @@ export async function extractDocument(
       }
       extractionMode = 'pdf_text';
       fallbackReason = null;
-    } else if (contractLike && fallbackAllowed) {
+    } else if (ocrEligible && fallbackAllowed) {
       didAttemptOcr = true;
       didAttemptOcrPrimary = true;
       extractionMode = 'ocr_recovery';
@@ -1457,10 +1462,10 @@ export async function extractDocument(
       }
     }
 
-    // If this is contract-like, we may have strong later-page body text but image-only agreement
-    // front matter. OCR only the weak front/signature pages so canonical contractor/date facts can
-    // see the introductory paragraph, commencement clause, and signature block.
-    if (contractLike && !didAttemptOcr && meaningfulPdfText) {
+    // If this is an OCR-eligible document (contract or price_sheet), we may have strong later-page
+    // body text but image-only front matter. OCR the weak front/signature pages so canonical
+    // contractor/date facts can see the introductory paragraph, commencement clause, and signature block.
+    if (ocrEligible && !didAttemptOcr && meaningfulPdfText) {
       const preliminary = buildEvidenceV1({
         pageText: evidencePageText,
         documentTypeHint: metadata.document_type ?? null,
@@ -1515,7 +1520,7 @@ export async function extractDocument(
     // Deterministic targeted OCR: if evidence_v1 does NOT detect a rate section and
     // the likely attachment pages are nearly empty, OCR only those pages.
     // Skip when native/layout already yielded meaningful text (no OCR in that case).
-    if (contractLike && !didAttemptOcr && !meaningfulPdfText) {
+    if (ocrEligible && !didAttemptOcr && !meaningfulPdfText) {
       const preliminary = buildEvidenceV1({
         pageText: evidencePageText,
         documentTypeHint: metadata.document_type ?? null,
@@ -1700,7 +1705,7 @@ export async function extractDocument(
     const upstreamExtractionDebug: Record<string, unknown> | null = contractDebugEnabled
       ? {
           source_mode: extractionMode,
-          contract_like: contractLike,
+          contract_like: ocrEligible,
           pdf_parse_full_length: extractedTextFull?.length ?? 0,
           pdf_parse_full_weak: fullWeak,
           pdf_parse_partial_length: pdfParsePartialLength,
@@ -1771,7 +1776,7 @@ export async function extractDocument(
         ocr_confidence_avg: ocrConfidenceAvg,
         canonical_persisted: false,
         gate_context: {
-          contract_like: contractLike,
+          contract_like: ocrEligible,
           full_weak: fullWeak,
           meaningful_pdf_text: meaningfulPdfText,
           fallback_allowed: fallbackAllowed,
@@ -1887,7 +1892,7 @@ export async function extractDocument(
       ocr_confidence_avg: ocrConfidenceAvg,
       canonical_persisted: false,
       gate_context: {
-        contract_like: contractLike,
+        contract_like: ocrEligible,
         full_weak: fullWeak,
         meaningful_pdf_text: meaningfulPdfText,
         fallback_allowed: fallbackAllowed,

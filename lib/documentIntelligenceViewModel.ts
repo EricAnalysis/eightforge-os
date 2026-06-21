@@ -2,6 +2,7 @@ import {
   findEvidenceByValueMatch,
   hasInspectableValue,
 } from '@/lib/extraction/evidenceValueMatch';
+import { hasUsableExtractionBlobData } from '@/lib/blobExtractionSelection';
 import {
   type DocumentFactAnchorType,
   type DocumentFactAnchorRecord,
@@ -438,6 +439,10 @@ export type DocumentIntelligenceViewModel = {
   spreadsheetReviewDataset: SpreadsheetReviewDataset | null;
   contractRateRows?: DocumentContractRateRow[];
   contractPricingAssemblyRows?: ContractPricingAssemblyRow[];
+  extractionStalenessWarning: {
+    latestAttemptedAt: string;
+    showingBlobFromAt: string;
+  } | null;
 };
 
 type SupportedScalar = string | number | boolean | null;
@@ -6136,5 +6141,18 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     spreadsheetReviewDataset,
     contractRateRows,
     contractPricingAssemblyRows,
+    extractionStalenessWarning: (() => {
+      const latestRow = params.extractionHistory[0] ?? null;
+      if (
+        latestRow == null ||
+        params.preferredExtraction == null ||
+        latestRow.id === params.preferredExtraction.id
+      ) return null;
+      if (hasUsableExtractionBlobData(latestRow.data ?? null)) return null;
+      return {
+        latestAttemptedAt: latestRow.created_at,
+        showingBlobFromAt: params.preferredExtraction.created_at ?? '',
+      };
+    })(),
   };
 }

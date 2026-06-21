@@ -108,6 +108,46 @@ const CATEGORY_RULES: readonly CanonicalRateCategoryRule[] = [
   },
 ] as const;
 
+const STRONG_MANAGEMENT_REDUCTION_DESCRIPTORS = [
+  'debris mgmt site management',
+  'debris management site management',
+  'reduction of vegetative debris',
+  'grinding and chipping vegetative debris',
+  'grinding chipping vegetative debris',
+] as const;
+
+const STRONG_FINAL_DISPOSAL_DESCRIPTORS = [
+  'loading hauling to final disposal',
+  'dms to final disposal',
+  'dms to fds',
+] as const;
+
+function containsNormalizedPhrase(text: string, phrase: string): boolean {
+  return text === phrase
+    || text.startsWith(`${phrase} `)
+    || text.endsWith(` ${phrase}`)
+    || text.includes(` ${phrase} `);
+}
+
+function strongActionDescriptorCategory(descriptors: readonly string[]): {
+  canonicalCategory: 'management_reduction' | 'final_disposal';
+  matchedPhrase: string;
+} | null {
+  for (const descriptor of descriptors) {
+    for (const phrase of STRONG_MANAGEMENT_REDUCTION_DESCRIPTORS) {
+      if (containsNormalizedPhrase(descriptor, phrase)) {
+        return { canonicalCategory: 'management_reduction', matchedPhrase: phrase };
+      }
+    }
+    for (const phrase of STRONG_FINAL_DISPOSAL_DESCRIPTORS) {
+      if (containsNormalizedPhrase(descriptor, phrase)) {
+        return { canonicalCategory: 'final_disposal', matchedPhrase: phrase };
+      }
+    }
+  }
+  return null;
+}
+
 function normalizeText(value: string | null | undefined): string | null {
   return normalizeRateDescription(value);
 }
@@ -177,7 +217,22 @@ export function resolveCanonicalRateCategory(params: {
       ? Math.max(0, Math.min(1, Number(params.existingConfidence.toFixed(3))))
       : null;
 
+  const normalizedSourceCategory = normalizeText(source_category);
+  const normalizedDescriptors = (params.sourceDescriptors ?? [])
+    .map((descriptor) => normalizeText(descriptor))
+    .filter((descriptor): descriptor is string => descriptor != null);
+  const strongActionCategory = strongActionDescriptorCategory(normalizedDescriptors);
+
   if (existingCanonicalCategory) {
+    if (existingCanonicalCategory === 'vegetative_removal' && strongActionCategory) {
+      return {
+        source_category,
+        canonical_category: strongActionCategory.canonicalCategory,
+        category_confidence: 0.88,
+        basis: 'descriptor',
+        matched_alias: strongActionCategory.matchedPhrase,
+      };
+    }
     return {
       source_category,
       canonical_category: existingCanonicalCategory,
@@ -187,10 +242,35 @@ export function resolveCanonicalRateCategory(params: {
     };
   }
 
-  const normalizedSourceCategory = normalizeText(source_category);
-  const normalizedDescriptors = (params.sourceDescriptors ?? [])
-    .map((descriptor) => normalizeText(descriptor))
-    .filter((descriptor): descriptor is string => descriptor != null);
+  if (strongActionCategory) {
+    return {
+      source_category,
+      canonical_category: strongActionCategory.canonicalCategory,
+      category_confidence: 0.88,
+      basis: 'descriptor',
+      matched_alias: strongActionCategory.matchedPhrase,
+    };
+  }
+
+  if (normalizedSourceCategory === 'management reduction' || normalizedSourceCategory === 'management and reduction') {
+    return {
+      source_category,
+      canonical_category: 'management_reduction',
+      category_confidence: 0.96,
+      basis: 'source_category',
+      matched_alias: normalizedSourceCategory,
+    };
+  }
+
+  if (normalizedSourceCategory === 'final disposal') {
+    return {
+      source_category,
+      canonical_category: 'final_disposal',
+      category_confidence: 0.96,
+      basis: 'source_category',
+      matched_alias: normalizedSourceCategory,
+    };
+  }
 
   let best: {
     canonical_category: string;

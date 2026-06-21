@@ -4,6 +4,7 @@ import {
   deriveInvoiceRateKey,
   indexRateScheduleItemsByCanonicalKeys,
   matchRateScheduleItemForInvoiceLine,
+  normalizeRateDescription,
   normalizeInvoiceNumber,
 } from '@/lib/validator/billingKeys';
 import {
@@ -162,6 +163,7 @@ type CanonicalSupportRow = {
 type SupportMatch = {
   rows: CanonicalSupportRow[];
   support_basis: CrossDocumentRateSupportBasis;
+  lifecycle_compatible: boolean;
 };
 
 export type CrossDocumentRateVerificationResult = {
@@ -372,9 +374,72 @@ function supportCategories(rows: readonly CanonicalSupportRow[]): string[] {
   );
 }
 
+function documentBelongsToProjectLineage(params: {
+  input: ProjectValidatorInput;
+  line: CanonicalInvoiceLine;
+  contractItem: RateScheduleItem | null;
+  supportRow: CanonicalSupportRow;
+}): boolean {
+  const invoiceDocumentIds = new Set([
+    ...params.input.familyDocumentIds.invoice,
+    ...params.input.governingDocumentIds.invoice,
+  ]);
+  const supportDocumentIds = new Set([
+    ...params.input.familyDocumentIds.ticket_support,
+    ...params.input.governingDocumentIds.ticket_support,
+  ]);
+  const pricingDocumentIds = new Set([
+    ...params.input.familyDocumentIds.contract,
+    ...params.input.familyDocumentIds.rate_sheet,
+    ...params.input.governingDocumentIds.contract,
+    ...params.input.governingDocumentIds.rate_sheet,
+    ...params.input.truthCategoryDocumentIds.contract_identity,
+    ...params.input.truthCategoryDocumentIds.pricing,
+  ]);
+
+  return params.line.source_document_id != null
+    && invoiceDocumentIds.has(params.line.source_document_id)
+    && params.supportRow.document_id != null
+    && supportDocumentIds.has(params.supportRow.document_id)
+    && (params.contractItem == null || pricingDocumentIds.has(params.contractItem.source_document_id));
+}
+
+function lifecycleCompatibleVegetativeSupport(params: {
+  input: ProjectValidatorInput;
+  line: CanonicalInvoiceLine;
+  contractItem: RateScheduleItem | null;
+  supportRow: CanonicalSupportRow;
+}): boolean {
+  if (params.supportRow.canonical_category !== 'vegetative_removal') return false;
+
+  const contractCategory = contractCategoryResolution(params.contractItem).canonical_category;
+  const targetCategory = contractCategory ?? params.line.canonical_category;
+  if (targetCategory !== 'management_reduction' && targetCategory !== 'final_disposal') return false;
+
+  const supportMaterial = normalizeRateDescription(params.supportRow.material);
+  const targetText = normalizeRateDescription([
+    params.contractItem?.description,
+    params.contractItem?.service_item,
+    params.line.description,
+    params.line.service_item,
+  ].filter(Boolean).join(' '));
+  if (!supportMaterial || !targetText) return false;
+  if (!/\b(?:vegetative|vegetation|mulch)\b/.test(supportMaterial)) return false;
+  if (!/\b(?:vegetative|vegetation|mulch)\b/.test(targetText)) return false;
+
+  const materialEvidence = `${supportMaterial} ${targetText}`;
+  if (/\b(?:construction|demolition|hazardous|tree|stump|white goods|electronic|bio waste|carcass|vehicle|soil|sand)\b/.test(materialEvidence)) {
+    return false;
+  }
+
+  return documentBelongsToProjectLineage(params);
+}
+
 function chooseSupportRows(
+  input: ProjectValidatorInput,
   line: CanonicalInvoiceLine,
   supportRows: readonly CanonicalSupportRow[],
+  contractItem: RateScheduleItem | null,
 ): SupportMatch {
   const sameInvoice = supportRows.filter((row) => (
     line.normalized_invoice_number != null
@@ -386,7 +451,11 @@ function chooseSupportRows(
     && row.invoice_rate_key === line.invoice_rate_key
   ));
   if (invoiceRateRows.length > 0) {
-    return { rows: invoiceRateRows, support_basis: 'invoice_linked' };
+    return {
+      rows: invoiceRateRows,
+      support_basis: 'invoice_linked',
+      lifecycle_compatible: invoiceRateRows.some((supportRow) => lifecycleCompatibleVegetativeSupport({ input, line, contractItem, supportRow })),
+    };
   }
 
   const invoiceCategoryRows = sameInvoice.filter((row) => (
@@ -394,7 +463,14 @@ function chooseSupportRows(
     && row.canonical_category === line.canonical_category
   ));
   if (invoiceCategoryRows.length > 0) {
-    return { rows: invoiceCategoryRows, support_basis: 'invoice_linked' };
+    return { rows: invoiceCategoryRows, support_basis: 'invoice_linked', lifecycle_compatible: false };
+  }
+
+  const invoiceLifecycleRows = sameInvoice.filter((supportRow) => (
+    lifecycleCompatibleVegetativeSupport({ input, line, contractItem, supportRow })
+  ));
+  if (invoiceLifecycleRows.length > 0) {
+    return { rows: invoiceLifecycleRows, support_basis: 'invoice_linked', lifecycle_compatible: true };
   }
 
   const billingKeyRows = supportRows.filter((row) => (
@@ -404,7 +480,11 @@ function chooseSupportRows(
     && row.normalized_invoice_number === line.normalized_invoice_number
   ));
   if (billingKeyRows.length > 0) {
-    return { rows: billingKeyRows, support_basis: 'billing_key_fallback' };
+    return {
+      rows: billingKeyRows,
+      support_basis: 'billing_key_fallback',
+      lifecycle_compatible: billingKeyRows.some((supportRow) => lifecycleCompatibleVegetativeSupport({ input, line, contractItem, supportRow })),
+    };
   }
 
   const projectCategoryRows = supportRows.filter((row) => (
@@ -412,10 +492,17 @@ function chooseSupportRows(
     && row.canonical_category === line.canonical_category
   ));
   if (projectCategoryRows.length > 0) {
-    return { rows: projectCategoryRows, support_basis: 'project_level' };
+    return { rows: projectCategoryRows, support_basis: 'project_level', lifecycle_compatible: false };
   }
 
-  return { rows: [], support_basis: 'none' };
+  const projectLifecycleRows = supportRows.filter((supportRow) => (
+    lifecycleCompatibleVegetativeSupport({ input, line, contractItem, supportRow })
+  ));
+  if (projectLifecycleRows.length > 0) {
+    return { rows: projectLifecycleRows, support_basis: 'project_level', lifecycle_compatible: true };
+  }
+
+  return { rows: [], support_basis: 'none', lifecycle_compatible: false };
 }
 
 function canonicalCategoriesAlign(
@@ -441,8 +528,8 @@ function classifyComparison(params: {
   const lineCategory = params.line.canonical_category;
   const contractCanonicalCategory = contractCategory.canonical_category;
   const supportConfirmsLineCategory =
-    lineCategory != null
-    && params.supportCategories.includes(lineCategory);
+    (lineCategory != null && params.supportCategories.includes(lineCategory))
+    || params.supportMatch.lifecycle_compatible;
 
   if (!invoiceCategoryKnown) {
     return {
@@ -752,7 +839,7 @@ export function evaluateCrossDocumentRateVerification(
       billing_rate_key: line.billing_rate_key,
     }, scheduleIndex);
     const contractItem = match.match ?? null;
-    const supportMatch = chooseSupportRows(line, supportRows);
+    const supportMatch = chooseSupportRows(input, line, supportRows, contractItem);
     const observedSupportCategories = supportCategories(supportMatch.rows);
     const classification = classifyComparison({
       line,

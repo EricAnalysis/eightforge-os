@@ -22,6 +22,7 @@ function makeRateItem(params: {
   rate: number;
   sourceCategory?: string | null;
   rateCode?: string | null;
+  sourceDocumentId?: string;
 }): RateScheduleItem {
   const keys = deriveBillingKeysForRateScheduleItem({
     rate_code: params.rateCode ?? null,
@@ -31,7 +32,7 @@ function makeRateItem(params: {
   });
 
   return {
-    source_document_id: CONTRACT_DOCUMENT_ID,
+    source_document_id: params.sourceDocumentId ?? CONTRACT_DOCUMENT_ID,
     record_id: params.recordId,
     rate_code: params.rateCode ?? null,
     unit_type: 'CYD',
@@ -195,7 +196,7 @@ describe('cross document rate verification', () => {
 
     assert.equal(result.findings.length, 0);
     assert.equal(result.summary.matched_units, 1);
-    assert.equal(result.summary.validation_units[0]?.canonical_category, 'vegetative_removal');
+    assert.equal(result.summary.validation_units[0]?.canonical_category, 'management_reduction');
     assert.equal(result.summary.validation_units[0]?.comparison_status, 'match');
   });
 
@@ -432,6 +433,47 @@ describe('cross document rate verification', () => {
     assert.equal(result.summary.category_mismatch_units, 0);
     assert.equal(result.findings.some((finding) => finding.rule_id === 'CROSS_DOCUMENT_CANONICAL_CATEGORY_ALIGNS'), false);
     assert.equal(result.summary.matched_units, 1);
+  });
+
+  it('does not allow a vegetative ticket from this project to support another project contract lifecycle row', () => {
+    const input = buildInput({
+      rateScheduleItems: [
+        makeRateItem({
+          recordId: 'rate:project-b-2b',
+          rateCode: '2B',
+          description: 'Grinding and Chipping Vegetative Debris',
+          sourceCategory: 'Management & Reduction',
+          sourceDocumentId: 'project-b-contract',
+          rate: 2.25,
+        }),
+      ],
+      invoiceLines: [{
+        id: 'line:project-a-2b',
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-003',
+        rate_code: '2B',
+        description: 'Management Reduction Grinding Chipping Vegetative Debris',
+        unit_price: 2.25,
+        quantity: 100,
+        line_total: 225,
+      }],
+      transactionRows: [{
+        id: 'txn:project-a-veg-2b',
+        document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-003',
+        rate_code: '2B',
+        billing_rate_key: '2B',
+        invoice_rate_key: '2026003::2B',
+        material: 'Vegetative',
+        transaction_quantity: 10,
+        extended_cost: 100,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.summary.matched_units, 0);
+    assert.equal(result.summary.category_mismatch_units, 1);
   });
 
   it('detects category mismatch when invoice category and ticket support category differ', () => {

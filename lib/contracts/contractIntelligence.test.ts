@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
 import type { DocumentPipelineResult } from '@/lib/pipeline/types';
 
@@ -173,6 +174,60 @@ describe('contract intelligence analysis', () => {
     assert.ok(rows.every((row) => row.source_anchor_ids.some((id) => /^pdf:table:p2:t3:row:\d+$/.test(id))));
     assert.ok(rows.every((row) => !row.row_id.startsWith('rate_row:fallback:')));
     assert.ok(rows.every((row) => !/cell phone|legacy disclaimer/i.test(row.raw_text ?? '')));
+
+    const assembled = assembleContractPricingRows(rows);
+    assert.deepEqual(
+      assembled.map((row) => ({
+        category: row.category,
+        description: row.description,
+        route: row.route,
+        unit: row.unit,
+        rate: row.rate,
+        sourceAnchor: row.sourceAnchor,
+      })),
+      [
+        {
+          category: 'Vegetative Collect, Remove & Haul',
+          description: 'Loading and Hauling Vegetative Debris',
+          route: 'ROW to DMS',
+          unit: 'Cubic Yard',
+          rate: 27,
+          sourceAnchor: 'pdf:table:p2:t3:row:1',
+        },
+        {
+          category: 'Management & Reduction',
+          description: 'Debris Mgmt. Site Management',
+          route: null,
+          unit: 'Cubic Yard',
+          rate: 5,
+          sourceAnchor: 'pdf:table:p2:t3:row:2',
+        },
+        {
+          category: 'Management & Reduction',
+          description: 'Reduction of Vegetative Debris',
+          route: null,
+          unit: 'Cubic Yard',
+          rate: 9.24,
+          sourceAnchor: 'pdf:table:p2:t3:row:3',
+        },
+        {
+          category: 'Final Disposal',
+          description: 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris',
+          route: 'DMS to Final Disposal',
+          unit: 'Cubic Yard',
+          rate: 1,
+          sourceAnchor: 'pdf:table:p2:t3:row:4',
+        },
+        {
+          category: 'Tree Operations',
+          description: 'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)',
+          route: null,
+          unit: 'Unit',
+          rate: 135,
+          sourceAnchor: 'pdf:table:p2:t3:row:5',
+        },
+      ],
+    );
   });
 
   it('keeps execution-based expiration as derived and requires confirmation', () => {

@@ -381,7 +381,7 @@ function refineCategoryByContext(
 }
 
 function detectRoute(rawText: string): string | null {
-  const normalized = normalizeOcrText(rawText).replace(/[|,]/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = normalizeOcrText(rawText).replace(/[|,()]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/\brow\s*(?:to|-|->|-->)\s*dms\b/i.test(normalized)) return 'ROW to DMS';
   if (/\bdms\s*(?:to|-|->|-->)\s*fds\b/i.test(normalized)) return 'DMS to FDS';
   if (/\bdms\s*(?:to|-|->|-->)\s*final\s+disposal\b/i.test(normalized)) {
@@ -1317,6 +1317,7 @@ function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
 }
 
 function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractPricingAssemblyRow[] {
+  const sourceOrder = new Map(rows.map((row, index) => [row, index] as const));
   const bestByDedupeKey = new Map<string, ContractPricingAssemblyRow>();
   const trustedCoverage = new Set(
     rows
@@ -1388,7 +1389,13 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
     return left.id.localeCompare(right.id);
   });
 
-  return [...categorizedSorted, ...uncategorizedSorted];
+  const retainedRows = [...categorizedSorted, ...uncategorizedSorted];
+  if (retainedRows.length > 0 && retainedRows.every((row) => row.sourceKind === 'canonical')) {
+    return retainedRows.sort(
+      (left, right) => (sourceOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (sourceOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+  return retainedRows;
 }
 
 function stringFromRecord(record: Record<string, unknown>, keys: readonly string[]): string | null {
@@ -1539,9 +1546,10 @@ export function assembleContractPricingRows(
       const rawText = clean([row.rate_raw, row.raw_text].map(clean).filter(Boolean).join(' ')) ?? clean(row.description) ?? '';
       const sourceDescription = clean(row.description) ?? rawText;
       const combinedText = `${sourceDescription} ${rawText}`;
+      const classificationText = clean([combinedText, ...(row.raw_cells ?? [])].join(' ')) ?? combinedText;
       let rate = row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
-      const focusedText = focusTextAroundRate(combinedText, rate);
-      const category = refineCategoryByContext(row, resolveCategory(row, focusedText), combinedText);
+      const focusedText = focusTextAroundRate(classificationText, rate);
+      const category = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
       const sourceKind = rowSourceKind(row);
       const routeSourceText = sourceKind === 'exhibit_a_text_recovery' ? sourceDescription : focusedText;
       const rawRoute = detectRoute(routeSourceText);

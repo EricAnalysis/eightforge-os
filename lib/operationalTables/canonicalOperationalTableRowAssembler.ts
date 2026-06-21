@@ -1001,6 +1001,7 @@ function extractFields(group: FragmentGroup, mode: AssemblySemanticMode): {
       if (fragment.extractor_hint === 'category') return false;
       if (fragment.extractor_hint === 'unit') return false;
       if (fragment.extractor_hint === 'unit_price') return false;
+      if (fragment.extractor_hint === 'origin_destination') return false;
       return hasLetters(fragment.cell_text);
     });
     if (descriptionCells.length > 0) {

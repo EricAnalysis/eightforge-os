@@ -26,6 +26,7 @@ type ExhibitATextRecoverySpec = {
 
 type BuildContractRateScheduleRowsInput = {
   rateTable: unknown;
+  canonicalRateScheduleAssembly?: unknown;
   pdfTables?: readonly PdfTable[] | null;
   rateSchedulePages?: readonly number[] | null;
   sourceEntries?: readonly ContractRateScheduleSourceEntry[] | null;
@@ -508,6 +509,89 @@ function normalizeTypedRateTableRows(params: {
   return rows;
 }
 
+function canonicalRateScheduleAnchorIds(row: Record<string, unknown>): string[] {
+  const anchors: string[] = [];
+  const refs = Array.isArray(row.evidence_refs) ? row.evidence_refs : [];
+  for (const ref of refs) {
+    const record = asRecord(ref);
+    if (!record) continue;
+    const tableKey = readString(record, ['table_key']);
+    const page = readNumber(record, ['page_number']);
+    const rowIndex = readNumber(record, ['row_index']);
+    if (!tableKey || page == null || rowIndex == null) continue;
+    const anchor = tableKey.startsWith('pdf:table:')
+      ? `${tableKey}:row:${rowIndex}`
+      : `pdf:table:p${page}:${tableKey}:row:${rowIndex}`;
+    if (!anchors.includes(anchor)) anchors.push(anchor);
+  }
+  return anchors;
+}
+
+function canonicalRateScheduleConfidence(value: unknown): ContractRateScheduleRow['confidence'] {
+  if (typeof value === 'number') {
+    if (value >= 0.85) return 'high';
+    if (value >= 0.7) return 'medium';
+    return 'needs_review';
+  }
+  return undefined;
+}
+
+function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unknown): ContractRateScheduleRow[] {
+  const assembly = asRecord(canonicalRateScheduleAssembly);
+  const sourceFamily = assembly ? readString(assembly, ['source_family']) : null;
+  if (sourceFamily !== 'contract') return [];
+
+  const canonicalRows = assembly && Array.isArray(assembly.rows) ? assembly.rows : [];
+  const rows: ContractRateScheduleRow[] = [];
+  for (const [index, entry] of canonicalRows.entries()) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const rowRole = readString(record, ['row_role']);
+    if (rowRole && rowRole !== 'unit_rate_definition' && rowRole !== 'line_item') continue;
+
+    const rowId = readString(record, ['row_id']) ?? `canonical:${index + 1}`;
+    const evidenceRefs = Array.isArray(record.evidence_refs)
+      ? record.evidence_refs.map(asRecord).filter((ref): ref is Record<string, unknown> => ref != null)
+      : [];
+    const sourceAnchorIds = canonicalRateScheduleAnchorIds(record);
+    const page = evidenceRefs
+      .map((ref) => readNumber(ref, ['page_number']))
+      .find((value): value is number => value != null)
+      ?? null;
+    const rateRaw =
+      evidenceRefs
+        .map((ref) => readString(ref, ['raw_text']))
+        .find((value): value is string => value != null)
+      ?? readString(record, ['rate_raw']);
+    const rawCells = Array.isArray(record.raw_fragments)
+      ? record.raw_fragments
+        .map(asRecord)
+        .map((fragment) => fragment ? readString(fragment, ['cell_text']) : null)
+        .filter((value): value is string => value != null)
+      : [];
+
+    const row = buildStructuredRow({
+      rowId: rowId.startsWith('contract:') ? rowId : `contract:${rowId}`,
+      description: readString(record, ['description', 'service_item', 'material']),
+      category: readString(record, ['category', 'material', 'site_type']),
+      unit: readString(record, ['unit']),
+      rate: readNumber(record, ['unit_price', 'rate', 'rate_amount']),
+      rateRaw,
+      page,
+      sourceAnchorIds,
+    });
+    if (!row) continue;
+    rows.push({
+      ...row,
+      confidence: canonicalRateScheduleConfidence(record.confidence),
+      raw_cells: rawCells.length > 0 ? rawCells : row.raw_cells,
+      raw_text: readString(record, ['description']) ?? rateRaw ?? undefined,
+    });
+  }
+
+  return rows;
+}
+
 function parseRateRowFromColumns(params: {
   line: string;
   page: number | null;
@@ -672,6 +756,11 @@ export function buildContractRateScheduleRows(
   });
   if (structuredRows.length > 0) {
     return structuredRows;
+  }
+
+  const canonicalRows = normalizeCanonicalRateScheduleRows(params.canonicalRateScheduleAssembly);
+  if (canonicalRows.length > 0) {
+    return canonicalRows;
   }
 
   return buildFallbackRowsFromSourceEntries({

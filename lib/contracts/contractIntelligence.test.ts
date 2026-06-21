@@ -11,6 +11,7 @@ function runDocumentPipelineForContractIntel(params: {
   structuredFields?: Record<string, unknown>;
   sectionSignals?: Record<string, unknown>;
   pageText?: string[];
+  pdfTables?: Record<string, unknown>[];
 }): DocumentPipelineResult {
   return runDocumentPipeline({
     documentId: 'contract-intel-doc',
@@ -38,6 +39,14 @@ function runDocumentPipelineForContractIntel(params: {
             text,
           })),
         },
+        content_layers_v1: {
+          pdf: {
+            evidence: [],
+            tables: {
+              tables: params.pdfTables ?? [],
+            },
+          },
+        },
       },
     },
     relatedDocs: [],
@@ -50,6 +59,7 @@ function runContractAnalysis(params: {
   structuredFields?: Record<string, unknown>;
   sectionSignals?: Record<string, unknown>;
   pageText?: string[];
+  pdfTables?: Record<string, unknown>[];
 }): ContractAnalysisResult {
   const result = runDocumentPipelineForContractIntel(params);
 
@@ -58,6 +68,113 @@ function runContractAnalysis(params: {
 }
 
 describe('contract intelligence analysis', () => {
+  it('uses normalized accepted rate table rows before fallback text parsing', () => {
+    const pageText =
+      'Goodlettsville Price Schedule page 2. '
+      + '24 hour cell phone laptop computer pickup truck $95.00. '
+      + 'Legacy disclaimer text $1.00 per unit.';
+    const analysis = runContractAnalysis({
+      textPreview: pageText,
+      pageText: ['', pageText],
+      typedFields: {
+        rate_table: [],
+      },
+      sectionSignals: {
+        rate_section_present: true,
+        rate_section_pages: [2],
+      },
+      pdfTables: [
+        {
+          id: 'pdf:table:p2:t3',
+          page_number: 2,
+          confidence: 0.5,
+          header_context: ['Goodlettsville Price Schedule'],
+          headers: ['Description', 'Unit of Measure', 'Origin/Destination', 'Cost'],
+          rows: [
+            {
+              id: 'pdf:table:p2:t3:r1',
+              page_number: 2,
+              row_index: 1,
+              raw_text: 'Loading and Hauling Vegetative Debris | Cubic Yard (CY) | From Right of Way (ROW) to DMS | $27.00',
+              cells: [
+                { column_index: 0, text: 'Loading and Hauling Vegetative Debris', source: 'pdfjs' },
+                { column_index: 1, text: 'Cubic Yard (CY)', source: 'pdfjs' },
+                { column_index: 2, text: 'From Right of Way (ROW) to DMS', source: 'pdfjs' },
+                { column_index: 3, text: '$27.00', source: 'pdfjs' },
+              ],
+            },
+            {
+              id: 'pdf:table:p2:t3:r2',
+              page_number: 2,
+              row_index: 2,
+              raw_text: 'Debris Mgmt. Site Management | Cubic Yard (CY) | N/A | $5.00',
+              cells: [
+                { column_index: 0, text: 'Debris Mgmt. Site Management', source: 'pdfjs' },
+                { column_index: 1, text: 'Cubic Yard (CY)', source: 'pdfjs' },
+                { column_index: 2, text: 'N/A', source: 'pdfjs' },
+                { column_index: 3, text: '$5.00', source: 'pdfjs' },
+              ],
+            },
+            {
+              id: 'pdf:table:p2:t3:r3',
+              page_number: 2,
+              row_index: 3,
+              raw_text: 'Reduction of Vegetative Debris | Cubic Yard (CY) | N/A | $9.24',
+              cells: [
+                { column_index: 0, text: 'Reduction of Vegetative Debris', source: 'pdfjs' },
+                { column_index: 1, text: 'Cubic Yard (CY)', source: 'pdfjs' },
+                { column_index: 2, text: 'N/A', source: 'pdfjs' },
+                { column_index: 3, text: '$9.24', source: 'pdfjs' },
+              ],
+            },
+            {
+              id: 'pdf:table:p2:t3:r4',
+              page_number: 2,
+              row_index: 4,
+              raw_text: 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris | Cubic Yard (CY) | From DMS to Final Disposal | $1.00',
+              cells: [
+                { column_index: 0, text: 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris', source: 'pdfjs' },
+                { column_index: 1, text: 'Cubic Yard (CY)', source: 'pdfjs' },
+                { column_index: 2, text: 'From DMS to Final Disposal', source: 'pdfjs' },
+                { column_index: 3, text: '$1.00', source: 'pdfjs' },
+              ],
+            },
+            {
+              id: 'pdf:table:p2:t3:r5',
+              page_number: 2,
+              row_index: 5,
+              raw_text: 'Hazardous Limb (Hangers) Cutting (greater than 2" diameter) | Unit | N/A | $135.00',
+              cells: [
+                { column_index: 0, text: 'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)', source: 'pdfjs' },
+                { column_index: 1, text: 'Unit', source: 'pdfjs' },
+                { column_index: 2, text: 'N/A', source: 'pdfjs' },
+                { column_index: 3, text: '$135.00', source: 'pdfjs' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const rows = analysis.rate_schedule_rows ?? [];
+    assert.equal(rows.length, 5);
+    assert.ok(rows.every((row) => row.row_id.startsWith('contract:')));
+    assert.ok(rows.every((row) => row.page === 2));
+    assert.ok(rows.every((row) => row.description));
+    assert.ok(rows.every((row) => row.confidence !== 'needs_review'));
+    assert.deepEqual(rows.map((row) => row.rate), [27, 5, 9.24, 1, 135]);
+    assert.deepEqual(rows.map((row) => row.description), [
+      'Loading and Hauling Vegetative Debris',
+      'Debris Mgmt. Site Management',
+      'Reduction of Vegetative Debris',
+      'Loading & Hauling to Final Disposal of Reduced Vegetative Debris',
+      'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)',
+    ]);
+    assert.ok(rows.every((row) => row.source_anchor_ids.some((id) => /^pdf:table:p2:t3:row:\d+$/.test(id))));
+    assert.ok(rows.every((row) => !row.row_id.startsWith('rate_row:fallback:')));
+    assert.ok(rows.every((row) => !/cell phone|legacy disclaimer/i.test(row.raw_text ?? '')));
+  });
+
   it('keeps execution-based expiration as derived and requires confirmation', () => {
     const analysis = runContractAnalysis({
       textPreview:

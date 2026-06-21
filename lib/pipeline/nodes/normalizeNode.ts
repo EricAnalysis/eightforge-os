@@ -4844,6 +4844,7 @@ export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
   );
   const primaryDocument = {
     ...input.primaryDocument,
+    extracted_record: primaryNormalized.extracted,
     facts: primaryNormalized.facts,
     fact_map: factMap(primaryNormalized.facts),
   };
@@ -4852,6 +4853,7 @@ export function normalizeNode(input: ExtractNodeOutput): NormalizeNodeOutput {
     attachCanonicalPersistenceMetadata(document, normalized.facts, normalized.extracted);
     return {
       ...document,
+      extracted_record: normalized.extracted,
       facts: normalized.facts,
       fact_map: factMap(normalized.facts),
     };

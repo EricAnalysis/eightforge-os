@@ -579,7 +579,10 @@ function buildGeometryCells(tokens: readonly PdfToken[], bands: readonly ColumnB
   return [...byColumn.entries()]
     .sort(([left], [right]) => left - right)
     .map(([columnIndex, columnTokens]) => {
-      const sorted = [...columnTokens].sort((left, right) => left.y - right.y || left.x - right.x);
+      const sorted = [...columnTokens].sort((left, right) => {
+        const yDelta = left.y - right.y;
+        return Math.abs(yDelta) <= 2 ? left.x - right.x : yDelta;
+      });
       return {
         column_index: columnIndex,
         text: geometryCellText(sorted),
@@ -644,6 +647,39 @@ function reconstructOcrRowsFromGeometry(params: {
   const dataLines = candidateLines.filter(({ index }) => index >= dataStart);
   const bands = reconstructColumnsFromGeometry(dataLines.flatMap(({ line }) => line.tokens));
   if (bands.length < 3) return [];
+
+  const lineGaps = dataLines
+    .slice(1)
+    .map(({ line }, index) => line.y - (dataLines[index]?.line.y ?? line.y))
+    .filter((gap) => gap > 0)
+    .sort((left, right) => left - right);
+  const medianGap = lineGaps[Math.floor(lineGaps.length / 2)] ?? 0;
+  const rowGapThreshold = Math.max(40, medianGap * 1.5);
+  const geometryRowGroups = dataLines.reduce<Array<typeof dataLines>>((groups, entry, index) => {
+    const previous = dataLines[index - 1];
+    if (!previous || entry.line.y - previous.line.y >= rowGapThreshold) {
+      groups.push([entry]);
+    } else {
+      groups.at(-1)?.push(entry);
+    }
+    return groups;
+  }, []);
+  const geometryGroupsAreCompleteRows =
+    geometryRowGroups.length === moneyLines.length
+    && geometryRowGroups.every((group) => group.filter(({ line }) => lineHasMoneySignal(line.text)).length === 1);
+
+  if (geometryGroupsAreCompleteRows) {
+    return geometryRowGroups.map((rowLines) => {
+      const rowTokens = rowLines.flatMap(({ line }) => line.tokens);
+      return {
+        lineIndex: rowLines[0]?.index ?? dataStart,
+        endLineIndex: rowLines.at(-1)?.index ?? dataStart,
+        cells: renumberCells(buildGeometryCells(rowTokens, bands)),
+        raw_text: rowLines.map(({ line }) => stripUnsafeTextControls(line.text)).join('\n'),
+        tokens: rowTokens,
+      };
+    }).filter((row) => row.cells.length >= 3);
+  }
 
   const rowStarts = dataLines
     .filter(({ index, line }) =>

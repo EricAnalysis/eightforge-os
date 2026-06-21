@@ -30,6 +30,7 @@ function hintFromHeader(header: string | null | undefined): string | undefined {
   if (!normalized) return undefined;
   if (/\b(category|type|group)\b/.test(normalized)) return 'category';
   if (/\b(description|service|item|classification|labor class)\b/.test(normalized)) return 'description';
+  if (/\b(origin|destination)\b/.test(normalized)) return 'origin_destination';
   if (/\b(unit price|unit rate|unit cost|rate|price|cost)\b/.test(normalized)) return 'unit_price';
   if (/\b(unit|uom)\b/.test(normalized)) return 'unit';
   return undefined;
@@ -68,6 +69,42 @@ function shouldInferOcrHints(table: PdfTable, hintsByColumn: ReadonlyMap<number,
   if (hintsByColumn.has(0) && [...hintsByColumn.values()].some((hint) => hint === 'unit_price')) return false;
   const signals = ocrRateScheduleSignals(table);
   return signals.moneyCount >= 1 && signals.unitCount >= 1 && (signals.titleHit || signals.moneyCount >= 2);
+}
+
+function inferStructuredOcrColumnHints(table: PdfTable): Map<number, string> {
+  const hints = new Map<number, string>();
+  if (!isOcrFallbackTable(table) || table.rows.length < 2) return hints;
+
+  const valuesByColumn = new Map<number, string[]>();
+  for (const row of table.rows) {
+    for (const cell of row.cells) {
+      valuesByColumn.set(cell.column_index, [
+        ...(valuesByColumn.get(cell.column_index) ?? []),
+        cell.text,
+      ]);
+    }
+  }
+  if (valuesByColumn.size !== 4) return hints;
+
+  for (const [columnIndex, values] of valuesByColumn) {
+    const populated = values.filter((value) => value.trim().length > 0);
+    if (populated.length === 0) continue;
+    if (populated.every(hasMoneyLikeValue)) {
+      hints.set(columnIndex, 'unit_price');
+      continue;
+    }
+    if (populated.every(hasUnitLikeValue)) {
+      hints.set(columnIndex, 'unit');
+      continue;
+    }
+    if (populated.every((value) => /^(?:n\s*\/\s*a|from\b|to\b)|\b(?:origin|destination|dms|row)\b/i.test(value.trim()))) {
+      hints.set(columnIndex, 'origin_destination');
+    }
+  }
+
+  const remaining = [...valuesByColumn.keys()].filter((columnIndex) => !hints.has(columnIndex));
+  if (remaining.length === 1) hints.set(remaining[0]!, 'description');
+  return hints;
 }
 
 function inferOcrCellHint(cell: PdfTable['rows'][number]['cells'][number]): string | undefined {
@@ -179,6 +216,9 @@ export function adaptContractRateScheduleFragments(
       const hint = hintFromHeader(header);
       if (hint) hintsByColumn.set(index, hint);
     });
+    for (const [columnIndex, hint] of inferStructuredOcrColumnHints(table)) {
+      if (!hintsByColumn.has(columnIndex)) hintsByColumn.set(columnIndex, hint);
+    }
     const inferOcrHints = shouldInferOcrHints(table, hintsByColumn);
 
     for (const row of table.rows) {

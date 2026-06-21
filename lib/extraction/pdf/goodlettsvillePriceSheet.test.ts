@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'vitest';
 
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
+import { adaptContractRateScheduleFragments } from '@/lib/operationalTables/adapters/contractRateScheduleFragmentAdapter';
+import { assembleCanonicalOperationalTableRows } from '@/lib/operationalTables/canonicalOperationalTableRowAssembler';
 import { extractDocument } from '@/lib/server/documentExtraction';
 
 type PriceSheetRow = {
@@ -23,39 +26,6 @@ function normalizeCellText(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function normalizeUnit(value: string): string {
-  if (/\bcy\b|\bcubic\b/i.test(value)) return 'CY';
-  return value;
-}
-
-function normalizeDescription(value: string, rawText: string): string {
-  const raw = normalizeCellText(rawText);
-  if (/loading and hauling/i.test(value)) {
-    return 'Loading and Hauling Vegetative Debris';
-  }
-  if (/debris mgmt/i.test(value)) return 'Debris Mgmt. Site Management';
-  if (/\breduction\b/i.test(value) && /\bvegetative\b/i.test(value) && /\bdebris\b/i.test(value)) {
-    return 'Reduction of Vegetative Debris';
-  }
-  if (/\bloading\s*&\b/i.test(raw) || /\bhauling to final\b/i.test(raw) || /^disposal of$/i.test(value)) {
-    return 'Loading & Hauling to Final Disposal';
-  }
-  if (/hazardous limb/i.test(value)) return 'Hazardous Limb (Hangers) Cutting';
-  return value;
-}
-
-function normalizeOriginDestination(value: string, rawText: string, nearbyText: string | undefined): string {
-  const combined = normalizeCellText(`${value} ${rawText} ${nearbyText ?? ''}`);
-  if (/from right of/i.test(combined) && /\brow\b/i.test(combined)) {
-    return 'From Right of Way (ROW) to DMS';
-  }
-  if (/from dms to/i.test(combined) && /final disposal/i.test(combined)) {
-    return 'From DMS to Final Disposal';
-  }
-  if (/\bn\/a\b/i.test(combined)) return 'N/A';
-  return value;
-}
-
 function extractPriceSheetRows(table: PdfTable): PriceSheetRow[] {
   return table.rows.map((row) => {
     const cells = [...row.cells].sort((left, right) => left.column_index - right.column_index);
@@ -64,10 +34,10 @@ function extractPriceSheetRows(table: PdfTable): PriceSheetRow[] {
     const originDestination = normalizeCellText(cells[2]?.text);
     const rate = normalizeCellText(cells[3]?.text);
     return {
-      description: normalizeDescription(description, row.raw_text),
-      unit: normalizeUnit(unit),
+      description,
+      unit,
       rate,
-      origin_destination: normalizeOriginDestination(originDestination, row.raw_text, row.nearby_text),
+      origin_destination: originDestination,
     };
   });
 }
@@ -98,34 +68,61 @@ describe('Goodlettsville scanned price sheet extraction', () => {
     assert.deepEqual(extractPriceSheetRows(priceSheetTable), [
       {
         description: 'Loading and Hauling Vegetative Debris',
-        unit: 'CY',
+        unit: 'Cubic Yard (CY)',
         rate: '$27.00',
         origin_destination: 'From Right of Way (ROW) to DMS',
       },
       {
         description: 'Debris Mgmt. Site Management',
-        unit: 'CY',
+        unit: 'Cubic Yard (CY)',
         rate: '$5.00',
         origin_destination: 'N/A',
       },
       {
         description: 'Reduction of Vegetative Debris',
-        unit: 'CY',
+        unit: 'Cubic Yard (CY)',
         rate: '$9.24',
         origin_destination: 'N/A',
       },
       {
-        description: 'Loading & Hauling to Final Disposal',
-        unit: 'CY',
+        description: 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris',
+        unit: 'Cubic Yard (CY)',
         rate: '$1.00',
         origin_destination: 'From DMS to Final Disposal',
       },
       {
-        description: 'Hazardous Limb (Hangers) Cutting',
+        description: 'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)',
         unit: 'Unit',
         rate: '$135.00',
         origin_destination: 'N/A',
       },
     ]);
+
+    const adapted = adaptContractRateScheduleFragments({
+      document_id: 'goodlettsville-price-sheet',
+      source_family: 'contract',
+      tables: [priceSheetTable],
+      schedule_kind: 'price_sheet',
+    });
+    const assembly = assembleCanonicalOperationalTableRows({
+      document_id: 'goodlettsville-price-sheet',
+      source_family: 'contract',
+      fragments: adapted.fragments,
+    });
+    const canonicalRows = buildContractRateScheduleRows({
+      rateTable: [],
+      canonicalRateScheduleAssembly: assembly,
+    });
+
+    assert.deepEqual(canonicalRows.map((row) => row.description), [
+      'Loading and Hauling Vegetative Debris',
+      'Debris Mgmt. Site Management',
+      'Reduction of Vegetative Debris',
+      'Loading & Hauling to Final Disposal of Reduced Vegetative Debris',
+      'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)',
+    ]);
+    assert.deepEqual(canonicalRows.map((row) => row.unit), ['cy', 'cy', 'cy', 'cy', 'unit']);
+    assert.deepEqual(canonicalRows.map((row) => row.rate), [27, 5, 9.24, 1, 135]);
+    assert.ok(canonicalRows.every((row) => row.source_anchor_ids.length === 1));
   }, 120_000);
 });

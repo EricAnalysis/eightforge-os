@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { EIGHTFORGE_THEME_STYLE_TEXT } from '@/lib/theme/colors';
+import { Analytics } from '@vercel/analytics/next';
 
 export const metadata: Metadata = {
   title: 'EightForge',
@@ -23,6 +24,7 @@ export default function RootLayout({
       </head>
       <body className="bg-[var(--ef-background-primary)] text-[var(--ef-text-primary)]">
         {children}
+        <Analytics />
       </body>
     </html>
   );

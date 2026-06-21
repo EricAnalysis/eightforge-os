@@ -1,0 +1,4 @@
+interface:
+  display_name: "Contract Rate Assembler Review"
+  short_description: "Audit assembled contract rates before fixing"
+  default_prompt: "Use $contract-rate-assembler-review to audit a source rate document against the operator-expected category, unit, and rate table, then stop for approval before implementing."

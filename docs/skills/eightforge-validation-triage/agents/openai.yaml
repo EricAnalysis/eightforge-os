@@ -1,0 +1,4 @@
+interface:
+  display_name: "EightForge Validation Triage"
+  short_description: "Triage Golden Project validation runs"
+  default_prompt: "Use $eightforge-validation-triage to inspect and stabilize Golden Project validation findings."

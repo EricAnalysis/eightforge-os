@@ -1,0 +1,4 @@
+interface:
+  display_name: "EightForge Extraction Trace Debugger"
+  short_description: "Trace extraction to UI regressions"
+  default_prompt: "Use $eightforge-extraction-trace-debugger to trace a document intelligence bug from source extraction through UI rendering."

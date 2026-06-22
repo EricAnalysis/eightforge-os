@@ -178,21 +178,21 @@ SET
     transaction_data_rows.organization_id,
     d.organization_id
   ),
-  source_sheet_name = COALESCE(source_sheet_name, 'unknown'),
-  source_row_number = COALESCE(source_row_number, 0),
-  record_json = COALESCE(record_json, '{}'::jsonb),
-  raw_row_json = COALESCE(raw_row_json, '{}'::jsonb),
-  created_at = COALESCE(created_at, now())
+  source_sheet_name = COALESCE(transaction_data_rows.source_sheet_name, 'unknown'),
+  source_row_number = COALESCE(transaction_data_rows.source_row_number, 0),
+  record_json = COALESCE(transaction_data_rows.record_json, '{}'::jsonb),
+  raw_row_json = COALESCE(transaction_data_rows.raw_row_json, '{}'::jsonb),
+  created_at = COALESCE(transaction_data_rows.created_at, now())
 FROM public.documents d
 WHERE
   transaction_data_rows.document_id = d.id
   AND (
     transaction_data_rows.organization_id IS NULL
-    OR source_sheet_name IS NULL
-    OR source_row_number IS NULL
-    OR record_json IS NULL
-    OR raw_row_json IS NULL
-    OR created_at IS NULL
+    OR transaction_data_rows.source_sheet_name IS NULL
+    OR transaction_data_rows.source_row_number IS NULL
+    OR transaction_data_rows.record_json IS NULL
+    OR transaction_data_rows.raw_row_json IS NULL
+    OR transaction_data_rows.created_at IS NULL
   );
 
 DO $$

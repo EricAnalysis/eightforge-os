@@ -219,7 +219,6 @@ function pickProjectNextAction(
 function latestProjectTimestamp(
   projectId: string,
   decisions: OperationalDecisionQueueItem[],
-  actionTimestampsByProjectId: Map<string, string>,
   fallback: string,
 ): string {
   let latest = new Date(fallback).getTime();
@@ -227,12 +226,6 @@ function latestProjectTimestamp(
   for (const decision of decisions) {
     if (decision.project_id !== projectId) continue;
     const timestamp = new Date(decision.detected_at ?? decision.created_at).getTime();
-    if (!Number.isNaN(timestamp) && timestamp > latest) latest = timestamp;
-  }
-
-  const actionTimestamp = actionTimestampsByProjectId.get(projectId);
-  if (actionTimestamp) {
-    const timestamp = new Date(actionTimestamp).getTime();
     if (!Number.isNaN(timestamp) && timestamp > latest) latest = timestamp;
   }
 
@@ -370,18 +363,6 @@ export default function PlatformDashboardPage() {
     return map;
   }, [decisions]);
 
-  const latestActionTimestampByProjectId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const action of operationalModel?.actions ?? []) {
-      if (!action.project_id) continue;
-      const current = map.get(action.project_id);
-      if (!current || new Date(action.created_at).getTime() > new Date(current).getTime()) {
-        map.set(action.project_id, action.created_at);
-      }
-    }
-    return map;
-  }, [operationalModel?.actions]);
-
   const attentionMetrics = useMemo<AttentionMetric[]>(() => {
     const blockedProjects = rollups.filter(
       (item) => item.rollup.status.key === 'blocked' || item.rollup.blocked_count > 0,
@@ -503,7 +484,6 @@ export default function PlatformDashboardPage() {
       const lastActivity = latestProjectTimestamp(
         rollupItem.project.id,
         decisions,
-        latestActionTimestampByProjectId,
         rollupItem.project.created_at,
       );
       const nextAction = pickProjectNextAction(rollupItem, leadDecision);
@@ -545,7 +525,6 @@ export default function PlatformDashboardPage() {
   }, [
     decisionByProjectId,
     decisions,
-    latestActionTimestampByProjectId,
     projectDecisionCountById,
     rollups,
   ]);

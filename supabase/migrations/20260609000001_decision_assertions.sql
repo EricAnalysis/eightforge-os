@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS public.decision_assertions (
 
   -- Optional entity scope anchors
   project_id              uuid REFERENCES public.projects(id),
-  contract_vehicle_id     uuid,
-  client_id               uuid,
+  contract_vehicle_id     uuid REFERENCES public.contracts(id),
+  client_id               uuid REFERENCES public.clients(id),
 
   -- Scope level identifies what entity scope_id refers to
   scope_level             text NOT NULL,

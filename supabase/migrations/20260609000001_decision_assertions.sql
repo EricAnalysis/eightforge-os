@@ -10,11 +10,10 @@
 -- Safety: CREATE TABLE IF NOT EXISTS. No destructive changes. No data writes.
 -- Note:   operator_id references public.user_profiles (not profiles — actual
 --         table name confirmed from codebase; spec used shorthand "profiles").
---         contract_vehicle_id references public.contracts and client_id
---         references public.clients — these tables exist in the remote project
---         schema but are not tracked in this migration set. If they are not
---         present at apply time, this migration will fail. Confirm table
---         existence before applying.
+--         contract_vehicle_id and client_id are nullable UUID anchors only.
+--         public.contracts and public.clients are not present in the deployed
+--         schema, so this migration intentionally does not attach FKs to those
+--         tables. Add guarded constraints later if/when those tables exist.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.decision_assertions (
@@ -27,8 +26,8 @@ CREATE TABLE IF NOT EXISTS public.decision_assertions (
 
   -- Optional entity scope anchors
   project_id              uuid REFERENCES public.projects(id),
-  contract_vehicle_id     uuid REFERENCES public.contracts(id),
-  client_id               uuid REFERENCES public.clients(id),
+  contract_vehicle_id     uuid,
+  client_id               uuid,
 
   -- Scope level identifies what entity scope_id refers to
   scope_level             text NOT NULL,

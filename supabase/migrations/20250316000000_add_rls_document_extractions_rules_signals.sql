@@ -71,16 +71,24 @@ CREATE POLICY "document_extractions_update_org"
 
 ALTER TABLE public.rules ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "rules_select_org"
-  ON public.rules
-  FOR SELECT USING (
-    organization_id IS NULL
-    OR organization_id = (
-      SELECT up.organization_id
-      FROM user_profiles up
-      WHERE up.id = auth.uid()
-    )
-  );
+-- Guard added after the 2026-06-22 migration checksum/replay investigation; the historical policy logic is unchanged.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'rules' AND policyname = 'rules_select_org'
+  ) THEN
+    CREATE POLICY "rules_select_org"
+      ON public.rules
+      FOR SELECT USING (
+        organization_id IS NULL
+        OR organization_id = (
+          SELECT up.organization_id
+          FROM user_profiles up
+          WHERE up.id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
 
 CREATE POLICY "rules_insert_org"
   ON public.rules
@@ -126,15 +134,23 @@ CREATE POLICY "rules_delete_org"
 
 ALTER TABLE public.signals ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "signals_select_org"
-  ON public.signals
-  FOR SELECT USING (
-    organization_id = (
-      SELECT up.organization_id
-      FROM user_profiles up
-      WHERE up.id = auth.uid()
-    )
-  );
+-- Guard added after the 2026-06-22 migration checksum/replay investigation; the historical policy logic is unchanged.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'signals' AND policyname = 'signals_select_org'
+  ) THEN
+    CREATE POLICY "signals_select_org"
+      ON public.signals
+      FOR SELECT USING (
+        organization_id = (
+          SELECT up.organization_id
+          FROM user_profiles up
+          WHERE up.id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
 
 CREATE POLICY "signals_insert_org"
   ON public.signals

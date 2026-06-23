@@ -365,10 +365,21 @@ CREATE POLICY "workflow_templates_delete_org"
 
 ALTER TABLE public.document_fields ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "document_fields_select_authenticated"
-  ON public.document_fields
-  FOR SELECT
-  TO authenticated
-  USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'document_fields'
+      AND policyname = 'document_fields_select_authenticated'
+  ) THEN
+    CREATE POLICY "document_fields_select_authenticated"
+      ON public.document_fields
+      FOR SELECT
+      TO authenticated
+      USING (true);
+  END IF;
+END $$;
 
 -- No INSERT/UPDATE/DELETE policies — mutations go through service role only.

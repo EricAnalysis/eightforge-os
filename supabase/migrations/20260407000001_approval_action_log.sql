@@ -60,7 +60,7 @@ CREATE POLICY "approval_action_log_select_own_org"
     organization_id IN (
       SELECT organization_id
       FROM public.user_profiles
-      WHERE user_id = auth.uid()
+      WHERE id = auth.uid()
     )
   );
 

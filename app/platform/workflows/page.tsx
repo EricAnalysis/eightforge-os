@@ -9,10 +9,8 @@ import { isHistoryStatusFilter } from '@/lib/currentWork';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
-import { useOperationalModel } from '@/lib/useOperationalModel';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { OverdueBadge, TASK_OPEN_STATUSES, isTaskOverdue } from '@/lib/overdue';
-import type { OperationalActionQueueItem } from '@/lib/server/operationalQueue';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 type AssigneeRef = { id: string; display_name: string | null } | null;
@@ -53,7 +51,6 @@ type ActionListItem = {
   sourceDocumentTarget: string | null;
   deepLinkTarget: string;
   createdAt: string;
-  kind: 'history' | OperationalActionQueueItem['kind'];
   blocked: boolean;
   overdue: boolean;
   isUrgentUnassigned: boolean;
@@ -129,40 +126,10 @@ function mapHistoryTask(row: HistoryTaskRow): ActionListItem {
     sourceDocumentTarget: row.document_id ? `/platform/documents/${row.document_id}` : null,
     deepLinkTarget: `/platform/workflows/${row.id}`,
     createdAt: row.created_at,
-    kind: 'history',
     blocked: row.status === 'blocked',
     overdue: isTaskOverdue(row.due_at, row.status),
     isUrgentUnassigned: !row.assigned_to && (row.priority === 'critical' || row.priority === 'high'),
     isVague: isVagueDescription(row.title, row.description),
-  };
-}
-
-function mapOperationalTask(item: OperationalActionQueueItem): ActionListItem {
-  return {
-    id: item.id,
-    taskId: item.task_id,
-    decisionId: item.decision_id,
-    documentId: item.document_id,
-    taskType: item.kind,
-    title: item.title,
-    summary: item.summary,
-    instructions: item.instructions,
-    priority: item.priority,
-    status: item.status,
-    dueAt: item.due_at,
-    assignedTo: item.assigned_to,
-    assignedName: item.assigned_to_name,
-    projectLabel: item.project_label,
-    sourceDocumentTitle: item.source_document_title,
-    sourceDocumentType: item.source_document_type,
-    sourceDocumentTarget: item.source_document_target,
-    deepLinkTarget: item.deep_link_target,
-    createdAt: item.created_at,
-    kind: item.kind,
-    blocked: item.blocked,
-    overdue: item.is_overdue,
-    isUrgentUnassigned: item.is_urgent_unassigned,
-    isVague: item.is_vague,
   };
 }
 
@@ -182,8 +149,6 @@ export default function WorkflowsPage() {
   const includeHistory =
     searchParams.get('history') === '1' ||
     isHistoryStatusFilter(filterStatus, TASK_OPEN_STATUSES);
-  const { data: operationalModel, loading: operationalLoading, error: operationalError, reload } =
-    useOperationalModel(!orgLoading && !!organizationId && !includeHistory);
 
   const [historyTasks, setHistoryTasks] = useState<HistoryTaskRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -259,18 +224,16 @@ export default function WorkflowsPage() {
 
       if (includeHistory && organizationId) {
         await fetchHistoryTasks(organizationId);
-      } else {
-        await reload();
       }
     } finally {
       setUpdatingId(null);
     }
-  }, [fetchHistoryTasks, includeHistory, organizationId, reload, router]);
+  }, [fetchHistoryTasks, includeHistory, organizationId, router]);
 
   const actionItems = useMemo(() => {
     if (includeHistory) return historyTasks.map(mapHistoryTask);
-    return (operationalModel?.actions ?? []).map(mapOperationalTask);
-  }, [historyTasks, includeHistory, operationalModel?.actions]);
+    return [];
+  }, [historyTasks, includeHistory]);
 
   const filteredTasks = useMemo(() => {
     let list = actionItems;
@@ -303,8 +266,8 @@ export default function WorkflowsPage() {
     return { blocked, overdue, criticalHigh, unassignedCrit };
   }, [filteredTasks]);
 
-  const isLoading = orgLoading || (includeHistory ? historyLoading : operationalLoading);
-  const listError = includeHistory ? historyError : operationalError;
+  const isLoading = orgLoading || (includeHistory ? historyLoading : false);
+  const listError = includeHistory ? historyError : null;
   const hasActiveFilter = !!(filterStatus || filterPriority || filterAssigned || filterDue || filterAge);
 
   return (
@@ -480,11 +443,6 @@ export default function WorkflowsPage() {
                             {item.title}
                           </Link>
                           {item.projectLabel ? <span className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">{item.projectLabel}</span> : null}
-                          {item.kind !== 'persisted_task' && item.kind !== 'history' ? (
-                            <span className="rounded bg-[var(--ef-purple-primary-a10)] px-1.5 py-0.5 text-[10px] text-[var(--ef-purple-glow)]">
-                              Derived from shared operational model
-                            </span>
-                          ) : null}
                         </div>
                         <p className="text-[11px] text-[var(--ef-text-muted)]">{item.instructions}</p>
                         {item.isVague ? <span className="text-[10px] text-[var(--ef-warning-soft)]">Action text needs specificity</span> : null}

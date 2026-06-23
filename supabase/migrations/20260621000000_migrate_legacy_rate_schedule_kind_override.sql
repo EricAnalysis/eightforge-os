@@ -22,6 +22,11 @@ BEGIN
     RETURN;
   END IF;
 
+  IF legacy_count = 0 AND canonical_count = 0 THEN
+    RAISE NOTICE 'No legacy or canonical rate schedule kind override found; fresh install, nothing to migrate';
+    RETURN;
+  END IF;
+
   IF legacy_count <> 1 THEN
     RAISE EXCEPTION
       'Expected exactly one legacy rate schedule kind override, found %',

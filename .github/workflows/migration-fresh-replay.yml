@@ -1,0 +1,106 @@
+name: Migration Fresh Replay
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+
+jobs:
+  migration-fresh-replay:
+    name: Fresh Postgres migration replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Apply Supabase compatibility stubs
+        run: |
+          set -Eeuo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+            id uuid PRIMARY KEY,
+            email text
+          );
+          CREATE OR REPLACE FUNCTION auth.uid()
+          RETURNS uuid
+          LANGUAGE sql
+          STABLE
+          AS $$
+            SELECT NULL::uuid;
+          $$;
+          DO $$
+          BEGIN
+            CREATE ROLE authenticated NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END $$;
+          DO $$
+          BEGIN
+            CREATE ROLE anon NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END $$;
+          DO $$
+          BEGIN
+            CREATE ROLE service_role NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END $$;
+          SQL
+
+      - name: Replay migrations from empty database
+        run: |
+          set -Eeuo pipefail
+          mapfile -t migrations < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+
+          if [ "${#migrations[@]}" -eq 0 ]; then
+            echo "FRESH REPLAY: FAILED AT no migration files found"
+            exit 1
+          fi
+
+          for migration in "${migrations[@]}"; do
+            echo "FRESH REPLAY: applying ${migration}"
+            if ! psql -X -v ON_ERROR_STOP=1 -f "${migration}"; then
+              echo "FRESH REPLAY: FAILED AT ${migration}"
+              exit 1
+            fi
+          done
+
+          echo "FRESH REPLAY: PASS"

@@ -227,10 +227,10 @@ function lifecycleForIssue(params: {
     return 'needs_verification';
   }
   if (persistedDecisionStatus === 'PENDING_OPERATOR_DECISION' || ['open', 'pending'].includes(decisionStatus)) {
-    return 'ready_for_auth';
+    return 'ready_for_authorization';
   }
   if (['resolved', 'dismissed', 'suppressed'].includes(decisionStatus)) return 'resolved';
-  return status === 'EXECUTING' ? 'needs_verification' : 'ready_for_auth';
+  return status === 'EXECUTING' ? 'needs_verification' : 'ready_for_authorization';
 }
 
 function nextActionForIssue(issue: {
@@ -565,7 +565,7 @@ function sortIssueObjects(issues: IssueObject[]): IssueObject[] {
       blocked: 0,
       escalated: 1,
       needs_verification: 2,
-      ready_for_auth: 3,
+      ready_for_authorization: 3,
       open: 4,
       resolved: 5,
     };

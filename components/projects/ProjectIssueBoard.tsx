@@ -16,7 +16,7 @@ function lifecycleLabel(lifecycle: IssueObject['lifecycleState']): string {
       return 'Blocked';
     case 'needs_verification':
       return 'Needs verification';
-    case 'ready_for_auth':
+    case 'ready_for_authorization':
       return 'Ready for authorization';
     case 'escalated':
       return 'Escalated';
@@ -35,7 +35,7 @@ function statusKey(issue: IssueObject): string {
 }
 
 function decisionFrameLifecycle(issue: IssueObject): ProjectOverviewDecisionCard['lifecycle_state'] {
-  if (issue.lifecycleState === 'ready_for_auth' || issue.lifecycleState === 'open') {
+  if (issue.lifecycleState === 'ready_for_authorization' || issue.lifecycleState === 'open') {
     return 'ready_for_authorization';
   }
   return issue.lifecycleState;

@@ -1,0 +1,6 @@
+    version     |                         name                          
+----------------+-------------------------------------------------------
+ 20260622155007 | missing_live_schema_constraints_security_and_routines
+(1 row)
+
+INSERT 0 1

@@ -1,0 +1,2 @@
+DO
+psql:/work/supabase/migrations/20260621000000_migrate_legacy_rate_schedule_kind_override.sql:66: NOTICE:  Golden Project rate schedule kind override is already canonical

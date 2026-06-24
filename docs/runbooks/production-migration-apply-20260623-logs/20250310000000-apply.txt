@@ -1,0 +1,48 @@
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:27: NOTICE:  relation "organizations" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:37: NOTICE:  relation "user_profiles" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:54: NOTICE:  relation "activity_events" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:70: NOTICE:  relation "projects" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:97: NOTICE:  relation "documents" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:115: NOTICE:  relation "decision_rules" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:139: NOTICE:  relation "rules" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:171: NOTICE:  relation "decisions" already exists, skipping
+CREATE TABLE
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:192: NOTICE:  relation "decision_feedback" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:202: NOTICE:  relation "decision_policies" already exists, skipping
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:224: NOTICE:  relation "document_analysis_jobs" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:239: NOTICE:  relation "document_decisions" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:264: NOTICE:  relation "document_extractions" already exists, skipping
+CREATE TABLE
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:282: NOTICE:  relation "issues" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:293: NOTICE:  relation "project_rule_overrides" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:311: NOTICE:  relation "reviews" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:354: NOTICE:  relation "transaction_data_rows" already exists, skipping
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:379: NOTICE:  relation "transaction_data_summaries" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:395: NOTICE:  relation "workflow_rules" already exists, skipping
+CREATE TABLE
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:410: NOTICE:  relation "workflow_events" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:442: NOTICE:  relation "workflow_tasks" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:460: NOTICE:  relation "workflow_task_events" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:475: NOTICE:  relation "workflow_templates" already exists, skipping
+CREATE TABLE
+psql:/work/supabase/migrations/20250310000000_missing_live_schema_baseline.sql:485: NOTICE:  relation "workflows" already exists, skipping

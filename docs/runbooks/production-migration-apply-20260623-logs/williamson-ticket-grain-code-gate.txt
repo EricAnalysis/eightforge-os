@@ -1,0 +1,14 @@
+{
+  "row_count": 5063,
+  "facts": {
+    "total_cyd_ticket_grain": 74617,
+    "total_cyd_ticket_grain_full": 74737,
+    "total_mileage_ticket_grain": 10433.98,
+    "total_mileage_ticket_grain_full": 10443.78,
+    "total_diameter": 2632,
+    "total_diameter_full": 2645,
+    "total_net_tonnage": 0,
+    "total_net_tonnage_full": 0
+  },
+  "total_extended_cost": 815559.35
+}

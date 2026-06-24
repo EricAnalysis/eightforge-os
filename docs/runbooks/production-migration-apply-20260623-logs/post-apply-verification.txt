@@ -1,0 +1,39 @@
+Pager usage is off.
+--- ledger_new_rows ---
+    version     |                         name                          
+----------------+-------------------------------------------------------
+ 20250310000000 | missing_live_schema_baseline
+ 20260620000000 | add_price_sheet_document_type
+ 20260621000000 | migrate_legacy_rate_schedule_kind_override
+ 20260622155007 | missing_live_schema_constraints_security_and_routines
+ 20260622180818 | deterministic_org_select_policies
+(5 rows)
+
+--- baseline_tables ---
+ table_schema |         table_name          
+--------------+-----------------------------
+ public       | document_extractions
+ public       | documents
+ public       | organizations
+ public       | project_validation_findings
+ public       | project_validation_runs
+ public       | projects
+ public       | rules
+ public       | signals
+(8 rows)
+
+--- price_sheet_constraint ---
+                  conname                   | contype | convalidated |                                                                                                                                                                                                                                                                                           definition                                                                                                                                                                                                                                                                                            
+--------------------------------------------+---------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ documents_document_type_known_values_check | c       | f            | CHECK (((document_type IS NULL) OR (document_type = ANY (ARRAY['contract'::text, 'williamson_contract'::text, 'price_sheet'::text, 'invoice'::text, 'report'::text, 'policy'::text, 'procedure'::text, 'specification'::text, 'transaction_data'::text, 'other'::text, 'payment_rec'::text, 'payment_recommendation'::text, 'ticket'::text, 'debris_ticket'::text, 'spreadsheet'::text, 'rate_sheet'::text, 'rate_schedule'::text, 'attachment'::text, 'permit'::text, 'disposal_checklist'::text, 'dms_checklist'::text, 'kickoff'::text, 'daily_ops'::text, 'ops_report'::text])))) NOT VALID
+(1 row)
+
+--- rate_schedule_kind_override_state ---
+ legacy_count | canonical_count 
+--------------+-----------------
+            0 |               1
+(1 row)
+
+ERROR:  column "field_value" does not exist
+LINE 1: select id, document_id, field_key, field_value, source, revi...
+                                           ^

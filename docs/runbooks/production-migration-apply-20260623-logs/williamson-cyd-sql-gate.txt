@@ -1,0 +1,7 @@
+Pager usage is off.
+--- williamson_cyd_payload_checks ---
+ row_count | ticket_count_with_cyd | naive_payload_cyd_sum | ticket_grain_cyd_sum | extended_cost_sum 
+-----------+-----------------------+-----------------------+----------------------+-------------------
+      5063 |                  1385 |             215729.00 |             74737.00 |         815559.35
+(1 row)
+

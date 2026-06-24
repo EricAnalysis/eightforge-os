@@ -1,0 +1,32 @@
+Pager usage is off.
+--- rate_schedule_kind_override_detail ---
+                  id                  |             document_id              |     field_key      |              value_json              | raw_value | action_type | reason | is_active |          created_at           
+--------------------------------------+--------------------------------------+--------------------+--------------------------------------+-----------+-------------+--------+-----------+-------------------------------
+ 1d0019b4-83d3-44f2-a738-c7dee77611ea | 18550bfc-c057-4aae-bfa3-db896e36edb0 | rate_schedule_kind | "unit price schedule billing by CYD" | unknown   | correct     |        | t         | 2026-06-11 15:06:33.302579+00
+(1 row)
+
+--- org_select_policies ---
+ schema_name | table_name |    policy_name     | polcmd | polpermissive | roles |                                  using_expr                                  | check_expr 
+-------------+------------+--------------------+--------+---------------+-------+------------------------------------------------------------------------------+------------
+ public      | rules      | rules_select_org   | r      | t             | {-}   | ((organization_id IS NULL) OR (organization_id = ( SELECT up.organization_id+| 
+             |            |                    |        |               |       |    FROM user_profiles up                                                    +| 
+             |            |                    |        |               |       |   WHERE (up.id = auth.uid()))))                                              | 
+ public      | signals    | signals_select_org | r      | t             | {-}   | (organization_id = ( SELECT up.organization_id                              +| 
+             |            |                    |        |               |       |    FROM user_profiles up                                                    +| 
+             |            |                    |        |               |       |   WHERE (up.id = auth.uid())))                                               | 
+(2 rows)
+
+--- williamson_sql_gate_rows ---
+              project_id              |      name      | row_count | row_cyd_sum | row_extended_cost_sum | summary_count | summary_extended_cost_sum 
+--------------------------------------+----------------+-----------+-------------+-----------------------+---------------+---------------------------
+ 437502f2-d46d-447f-81e3-f26fa7ba0c14 | Golden Project |      5063 |        0.00 |             815559.35 |             0 |                      0.00
+(1 row)
+
+--- latest_validation_runs ---
+                  id                  |              project_id              |  status  | findings_count | critical_count | warning_count |            run_at             |        completed_at        |          created_at           
+--------------------------------------+--------------------------------------+----------+----------------+----------------+---------------+-------------------------------+----------------------------+-------------------------------
+ 66222332-3075-4fa8-a8db-30996f54545e | 437502f2-d46d-447f-81e3-f26fa7ba0c14 | complete |             17 |              5 |             8 | 2026-06-20 19:51:44.093902+00 | 2026-06-20 19:51:51.215+00 | 2026-06-20 19:51:44.093902+00
+ 531db3a6-0b7c-4705-b6f1-b65eff6f8eb3 | 437502f2-d46d-447f-81e3-f26fa7ba0c14 | complete |             17 |              5 |             8 | 2026-06-20 19:09:45.476409+00 | 2026-06-20 19:09:51.687+00 | 2026-06-20 19:09:45.476409+00
+ 1c654905-4f6e-4670-9f0c-643aab279e84 | 437502f2-d46d-447f-81e3-f26fa7ba0c14 | complete |             11 |              0 |             6 | 2026-06-20 13:40:57.764504+00 | 2026-06-20 13:41:02.247+00 | 2026-06-20 13:40:57.764504+00
+(3 rows)
+

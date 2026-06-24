@@ -1,0 +1,6 @@
+    version     |             name              
+----------------+-------------------------------
+ 20260620000000 | add_price_sheet_document_type
+(1 row)
+
+INSERT 0 1

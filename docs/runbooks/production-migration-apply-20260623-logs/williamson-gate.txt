@@ -1,0 +1,155 @@
+[persistValidationRun] non-core side effect failed {
+  projectId: '437502f2-d46d-447f-81e3-f26fa7ba0c14',
+  runId: '7e37dac7-118e-48fa-83cf-b02c650675ff',
+  sideEffect: 'syncExecutionItems',
+  error: Error: Failed to link finding dffc6253-31dc-4e48-ad22-24a3a1789451 to execution item 85400cab-9f46-41c7-9fe4-c3c99bf3273a: insert or update on table "project_validation_findings" violates foreign key constraint "fk_validation_action"
+      at linkFindingsToExecutionItems (C:\Dev\eightforge-os\lib\execution\syncExecutionItems.ts:317:13)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async syncExecutionItems (C:\Dev\eightforge-os\lib\execution\syncExecutionItems.ts:548:3)
+      at async <anonymous> (C:\Dev\eightforge-os\lib\validator\persistValidationRun.ts:842:33)
+      at async runValidationSideEffect (C:\Dev\eightforge-os\lib\validator\persistValidationRun.ts:734:5)
+      at async persistValidationRun (C:\Dev\eightforge-os\lib\validator\persistValidationRun.ts:841:5)
+      at async main (C:\Dev\eightforge-os\scripts\run-golden-validation.mjs:17:24)
+}
+[approvalActionEngine] completed with errors: {
+  projectId: '437502f2-d46d-447f-81e3-f26fa7ba0c14',
+  errors: [
+    'requires_verification_review: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"',
+    'flag_project: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"',
+    'notify_operator: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"'
+  ]
+}
+[persistValidationRun] approval action engine completed with errors {
+  projectId: '437502f2-d46d-447f-81e3-f26fa7ba0c14',
+  runId: '7e37dac7-118e-48fa-83cf-b02c650675ff',
+  errors: [
+    'requires_verification_review: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"',
+    'flag_project: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"',
+    'notify_operator: new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"'
+  ]
+}
+{
+  "run_id": null,
+  "persisted_run_id": "7e37dac7-118e-48fa-83cf-b02c650675ff",
+  "persisted": true,
+  "persisted_validator_fields_match_derivation": {
+    "invoice_exception_eligibility": true,
+    "reviewed_documents_with_warnings": true,
+    "first_document_to_inspect": true
+  },
+  "execution_summary_derived_from_persisted_items": {
+    "recommended_next_action": true,
+    "open_execution_items": true,
+    "payment_release_blockers": true
+  },
+  "persisted_execution_summary": {
+    "recommended_next_action": {
+      "source_item_id": "515f5468-ba09-4e23-8668-578b1352b7e1",
+      "priority_reason": "Total Fully Reconciled Amount does not match the expected project truth.: $105,744 is directly affected, so approval should not proceed until this is resolved."
+    },
+    "open_execution_items": [
+      {
+        "id": "515f5468-ba09-4e23-8668-578b1352b7e1",
+        "status": "open",
+        "required_action": "Resolve the unsupported billed amount by attaching contract and transaction support or reducing the billed total.",
+        "blocker_flag": true
+      },
+      {
+        "id": "689c18e9-f4f5-41e3-82d1-89385eaec18c",
+        "status": "open",
+        "required_action": "Review the billed dollars tied to open findings and resolve the at-risk amount before approval.",
+        "blocker_flag": true
+      },
+      {
+        "id": "e0ad3597-2b4c-4a91-b21e-145fcf29e0c1",
+        "status": "open",
+        "required_action": "Resolve the unsupported billed amount on this invoice before payment approval proceeds.",
+        "blocker_flag": true
+      },
+      {
+        "id": "54c6a545-80f8-49bd-82a1-52a0eb61aeee",
+        "status": "open",
+        "required_action": "Review the billed dollars tied to open findings on this invoice and clear the at-risk amount before approval.",
+        "blocker_flag": true
+      },
+      {
+        "id": "85400cab-9f46-41c7-9fe4-c3c99bf3273a",
+        "status": "open",
+        "required_action": "Verify the contract rate schedule row, correct the line mapping, or override with a reason.",
+        "blocker_flag": true
+      }
+    ],
+    "payment_release_blockers": [
+      {
+        "action_id": "515f5468-ba09-4e23-8668-578b1352b7e1",
+        "blocker_basis": "Total Fully Reconciled Amount does not match the expected project truth.; required action Resolve the unsupported billed amount by attaching contract and transaction support or reducing the billed total.",
+        "payment_gate_impact": "Payment release remains blocked until this execution item is resolved or overridden with audit basis."
+      },
+      {
+        "action_id": "689c18e9-f4f5-41e3-82d1-89385eaec18c",
+        "blocker_basis": "Total At Risk Amount does not match the expected project truth.; required action Review the billed dollars tied to open findings and resolve the at-risk amount before approval.",
+        "payment_gate_impact": "Payment release remains blocked until this execution item is resolved or overridden with audit basis."
+      },
+      {
+        "action_id": "e0ad3597-2b4c-4a91-b21e-145fcf29e0c1",
+        "blocker_basis": "Supported Amount does not match the expected project truth.; required action Resolve the unsupported billed amount on this invoice before payment approval proceeds.",
+        "payment_gate_impact": "Payment release remains blocked until this execution item is resolved or overridden with audit basis."
+      },
+      {
+        "action_id": "54c6a545-80f8-49bd-82a1-52a0eb61aeee",
+        "blocker_basis": "At Risk Amount does not match the expected project truth.; required action Review the billed dollars tied to open findings on this invoice and clear the at-risk amount before approval.",
+        "payment_gate_impact": "Payment release remains blocked until this execution item is resolved or overridden with audit basis."
+      },
+      {
+        "action_id": "85400cab-9f46-41c7-9fe4-c3c99bf3273a",
+        "blocker_basis": "Invoice line is missing a confirmed contract rate match.; required action Verify the contract rate schedule row, correct the line mapping, or override with a reason.",
+        "payment_gate_impact": "Payment release remains blocked until this execution item is resolved or overridden with audit basis."
+      }
+    ]
+  },
+  "total_findings": 17,
+  "critical_findings": 1,
+  "warning_findings": 9,
+  "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS_count": 1,
+  "contract_rate_blockers_by_line": [
+    "fact:aa3b36ac-05cd-45f4-849b-e6e40f37be28:line:1"
+  ],
+  "category_alignment_blockers": 0,
+  "category_alignment_samples": [],
+  "transaction_quantity_blockers": 0,
+  "billing_key_blockers": 0,
+  "missing_invoice_number_findings": 1,
+  "exposure_invoices": [
+    {
+      "invoice_number": "2026-002",
+      "billed_amount": 534757.1,
+      "billed_amount_source": "invoice_total",
+      "contract_supported_amount": 534757.1,
+      "transaction_supported_amount": 534757.1,
+      "fully_reconciled_amount": 534757.1,
+      "supported_amount": 534757.1,
+      "unreconciled_amount": 0,
+      "at_risk_amount": 0,
+      "requires_verification_amount": 0,
+      "reconciliation_status": "MATCH"
+    },
+    {
+      "invoice_number": "2026-003",
+      "billed_amount": 280802.25,
+      "billed_amount_source": "invoice_total",
+      "contract_supported_amount": 175058.25,
+      "transaction_supported_amount": 280802.25,
+      "fully_reconciled_amount": 175058.25,
+      "supported_amount": 175058.25,
+      "unreconciled_amount": 105744,
+      "at_risk_amount": 105744,
+      "requires_verification_amount": 105744,
+      "reconciliation_status": "MISMATCH"
+    }
+  ],
+  "cross_document_summary": {
+    "category_mismatch_units": 0,
+    "matched_units": 9
+  },
+  "invoice_transaction_groups_003": []
+}

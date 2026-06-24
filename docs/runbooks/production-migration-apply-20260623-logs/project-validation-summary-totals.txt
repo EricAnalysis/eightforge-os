@@ -1,0 +1,7 @@
+Pager usage is off.
+--- project_validation_summary_totals ---
+ total_cyd | total_cyd_ticket_grain | total_extended_cost | total_billed | exposure_total_billed | project_operations_overview | transaction_summary 
+-----------+------------------------+---------------------+--------------+-----------------------+-----------------------------+---------------------
+           |                        |                     | 815559.35    |                       |                             | 
+(1 row)
+

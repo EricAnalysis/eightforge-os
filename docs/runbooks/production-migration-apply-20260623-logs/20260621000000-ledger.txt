@@ -1,0 +1,6 @@
+    version     |                    name                    
+----------------+--------------------------------------------
+ 20260621000000 | migrate_legacy_rate_schedule_kind_override
+(1 row)
+
+INSERT 0 1

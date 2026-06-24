@@ -1,0 +1,314 @@
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:834: NOTICE:  relation "activity_events_changed_by_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:836: NOTICE:  relation "activity_events_entity_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:838: NOTICE:  relation "activity_events_org_entity_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:840: NOTICE:  relation "activity_events_org_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:842: NOTICE:  relation "idx_activity_events_lookup" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:844: NOTICE:  relation "idx_activity_events_org_created" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:846: NOTICE:  relation "idx_activity_events_validation" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:848: NOTICE:  relation "decision_rules_org_rule_key_uidx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:850: NOTICE:  relation "decisions_assigned_to_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:852: NOTICE:  relation "decisions_document_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:854: NOTICE:  relation "decisions_due_at_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:856: NOTICE:  relation "decisions_org_assigned_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:858: NOTICE:  relation "decisions_org_due_at_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:860: NOTICE:  relation "decisions_org_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:862: NOTICE:  relation "idx_decision_feedback_decision_id" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:864: NOTICE:  relation "idx_decision_feedback_org_created_at" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:866: NOTICE:  relation "idx_decision_rules_org" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:868: NOTICE:  relation "idx_decisions_assigned_to" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:870: NOTICE:  relation "idx_decisions_org_document_status" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:872: NOTICE:  relation "idx_decisions_org_status_severity" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:874: NOTICE:  relation "idx_decisions_project_id" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:876: NOTICE:  relation "idx_decisions_rule_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:878: NOTICE:  relation "idx_document_decisions_document_id" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:880: NOTICE:  relation "idx_document_decisions_org_type" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:882: NOTICE:  relation "idx_document_extractions_document_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:884: NOTICE:  relation "idx_document_extractions_field_key" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:886: NOTICE:  relation "idx_document_extractions_org_doc" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:888: NOTICE:  relation "idx_document_extractions_organization_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:890: NOTICE:  relation "idx_documents_active_by_organization_created_at" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:892: NOTICE:  relation "idx_documents_active_by_project_created_at" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:894: NOTICE:  relation "idx_documents_org_created" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:896: NOTICE:  relation "idx_documents_status" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:898: NOTICE:  relation "idx_extractions_document_created" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:900: NOTICE:  relation "idx_issues_document_id" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:902: NOTICE:  relation "idx_issues_organization_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:904: NOTICE:  relation "idx_issues_project_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:906: NOTICE:  relation "idx_issues_review_id" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:908: NOTICE:  relation "idx_issues_workflow_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:910: NOTICE:  relation "idx_projects_organization_id" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:912: NOTICE:  relation "idx_reviews_document_id" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:914: NOTICE:  relation "idx_reviews_organization_id" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:916: NOTICE:  relation "idx_reviews_project_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:918: NOTICE:  relation "idx_rules_scope" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:920: NOTICE:  relation "idx_transaction_data_summaries_org" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:922: NOTICE:  relation "idx_transaction_data_summaries_project" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:924: NOTICE:  relation "idx_transaction_data_rows_document" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:926: NOTICE:  relation "idx_transaction_data_rows_invoice_number" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:928: NOTICE:  relation "idx_transaction_data_rows_org" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:930: NOTICE:  relation "idx_transaction_data_rows_project" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:932: NOTICE:  relation "idx_transaction_data_rows_rate_code" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:934: NOTICE:  relation "idx_workflow_tasks_assigned_to" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:936: NOTICE:  relation "idx_workflow_tasks_decision_status" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:938: NOTICE:  relation "idx_workflow_tasks_org_status" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:940: NOTICE:  relation "idx_workflow_tasks_org_status_priority" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:942: NOTICE:  relation "idx_workflow_tasks_project_id" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:944: NOTICE:  relation "uniq_decisions_doc_rule_open" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:946: NOTICE:  relation "workflow_task_events_created_at_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:948: NOTICE:  relation "workflow_task_events_metadata_gin_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:950: NOTICE:  relation "workflow_task_events_org_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:952: NOTICE:  relation "workflow_task_events_task_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:954: NOTICE:  relation "workflow_tasks_assigned_to_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:956: NOTICE:  relation "workflow_tasks_decision_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:958: NOTICE:  relation "workflow_tasks_details_gin_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:960: NOTICE:  relation "workflow_tasks_document_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:962: NOTICE:  relation "workflow_tasks_due_at_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:964: NOTICE:  relation "workflow_tasks_org_assigned_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:966: NOTICE:  relation "workflow_tasks_org_created_at_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:968: NOTICE:  relation "workflow_tasks_org_due_at_idx" already exists, skipping
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:970: NOTICE:  relation "workflow_tasks_org_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:972: NOTICE:  relation "workflow_tasks_org_priority_idx" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:974: NOTICE:  relation "workflow_tasks_org_status_idx" already exists, skipping
+psql:/work/supabase/migrations/20260622155007_missing_live_schema_constraints_security_and_routines.sql:976: NOTICE:  relation "workflow_tasks_source_metadata_gin_idx" already exists, skipping
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+CREATE FUNCTION
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER

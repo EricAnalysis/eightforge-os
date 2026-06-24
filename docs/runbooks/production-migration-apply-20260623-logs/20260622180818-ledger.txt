@@ -1,0 +1,6 @@
+    version     |               name                
+----------------+-----------------------------------
+ 20260622180818 | deterministic_org_select_policies
+(1 row)
+
+INSERT 0 1

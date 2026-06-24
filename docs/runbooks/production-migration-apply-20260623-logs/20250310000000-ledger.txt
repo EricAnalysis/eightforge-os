@@ -1,0 +1,6 @@
+    version     |             name             
+----------------+------------------------------
+ 20250310000000 | missing_live_schema_baseline
+(1 row)
+
+INSERT 0 1

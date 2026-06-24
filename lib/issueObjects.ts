@@ -11,7 +11,7 @@ export type IssueLifecycleState =
   | 'open'
   | 'blocked'
   | 'needs_verification'
-  | 'ready_for_auth'
+  | 'ready_for_authorization'
   | 'escalated'
   | 'resolved';
 
@@ -102,7 +102,7 @@ export function getIssueLifecycleColor(lifecycle: IssueObject['lifecycleState'])
       return 'critical';
     case 'needs_verification':
       return 'warning';
-    case 'ready_for_auth':
+    case 'ready_for_authorization':
       return 'info';
     case 'escalated':
       return 'danger';

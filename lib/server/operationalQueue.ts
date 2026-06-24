@@ -212,6 +212,7 @@ type QueueFindingRow = Pick<
   | 'rule_id'
   | 'severity'
   | 'status'
+  | 'lifecycle_state'
   | 'subject_type'
   | 'subject_id'
   | 'field'
@@ -1731,14 +1732,14 @@ export async function loadOperationalQueueModel(params: {
     admin
       .from('documents')
       .select(
-        'id, title, name, document_type, domain, processing_status, processing_error, created_at, processed_at, project_id, intelligence_trace',
+        'id, title, name, document_type, domain, processing_status, operational_status, processing_error, created_at, processed_at, project_id, intelligence_trace',
       )
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false }),
     admin
       .from('execution_items')
       .select(
-        'id, project_id, status, severity, title, problem, expected_value, actual_value, impact, required_action, source_type, source_id, evidence_refs, validator_rule_key, source_key, created_at, updated_at',
+        'id, project_id, status, outcome, queue_state, severity, title, problem, expected_value, actual_value, impact, required_action, source_type, source_id, evidence_refs, validator_rule_key, source_key, created_at, updated_at',
       )
       .eq('organization_id', organizationId)
       .neq('status', 'resolved')
@@ -1803,7 +1804,7 @@ export async function loadOperationalQueueModel(params: {
     const findingsResult = await admin
       .from('project_validation_findings')
       .select(
-        'id, project_id, rule_id, severity, status, subject_type, subject_id, field, expected, actual, variance, variance_unit, blocked_reason, decision_eligible, action_eligible',
+        'id, project_id, rule_id, severity, status, lifecycle_state, subject_type, subject_id, field, expected, actual, variance, variance_unit, blocked_reason, decision_eligible, action_eligible',
       )
       .in('project_id', projectIds)
       .eq('status', 'open');

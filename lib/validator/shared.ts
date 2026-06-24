@@ -67,6 +67,7 @@ export type ValidatorDocumentRow = {
   document_subtype?: string | null;
   created_at: string;
   processing_status?: string | null;
+  operational_status?: string | null;
   processed_at?: string | null;
   intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
 };

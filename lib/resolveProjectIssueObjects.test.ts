@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { describe, it, vi } from 'vitest';
 import { resolveProjectIssueObjects } from './resolveProjectIssueObjects';
 import type { ProjectExecutionItemRow } from './executionItems';
 import type { ProjectActivityEventRow, ProjectDecisionRow, ProjectDocumentRow } from './projectOverview';
@@ -200,5 +200,32 @@ describe('resolveProjectIssueObjects', () => {
 
     assert.equal(issues[0].exposureAmount, null);
     assert.equal(issues[0].status, 'DECIDED');
+  });
+
+  it('logs persisted lifecycle drift without changing the legacy issue projection', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({ lifecycle_state: 'open' })],
+      evidence: [],
+      decisions: [decision()],
+      executionItems: [execution({ queue_state: 'blocked' })],
+      activityEvents: [],
+      documents: [],
+    });
+
+    assert.equal(issues[0].status, 'COMPLETE');
+    assert.equal(issues[0].lifecycleState, 'resolved');
+    assert.equal(warn.mock.calls.length, 1);
+    assert.equal(warn.mock.calls[0]?.[0], '[state-projection-shadow-mismatch]');
+    assert.deepEqual(warn.mock.calls[0]?.[1], {
+      record_type: 'project_validation_finding',
+      record_id: 'finding-1',
+      project_id: 'project-1',
+      legacy_value: 'resolved',
+      persisted_value: 'open',
+      surface: 'resolveProjectIssueObjects.findingBacked',
+      timestamp: warn.mock.calls[0]?.[1].timestamp,
+    });
   });
 });

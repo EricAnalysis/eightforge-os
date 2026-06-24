@@ -1,5 +1,6 @@
 import { buildDocumentsDocumentHref } from '@/lib/documentNavigation';
 import { resolveDocumentOperationalStatus } from '@/lib/documentOperationalStatus';
+import { logStateProjectionMismatch } from '@/lib/stateProjectionShadow';
 import type { DocumentExecutionTrace } from '@/lib/types/documentIntelligence';
 
 export type DocumentReviewStatus =
@@ -49,6 +50,7 @@ export type DocumentWorkspaceDocRow = {
   name: string;
   document_type: string | null;
   processing_status: string;
+  operational_status?: string | null;
   processing_error: string | null;
   created_at: string;
   processed_at: string | null;
@@ -371,6 +373,14 @@ export function buildDocumentWorkspaceItems(params: {
       pendingActionCount,
       blockedCount,
       missingSupportCount,
+    });
+    logStateProjectionMismatch({
+      record_type: 'document',
+      record_id: document.id,
+      project_id: document.project_id,
+      legacy_value: workspace.label,
+      persisted_value: document.operational_status,
+      surface: 'documentWorkspace.buildDocumentWorkspaceItems',
     });
     const title = document.title?.trim() || document.name;
     const latestActivityAt = latestTimestamp([

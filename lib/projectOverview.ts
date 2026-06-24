@@ -6,6 +6,7 @@ import {
 } from '@/lib/decisionActions';
 import { buildProjectDocumentHref } from '@/lib/documentNavigation';
 import { resolveDocumentOperationalStatus } from '@/lib/documentOperationalStatus';
+import { logStateProjectionMismatch } from '@/lib/stateProjectionShadow';
 import { formatDueDate } from '@/lib/dateUtils';
 import {
   getDocumentRelationshipLabel,
@@ -78,6 +79,7 @@ export type ProjectDocumentRow = {
   document_type: string | null;
   domain: string | null;
   processing_status: string;
+  operational_status?: string | null;
   processing_error: string | null;
   created_at: string;
   processed_at: string | null;
@@ -1451,6 +1453,14 @@ export function buildProjectOperationalRollup(params: {
       blockedCount: documentBlockedCount,
       missingSupportCount: documentMissingSupportCount,
       extractionFollowUpRequired,
+    });
+    logStateProjectionMismatch({
+      record_type: 'document',
+      record_id: document.id,
+      project_id: document.project_id,
+      legacy_value: documentStatus.label,
+      persisted_value: document.operational_status,
+      surface: 'projectOverview.buildProjectOperationalRollup',
     });
 
     if (documentStatus.needsReview) {

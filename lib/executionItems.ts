@@ -12,6 +12,12 @@ export type ExecutionItemStatus = (typeof EXECUTION_ITEM_STATUSES)[number];
 export const EXECUTION_ITEM_OUTCOMES = ['confirmed', 'resolved', 'overridden'] as const;
 export type ExecutionItemOutcome = (typeof EXECUTION_ITEM_OUTCOMES)[number];
 
+export type ExecutionItemQueueState =
+  | 'blocked'
+  | 'needs_review'
+  | 'needs_verification'
+  | 'resolved';
+
 export type ProjectExecutionItemRow = {
   id: string;
   organization_id: string;
@@ -28,6 +34,7 @@ export type ProjectExecutionItemRow = {
   required_action: string;
   status: ExecutionItemStatus;
   outcome: ExecutionItemOutcome | null;
+  queue_state?: ExecutionItemQueueState | null;
   evidence_refs: string[] | null;
   fact_refs: string[] | null;
   validator_rule_key: string | null;

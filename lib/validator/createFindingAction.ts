@@ -117,10 +117,6 @@ export async function createFindingAction(
   findingId: string,
 ): Promise<{ actionId: string }> {
   const finding = await loadFinding(findingId);
-  if (finding.linked_action_id) {
-    return { actionId: finding.linked_action_id };
-  }
-
   const routing = evaluateFindingRouting(finding);
   if (!routing.action_eligible) {
     throw new Error(routing.routing_reason);
@@ -128,6 +124,24 @@ export async function createFindingAction(
 
   const admin = requireAdminClient();
   const project = await loadProject(finding.project_id);
+
+  const { data: existingTask, error: existingTaskError } = await admin
+    .from('workflow_tasks')
+    .select('id')
+    .eq('organization_id', project.organization_id)
+    .eq('project_id', project.id)
+    .eq('task_type', 'review_validator_finding')
+    .contains('source_metadata', { validator_finding_id: finding.id })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingTaskError) {
+    throw new Error(`Failed to check existing action for finding ${findingId}: ${existingTaskError.message}`);
+  }
+  if (existingTask?.id) {
+    return { actionId: existingTask.id };
+  }
+
   const evidence = await loadFindingEvidence(findingId);
   const queueFindingAction = buildValidatorFindingAction({
     finding,
@@ -184,18 +198,6 @@ export async function createFindingAction(
 
   if (error || !data?.id) {
     throw new Error(`Failed to create action for finding ${findingId}: ${error?.message ?? 'unknown error'}`);
-  }
-
-  const { error: updateError } = await admin
-    .from('project_validation_findings')
-    .update({
-      linked_action_id: data.id,
-      updated_at: now,
-    })
-    .eq('id', findingId);
-
-  if (updateError) {
-    throw new Error(`Failed to link action ${data.id} to finding ${findingId}: ${updateError.message}`);
   }
 
   return { actionId: data.id };

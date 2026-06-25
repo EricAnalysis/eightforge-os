@@ -37,6 +37,10 @@ describe('state projection shadow logging', () => {
 
   it('stays silent for matches, unfetched values, and disabled logging', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const adminClient = {
+      from: vi.fn(() => ({ insert })),
+    };
     const base = {
       record_type: 'document' as const,
       record_id: 'document-1',
@@ -45,10 +49,49 @@ describe('state projection shadow logging', () => {
       surface: 'test.documents',
     };
 
-    assert.equal(logStateProjectionMismatch({ ...base, persisted_value: 'Blocked' }), false);
-    assert.equal(logStateProjectionMismatch({ ...base, persisted_value: undefined }), false);
+    assert.equal(
+      logStateProjectionMismatch(
+        { ...base, persisted_value: 'Blocked' },
+        { adminClient, organization_id: 'org-1' },
+      ),
+      false,
+    );
+    assert.equal(
+      logStateProjectionMismatch(
+        { ...base, persisted_value: undefined },
+        { adminClient, organization_id: 'org-1' },
+      ),
+      false,
+    );
     process.env.NEXT_PUBLIC_EIGHTFORGE_STATE_SHADOW_LOGGING = '0';
-    assert.equal(logStateProjectionMismatch({ ...base, persisted_value: 'Needs review' }), false);
+    assert.equal(
+      logStateProjectionMismatch(
+        { ...base, persisted_value: 'Needs review' },
+        { adminClient, organization_id: 'org-1' },
+      ),
+      false,
+    );
     assert.equal(warn.mock.calls.length, 0);
+    assert.equal(adminClient.from.mock.calls.length, 0);
+    assert.equal(insert.mock.calls.length, 0);
+  });
+
+  it('keeps one-argument client-style callers console-only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const logged = logStateProjectionMismatch({
+      record_type: 'document',
+      record_id: 'document-client-1',
+      project_id: 'project-1',
+      legacy_value: 'blocked',
+      persisted_value: 'needs_review',
+      surface: 'test.clientCaller',
+    });
+    await Promise.resolve();
+
+    assert.equal(logged, true);
+    assert.equal(warn.mock.calls.length, 1);
+    assert.equal(error.mock.calls.length, 0);
   });
 });

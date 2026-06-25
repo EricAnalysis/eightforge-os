@@ -1,0 +1,143 @@
+import path from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  getOrchestratorRootCauseCategory,
+  type OrchestratorRootCauseCategoryKey,
+} from '@/lib/shared/orchestratorTaxonomy';
+
+export type OrchestratorPromptFileInput = {
+  diagnostic: string;
+  generatedPrompt: string;
+  model: string;
+  rootCauseCategory?: OrchestratorRootCauseCategoryKey;
+  structuredFields?: Record<string, string | undefined>;
+  now?: Date;
+  docsRoot?: string;
+  fileExists?: (absolutePath: string) => Promise<boolean>;
+};
+
+export type OrchestratorPromptFileResult = {
+  absolutePath: string;
+  relativePath: string;
+  filename: string;
+};
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimestamp(date: Date): string {
+  return date.toISOString();
+}
+
+export function slugFromDiagnostic(diagnostic: string): string {
+  const slug = diagnostic
+    .trim()
+    .split(/\s+/)
+    .slice(0, 8)
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+
+  return slug || 'diagnostic';
+}
+
+function slugFromRootCauseCategory(key: OrchestratorRootCauseCategoryKey): string {
+  return key.replace(/_/g, '-');
+}
+
+export function buildPromptFileMarkdown(input: {
+  diagnostic: string;
+  generatedPrompt: string;
+  model: string;
+  rootCauseCategory?: OrchestratorRootCauseCategoryKey;
+  structuredFields?: Record<string, string | undefined>;
+  generatedAt: Date;
+}): string {
+  const rootCauseCategory = getOrchestratorRootCauseCategory(input.rootCauseCategory);
+  const structured = Object.entries(input.structuredFields ?? {})
+    .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+    .map(([key, value]) => `- ${key}: ${value!.trim()}`)
+    .join('\n');
+
+  return [
+    '---',
+    `generated_at: ${formatTimestamp(input.generatedAt)}`,
+    `model: ${input.model}`,
+    `root_cause_category: ${rootCauseCategory ? `${rootCauseCategory.key} (${rootCauseCategory.label})` : 'none'}`,
+    'tool: improvement-orchestrator-ai',
+    '---',
+    '',
+    '# Improvement Orchestrator Prompt',
+    '',
+    '## Raw Input Diagnostic',
+    '',
+    input.diagnostic.trim(),
+    '',
+    '## Structured Fields',
+    '',
+    structured || '_None provided._',
+    '',
+    '## Generated Prompt',
+    '',
+    input.generatedPrompt.trim(),
+    '',
+  ].join('\n');
+}
+
+async function defaultFileExists(absolutePath: string): Promise<boolean> {
+  const { access } = await import('node:fs/promises');
+  try {
+    await access(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function writeOrchestratorPromptFile(
+  input: OrchestratorPromptFileInput,
+): Promise<OrchestratorPromptFileResult> {
+  const now = input.now ?? new Date();
+  const docsRoot = input.docsRoot ?? process.cwd();
+  const promptsDir = path.join(docsRoot, 'docs', 'prompts');
+  const datePrefix = formatLocalDate(now);
+  const slug = input.rootCauseCategory
+    ? slugFromRootCauseCategory(input.rootCauseCategory)
+    : slugFromDiagnostic(input.diagnostic);
+  const exists = input.fileExists ?? defaultFileExists;
+
+  await mkdir(promptsDir, { recursive: true });
+
+  let suffix = 0;
+  let filename = `${datePrefix}-${slug}.md`;
+  let absolutePath = path.join(promptsDir, filename);
+
+  while (await exists(absolutePath)) {
+    suffix += 1;
+    filename = `${datePrefix}-${slug}-${suffix}.md`;
+    absolutePath = path.join(promptsDir, filename);
+  }
+
+  const markdown = buildPromptFileMarkdown({
+    diagnostic: input.diagnostic,
+    generatedPrompt: input.generatedPrompt,
+    model: input.model,
+    rootCauseCategory: input.rootCauseCategory,
+    structuredFields: input.structuredFields,
+    generatedAt: now,
+  });
+
+  await writeFile(absolutePath, markdown, { encoding: 'utf8', flag: 'wx' });
+
+  return {
+    absolutePath,
+    relativePath: path.relative(docsRoot, absolutePath).replace(/\\/g, '/'),
+    filename,
+  };
+}

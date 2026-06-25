@@ -5,6 +5,7 @@ import type { ForgeGeneratedDecision } from '@/lib/forgeDecisionGenerator';
 import { supabase } from '@/lib/supabaseClient';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
+import { perfEnd, perfMeasure, perfStart } from '@/lib/perf';
 import {
   loadProjectActivityEvents,
   type ActivityQueryBuilder,
@@ -365,61 +366,73 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     let cancelled = false;
 
     const load = async () => {
+      perfStart('[EightForge] workspace total load');
       const silentRefetch = refetchState.projectId === projectId && refetchState.tick > 0;
-      if (!silentRefetch) {
-        setLoading(true);
-      }
-      setPageError(null);
-      setLoadIssue(null);
-      setNotFound(false);
+      try {
+        if (!silentRefetch) {
+          setLoading(true);
+        }
+        setPageError(null);
+        setLoadIssue(null);
+        setNotFound(false);
 
-      const issues: string[] = [];
+        const issues: string[] = [];
 
-      const [
-        projectResult,
-        documentsWithPrecedenceResult,
-        transactionDatasetsResult,
-        transactionRowsResult,
-        validationFindingsResult,
-        documentRelationshipsResult,
-        executionItemsResult,
-      ] = await Promise.all([
-        supabase
-          .from('projects')
-          .select('id, name, code, status, created_at, validation_status, validation_summary_json, validation_phase')
-          .eq('organization_id', organizationId)
-          .eq('id', projectId)
-          .maybeSingle(),
-        supabase
-          .from('documents')
-          .select(DOCUMENT_SELECT_WITH_PRECEDENCE)
-          .eq('organization_id', organizationId)
-          .eq('project_id', projectId)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('transaction_data_datasets')
-          .select('document_id, row_count, date_range_start, date_range_end, summary_json, created_at')
-          .eq('project_id', projectId)
-          .order('created_at', { ascending: false }),
-        loadTransactionRowsForProject(projectId),
-        supabase
-          .from('project_validation_findings')
-          .select('*')
-          .eq('project_id', projectId)
-          .eq('status', 'open'),
-        supabase
-          .from('document_relationships')
-          .select(DOCUMENT_RELATIONSHIP_SELECT)
-          .eq('organization_id', organizationId)
-          .eq('project_id', projectId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('execution_items')
-          .select('*')
-          .eq('project_id', projectId)
-          .order('updated_at', { ascending: false }),
-      ]);
+        const [
+          projectResult,
+          documentsWithPrecedenceResult,
+          transactionDatasetsResult,
+          transactionRowsResult,
+          validationFindingsResult,
+          documentRelationshipsResult,
+          executionItemsResult,
+        ] = await Promise.all([
+          supabase
+            .from('projects')
+            .select('id, name, code, status, created_at, validation_status, validation_summary_json, validation_phase')
+            .eq('organization_id', organizationId)
+            .eq('id', projectId)
+            .maybeSingle(),
+          perfMeasure('[EightForge] documents fetch', () =>
+            supabase
+              .from('documents')
+              .select(DOCUMENT_SELECT_WITH_PRECEDENCE)
+              .eq('organization_id', organizationId)
+              .eq('project_id', projectId)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false }),
+          ),
+          perfMeasure('[EightForge] facts fetch', () =>
+            supabase
+              .from('transaction_data_datasets')
+              .select('document_id, row_count, date_range_start, date_range_end, summary_json, created_at')
+              .eq('project_id', projectId)
+              .order('created_at', { ascending: false }),
+          ),
+          perfMeasure('[EightForge] transaction rows fetch', () => loadTransactionRowsForProject(projectId)),
+          perfMeasure('[EightForge] findings fetch', () =>
+            supabase
+              .from('project_validation_findings')
+              .select('*')
+              .eq('project_id', projectId)
+              .eq('status', 'open'),
+          ),
+          perfMeasure('[EightForge] document relationships fetch', () =>
+            supabase
+              .from('document_relationships')
+              .select(DOCUMENT_RELATIONSHIP_SELECT)
+              .eq('organization_id', organizationId)
+              .eq('project_id', projectId)
+              .order('created_at', { ascending: false }),
+          ),
+          perfMeasure('[EightForge] execution items fetch', () =>
+            supabase
+              .from('execution_items')
+              .select('*')
+              .eq('project_id', projectId)
+              .order('updated_at', { ascending: false }),
+          ),
+        ]);
       collectError(issues, 'Transaction datasets', transactionDatasetsResult.error);
       if (transactionRowsResult.error) {
         if (isMissingTransactionRowsTableError(transactionRowsResult.error)) {
@@ -454,13 +467,15 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           'supabase/migrations/20260323000000_document_precedence.sql',
           documentsWithPrecedenceResult.error,
         );
-        documentsResult = await supabase
-          .from('documents')
-          .select(DOCUMENT_SELECT_LEGACY)
-          .eq('organization_id', organizationId)
-          .eq('project_id', projectId)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }) as ProjectRowsQueryResult;
+        documentsResult = await perfMeasure('[EightForge] documents fetch legacy fallback', () =>
+          supabase
+            .from('documents')
+            .select(DOCUMENT_SELECT_LEGACY)
+            .eq('organization_id', organizationId)
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false }),
+        ) as ProjectRowsQueryResult;
       }
 
       collectError(issues, 'Documents', documentsResult.error);
@@ -529,11 +544,13 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       }
       const projectDocumentIds = projectDocuments.map((document) => document.id);
       const reviewsResult = projectDocumentIds.length > 0
-        ? await supabase
-            .from('document_reviews')
-            .select('document_id, status, reviewed_at')
-            .eq('organization_id', organizationId)
-            .in('document_id', projectDocumentIds)
+        ? await perfMeasure('[EightForge] document reviews fetch', () =>
+            supabase
+              .from('document_reviews')
+              .select('document_id, status, reviewed_at')
+              .eq('organization_id', organizationId)
+              .in('document_id', projectDocumentIds),
+          )
         : { data: [], error: null };
       const projectDocumentReviews = !reviewsResult.error
         ? ((reviewsResult.data ?? []) as ProjectDocumentReviewRow[])
@@ -543,7 +560,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
 
       // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
       // If columns are missing, fall back to document_id / decision_id scoping only.
-      const [linkedDecisionsResult, fallbackDecisionsResult, documentScopedDecisionsResult, contextualValidatorDecisionsResult, documentTasksResult, fallbackTasksResult] = await Promise.all([
+      const [linkedDecisionsResult, fallbackDecisionsResult, documentScopedDecisionsResult, contextualValidatorDecisionsResult, documentTasksResult, fallbackTasksResult] = await perfMeasure('[EightForge] decisions fetch', () => Promise.all([
         supabase
           .from('decisions')
           .select(BASE_DECISION_SELECT)
@@ -588,7 +605,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
           .is('document_id', null)
           .order('created_at', { ascending: false })
           .limit(50),
-      ]);
+      ]));
 
       const projectIdColumnMissing =
         isMissingProjectIdColumnError(linkedDecisionsResult.error) ||
@@ -605,11 +622,13 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         issues.push(
           'Loaded decisions/tasks via document links (project_id columns not on database yet). Apply supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql.',
         );
-        const legacy = await fetchDecisionsAndTasksViaDocumentScope(
-          organizationId,
-          projectRow,
-          projectDocumentIds,
-          issues,
+        const legacy = await perfMeasure('[EightForge] decisions fetch legacy fallback', () =>
+          fetchDecisionsAndTasksViaDocumentScope(
+            organizationId,
+            projectRow,
+            projectDocumentIds,
+            issues,
+          ),
         );
         projectDecisions = legacy.decisions;
         projectTasks = legacy.tasks;
@@ -657,10 +676,12 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       );
 
       const validationEvidenceResult = executionFindingIds.size > 0
-        ? await supabase
-            .from('project_validation_evidence')
-            .select('*')
-            .in('finding_id', Array.from(executionFindingIds))
+        ? await perfMeasure('[EightForge] validation evidence fetch', () =>
+            supabase
+              .from('project_validation_evidence')
+              .select('*')
+              .in('finding_id', Array.from(executionFindingIds)),
+          )
         : { data: [], error: null };
 
       collectError(issues, 'Validation evidence', validationEvidenceResult.error);
@@ -668,18 +689,20 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         ? ((validationEvidenceResult.data ?? []) as ValidationEvidence[])
         : [];
 
-      const activityResult = await loadProjectActivityEvents({
-        client: activityQueryClient,
-        organizationId,
-        scope: {
-          projectId,
-          projectDecisionIds,
-          projectTaskIds,
-          projectDocumentIds: projectDocumentIdSet,
-          executionItemIds,
-          executionFindingIds,
-        },
-      });
+      const activityResult = await perfMeasure('[EightForge] audit fetch', () =>
+        loadProjectActivityEvents({
+          client: activityQueryClient,
+          organizationId,
+          scope: {
+            projectId,
+            projectDecisionIds,
+            projectTaskIds,
+            projectDocumentIds: projectDocumentIdSet,
+            executionItemIds,
+            executionFindingIds,
+          },
+        }),
+      );
 
       collectError(issues, 'Audit events', activityResult.error);
 
@@ -699,6 +722,9 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setActivityEvents(activityResult.data);
       setLoadIssue(issues.length > 0 ? `Project loaded with partial data issues. ${issues.join(' | ')}` : null);
       setLoading(false);
+      } finally {
+        perfEnd('[EightForge] workspace total load');
+      }
     };
 
     load().catch((error) => {

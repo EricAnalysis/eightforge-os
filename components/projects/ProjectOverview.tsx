@@ -9,6 +9,7 @@ import {
   PROJECT_TERM_INVOICE_BILLED_AMOUNT,
 } from '@/lib/projectTerminology';
 import { AskProjectSection } from '@/components/projects/AskProjectSection';
+import { ProjectAskBar } from '@/components/projects/ProjectAskBar';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { ProjectDecisionExecutionCard } from '@/components/projects/ProjectDecisionExecutionCard';
 import { ProjectIssueBoard } from '@/components/projects/ProjectIssueBoard';
@@ -1701,6 +1702,7 @@ export function ProjectOverview({
             </section>
 
             <section className="space-y-4">
+              <ProjectAskBar projectId={model.project.id} />
               <AskProjectSection
                 projectId={model.project.id}
                 validatorStatus={model.validator_status}

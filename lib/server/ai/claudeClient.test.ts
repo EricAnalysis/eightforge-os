@@ -29,4 +29,16 @@ describe('claudeClient', () => {
     const second = await import('@/lib/server/ai/claudeClient');
     assert.equal(second.getClaudeModel(), 'claude-custom');
   });
+
+  it('lets extractor diagnostics use ANTHROPIC_EXTRACTOR_MODEL with ANTHROPIC_MODEL fallback', async () => {
+    process.env.ANTHROPIC_MODEL = 'claude-default';
+    delete process.env.ANTHROPIC_EXTRACTOR_MODEL;
+    const first = await import('@/lib/server/ai/claudeClient');
+    assert.equal(first.getClaudeExtractorModel(), 'claude-default');
+
+    vi.resetModules();
+    process.env.ANTHROPIC_EXTRACTOR_MODEL = 'claude-extractor';
+    const second = await import('@/lib/server/ai/claudeClient');
+    assert.equal(second.getClaudeExtractorModel(), 'claude-extractor');
+  });
 });

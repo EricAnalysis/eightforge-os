@@ -10,6 +10,10 @@ export function getClaudeModel(): string {
   return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_CLAUDE_MODEL;
 }
 
+export function getClaudeExtractorModel(): string {
+  return process.env.ANTHROPIC_EXTRACTOR_MODEL?.trim() || getClaudeModel();
+}
+
 export function getClaudeClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {

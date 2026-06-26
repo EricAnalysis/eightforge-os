@@ -199,6 +199,17 @@ function createAdminMock(params: {
             update(patch: Partial<MockFindingRow>) {
               return {
                 eq(field: string, value: unknown) {
+                  if (
+                    patch.linked_action_id
+                    && !state.executionItems.some((item) => item.id === patch.linked_action_id)
+                  ) {
+                    return Promise.resolve({
+                      error: {
+                        message: 'insert or update on table "project_validation_findings" violates foreign key constraint "fk_validation_action"',
+                      },
+                    });
+                  }
+
                   const rows = state.validationFindings.filter((row) => row[field as keyof MockFindingRow] === value);
                   for (const row of rows) {
                     Object.assign(row, patch);
@@ -260,6 +271,36 @@ describe('syncExecutionItems', () => {
     assert.ok(adminMock.state.executionItems[0]?.suppression_signature);
     assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, adminMock.state.executionItems[0]?.id ?? null);
     expect(logActivityEventMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('links a finding to an execution item id accepted by the validation-action FK', async () => {
+    const finding = makeFinding({
+      id: 'finding-fk-link',
+      check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:fk-link',
+    });
+    const adminMock = createAdminMock({
+      validationFindings: [{
+        id: finding.id,
+        check_key: finding.check_key,
+        status: 'open',
+        linked_action_id: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      }],
+    });
+
+    await syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      findings: [finding],
+    });
+
+    const linkedActionId = findValidationFinding(adminMock.state, finding.id).linked_action_id;
+
+    assert.ok(linkedActionId);
+    assert.ok(adminMock.state.executionItems.some((item) => item.id === linkedActionId));
   });
 
   it('does not create execution items for diagnostic warning findings', async () => {

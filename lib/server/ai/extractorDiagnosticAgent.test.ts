@@ -100,6 +100,44 @@ describe('extractorDiagnosticAgent', () => {
     }));
   });
 
+  it('preserves UTF-8 punctuation from raw Claude text', async () => {
+    createMock.mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            failureClassification: ['classification failure', 'canonical projection failure'],
+            confidence: 'medium',
+            discrepancyMatrix: [],
+            likelyFailingLayer: 'classification — canonical projection',
+            evidenceNeeded: ['Inspect A2–A6 evidence anchors'],
+            recommendedMode: 'phase-a-audit',
+            implementationPrompt: 'Phase A — Audit (codex)',
+            stopConditions: ['Do not infer missing source text — require operator evidence.'],
+            regressionGates: ['Assert clean UTF-8 punctuation — no mojibake markers.'],
+            prBoundary: 'diagnostic only',
+            limitations: ['AI-proposed expected output — requires operator confirmation.'],
+          }),
+        },
+      ],
+    });
+    getClaudeClientMock.mockReturnValue({ messages: { create: createMock } });
+    getClaudeExtractorModelMock.mockReturnValue('claude-extractor');
+
+    const result = await generateExtractorDiagnostic({
+      expectedOutput: 'expected',
+      actualOutput: 'actual',
+      targetAgent: 'codex',
+      requestedMode: 'phase-a-audit',
+    });
+    const serialized = JSON.stringify(result);
+
+    assert.deepEqual(result.failureClassification, ['classification failure', 'canonical projection failure']);
+    assert.match(result.implementationPrompt, /Phase A — Audit/);
+    assert.match(result.evidenceNeeded.join(' '), /A2–A6/);
+    assert.doesNotMatch(serialized, /Ã|â|�/);
+  });
+
   it('preserves raw prompt text with conservative metadata when Claude returns unparseable output', async () => {
     createMock.mockResolvedValue({
       content: [{ type: 'text', text: 'Phase A - Audit only for now' }],

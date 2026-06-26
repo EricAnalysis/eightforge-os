@@ -13,6 +13,9 @@ export const runtime = 'nodejs';
 const MAX_PAYLOAD_CHARACTERS = 60_000;
 const AI_NOT_CONFIGURED_CODE = 'ai_not_configured';
 const AI_NOT_CONFIGURED_MESSAGE = 'AI assistance is not configured.';
+const JSON_RESPONSE_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -49,10 +52,20 @@ function isAiNotConfiguredError(): boolean {
   return !process.env.ANTHROPIC_API_KEY?.trim();
 }
 
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      ...JSON_RESPONSE_HEADERS,
+    },
+  });
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   if (rawBody.length > MAX_PAYLOAD_CHARACTERS) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: `Payload must be ${MAX_PAYLOAD_CHARACTERS} characters or fewer` },
       { status: 400 },
     );
@@ -62,30 +75,30 @@ export async function POST(request: Request) {
   try {
     body = rawBody ? JSON.parse(rawBody) : {};
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    return jsonResponse({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
   if (!isRecord(body)) {
-    return NextResponse.json({ error: 'Body must be a JSON object' }, { status: 400 });
+    return jsonResponse({ error: 'Body must be a JSON object' }, { status: 400 });
   }
 
   if (!hasValue(body.expectedOutput)) {
-    return NextResponse.json({ error: 'expectedOutput is required' }, { status: 400 });
+    return jsonResponse({ error: 'expectedOutput is required' }, { status: 400 });
   }
 
   if (!hasValue(body.actualOutput)) {
-    return NextResponse.json({ error: 'actualOutput is required' }, { status: 400 });
+    return jsonResponse({ error: 'actualOutput is required' }, { status: 400 });
   }
 
   if (!isTargetAgent(body.targetAgent)) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: `targetAgent must be one of: ${EXTRACTOR_TARGET_AGENTS.join(', ')}` },
       { status: 400 },
     );
   }
 
   if (!isRequestedMode(body.requestedMode)) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: `requestedMode must be one of: ${EXTRACTOR_REQUESTED_MODES.join(', ')}` },
       { status: 400 },
     );
@@ -106,15 +119,15 @@ export async function POST(request: Request) {
 
   try {
     const diagnostic = await generateExtractorDiagnostic(input);
-    return NextResponse.json(diagnostic);
+    return jsonResponse(diagnostic);
   } catch (error) {
     console.error('[extractor-diagnostics] generation failed', sanitizeError(error));
     if (isAiNotConfiguredError()) {
-      return NextResponse.json(
+      return jsonResponse(
         { error: AI_NOT_CONFIGURED_MESSAGE, code: AI_NOT_CONFIGURED_CODE },
         { status: 500 },
       );
     }
-    return NextResponse.json({ error: 'Failed to generate extractor diagnostic' }, { status: 500 });
+    return jsonResponse({ error: 'Failed to generate extractor diagnostic' }, { status: 500 });
   }
 }

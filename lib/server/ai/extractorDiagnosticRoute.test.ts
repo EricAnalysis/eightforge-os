@@ -128,6 +128,41 @@ describe('POST /api/extractor-diagnostics', () => {
     }));
   });
 
+  it('returns JSON as explicit UTF-8 without mojibake punctuation', async () => {
+    generateExtractorDiagnosticMock.mockResolvedValue({
+      failureClassification: ['classification failure', 'canonical projection failure'],
+      confidence: 'medium',
+      discrepancyMatrix: [],
+      likelyFailingLayer: 'classification — canonical projection',
+      evidenceNeeded: ['Inspect A2–A6 evidence anchors'],
+      recommendedMode: 'phase-a-audit',
+      implementationPrompt: 'Phase A — Audit (codex)',
+      stopConditions: ['Do not infer missing source text — require operator evidence.'],
+      regressionGates: ['Assert clean UTF-8 punctuation — no mojibake markers.'],
+      prBoundary: 'diagnostic only',
+      limitations: ['AI-proposed expected output — requires operator confirmation.'],
+    });
+
+    const response = await POST(request({
+      expectedOutput: 'expected',
+      actualOutput: 'actual',
+      targetAgent: 'codex',
+      requestedMode: 'phase-a-audit',
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
+
+    const text = await response.text();
+    const bytes = Buffer.from(text, 'utf8');
+
+    assert.match(text, /Phase A — Audit/);
+    assert.match(text, /A2–A6/);
+    assert.equal(bytes.includes(Buffer.from([0xe2, 0x80, 0x94])), true);
+    assert.equal(bytes.includes(Buffer.from([0xc3, 0xa2, 0xc2, 0x80, 0xc2, 0x94])), false);
+    assert.doesNotMatch(text, /Ã|â|�/);
+  });
+
   it('fails server-side without exposing ANTHROPIC_API_KEY when Claude is missing', async () => {
     delete process.env.ANTHROPIC_API_KEY;
     generateExtractorDiagnosticMock.mockRejectedValue(

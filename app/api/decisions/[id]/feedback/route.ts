@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
-import { closeDecisionLinkedWork } from '@/lib/server/decisionClosure';
+import { finalizeDecision, type DecisionTerminalStatus } from '@/lib/server/decisionClosure';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionFeedbackRevalidation } from '@/lib/validator/revalidationRequests';
 import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
@@ -19,6 +19,19 @@ const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'ne
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function terminalStatusForFeedback(params: {
+  isCorrect: boolean;
+  feedbackType: string;
+  disposition: string | null;
+}): DecisionTerminalStatus | null {
+  if (params.disposition === 'suppress') return 'suppressed';
+  if (params.isCorrect && params.feedbackType === 'correct' && params.disposition === 'accept') {
+    return 'resolved';
+  }
+
+  return null;
 }
 
 export async function POST(
@@ -125,11 +138,14 @@ export async function POST(
 
   if (upsertError) return jsonError(upsertError.message, 500);
 
-  const nextStatus = disposition === 'suppress'
-    ? 'suppressed'
-    : !body.is_correct && dec.status === 'open'
-      ? 'in_review'
-      : dec.status;
+  const terminalStatus = terminalStatusForFeedback({
+    isCorrect: body.is_correct,
+    feedbackType,
+    disposition,
+  });
+  const nextStatus = terminalStatus ?? (!body.is_correct && dec.status === 'open'
+    ? 'in_review'
+    : dec.status);
 
   const reviewActivityResult = await logActivityEvent({
     organization_id: organizationId,
@@ -157,45 +173,43 @@ export async function POST(
     console.error('[decision/feedback] activity event failed:', reviewActivityResult.error);
   }
 
-  // If reviewer marks incorrect, auto-move open decisions to review. A suppress
-  // disposition is terminal and uses the same linked-work closure as the status route.
-  if (nextStatus !== dec.status) {
-    const statusUpdates: Record<string, unknown> = {
-      status: nextStatus,
-      updated_at: now,
-    };
-    if (nextStatus === 'suppressed') {
-      statusUpdates.resolved_at = now;
+  if (terminalStatus) {
+    const result = await finalizeDecision({
+      admin,
+      decision: dec,
+      organizationId,
+      actorId,
+      status: terminalStatus,
+      operatorAction,
+      writeLegacyFeedback: false,
+    });
+
+    if (terminalStatus === 'suppressed') {
+      void requestDecisionFeedbackRevalidation({
+        projectId: dec.project_id,
+        actorId,
+        feedbackType: feedbackType as 'correct' | 'incorrect' | 'needs_review' | 'override',
+      });
     }
 
+    return NextResponse.json({
+      ok: true,
+      feedback_type: feedbackType,
+      review_error_type: reviewErrorType,
+      status: result.decision.status,
+    });
+  }
+
+  // If reviewer marks incorrect, auto-move decision to in_review if currently open
+  if (!body.is_correct && dec.status === 'open') {
     const { error: statusUpdateError } = await admin
       .from('decisions')
-      .update(statusUpdates)
+      .update({ status: 'in_review', updated_at: now })
       .eq('id', decisionId)
       .eq('organization_id', organizationId);
 
     if (statusUpdateError) {
       return jsonError(statusUpdateError.message, 500);
-    }
-
-    let closureResult: Awaited<ReturnType<typeof closeDecisionLinkedWork>> | null = null;
-    if (nextStatus === 'suppressed') {
-      closureResult = await closeDecisionLinkedWork({
-        admin,
-        decisionId,
-        organizationId,
-        projectId: dec.project_id,
-        documentId: dec.document_id,
-        actorId,
-        status: 'suppressed',
-        now,
-      });
-      if (closureResult.errors.length > 0) {
-        console.error(
-          '[decision/feedback] linked closure completed with errors:',
-          closureResult.errors,
-        );
-      }
     }
 
     const statusActivityResult = await logActivityEvent({
@@ -206,18 +220,7 @@ export async function POST(
       event_type: 'status_changed',
       changed_by: actorId,
       old_value: { status: dec.status },
-      new_value: {
-        status: nextStatus,
-        linked_closure: closureResult
-          ? {
-              findings: closureResult.closedFindingIds.length,
-              workflow_tasks: closureResult.closedWorkflowTaskIds.length,
-              execution_items: closureResult.closedExecutionItemIds.length,
-              document_status_recomputed: closureResult.recomputedDocumentStatus,
-              errors: closureResult.errors,
-            }
-          : null,
-      },
+      new_value: { status: 'in_review' },
     });
 
     if (!statusActivityResult.ok) {
@@ -231,7 +234,7 @@ export async function POST(
       entityId: decisionId,
       payload: {
         from: dec.status,
-        to: nextStatus,
+        to: 'in_review',
         severity: dec.severity,
       },
     });

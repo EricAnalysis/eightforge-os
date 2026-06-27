@@ -74,7 +74,7 @@ export async function runOrchestrator(input: RunOrchestratorInput): Promise<RunO
   const message = await client.messages.create({
     model,
     temperature: 0,
-    max_tokens: 4000,
+    max_tokens: 6000,
     system: ORCHESTRATOR_SYSTEM_PROMPT,
     messages: [
       {

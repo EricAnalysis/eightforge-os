@@ -1,7 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { executionItemSuppressionSignatureForRow, type ProjectExecutionItemRow } from '@/lib/executionItems';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
+import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
+import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
 export type TerminalDecisionStatus = 'resolved' | 'suppressed';
+export type DecisionTerminalStatus = TerminalDecisionStatus;
 
 export type CloseDecisionLinkedWorkInput = {
   admin: SupabaseClient;
@@ -20,6 +25,29 @@ export type CloseDecisionLinkedWorkResult = {
   closedExecutionItemIds: string[];
   recomputedDocumentStatus: boolean;
   errors: string[];
+};
+
+export type DecisionClosureInput = {
+  admin: SupabaseClient;
+  decision: {
+    id: string;
+    organization_id: string;
+    project_id: string | null;
+    document_id?: string | null;
+    status: string | null;
+    severity: string | null;
+  };
+  organizationId: string;
+  actorId: string;
+  status: DecisionTerminalStatus;
+  operatorAction?: string | null;
+  writeLegacyFeedback?: boolean;
+};
+
+export type DecisionClosureResult = {
+  decision: Record<string, unknown>;
+  linkedFindingIds: string[];
+  linkedClosure: CloseDecisionLinkedWorkResult | null;
 };
 
 const ACTIVE_WORKFLOW_TASK_STATUSES = ['open', 'in_progress', 'blocked'] as const;
@@ -88,7 +116,7 @@ export async function closeDecisionLinkedWork(
     result.errors.push(`findings_fetch_failed:${findingFetchError.message}`);
   }
 
-  const findingRows = ((linkedFindings ?? []) as LinkedFindingRow[]);
+  const findingRows = (linkedFindings ?? []) as LinkedFindingRow[];
   const openFindingIds = findingRows
     .filter((finding) => finding.status === 'open')
     .map((finding) => finding.id);
@@ -195,4 +223,106 @@ export async function closeDecisionLinkedWork(
   }
 
   return result;
+}
+
+export async function finalizeDecision(
+  params: DecisionClosureInput,
+): Promise<DecisionClosureResult> {
+  const previousStatus = params.decision.status;
+  const now = new Date().toISOString();
+  const updates: Record<string, unknown> = {
+    status: params.status,
+    updated_at: now,
+    resolved_at: params.status === 'resolved' ? now : null,
+  };
+
+  const { data: updated, error: updateError } = await params.admin
+    .from('decisions')
+    .update(updates)
+    .eq('id', params.decision.id)
+    .eq('organization_id', params.organizationId)
+    .select()
+    .single();
+
+  if (updateError || !updated) {
+    throw new Error(updateError?.message ?? 'Failed to update decision');
+  }
+
+  const linkedClosure = await closeDecisionLinkedWork({
+    admin: params.admin,
+    decisionId: params.decision.id,
+    organizationId: params.organizationId,
+    projectId: params.decision.project_id,
+    documentId: params.decision.document_id ?? null,
+    actorId: params.actorId,
+    status: params.status,
+    now,
+  });
+  if (linkedClosure.errors.length > 0) {
+    console.error('[decisionClosure] linked closure completed with errors:', linkedClosure.errors);
+  }
+
+  if (previousStatus !== params.status) {
+    const activityResult = await logActivityEvent({
+      organization_id: params.organizationId,
+      project_id: params.decision.project_id,
+      entity_type: 'decision',
+      entity_id: params.decision.id,
+      event_type: 'status_changed',
+      changed_by: params.actorId,
+      old_value: { status: previousStatus },
+      new_value: {
+        status: params.status,
+        operator_action: params.operatorAction ?? null,
+        linked_closure: {
+          findings: linkedClosure.closedFindingIds.length,
+          workflow_tasks: linkedClosure.closedWorkflowTaskIds.length,
+          execution_items: linkedClosure.closedExecutionItemIds.length,
+          document_status_recomputed: linkedClosure.recomputedDocumentStatus,
+          errors: linkedClosure.errors,
+        },
+      },
+    });
+
+    if (!activityResult.ok) {
+      console.error('[decisionClosure] activity event failed:', activityResult.error);
+    }
+
+    if (params.writeLegacyFeedback) {
+      const feedbackResult = await logDecisionFeedback(params.admin, {
+        organization_id: params.organizationId,
+        decision_id: params.decision.id,
+        new_status: params.status,
+        previous_status: previousStatus,
+        created_by: params.actorId,
+      });
+      if (!feedbackResult.ok) {
+        console.error('[decisionClosure] feedback insert failed:', feedbackResult.error);
+      }
+    }
+
+    await processWorkflowTriggers({
+      organizationId: params.organizationId,
+      eventType: 'status_changed',
+      entityType: 'decision',
+      entityId: params.decision.id,
+      payload: {
+        from: previousStatus,
+        to: params.status,
+        severity: params.decision.severity,
+      },
+    });
+
+    void requestDecisionStatusRevalidation({
+      projectId: params.decision.project_id,
+      actorId: params.actorId,
+      newStatus: params.status,
+    });
+  }
+
+  return {
+    decision: updated as Record<string, unknown>,
+    linkedFindingIds: linkedClosure.closedFindingIds,
+    linkedClosure,
+  };
 }

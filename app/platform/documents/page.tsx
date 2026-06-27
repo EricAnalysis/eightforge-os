@@ -54,7 +54,7 @@ const DOC_TYPES = UPLOAD_DOCUMENT_TYPES;
 type UploadDocumentType = (typeof UPLOAD_DOCUMENT_TYPES)[number];
 
 const DOCUMENT_SELECT =
-  'id, title, name, document_type, processing_status, processing_error, created_at, processed_at, domain, project_id, intelligence_trace, projects(id, name, code)';
+  'id, title, name, document_type, processing_status, operational_status, processing_error, created_at, processed_at, domain, project_id, intelligence_trace, projects(id, name, code)';
 
 function titleize(value: string | null | undefined): string {
   if (!value) return 'Unknown';

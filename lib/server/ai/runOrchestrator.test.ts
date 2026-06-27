@@ -44,7 +44,7 @@ describe('runOrchestrator', () => {
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
       model: 'claude-sonnet-4-6',
       temperature: 0,
-      max_tokens: 4000,
+      max_tokens: 6000,
       system: ORCHESTRATOR_SYSTEM_PROMPT,
     }));
     const call = createMock.mock.calls[0][0];
@@ -83,5 +83,24 @@ describe('runOrchestrator', () => {
   it('forbids unverifiable execution and deployment claims in the governing prompt', () => {
     assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /never claim to write, execute, validate, approve, merge, deploy, or verify production code/i);
     assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /Do not invent repo facts/i);
+  });
+
+  it('keeps representative doctrine sections in the system prompt', () => {
+    for (const phrase of [
+      'turns messy project documents into source-backed operational truth',
+      'Documents -> Extraction -> Canonical Facts -> Validator -> Decisions/Execution -> Audit',
+      'Operator-confirmed facts outrank model guesses',
+      'The Orchestrator is not a fifth user-facing project surface',
+      'It does not execute fixes itself',
+      'Prefer reuse over rewrite',
+      'Extraction is high risk because a bad extraction can poison canonical facts',
+      'The Validator consumes canonical facts, document relationships, contract family context, operator decisions, execution state, and audit state',
+      'Document families can include Contract -> Amendment -> Attachment -> Exhibit -> Price Sheet -> Invoice -> Ticket Spreadsheet -> Supporting Evidence',
+      'old hidden path still influencing behavior',
+      'Use judgment. Not every casual answer needs a heavy template.',
+      'Do not claim something was fixed when only advice was generated.',
+    ]) {
+      assert.match(ORCHESTRATOR_SYSTEM_PROMPT, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
   });
 });

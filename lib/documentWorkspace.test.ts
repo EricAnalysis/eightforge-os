@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildDocumentWorkspaceItems,
@@ -93,6 +93,31 @@ const reviews: DocumentWorkspaceReviewRow[] = [
 ];
 
 describe('document workspace', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs persisted document drift without changing the workspace projection', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const items = buildDocumentWorkspaceItems({
+      documents: [{ ...documents[0], operational_status: 'Operationally clear' }],
+      reviews,
+    });
+
+    expect(items[0]?.workspaceStatusLabel).toBe('Needs review');
+    expect(warn).toHaveBeenCalledWith(
+      '[state-projection-shadow-mismatch]',
+      expect.objectContaining({
+        record_type: 'document',
+        record_id: 'doc-1',
+        project_id: 'project-1',
+        legacy_value: 'Needs review',
+        persisted_value: 'Operationally clear',
+        surface: 'documentWorkspace.buildDocumentWorkspaceItems',
+      }),
+    );
+  });
+
   it('builds document rows with project linkage and review signals', () => {
     const items = buildDocumentWorkspaceItems({ documents, reviews });
 

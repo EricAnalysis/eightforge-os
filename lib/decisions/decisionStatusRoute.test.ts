@@ -7,6 +7,7 @@ const {
   logActivityEventMock,
   logDecisionFeedbackMock,
   closeDecisionLinkedWorkMock,
+  finalizeDecisionMock,
   processWorkflowTriggersMock,
   requestDecisionStatusRevalidationMock,
 } = vi.hoisted(() => ({
@@ -20,6 +21,24 @@ const {
     closedExecutionItemIds: ['execution-1'],
     recomputedDocumentStatus: true,
     errors: [],
+  }),
+  finalizeDecisionMock: vi.fn().mockResolvedValue({
+    decision: {
+      id: 'decision-1',
+      organization_id: 'org-1',
+      project_id: 'project-1',
+      document_id: 'doc-1',
+      status: 'resolved',
+      severity: 'high',
+    },
+    linkedFindingIds: ['finding-1'],
+    linkedClosure: {
+      closedFindingIds: ['finding-1'],
+      closedWorkflowTaskIds: ['task-1'],
+      closedExecutionItemIds: ['execution-1'],
+      recomputedDocumentStatus: true,
+      errors: [],
+    },
   }),
   processWorkflowTriggersMock: vi.fn().mockResolvedValue(undefined),
   requestDecisionStatusRevalidationMock: vi.fn(),
@@ -43,6 +62,7 @@ vi.mock('@/lib/server/decisionFeedback', () => ({
 
 vi.mock('@/lib/server/decisionClosure', () => ({
   closeDecisionLinkedWork: closeDecisionLinkedWorkMock,
+  finalizeDecision: finalizeDecisionMock,
 }));
 
 vi.mock('@/lib/server/workflows/processWorkflowTriggers', () => ({
@@ -61,6 +81,7 @@ afterEach(() => {
   logActivityEventMock.mockClear();
   logDecisionFeedbackMock.mockClear();
   closeDecisionLinkedWorkMock.mockClear();
+  finalizeDecisionMock.mockClear();
   processWorkflowTriggersMock.mockClear();
   requestDecisionStatusRevalidationMock.mockClear();
 });
@@ -132,11 +153,12 @@ describe('decision status route', () => {
     expect(logActivityEventMock).not.toHaveBeenCalled();
     expect(logDecisionFeedbackMock).not.toHaveBeenCalled();
     expect(closeDecisionLinkedWorkMock).not.toHaveBeenCalled();
+    expect(finalizeDecisionMock).not.toHaveBeenCalled();
     expect(processWorkflowTriggersMock).not.toHaveBeenCalled();
     expect(requestDecisionStatusRevalidationMock).not.toHaveBeenCalled();
   });
 
-  it('closes linked work and preserves route side effects for terminal status changes', async () => {
+  it('finalizes terminal status changes through the shared closure helper', async () => {
     const admin = {
       from(table: string) {
         assert.equal(table, 'decisions');
@@ -165,9 +187,7 @@ describe('decision status route', () => {
             };
           },
           update(patch: Record<string, unknown>) {
-            assert.equal(patch.status, 'resolved');
-            assert.equal(typeof patch.updated_at, 'string');
-            assert.equal(typeof patch.resolved_at, 'string');
+            throw new Error(`unexpected direct route update: ${JSON.stringify(patch)}`);
 
             const filters: Record<string, unknown> = {};
             const query = {
@@ -228,56 +248,28 @@ describe('decision status route', () => {
     const body = await response.json();
     assert.equal(body.status, 'resolved');
 
-    expect(closeDecisionLinkedWorkMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(finalizeDecisionMock).toHaveBeenCalledWith(expect.objectContaining({
       admin,
-      decisionId: 'decision-1',
       organizationId: 'org-1',
-      projectId: 'project-1',
-      documentId: 'doc-1',
       actorId: 'user-1',
       status: 'resolved',
+      operatorAction: null,
+      writeLegacyFeedback: true,
     }));
-    expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
-      organization_id: 'org-1',
-      project_id: 'project-1',
-      entity_type: 'decision',
-      entity_id: 'decision-1',
-      event_type: 'status_changed',
-      changed_by: 'user-1',
-      old_value: { status: 'in_review' },
-      new_value: expect.objectContaining({
-        status: 'resolved',
-        linked_closure: {
-          findings: 1,
-          workflow_tasks: 1,
-          execution_items: 1,
-          document_status_recomputed: true,
-          errors: [],
-        },
-      }),
-    }));
-    expect(logDecisionFeedbackMock).toHaveBeenCalledWith(admin, expect.objectContaining({
-      organization_id: 'org-1',
-      decision_id: 'decision-1',
-      new_status: 'resolved',
-      previous_status: 'in_review',
-      created_by: 'user-1',
-    }));
-    expect(processWorkflowTriggersMock).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      eventType: 'status_changed',
-      entityType: 'decision',
-      entityId: 'decision-1',
-      payload: {
-        from: 'in_review',
-        to: 'resolved',
+    expect(finalizeDecisionMock).toHaveBeenCalledWith(expect.objectContaining({
+      decision: {
+        id: 'decision-1',
+        organization_id: 'org-1',
+        project_id: 'project-1',
+        document_id: 'doc-1',
+        status: 'in_review',
         severity: 'high',
       },
-    });
-    expect(requestDecisionStatusRevalidationMock).toHaveBeenCalledWith({
-      projectId: 'project-1',
-      actorId: 'user-1',
-      newStatus: 'resolved',
-    });
+    }));
+    expect(closeDecisionLinkedWorkMock).not.toHaveBeenCalled();
+    expect(logActivityEventMock).not.toHaveBeenCalled();
+    expect(logDecisionFeedbackMock).not.toHaveBeenCalled();
+    expect(processWorkflowTriggersMock).not.toHaveBeenCalled();
+    expect(requestDecisionStatusRevalidationMock).not.toHaveBeenCalled();
   });
 });

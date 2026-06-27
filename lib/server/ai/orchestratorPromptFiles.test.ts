@@ -101,4 +101,29 @@ describe('orchestrator prompt files', () => {
     assert.match(markdown, /Answer/);
     assert.equal(markdown.includes('ANTHROPIC_API_KEY'), false);
   });
+
+  it('uses a question-derived slug when no root cause category is provided', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'orchestrator-prompts-'));
+    tempDirs.push(root);
+
+    const result = await writeOrchestratorPromptFile({
+      docsRoot: root,
+      now: new Date(2026, 5, 25, 9, 30, 0),
+      question: "What's the difference between a decision and an execution item in EightForge?",
+      answer: 'Decisions capture approved intent; execution items track operational work.',
+      model: 'claude-sonnet-4-6',
+    });
+
+    assert.equal(
+      result.filename,
+      '2026-06-25-what-s-the-difference-between-a-decision-and-an.md',
+    );
+    assert.equal(
+      result.relativePath,
+      'docs/prompts/2026-06-25-what-s-the-difference-between-a-decision-and-an.md',
+    );
+    const contents = await readFile(result.absolutePath, 'utf8');
+    assert.match(contents, /root_cause_category: none/);
+    assert.match(contents, /## Raw Input/);
+  });
 });

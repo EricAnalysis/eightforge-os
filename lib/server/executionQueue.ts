@@ -16,6 +16,7 @@ import type {
   CurrentActionableItem,
   GetCurrentActionableItemsOptions,
 } from '@/types/executionQueue';
+import { logStateProjectionMismatch } from '@/lib/stateProjectionShadow';
 
 type Relation<T> = T | T[] | null | undefined;
 
@@ -41,6 +42,7 @@ type RawExecutionItemRow = Pick<
   | 'required_action'
   | 'status'
   | 'outcome'
+  | 'queue_state'
   | 'evidence_refs'
   | 'fact_refs'
   | 'validator_rule_key'
@@ -55,6 +57,7 @@ type RawFindingRow = {
   linked_decision_id: string | null;
   linked_action_id: string | null;
   status: string;
+  lifecycle_state: string | null;
 };
 
 type RawEvidenceCountRow = {
@@ -222,6 +225,7 @@ function mapExecutionItem(params: {
   row: RawExecutionItemRow;
   findingById: Map<string, RawFindingRow>;
   evidenceCountByFindingId: Map<string, number>;
+  shadowSinkAdmin: ReturnType<typeof getSupabaseAdmin>;
 }): CurrentActionableItem | null {
   const projectId = nonEmptyString(params.row.project_id);
   if (!projectId) {
@@ -243,6 +247,17 @@ function mapExecutionItem(params: {
   const findingId = params.row.source_type === 'validator_finding' ? params.row.source_id : null;
   const finding = findingId ? params.findingById.get(findingId) ?? null : null;
   const queueState = deriveQueueState(params.row);
+  logStateProjectionMismatch({
+    record_type: 'execution_item',
+    record_id: params.row.id,
+    project_id: projectId,
+    legacy_value: queueState,
+    persisted_value: params.row.queue_state,
+    surface: 'executionQueue.mapExecutionItem',
+  }, {
+    adminClient: params.shadowSinkAdmin,
+    organization_id: params.row.organization_id,
+  });
 
   return {
     id: params.row.id,
@@ -330,7 +345,7 @@ async function loadExecutionItems(
   let query = admin
     .from('execution_items')
     .select(
-      'id, organization_id, project_id, source_type, source_id, source_key, severity, title, problem, expected_value, actual_value, impact, required_action, status, outcome, evidence_refs, fact_refs, validator_rule_key, created_at, updated_at, projects(id, name)',
+      'id, organization_id, project_id, source_type, source_id, source_key, severity, title, problem, expected_value, actual_value, impact, required_action, status, outcome, queue_state, evidence_refs, fact_refs, validator_rule_key, created_at, updated_at, projects(id, name)',
     )
     .eq('organization_id', orgId)
     .order('updated_at', { ascending: false });
@@ -361,7 +376,7 @@ async function loadFindingRows(findingIds: string[]): Promise<RawFindingRow[]> {
 
   const { data, error } = await admin
     .from('project_validation_findings')
-    .select('id, linked_decision_id, linked_action_id, status')
+    .select('id, linked_decision_id, linked_action_id, status, lifecycle_state')
     .in('id', findingIds);
 
   if (error) {
@@ -477,8 +492,14 @@ export async function getCurrentActionableItems(
   ]);
 
   const findingById = new Map(findingRows.map((row) => [row.id, row] as const));
+  const shadowSinkAdmin = getSupabaseAdmin();
   const executionItems = executionRows
-    .map((row) => mapExecutionItem({ row, findingById, evidenceCountByFindingId }))
+    .map((row) => mapExecutionItem({
+      row,
+      findingById,
+      evidenceCountByFindingId,
+      shadowSinkAdmin,
+    }))
     .filter((item): item is CurrentActionableItem => item != null);
 
   return sortCurrentItems([...executionItems, ...legacyItems]);

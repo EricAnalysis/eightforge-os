@@ -77,7 +77,7 @@ type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
 
 class MockQuery {
   private filters: { column: string; value: unknown }[] = [];
-  private inFilter: { column: string; values: unknown[] } | null = null;
+  private inFilters: { column: string; values: unknown[] }[] = [];
   private selected = '';
   private payload: Row | Row[] | null = null;
 
@@ -110,7 +110,7 @@ class MockQuery {
   }
 
   in(column: string, values: unknown[]) {
-    this.inFilter = { column, values };
+    this.inFilters.push({ column, values });
     return this;
   }
 
@@ -144,7 +144,7 @@ class MockQuery {
       table: this.table,
       op: this.op,
       filters: this.filters,
-      inFilter: this.inFilter,
+      inFilters: this.inFilters,
       payload: this.payload,
       selected: this.selected,
     });
@@ -171,6 +171,7 @@ class MockDatabase {
   }];
 
   runs: Row[] = [];
+  evidenceRows: Row[] = [];
   findings: Row[] = [
     {
       id: 'stale-finding',
@@ -192,7 +193,7 @@ class MockDatabase {
     table: string;
     op: 'select' | 'insert' | 'update' | 'delete';
     filters: { column: string; value: unknown }[];
-    inFilter: { column: string; values: unknown[] } | null;
+    inFilters: { column: string; values: unknown[] }[];
     payload: Row | Row[] | null;
     selected: string;
   }) {
@@ -205,6 +206,7 @@ class MockDatabase {
     if (table === 'projects') return this.projects;
     if (table === 'project_validation_runs') return this.runs;
     if (table === 'project_validation_findings') return this.findings;
+    if (table === 'project_validation_evidence') return this.evidenceRows;
     return [];
   }
 
@@ -212,16 +214,18 @@ class MockDatabase {
     let rows = [...this.tableRows(query.table)];
     if (
       query.table === 'project_validation_findings'
-      && query.inFilter?.column === 'check_key'
+      && query.inFilters.some((filter) => filter.column === 'check_key')
     ) {
-      this.existingFindingCheckKeyBatchSizes.push(query.inFilter.values.length);
+      this.existingFindingCheckKeyBatchSizes.push(
+        query.inFilters.find((filter) => filter.column === 'check_key')?.values.length ?? 0,
+      );
     }
 
     for (const filter of query.filters) {
       rows = rows.filter((row) => row[filter.column] === filter.value);
     }
-    if (query.inFilter) {
-      rows = rows.filter((row) => query.inFilter?.values.includes(row[query.inFilter.column]));
+    for (const inFilter of query.inFilters) {
+      rows = rows.filter((row) => inFilter.values.includes(row[inFilter.column]));
     }
 
     if (query.table === 'project_validation_runs') {
@@ -242,6 +246,15 @@ class MockDatabase {
       const row = { id: `finding-${this.findings.length}`, ...(query.payload as Row) };
       this.findings.push(row);
       return { data: [{ id: row.id }], error: null };
+    }
+
+    if (query.table === 'project_validation_evidence') {
+      const rows = Array.isArray(query.payload) ? query.payload : [query.payload as Row];
+      this.evidenceRows.push(...rows.map((row, index) => ({
+        id: `evidence-${this.evidenceRows.length + index}`,
+        ...row,
+      })));
+      return { data: [], error: null };
     }
 
     return { data: [], error: null };
@@ -467,7 +480,136 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(db.runs[0].findings_count, 2);
   });
 
-  it('loads existing open findings in check-key batches', async () => {
+  it('does not reopen a resolved finding when check key and evidence are unchanged', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const checkKey = 'FINANCIAL_RATE_CODE_MISSING:fact:53d74340-0000-4000-8000-000000000000:line:1';
+    db.findings.push({
+      id: 'resolved-rate-code',
+      run_id: 'old-run',
+      project_id: PROJECT_ID,
+      rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+      check_key: checkKey,
+      category: 'financial',
+      severity: 'critical',
+      status: 'resolved',
+      subject_type: 'invoice_line',
+      subject_id: 'fact:53d74340-0000-4000-8000-000000000000:line:1',
+      field: 'rate_code',
+      expected: 'rate code present',
+      actual: null,
+      variance: null,
+      variance_unit: null,
+      linked_decision_id: 'decision-resolved',
+      resolved_at: '2026-06-12T16:03:51.000Z',
+      updated_at: '2026-06-12T16:03:51.000Z',
+    });
+    db.evidenceRows.push({
+      finding_id: 'resolved-rate-code',
+      evidence_type: 'fact',
+      source_document_id: DOCUMENT_ID,
+      source_page: 1,
+      fact_id: DOCUMENT_ID,
+      record_id: 'invoice-line:1',
+      field_name: 'rate_code',
+      field_value: null,
+      note: 'Missing rate code on invoice line 1.',
+    });
+
+    await persistValidationRun(PROJECT_ID, validatorResult([
+      validationFinding({
+        rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+        check_key: checkKey,
+        subject_type: 'invoice_line',
+        subject_id: 'fact:53d74340-0000-4000-8000-000000000000:line:1',
+        field: 'rate_code',
+        expected: 'rate code present',
+        actual: null,
+        variance: null,
+        variance_unit: null,
+        evidence: [evidence({
+          source_document_id: DOCUMENT_ID,
+          source_page: 1,
+          fact_id: `${DOCUMENT_ID}:invoice:line:1`,
+          record_id: 'invoice-line:1',
+          field_name: 'rate_code',
+          field_value: null,
+          note: 'Missing rate code on invoice line 1.',
+        })],
+      }),
+    ]), 'manual');
+
+    const reopened = db.findings.filter((finding) => finding.check_key === checkKey && finding.status === 'open');
+    assert.equal(reopened.length, 0);
+    assert.equal(db.runs[0].findings_count, 0);
+    assert.equal(db.projects[0].validation_status, 'VALIDATED');
+    assert.ok(db.projects[0].validation_summary_json);
+  });
+
+  it('opens a new finding when a resolved check key has materially changed evidence', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const checkKey = 'FINANCIAL_RATE_CODE_MISSING:fact:53d74340-0000-4000-8000-000000000000:line:1';
+    db.findings.push({
+      id: 'resolved-rate-code',
+      run_id: 'old-run',
+      project_id: PROJECT_ID,
+      rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+      check_key: checkKey,
+      category: 'financial',
+      severity: 'critical',
+      status: 'resolved',
+      subject_type: 'invoice_line',
+      subject_id: 'fact:53d74340-0000-4000-8000-000000000000:line:1',
+      field: 'rate_code',
+      expected: 'rate code present',
+      actual: null,
+      variance: null,
+      variance_unit: null,
+      resolved_at: '2026-06-12T16:03:51.000Z',
+      updated_at: '2026-06-12T16:03:51.000Z',
+    });
+    db.evidenceRows.push({
+      finding_id: 'resolved-rate-code',
+      evidence_type: 'fact',
+      source_document_id: DOCUMENT_ID,
+      source_page: 1,
+      fact_id: DOCUMENT_ID,
+      record_id: 'invoice-line:1',
+      field_name: 'rate_code',
+      field_value: null,
+      note: 'Missing rate code on invoice line 1.',
+    });
+
+    await persistValidationRun(PROJECT_ID, validatorResult([
+      validationFinding({
+        rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+        check_key: checkKey,
+        subject_type: 'invoice_line',
+        subject_id: 'fact:53d74340-0000-4000-8000-000000000000:line:1',
+        field: 'rate_code',
+        expected: 'rate code present',
+        actual: null,
+        variance: null,
+        variance_unit: null,
+        evidence: [evidence({
+          source_document_id: DOCUMENT_ID,
+          source_page: 2,
+          fact_id: `${DOCUMENT_ID}:invoice:line:1`,
+          record_id: 'invoice-line:1',
+          field_name: 'rate_code',
+          field_value: null,
+          note: 'Missing rate code on invoice line 1.',
+        })],
+      }),
+    ]), 'manual');
+
+    const reopened = db.findings.filter((finding) => finding.check_key === checkKey && finding.status === 'open');
+    assert.equal(reopened.length, 1);
+    assert.equal(db.runs[0].findings_count, 1);
+  });
+
+  it('loads existing open and resolved findings in check-key batches', async () => {
     const db = new MockDatabase();
     vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
     const manyFindings = Array.from({ length: 205 }, (_, index) => validationFinding({
@@ -483,7 +625,7 @@ describe('persistValidationRun core persistence', () => {
 
     assert.deepEqual(
       db.existingFindingCheckKeyBatchSizes,
-      [25, 25, 25, 25, 25, 25, 25, 25, 5],
+      [25, 25, 25, 25, 25, 25, 25, 25, 5, 25, 25, 25, 25, 25, 25, 25, 25, 5],
     );
     assert.equal(db.runs[0].status, 'complete');
     assert.equal(db.runs[0].findings_count, 205);

@@ -1,12 +1,12 @@
 // app/api/decisions/[id]/status/route.ts
-// PATCH: update decision status (org-scoped). Sets resolved_at when status is resolved.
+// PATCH: update decision status (org-scoped).
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
+import { finalizeDecision } from '@/lib/server/decisionClosure';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
-import { closeDecisionLinkedWork } from '@/lib/server/decisionClosure';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
@@ -25,7 +25,6 @@ export async function PATCH(
     const { id: decisionId } = await params;
     if (!decisionId) return jsonError('Decision not found', 404);
 
-    // 1. Authorize
     const ctx = await getActorContext(req);
     if (!ctx.ok) return jsonError(ctx.error, ctx.status);
     const { actorId, organizationId } = ctx.actor;
@@ -33,7 +32,6 @@ export async function PATCH(
     const admin = getSupabaseAdmin();
     if (!admin) return jsonError('Server not configured', 503);
 
-    // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('decisions')
       .select('id, organization_id, project_id, document_id, status, severity')
@@ -42,17 +40,16 @@ export async function PATCH(
 
     if (fetchError || !existing) return jsonError('Decision not found', 404);
 
-    // 3. Verify org ownership (do not trust browser-supplied org)
     if ((existing.organization_id as string) !== organizationId) {
       return jsonError('Decision not found', 404);
     }
 
-    // 4. Validate input
     const body = await req.json().catch(() => ({}));
     const newStatus = typeof body?.status === 'string' ? body.status : null;
     if (!newStatus || !VALID_STATUSES.includes(newStatus as (typeof VALID_STATUSES)[number])) {
       return jsonError('Invalid status', 400);
     }
+
     const operatorAction =
       typeof body?.operator_action === 'string' && VALID_OPERATOR_ACTIONS.includes(body.operator_action)
         ? body.operator_action
@@ -67,19 +64,36 @@ export async function PATCH(
       );
     }
 
+    if (newStatus === 'resolved' || newStatus === 'suppressed') {
+      const result = await finalizeDecision({
+        admin,
+        decision: {
+          id: existing.id as string,
+          organization_id: existing.organization_id as string,
+          project_id: typeof existing.project_id === 'string' ? existing.project_id : null,
+          document_id: typeof existing.document_id === 'string' ? existing.document_id : null,
+          status: (existing.status as string) ?? null,
+          severity: existing.severity as string | null,
+        },
+        organizationId,
+        actorId,
+        status: newStatus,
+        operatorAction,
+        writeLegacyFeedback: true,
+      });
+
+      return NextResponse.json(result.decision);
+    }
+
     const previousStatus = (existing.status as string) ?? null;
-
-    // 5. Update decision
     const now = new Date().toISOString();
-    const updates: Record<string, unknown> = {
-      status: newStatus,
-      updated_at: now,
-      resolved_at: newStatus === 'resolved' ? now : null,
-    };
-
     const { data: updated, error: updateError } = await admin
       .from('decisions')
-      .update(updates)
+      .update({
+        status: newStatus,
+        updated_at: now,
+        resolved_at: null,
+      })
       .eq('id', decisionId)
       .eq('organization_id', organizationId)
       .select()
@@ -89,27 +103,6 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    let closureResult: Awaited<ReturnType<typeof closeDecisionLinkedWork>> | null = null;
-    if (newStatus === 'resolved' || newStatus === 'suppressed') {
-      closureResult = await closeDecisionLinkedWork({
-        admin,
-        decisionId,
-        organizationId,
-        projectId: typeof existing.project_id === 'string' ? existing.project_id : null,
-        documentId: typeof existing.document_id === 'string' ? existing.document_id : null,
-        actorId,
-        status: newStatus,
-        now,
-      });
-      if (closureResult.errors.length > 0) {
-        console.error(
-          '[decision/status] linked closure completed with errors:',
-          closureResult.errors,
-        );
-      }
-    }
-
-    // 6. Log activity event only when status actually changed
     if (previousStatus !== newStatus) {
       const activityResult = await logActivityEvent({
         organization_id: organizationId,
@@ -119,26 +112,13 @@ export async function PATCH(
         event_type: 'status_changed',
         changed_by: actorId,
         old_value: { status: previousStatus },
-        new_value: {
-          status: newStatus,
-          operator_action: operatorAction,
-          linked_closure: closureResult
-            ? {
-                findings: closureResult.closedFindingIds.length,
-                workflow_tasks: closureResult.closedWorkflowTaskIds.length,
-                execution_items: closureResult.closedExecutionItemIds.length,
-                document_status_recomputed: closureResult.recomputedDocumentStatus,
-                errors: closureResult.errors,
-              }
-            : null,
-        },
+        new_value: { status: newStatus, operator_action: operatorAction },
       });
 
       if (!activityResult.ok) {
         console.error('[decision/status] activity event failed:', activityResult.error);
       }
 
-      // Legacy audit log — keep until fully migrated to activity_events
       const feedbackResult = await logDecisionFeedback(admin, {
         organization_id: organizationId,
         decision_id: decisionId,
@@ -150,7 +130,6 @@ export async function PATCH(
         console.error('[decision/status] feedback insert failed:', feedbackResult.error);
       }
 
-      // 7. Run workflow triggers after successful write + activity event
       await processWorkflowTriggers({
         organizationId,
         eventType: 'status_changed',

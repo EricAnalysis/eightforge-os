@@ -5,22 +5,16 @@ const {
   getActorContextMock,
   getSupabaseAdminMock,
   logActivityEventMock,
-  closeDecisionLinkedWorkMock,
   processWorkflowTriggersMock,
   requestDecisionFeedbackRevalidationMock,
+  requestDecisionStatusRevalidationMock,
 } = vi.hoisted(() => ({
   getActorContextMock: vi.fn(),
   getSupabaseAdminMock: vi.fn(),
   logActivityEventMock: vi.fn().mockResolvedValue({ ok: true }),
-  closeDecisionLinkedWorkMock: vi.fn().mockResolvedValue({
-    closedFindingIds: ['finding-1'],
-    closedWorkflowTaskIds: ['task-1'],
-    closedExecutionItemIds: ['execution-1'],
-    recomputedDocumentStatus: true,
-    errors: [],
-  }),
   processWorkflowTriggersMock: vi.fn().mockResolvedValue(undefined),
   requestDecisionFeedbackRevalidationMock: vi.fn(),
+  requestDecisionStatusRevalidationMock: vi.fn(),
 }));
 
 vi.mock('@/lib/server/getActorContext', () => ({
@@ -35,85 +29,173 @@ vi.mock('@/lib/server/activity/logActivityEvent', () => ({
   logActivityEvent: logActivityEventMock,
 }));
 
-vi.mock('@/lib/server/decisionClosure', () => ({
-  closeDecisionLinkedWork: closeDecisionLinkedWorkMock,
-}));
-
 vi.mock('@/lib/server/workflows/processWorkflowTriggers', () => ({
   processWorkflowTriggers: processWorkflowTriggersMock,
 }));
 
 vi.mock('@/lib/validator/revalidationRequests', () => ({
   requestDecisionFeedbackRevalidation: requestDecisionFeedbackRevalidationMock,
+  requestDecisionStatusRevalidation: requestDecisionStatusRevalidationMock,
+}));
+
+vi.mock('@/lib/server/decisionFeedback', () => ({
+  logDecisionFeedback: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 import { POST } from '@/app/api/decisions/[id]/feedback/route';
+
+type Row = Record<string, unknown>;
+
+class Query {
+  private filters: { column: string; value: unknown }[] = [];
+  private inFilters: { column: string; values: unknown[] }[] = [];
+  private payload: Row | null = null;
+
+  constructor(
+    private readonly db: FeedbackDb,
+    private readonly table: string,
+    private readonly op: 'select' | 'update' | 'upsert' = 'select',
+  ) {}
+
+  select() {
+    return this;
+  }
+
+  update(payload: Row) {
+    return new Query(this.db, this.table, 'update').withPayload(payload);
+  }
+
+  upsert(payload: Row) {
+    return new Query(this.db, this.table, 'upsert').withPayload(payload);
+  }
+
+  eq(column: string, value: unknown) {
+    this.filters.push({ column, value });
+    return this;
+  }
+
+  in(column: string, values: unknown[]) {
+    this.inFilters.push({ column, values });
+    return this;
+  }
+
+  order() {
+    return this;
+  }
+
+  single() {
+    const result = this.execute();
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    return Promise.resolve({ data: row ?? null, error: row ? null : { message: 'not found' } });
+  }
+
+  then(resolve: (value: unknown) => void, reject: (error: unknown) => void) {
+    return Promise.resolve(this.execute()).then(resolve, reject);
+  }
+
+  private withPayload(payload: Row) {
+    this.payload = payload;
+    return this;
+  }
+
+  private execute() {
+    if (this.op === 'upsert') {
+      this.db.feedback.push(this.payload ?? {});
+      return { data: [], error: null };
+    }
+    if (this.op === 'update') {
+      for (const row of this.rows()) Object.assign(row, this.payload);
+      return { data: this.rows(), error: null };
+    }
+    return { data: this.rows(), error: null };
+  }
+
+  private rows() {
+    let rows = [...this.db.rowsFor(this.table)];
+    for (const filter of this.filters) {
+      rows = rows.filter((row) => row[filter.column] === filter.value);
+    }
+    for (const filter of this.inFilters) {
+      rows = rows.filter((row) => filter.values.includes(row[filter.column]));
+    }
+    return rows;
+  }
+}
+
+class FeedbackDb {
+  decisions: Row[] = [{
+    id: 'decision-1',
+    organization_id: 'org-1',
+    project_id: 'project-1',
+    document_id: 'doc-1',
+    status: 'in_review',
+    severity: 'critical',
+  }];
+  findings: Row[] = [{
+    id: 'finding-1',
+    linked_decision_id: 'decision-1',
+    linked_action_id: 'execution-1',
+    project_id: 'project-1',
+    status: 'open',
+  }];
+  workflowTasks: Row[] = [{
+    id: 'task-1',
+    organization_id: 'org-1',
+    decision_id: 'decision-1',
+    status: 'open',
+    completed_at: null,
+  }];
+  executionItems: Row[] = [{
+    id: 'execution-1',
+    organization_id: 'org-1',
+    project_id: 'project-1',
+    source_type: 'validator_finding',
+    source_id: 'finding-1',
+    source_key: 'finding-1',
+    validator_rule_key: 'rule-1',
+    expected_value: null,
+    actual_value: null,
+    evidence_refs: null,
+    fact_refs: null,
+    status: 'open',
+    outcome: null,
+    overridden_at: null,
+    resolved_at: null,
+  }];
+  feedback: Row[] = [];
+  rpcCalls: Array<{ name: string; args: Row }> = [];
+
+  from(table: string) {
+    return new Query(this, table);
+  }
+
+  rpc(name: string, args: Row) {
+    this.rpcCalls.push({ name, args });
+    return Promise.resolve({ data: null, error: null });
+  }
+
+  rowsFor(table: string) {
+    if (table === 'decisions') return this.decisions;
+    if (table === 'project_validation_findings') return this.findings;
+    if (table === 'workflow_tasks') return this.workflowTasks;
+    if (table === 'execution_items') return this.executionItems;
+    if (table === 'decision_feedback') return this.feedback;
+    return [];
+  }
+}
 
 afterEach(() => {
   getActorContextMock.mockReset();
   getSupabaseAdminMock.mockReset();
   logActivityEventMock.mockClear();
-  closeDecisionLinkedWorkMock.mockClear();
   processWorkflowTriggersMock.mockClear();
   requestDecisionFeedbackRevalidationMock.mockClear();
+  requestDecisionStatusRevalidationMock.mockClear();
 });
 
 describe('decision feedback route', () => {
-  it('suppresses decisions through shared linked-work closure', async () => {
-    const state = {
-      feedbackRows: [] as Array<Record<string, unknown>>,
-      decisionPatch: null as Record<string, unknown> | null,
-    };
-    const admin = {
-      from(table: string) {
-        if (table === 'decision_feedback') {
-          return {
-            upsert: async (row: Record<string, unknown>) => {
-              state.feedbackRows.push(row);
-              return { error: null };
-            },
-          };
-        }
-
-        assert.equal(table, 'decisions');
-        return {
-          select() {
-            return {
-              eq(field: string, value: unknown) {
-                assert.equal(field, 'id');
-                assert.equal(value, 'decision-1');
-                return {
-                  single: async () => ({
-                    data: {
-                      id: 'decision-1',
-                      organization_id: 'org-1',
-                      project_id: 'project-1',
-                      document_id: 'doc-1',
-                      status: 'open',
-                      severity: 'critical',
-                    },
-                    error: null,
-                  }),
-                };
-              },
-            };
-          },
-          update(patch: Record<string, unknown>) {
-            state.decisionPatch = patch;
-            const query = {
-              eq() {
-                return query;
-              },
-              then(resolve: (value: { error: null }) => unknown, reject?: (reason: unknown) => unknown) {
-                return Promise.resolve({ error: null }).then(resolve, reject);
-              },
-            };
-            return query;
-          },
-        };
-      },
-    };
-
+  it('accepting correct feedback resolves the linked decision lifecycle', async () => {
+    const db = new FeedbackDb();
     getActorContextMock.mockResolvedValue({
       ok: true,
       actor: {
@@ -123,7 +205,54 @@ describe('decision feedback route', () => {
         role: 'admin',
       },
     });
-    getSupabaseAdminMock.mockReturnValue(admin);
+    getSupabaseAdminMock.mockReturnValue(db);
+
+    const response = await POST(
+      new Request('http://localhost/api/decisions/decision-1/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          is_correct: true,
+          feedback_type: 'correct',
+          disposition: 'accept',
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+      { params: Promise.resolve({ id: 'decision-1' }) },
+    );
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.status, 'resolved');
+    assert.equal(db.decisions[0].status, 'resolved');
+    assert.ok(db.decisions[0].resolved_at);
+    assert.equal(db.findings[0].status, 'resolved');
+    assert.ok(db.findings[0].resolved_at);
+    assert.equal(db.workflowTasks[0].status, 'resolved');
+    assert.ok(db.workflowTasks[0].completed_at);
+    assert.equal(db.executionItems[0].status, 'resolved');
+    assert.equal(db.executionItems[0].outcome, 'resolved');
+    assert.ok(db.executionItems[0].resolved_at);
+    expect(requestDecisionStatusRevalidationMock).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      actorId: 'user-1',
+      newStatus: 'resolved',
+    });
+    expect(requestDecisionFeedbackRevalidationMock).not.toHaveBeenCalled();
+  });
+
+  it('suppressing incorrect feedback closes linked work and requests feedback revalidation', async () => {
+    const db = new FeedbackDb();
+    db.decisions[0].status = 'open';
+    getActorContextMock.mockResolvedValue({
+      ok: true,
+      actor: {
+        actorId: 'user-1',
+        organizationId: 'org-1',
+        displayName: 'Operator',
+        role: 'admin',
+      },
+    });
+    getSupabaseAdminMock.mockReturnValue(db);
 
     const response = await POST(
       new Request('http://localhost/api/decisions/decision-1/feedback', {
@@ -135,41 +264,30 @@ describe('decision feedback route', () => {
           review_error_type: 'edge_case',
           notes: 'Duplicate validator finding.',
         }),
-        headers: {
-          'content-type': 'application/json',
-        },
-      }) as never,
+        headers: { 'content-type': 'application/json' },
+      }),
       { params: Promise.resolve({ id: 'decision-1' }) },
     );
 
     assert.equal(response.status, 200);
-    assert.equal(state.decisionPatch?.status, 'suppressed');
-    assert.equal(typeof state.decisionPatch?.resolved_at, 'string');
-    assert.equal(state.feedbackRows[0]?.disposition, 'suppress');
-    expect(closeDecisionLinkedWorkMock).toHaveBeenCalledWith(expect.objectContaining({
-      admin,
-      decisionId: 'decision-1',
-      organizationId: 'org-1',
-      projectId: 'project-1',
-      documentId: 'doc-1',
-      actorId: 'user-1',
-      status: 'suppressed',
-    }));
-    expect(processWorkflowTriggersMock).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      eventType: 'status_changed',
-      entityType: 'decision',
-      entityId: 'decision-1',
-      payload: {
-        from: 'open',
-        to: 'suppressed',
-        severity: 'critical',
-      },
-    });
+    const body = await response.json();
+    assert.equal(body.status, 'suppressed');
+    assert.equal(db.decisions[0].status, 'suppressed');
+    assert.equal(db.findings[0].status, 'dismissed');
+    assert.equal(db.workflowTasks[0].status, 'cancelled');
+    assert.equal(db.executionItems[0].status, 'resolved');
+    assert.equal(db.executionItems[0].outcome, 'overridden');
+    assert.equal(db.rpcCalls[0]?.name, 'recompute_document_operational_status');
+    assert.deepEqual(db.rpcCalls[0]?.args, { p_document_id: 'doc-1' });
     expect(requestDecisionFeedbackRevalidationMock).toHaveBeenCalledWith({
       projectId: 'project-1',
       actorId: 'user-1',
       feedbackType: 'incorrect',
+    });
+    expect(requestDecisionStatusRevalidationMock).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      actorId: 'user-1',
+      newStatus: 'suppressed',
     });
   });
 });

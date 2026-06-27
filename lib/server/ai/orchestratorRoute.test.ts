@@ -132,6 +132,44 @@ describe('POST /api/internal/orchestrator', () => {
     expect(runOrchestratorMock).not.toHaveBeenCalled();
   });
 
+  it('accepts a general question without a root cause category', async () => {
+    setNodeEnv('development');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
+    mockAccess();
+    runOrchestratorMock.mockResolvedValue({
+      answer: 'Decisions capture approved intent; execution items track operational work.',
+      generatedPrompt: 'Decisions capture approved intent; execution items track operational work.',
+      model: 'claude-sonnet-4-6',
+    });
+    writeOrchestratorPromptFileMock.mockResolvedValue({
+      relativePath: 'docs/prompts/2026-06-25-what-s-the-difference-between-a-decision.md',
+    });
+
+    const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
+      method: 'POST',
+      body: JSON.stringify({
+        question: "What's the difference between a decision and an execution item in EightForge?",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      answer: 'Decisions capture approved intent; execution items track operational work.',
+      generatedPrompt: 'Decisions capture approved intent; execution items track operational work.',
+      model: 'claude-sonnet-4-6',
+      filePath: 'docs/prompts/2026-06-25-what-s-the-difference-between-a-decision.md',
+    });
+    expect(runOrchestratorMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: "What's the difference between a decision and an execution item in EightForge?",
+      structuredFields: expect.objectContaining({ rootCauseCategory: undefined }),
+    }));
+    expect(writeOrchestratorPromptFileMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: "What's the difference between a decision and an execution item in EightForge?",
+      answer: 'Decisions capture approved intent; execution items track operational work.',
+      rootCauseCategory: undefined,
+    }));
+  });
+
   it('returns answer text, legacy prompt alias, model, and repo-relative file path only', async () => {
     setNodeEnv('development');
     process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';

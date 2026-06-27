@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
+import { closeDecisionLinkedWork } from '@/lib/server/decisionClosure';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionFeedbackRevalidation } from '@/lib/validator/revalidationRequests';
 import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
@@ -81,7 +82,7 @@ export async function POST(
   // Verify decision exists and belongs to caller's org
   const { data: decision, error: fetchError } = await admin
     .from('decisions')
-    .select('id, organization_id, project_id, status, severity')
+    .select('id, organization_id, project_id, document_id, status, severity')
     .eq('id', decisionId)
     .single();
 
@@ -91,6 +92,7 @@ export async function POST(
     id: string;
     organization_id: string;
     project_id: string | null;
+    document_id: string | null;
     status: string;
     severity: string | null;
   };
@@ -123,9 +125,11 @@ export async function POST(
 
   if (upsertError) return jsonError(upsertError.message, 500);
 
-  const nextStatus = !body.is_correct && dec.status === 'open'
-    ? 'in_review'
-    : dec.status;
+  const nextStatus = disposition === 'suppress'
+    ? 'suppressed'
+    : !body.is_correct && dec.status === 'open'
+      ? 'in_review'
+      : dec.status;
 
   const reviewActivityResult = await logActivityEvent({
     organization_id: organizationId,
@@ -153,16 +157,45 @@ export async function POST(
     console.error('[decision/feedback] activity event failed:', reviewActivityResult.error);
   }
 
-  // If reviewer marks incorrect, auto-move decision to in_review if currently open
-  if (!body.is_correct && dec.status === 'open') {
+  // If reviewer marks incorrect, auto-move open decisions to review. A suppress
+  // disposition is terminal and uses the same linked-work closure as the status route.
+  if (nextStatus !== dec.status) {
+    const statusUpdates: Record<string, unknown> = {
+      status: nextStatus,
+      updated_at: now,
+    };
+    if (nextStatus === 'suppressed') {
+      statusUpdates.resolved_at = now;
+    }
+
     const { error: statusUpdateError } = await admin
       .from('decisions')
-      .update({ status: 'in_review', updated_at: now })
+      .update(statusUpdates)
       .eq('id', decisionId)
       .eq('organization_id', organizationId);
 
     if (statusUpdateError) {
       return jsonError(statusUpdateError.message, 500);
+    }
+
+    let closureResult: Awaited<ReturnType<typeof closeDecisionLinkedWork>> | null = null;
+    if (nextStatus === 'suppressed') {
+      closureResult = await closeDecisionLinkedWork({
+        admin,
+        decisionId,
+        organizationId,
+        projectId: dec.project_id,
+        documentId: dec.document_id,
+        actorId,
+        status: 'suppressed',
+        now,
+      });
+      if (closureResult.errors.length > 0) {
+        console.error(
+          '[decision/feedback] linked closure completed with errors:',
+          closureResult.errors,
+        );
+      }
     }
 
     const statusActivityResult = await logActivityEvent({
@@ -173,7 +206,18 @@ export async function POST(
       event_type: 'status_changed',
       changed_by: actorId,
       old_value: { status: dec.status },
-      new_value: { status: 'in_review' },
+      new_value: {
+        status: nextStatus,
+        linked_closure: closureResult
+          ? {
+              findings: closureResult.closedFindingIds.length,
+              workflow_tasks: closureResult.closedWorkflowTaskIds.length,
+              execution_items: closureResult.closedExecutionItemIds.length,
+              document_status_recomputed: closureResult.recomputedDocumentStatus,
+              errors: closureResult.errors,
+            }
+          : null,
+      },
     });
 
     if (!statusActivityResult.ok) {
@@ -187,7 +231,7 @@ export async function POST(
       entityId: decisionId,
       payload: {
         from: dec.status,
-        to: 'in_review',
+        to: nextStatus,
         severity: dec.severity,
       },
     });

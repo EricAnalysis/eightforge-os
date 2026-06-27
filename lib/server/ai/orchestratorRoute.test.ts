@@ -60,7 +60,7 @@ describe('POST /api/internal/orchestrator', () => {
 
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
-      body: JSON.stringify({ diagnostic: 'anything' }),
+      body: JSON.stringify({ question: 'anything' }),
     }));
 
     assert.equal(response.status, 404);
@@ -77,38 +77,40 @@ describe('POST /api/internal/orchestrator', () => {
 
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
-      body: JSON.stringify({ diagnostic: 'anything' }),
+      body: JSON.stringify({ question: 'anything' }),
     }));
 
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: 'Unauthorized' });
   });
 
-  it('returns 400 when diagnostic input is missing', async () => {
+  it('returns 400 when question input is missing', async () => {
     setNodeEnv('development');
     mockAccess();
 
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
-      body: JSON.stringify({ diagnostic: '   ' }),
+      body: JSON.stringify({ question: '   ' }),
     }));
 
     assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: 'diagnostic is required' });
+    assert.deepEqual(await response.json(), { error: 'question is required' });
     expect(runOrchestratorMock).not.toHaveBeenCalled();
   });
 
-  it('rejects overly long diagnostics', async () => {
+  it('rejects overly long questions', async () => {
     setNodeEnv('development');
     mockAccess();
 
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
-      body: JSON.stringify({ diagnostic: 'a'.repeat(20_001) }),
+      body: JSON.stringify({ question: 'a'.repeat(20_001) }),
     }));
 
     assert.equal(response.status, 400);
-    assert.match((await response.json()).error, /20000 characters or fewer/);
+    const body = await response.json();
+    assert.match(body.error, /20000 characters or fewer/);
+    assert.match(body.error, /question/);
   });
 
   it('rejects invalid root cause category keys', async () => {
@@ -118,7 +120,7 @@ describe('POST /api/internal/orchestrator', () => {
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
       body: JSON.stringify({
-        diagnostic: 'UI totals drift',
+        question: 'UI totals drift',
         rootCauseCategory: 'invented_category',
       }),
     }));
@@ -130,13 +132,14 @@ describe('POST /api/internal/orchestrator', () => {
     expect(runOrchestratorMock).not.toHaveBeenCalled();
   });
 
-  it('returns prompt text, model, and repo-relative file path only', async () => {
+  it('returns answer text, legacy prompt alias, model, and repo-relative file path only', async () => {
     setNodeEnv('development');
     process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
     process.env.UNRELATED_SECRET = 'do-not-return';
     mockAccess();
     runOrchestratorMock.mockResolvedValue({
-      generatedPrompt: 'Phase A - Audit',
+      answer: 'Doctrine answer',
+      generatedPrompt: 'Doctrine answer',
       model: 'claude-sonnet-4-6',
     });
     writeOrchestratorPromptFileMock.mockResolvedValue({
@@ -146,7 +149,7 @@ describe('POST /api/internal/orchestrator', () => {
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
       body: JSON.stringify({
-        diagnostic: 'UI totals drift',
+        question: 'UI totals drift',
         rootCauseCategory: 'ui_consumption_issue',
       }),
     }));
@@ -154,7 +157,8 @@ describe('POST /api/internal/orchestrator', () => {
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.deepEqual(body, {
-      generatedPrompt: 'Phase A - Audit',
+      answer: 'Doctrine answer',
+      generatedPrompt: 'Doctrine answer',
       model: 'claude-sonnet-4-6',
       filePath: 'docs/prompts/2026-06-25-ui-totals-drift.md',
     });
@@ -162,11 +166,43 @@ describe('POST /api/internal/orchestrator', () => {
     assert.equal(bodyText.includes('sk-ant-secret-test-key'), false);
     assert.equal(bodyText.includes('do-not-return'), false);
     expect(runOrchestratorMock).toHaveBeenCalledWith(expect.objectContaining({
-      diagnostic: 'UI totals drift',
+      question: 'UI totals drift',
       structuredFields: expect.objectContaining({ rootCauseCategory: 'ui_consumption_issue' }),
     }));
     expect(writeOrchestratorPromptFileMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: 'UI totals drift',
+      answer: 'Doctrine answer',
       rootCauseCategory: 'ui_consumption_issue',
+    }));
+  });
+
+  it('accepts legacy diagnostic input while returning the dual response shape', async () => {
+    setNodeEnv('development');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
+    mockAccess();
+    runOrchestratorMock.mockResolvedValue({
+      answer: 'Legacy-compatible answer',
+      generatedPrompt: 'Legacy-compatible answer',
+      model: 'claude-sonnet-4-6',
+    });
+    writeOrchestratorPromptFileMock.mockResolvedValue({
+      relativePath: 'docs/prompts/2026-06-25-legacy-diagnostic.md',
+    });
+
+    const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
+      method: 'POST',
+      body: JSON.stringify({ diagnostic: 'Legacy diagnostic' }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      answer: 'Legacy-compatible answer',
+      generatedPrompt: 'Legacy-compatible answer',
+      model: 'claude-sonnet-4-6',
+      filePath: 'docs/prompts/2026-06-25-legacy-diagnostic.md',
+    });
+    expect(runOrchestratorMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: 'Legacy diagnostic',
     }));
   });
 
@@ -180,7 +216,7 @@ describe('POST /api/internal/orchestrator', () => {
 
     const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
       method: 'POST',
-      body: JSON.stringify({ diagnostic: 'AI client unavailable' }),
+      body: JSON.stringify({ question: 'AI client unavailable' }),
     }));
 
     assert.equal(response.status, 500);

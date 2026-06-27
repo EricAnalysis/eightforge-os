@@ -10,7 +10,7 @@ import {
   type OrchestratorRootCauseCategoryKey,
 } from '@/lib/shared/orchestratorTaxonomy';
 
-const MAX_DIAGNOSTIC_CHARACTERS = 20_000;
+const MAX_QUESTION_CHARACTERS = 20_000;
 const AI_NOT_CONFIGURED_CODE = 'ai_not_configured';
 const AI_NOT_CONFIGURED_MESSAGE = 'AI assistance is not configured.';
 
@@ -47,15 +47,15 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const diagnostic = readString(body?.diagnostic);
+  const question = readString(body?.question) || readString(body?.diagnostic);
 
-  if (!diagnostic) {
-    return NextResponse.json({ error: 'diagnostic is required' }, { status: 400 });
+  if (!question) {
+    return NextResponse.json({ error: 'question is required' }, { status: 400 });
   }
 
-  if (diagnostic.length > MAX_DIAGNOSTIC_CHARACTERS) {
+  if (question.length > MAX_QUESTION_CHARACTERS) {
     return NextResponse.json(
-      { error: `diagnostic must be ${MAX_DIAGNOSTIC_CHARACTERS} characters or fewer` },
+      { error: `question must be ${MAX_QUESTION_CHARACTERS} characters or fewer` },
       { status: 400 },
     );
   }
@@ -76,16 +76,17 @@ export async function POST(request: Request) {
   };
 
   try {
-    const result = await runOrchestrator({ diagnostic, structuredFields });
+    const result = await runOrchestrator({ question, structuredFields });
     const file = await writeOrchestratorPromptFile({
-      diagnostic,
-      generatedPrompt: result.generatedPrompt,
+      question,
+      answer: result.answer,
       model: result.model,
       rootCauseCategory,
       structuredFields,
     });
 
     return NextResponse.json({
+      answer: result.answer,
       generatedPrompt: result.generatedPrompt,
       model: result.model,
       filePath: file.relativePath,
@@ -99,6 +100,6 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ error: 'Failed to generate orchestrator prompt' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to generate orchestrator answer' }, { status: 500 });
   }
 }

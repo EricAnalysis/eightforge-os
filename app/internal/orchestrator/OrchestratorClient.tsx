@@ -15,27 +15,22 @@ type OrchestratorErrorResponse = {
 const AI_NOT_CONFIGURED_CODE = 'ai_not_configured';
 const AI_NOT_CONFIGURED_MESSAGE = 'AI assistance is not configured for this environment.';
 
-function isAllowedRole(role: string | null | undefined): boolean {
-  const normalized = role?.trim().toLowerCase();
-  return normalized === 'owner' || normalized === 'admin';
-}
-
 export function getOrchestratorErrorMessage(payload: OrchestratorErrorResponse): string {
   if (payload.code === AI_NOT_CONFIGURED_CODE) {
     return AI_NOT_CONFIGURED_MESSAGE;
   }
 
-  return typeof payload.error === 'string' ? payload.error : 'Generation failed.';
+  return typeof payload.error === 'string' ? payload.error : 'Orchestrator request failed.';
 }
 
 export function OrchestratorClient() {
   const router = useRouter();
   const [access, setAccess] = useState<AccessState>('checking');
-  const [diagnostic, setDiagnostic] = useState('');
+  const [question, setQuestion] = useState('');
   const [rootCauseCategory, setRootCauseCategory] = useState('');
   const [affectedFiles, setAffectedFiles] = useState('');
   const [evidenceLinks, setEvidenceLinks] = useState('');
-  const [generatedPrompt, setGeneratedPrompt] = useState('');
+  const [answer, setAnswer] = useState('');
   const [model, setModel] = useState('');
   const [filePath, setFilePath] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -57,18 +52,8 @@ export function OrchestratorClient() {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (!active) return;
-      if (profileError || !isAllowedRole(profile?.role)) {
-        setAccess('denied');
-        return;
-      }
-
+      // The route owns internal allowlist/role enforcement. The client only confirms a session
+      // so allowlisted operators are not blocked by a narrower browser-side role check.
       setAccess('allowed');
     }
 
@@ -83,12 +68,12 @@ export function OrchestratorClient() {
     event.preventDefault();
     setError(null);
     setCopied(false);
-    setGeneratedPrompt('');
+    setAnswer('');
     setFilePath('');
     setModel('');
 
-    if (!diagnostic.trim()) {
-      setError('Diagnostic is required.');
+    if (!question.trim()) {
+      setError('Question is required.');
       return;
     }
 
@@ -110,7 +95,7 @@ export function OrchestratorClient() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          diagnostic,
+          question,
           rootCauseCategory: rootCauseCategory || undefined,
           affectedFiles,
           evidenceLinks,
@@ -118,6 +103,7 @@ export function OrchestratorClient() {
       });
 
       const payload = (await response.json().catch(() => ({}))) as OrchestratorErrorResponse & {
+        answer?: string;
         generatedPrompt?: string;
         model?: string;
         filePath?: string;
@@ -127,19 +113,19 @@ export function OrchestratorClient() {
         return;
       }
 
-      setGeneratedPrompt(payload.generatedPrompt ?? '');
+      setAnswer(payload.answer ?? payload.generatedPrompt ?? '');
       setModel(payload.model ?? '');
       setFilePath(payload.filePath ?? '');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed.');
+      setError(err instanceof Error ? err.message : 'Orchestrator request failed.');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleCopy() {
-    if (!generatedPrompt) return;
-    await navigator.clipboard.writeText(generatedPrompt);
+    if (!answer) return;
+    await navigator.clipboard.writeText(answer);
     setCopied(true);
   }
 
@@ -168,18 +154,18 @@ export function OrchestratorClient() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
             Internal engineering
           </p>
-          <h1 className="mt-2 text-xl font-semibold">Improvement Orchestrator</h1>
+          <h1 className="mt-2 text-xl font-semibold">Engineering Orchestrator</h1>
         </header>
 
         <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="space-y-3">
-            <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="diagnostic">
-              Diagnostic
+            <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="question">
+              Engineering question or request
             </label>
             <textarea
-              id="diagnostic"
-              value={diagnostic}
-              onChange={(event) => setDiagnostic(event.target.value)}
+              id="question"
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
               maxLength={20000}
               className="min-h-[360px] w-full resize-y border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-3 font-mono text-xs leading-5 text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
@@ -229,7 +215,7 @@ export function OrchestratorClient() {
               className="flex w-full items-center justify-center gap-2 bg-[var(--ef-purple-primary)] px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Send size={14} aria-hidden="true" />
-              {loading ? 'Generating...' : 'Generate prompt'}
+              {loading ? 'Thinking...' : 'Ask orchestrator'}
             </button>
           </aside>
         </form>
@@ -240,7 +226,7 @@ export function OrchestratorClient() {
           </section>
         )}
 
-        {generatedPrompt && (
+        {answer && (
           <section className="space-y-3 border-t border-[var(--ef-border-subtle)] pt-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-xs text-[var(--ef-text-muted)]">
@@ -257,7 +243,7 @@ export function OrchestratorClient() {
               </button>
             </div>
             <pre className="max-h-[560px] overflow-auto border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-4 whitespace-pre-wrap font-mono text-xs leading-5 text-[var(--ef-text-primary)]">
-              {generatedPrompt}
+              {answer}
             </pre>
           </section>
         )}

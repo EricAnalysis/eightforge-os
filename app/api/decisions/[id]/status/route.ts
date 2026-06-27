@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
+import { closeDecisionLinkedWork } from '@/lib/server/decisionClosure';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
@@ -35,7 +36,7 @@ export async function PATCH(
     // 2. Load current row
     const { data: existing, error: fetchError } = await admin
       .from('decisions')
-      .select('id, organization_id, project_id, status, severity')
+      .select('id, organization_id, project_id, document_id, status, severity')
       .eq('id', decisionId)
       .single();
 
@@ -88,31 +89,22 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // Close linked project_validation_findings when a decision moves to a terminal status.
-    // Findings linked via linked_decision_id should not remain open after their governing
-    // decision is resolved or suppressed.
+    let closureResult: Awaited<ReturnType<typeof closeDecisionLinkedWork>> | null = null;
     if (newStatus === 'resolved' || newStatus === 'suppressed') {
-      const findingStatus = newStatus === 'suppressed' ? 'dismissed' : 'resolved';
-
-      const { error: findingCloseError } = await admin
-        .from('project_validation_findings')
-        .update({
-          status: findingStatus,
-          resolved_by_user_id: actorId,
-          resolved_at: now,
-          updated_at: now,
-        })
-        .eq('linked_decision_id', decisionId)
-        .eq('project_id', existing.project_id)
-        .eq('status', 'open');
-
-      if (findingCloseError) {
-        // Log but do not fail the decision update. Finding closure is a lifecycle sync step;
-        // the decision has already been updated and must not be rolled back because finding
-        // closure failed.
+      closureResult = await closeDecisionLinkedWork({
+        admin,
+        decisionId,
+        organizationId,
+        projectId: typeof existing.project_id === 'string' ? existing.project_id : null,
+        documentId: typeof existing.document_id === 'string' ? existing.document_id : null,
+        actorId,
+        status: newStatus,
+        now,
+      });
+      if (closureResult.errors.length > 0) {
         console.error(
-          '[decision/status] failed to close linked findings:',
-          findingCloseError.message,
+          '[decision/status] linked closure completed with errors:',
+          closureResult.errors,
         );
       }
     }
@@ -127,7 +119,19 @@ export async function PATCH(
         event_type: 'status_changed',
         changed_by: actorId,
         old_value: { status: previousStatus },
-        new_value: { status: newStatus, operator_action: operatorAction },
+        new_value: {
+          status: newStatus,
+          operator_action: operatorAction,
+          linked_closure: closureResult
+            ? {
+                findings: closureResult.closedFindingIds.length,
+                workflow_tasks: closureResult.closedWorkflowTaskIds.length,
+                execution_items: closureResult.closedExecutionItemIds.length,
+                document_status_recomputed: closureResult.recomputedDocumentStatus,
+                errors: closureResult.errors,
+              }
+            : null,
+        },
       });
 
       if (!activityResult.ok) {

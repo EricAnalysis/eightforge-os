@@ -1,4 +1,4 @@
-// Server-only Improvement Orchestrator adapter. Generates text instructions only.
+// Server-only Engineering Orchestrator adapter. Generates guidance text only.
 
 import { ORCHESTRATOR_SYSTEM_PROMPT } from '@/lib/server/ai/orchestratorSystemPrompt';
 import { getClaudeClient, getClaudeModel } from '@/lib/server/ai/claudeClient';
@@ -14,8 +14,15 @@ export type OrchestratorStructuredFields = {
 };
 
 export type RunOrchestratorInput = {
-  diagnostic: string;
+  question?: string;
+  diagnostic?: string;
   structuredFields?: OrchestratorStructuredFields;
+};
+
+export type RunOrchestratorResult = {
+  answer: string;
+  generatedPrompt: string;
+  model: string;
 };
 
 function extractTextContent(content: Array<{ type: string; text?: string }>): string {
@@ -26,6 +33,7 @@ function extractTextContent(content: Array<{ type: string; text?: string }>): st
 }
 
 export function buildOrchestratorUserContent(input: RunOrchestratorInput): string {
+  const question = readOrchestratorQuestion(input);
   const fields = input.structuredFields ?? {};
   const rootCauseCategory = getOrchestratorRootCauseCategory(fields.rootCauseCategory);
   const structured = [
@@ -41,20 +49,23 @@ export function buildOrchestratorUserContent(input: RunOrchestratorInput): strin
     .join('\n');
 
   return [
-    'Structured diagnostic fields:',
+    'Structured engineering context:',
     structured || 'None provided.',
     '',
-    'Freeform diagnostic:',
-    input.diagnostic.trim(),
+    'Freeform question or request:',
+    question,
   ].join('\n');
 }
 
-export async function runOrchestrator(
-  input: RunOrchestratorInput,
-): Promise<{ generatedPrompt: string; model: string }> {
-  const diagnostic = input.diagnostic.trim();
-  if (!diagnostic) {
-    throw new Error('diagnostic is required');
+export function readOrchestratorQuestion(input: RunOrchestratorInput): string {
+  const question = input.question?.trim() || input.diagnostic?.trim() || '';
+  return question;
+}
+
+export async function runOrchestrator(input: RunOrchestratorInput): Promise<RunOrchestratorResult> {
+  const question = readOrchestratorQuestion(input);
+  if (!question) {
+    throw new Error('question is required');
   }
 
   const client = getClaudeClient();
@@ -69,15 +80,17 @@ export async function runOrchestrator(
       {
         role: 'user',
         content: buildOrchestratorUserContent({
-          diagnostic,
+          question,
           structuredFields: input.structuredFields,
         }),
       },
     ],
   });
 
+  const answer = extractTextContent(message.content);
   return {
-    generatedPrompt: extractTextContent(message.content),
+    answer,
+    generatedPrompt: answer,
     model,
   };
 }

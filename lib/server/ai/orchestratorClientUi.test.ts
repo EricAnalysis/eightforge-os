@@ -5,7 +5,7 @@ import { getOrchestratorErrorMessage } from '@/app/internal/orchestrator/Orchest
 describe('OrchestratorClient error copy', () => {
   it('maps the ai_not_configured response code to polished operator copy', () => {
     const message = getOrchestratorErrorMessage({
-      error: 'Failed to generate orchestrator prompt',
+      error: 'Failed to generate orchestrator answer',
       code: 'ai_not_configured',
     });
 
@@ -15,8 +15,12 @@ describe('OrchestratorClient error copy', () => {
 
   it('keeps generic route copy for other failures', () => {
     assert.equal(
-      getOrchestratorErrorMessage({ error: 'Failed to generate orchestrator prompt' }),
-      'Failed to generate orchestrator prompt',
+      getOrchestratorErrorMessage({ error: 'Failed to generate orchestrator answer' }),
+      'Failed to generate orchestrator answer',
     );
+  });
+
+  it('uses polished fallback copy when the route returns no error string', () => {
+    assert.equal(getOrchestratorErrorMessage({}), 'Orchestrator request failed.');
   });
 });

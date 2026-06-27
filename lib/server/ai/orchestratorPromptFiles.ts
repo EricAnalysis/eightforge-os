@@ -6,8 +6,10 @@ import {
 } from '@/lib/shared/orchestratorTaxonomy';
 
 export type OrchestratorPromptFileInput = {
-  diagnostic: string;
-  generatedPrompt: string;
+  question?: string;
+  diagnostic?: string;
+  answer?: string;
+  generatedPrompt?: string;
   model: string;
   rootCauseCategory?: OrchestratorRootCauseCategoryKey;
   structuredFields?: Record<string, string | undefined>;
@@ -47,18 +49,27 @@ export function slugFromDiagnostic(diagnostic: string): string {
   return slug || 'diagnostic';
 }
 
+export function slugFromQuestion(question: string): string {
+  const slug = slugFromDiagnostic(question);
+  return slug === 'diagnostic' ? 'question' : slug;
+}
+
 function slugFromRootCauseCategory(key: OrchestratorRootCauseCategoryKey): string {
   return key.replace(/_/g, '-');
 }
 
 export function buildPromptFileMarkdown(input: {
-  diagnostic: string;
-  generatedPrompt: string;
+  question?: string;
+  diagnostic?: string;
+  answer?: string;
+  generatedPrompt?: string;
   model: string;
   rootCauseCategory?: OrchestratorRootCauseCategoryKey;
   structuredFields?: Record<string, string | undefined>;
   generatedAt: Date;
 }): string {
+  const question = readPromptFileQuestion(input);
+  const answer = readPromptFileAnswer(input);
   const rootCauseCategory = getOrchestratorRootCauseCategory(input.rootCauseCategory);
   const structured = Object.entries(input.structuredFields ?? {})
     .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
@@ -73,21 +84,29 @@ export function buildPromptFileMarkdown(input: {
     'tool: improvement-orchestrator-ai',
     '---',
     '',
-    '# Improvement Orchestrator Prompt',
+    '# EightForge Engineering Orchestrator Answer',
     '',
-    '## Raw Input Diagnostic',
+    '## Raw Input',
     '',
-    input.diagnostic.trim(),
+    question,
     '',
-    '## Structured Fields',
+    '## Structured Context',
     '',
     structured || '_None provided._',
     '',
-    '## Generated Prompt',
+    '## Generated Answer',
     '',
-    input.generatedPrompt.trim(),
+    answer,
     '',
   ].join('\n');
+}
+
+function readPromptFileQuestion(input: { question?: string; diagnostic?: string }): string {
+  return input.question?.trim() || input.diagnostic?.trim() || '';
+}
+
+function readPromptFileAnswer(input: { answer?: string; generatedPrompt?: string }): string {
+  return input.answer?.trim() || input.generatedPrompt?.trim() || '';
 }
 
 async function defaultFileExists(absolutePath: string): Promise<boolean> {
@@ -107,9 +126,11 @@ export async function writeOrchestratorPromptFile(
   const docsRoot = input.docsRoot ?? process.cwd();
   const promptsDir = path.join(docsRoot, 'docs', 'prompts');
   const datePrefix = formatLocalDate(now);
+  const question = readPromptFileQuestion(input);
+  const answer = readPromptFileAnswer(input);
   const slug = input.rootCauseCategory
     ? slugFromRootCauseCategory(input.rootCauseCategory)
-    : slugFromDiagnostic(input.diagnostic);
+    : slugFromQuestion(question);
   const exists = input.fileExists ?? defaultFileExists;
 
   await mkdir(promptsDir, { recursive: true });
@@ -125,8 +146,8 @@ export async function writeOrchestratorPromptFile(
   }
 
   const markdown = buildPromptFileMarkdown({
-    diagnostic: input.diagnostic,
-    generatedPrompt: input.generatedPrompt,
+    question,
+    answer,
     model: input.model,
     rootCauseCategory: input.rootCauseCategory,
     structuredFields: input.structuredFields,

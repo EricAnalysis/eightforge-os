@@ -47,15 +47,15 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const diagnostic = readString(body?.diagnostic);
+  const question = readString(body?.question) ?? readString(body?.diagnostic);
 
-  if (!diagnostic) {
-    return NextResponse.json({ error: 'diagnostic is required' }, { status: 400 });
+  if (!question) {
+    return NextResponse.json({ error: 'question is required' }, { status: 400 });
   }
 
-  if (diagnostic.length > MAX_DIAGNOSTIC_CHARACTERS) {
+  if (question.length > MAX_DIAGNOSTIC_CHARACTERS) {
     return NextResponse.json(
-      { error: `diagnostic must be ${MAX_DIAGNOSTIC_CHARACTERS} characters or fewer` },
+      { error: `question must be ${MAX_DIAGNOSTIC_CHARACTERS} characters or fewer` },
       { status: 400 },
     );
   }
@@ -76,9 +76,9 @@ export async function POST(request: Request) {
   };
 
   try {
-    const result = await runOrchestrator({ diagnostic, structuredFields });
+    const result = await runOrchestrator({ question, structuredFields });
     const file = await writeOrchestratorPromptFile({
-      diagnostic,
+      diagnostic: question,
       generatedPrompt: result.generatedPrompt,
       model: result.model,
       rootCauseCategory,

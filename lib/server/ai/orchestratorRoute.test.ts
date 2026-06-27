@@ -84,7 +84,7 @@ describe('POST /api/internal/orchestrator', () => {
     assert.deepEqual(await response.json(), { error: 'Unauthorized' });
   });
 
-  it('returns 400 when diagnostic input is missing', async () => {
+  it('returns 400 when question input is missing', async () => {
     setNodeEnv('development');
     mockAccess();
 
@@ -94,7 +94,7 @@ describe('POST /api/internal/orchestrator', () => {
     }));
 
     assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: 'diagnostic is required' });
+    assert.deepEqual(await response.json(), { error: 'question is required' });
     expect(runOrchestratorMock).not.toHaveBeenCalled();
   });
 
@@ -109,6 +109,41 @@ describe('POST /api/internal/orchestrator', () => {
 
     assert.equal(response.status, 400);
     assert.match((await response.json()).error, /20000 characters or fewer/);
+  });
+
+  it('accepts a general question without a root cause category', async () => {
+    setNodeEnv('development');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
+    mockAccess();
+    runOrchestratorMock.mockResolvedValue({
+      generatedPrompt: 'Decisions capture approved intent; execution items track operational work.',
+      model: 'claude-sonnet-4-6',
+    });
+    writeOrchestratorPromptFileMock.mockResolvedValue({
+      relativePath: 'docs/prompts/2026-06-25-whats-the-difference-between-a-decision.md',
+    });
+
+    const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
+      method: 'POST',
+      body: JSON.stringify({
+        question: "What's the difference between a decision and an execution item in EightForge?",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      generatedPrompt: 'Decisions capture approved intent; execution items track operational work.',
+      model: 'claude-sonnet-4-6',
+      filePath: 'docs/prompts/2026-06-25-whats-the-difference-between-a-decision.md',
+    });
+    expect(runOrchestratorMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: "What's the difference between a decision and an execution item in EightForge?",
+      structuredFields: expect.objectContaining({ rootCauseCategory: undefined }),
+    }));
+    expect(writeOrchestratorPromptFileMock).toHaveBeenCalledWith(expect.objectContaining({
+      diagnostic: "What's the difference between a decision and an execution item in EightForge?",
+      rootCauseCategory: undefined,
+    }));
   });
 
   it('rejects invalid root cause category keys', async () => {
@@ -162,7 +197,7 @@ describe('POST /api/internal/orchestrator', () => {
     assert.equal(bodyText.includes('sk-ant-secret-test-key'), false);
     assert.equal(bodyText.includes('do-not-return'), false);
     expect(runOrchestratorMock).toHaveBeenCalledWith(expect.objectContaining({
-      diagnostic: 'UI totals drift',
+      question: 'UI totals drift',
       structuredFields: expect.objectContaining({ rootCauseCategory: 'ui_consumption_issue' }),
     }));
     expect(writeOrchestratorPromptFileMock).toHaveBeenCalledWith(expect.objectContaining({

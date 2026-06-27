@@ -31,7 +31,7 @@ export function getOrchestratorErrorMessage(payload: OrchestratorErrorResponse):
 export function OrchestratorClient() {
   const router = useRouter();
   const [access, setAccess] = useState<AccessState>('checking');
-  const [diagnostic, setDiagnostic] = useState('');
+  const [question, setQuestion] = useState('');
   const [rootCauseCategory, setRootCauseCategory] = useState('');
   const [affectedFiles, setAffectedFiles] = useState('');
   const [evidenceLinks, setEvidenceLinks] = useState('');
@@ -87,8 +87,8 @@ export function OrchestratorClient() {
     setFilePath('');
     setModel('');
 
-    if (!diagnostic.trim()) {
-      setError('Diagnostic is required.');
+    if (!question.trim()) {
+      setError('Question is required.');
       return;
     }
 
@@ -110,7 +110,7 @@ export function OrchestratorClient() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          diagnostic,
+          question,
           rootCauseCategory: rootCauseCategory || undefined,
           affectedFiles,
           evidenceLinks,
@@ -173,13 +173,13 @@ export function OrchestratorClient() {
 
         <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="space-y-3">
-            <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="diagnostic">
-              Diagnostic
+            <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="question">
+              Question or diagnostic
             </label>
             <textarea
-              id="diagnostic"
-              value={diagnostic}
-              onChange={(event) => setDiagnostic(event.target.value)}
+              id="question"
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
               maxLength={20000}
               className="min-h-[360px] w-full resize-y border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] p-3 font-mono text-xs leading-5 text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
             />
@@ -187,7 +187,7 @@ export function OrchestratorClient() {
 
           <aside className="space-y-3">
             <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="root-cause-category">
-              Root cause category
+              Root cause category optional
             </label>
             <select
               id="root-cause-category"
@@ -195,7 +195,7 @@ export function OrchestratorClient() {
               onChange={(event) => setRootCauseCategory(event.target.value)}
               className="w-full border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-xs outline-none focus:border-[var(--ef-purple-primary)]"
             >
-              <option value="">Not sure / let the model classify</option>
+              <option value="">General question / let the model classify</option>
               {ORCHESTRATOR_ROOT_CAUSE_CATEGORIES.map((category) => (
                 <option key={category.key} value={category.key}>
                   {category.label}

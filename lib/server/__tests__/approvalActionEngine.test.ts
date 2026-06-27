@@ -7,6 +7,12 @@ import {
 import * as approvalSnapshots from '../approvalSnapshots';
 import type { ProjectApprovalSnapshot, InvoiceApprovalSnapshot } from '../approvalSnapshots';
 
+const { supabaseMockState } = vi.hoisted(() => ({
+  supabaseMockState: {
+    workflowTasks: [] as Array<Record<string, unknown>>,
+  },
+}));
+
 // Mock approvalSnapshots module
 vi.mock('../approvalSnapshots', () => ({
   getLatestApprovalSnapshot: vi.fn(),
@@ -14,11 +20,30 @@ vi.mock('../approvalSnapshots', () => ({
 
 // Mock supabaseAdmin — provide a chainable builder that resolves to { data, error }
 vi.mock('../supabaseAdmin', () => {
-  const makeChain = (resolution: { data: unknown; error: unknown }) => {
+  const allowedWorkflowTaskSources = new Set(['decision_engine', 'manual', 'system', 'approval_engine']);
+
+  const makeChain = (
+    table: string,
+    resolution: { data: unknown; error: unknown },
+  ) => {
     const chain = {
       from: () => chain,
       select: () => chain,
-      insert: () => chain,
+      insert: (row: Record<string, unknown>) => {
+        if (table === 'workflow_tasks') {
+          const source = String(row.source ?? '');
+          if (!allowedWorkflowTaskSources.has(source)) {
+            return makeChain(table, {
+              data: null,
+              error: { message: 'new row for relation "workflow_tasks" violates check constraint "workflow_tasks_source_check"' },
+            });
+          }
+          const inserted = { ...row, id: `task-${supabaseMockState.workflowTasks.length + 1}` };
+          supabaseMockState.workflowTasks.push(inserted);
+          return makeChain(table, { data: { id: inserted.id }, error: null });
+        }
+        return chain;
+      },
       update: () => chain,
       eq: () => chain,
       in: () => chain,
@@ -31,7 +56,9 @@ vi.mock('../supabaseAdmin', () => {
   };
 
   return {
-    getSupabaseAdmin: vi.fn(() => makeChain({ data: null, error: null })),
+    getSupabaseAdmin: vi.fn(() => ({
+      from: (table: string) => makeChain(table, { data: null, error: null }),
+    })),
   };
 });
 
@@ -344,6 +371,7 @@ describe('planApprovalActions', () => {
 describe('executeApprovalActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    supabaseMockState.workflowTasks = [];
   });
 
   it('returns not_evaluated when no snapshot exists', async () => {
@@ -453,6 +481,37 @@ describe('executeApprovalActions', () => {
       (a) => a.action_type === 'requires_verification_review',
     );
     expect(reviewActions[0]?.invoice_number).toBe('INV-003');
+  });
+
+  it('creates blocked approval workflow tasks with approval_engine source', async () => {
+    const snapshot = makeProjectSnapshot({
+      approval_status: 'blocked',
+      blocked_amount: 3187500,
+      blocked_invoice_count: 1,
+      invoice_count: 1,
+    });
+    const invoice = makeInvoiceSnapshot({
+      approval_status: 'blocked',
+      invoice_number: 'INV-003',
+      billed_amount: 3187500,
+    });
+
+    const result = await executeApprovalActions({
+      projectId: 'project-123',
+      organizationId: 'org-abc',
+      snapshot,
+      invoiceSnapshots: [invoice],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.tasks_created).toBe(3);
+    expect(supabaseMockState.workflowTasks).toHaveLength(3);
+    expect(supabaseMockState.workflowTasks.map((task) => task.task_type)).toEqual([
+      'approval_requires_verification',
+      'approval_flag_project',
+      'approval_notify_operator',
+    ]);
+    expect(supabaseMockState.workflowTasks.every((task) => task.source === 'approval_engine')).toBe(true);
   });
 });
 

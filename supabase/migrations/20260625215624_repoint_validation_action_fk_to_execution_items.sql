@@ -1,0 +1,24 @@
+-- Repoint validator finding action links to the execution item table.
+--
+-- Phase A production pre-check on 2026-06-25 found zero
+-- project_validation_findings.linked_action_id rows that reference workflow_tasks.id,
+-- while current execution sync code writes execution_items.id into this column.
+
+ALTER TABLE public.project_validation_findings
+  DROP CONSTRAINT IF EXISTS fk_validation_action;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.project_validation_findings'::regclass
+      AND conname = 'fk_validation_action'
+  ) THEN
+    ALTER TABLE public.project_validation_findings
+      ADD CONSTRAINT fk_validation_action
+      FOREIGN KEY (linked_action_id)
+      REFERENCES public.execution_items(id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;

@@ -56,3 +56,4 @@ supabase/.temp/
 
 # Claude/Codex agent skills submodule
 .agents/skills/
+response*.json

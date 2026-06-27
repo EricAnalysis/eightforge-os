@@ -225,6 +225,7 @@ function mapExecutionItem(params: {
   row: RawExecutionItemRow;
   findingById: Map<string, RawFindingRow>;
   evidenceCountByFindingId: Map<string, number>;
+  shadowSinkAdmin: ReturnType<typeof getSupabaseAdmin>;
 }): CurrentActionableItem | null {
   const projectId = nonEmptyString(params.row.project_id);
   if (!projectId) {
@@ -253,6 +254,9 @@ function mapExecutionItem(params: {
     legacy_value: queueState,
     persisted_value: params.row.queue_state,
     surface: 'executionQueue.mapExecutionItem',
+  }, {
+    adminClient: params.shadowSinkAdmin,
+    organization_id: params.row.organization_id,
   });
 
   return {
@@ -488,8 +492,14 @@ export async function getCurrentActionableItems(
   ]);
 
   const findingById = new Map(findingRows.map((row) => [row.id, row] as const));
+  const shadowSinkAdmin = getSupabaseAdmin();
   const executionItems = executionRows
-    .map((row) => mapExecutionItem({ row, findingById, evidenceCountByFindingId }))
+    .map((row) => mapExecutionItem({
+      row,
+      findingById,
+      evidenceCountByFindingId,
+      shadowSinkAdmin,
+    }))
     .filter((item): item is CurrentActionableItem => item != null);
 
   return sortCurrentItems([...executionItems, ...legacyItems]);

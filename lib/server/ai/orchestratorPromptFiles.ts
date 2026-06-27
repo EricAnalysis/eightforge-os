@@ -47,6 +47,10 @@ export function slugFromDiagnostic(diagnostic: string): string {
   return slug || 'diagnostic';
 }
 
+export function slugFromQuestion(question: string): string {
+  return slugFromDiagnostic(question);
+}
+
 function slugFromRootCauseCategory(key: OrchestratorRootCauseCategoryKey): string {
   return key.replace(/_/g, '-');
 }
@@ -75,7 +79,7 @@ export function buildPromptFileMarkdown(input: {
     '',
     '# Improvement Orchestrator Prompt',
     '',
-    '## Raw Input Diagnostic',
+    '## Raw Input Question Or Diagnostic',
     '',
     input.diagnostic.trim(),
     '',
@@ -109,7 +113,7 @@ export async function writeOrchestratorPromptFile(
   const datePrefix = formatLocalDate(now);
   const slug = input.rootCauseCategory
     ? slugFromRootCauseCategory(input.rootCauseCategory)
-    : slugFromDiagnostic(input.diagnostic);
+    : slugFromQuestion(input.diagnostic);
   const exists = input.fileExists ?? defaultFileExists;
 
   await mkdir(promptsDir, { recursive: true });

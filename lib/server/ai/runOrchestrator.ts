@@ -14,7 +14,8 @@ export type OrchestratorStructuredFields = {
 };
 
 export type RunOrchestratorInput = {
-  diagnostic: string;
+  question?: string;
+  diagnostic?: string;
   structuredFields?: OrchestratorStructuredFields;
 };
 
@@ -27,6 +28,7 @@ function extractTextContent(content: Array<{ type: string; text?: string }>): st
 
 export function buildOrchestratorUserContent(input: RunOrchestratorInput): string {
   const fields = input.structuredFields ?? {};
+  const question = readOrchestratorQuestion(input);
   const rootCauseCategory = getOrchestratorRootCauseCategory(fields.rootCauseCategory);
   const structured = [
     [
@@ -41,20 +43,24 @@ export function buildOrchestratorUserContent(input: RunOrchestratorInput): strin
     .join('\n');
 
   return [
-    'Structured diagnostic fields:',
+    'Optional structured context:',
     structured || 'None provided.',
     '',
-    'Freeform diagnostic:',
-    input.diagnostic.trim(),
+    'Freeform question or diagnostic:',
+    question,
   ].join('\n');
+}
+
+function readOrchestratorQuestion(input: RunOrchestratorInput): string {
+  return (input.question ?? input.diagnostic ?? '').trim();
 }
 
 export async function runOrchestrator(
   input: RunOrchestratorInput,
 ): Promise<{ generatedPrompt: string; model: string }> {
-  const diagnostic = input.diagnostic.trim();
-  if (!diagnostic) {
-    throw new Error('diagnostic is required');
+  const question = readOrchestratorQuestion(input);
+  if (!question) {
+    throw new Error('question is required');
   }
 
   const client = getClaudeClient();
@@ -63,13 +69,13 @@ export async function runOrchestrator(
   const message = await client.messages.create({
     model,
     temperature: 0,
-    max_tokens: 4000,
+    max_tokens: 6000,
     system: ORCHESTRATOR_SYSTEM_PROMPT,
     messages: [
       {
         role: 'user',
         content: buildOrchestratorUserContent({
-          diagnostic,
+          question,
           structuredFields: input.structuredFields,
         }),
       },

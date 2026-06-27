@@ -16,6 +16,7 @@ import {
 import { DECISION_OPEN_STATUSES } from '@/lib/overdue';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
+import { logStateProjectionMismatch } from '@/lib/stateProjectionShadow';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type DocumentLike = NonNullable<IssueObjectResolverInput['documents']>[number];
@@ -473,6 +474,14 @@ function buildExecutionBackedIssueObject(params: {
   const executionItemId = executionItem.id;
   const status = statusForExecutionItem(executionItem);
   const lifecycleState = queueLifecycleForExecutionItem(executionItem);
+  logStateProjectionMismatch({
+    record_type: 'execution_item',
+    record_id: executionItem.id,
+    project_id: executionItem.project_id,
+    legacy_value: lifecycleState,
+    persisted_value: executionItem.queue_state,
+    surface: 'resolveProjectIssueObjects.executionBacked',
+  });
   const auditChain = activityEvents
     .filter((event) => eventMatchesIssue({ event, finding, decisionId, executionItemId }))
     .map(auditEntryForEvent)
@@ -606,6 +615,14 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
       .map(auditEntryForEvent)
       .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
     const lifecycleState = lifecycleForIssue({ finding, decision, status });
+    logStateProjectionMismatch({
+      record_type: 'project_validation_finding',
+      record_id: finding.id,
+      project_id: finding.project_id,
+      legacy_value: lifecycleState,
+      persisted_value: finding.lifecycle_state,
+      surface: 'resolveProjectIssueObjects.findingBacked',
+    });
     const summary = issueSummary(finding);
     const nextHref = `/platform/projects/${input.projectId}?activeTab=decisions&selectedIssue=${finding.id}#project-decisions`;
 

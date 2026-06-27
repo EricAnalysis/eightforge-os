@@ -72,6 +72,14 @@ export type ValidationTriggerSource =
 
 export type FindingStatus = 'open' | 'resolved' | 'dismissed' | 'muted';
 
+export type ValidationFindingLifecycleState =
+  | 'open'
+  | 'blocked'
+  | 'needs_verification'
+  | 'ready_for_authorization'
+  | 'escalated'
+  | 'resolved';
+
 export type ValidationRun = {
   id: string;
   project_id: string;
@@ -100,6 +108,7 @@ export type ValidationFinding = {
   category: ValidationCategory;
   severity: ValidationSeverity;
   status: FindingStatus;
+  lifecycle_state?: ValidationFindingLifecycleState | null;
   subject_type: string;
   subject_id: string;
   field: string | null;

@@ -1,0 +1,12 @@
+{
+    "linked_action_id":  {
+                             "description":  "Note:\nThis is a Foreign Key to `execution_items.id`.\u003cfk table=\u0027execution_items\u0027 column=\u0027id\u0027/\u003e",
+                             "format":  "uuid",
+                             "type":  "string"
+                         },
+    "workflow_tasks_source":  {
+                                  "default":  "decision_engine",
+                                  "format":  "text",
+                                  "type":  "string"
+                              }
+}

@@ -1,0 +1,29 @@
+backup_timestamp_utc=2026-06-26 08:49:20 +0000
+connection=postgresql://postgres.jpzeckefppmiujwajgvk:<REDACTED>@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require
+--- fk_validation_action ---
+[
+  {
+    "conname": "fk_validation_action",
+    "definition": "FOREIGN KEY (linked_action_id) REFERENCES execution_items(id) ON DELETE SET NULL"
+  }
+]
+--- workflow_tasks_source_check ---
+[
+  {
+    "conname": "workflow_tasks_source_check",
+    "definition": "CHECK ((source = ANY (ARRAY['decision_engine'::text, 'manual'::text, 'system'::text, 'approval_engine'::text])))"
+  }
+]
+--- migration ledger ---
+[
+  {
+    "version": "20260625215624",
+    "name": "repoint_validation_action_fk_to_execution_items"
+  },
+  {
+    "version": "20260625215631",
+    "name": "allow_approval_engine_workflow_task_source"
+  }
+]
+--- postgrest reload ---
+NOTIFY pgrst, 'reload schema' completed

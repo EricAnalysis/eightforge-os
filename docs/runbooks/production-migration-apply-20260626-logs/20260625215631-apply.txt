@@ -1,0 +1,14 @@
+migration=supabase/migrations/20260625215631_allow_approval_engine_workflow_task_source.sql
+source_commit=216c835
+--- sql ---
+-- Allow approvalActionEngine to persist its distinct audit source.
+
+ALTER TABLE public.workflow_tasks
+  DROP CONSTRAINT IF EXISTS workflow_tasks_source_check;
+
+ALTER TABLE public.workflow_tasks
+  ADD CONSTRAINT workflow_tasks_source_check
+  CHECK (source IN ('decision_engine', 'manual', 'system', 'approval_engine'));
+--- result ---
+ALTER
+ALTER

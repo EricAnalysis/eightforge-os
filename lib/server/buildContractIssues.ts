@@ -11,6 +11,7 @@ type BuildContractIssuesInput = {
     coverage_status: ContractCoverageResult[];
   };
   confirmedGoverningScheduleResolved?: boolean;
+  confirmedDisposalTreatmentResolved?: boolean;
 };
 
 type BuildContractIssuesOutput = {
@@ -154,6 +155,13 @@ export function buildContractIssues(
           + 'contract rate schedule kind resolves '
           + 'pricing applicability. Confirmed operator '
           + 'truth supersedes pattern detection.',
+      );
+    } else if (input.confirmedDisposalTreatmentResolved === true) {
+      suppress(
+        'pricing_applicability_requires_context',
+        'Suppressed: operator-confirmed disposal fee treatment resolves '
+          + 'pricing applicability ambiguity. Confirmed disposal treatment '
+          + 'supersedes pattern detection.',
       );
     } else if (hasPricingSpecificAmbiguity) {
       issues.set('pricing_applicability_requires_context', {

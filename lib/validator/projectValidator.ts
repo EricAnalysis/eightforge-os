@@ -1618,15 +1618,21 @@ export function buildContractValidationContext(params: {
   if (contractDocumentId) {
     const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
     if (document) {
-      const persistedContext = buildPersistedContractValidationContextFromTrace(document);
-      if (persistedContext) {
-        return {
-          ...persistedContext,
-          relationship_context: relationshipContext,
-        };
+      const contractFacts = params.factsByDocumentId.get(contractDocumentId) ?? [];
+      const hasHumanOverrides = contractFacts.some(
+        (fact) => fact.source === 'human_override' || fact.source === 'human_review',
+      );
+
+      if (!hasHumanOverrides) {
+        const persistedContext = buildPersistedContractValidationContextFromTrace(document);
+        if (persistedContext) {
+          return {
+            ...persistedContext,
+            relationship_context: relationshipContext,
+          };
+        }
       }
 
-      const contractFacts = params.factsByDocumentId.get(contractDocumentId) ?? [];
       const confirmedGoverningScheduleResolved: boolean =
         isConfirmedByOperator(
           contractFacts,
@@ -1637,6 +1643,10 @@ export function buildContractValidationContext(params: {
           'rate_schedule_kind',
           'canonical_contract_rate_schedule_assembly_schedule_kind',
         );
+      const confirmedDisposalTreatmentResolved: boolean = isConfirmedByOperator(
+        contractFacts,
+        'disposal_fee_treatment',
+      );
       const syntheticDocument = buildSyntheticContractDocument({
         document,
         facts: contractFacts,
@@ -1647,6 +1657,7 @@ export function buildContractValidationContext(params: {
           primaryDocument: syntheticDocument,
           relatedDocuments: [],
           confirmedGoverningScheduleResolved,
+          confirmedDisposalTreatmentResolved,
         });
         if (analysis) {
           return {

@@ -31,6 +31,7 @@ type AnalyzeContractIntelligenceInput = {
   primaryDocument: NormalizedNodeDocument;
   relatedDocuments: NormalizedNodeDocument[];
   confirmedGoverningScheduleResolved?: boolean;
+  confirmedDisposalTreatmentResolved?: boolean;
 };
 
 type FieldFamilies = Pick<
@@ -940,13 +941,15 @@ function buildFieldFamilies(
     confidence: noGuaranteePattern?.confidence ?? null,
   });
 
+  const disposalFact = document.fact_map.disposal_fee_treatment ?? null;
+  const disposalOverrideValue = typeof disposalFact?.value === 'string' ? disposalFact.value : null;
   const disposalPattern = patternById.get('pass_through_disposal') ?? null;
   setField(families, 'disposal_fee_treatment', {
-    value: disposalPattern ? 'pass_through' : null,
-    state: disposalPattern ? 'explicit' : 'missing_critical',
-    evidenceAnchors: disposalPattern?.evidence_anchors ?? [],
+    value: disposalOverrideValue ?? (disposalPattern ? 'pass_through' : null),
+    state: (disposalOverrideValue !== null || disposalPattern !== null) ? 'explicit' : 'missing_critical',
+    evidenceAnchors: disposalFact?.evidence_refs ?? disposalPattern?.evidence_anchors ?? [],
     patternIds: disposalPattern ? [disposalPattern.pattern_id] : [],
-    confidence: disposalPattern?.confidence ?? null,
+    confidence: disposalFact?.confidence ?? disposalPattern?.confidence ?? null,
   });
 
   const monitoringPattern = patternById.get('monitoring_dependency') ?? null;
@@ -1064,6 +1067,8 @@ export function analyzeContractIntelligence(
     },
     confirmedGoverningScheduleResolved:
       input.confirmedGoverningScheduleResolved ?? false,
+    confirmedDisposalTreatmentResolved:
+      input.confirmedDisposalTreatmentResolved ?? false,
   });
 
   return {

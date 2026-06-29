@@ -529,6 +529,14 @@ describe('billingKeys', () => {
       'Air Curtain Burning of Vegetative Debris',
       'rate:management-air-curtain',
     ],
+    [
+      '2A',
+      'Management Reduction Preparation Management Segregating Material at DMS',
+      1.5,
+      'management_reduction',
+      'Preparation, Management, and segregating materials from recovery at DMS',
+      'rate:management-preparation',
+    ],
   ])('matches invoice %s without requiring a contract rate code', (
     invoiceRateCode,
     lineDescription,

@@ -81,6 +81,9 @@ const EXPECTED_CATEGORY_COUNTS: Record<AllowedCategory, number> = {
   Equipment: 53,
 };
 
+const MANAGEMENT_PREPARATION_DESCRIPTION =
+  'Preparation, Management, and segregating materials from recovery at DMS';
+
 const PAGE_CATEGORY_EXPECTATIONS: Record<number, readonly AllowedCategory[]> = {
   8: [
     'Vegetative Collect, Remove & Haul',
@@ -505,7 +508,7 @@ function recoveryManagementDescription(rawText: string): string | null {
     return 'Compaction (Preparation, Vegetative Management, Debris and Segregating Material at DMS)';
   }
   if (hasAny(text, [/\bpreparation\b/, /\bsegregating\b/, /\bvegetative\s+management\b/])) {
-    return 'Preparation, Vegetative Management, Debris and Segregating Material at DMS';
+    return MANAGEMENT_PREPARATION_DESCRIPTION;
   }
   return null;
 }
@@ -887,6 +890,13 @@ function recoverKnownExhibitADisplayCorrection(params: {
         preserveConfidence: normalizedText(params.sourceDescription) === normalizedText('Air Curtain Burning of Vegetative Debris'),
       };
     }
+    if (params.rate === 1.5 && hasAny(text, [/\bpreparation\b/, /\bsegregating\b/, /\bvegetative\s+management\b/])) {
+      return {
+        description: MANAGEMENT_PREPARATION_DESCRIPTION,
+        unit: 'Cubic Yard',
+        preserveConfidence: normalizedText(params.sourceDescription) === normalizedText(MANAGEMENT_PREPARATION_DESCRIPTION),
+      };
+    }
     if (params.rate === 1 && /\bopen\s+burning\b/.test(text)) {
       return {
         description: 'Open Burning of Vegetative Debris',
@@ -1230,11 +1240,15 @@ function dedupeKey(row: ContractPricingAssemblyRow): string {
 }
 
 function coverageKey(row: ContractPricingAssemblyRow): string {
-  return [
+  const parts = [
     row.rate == null ? 'rate:null' : `rate:${row.rate.toFixed(4)}`,
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
-  ].join('|');
+  ];
+  if (row.category === 'Management & Reduction') {
+    parts.push(`description:${normalizeDedupeText(row.description)}`);
+  }
+  return parts.join('|');
 }
 
 function descriptionSlotKey(row: ContractPricingAssemblyRow): string {

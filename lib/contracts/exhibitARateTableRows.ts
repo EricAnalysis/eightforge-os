@@ -294,7 +294,7 @@ function cleanPricingDescription(params: {
     if (/\bopen\s+burn/i.test(combined)) return 'Open Burning of Vegetative Debris';
     if (/\bcompact/i.test(combined)) return 'Compaction of Vegetative Debris';
     if (/\bpreparation\b|\bsegregating\b/i.test(combined)) {
-      return 'Preparation, Vegetative Management, Debris and Segregating Material at DMS';
+      return 'Preparation, Management, and segregating materials from recovery at DMS';
     }
   }
 

@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { finalizeDecision } from '@/lib/server/decisionClosure';
 import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
@@ -31,6 +32,16 @@ const UUID_PREFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-
 const FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID = 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT';
 const CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID = 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS';
 const EXISTING_FINDING_CHECK_KEY_BATCH_SIZE = 25;
+const CONTRACT_INTELLIGENCE_DECISION_PREFIX = 'contract_intelligence:';
+const ACTIVE_CONTRACT_DECISION_STATUSES = ['open', 'in_review'] as const;
+const CONTRACT_ISSUE_TYPE_BY_SUPPRESSED_ISSUE_ID: Record<string, string> = {
+  activation_trigger_status_unresolved: 'conditional_without_trigger_status',
+  pricing_applicability_requires_context: 'pricing_applicability_unclear',
+  documentation_gate_unclear: 'documentation_prerequisite_unclear',
+  fema_gate_ambiguous: 'fema_gate_ambiguous',
+  'missing_required_clause:term_trigger': 'missing_required_clause',
+  'missing_required_clause:activation_trigger': 'missing_required_clause',
+};
 
 type PersistableValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
@@ -87,6 +98,22 @@ type PreviousRunRow = {
   id: string;
 };
 
+type SuppressedContractIssue = {
+  issue_id: string;
+  reason: string;
+};
+
+type ExistingContractDecisionRow = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  document_id: string | null;
+  decision_type: string;
+  status: string | null;
+  severity: string | null;
+  details: Record<string, unknown> | null;
+};
+
 type HistoricalFindingIdentityRow = Pick<
   ValidationFinding,
   'check_key' | 'rule_id' | 'subject_id' | 'status'
@@ -104,6 +131,18 @@ function requireAdminClient() {
   }
 
   return admin;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 export function extractUuidPrefix(value: unknown): string | null {
@@ -658,6 +697,127 @@ async function markStaleOpenFindingsResolved(params: {
   }
 }
 
+function localDecisionIdForSuppressedIssue(issueId: string): string {
+  return `contract:intelligence:${issueId}`;
+}
+
+function decisionTypeForSuppressedIssue(issueId: string): string | null {
+  const issueType = CONTRACT_ISSUE_TYPE_BY_SUPPRESSED_ISSUE_ID[issueId];
+  return issueType ? `${CONTRACT_INTELLIGENCE_DECISION_PREFIX}${issueType}` : null;
+}
+
+function suppressedContractIssuesFromResult(result: ValidatorResult): {
+  documentId: string | null;
+  suppressedIssues: SuppressedContractIssue[];
+} {
+  const context = asRecord(result.summary.contract_validation_context);
+  const documentId = asString(context?.document_id);
+  const analysis = asRecord(context?.analysis);
+  const traceSummary = asRecord(analysis?.trace_summary);
+  const suppressed = Array.isArray(traceSummary?.suppressed_issues)
+    ? traceSummary.suppressed_issues
+    : [];
+
+  return {
+    documentId,
+    suppressedIssues: suppressed
+      .map((issue): SuppressedContractIssue | null => {
+        const row = asRecord(issue);
+        const issueId = asString(row?.issue_id);
+        const reason = asString(row?.reason);
+        return issueId && reason ? { issue_id: issueId, reason } : null;
+      })
+      .filter((issue): issue is SuppressedContractIssue => issue != null),
+  };
+}
+
+function contractDecisionMatchesSuppressedIssue(
+  decision: ExistingContractDecisionRow,
+  issue: SuppressedContractIssue,
+): boolean {
+  const expectedDecisionType = decisionTypeForSuppressedIssue(issue.issue_id);
+  if (!expectedDecisionType) return false;
+
+  const details = asRecord(decision.details);
+  const normalizedDecision = asRecord(details?.normalized_decision);
+  const normalizedDecisionId = asString(normalizedDecision?.id);
+  const expectedLocalDecisionId = localDecisionIdForSuppressedIssue(issue.issue_id);
+  if (normalizedDecisionId) {
+    return normalizedDecisionId === expectedLocalDecisionId;
+  }
+
+  const detailsRuleId = asString(details?.rule_id);
+  if (expectedDecisionType.endsWith(':missing_required_clause')) {
+    return false;
+  }
+
+  return decision.decision_type === expectedDecisionType || detailsRuleId === expectedDecisionType;
+}
+
+async function closeSuppressedContractDecisions(params: {
+  project: ProjectValidationActivityContext;
+  projectId: string;
+  result: ValidatorResult;
+  actorId?: string;
+}): Promise<number> {
+  const actorId = params.actorId;
+  if (!actorId) return 0;
+
+  const { documentId, suppressedIssues } = suppressedContractIssuesFromResult(params.result);
+  if (!documentId || suppressedIssues.length === 0) return 0;
+
+  const relevantIssues = suppressedIssues.filter((issue) =>
+    decisionTypeForSuppressedIssue(issue.issue_id) != null,
+  );
+  if (relevantIssues.length === 0) return 0;
+
+  const admin = requireAdminClient();
+  const { data, error } = await admin
+    .from('decisions')
+    .select('id, organization_id, project_id, document_id, decision_type, status, severity, details')
+    .eq('organization_id', params.project.organization_id)
+    .eq('project_id', params.projectId)
+    .eq('document_id', documentId)
+    .in('status', [...ACTIVE_CONTRACT_DECISION_STATUSES]);
+
+  if (error) {
+    throw new Error(`Failed to load active contract intelligence decisions for ${documentId}: ${error.message}`);
+  }
+
+  const decisions = (data ?? []) as ExistingContractDecisionRow[];
+  const closedDecisionIds = new Set<string>();
+  let closed = 0;
+
+  for (const issue of relevantIssues) {
+    const decision = decisions.find((row) =>
+      !closedDecisionIds.has(row.id) && contractDecisionMatchesSuppressedIssue(row, issue),
+    );
+    if (!decision) continue;
+
+    await finalizeDecision({
+      admin,
+      decision: {
+        id: decision.id,
+        organization_id: decision.organization_id,
+        project_id: decision.project_id,
+        document_id: decision.document_id,
+        status: decision.status,
+        severity: decision.severity,
+      },
+      organizationId: params.project.organization_id,
+      actorId,
+      status: 'suppressed',
+      operatorAction: issue.reason,
+      writeLegacyFeedback: false,
+    });
+
+    closedDecisionIds.add(decision.id);
+    closed += 1;
+  }
+
+  return closed;
+}
+
 async function markRunComplete(
   runId: string,
   findings: readonly ValidationFinding[],
@@ -1010,6 +1170,12 @@ export async function persistValidationRun(
     await markStaleOpenFindingsResolved({
       projectId,
       currentOpenCheckKeys,
+      actorId: triggeredByUserId,
+    });
+    await closeSuppressedContractDecisions({
+      project,
+      projectId,
+      result: effectiveResult,
       actorId: triggeredByUserId,
     });
 

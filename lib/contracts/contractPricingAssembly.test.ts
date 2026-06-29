@@ -1894,6 +1894,23 @@ describe('assembleContractPricingRows', () => {
         rate_raw: 'Management & Reduction | Air Curtain Burning of Vegetative Debris | Cubic Yard | $1.50',
       }),
       row({
+        row_id: 'management-preparation',
+        source_kind: 'exhibit_a_table',
+        category: 'Management & Reduction',
+        source_category: 'Management & Reduction',
+        material_type: 'Management & Reduction',
+        page: 8,
+        description: 'Raw row needs review',
+        unit: 'Cubic Yard',
+        unit_type: 'Cubic Yard',
+        rate: 1.5,
+        rate_amount: 1.5,
+        confidence: 'needs_review',
+        source_anchor_ids: ['pdf:table:p8:management:r-prep'],
+        rate_raw:
+          'Management & Reduction | Preparation, Management, and segregating materials from recovery at DMS | Cubic Yard | $1.50',
+      }),
+      row({
         row_id: 'management-open-burning',
         source_kind: 'exhibit_a_table',
         category: 'Management & Reduction',
@@ -1909,10 +1926,18 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    const byRate = new Map(rows.map((assembled) => [assembled.rate, assembled.description]));
-    assert.equal(byRate.get(2.25), 'Grinding and Chipping Vegetative Debris');
-    assert.equal(byRate.get(1.5), 'Air Curtain Burning of Vegetative Debris');
-    assert.equal(byRate.get(1), 'Open Burning of Vegetative Debris');
+    const byDescription = new Map(rows.map((assembled) => [assembled.description, assembled]));
+    assert.equal(byDescription.get('Grinding and Chipping Vegetative Debris')?.rate, 2.25);
+    assert.equal(byDescription.get('Air Curtain Burning of Vegetative Debris')?.rate, 1.5);
+    assert.equal(byDescription.get('Open Burning of Vegetative Debris')?.rate, 1);
+    assert.equal(
+      byDescription.get('Preparation, Management, and segregating materials from recovery at DMS')?.rate,
+      1.5,
+    );
+    assert.equal(
+      byDescription.get('Preparation, Management, and segregating materials from recovery at DMS')?.sourceAnchor,
+      'pdf:table:p8:management:r-prep',
+    );
   });
 
   it('normalizes remaining equipment and personnel OCR fragments', () => {

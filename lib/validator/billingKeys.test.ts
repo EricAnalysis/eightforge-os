@@ -567,6 +567,32 @@ describe('billingKeys', () => {
     assert.notEqual(result.match_reason, 'exact_billing_key');
   });
 
+  it('matches hanging-limbs invoice line against needs_review contract row when full description preserves removal tokens', () => {
+    // Pre-fix: contract description was truncated to 'Trees with Hazardous Limbs Hanging',
+    // giving a token score of 5/9 = 0.556 — below the 0.75 needs_review threshold.
+    // Post-fix: full description includes 'Removal 2" per Tree', raising score to 7/9 ≈ 0.778.
+    const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
+      scheduleItem({
+        id: 'rate:tree-hanging-limbs',
+        description: 'Trees with Hazardous Limbs Hanging Removal 2" per',
+        rate: 80,
+        category: 'tree_operations',
+        unit: 'Tree',
+        confidence: 'needs_review',
+      }),
+    ]);
+
+    const result = matchRateScheduleItemForInvoiceLine(invoiceLine({
+      description: 'Trees with Hazardous Limbs Hanging Removal >2" diameter per Tree',
+      rate: 80,
+      category: 'tree_operations',
+      unit: 'Tree',
+    }), scheduleIndex);
+
+    assert.equal(result.match?.record_id, 'rate:tree-hanging-limbs');
+    assert.equal(result.match_reason, 'operational_fallback');
+  });
+
   it('does not match an exact rate when the categories are incompatible', () => {
     const scheduleIndex = indexRateScheduleItemsByCanonicalKeys([
       scheduleItem({

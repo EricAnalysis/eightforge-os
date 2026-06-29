@@ -303,7 +303,7 @@ function cleanPricingDescription(params: {
       return 'Stump Fill Dirt for Filling Stump Holes';
     }
     if (/\bhazardous\b.*\bstump\b/i.test(combined)) return cleanText(description ?? combined);
-    if (/\blimbs?\b.*\bhanging\b/i.test(combined)) return 'Trees with Hazardous Limbs Hanging';
+    if (/\blimbs?\b.*\bhanging\b/i.test(combined)) return cleanText(description ?? combined) ?? 'Trees with Hazardous Limbs Hanging';
     if (/\bhazardous\b.*\btrees?\b/i.test(combined)) return cleanText(description ?? combined);
   }
 

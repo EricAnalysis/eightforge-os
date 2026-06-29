@@ -329,6 +329,26 @@ describe('extractExhibitARateTableRows', () => {
     assert.equal(row?.confidence, 'needs_review');
   });
 
+  it('preserves full description text for Trees with Hazardous Limbs Hanging when source cell contains additional removal text', () => {
+    const [row] = extractExhibitARateTableRows([
+      table({
+        page: 9,
+        id: 'pdf:table:p9:hanging-limbs-full',
+        rows: [
+          ['Tree Operations', 'Trees with Hazardous Limbs Hanging Removal >2" per Tree', '', '$80.00'],
+        ],
+      }),
+    ]);
+
+    assert.equal(row?.category, 'Tree Operations');
+    assert.equal(row?.description, 'Trees with Hazardous Limbs Hanging Removal 2" per');
+    assert.equal(row?.unit, 'Tree');
+    assert.equal(row?.rate_amount, 80);
+    assert.equal(row?.page, 9);
+    assert.equal(row?.confidence, 'needs_review');
+    assert.equal(row?.source_anchor_ids[0], 'pdf:table:p9:hanging-limbs-full:r1');
+  });
+
   it('accepts Passthrough rows as traceable pricing rows', () => {
     const [row] = extractExhibitARateTableRows([
       table({

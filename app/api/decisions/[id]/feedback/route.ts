@@ -26,7 +26,7 @@ function terminalStatusForFeedback(params: {
   feedbackType: string;
   disposition: string | null;
 }): DecisionTerminalStatus | null {
-  if (params.disposition === 'suppress') return 'suppressed';
+  if (params.disposition === 'suppress') return 'dismissed';
   if (params.isCorrect && params.feedbackType === 'correct' && params.disposition === 'accept') {
     return 'resolved';
   }
@@ -174,30 +174,39 @@ export async function POST(
   }
 
   if (terminalStatus) {
-    const result = await finalizeDecision({
-      admin,
-      decision: dec,
-      organizationId,
-      actorId,
-      status: terminalStatus,
-      operatorAction,
-      writeLegacyFeedback: false,
-    });
-
-    if (terminalStatus === 'suppressed') {
-      void requestDecisionFeedbackRevalidation({
-        projectId: dec.project_id,
+    try {
+      const result = await finalizeDecision({
+        admin,
+        decision: dec,
+        organizationId,
         actorId,
-        feedbackType: feedbackType as 'correct' | 'incorrect' | 'needs_review' | 'override',
+        status: terminalStatus,
+        operatorAction,
+        writeLegacyFeedback: false,
       });
-    }
 
-    return NextResponse.json({
-      ok: true,
-      feedback_type: feedbackType,
-      review_error_type: reviewErrorType,
-      status: result.decision.status,
-    });
+      if (terminalStatus === 'dismissed') {
+        void requestDecisionFeedbackRevalidation({
+          projectId: dec.project_id,
+          actorId,
+          feedbackType: feedbackType as 'correct' | 'incorrect' | 'needs_review' | 'override',
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        feedback_type: feedbackType,
+        review_error_type: reviewErrorType,
+        status: result.decision.status,
+      });
+    } catch (err) {
+      console.error('[decision/feedback] finalizeDecision failed', {
+        decisionId,
+        terminalStatus,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return jsonError('Failed to finalize decision', 500);
+    }
   }
 
   // If reviewer marks incorrect, auto-move decision to in_review if currently open

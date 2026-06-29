@@ -8,7 +8,7 @@ type ResolutionRequest = {
   kind: 'feedback' | 'status';
   path: string;
   init: RequestInit;
-  optimisticStatus: 'in_review' | 'resolved' | 'suppressed' | null;
+  optimisticStatus: 'in_review' | 'resolved' | 'dismissed' | null;
   successMessage: string;
 };
 
@@ -80,9 +80,9 @@ function buildResolutionRequest(
         init: {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ status: 'suppressed' }),
+          body: JSON.stringify({ status: 'dismissed' }),
         },
-        optimisticStatus: 'suppressed',
+        optimisticStatus: 'dismissed',
         successMessage: 'Decision suppressed.',
       };
     default: {
@@ -100,7 +100,7 @@ export async function executeProjectDecisionResolution(params: {
 }): Promise<{
   response: Pick<Response, 'ok' | 'status' | 'json'>;
   kind: 'feedback' | 'status';
-  optimisticStatus: 'in_review' | 'resolved' | 'suppressed' | null;
+  optimisticStatus: 'in_review' | 'resolved' | 'dismissed' | null;
   successMessage: string;
 }> {
   const { decisionId, action, accessToken, fetcher = fetch } = params;

@@ -34,17 +34,28 @@ export async function POST(
     .eq('organization_id', organizationId)
     .maybeSingle();
 
-  if (projectError) return jsonError(projectError.message, 'PROJECT_LOOKUP_FAILED', 500);
+  if (projectError) {
+    console.error('[projects/revalidate] project lookup failed', { projectId, error: projectError.message });
+    return jsonError('Failed to look up project', 'PROJECT_LOOKUP_FAILED', 500);
+  }
   if (!projectRow) return jsonError('Not authorized for project', 'PROJECT_ACCESS_DENIED', 403);
 
-  const result = await triggerProjectValidation(projectId, 'manual', actorId, { force: true });
-  console.info('[projects/revalidate] trigger result', {
-    projectId,
-    actorId,
-    status: result.status,
-    reason: result.status === 'skipped' ? result.reason : null,
-    mode: result.status === 'triggered' ? result.mode : null,
-  });
-  return NextResponse.json({ ok: true, result });
+  try {
+    const result = await triggerProjectValidation(projectId, 'manual', actorId, { force: true });
+    console.info('[projects/revalidate] trigger result', {
+      projectId,
+      actorId,
+      status: result.status,
+      reason: result.status === 'skipped' ? result.reason : null,
+      mode: result.status === 'triggered' ? result.mode : null,
+    });
+    return NextResponse.json({ ok: true, result });
+  } catch (err) {
+    console.error('[projects/revalidate] validation trigger failed', {
+      projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return jsonError('Validation run failed to complete', 'VALIDATION_TRIGGER_FAILED', 500);
+  }
 }
 

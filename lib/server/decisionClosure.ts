@@ -5,7 +5,7 @@ import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
-export type TerminalDecisionStatus = 'resolved' | 'suppressed';
+export type TerminalDecisionStatus = 'resolved' | 'dismissed';
 export type DecisionTerminalStatus = TerminalDecisionStatus;
 
 export type CloseDecisionLinkedWorkInput = {
@@ -102,9 +102,9 @@ export async function closeDecisionLinkedWork(
     return result;
   }
 
-  const terminalFindingStatus = input.status === 'suppressed' ? 'dismissed' : 'resolved';
-  const terminalTaskStatus = input.status === 'suppressed' ? 'cancelled' : 'resolved';
-  const terminalExecutionOutcome = input.status === 'suppressed' ? 'overridden' : 'resolved';
+  const terminalFindingStatus = input.status === 'dismissed' ? 'dismissed' : 'resolved';
+  const terminalTaskStatus = input.status === 'dismissed' ? 'cancelled' : 'resolved';
+  const terminalExecutionOutcome = input.status === 'dismissed' ? 'overridden' : 'resolved';
 
   const { data: linkedFindings, error: findingFetchError } = await input.admin
     .from('project_validation_findings')
@@ -193,10 +193,10 @@ export async function closeDecisionLinkedWork(
         .update({
           status: 'resolved',
           outcome: terminalExecutionOutcome,
-          override_reason: input.status === 'suppressed' ? 'Suppressed through linked decision closure.' : null,
+          override_reason: input.status === 'dismissed' ? 'Suppressed through linked decision closure.' : null,
           suppression_signature: executionItemSuppressionSignatureForRow(item),
           last_seen_at: input.now,
-          overridden_at: input.status === 'suppressed' ? input.now : item.overridden_at,
+          overridden_at: input.status === 'dismissed' ? input.now : item.overridden_at,
           resolved_at: input.now,
           updated_at: input.now,
         })

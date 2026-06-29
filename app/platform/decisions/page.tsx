@@ -78,7 +78,7 @@ type DecisionListItem = {
   kind: 'history' | OperationalDecisionQueueItem['kind'] | 'approval_blocker';
 };
 
-const STATUS_OPTIONS = ['open', 'resolvable', 'in_review', 'resolved', 'suppressed'] as const;
+const STATUS_OPTIONS = ['open', 'resolvable', 'in_review', 'resolved', 'dismissed'] as const;
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'] as const;
 const FRAME_ACTIONS = ['confirm', 'override', 'needs_review'] as const;
 type FrameAction = typeof FRAME_ACTIONS[number];
@@ -113,7 +113,7 @@ function StatusBadge({ status }: { status: string }) {
     resolvable: 'border-[var(--ef-warning-a40)] text-[var(--ef-warning)]',
     in_review: 'border-[var(--ef-purple-primary-a40)] text-[var(--ef-purple-glow)]',
     resolved: 'border-[var(--ef-success-a40)] text-[var(--ef-success)]',
-    suppressed: 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]',
+    dismissed: 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]',
   };
   const cls = map[status] ?? 'border-[var(--ef-surface-elevated)] text-[var(--ef-text-muted)]';
   return (
@@ -460,7 +460,7 @@ const DECISION_QUEUE_BUCKETS: Array<{ key: DecisionQueueBucketKey; label: string
 ];
 
 function decisionQueueBucket(item: DecisionListItem): DecisionQueueBucketKey {
-  if (item.status === 'resolved' || item.status === 'suppressed') return 'resolved';
+  if (item.status === 'resolved' || item.status === 'dismissed') return 'resolved';
   if (item.severity === 'critical' || item.kind === 'approval_blocker' || item.status === 'blocked') return 'blocked';
   if (item.status === 'in_review' || item.reviewStatus === 'needs_correction' || item.reviewStatus === 'in_review') {
     return 'needs_verification';
@@ -715,7 +715,7 @@ export default function DecisionsPage() {
     const unassignedCrit = primaries.filter(
       (item) => !item.assignedTo && (item.severity === 'critical' || item.severity === 'high'),
     ).length;
-    const open = primaries.filter((item) => item.status !== 'resolved' && item.status !== 'suppressed').length;
+    const open = primaries.filter((item) => item.status !== 'resolved' && item.status !== 'dismissed').length;
     const blocked = primaries.filter((item) => decisionQueueBucket(item) === 'blocked').length;
     const needsVerification = primaries.filter((item) => decisionQueueBucket(item) === 'needs_verification').length;
     const highestExposure = primaries.reduce<number | null>((max, item) => {

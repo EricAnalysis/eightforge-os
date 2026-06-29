@@ -23,7 +23,7 @@ vi.mock('@/lib/server/activity/logActivityEvent', () => ({
 
 vi.mock('@/lib/server/decisionClosure', () => ({
   finalizeDecision: vi.fn().mockResolvedValue({
-    decision: { id: 'decision-1', status: 'suppressed' },
+    decision: { id: 'decision-1', status: 'dismissed' },
     linkedFindingIds: [],
     linkedClosure: {
       closedFindingIds: [],
@@ -462,7 +462,7 @@ describe('persistValidationRun core persistence', () => {
 
     assert.equal(vi.mocked(finalizeDecision).mock.calls.length, 1);
     assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].decision.id, 'pricing-decision');
-    assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].status, 'suppressed');
+    assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].status, 'dismissed');
     assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].operatorAction, reason);
   });
 
@@ -496,7 +496,7 @@ describe('persistValidationRun core persistence', () => {
 
     assert.equal(vi.mocked(finalizeDecision).mock.calls.length, 1);
     assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].decision.id, 'fema-decision');
-    assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].status, 'suppressed');
+    assert.equal(vi.mocked(finalizeDecision).mock.calls[0]?.[0].status, 'dismissed');
   });
 
   it('leaves non-matching contract decisions untouched', async () => {
@@ -583,7 +583,7 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(closureInput?.decision.document_id, DOCUMENT_ID);
     assert.equal(closureInput?.organizationId, 'org-1');
     assert.equal(closureInput?.actorId, 'user-1');
-    assert.equal(closureInput?.status, 'suppressed');
+    assert.equal(closureInput?.status, 'dismissed');
   });
 
   it('suppresses financial missing-rate findings when cross-document missing-rate exists for the same subject', async () => {
@@ -859,5 +859,77 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(db.runs[0].status, 'complete');
     assert.equal(db.runs[0].findings_count, 1);
     assert.ok(db.runs[0].completed_at);
+  });
+
+  it('continues closing remaining decisions when one closure throws a constraint error', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    db.decisions.push(
+      contractDecision({ id: 'decision-pricing', status: 'in_review' }),
+      contractDecision({
+        id: 'decision-fema',
+        issue_id: 'fema_gate_ambiguous',
+        issue_type: 'fema_gate_ambiguous',
+        decision_type: 'contract_intelligence:fema_gate_ambiguous',
+        details: {
+          rule_id: 'contract_intelligence:fema_gate_ambiguous',
+          normalized_decision: { id: 'contract:intelligence:fema_gate_ambiguous' },
+        },
+      }),
+    );
+
+    vi.mocked(finalizeDecision)
+      .mockRejectedValueOnce(new Error('new row for relation decisions violates check constraint decisions_status_check'))
+      .mockResolvedValueOnce({
+        decision: { id: 'decision-fema', status: 'dismissed' },
+        linkedFindingIds: [],
+        linkedClosure: { closedFindingIds: [], closedWorkflowTaskIds: [], closedExecutionItemIds: [], recomputedDocumentStatus: false, errors: [] },
+      });
+
+    await persistValidationRun(
+      PROJECT_ID,
+      validatorResult([], contractValidationSummary({
+        suppressedIssues: [
+          { issue_id: 'pricing_applicability_requires_context', reason: 'pricing suppressed' },
+          { issue_id: 'fema_gate_ambiguous', reason: 'fema suppressed' },
+        ],
+      })),
+      'override_applied',
+      'user-1',
+    );
+
+    assert.equal(db.runs[0].status, 'complete');
+    assert.equal(vi.mocked(finalizeDecision).mock.calls.length, 2);
+    assert.equal(vi.mocked(finalizeDecision).mock.calls[1]?.[0].decision.id, 'decision-fema');
+    assert.equal(vi.mocked(finalizeDecision).mock.calls[1]?.[0].status, 'dismissed');
+  });
+
+  it('writes status dismissed (not suppressed) for suppressed contract decisions', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    db.decisions.push(contractDecision({ id: 'pricing-decision', status: 'open' }));
+
+    await persistValidationRun(
+      PROJECT_ID,
+      validatorResult([], contractValidationSummary({
+        suppressedIssues: [{ issue_id: 'pricing_applicability_requires_context', reason: 'operator confirmed' }],
+      })),
+      'override_applied',
+      'user-1',
+    );
+
+    const call = vi.mocked(finalizeDecision).mock.calls[0]?.[0];
+    assert.equal(call?.status, 'dismissed');
+    assert.notEqual(call?.status, 'suppressed');
+  });
+
+  it('does not affect resolved-status closure path when no suppressed issues are present', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    assert.equal(db.runs[0].status, 'complete');
+    assert.equal(vi.mocked(finalizeDecision).mock.calls.length, 0);
   });
 });

@@ -1229,7 +1229,7 @@ export async function syncValidatorDecisions(params: {
     const { error } = await admin
       .from('decisions')
       .update({
-        status: 'suppressed',
+        status: 'dismissed',
         details: withSupersededDetails(row.details, now),
         updated_at: now,
       })

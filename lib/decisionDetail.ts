@@ -655,33 +655,33 @@ export function resolveDecisionProcessState(
       label:
         decisionStatus === 'resolved'
           ? 'Manual remediation'
-          : decisionStatus === 'suppressed'
+          : decisionStatus === 'dismissed'
             ? 'Disposition recorded'
             : 'Manual remediation',
       detail: remediationDetail,
       state:
         decisionStatus === 'open' || decisionStatus === 'in_review'
           ? 'current'
-          : decisionStatus === 'resolved' || decisionStatus === 'suppressed'
+          : decisionStatus === 'resolved' || decisionStatus === 'dismissed'
             ? 'complete'
             : 'upcoming',
     },
     {
       id: 'approval',
       label:
-        decisionStatus === 'suppressed'
-          ? 'Suppressed'
+        decisionStatus === 'dismissed'
+          ? 'Dismissed'
           : 'Final approval',
       detail:
         decisionStatus === 'resolved'
           ? 'Decision has been resolved.'
-          : decisionStatus === 'suppressed'
+          : decisionStatus === 'dismissed'
             ? 'Decision was closed without approval.'
             : 'Pending final operator disposition.',
       state:
         decisionStatus === 'resolved'
           ? 'complete'
-          : decisionStatus === 'suppressed'
+          : decisionStatus === 'dismissed'
             ? 'attention'
             : 'upcoming',
     },
@@ -698,8 +698,8 @@ export function resolveDecisionProcessState(
   } else if (decisionStatus === 'resolved') {
     headline = 'Resolved';
     detail = 'The decision has been marked resolved and can move downstream.';
-  } else if (decisionStatus === 'suppressed') {
-    headline = 'Suppressed';
+  } else if (decisionStatus === 'dismissed') {
+    headline = 'Dismissed';
     detail = 'The decision has been intentionally removed from the active queue.';
   } else if (validationFailed) {
     headline = 'Validation failure needs remediation';

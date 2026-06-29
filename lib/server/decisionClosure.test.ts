@@ -184,7 +184,7 @@ describe('closeDecisionLinkedWork', () => {
       projectId: 'project-1',
       documentId: null,
       actorId: 'user-1',
-      status: 'suppressed',
+      status: 'dismissed',
       now: TS,
     });
 

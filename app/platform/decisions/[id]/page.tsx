@@ -69,7 +69,7 @@ type WorkflowOutcomesResponse = {
   }>;
 };
 
-const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'suppressed'] as const;
+const STATUS_OPTIONS = ['open', 'in_review', 'resolved', 'dismissed'] as const;
 
 function documentRefFromDecision(
   documentValue: DecisionDetail['documents'],

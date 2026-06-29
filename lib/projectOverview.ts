@@ -2017,7 +2017,7 @@ function lifecycleFromDecision(
   const statusAfterFeedback = extractStringValue(next, 'status_after_feedback');
   const latestStatus = extractStatus(next);
 
-  if (operatorAction === 'override' || feedbackType === 'override' || decision.status === 'suppressed') return 'overridden';
+  if (operatorAction === 'override' || feedbackType === 'override' || decision.status === 'suppressed' || decision.status === 'dismissed') return 'overridden';
   if (operatorAction === 'escalate' || disposition === 'escalate') return 'escalated';
   if (decision.status === 'resolved' || latestStatus === 'resolved') return 'resolved';
   if (operatorAction === 'confirm' || feedbackType === 'correct') return 'ready_for_authorization';

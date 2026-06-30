@@ -108,7 +108,7 @@ test('T4: inline decision status update succeeds', async ({ page }) => {
   const current = await firstSelect.inputValue();
 
   // Choose a different status to force an actual update
-  const options = ['open', 'in_review', 'resolved', 'suppressed'];
+  const options = ['open', 'in_review', 'resolved', 'dismissed'];
   const next = options.find((o) => o !== current) ?? 'open';
 
   await firstSelect.selectOption(next);

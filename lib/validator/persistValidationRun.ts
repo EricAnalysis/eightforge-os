@@ -794,25 +794,32 @@ async function closeSuppressedContractDecisions(params: {
     );
     if (!decision) continue;
 
-    await finalizeDecision({
-      admin,
-      decision: {
-        id: decision.id,
-        organization_id: decision.organization_id,
-        project_id: decision.project_id,
-        document_id: decision.document_id,
-        status: decision.status,
-        severity: decision.severity,
-      },
-      organizationId: params.project.organization_id,
-      actorId,
-      status: 'suppressed',
-      operatorAction: issue.reason,
-      writeLegacyFeedback: false,
-    });
-
-    closedDecisionIds.add(decision.id);
-    closed += 1;
+    try {
+      await finalizeDecision({
+        admin,
+        decision: {
+          id: decision.id,
+          organization_id: decision.organization_id,
+          project_id: decision.project_id,
+          document_id: decision.document_id,
+          status: decision.status,
+          severity: decision.severity,
+        },
+        organizationId: params.project.organization_id,
+        actorId,
+        status: 'dismissed',
+        operatorAction: issue.reason,
+        writeLegacyFeedback: false,
+      });
+      closedDecisionIds.add(decision.id);
+      closed += 1;
+    } catch (err) {
+      console.error('[closeSuppressedContractDecisions] failed to close decision', {
+        decisionId: decision.id,
+        issueId: issue.issue_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return closed;

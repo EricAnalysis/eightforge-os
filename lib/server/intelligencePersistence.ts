@@ -854,7 +854,7 @@ async function suppressLegacyGeneratedDecisions(
     const { error: updateError } = await admin
       .from('decisions')
       .update({
-        status: 'suppressed',
+        status: 'dismissed',
         updated_at: now,
         details: withSupersededDetails(row.details, now),
       })

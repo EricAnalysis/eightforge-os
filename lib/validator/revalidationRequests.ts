@@ -8,7 +8,7 @@ export async function requestDecisionStatusRevalidation(params: {
   newStatus: string;
 }): Promise<TriggerProjectValidationResult | null> {
   if (!params.projectId) return null;
-  if (params.newStatus !== 'resolved' && params.newStatus !== 'suppressed') {
+  if (params.newStatus !== 'resolved' && params.newStatus !== 'dismissed') {
     return null;
   }
 

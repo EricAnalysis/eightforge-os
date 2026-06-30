@@ -116,7 +116,7 @@ export function ProjectDecisionExecutionCard(
   }
 
   const showResolve = decision.status_key !== 'resolved';
-  const showSuppress = decision.status_key !== 'suppressed';
+  const showSuppress = decision.status_key !== 'dismissed';
   const sourceDocumentLabel = decision.source_document_title ?? 'Project record';
   const inspectEvidenceHref = buildDecisionEvidenceHref(decision.id);
 

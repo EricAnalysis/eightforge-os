@@ -14,13 +14,13 @@ export type LogDecisionFeedbackParams = {
 
 function feedbackTypeAndDisposition(status: string): {
   feedback_type: 'triage' | 'resolution' | 'suppression';
-  disposition: 'resolved' | 'suppressed' | null;
+  disposition: 'resolved' | 'dismissed' | null;
 } {
   switch (status) {
     case 'resolved':
       return { feedback_type: 'resolution', disposition: 'resolved' };
-    case 'suppressed':
-      return { feedback_type: 'suppression', disposition: 'suppressed' };
+    case 'dismissed':
+      return { feedback_type: 'suppression', disposition: 'dismissed' };
     case 'open':
     case 'in_review':
     default:

@@ -158,7 +158,7 @@ function statusBadgeClass(status: string): string {
       return 'bg-[var(--ef-purple-primary-a12)] text-[var(--ef-purple-primary)] border border-[var(--ef-purple-primary-a30)]';
     case 'resolved':
       return 'bg-[var(--ef-success-bg)] text-[var(--ef-success)] border border-[var(--ef-success-a30)]';
-    case 'suppressed':
+    case 'dismissed':
       return 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]';
     default:
       return 'bg-[var(--ef-surface-hover)] text-[var(--ef-text-muted)] border border-[var(--ef-border-subtle)]';

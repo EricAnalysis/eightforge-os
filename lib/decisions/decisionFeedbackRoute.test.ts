@@ -271,8 +271,8 @@ describe('decision feedback route', () => {
 
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.status, 'suppressed');
-    assert.equal(db.decisions[0].status, 'suppressed');
+    assert.equal(body.status, 'dismissed');
+    assert.equal(db.decisions[0].status, 'dismissed');
     assert.equal(db.findings[0].status, 'dismissed');
     assert.equal(db.workflowTasks[0].status, 'cancelled');
     assert.equal(db.executionItems[0].status, 'resolved');
@@ -287,7 +287,7 @@ describe('decision feedback route', () => {
     expect(requestDecisionStatusRevalidationMock).toHaveBeenCalledWith({
       projectId: 'project-1',
       actorId: 'user-1',
-      newStatus: 'suppressed',
+      newStatus: 'dismissed',
     });
   });
 });

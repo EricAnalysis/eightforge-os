@@ -10,7 +10,7 @@ import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
 
-const VALID_STATUSES = ['open', 'in_review', 'resolved', 'suppressed'] as const;
+const VALID_STATUSES = ['open', 'in_review', 'resolved', 'dismissed'] as const;
 const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'needs_review', 'escalate', 'verify'] as const;
 
 function jsonError(message: string, status: number) {
@@ -55,7 +55,7 @@ export async function PATCH(
         ? body.operator_action
         : null;
     if (
-      (newStatus === 'resolved' || newStatus === 'suppressed') &&
+      (newStatus === 'resolved' || newStatus === 'dismissed') &&
       (operatorAction === 'approve' || operatorAction === 'correct' || operatorAction === 'override')
     ) {
       return jsonError(
@@ -64,7 +64,7 @@ export async function PATCH(
       );
     }
 
-    if (newStatus === 'resolved' || newStatus === 'suppressed') {
+    if (newStatus === 'resolved' || newStatus === 'dismissed') {
       const result = await finalizeDecision({
         admin,
         decision: {

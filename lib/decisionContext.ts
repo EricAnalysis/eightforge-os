@@ -490,7 +490,7 @@ function gateImpactForApprovalLabel(label: OperatorApprovalLabel): string {
 
 function decisionStateLabel(decisionStatus: string): string {
   if (decisionStatus === 'resolved') return 'Approved';
-  if (decisionStatus === 'suppressed') return 'Not Evaluated';
+  if (decisionStatus === 'dismissed') return 'Not Evaluated';
   return 'Needs Review';
 }
 
@@ -498,7 +498,7 @@ function decisionStepState(
   decisionStatus: string,
 ): DecisionCausalChainStepState {
   if (decisionStatus === 'resolved') return 'complete';
-  if (decisionStatus === 'suppressed') return 'attention';
+  if (decisionStatus === 'dismissed') return 'attention';
   return 'current';
 }
 
@@ -1330,7 +1330,7 @@ export function buildDecisionCausalChain(params: {
       detail:
         decisionStatus === 'resolved'
           ? 'The approval decision has been recorded.'
-          : decisionStatus === 'suppressed'
+          : decisionStatus === 'dismissed'
             ? 'The decision was closed without an approval outcome.'
             : 'This decision is the live approval gate for the operator.',
       href: `/platform/decisions/${decisionId}`,

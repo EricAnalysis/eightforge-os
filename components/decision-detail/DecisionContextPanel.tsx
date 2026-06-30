@@ -58,7 +58,7 @@ function actionTone(nextAction: string): string {
 
 function reviewStateLabel(decisionStatus: string): string {
   if (decisionStatus === 'resolved') return 'Approved';
-  if (decisionStatus === 'suppressed') return 'Not Evaluated';
+  if (decisionStatus === 'dismissed') return 'Not Evaluated';
   return 'Needs Review';
 }
 

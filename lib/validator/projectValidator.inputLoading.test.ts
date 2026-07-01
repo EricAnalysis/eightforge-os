@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { describe, it, vi } from 'vitest';
 
 import {
+  buildInvoiceLineToRateMap,
+  buildManualRateLinkOverrides,
   buildContractValidationContext,
   buildRateScheduleItems,
   buildDocumentIdsByFamily,
@@ -10,20 +12,211 @@ import {
   resolveValidationInvoiceScope,
   synthesizeInvoicesFromLegacyExtractions,
   VALIDATOR_DOCUMENT_SELECT,
+  type InvoiceLineRateLinkRow,
 } from '@/lib/validator/projectValidator';
+import { deriveBillingKeysForRateScheduleItem } from '@/lib/validator/billingKeys';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import {
   RATE_BASED_CONTRACT_VALIDATION_RULES,
   runRateBasedContractValidationRules,
 } from '@/lib/validator/rulePacks/rateBasedContractValidation';
 import { DOCUMENT_PRECEDENCE_SELECT } from '@/lib/server/documentPrecedence';
-import type { ValidatorLegacyExtractionRow } from '@/lib/validator/shared';
+import type { RateScheduleItem, ValidatorLegacyExtractionRow } from '@/lib/validator/shared';
 import type { ResolvedDocumentPrecedenceFamily } from '@/lib/documentPrecedence';
+
+function makeRateScheduleItem(overrides: Partial<RateScheduleItem> = {}): RateScheduleItem {
+  const description = overrides.description ?? 'Manual vegetative debris haul';
+  const keys = deriveBillingKeysForRateScheduleItem({
+    rate_code: overrides.rate_code ?? '1F',
+    description,
+    material_type: overrides.material_type ?? 'Vegetative',
+    unit_type: overrides.unit_type ?? 'CYD',
+  });
+
+  return {
+    source_document_id: overrides.source_document_id ?? 'contract-doc-1',
+    record_id: overrides.record_id ?? 'rate-row-1',
+    rate_code: overrides.rate_code ?? '1F',
+    unit_type: overrides.unit_type ?? 'CYD',
+    rate_amount: overrides.rate_amount ?? 14.5,
+    material_type: overrides.material_type ?? 'Vegetative',
+    description,
+    source_category: overrides.source_category ?? 'Vegetative',
+    canonical_category: overrides.canonical_category ?? 'hauling_transport',
+    category_confidence: overrides.category_confidence ?? 0.95,
+    raw_value: overrides.raw_value ?? {},
+    ...keys,
+    ...overrides,
+  };
+}
+
+function makeManualRateLinkRow(overrides: Partial<InvoiceLineRateLinkRow> = {}): InvoiceLineRateLinkRow {
+  const valueOrDefault = <K extends keyof InvoiceLineRateLinkRow>(
+    key: K,
+    fallback: InvoiceLineRateLinkRow[K],
+  ): InvoiceLineRateLinkRow[K] => (
+    Object.hasOwn(overrides, key) ? overrides[key] as InvoiceLineRateLinkRow[K] : fallback
+  );
+
+  return {
+    id: valueOrDefault('id', 'manual-link-1'),
+    organization_id: valueOrDefault('organization_id', 'org-1'),
+    project_id: valueOrDefault('project_id', 'project-1'),
+    invoice_document_id: valueOrDefault('invoice_document_id', 'invoice-doc-1'),
+    invoice_line_subject_id: valueOrDefault('invoice_line_subject_id', 'fact:invoice-doc-1:line:6'),
+    contract_document_id: valueOrDefault('contract_document_id', 'contract-doc-1'),
+    contract_rate_row_id: valueOrDefault('contract_rate_row_id', 'rate-row-1'),
+    rate_row_description: valueOrDefault('rate_row_description', 'Operator supplied vegetative debris haul'),
+    rate_row_unit_type: valueOrDefault('rate_row_unit_type', 'CYD'),
+    rate_row_rate_amount: valueOrDefault('rate_row_rate_amount', 14.5),
+    reason: valueOrDefault('reason', 'Operator confirmed the governing rate row.'),
+    created_at: valueOrDefault('created_at', '2026-06-30T00:00:00.000Z'),
+    is_active: valueOrDefault('is_active', true),
+    superseded_by: valueOrDefault('superseded_by', null),
+  };
+}
 
 describe('project validator input loading', () => {
   it('does not select deprecated document_subtype from documents', () => {
     assert.equal(VALIDATOR_DOCUMENT_SELECT.includes('document_subtype'), false);
     assert.equal(DOCUMENT_PRECEDENCE_SELECT.includes('document_subtype'), false);
+  });
+
+  it('resolves active manual invoice-line rate links by contract rate row id', () => {
+    const rateItem = makeRateScheduleItem({ record_id: 'exhibit_a_table:row:5' });
+
+    const overrides = buildManualRateLinkOverrides({
+      rows: [makeManualRateLinkRow({
+        id: 'link-1',
+        contract_rate_row_id: 'exhibit_a_table:row:5',
+      })],
+      rateScheduleItems: [rateItem],
+    });
+
+    const resolved = overrides.get('fact:invoice-doc-1:line:6');
+    assert.ok(resolved);
+    assert.equal(resolved.record_id, 'exhibit_a_table:row:5');
+    assert.equal(resolved.match_source_kind, 'manual_link');
+    assert.equal(resolved.manual_link_resolution, 'record_id_match');
+    assert.equal(resolved.manual_rate_link_id, 'link-1');
+  });
+
+  it('constructs a manual rate link override from operator-supplied rate fields when the row id is not assembled', () => {
+    const overrides = buildManualRateLinkOverrides({
+      rows: [makeManualRateLinkRow({
+        id: 'link-operator',
+        contract_document_id: 'contract-doc-operator',
+        contract_rate_row_id: 'exhibit_a_table:pdf:table:p9:t33:r8',
+        rate_row_description: 'Trees with Hazardous Limbs Hanging Removal >2" per Tree',
+        rate_row_unit_type: 'Tree',
+        rate_row_rate_amount: 80,
+      })],
+      rateScheduleItems: [],
+    });
+
+    const resolved = overrides.get('fact:invoice-doc-1:line:6');
+
+    assert.ok(resolved);
+    assert.equal(resolved.source_document_id, 'contract-doc-operator');
+    assert.equal(resolved.record_id, 'exhibit_a_table:pdf:table:p9:t33:r8');
+    assert.equal(resolved.description, 'Trees with Hazardous Limbs Hanging Removal >2" per Tree');
+    assert.equal(resolved.unit_type, 'Tree');
+    assert.equal(resolved.rate_amount, 80);
+    assert.equal(resolved.rate_code, null);
+    assert.equal(resolved.material_type, null);
+    assert.equal(resolved.match_source_kind, 'manual_link');
+    assert.equal(resolved.manual_link_resolution, 'operator_supplied');
+    assert.equal(resolved.manual_rate_link_id, 'link-operator');
+  });
+
+  it('logs and skips a manual link with no assembled row and incomplete operator-supplied rate fields', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const overrides = buildManualRateLinkOverrides({
+        rows: [makeManualRateLinkRow({
+          id: 'link-incomplete',
+          contract_rate_row_id: 'missing-rate-row',
+          rate_row_description: null,
+          rate_row_unit_type: 'Tree',
+          rate_row_rate_amount: 80,
+        })],
+        rateScheduleItems: [],
+      });
+
+      assert.equal(overrides.has('fact:invoice-doc-1:line:6'), false);
+      assert.equal(error.mock.calls.length, 1);
+      assert.match(String(error.mock.calls[0]?.[0] ?? ''), /insufficient operator-supplied rate data/);
+      assert.deepEqual((error.mock.calls[0]?.[1] as { missingFields?: string[] } | undefined)?.missingFields, [
+        'rate_row_description',
+      ]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('uses a manual rate link in the invoice-line rate map when no automated match is available', () => {
+    const lineId = 'fact:invoice-doc-1:line:6';
+    const manualRateItem = makeRateScheduleItem({
+      record_id: 'manual-rate-row',
+      rate_code: null,
+      description: 'Human confirmed disposal row',
+      match_source_kind: 'manual_link',
+      manual_rate_link_id: 'link-1',
+    });
+
+    const map = buildInvoiceLineToRateMap(
+      [{
+        id: lineId,
+        source_document_id: 'invoice-doc-1',
+        rate_code: 'UNMATCHABLE',
+        description: 'No automated schedule row can match this line',
+        unit_price: 12,
+      }],
+      [],
+      new Map([[lineId, manualRateItem]]),
+    );
+
+    assert.equal(map.get(lineId)?.record_id, 'manual-rate-row');
+    assert.equal(map.get(lineId)?.match_source_kind, 'manual_link');
+  });
+
+  it('keeps invoice-line rate map behavior unchanged when no manual link exists', () => {
+    const line = {
+      id: 'fact:invoice-doc-1:line:1',
+      source_document_id: 'invoice-doc-1',
+      rate_code: '1F',
+      description: 'Manual vegetative debris haul',
+      material: 'Vegetative',
+      unit_price: 14.5,
+    };
+    const rateItem = makeRateScheduleItem();
+
+    const baseline = buildInvoiceLineToRateMap([line], [rateItem]);
+    const withEmptyOverrides = buildInvoiceLineToRateMap([line], [rateItem], new Map());
+
+    assert.equal(withEmptyOverrides.get(line.id)?.record_id, baseline.get(line.id)?.record_id);
+    assert.equal(withEmptyOverrides.get(line.id)?.match_source_kind ?? null, null);
+  });
+
+  it('logs and skips duplicate active manual links for the same invoice line', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const overrides = buildManualRateLinkOverrides({
+        rows: [
+          makeManualRateLinkRow({ id: 'link-1' }),
+          makeManualRateLinkRow({ id: 'link-2' }),
+        ],
+        rateScheduleItems: [makeRateScheduleItem()],
+      });
+
+      assert.equal(overrides.has('fact:invoice-doc-1:line:6'), false);
+      assert.equal(error.mock.calls.length, 1);
+      assert.match(String(error.mock.calls[0]?.[0] ?? ''), /multiple active invoice_line_rate_links/);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('reads contract validation context from projects.validation_summary_json when available', () => {

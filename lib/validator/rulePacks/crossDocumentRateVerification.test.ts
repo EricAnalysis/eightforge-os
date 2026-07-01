@@ -57,6 +57,7 @@ function buildInput(params: {
   loadTickets?: Array<Record<string, unknown>>;
   transactionRows?: Array<Record<string, unknown>>;
   hasRateScheduleFacts?: boolean;
+  manualRateLinkOverrides?: Map<string, RateScheduleItem>;
 }): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: 'project-1',
@@ -128,6 +129,7 @@ function buildInput(params: {
     invoiceLines: params.invoiceLines,
     mobileToLoadsMap: new Map(),
     invoiceLineToRateMap: new Map(),
+    manualRateLinkOverrides: params.manualRateLinkOverrides,
     projectTotals,
     factLookups,
     contractValidationContext: null,
@@ -163,6 +165,109 @@ function buildInput(params: {
 }
 
 describe('cross document rate verification', () => {
+  it('uses a manual rate link when the inline automated matcher has no schedule item', () => {
+    const lineId = 'fact:invoice-doc:line:6';
+    const manualRateItem: RateScheduleItem = {
+      ...makeRateItem({
+        recordId: 'manual-rate-row-6',
+        description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        sourceCategory: 'Vegetative',
+        rate: 14.5,
+      }),
+      match_source_kind: 'manual_link',
+      manual_link_resolution: 'operator_supplied',
+      manual_rate_link_id: 'manual-link-6',
+      manual_rate_link_invoice_line_subject_id: lineId,
+      manual_rate_link_contract_rate_row_id: 'manual-rate-row-6',
+      manual_rate_link_reason: 'Operator confirmed line 6 against Exhibit A.',
+    };
+    const input = buildInput({
+      rateScheduleItems: [],
+      hasRateScheduleFacts: true,
+      manualRateLinkOverrides: new Map([[lineId, manualRateItem]]),
+      invoiceLines: [{
+        id: lineId,
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        description: 'Vegetative Collect Remove Haul Rural Areas ROW to DMS 16 to 30',
+        material: 'Vegetative',
+        unit_price: 14.5,
+        quantity: 916,
+        line_total: 13282,
+      }],
+      mobileTickets: [{
+        id: 'mobile:line-6',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        material: 'Vegetative',
+        unit: 'CYD',
+        quantity_cyd: 916,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+
+    assert.equal(result.findings.length, 0);
+    assert.equal(result.summary.matched_units, 1);
+    assert.equal(result.summary.validation_units[0]?.contract_match_source, 'manual_link');
+    assert.equal(result.summary.validation_units[0]?.manual_link_resolution, 'operator_supplied');
+    assert.equal(result.summary.validation_units[0]?.manual_rate_link_id, 'manual-link-6');
+    assert.equal(result.summary.validation_units[0]?.source_rows.contract_record_ids[0], 'manual-rate-row-6');
+  });
+
+  it('carries manual link provenance in finding evidence when a manual-linked line still fails validation', () => {
+    const lineId = 'fact:invoice-doc:line:7';
+    const manualRateItem: RateScheduleItem = {
+      ...makeRateItem({
+        recordId: 'manual-rate-row-7',
+        description: 'Vegetative debris haul',
+        sourceCategory: 'Vegetative',
+        rate: 14.5,
+      }),
+      match_source_kind: 'manual_link',
+      manual_link_resolution: 'record_id_match',
+      manual_rate_link_id: 'manual-link-7',
+      manual_rate_link_invoice_line_subject_id: lineId,
+      manual_rate_link_contract_rate_row_id: 'manual-rate-row-7',
+    };
+    const input = buildInput({
+      rateScheduleItems: [],
+      hasRateScheduleFacts: true,
+      manualRateLinkOverrides: new Map([[lineId, manualRateItem]]),
+      invoiceLines: [{
+        id: lineId,
+        source_document_id: INVOICE_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        description: 'Vegetative debris haul',
+        material: 'Vegetative',
+        unit_price: 99,
+        quantity: 10,
+        line_total: 990,
+      }],
+      mobileTickets: [{
+        id: 'mobile:line-7',
+        source_document_id: SUPPORT_DOCUMENT_ID,
+        invoice_number: '2026-002',
+        material: 'Vegetative',
+        unit: 'CYD',
+        quantity_cyd: 10,
+      }],
+    });
+
+    const result = evaluateCrossDocumentRateVerification(input);
+    const finding = result.findings.find(
+      (entry) => entry.rule_id === 'CROSS_DOCUMENT_RATE_MATCHES_CONTRACT',
+    );
+
+    assert.ok(finding);
+    assert.ok(finding.evidence.some((entry) => (
+      entry.evidence_type === 'manual_rate_link'
+      && entry.record_id === 'manual-link-7'
+      && entry.field_value?.includes('"match_source":"manual_link"')
+      && entry.field_value?.includes('"manual_link_resolution":"record_id_match"')
+    )));
+  });
+
   it('matches contract, invoice, and mobile ticket support through canonical category', () => {
     const input = buildInput({
       rateScheduleItems: [

@@ -155,6 +155,14 @@ export type RateScheduleItem = {
   description_match_key?: string | null;
   /** Derived: site/facility + material when available. */
   site_material_key?: string | null;
+  /** Provenance for validator-time matching decisions. */
+  match_source_kind?: 'manual_link' | null;
+  manual_link_resolution?: 'record_id_match' | 'operator_supplied' | null;
+  manual_rate_link_id?: string | null;
+  manual_rate_link_invoice_line_subject_id?: string | null;
+  manual_rate_link_contract_rate_row_id?: string | null;
+  manual_rate_link_reason?: string | null;
+  manual_rate_link_created_at?: string | null;
 };
 
 export type ProjectTotals = {
@@ -305,6 +313,7 @@ export type ProjectValidatorInput = {
   invoiceLines: InvoiceLineRow[];
   mobileToLoadsMap: Map<string, LoadTicketRow[]>;
   invoiceLineToRateMap: Map<string, RateScheduleItem | null>;
+  manualRateLinkOverrides?: Map<string, RateScheduleItem>;
   projectTotals: ProjectTotals;
   factLookups: ValidatorFactLookups;
   contractValidationContext: ValidatorContractAnalysisContext | null;

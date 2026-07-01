@@ -617,7 +617,7 @@ function contractEvidence(item: RateScheduleItem | null): FindingEvidenceInput[]
       ? item.raw_value as Record<string, unknown>
       : null;
 
-  return [
+  const evidence: FindingEvidenceInput[] = [
     makeEvidenceInput({
       evidence_type: 'rate_schedule',
       source_document_id: item.source_document_id,
@@ -633,10 +633,38 @@ function contractEvidence(item: RateScheduleItem | null): FindingEvidenceInput[]
         canonical_category: item.canonical_category,
         rate_amount: item.rate_amount,
         source_category: item.source_category ?? item.material_type,
+        match_source: item.match_source_kind ?? 'automated_match',
+        manual_link_resolution: item.manual_link_resolution ?? null,
+        manual_rate_link_id: item.manual_rate_link_id ?? null,
       },
-      note: 'Governing contract rate row used in cross-document rate verification.',
+      note: item.match_source_kind === 'manual_link'
+        ? 'Human-confirmed manual rate link used in cross-document rate verification.'
+        : 'Governing contract rate row used in cross-document rate verification.',
     }),
   ];
+
+  if (item.match_source_kind === 'manual_link') {
+    evidence.push(
+      makeEvidenceInput({
+        evidence_type: 'manual_rate_link',
+        source_document_id: item.source_document_id,
+        record_id: item.manual_rate_link_id ?? item.record_id,
+        field_name: 'manual_rate_link',
+        field_value: {
+          match_source: 'manual_link',
+          manual_link_resolution: item.manual_link_resolution ?? null,
+          manual_rate_link_id: item.manual_rate_link_id ?? null,
+          invoice_line_subject_id: item.manual_rate_link_invoice_line_subject_id ?? null,
+          contract_rate_row_id: item.manual_rate_link_contract_rate_row_id ?? item.record_id,
+          reason: item.manual_rate_link_reason ?? null,
+          created_at: item.manual_rate_link_created_at ?? null,
+        },
+        note: 'Human-confirmed invoice line to contract rate row link used as validator match authority.',
+      }),
+    );
+  }
+
+  return evidence;
 }
 
 function supportEvidence(rows: readonly CanonicalSupportRow[]): FindingEvidenceInput[] {
@@ -826,19 +854,21 @@ export function evaluateCrossDocumentRateVerification(
   const units: CrossDocumentRateValidationUnit[] = [];
 
   for (const line of invoiceLines) {
-    const match = matchRateScheduleItemForInvoiceLine({
-      rate_code: line.rate_code,
-      description: line.description,
-      service_item: line.service_item,
-      material: line.material,
-      unit_price: line.invoice_rate,
-      unit_type: line.unit_type,
-      canonical_category: line.canonical_category,
-      quantity: line.quantity,
-      line_total: line.line_total,
-      billing_rate_key: line.billing_rate_key,
-    }, scheduleIndex);
-    const contractItem = match.match ?? null;
+    const manualRateLink = input.manualRateLinkOverrides?.get(line.line_id) ?? null;
+    const contractItem = manualRateLink
+      ?? matchRateScheduleItemForInvoiceLine({
+        rate_code: line.rate_code,
+        description: line.description,
+        service_item: line.service_item,
+        material: line.material,
+        unit_price: line.invoice_rate,
+        unit_type: line.unit_type,
+        canonical_category: line.canonical_category,
+        quantity: line.quantity,
+        line_total: line.line_total,
+        billing_rate_key: line.billing_rate_key,
+      }, scheduleIndex).match
+      ?? null;
     const supportMatch = chooseSupportRows(input, line, supportRows, contractItem);
     const observedSupportCategories = supportCategories(supportMatch.rows);
     const classification = classifyComparison({
@@ -861,6 +891,9 @@ export function evaluateCrossDocumentRateVerification(
       invoice_source_descriptor: line.service_item ?? line.description ?? line.rate_code,
       invoice_rate: line.invoice_rate,
       contract_rate_found: contractItem != null,
+      contract_match_source: contractItem?.match_source_kind ?? (contractItem ? 'automated_match' : null),
+      manual_link_resolution: contractItem?.manual_link_resolution ?? null,
+      manual_rate_link_id: contractItem?.manual_rate_link_id ?? null,
       contract_rate: contractItem?.rate_amount ?? null,
       contract_source_category: contractItem?.source_category ?? contractItem?.material_type ?? null,
       contract_source_descriptor: contractItem?.description ?? contractItem?.rate_code ?? null,

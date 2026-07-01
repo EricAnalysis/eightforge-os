@@ -1,5 +1,6 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import { loadContractUploadGuidanceForDocument } from '@/lib/contracts/contractUploadGuidance';
 import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import {
   inferGoverningDocumentFamily,
@@ -2229,13 +2230,23 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     legacyRowsByDocumentId,
     truthCategoryDocumentIds,
   });
-  const factLookups = buildFactLookups({
-    factsByDocumentId,
-    contractValidationContext,
-    familyDocumentIds,
-    governingDocumentIds,
-    truthCategoryDocumentIds,
-  });
+  const contractDocumentIdForGuidance =
+    contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const contractUploadGuidance = contractDocumentIdForGuidance
+    ? await loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
+        () => null,
+      )
+    : null;
+  const factLookups = {
+    ...buildFactLookups({
+      factsByDocumentId,
+      contractValidationContext,
+      familyDocumentIds,
+      governingDocumentIds,
+      truthCategoryDocumentIds,
+    }),
+    contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
+  };
   const mobileToLoadsMap = buildMobileToLoadsMap(loadTickets as LoadTicketRow[]);
   const invoiceLineToRateMap = buildInvoiceLineToRateMap(
     effectiveInvoiceLines,

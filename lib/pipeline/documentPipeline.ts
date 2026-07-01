@@ -142,6 +142,7 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
     contractAnalysis: analyzeContractIntelligence({
       primaryDocument: primaryDocumentForAnalysis,
       relatedDocuments,
+      operatorRateSchedulePageHints: input.rateSchedulePageHints,
     }),
   };
   const decided = decisionNode(analyzed);

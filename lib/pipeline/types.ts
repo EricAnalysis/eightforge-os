@@ -146,6 +146,12 @@ export interface ExtractNodeInput {
    * when reviews are absent or empty.
    */
   confirmedFactReviews?: DocumentFactReviewRow[];
+  /**
+   * Operator-supplied rate schedule page hints from contract_upload_guidance,
+   * captured at upload time. Optional: omit when no guidance row exists —
+   * pipeline behavior is identical to before this field when absent.
+   */
+  rateSchedulePageHints?: number[];
 }
 
 export interface ExtractNodeOutput {

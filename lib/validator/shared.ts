@@ -276,6 +276,7 @@ export type ValidatorFactLookups = {
   rateSchedulePresent: boolean | null;
   rateRowCountFact: ValidatorFactRecord | null;
   rateRowCount: number | null;
+  contractUploadGuidanceRateScheduleIncluded?: string | null;
   rateSchedulePagesFact: ValidatorFactRecord | null;
   rateSchedulePagesDisplay: string | null;
   rateUnitsDetectedFact: ValidatorFactRecord | null;

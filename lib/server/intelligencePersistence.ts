@@ -10,6 +10,10 @@ import {
 } from '@/lib/pipeline/documentPipeline';
 import { loadDocumentFactReviews } from '@/lib/validator/projectValidator';
 import {
+  loadContractUploadGuidanceForDocument,
+  rateSchedulePageHintsFromGuidance,
+} from '@/lib/contracts/contractUploadGuidance';
+import {
   isContractInvoicePrimaryDocumentType,
   isContractInvoicePrimaryFamily,
 } from '@/lib/contractInvoicePrimary';
@@ -1288,6 +1292,20 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     return [] as Awaited<ReturnType<typeof loadDocumentFactReviews>>;
   });
 
+  // Load the operator's upload-time rate schedule page hint, if any.
+  // Absent (no row, or table not yet migrated) is identical to today's
+  // behavior — the hint is a sort preference only, never a restriction.
+  const uploadGuidance = await loadContractUploadGuidanceForDocument(
+    params.admin,
+    params.documentId,
+  ).catch((err) => {
+    console.warn(
+      '[intelligencePersistence] failed to load contract upload guidance:',
+      err,
+    );
+    return null;
+  });
+
   const pipelineResult = runDocumentPipeline({
     documentId: params.documentId,
     documentType: buildContext.buildParams.documentType,
@@ -1297,6 +1315,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     extractionData: buildContext.buildParams.extractionData,
     relatedDocs: buildContext.buildParams.relatedDocs,
     confirmedFactReviews,
+    rateSchedulePageHints: rateSchedulePageHintsFromGuidance(uploadGuidance),
   });
 
   await persistExtractionInspectionSnapshots(params.admin, {

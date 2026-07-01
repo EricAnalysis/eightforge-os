@@ -52,6 +52,12 @@ export const RATE_BASED_CONTRACT_VALIDATION_RULES = {
     severity: 'warning' as const,
     message: 'Activation trigger detected but status unresolved',
   },
+  upload_guidance_hint_mismatch: {
+    ruleId: 'CONTRACT_RATE_SCHEDULE_HINT_MISMATCH',
+    field: 'rate_row_count',
+    severity: 'warning' as const,
+    message: 'Operator indicated a rate schedule was included, but none was extracted',
+  },
 } as const;
 
 function contractDocumentEvidence(
@@ -366,6 +372,35 @@ export function runRateBasedContractValidationRules(
           ...factEvidence(
             input.factLookups.rateSchedulePresentFact,
             'Rate schedule presence fact available to the validator.',
+          ),
+        ],
+      }),
+    );
+  }
+
+  if (
+    input.factLookups.contractUploadGuidanceRateScheduleIncluded === 'yes' &&
+    rateRowCount === 0 &&
+    isRuleEnabled(
+      input.ruleStateByRuleId,
+      RATE_BASED_CONTRACT_VALIDATION_RULES.upload_guidance_hint_mismatch.ruleId,
+    )
+  ) {
+    findings.push(
+      makeFinding({
+        projectId: input.project.id,
+        ruleId: RATE_BASED_CONTRACT_VALIDATION_RULES.upload_guidance_hint_mismatch.ruleId,
+        category: CATEGORY,
+        severity: RATE_BASED_CONTRACT_VALIDATION_RULES.upload_guidance_hint_mismatch.severity,
+        subjectType,
+        subjectId,
+        field: RATE_BASED_CONTRACT_VALIDATION_RULES.upload_guidance_hint_mismatch.field,
+        expected: '> 0 rate rows extracted',
+        actual: rateRowCount,
+        evidence: [
+          ...factEvidence(
+            input.factLookups.rateRowCountFact,
+            'Rate row count extracted from the governing contract schedule.',
           ),
         ],
       }),

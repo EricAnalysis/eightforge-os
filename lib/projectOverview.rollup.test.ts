@@ -669,6 +669,7 @@ describe('project operational rollup', () => {
     assert.equal(model.validator_summary.validator_readiness, 'NEEDS_REVIEW');
     assert.equal(model.validator_summary.approval_blocker_count, 0);
     assert.equal(model.validator_summary.total_at_risk, 79520);
+    assert.equal(model.validator_summary.reconciliation_overall, null);
     assert.equal(model.status.label, 'Needs Review');
   });
 

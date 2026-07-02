@@ -246,6 +246,9 @@ export type CrossDocumentRateValidationUnit = {
   invoice_source_descriptor: string | null;
   invoice_rate: number | null;
   contract_rate_found: boolean;
+  contract_match_source?: 'automated_match' | 'manual_link' | null;
+  manual_link_resolution?: 'record_id_match' | 'operator_supplied' | null;
+  manual_rate_link_id?: string | null;
   contract_rate: number | null;
   contract_source_category: string | null;
   contract_source_descriptor: string | null;

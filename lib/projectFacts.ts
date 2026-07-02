@@ -1135,7 +1135,9 @@ export function resolveCanonicalProjectFacts(params: {
       ? raw.validator_status
       : isValidatorStatus(raw?.validator_readiness)
         ? raw.validator_readiness
-        : null,
+        : isValidatorStatus(raw?.readiness)
+          ? raw.readiness
+          : null,
     readiness:
       isValidationStatus(raw?.readiness)
         ? raw.readiness

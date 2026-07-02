@@ -587,6 +587,92 @@ describe('project operational rollup', () => {
     assert.match(model.status.detail, /^4 approval blockers are preventing payment\./);
   });
 
+  it('does not mark the header blocked from exposure or stale approval decisions when validator readiness has no blockers', () => {
+    const model = buildProjectOverviewModel({
+      project: {
+        ...baseProject,
+        validation_status: 'FINDINGS_OPEN',
+        validation_summary_json: {
+          readiness: 'NEEDS_REVIEW',
+          blocker_count: 0,
+          validator_blockers: [],
+          open_count: 1,
+          requires_review_count: 1,
+          exposure: {
+            total_billed_amount: 100000,
+            total_contract_supported_amount: 20480,
+            total_transaction_supported_amount: 20480,
+            total_fully_reconciled_amount: 20480,
+            total_unreconciled_amount: 79520,
+            total_at_risk_amount: 79520,
+            total_requires_verification_amount: 79520,
+            support_gap_tolerance_amount: 500,
+            at_risk_tolerance_amount: 500,
+            moderate_severity: 'warning',
+            invoices: [
+              {
+                invoice_number: 'GOLDEN-001',
+                billed_amount: 100000,
+                billed_amount_source: 'invoice_total',
+                contract_supported_amount: 20480,
+                transaction_supported_amount: 20480,
+                fully_reconciled_amount: 20480,
+                supported_amount: 20480,
+                unreconciled_amount: 79520,
+                at_risk_amount: 79520,
+                requires_verification_amount: 79520,
+                reconciliation_status: 'MISMATCH',
+              },
+            ],
+          },
+        },
+      },
+      documents: [],
+      documentReviews: [],
+      decisions: [
+        {
+          id: 'stale-primary-project-approval',
+          document_id: null,
+          project_id: baseProject.id,
+          source: 'project_validator',
+          decision_type: 'validator_project_approval',
+          title: 'Project approval status',
+          summary: 'Approval is blocked.',
+          severity: 'critical',
+          status: 'open',
+          confidence: 1,
+          last_detected_at: '2026-07-01T21:15:09.612Z',
+          created_at: '2026-07-01T21:15:09.612Z',
+          due_at: null,
+          assigned_to: null,
+          details: {
+            origin: 'project_validator',
+            primary_approval_decision: true,
+            approval_context: 'project',
+            approval_status: 'blocked',
+            gate_approval_status: 'blocked',
+            blocked_amount: 534757.1,
+            at_risk_amount: 79520,
+            requires_verification_amount: 79520,
+            required_reviews: 1,
+            blocking_reasons: ['Stale project approval decision'],
+          },
+          assignee: null,
+          documents: null,
+        },
+      ],
+      tasks: [],
+      activityEvents: [],
+      members: [],
+    });
+
+    assert.equal(model.validator_summary.validator_readiness, 'NEEDS_REVIEW');
+    assert.equal(model.validator_summary.approval_blocker_count, 0);
+    assert.equal(model.validator_summary.total_at_risk, 79520);
+    assert.equal(model.validator_summary.reconciliation_overall, null);
+    assert.equal(model.status.label, 'Needs Review');
+  });
+
   it('prefers live unresolved validator findings for overview counts while keeping validator amounts', () => {
     const model = buildProjectOverviewModel({
       project: {
@@ -881,7 +967,7 @@ describe('project operational rollup', () => {
     assert.equal(model.metrics.some((metric) => metric.label === 'Open Actions'), false);
   });
 
-  it('prefers the primary approval decision for overview approval status and blocked amount', () => {
+  it('keeps overview approval status on validator summary even when a primary approval decision is stale', () => {
     const model = buildProjectOverviewModel({
       project: {
         ...baseProject,
@@ -937,11 +1023,11 @@ describe('project operational rollup', () => {
       members: [],
     });
 
-    assert.equal(model.status.label, 'Blocked');
+    assert.equal(model.status.label, 'Approved');
     assert.equal(model.validator_summary.required_review_total, 2);
-    assert.equal(model.validator_summary.blocked_amount, 35559.35);
-    assert.equal(model.metrics.find((metric) => metric.label === 'Blocked Amount')?.value, '$35,559.35');
-    assert.equal(model.facts.find((fact) => fact.label === 'Blocked Amount')?.value, '$35,559.35');
+    assert.equal(model.validator_summary.blocked_amount, null);
+    assert.equal(model.metrics.find((metric) => metric.label === 'Blocked Amount')?.value, '$0');
+    assert.equal(model.facts.find((fact) => fact.label === 'Blocked Amount')?.value, '$0');
   });
 
   it('does not let direct contract intelligence bypass validator decisions when validator has not run', () => {

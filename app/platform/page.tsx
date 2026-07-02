@@ -10,6 +10,7 @@ import type {
   OperationalProjectRollupItem,
 } from '@/lib/server/operationalQueue';
 import type { ActionableItemSummary } from '@/types/executionQueue';
+import { buildCanonicalApprovalByProjectId } from '@/lib/commandCenterApproval';
 
 type QueueAction = OperationalProjectRollupItem['rollup']['pending_actions'][number];
 
@@ -363,10 +364,19 @@ export default function PlatformDashboardPage() {
     return map;
   }, [decisions]);
 
+  const canonicalApprovalByProjectId = useMemo(
+    () => buildCanonicalApprovalByProjectId(rollups.map((item) => item.project)),
+    [rollups],
+  );
+
   const attentionMetrics = useMemo<AttentionMetric[]>(() => {
     const blockedProjects = rollups.filter(
-      (item) => item.rollup.status.key === 'blocked' || item.rollup.blocked_count > 0,
+      (item) => canonicalApprovalByProjectId.get(item.project.id)?.is_blocked ?? false,
     ).length;
+    const canonicalBlockerTotal = rollups.reduce(
+      (sum, item) => sum + (canonicalApprovalByProjectId.get(item.project.id)?.blocker_count ?? 0),
+      0,
+    );
     const actionableProjectCount = Object.keys(actionableSummary.by_project).length;
 
     return [
@@ -375,7 +385,7 @@ export default function PlatformDashboardPage() {
         value: isLoading ? '...' : blockedProjects,
         subtext: isLoading
           ? 'Refreshing portfolio blockers'
-          : `${operationalModel?.intelligence.blocked_count ?? 0} blocker${(operationalModel?.intelligence.blocked_count ?? 0) === 1 ? '' : 's'} active across the queue`,
+          : `${canonicalBlockerTotal} approval blocker${canonicalBlockerTotal === 1 ? '' : 's'} active across the portfolio`,
         tone: blockedProjects > 0 ? 'danger' : 'muted',
       },
       {
@@ -405,16 +415,17 @@ export default function PlatformDashboardPage() {
         tone: (operationalModel?.intelligence.needs_review_count ?? 0) > 0 ? 'warning' : 'muted',
       },
     ];
-  }, [actionableSummary, decisions.length, isLoading, operationalModel, rollups]);
+  }, [actionableSummary, canonicalApprovalByProjectId, decisions.length, isLoading, operationalModel, rollups]);
 
   const criticalActions = useMemo<CriticalActionCardItem[]>(() => {
-    const rollupActions = rollups.flatMap((rollupItem) =>
-      rollupItem.rollup.pending_actions.slice(0, 2).map((action) => {
+    const rollupActions = rollups.flatMap((rollupItem) => {
+      const projectBlocked =
+        canonicalApprovalByProjectId.get(rollupItem.project.id)?.is_blocked ?? false;
+      return rollupItem.rollup.pending_actions.slice(0, 2).map((action) => {
         const riskAmount = primaryRiskAmount(action);
         const isBlocker =
-          action.approval_status === 'blocked' ||
-          (action.blocked_amount ?? 0) > 0 ||
-          rollupItem.rollup.status.key === 'blocked';
+          projectBlocked &&
+          (action.approval_status === 'blocked' || (action.blocked_amount ?? 0) > 0);
         const severityLabel: CriticalActionCardItem['severityLabel'] = isBlocker
           ? 'BLOCKER'
           : 'WARNING';
@@ -432,10 +443,11 @@ export default function PlatformDashboardPage() {
           context: buildActionContext(action),
           atRiskLabel: riskAmount != null && riskAmount > 0 ? formatRiskLabel(riskAmount) : null,
         };
-      }),
-    );
+      });
+    });
 
     const decisionActions = decisions
+      .filter((item) => item.kind !== 'trace_decision')
       .filter(
         (item) =>
           item.blocked ||
@@ -444,7 +456,10 @@ export default function PlatformDashboardPage() {
           item.review_status === 'needs_correction',
       )
       .map((item) => {
-        const isBlocker = item.blocked || item.severity === 'critical';
+        const projectBlocked = item.project_id
+          ? canonicalApprovalByProjectId.get(item.project_id)?.is_blocked ?? false
+          : false;
+        const isBlocker = projectBlocked && (item.blocked || item.severity === 'critical');
         const severityLabel: CriticalActionCardItem['severityLabel'] = isBlocker
           ? 'BLOCKER'
           : 'WARNING';
@@ -474,7 +489,7 @@ export default function PlatformDashboardPage() {
       if (deduped.length === 6) break;
     }
     return deduped;
-  }, [decisions, rollups]);
+  }, [canonicalApprovalByProjectId, decisions, rollups]);
 
   const projectRows = useMemo<ProjectRollupRow[]>(() => {
     return rollups.map((rollupItem) => {

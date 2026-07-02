@@ -29,6 +29,7 @@ type BuildContractRateScheduleRowsInput = {
   canonicalRateScheduleAssembly?: unknown;
   pdfTables?: readonly PdfTable[] | null;
   rateSchedulePages?: readonly number[] | null;
+  rateSchedulePagePreferencePages?: readonly number[] | null;
   sourceEntries?: readonly ContractRateScheduleSourceEntry[] | null;
   defaultAnchorIds?: readonly string[] | null;
 };
@@ -341,12 +342,16 @@ function findMatchingSourceContext(params: {
   candidates: readonly string[];
   sourceEntries: readonly ContractRateScheduleSourceEntry[];
   rateSchedulePages: readonly number[];
+  rateSchedulePagePreferencePages: readonly number[];
   defaultAnchorIds: readonly string[];
 }): {
   page: number | null;
   sourceAnchorIds: string[];
 } {
-  const preferredPages = new Set(params.rateSchedulePages);
+  const preferredPages = new Set([
+    ...params.rateSchedulePages,
+    ...params.rateSchedulePagePreferencePages,
+  ]);
   const orderedEntries = params.sourceEntries
     .filter((entry) => normalizeWhitespace(entry.text).length > 0)
     .sort((left, right) => {
@@ -443,6 +448,7 @@ function normalizeTypedRateTableRows(params: {
   rateTable: unknown;
   sourceEntries: readonly ContractRateScheduleSourceEntry[];
   rateSchedulePages: readonly number[];
+  rateSchedulePagePreferencePages: readonly number[];
   defaultAnchorIds: readonly string[];
 }): ContractRateScheduleRow[] {
   if (!Array.isArray(params.rateTable)) return [];
@@ -488,6 +494,7 @@ function normalizeTypedRateTableRows(params: {
       ),
       sourceEntries: params.sourceEntries,
       rateSchedulePages: params.rateSchedulePages,
+      rateSchedulePagePreferencePages: params.rateSchedulePagePreferencePages,
       defaultAnchorIds: params.defaultAnchorIds,
     });
 
@@ -668,13 +675,21 @@ function parseRateRowInline(params: {
 function buildFallbackRowsFromSourceEntries(params: {
   sourceEntries: readonly ContractRateScheduleSourceEntry[];
   rateSchedulePages: readonly number[];
+  rateSchedulePagePreferencePages: readonly number[];
 }): ContractRateScheduleRow[] {
   const rows: ContractRateScheduleRow[] = [];
   const ratePages = new Set(params.rateSchedulePages);
-  const candidateEntries = params.sourceEntries.filter((entry) => {
-    if (normalizeWhitespace(entry.text).length === 0) return false;
-    return ratePages.size === 0 || (entry.page != null && ratePages.has(entry.page));
-  });
+  const preferredPages = new Set(params.rateSchedulePagePreferencePages);
+  const candidateEntries = params.sourceEntries
+    .filter((entry) => {
+      if (normalizeWhitespace(entry.text).length === 0) return false;
+      return ratePages.size === 0 || (entry.page != null && ratePages.has(entry.page));
+    })
+    .sort((left, right) => {
+      const leftPreferred = left.page != null && preferredPages.has(left.page) ? 0 : 1;
+      const rightPreferred = right.page != null && preferredPages.has(right.page) ? 0 : 1;
+      return leftPreferred - rightPreferred;
+    });
 
   let rowIndex = 0;
   for (const entry of candidateEntries) {
@@ -718,6 +733,9 @@ export function buildContractRateScheduleRows(
   const rateSchedulePages = [...(params.rateSchedulePages ?? [])]
     .map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : null))
     .filter((value): value is number => value != null);
+  const rateSchedulePagePreferencePages = [...(params.rateSchedulePagePreferencePages ?? [])]
+    .map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : null))
+    .filter((value): value is number => value != null);
   const sourceEntries = [...(params.sourceEntries ?? [])];
   const defaultAnchorIds = [...(params.defaultAnchorIds ?? [])]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
@@ -752,6 +770,7 @@ export function buildContractRateScheduleRows(
     rateTable: params.rateTable,
     sourceEntries,
     rateSchedulePages,
+    rateSchedulePagePreferencePages,
     defaultAnchorIds,
   });
   if (structuredRows.length > 0) {
@@ -766,5 +785,6 @@ export function buildContractRateScheduleRows(
   return buildFallbackRowsFromSourceEntries({
     sourceEntries,
     rateSchedulePages,
+    rateSchedulePagePreferencePages,
   });
 }

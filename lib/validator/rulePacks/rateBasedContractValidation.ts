@@ -402,6 +402,10 @@ export function runRateBasedContractValidationRules(
             input.factLookups.rateRowCountFact,
             'Rate row count extracted from the governing contract schedule.',
           ),
+          ...contractDocumentEvidence(
+            input,
+            'Upload guidance indicated that a rate schedule was included, but no canonical rate rows were extracted.',
+          ),
         ],
       }),
     );

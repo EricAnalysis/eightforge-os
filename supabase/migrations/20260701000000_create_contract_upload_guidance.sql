@@ -34,6 +34,20 @@ CREATE TABLE IF NOT EXISTS public.contract_upload_guidance (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contract_upload_guidance_document_id
   ON public.contract_upload_guidance (document_id);
 
+CREATE INDEX IF NOT EXISTS idx_contract_upload_guidance_organization_id
+  ON public.contract_upload_guidance (organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_contract_upload_guidance_project_id
+  ON public.contract_upload_guidance (project_id)
+  WHERE project_id IS NOT NULL;
+
+DROP TRIGGER IF EXISTS trg_contract_upload_guidance_updated_at
+  ON public.contract_upload_guidance;
+CREATE TRIGGER trg_contract_upload_guidance_updated_at
+  BEFORE UPDATE ON public.contract_upload_guidance
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_updated_at();
+
 ALTER TABLE public.contract_upload_guidance ENABLE ROW LEVEL SECURITY;
 
 DO $$

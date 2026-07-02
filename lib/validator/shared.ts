@@ -818,6 +818,7 @@ const FINDING_FACT_KEYS_BY_RULE_ID: Record<string, string[]> = {
     'authorization_required',
     'performance_start_basis',
   ],
+  CONTRACT_RATE_SCHEDULE_HINT_MISMATCH: ['rate_row_count', 'rate_schedule_present'],
   FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT: [
     'rate_code',
     'rate_table',
@@ -886,6 +887,8 @@ const FINDING_MESSAGE_BY_RULE_ID: Record<string, string> = {
     'Rate schedule detected but unit coverage may be incomplete',
   FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED:
     'Activation trigger detected but status unresolved',
+  CONTRACT_RATE_SCHEDULE_HINT_MISMATCH:
+    'Operator indicated a rate schedule was included, but none was extracted',
   FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT:
     'Invoice line code is not found in governing contract schedule',
   FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE:

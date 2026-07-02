@@ -425,6 +425,13 @@ function lineContractSupportedAmount(line: LineContext): number {
     return roundCurrency(Math.max(0, line.line_total));
   }
 
+  // Manual-link path: operator explicitly confirmed this line maps to a contract rate item.
+  // When quantity/unit-price are absent (e.g. a lump-sum line), the full line_total is
+  // contract-supported — no rate-tolerance check is required for an operator-confirmed link.
+  if (line.schedule_item?.match_source_kind === 'manual_link' && line.line_total != null) {
+    return roundCurrency(Math.max(0, line.line_total));
+  }
+
   return 0;
 }
 

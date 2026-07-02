@@ -181,6 +181,41 @@ describe('project validator input loading', () => {
     assert.equal(map.get(lineId)?.match_source_kind, 'manual_link');
   });
 
+  it('uses a legacy fact-subject manual rate link for synthesized typed invoice lines', () => {
+    const documentId = '53d74340-4d00-4d55-a937-4d0eca9c1573';
+    const typedLineId = `typed:${documentId}:invoice:line:6`;
+    const factSubjectLineId = `fact:${documentId}:line:6`;
+    const manualRateItem = makeRateScheduleItem({
+      record_id: 'exhibit_a_table:pdf:table:p9:t33:r8',
+      rate_code: null,
+      description: 'Trees with Hazardous Limbs Hanging Removal >2" per Tree',
+      unit_type: 'Tree',
+      rate_amount: 80,
+      match_source_kind: 'manual_link',
+      manual_link_resolution: 'operator_supplied',
+      manual_rate_link_id: '2a976e57-b648-4343-8b51-dde452b8e285',
+    });
+
+    const map = buildInvoiceLineToRateMap(
+      [{
+        id: typedLineId,
+        source_document_id: documentId,
+        invoice_number: '2026-002',
+        rate_code: '6A',
+        description: 'Tree Operations Hazardous Hanging Limb Removal>2"per tree',
+        quantity: 994,
+        unit_price: 80,
+        line_total: 79520,
+      }],
+      [],
+      new Map([[factSubjectLineId, manualRateItem]]),
+    );
+
+    assert.equal(map.get(typedLineId)?.record_id, 'exhibit_a_table:pdf:table:p9:t33:r8');
+    assert.equal(map.get(typedLineId)?.match_source_kind, 'manual_link');
+    assert.equal(map.has(factSubjectLineId), false);
+  });
+
   it('keeps invoice-line rate map behavior unchanged when no manual link exists', () => {
     const line = {
       id: 'fact:invoice-doc-1:line:1',

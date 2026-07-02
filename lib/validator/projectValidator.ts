@@ -2025,7 +2025,7 @@ export function buildInvoiceLineToRateMap(
 
   for (const line of invoiceLines) {
     const lineId = rowIdentifier(line, INVOICE_LINE_ID_KEYS, 'invoice_line');
-    const manualRateLink = manualRateLinkOverrides.get(lineId) ?? null;
+    const manualRateLink = resolveManualRateLinkOverride(lineId, manualRateLinkOverrides);
     if (manualRateLink) {
       map.set(lineId, manualRateLink);
       continue;
@@ -2060,6 +2060,19 @@ export function buildInvoiceLineToRateMap(
   }
 
   return map;
+}
+
+function resolveManualRateLinkOverride(
+  lineId: string,
+  manualRateLinkOverrides: ReadonlyMap<string, RateScheduleItem>,
+): RateScheduleItem | null {
+  const exact = manualRateLinkOverrides.get(lineId);
+  if (exact) return exact;
+
+  const synthesizedLegacyMatch = /^typed:(.+):invoice:line:(\d+)$/u.exec(lineId);
+  if (!synthesizedLegacyMatch) return null;
+
+  return manualRateLinkOverrides.get(`fact:${synthesizedLegacyMatch[1]}:line:${synthesizedLegacyMatch[2]}`) ?? null;
 }
 
 function readSemanticInvoiceUnitPrice(line: InvoiceLineRow): number | null {

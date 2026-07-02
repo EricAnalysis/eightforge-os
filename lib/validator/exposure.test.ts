@@ -467,4 +467,96 @@ describe('project exposure math', () => {
       false,
     );
   });
+
+  it('treats a manual-link line as contract-supported even when quantity and unit-price are absent', () => {
+    // Mirrors invoice 2026-002 line 6 in the Golden Project:
+    //   - Line A: normal rate-matched line with explicit qty/unit_price
+    //   - Line B: lump-sum line with only a line_total, no qty, no unit_price —
+    //             operator manually linked it to a contract rate item
+    // Before the Path 3 fix, Line B contributed 0 to contract_supported_amount
+    // because Path 1 (needs quantity) and Path 2 (needs contractSupported, which
+    // requires unitPrice) both failed despite the manual link being in the map.
+    const input = buildInput({
+      invoiceRows: [
+        {
+          id: 'invoice-row-500',
+          source_document_id: 'invoice-doc-500',
+          invoice_number: 'INV-500',
+          total_amount: 534757.1,
+        },
+      ],
+      invoiceLines: [
+        {
+          id: 'line-500-a',
+          source_document_id: 'invoice-doc-500',
+          invoice_id: 'invoice-row-500',
+          invoice_number: 'INV-500',
+          rate_code: 'RC-05',
+          quantity: 100,
+          unit_price: 4552.371,
+          line_total: 455237.1,
+        },
+        {
+          id: 'line-500-b',
+          source_document_id: 'invoice-doc-500',
+          invoice_id: 'invoice-row-500',
+          invoice_number: 'INV-500',
+          // No rate_code, no quantity, no unit_price — lump-sum line
+          description: 'Mobilization',
+          line_total: 79520,
+        },
+      ],
+      transactionRows: [
+        makeTransactionRow({
+          id: 'tx-500-a',
+          invoiceNumber: 'INV-500',
+          rateCode: 'RC-05',
+          quantity: 100,
+          cost: 455237.1,
+        }),
+        makeTransactionRow({
+          id: 'tx-500-b',
+          invoiceNumber: 'INV-500',
+          rateCode: 'MOBILIZATION',
+          cost: 79520,
+        }),
+      ],
+      rateScheduleItems: [makeRateItem('RC-05', 4552.371)],
+    });
+
+    // Inject the manual-link override for line-500-b directly into the map —
+    // this mirrors what buildManualRateLinkOverrides produces at runtime.
+    const manualLinkItem: RateScheduleItem = {
+      source_document_id: CONTRACT_DOCUMENT_ID,
+      record_id: 'contract-rate-mob-1',
+      rate_code: null,
+      unit_type: 'lump sum',
+      rate_amount: 79520,
+      material_type: null,
+      description: 'Mobilization',
+      raw_value: { source: 'invoice_line_rate_links', link_id: 'link-mob-1' },
+      match_source_kind: 'manual_link',
+      manual_link_resolution: 'operator_supplied',
+      manual_rate_link_id: 'link-mob-1',
+      manual_rate_link_invoice_line_subject_id: 'line-500-b',
+      manual_rate_link_contract_rate_row_id: 'contract-rate-mob-1',
+      manual_rate_link_reason: 'Operator confirmed mobilization line',
+      manual_rate_link_created_at: TEST_TIMESTAMP,
+    };
+    input.invoiceLineToRateMap.set('line-500-b', manualLinkItem);
+
+    const result = evaluateProjectExposure(input, []);
+
+    // Line A: contract-supported via Path 1 (rate_amount * quantity). Capped at 455237.1.
+    // Line B: contract-supported via Path 3 (manual_link fallback). Returns line_total = 79520.
+    // Combined contract_supported_amount = 534757.1 = full billed amount.
+    assert.equal(result.summary?.invoices[0]?.contract_supported_amount, 534757.1);
+    assert.equal(result.summary?.invoices[0]?.at_risk_amount, 0);
+    assert.equal(result.summary?.invoices[0]?.reconciliation_status, 'MATCH');
+    assert.equal(result.summary?.total_at_risk_amount, 0);
+    assert.equal(
+      result.findings.some((finding) => finding.rule_id === 'INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO'),
+      false,
+    );
+  });
 });

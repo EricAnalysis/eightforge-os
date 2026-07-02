@@ -540,7 +540,6 @@ export function resolveProjectValidatorSummary(
     validationStatus: project.validation_status ?? null,
     validationSummary: project.validation_summary_json,
     validationFindings,
-    decisions,
   });
   const facts = snapshot.facts;
   const documentInvoiceFallback = deriveCanonicalProjectInvoiceFallbackSummary({

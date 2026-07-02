@@ -37,6 +37,7 @@ import {
   normalizeCode,
   readRowNumber,
   readRowString,
+  rowIdentifier,
   sortFindings,
   stringifyValue,
   toBoolean,
@@ -115,6 +116,7 @@ const LEGACY_EXTRACTION_SELECT = 'document_id, created_at, data';
 
 const PROJECT_CODE_FACT_KEYS = ['project_code', 'project_number'] as const;
 const CONTRACTOR_NAME_FACT_KEYS = ['contractor_name', 'vendor_name'] as const;
+const INVOICE_LINE_ID_KEYS = ['id', 'invoice_line_id', 'line_id'] as const;
 const RATE_SCHEDULE_FACT_KEYS = [
   'rate_table',
   'hauling_rates',
@@ -213,6 +215,23 @@ type BlobExtractionData = Record<string, unknown> & {
 
 type PersistedDocumentExecutionTrace = Partial<DocumentExecutionTrace> & Record<string, unknown>;
 
+export type InvoiceLineRateLinkRow = {
+  id: string;
+  organization_id: string;
+  project_id: string;
+  invoice_document_id: string;
+  invoice_line_subject_id: string;
+  contract_document_id: string;
+  contract_rate_row_id: string;
+  rate_row_description: string | null;
+  rate_row_unit_type: string | null;
+  rate_row_rate_amount: number | string | null;
+  reason: string | null;
+  created_at: string | null;
+  is_active: boolean;
+  superseded_by: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value != null && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -243,6 +262,24 @@ function isMissingColumnError(
     error.code === 'PGRST204' ||
     message.includes(`'${columnName.toLowerCase()}'`) ||
     message.includes(columnName.toLowerCase())
+  );
+}
+
+function isInvoiceLineRateLinksTableUnavailableError(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  if (!error) return false;
+  const code = error.code ?? '';
+  const msg = (error.message ?? '').toLowerCase();
+
+  if (code === 'PGRST205') return true;
+  if (code === '42P01' && msg.includes('invoice_line_rate_links')) return true;
+  if (!msg.includes('invoice_line_rate_links')) return false;
+
+  return (
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the table')
   );
 }
 
@@ -905,6 +942,141 @@ async function loadDocumentFactOverrides(
   if (error) throw new Error(error.message);
 
   return (data ?? []) as DocumentFactOverrideRow[];
+}
+
+export function buildManualRateLinkOverrides(params: {
+  rows: readonly InvoiceLineRateLinkRow[];
+  rateScheduleItems: readonly RateScheduleItem[];
+}): Map<string, RateScheduleItem> {
+  const overrides = new Map<string, RateScheduleItem>();
+  const rowsByLineKey = new Map<string, InvoiceLineRateLinkRow[]>();
+  const rateItemsByRecordId = new Map(
+    params.rateScheduleItems.map((item) => [item.record_id, item] as const),
+  );
+
+  for (const row of params.rows) {
+    const lineKey = [
+      row.organization_id,
+      row.project_id,
+      row.invoice_line_subject_id,
+    ].join('|');
+    const existing = rowsByLineKey.get(lineKey) ?? [];
+    existing.push(row);
+    rowsByLineKey.set(lineKey, existing);
+  }
+
+  for (const [lineKey, rows] of rowsByLineKey.entries()) {
+    if (rows.length > 1) {
+      console.error('[projectValidator] multiple active invoice_line_rate_links rows for invoice line', {
+        lineKey,
+        linkIds: rows.map((row) => row.id),
+      });
+      continue;
+    }
+
+    const row = rows[0];
+    if (!row) continue;
+
+    const matchedRateItem = rateItemsByRecordId.get(row.contract_rate_row_id) ?? null;
+    if (matchedRateItem) {
+      overrides.set(row.invoice_line_subject_id, {
+        ...matchedRateItem,
+        match_source_kind: 'manual_link',
+        manual_link_resolution: 'record_id_match',
+        manual_rate_link_id: row.id,
+        manual_rate_link_invoice_line_subject_id: row.invoice_line_subject_id,
+        manual_rate_link_contract_rate_row_id: row.contract_rate_row_id,
+        manual_rate_link_reason: row.reason,
+        manual_rate_link_created_at: row.created_at,
+      });
+      continue;
+    }
+
+    const suppliedRateAmount = toNumber(row.rate_row_rate_amount);
+    const description = typeof row.rate_row_description === 'string' && row.rate_row_description.trim().length > 0
+      ? row.rate_row_description.trim()
+      : null;
+    const unitType = typeof row.rate_row_unit_type === 'string' && row.rate_row_unit_type.trim().length > 0
+      ? row.rate_row_unit_type.trim()
+      : null;
+    const missingFields = [
+      description == null ? 'rate_row_description' : null,
+      unitType == null ? 'rate_row_unit_type' : null,
+      suppliedRateAmount == null ? 'rate_row_rate_amount' : null,
+    ].filter((field): field is string => field != null);
+
+    if (missingFields.length > 0) {
+      console.error('[projectValidator] active invoice_line_rate_links row has insufficient operator-supplied rate data', {
+        linkId: row.id,
+        invoiceLineSubjectId: row.invoice_line_subject_id,
+        contractRateRowId: row.contract_rate_row_id,
+        missingFields,
+      });
+      continue;
+    }
+
+    const keys = deriveBillingKeysForRateScheduleItem({
+      rate_code: null,
+      description,
+      material_type: null,
+      unit_type: unitType,
+    });
+    overrides.set(row.invoice_line_subject_id, {
+      source_document_id: row.contract_document_id,
+      record_id: row.contract_rate_row_id,
+      rate_code: null,
+      unit_type: unitType,
+      rate_amount: suppliedRateAmount,
+      material_type: null,
+      description,
+      raw_value: {
+        source: 'invoice_line_rate_links',
+        link_id: row.id,
+        row_id: row.contract_rate_row_id,
+        description,
+        unit_type: unitType,
+        rate_amount: suppliedRateAmount,
+      },
+      ...keys,
+      match_source_kind: 'manual_link',
+      manual_link_resolution: 'operator_supplied',
+      manual_rate_link_id: row.id,
+      manual_rate_link_invoice_line_subject_id: row.invoice_line_subject_id,
+      manual_rate_link_contract_rate_row_id: row.contract_rate_row_id,
+      manual_rate_link_reason: row.reason,
+      manual_rate_link_created_at: row.created_at,
+    });
+  }
+
+  return overrides;
+}
+
+export async function loadManualRateLinkOverrides(params: {
+  project: Pick<ValidatorProjectRow, 'id' | 'organization_id'>;
+  rateScheduleItems: readonly RateScheduleItem[];
+}): Promise<Map<string, RateScheduleItem>> {
+  const admin = getSupabaseAdmin();
+  if (!admin) throw new Error('Server validation client is not configured.');
+
+  const { data, error } = await admin
+    .from('invoice_line_rate_links')
+    .select(
+      'id, organization_id, project_id, invoice_document_id, invoice_line_subject_id, contract_document_id, contract_rate_row_id, rate_row_description, rate_row_unit_type, rate_row_rate_amount, reason, created_at, is_active, superseded_by',
+    )
+    .eq('organization_id', params.project.organization_id)
+    .eq('project_id', params.project.id)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+
+  if (error && isInvoiceLineRateLinksTableUnavailableError(error)) {
+    return new Map<string, RateScheduleItem>();
+  }
+  if (error) throw new Error(error.message);
+
+  return buildManualRateLinkOverrides({
+    rows: (data ?? []) as InvoiceLineRateLinkRow[],
+    rateScheduleItems: params.rateScheduleItems,
+  });
 }
 
 export async function loadDocumentFactReviews(
@@ -1843,16 +2015,22 @@ function buildMobileToLoadsMap(
   return map;
 }
 
-function buildInvoiceLineToRateMap(
+export function buildInvoiceLineToRateMap(
   invoiceLines: readonly InvoiceLineRow[],
   rateScheduleItems: readonly RateScheduleItem[],
+  manualRateLinkOverrides: ReadonlyMap<string, RateScheduleItem> = new Map(),
 ): Map<string, RateScheduleItem | null> {
   const map = new Map<string, RateScheduleItem | null>();
   const scheduleIndex = indexRateScheduleItemsByCanonicalKeys(rateScheduleItems);
 
   for (const line of invoiceLines) {
-    const lineId = readRowString(line, ['id', 'invoice_line_id', 'line_id'])
-      ?? `invoice_line:${map.size + 1}`;
+    const lineId = rowIdentifier(line, INVOICE_LINE_ID_KEYS, 'invoice_line');
+    const manualRateLink = resolveManualRateLinkOverride(lineId, manualRateLinkOverrides);
+    if (manualRateLink) {
+      map.set(lineId, manualRateLink);
+      continue;
+    }
+
     const rateCode = readRowString(line, INVOICE_LINE_RATE_CODE_KEYS);
     const description = readRowString(line, INVOICE_LINE_DESCRIPTION_KEYS);
     const serviceItem = readRowString(line, INVOICE_LINE_SERVICE_ITEM_KEYS);
@@ -1882,6 +2060,19 @@ function buildInvoiceLineToRateMap(
   }
 
   return map;
+}
+
+function resolveManualRateLinkOverride(
+  lineId: string,
+  manualRateLinkOverrides: ReadonlyMap<string, RateScheduleItem>,
+): RateScheduleItem | null {
+  const exact = manualRateLinkOverrides.get(lineId);
+  if (exact) return exact;
+
+  const synthesizedLegacyMatch = /^typed:(.+):invoice:line:(\d+)$/u.exec(lineId);
+  if (!synthesizedLegacyMatch) return null;
+
+  return manualRateLinkOverrides.get(`fact:${synthesizedLegacyMatch[1]}:line:${synthesizedLegacyMatch[2]}`) ?? null;
 }
 
 function readSemanticInvoiceUnitPrice(line: InvoiceLineRow): number | null {
@@ -2236,10 +2427,15 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     governingDocumentIds,
     truthCategoryDocumentIds,
   });
+  const manualRateLinkOverrides = await loadManualRateLinkOverrides({
+    project,
+    rateScheduleItems: factLookups.rateScheduleItems,
+  });
   const mobileToLoadsMap = buildMobileToLoadsMap(loadTickets as LoadTicketRow[]);
   const invoiceLineToRateMap = buildInvoiceLineToRateMap(
     effectiveInvoiceLines,
     factLookups.rateScheduleItems,
+    manualRateLinkOverrides,
   );
   const validatorTransactionData = transactionData
     ? {
@@ -2278,6 +2474,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     invoiceLines: effectiveInvoiceLines,
     mobileToLoadsMap,
     invoiceLineToRateMap,
+    manualRateLinkOverrides,
     projectTotals,
     factLookups,
     contractValidationContext,

@@ -615,6 +615,34 @@ describe('extractExhibitARateTableRows', () => {
     assert.equal(rows[0]?.rate, 6.9);
   });
 
+  it('does not use operator page hints as a fallback extraction filter', () => {
+    const rows = buildContractRateScheduleRows({
+      rateTable: [],
+      pdfTables: [
+        table({
+          page: 2,
+          rows: [['Not Exhibit A', 'Noise only', 'No rate']],
+        }),
+      ],
+      rateSchedulePagePreferencePages: [2],
+      sourceEntries: [
+        {
+          id: 'pdf:text:p2:b1',
+          page: 2,
+          text: 'Vegetative Debris $6.90 per cubic yard',
+        },
+        {
+          id: 'pdf:text:p9:b1',
+          page: 9,
+          text: 'Hazardous Limb Cutting $135.00 per tree',
+        },
+      ],
+    });
+
+    assert.deepEqual(rows.map((row) => row.page), [2, 9]);
+    assert.deepEqual(rows.map((row) => row.rate), [6.9, 135]);
+  });
+
   it('builds canonical rows from a clean structural page table in the Goodlettsville price sheet', async () => {
     const bytes = readFileSync('lib/contracts/__fixtures__/goodlettsville_price_sheet.pdf');
     const payload = await extractDocument(

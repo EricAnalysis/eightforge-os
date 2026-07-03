@@ -32,6 +32,12 @@ type AnalyzeContractIntelligenceInput = {
   relatedDocuments: NormalizedNodeDocument[];
   confirmedGoverningScheduleResolved?: boolean;
   confirmedDisposalTreatmentResolved?: boolean;
+  /**
+   * Operator-supplied page hints from contract_upload_guidance, captured at
+   * upload time before extraction runs. Used as a sort preference only —
+   * never a restriction on which pages get extracted.
+   */
+  operatorRateSchedulePageHints?: readonly number[];
 };
 
 type FieldFamilies = Pick<
@@ -1016,11 +1022,13 @@ export function analyzeContractIntelligence(
     ...numberArray(input.primaryDocument.fact_map.rate_schedule_pages?.value ?? null).map(String),
     ...numberArray(input.primaryDocument.section_signals.rate_section_pages ?? null).map(String),
   ]).map((value) => Number.parseInt(value, 10));
+  const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
   const rateScheduleRows = buildContractRateScheduleRows({
     rateTable: input.primaryDocument.typed_fields.rate_table,
     canonicalRateScheduleAssembly: input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
     pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),
     rateSchedulePages,
+    rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
     sourceEntries: input.primaryDocument.evidence.map((evidence) => ({
       id: evidence.id,
       page: evidence.location.page ?? null,

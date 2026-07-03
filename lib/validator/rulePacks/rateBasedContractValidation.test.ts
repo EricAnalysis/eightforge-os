@@ -214,6 +214,7 @@ function buildInput(params: {
   invoiceLines?: Array<Record<string, unknown>>;
   rateScheduleItems?: RateScheduleItem[];
   allFacts?: ValidatorFactRecord[];
+  contractUploadGuidanceRateScheduleIncluded?: string | null;
 }): ProjectValidatorInput {
   const project: ValidatorProjectRow = {
     id: 'project-1',
@@ -252,6 +253,8 @@ function buildInput(params: {
         ? null
         : makeFactRecord('rate_row_count', params.rateRowCount),
     rateRowCount: params.rateRowCount,
+    contractUploadGuidanceRateScheduleIncluded:
+      params.contractUploadGuidanceRateScheduleIncluded ?? null,
     rateSchedulePagesFact:
       params.rateSchedulePages == null
         ? null
@@ -402,6 +405,31 @@ describe('rate-based contract validator rules', () => {
       ['FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED'],
     );
     assert.equal(findings[0]?.severity, 'critical');
+  });
+
+  it('flags operator upload guidance when a rate schedule was expected but no rows were extracted', () => {
+    const input = buildInput({
+      contractCeilingType: 'rate_based',
+      rateSchedulePresent: true,
+      rateRowCount: 0,
+      rateSchedulePages: 'pages 8-10',
+      rateUnitsDetected: [],
+      timeAndMaterialsPresent: false,
+      contractValidationContext: buildContractAnalysis({
+        pricingState: 'explicit',
+        activationState: 'missing_critical',
+      }),
+      contractUploadGuidanceRateScheduleIncluded: 'yes',
+    });
+
+    const findings = runFinancialIntegrityRules(input);
+
+    assert.equal(
+      findings.some((finding) =>
+        finding.rule_id === 'CONTRACT_RATE_SCHEDULE_HINT_MISMATCH',
+      ),
+      true,
+    );
   });
 
   it('fails a weak rate schedule when the extracted row count is too low', () => {

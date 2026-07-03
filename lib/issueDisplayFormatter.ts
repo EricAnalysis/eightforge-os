@@ -74,6 +74,14 @@ const ISSUE_DISPLAY_LABELS: Readonly<Record<string, IssueDisplayTemplate>> = {
       'Confirm whether work authorization is in effect and attach any required authorization document.',
     category: 'Contract',
   },
+  CONTRACT_RATE_SCHEDULE_HINT_MISMATCH: {
+    title: 'Rate schedule hint not extracted',
+    explanation:
+      'Upload guidance says this contract includes a rate schedule, but extraction did not produce any canonical rate rows.',
+    recommended_action:
+      'Review the hinted schedule location, correct the guidance if needed, and re-run contract extraction.',
+    category: 'Contract',
+  },
   contract_ceiling_missing: {
     title: 'Contract ceiling not established',
     explanation:

@@ -83,6 +83,17 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
     required_action:
       'Confirm the missing unit coverage in the rate schedule before relying on the contract for full billing support.',
   },
+  CONTRACT_RATE_SCHEDULE_HINT_MISMATCH: {
+    business_severity: 'medium',
+    source_family: 'contract',
+    approval_gate_effect: 'requires_operator_review',
+    problem:
+      'Upload guidance says this contract package includes a rate schedule, but canonical extraction produced no rate rows.',
+    impact:
+      'Pricing validation cannot rely on contract rates until the schedule is extracted or the upload guidance is corrected.',
+    required_action:
+      'Review the hinted rate schedule location, correct the guidance if needed, and re-run extraction for the contract.',
+  },
   FINANCIAL_RATE_CODE_MISSING: {
     source_family: 'invoice',
     required_action:

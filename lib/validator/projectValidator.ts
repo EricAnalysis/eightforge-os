@@ -1,5 +1,6 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import { loadContractUploadGuidanceForDocument } from '@/lib/contracts/contractUploadGuidance';
 import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import {
   inferGoverningDocumentFamily,
@@ -1943,6 +1944,8 @@ function buildFactLookups(params: {
   });
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
+  const derivedRateRowCount =
+    toNumber(rateRowCountFact?.value ?? null) ?? rateScheduleItems.length;
 
   const hasRateScheduleFacts = rateScheduleFacts.some((fact) => {
     if (Array.isArray(fact.value)) return fact.value.length > 0;
@@ -1982,9 +1985,11 @@ function buildFactLookups(params: {
           ? params.contractValidationContext.analysis.pricing_model.contract_ceiling_type.value
           : null,
     rateSchedulePresentFact,
-    rateSchedulePresent: firstBooleanFactValue(rateSchedulePresentFact),
+    rateSchedulePresent:
+      firstBooleanFactValue(rateSchedulePresentFact)
+      ?? (contractAnalysisRateSchedulePresent || rateScheduleItems.length > 0 ? true : null),
     rateRowCountFact,
-    rateRowCount: toNumber(rateRowCountFact?.value ?? null),
+    rateRowCount: derivedRateRowCount,
     rateSchedulePagesFact,
     rateSchedulePagesDisplay: stringifyValue(rateSchedulePagesFact?.value ?? null),
     rateUnitsDetectedFact,
@@ -2420,13 +2425,24 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     legacyRowsByDocumentId,
     truthCategoryDocumentIds,
   });
-  const factLookups = buildFactLookups({
+  const baseFactLookups = buildFactLookups({
     factsByDocumentId,
     contractValidationContext,
     familyDocumentIds,
     governingDocumentIds,
     truthCategoryDocumentIds,
   });
+  const contractDocumentIdForGuidance =
+    contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const contractUploadGuidance = contractDocumentIdForGuidance
+    ? await loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
+        () => null,
+      )
+    : null;
+  const factLookups = {
+    ...baseFactLookups,
+    contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
+  };
   const manualRateLinkOverrides = await loadManualRateLinkOverrides({
     project,
     rateScheduleItems: factLookups.rateScheduleItems,

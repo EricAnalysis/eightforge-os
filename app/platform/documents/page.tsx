@@ -26,6 +26,7 @@ import {
 } from '@/lib/documentWorkspace';
 import { buildProjectDocumentsForgeHref } from '@/lib/documentNavigation';
 import { UPLOAD_DOCUMENT_TYPES } from '@/lib/documentTypes';
+import { RatePageRangeParseError, parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
@@ -564,8 +565,14 @@ function UploadModal({
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [contractOptions, setContractOptions] = useState<ContractOption[]>([]);
   const [governingContractId, setGoverningContractId] = useState('');
+  const [rateScheduleIncluded, setRateScheduleIncluded] = useState('');
+  const [rateSchedulePageRangesText, setRateSchedulePageRangesText] = useState('');
+  const [rateScheduleLocationType, setRateScheduleLocationType] = useState('');
+  const [operatorNote, setOperatorNote] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const showRateScheduleGuidance = documentType === 'contract' || documentType === 'price_sheet';
 
   useEffect(() => {
     supabase
@@ -643,6 +650,24 @@ function UploadModal({
       return;
     }
 
+    if (showRateScheduleGuidance && !rateScheduleIncluded) {
+      setError('Rate schedule included? is required.');
+      return;
+    }
+
+    if (showRateScheduleGuidance && rateScheduleIncluded !== 'no' && rateSchedulePageRangesText.trim()) {
+      try {
+        parseRatePageRanges(rateSchedulePageRangesText);
+      } catch (parseError) {
+        setError(
+          parseError instanceof RatePageRangeParseError
+            ? parseError.message
+            : 'Invalid rate schedule page ranges.',
+        );
+        return;
+      }
+    }
+
     setUploading(true);
 
     try {
@@ -685,6 +710,37 @@ function UploadModal({
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
+      if (showRateScheduleGuidance && rateScheduleIncluded) {
+        const guidanceRes = await fetch(`/api/documents/${insertedDoc.id}/upload-guidance`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token ?? ''}`,
+          },
+          body: JSON.stringify({
+            rateScheduleIncluded,
+            rateSchedulePageRangesText:
+              rateScheduleIncluded !== 'no' ? rateSchedulePageRangesText.trim() : '',
+            rateScheduleLocationType: rateScheduleLocationType || null,
+            operatorNote: operatorNote.trim() || null,
+          }),
+        });
+
+        if (guidanceRes.status === 401) {
+          onUnauthorized?.();
+          return;
+        }
+
+        if (!guidanceRes.ok) {
+          const guidanceJson = await guidanceRes.json().catch(() => null);
+          setError(
+            guidanceJson?.error ||
+            `Rate schedule guidance failed to save (${guidanceRes.status})`,
+          );
+          return;
+        }
+      }
 
       if (documentType === 'price_sheet' && projectId && governingContractId) {
         const relationshipRes = await fetch(`/api/projects/${projectId}/document-precedence`, {
@@ -795,6 +851,79 @@ function UploadModal({
               ))}
             </select>
           </div>
+
+          {showRateScheduleGuidance ? (
+            <div className="space-y-3 rounded-md border border-[var(--ef-surface-elevated)] p-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+                  Rate schedule included? <span className="text-[var(--ef-critical)]">*</span>
+                </label>
+                <select
+                  aria-label="Rate schedule included?"
+                  value={rateScheduleIncluded}
+                  onChange={(event) => setRateScheduleIncluded(event.target.value)}
+                  className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+                >
+                  <option value="">Select...</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                  <option value="unsure">Not sure</option>
+                </select>
+              </div>
+
+              {rateScheduleIncluded === 'yes' || rateScheduleIncluded === 'unsure' ? (
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+                    Rate schedule page ranges{' '}
+                    <span className="font-normal text-[var(--ef-text-muted)]">(optional)</span>
+                  </label>
+                  <input
+                    aria-label="Rate schedule page ranges"
+                    type="text"
+                    value={rateSchedulePageRangesText}
+                    onChange={(event) => setRateSchedulePageRangesText(event.target.value)}
+                    placeholder="e.g. 8-12, 14"
+                    className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
+                  />
+                </div>
+              ) : null}
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+                  Rate schedule location{' '}
+                  <span className="font-normal text-[var(--ef-text-muted)]">(optional)</span>
+                </label>
+                <select
+                  aria-label="Rate schedule location"
+                  value={rateScheduleLocationType}
+                  onChange={(event) => setRateScheduleLocationType(event.target.value)}
+                  className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] outline-none focus:border-[var(--ef-purple-primary)]"
+                >
+                  <option value="">Select...</option>
+                  <option value="main_contract">Main contract</option>
+                  <option value="exhibit">Exhibit</option>
+                  <option value="attachment">Attachment</option>
+                  <option value="price_sheet">Separate price sheet</option>
+                  <option value="unsure">Not sure</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-[var(--ef-text-primary)]">
+                  Note{' '}
+                  <span className="font-normal text-[var(--ef-text-muted)]">(optional)</span>
+                </label>
+                <input
+                  aria-label="Rate schedule note"
+                  type="text"
+                  value={operatorNote}
+                  onChange={(event) => setOperatorNote(event.target.value)}
+                  placeholder="Anything else that would help locate the rate schedule"
+                  className="block w-full rounded-md border border-[var(--ef-surface-elevated)] bg-[var(--ef-background-secondary)] px-3 py-2 text-[11px] text-[var(--ef-text-primary)] placeholder:text-[var(--ef-text-faint)] outline-none focus:border-[var(--ef-purple-primary)]"
+                />
+              </div>
+            </div>
+          ) : null}
 
           {documentType === 'price_sheet' && projectId ? (
             <div>

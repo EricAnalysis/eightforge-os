@@ -1944,6 +1944,8 @@ function buildFactLookups(params: {
   });
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
+  const derivedRateRowCount =
+    toNumber(rateRowCountFact?.value ?? null) ?? rateScheduleItems.length;
 
   const hasRateScheduleFacts = rateScheduleFacts.some((fact) => {
     if (Array.isArray(fact.value)) return fact.value.length > 0;
@@ -1983,9 +1985,11 @@ function buildFactLookups(params: {
           ? params.contractValidationContext.analysis.pricing_model.contract_ceiling_type.value
           : null,
     rateSchedulePresentFact,
-    rateSchedulePresent: firstBooleanFactValue(rateSchedulePresentFact),
+    rateSchedulePresent:
+      firstBooleanFactValue(rateSchedulePresentFact)
+      ?? (contractAnalysisRateSchedulePresent || rateScheduleItems.length > 0 ? true : null),
     rateRowCountFact,
-    rateRowCount: toNumber(rateRowCountFact?.value ?? null),
+    rateRowCount: derivedRateRowCount,
     rateSchedulePagesFact,
     rateSchedulePagesDisplay: stringifyValue(rateSchedulePagesFact?.value ?? null),
     rateUnitsDetectedFact,

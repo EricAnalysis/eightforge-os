@@ -409,6 +409,7 @@ function buildStructuredRow(params: {
   categoryConfidence?: number | null;
   unit: string | null;
   rate: number | null;
+  originDestination?: string | null;
   rateRaw: string | null;
   page: number | null;
   sourceAnchorIds: readonly string[];
@@ -416,6 +417,7 @@ function buildStructuredRow(params: {
   const description = params.description ? normalizeWhitespace(params.description) : null;
   const category = params.category ? normalizeWhitespace(params.category) : null;
   const unit = normalizeUnit(params.unit);
+  const originDestination = normalizeOriginDestination(params.originDestination);
   const rateRaw = params.rateRaw ? normalizeWhitespace(params.rateRaw) : null;
   const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(category);
   const resolvedCategory = resolveCanonicalRateCategory({
@@ -436,6 +438,7 @@ function buildStructuredRow(params: {
     description,
     unit,
     rate: params.rate,
+    origin_destination: originDestination,
     category,
     source_category: category,
     canonical_category: canonicalCategory ? canonicalCategory.replace(/\s+/g, '_').toLowerCase() : null,
@@ -447,6 +450,25 @@ function buildStructuredRow(params: {
     unit_type: unit,
     rate_amount: params.rate,
   };
+}
+
+function normalizeOriginDestination(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeWhitespace(value);
+  return /^n\s*\/?\s*a$/i.test(normalized) ? null : normalized;
+}
+
+function originDestinationFromFragments(record: Record<string, unknown>): string | null {
+  if (!Array.isArray(record.raw_fragments)) return null;
+  for (const fragment of record.raw_fragments) {
+    const fragmentRecord = asRecord(fragment);
+    if (!fragmentRecord) continue;
+    const hint = readString(fragmentRecord, ['extractor_hint']);
+    if (hint !== 'origin_destination') continue;
+    const value = readString(fragmentRecord, ['cell_text']);
+    if (value) return value;
+  }
+  return null;
 }
 
 function normalizeTypedRateTableRows(params: {
@@ -589,6 +611,9 @@ function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unkno
       category: readString(record, ['category', 'material', 'site_type']),
       unit: readString(record, ['unit']),
       rate: readNumber(record, ['unit_price', 'rate', 'rate_amount']),
+      originDestination:
+        readString(record, ['origin_destination', 'originDestination'])
+        ?? originDestinationFromFragments(record),
       rateRaw,
       page,
       sourceAnchorIds,

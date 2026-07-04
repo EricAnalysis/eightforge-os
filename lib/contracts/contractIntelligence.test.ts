@@ -171,6 +171,20 @@ describe('contract intelligence analysis', () => {
       'Loading & Hauling to Final Disposal of Reduced Vegetative Debris',
       'Hazardous Limb (Hangers) Cutting (greater than 2" diameter)',
     ]);
+    assert.deepEqual(rows.map((row) => row.category), [
+      'Vegetative Collect, Remove & Haul',
+      'Management & Reduction',
+      'Management & Reduction',
+      'Final Disposal',
+      'Tree Operations',
+    ]);
+    assert.deepEqual(rows.map((row) => row.canonical_category), [
+      'vegetative_removal',
+      'management_reduction',
+      'management_reduction',
+      'final_disposal',
+      'tree_operations',
+    ]);
     assert.ok(rows.every((row) => row.source_anchor_ids.some((id) => /^pdf:table:p2:t3:row:\d+$/.test(id))));
     assert.ok(rows.every((row) => !row.row_id.startsWith('rate_row:fallback:')));
     assert.ok(rows.every((row) => !/cell phone|legacy disclaimer/i.test(row.raw_text ?? '')));
@@ -444,7 +458,9 @@ describe('contract intelligence analysis', () => {
     });
 
     assert.equal(analysis.rate_schedule_rows?.length, 2);
-    assert.equal(analysis.rate_schedule_rows?.[0]?.category, 'Vegetative');
+    assert.equal(analysis.rate_schedule_rows?.[0]?.category, 'Vegetative Collect, Remove & Haul');
+    assert.equal(analysis.rate_schedule_rows?.[0]?.source_category, 'Vegetative');
+    assert.equal(analysis.rate_schedule_rows?.[0]?.canonical_category, 'vegetative_removal');
     assert.equal(analysis.rate_schedule_rows?.[0]?.unit, 'per cubic yard');
     assert.equal(analysis.rate_schedule_rows?.[0]?.rate, 6.9);
     assert.equal(analysis.rate_schedule_rows?.[0]?.page, 2);

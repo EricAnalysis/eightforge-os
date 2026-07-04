@@ -17,6 +17,31 @@ export type CanonicalRateCategoryResolution = {
   matched_alias: string | null;
 };
 
+const CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY: Record<string, string> = {
+  'Vegetative Collect, Remove & Haul': 'vegetative_removal',
+  'C&D Collect, Remove & Haul': 'construction_demolition',
+  'Management & Reduction': 'management_reduction',
+  'Final Disposal': 'final_disposal',
+  'Tree Operations': 'tree_operations',
+  Equipment: 'equipment',
+  Personnel: 'personnel',
+  'Specialty Removal': 'specialty_removal',
+};
+
+export function canonicalTaxonomyKeyForAllowedCategory(category: string | null | undefined): string | null {
+  const normalizedCategory = category?.trim();
+  return normalizedCategory ? CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY[normalizedCategory] ?? null : null;
+}
+
+export function allowedCategoryForCanonicalTaxonomyKey(canonicalCategory: string | null | undefined): string | null {
+  const normalizedCategory = canonicalCategory?.trim();
+  if (!normalizedCategory) return null;
+  for (const [category, taxonomyKey] of Object.entries(CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY)) {
+    if (taxonomyKey === normalizedCategory) return category;
+  }
+  return null;
+}
+
 type CanonicalRateCategoryRule = {
   canonical_category: string;
   source_category_aliases: readonly string[];

@@ -202,6 +202,7 @@ export interface ContractRateScheduleRow {
   description: string | null;
   unit: string | null;
   rate: number | null;
+  origin_destination?: string | null;
   category: string | null;
   source_category?: string | null;
   canonical_category?: string | null;

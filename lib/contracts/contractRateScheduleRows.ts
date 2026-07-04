@@ -5,6 +5,7 @@ import {
   extractExhibitARateTableRows,
 } from '@/lib/contracts/exhibitARateTableRows';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
+import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 
 type ContractRateScheduleSourceEntry = {
   id?: string | null;
@@ -304,9 +305,12 @@ function recoverMissingExhibitATextRows(params: {
         ? [matchingEntry.id]
         : [`pdf:text:p${spec.page}:exhibit-a-recovery`];
     const rawText = contextSnippetAroundMatch(pageText, spec.requiredPatterns);
+    const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(spec.category);
     const categoryResolution = resolveCanonicalRateCategory({
       sourceCategory: spec.category,
       sourceDescriptors: [spec.description, spec.rateRaw],
+      existingCanonicalCategory: assemblerCategoryKey,
+      existingConfidence: assemblerCategoryKey ? 1 : null,
     });
 
     recoveredRows.push({
@@ -405,6 +409,7 @@ function buildStructuredRow(params: {
   categoryConfidence?: number | null;
   unit: string | null;
   rate: number | null;
+  originDestination?: string | null;
   rateRaw: string | null;
   page: number | null;
   sourceAnchorIds: readonly string[];
@@ -412,12 +417,14 @@ function buildStructuredRow(params: {
   const description = params.description ? normalizeWhitespace(params.description) : null;
   const category = params.category ? normalizeWhitespace(params.category) : null;
   const unit = normalizeUnit(params.unit);
+  const originDestination = normalizeOriginDestination(params.originDestination);
   const rateRaw = params.rateRaw ? normalizeWhitespace(params.rateRaw) : null;
+  const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(category);
   const resolvedCategory = resolveCanonicalRateCategory({
     sourceCategory: category,
     sourceDescriptors: [description, rateRaw],
-    existingCanonicalCategory: params.canonicalCategory,
-    existingConfidence: params.categoryConfidence,
+    existingCanonicalCategory: assemblerCategoryKey ?? params.canonicalCategory,
+    existingConfidence: assemblerCategoryKey ? 1 : params.categoryConfidence,
   });
   const canonicalCategory = resolvedCategory.canonical_category;
   const categoryConfidence = resolvedCategory.category_confidence;
@@ -431,6 +438,7 @@ function buildStructuredRow(params: {
     description,
     unit,
     rate: params.rate,
+    origin_destination: originDestination,
     category,
     source_category: category,
     canonical_category: canonicalCategory ? canonicalCategory.replace(/\s+/g, '_').toLowerCase() : null,
@@ -442,6 +450,25 @@ function buildStructuredRow(params: {
     unit_type: unit,
     rate_amount: params.rate,
   };
+}
+
+function normalizeOriginDestination(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeWhitespace(value);
+  return /^n\s*\/?\s*a$/i.test(normalized) ? null : normalized;
+}
+
+function originDestinationFromFragments(record: Record<string, unknown>): string | null {
+  if (!Array.isArray(record.raw_fragments)) return null;
+  for (const fragment of record.raw_fragments) {
+    const fragmentRecord = asRecord(fragment);
+    if (!fragmentRecord) continue;
+    const hint = readString(fragmentRecord, ['extractor_hint']);
+    if (hint !== 'origin_destination') continue;
+    const value = readString(fragmentRecord, ['cell_text']);
+    if (value) return value;
+  }
+  return null;
 }
 
 function normalizeTypedRateTableRows(params: {
@@ -478,15 +505,16 @@ function normalizeTypedRateTableRows(params: {
       : typeof entry === 'string'
         ? normalizeWhitespace(entry)
         : null;
+    const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(category);
     const categoryResolution = resolveCanonicalRateCategory({
       sourceCategory: category,
       sourceDescriptors: [description, rateRaw],
-      existingCanonicalCategory: record
-        ? readString(record, ['canonical_category'])
-        : null,
-      existingConfidence: record
-        ? readNumber(record, ['category_confidence'])
-        : null,
+      existingCanonicalCategory:
+        assemblerCategoryKey
+        ?? (record ? readString(record, ['canonical_category']) : null),
+      existingConfidence: assemblerCategoryKey
+        ? 1
+        : (record ? readNumber(record, ['category_confidence']) : null),
     });
     const matchedSource = findMatchingSourceContext({
       candidates: [rateRaw, description, category, unit].filter(
@@ -583,6 +611,9 @@ function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unkno
       category: readString(record, ['category', 'material', 'site_type']),
       unit: readString(record, ['unit']),
       rate: readNumber(record, ['unit_price', 'rate', 'rate_amount']),
+      originDestination:
+        readString(record, ['origin_destination', 'originDestination'])
+        ?? originDestinationFromFragments(record),
       rateRaw,
       page,
       sourceAnchorIds,

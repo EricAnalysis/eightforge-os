@@ -4,6 +4,7 @@ import {
   classifyContractCeiling,
   contractCeilingSummary,
 } from '@/lib/contracts/contractCeiling';
+import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
@@ -19,6 +20,7 @@ import type {
   ContractFieldAnalysis,
   ContractFieldId,
   ContractFieldState,
+  ContractRateScheduleRow,
   DetectedClausePattern,
 } from '@/lib/contracts/types';
 import type { EvidenceObject } from '@/lib/extraction/types';
@@ -26,6 +28,11 @@ import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 import { buildContractIssues } from '@/lib/server/buildContractIssues';
 import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage';
+import {
+  allowedCategoryForCanonicalTaxonomyKey,
+  canonicalTaxonomyKeyForAllowedCategory,
+  resolveCanonicalRateCategory,
+} from '@/lib/validator/rateTaxonomy';
 
 type AnalyzeContractIntelligenceInput = {
   primaryDocument: NormalizedNodeDocument;
@@ -1006,6 +1013,41 @@ function buildFieldFamilies(
   };
 }
 
+function enrichRateScheduleRowsForPersistence(
+  rows: readonly ContractRateScheduleRow[],
+): ContractRateScheduleRow[] {
+  if (rows.length === 0) return [];
+
+  return rows.map((row) => {
+    const assembled = assembleContractPricingRows([row])[0] ?? null;
+    const resolution = resolveCanonicalRateCategory({
+      sourceCategory: assembled?.category ?? row.category ?? row.source_category ?? row.material_type,
+      sourceDescriptors: [
+        row.description,
+        row.rate_raw,
+        row.raw_text,
+        ...(row.raw_cells ?? []),
+      ],
+      existingCanonicalCategory: row.canonical_category,
+      existingConfidence: row.category_confidence,
+    });
+    const category = assembled?.category ?? allowedCategoryForCanonicalTaxonomyKey(resolution.canonical_category);
+    if (!category) return row;
+
+    const canonicalCategory =
+      canonicalTaxonomyKeyForAllowedCategory(category)
+      ?? resolution.canonical_category;
+
+    return {
+      ...row,
+      category,
+      source_category: row.source_category ?? category,
+      canonical_category: canonicalCategory,
+      category_confidence: row.category_confidence ?? resolution.category_confidence ?? (canonicalCategory ? 0.88 : null),
+    };
+  });
+}
+
 export function analyzeContractIntelligence(
   input: AnalyzeContractIntelligenceInput,
 ): ContractAnalysisResult | null {
@@ -1023,7 +1065,7 @@ export function analyzeContractIntelligence(
     ...numberArray(input.primaryDocument.section_signals.rate_section_pages ?? null).map(String),
   ]).map((value) => Number.parseInt(value, 10));
   const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
-  const rateScheduleRows = buildContractRateScheduleRows({
+  const structuralRateScheduleRows = buildContractRateScheduleRows({
     rateTable: input.primaryDocument.typed_fields.rate_table,
     canonicalRateScheduleAssembly: input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
     pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),
@@ -1039,6 +1081,7 @@ export function analyzeContractIntelligence(
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
   });
+  const rateScheduleRows = enrichRateScheduleRowsForPersistence(structuralRateScheduleRows);
 
   const analysisWithoutIssues: Omit<ContractAnalysisResult, 'coverage_status' | 'issues' | 'trace_summary'> = {
     document_id: input.primaryDocument.document_id,

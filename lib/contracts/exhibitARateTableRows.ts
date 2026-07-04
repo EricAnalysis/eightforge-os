@@ -675,6 +675,7 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
         description,
         unit: unitCell,
         rate,
+        origin_destination: originDestinationCell,
         category: null,
         source_category: null,
         canonical_category: null,

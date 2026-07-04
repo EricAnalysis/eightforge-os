@@ -1152,43 +1152,41 @@ export function ValidatorTab({
             </p>
           </div>
 
-          {gateDisplayState === 'needs_review' ? null : (
-            <div className="flex flex-wrap gap-2">
-              {gateDisplayState === 'not_ready' ? null : (
-                <>
-                  <Link
-                    href="#approval-blockers"
-                    className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-                  >
-                    Review Blockers
-                  </Link>
-                  <Link
-                    href="#project-decisions"
-                    className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
-                  >
-                    View Execution
-                  </Link>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={triggerManualRevalidate}
-                disabled={!allowManualRevalidate}
-                className={`rounded-sm border px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
-                  allowManualRevalidate
-                    ? 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)] hover:border-[var(--ef-text-primary)] hover:text-white'
-                    : 'cursor-not-allowed border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] text-[var(--ef-text-soft)]'
-                }`}
-              >
-                {revalidateLoading ? 'Revalidating...' : 'Revalidate Project'}
-              </button>
-              {gateDisplayState === 'not_ready' ? (
-                <p className="basis-full text-xs leading-5 text-[var(--ef-text-secondary)]">
-                  No blockers are open. Revalidate the project to refresh the approval state.
-                </p>
-              ) : null}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {gateDisplayState === 'needs_review' || gateDisplayState === 'not_ready' ? null : (
+              <>
+                <Link
+                  href="#approval-blockers"
+                  className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
+                >
+                  Review Blockers
+                </Link>
+                <Link
+                  href="#project-decisions"
+                  className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+                >
+                  View Execution
+                </Link>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={triggerManualRevalidate}
+              disabled={!allowManualRevalidate}
+              className={`rounded-sm border px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
+                allowManualRevalidate
+                  ? 'border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] text-[var(--ef-text-secondary)] hover:border-[var(--ef-text-primary)] hover:text-white'
+                  : 'cursor-not-allowed border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] text-[var(--ef-text-soft)]'
+              }`}
+            >
+              {revalidateLoading ? 'Revalidating...' : 'Revalidate Project'}
+            </button>
+            {gateDisplayState === 'not_ready' ? (
+              <p className="basis-full text-xs leading-5 text-[var(--ef-text-secondary)]">
+                No blockers are open. Revalidate the project to refresh the approval state.
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">

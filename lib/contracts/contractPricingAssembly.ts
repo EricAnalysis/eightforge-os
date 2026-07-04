@@ -126,6 +126,28 @@ function allowedCategoryFromText(value: string | null): AllowedCategory | null {
   return null;
 }
 
+const ALLOWED_CATEGORY_TAXONOMY_KEYS: Record<AllowedCategory, string> = {
+  'Vegetative Collect, Remove & Haul': 'vegetative_removal',
+  'C&D Collect, Remove & Haul': 'construction_demolition',
+  'Management & Reduction': 'management_reduction',
+  'Final Disposal': 'final_disposal',
+  'Tree Operations': 'tree_operations',
+  Equipment: 'equipment',
+  Personnel: 'personnel',
+  'Specialty Removal': 'specialty_removal',
+};
+
+/**
+ * Maps assembler-canonical category text (ALLOWED_CATEGORIES, the sole canonical
+ * rate-category taxonomy) onto the snake_case keys consumed by rateTaxonomy.ts /
+ * billingKeys.ts. Returns null when the text doesn't resolve to an allowed category,
+ * so callers can fall back to legacy heuristic inference for pre-assembly rows.
+ */
+export function canonicalTaxonomyKeyForAllowedCategory(value: string | null): string | null {
+  const allowedCategory = allowedCategoryFromText(value);
+  return allowedCategory ? ALLOWED_CATEGORY_TAXONOMY_KEYS[allowedCategory] : null;
+}
+
 function isRomanNumeralOnly(value: string): boolean {
   return /^(?:[ivxlcdm]+)$/i.test(value.trim());
 }

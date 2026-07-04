@@ -5,6 +5,7 @@ import {
   extractExhibitARateTableRows,
 } from '@/lib/contracts/exhibitARateTableRows';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
+import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 
 type ContractRateScheduleSourceEntry = {
   id?: string | null;
@@ -304,9 +305,12 @@ function recoverMissingExhibitATextRows(params: {
         ? [matchingEntry.id]
         : [`pdf:text:p${spec.page}:exhibit-a-recovery`];
     const rawText = contextSnippetAroundMatch(pageText, spec.requiredPatterns);
+    const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(spec.category);
     const categoryResolution = resolveCanonicalRateCategory({
       sourceCategory: spec.category,
       sourceDescriptors: [spec.description, spec.rateRaw],
+      existingCanonicalCategory: assemblerCategoryKey,
+      existingConfidence: assemblerCategoryKey ? 1 : null,
     });
 
     recoveredRows.push({
@@ -413,11 +417,12 @@ function buildStructuredRow(params: {
   const category = params.category ? normalizeWhitespace(params.category) : null;
   const unit = normalizeUnit(params.unit);
   const rateRaw = params.rateRaw ? normalizeWhitespace(params.rateRaw) : null;
+  const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(category);
   const resolvedCategory = resolveCanonicalRateCategory({
     sourceCategory: category,
     sourceDescriptors: [description, rateRaw],
-    existingCanonicalCategory: params.canonicalCategory,
-    existingConfidence: params.categoryConfidence,
+    existingCanonicalCategory: assemblerCategoryKey ?? params.canonicalCategory,
+    existingConfidence: assemblerCategoryKey ? 1 : params.categoryConfidence,
   });
   const canonicalCategory = resolvedCategory.canonical_category;
   const categoryConfidence = resolvedCategory.category_confidence;
@@ -478,15 +483,16 @@ function normalizeTypedRateTableRows(params: {
       : typeof entry === 'string'
         ? normalizeWhitespace(entry)
         : null;
+    const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(category);
     const categoryResolution = resolveCanonicalRateCategory({
       sourceCategory: category,
       sourceDescriptors: [description, rateRaw],
-      existingCanonicalCategory: record
-        ? readString(record, ['canonical_category'])
-        : null,
-      existingConfidence: record
-        ? readNumber(record, ['category_confidence'])
-        : null,
+      existingCanonicalCategory:
+        assemblerCategoryKey
+        ?? (record ? readString(record, ['canonical_category']) : null),
+      existingConfidence: assemblerCategoryKey
+        ? 1
+        : (record ? readNumber(record, ['category_confidence']) : null),
     });
     const matchedSource = findMatchingSourceContext({
       candidates: [rateRaw, description, category, unit].filter(

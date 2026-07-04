@@ -1,7 +1,10 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
 import { loadContractUploadGuidanceForDocument } from '@/lib/contracts/contractUploadGuidance';
-import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
+import {
+  assembleContractPricingRows,
+  canonicalTaxonomyKeyForAllowedCategory,
+} from '@/lib/contracts/contractPricingAssembly';
 import {
   inferGoverningDocumentFamily,
   resolveDocumentTruthCategoryIds,
@@ -1524,11 +1527,15 @@ function normalizeRateScheduleItem(
     readRowString(row, ['description', 'name', 'item', 'rate_raw'])
     ?? null;
   const serviceItem = readServiceItemFromScheduleRow(row);
+  const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(
+    readRowString(row, ['category']),
+  );
   const categoryResolution = resolveCanonicalRateCategory({
     sourceCategory,
     sourceDescriptors: [description, serviceItem, readRowString(row, ['rate_raw', 'raw_text'])],
-    existingCanonicalCategory: readRowString(row, ['canonical_category']),
-    existingConfidence: toNumber(row.category_confidence),
+    existingCanonicalCategory:
+      assemblerCategoryKey ?? readRowString(row, ['canonical_category']),
+    existingConfidence: assemblerCategoryKey ? 1 : toNumber(row.category_confidence),
   });
   const keys = deriveBillingKeysForRateScheduleItem({
     rate_code: rateCode,

@@ -595,6 +595,11 @@ function operationalDescriptionScore(line: InvoiceLineMatchable, item: RateSched
   return Math.min(1, score);
 }
 
+/**
+ * Lower-trust heuristic fallback: infers a category from free text when no
+ * assembler-assigned canonical_category (ALLOWED_CATEGORIES-derived) is available
+ * on either side of the comparison, e.g. raw invoice line description text.
+ */
 function inferOperationalCategory(value: string | null | undefined): string | null {
   const text = normalizeOperationalText(value);
   if (!text) return null;

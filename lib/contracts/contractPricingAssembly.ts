@@ -99,7 +99,7 @@ const PAGE_CATEGORY_EXPECTATIONS: Record<number, readonly AllowedCategory[]> = {
 function normalizeCategoryKey(value: string): string {
   return normalizeOcrText(value)
     .toLowerCase()
-    .replace(/&/g, 'and')
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

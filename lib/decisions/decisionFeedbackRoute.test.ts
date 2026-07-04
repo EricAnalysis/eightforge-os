@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 
 const {
   getActorContextMock,
@@ -208,7 +209,7 @@ describe('decision feedback route', () => {
     getSupabaseAdminMock.mockReturnValue(db);
 
     const response = await POST(
-      new Request('http://localhost/api/decisions/decision-1/feedback', {
+      new NextRequest('http://localhost/api/decisions/decision-1/feedback', {
         method: 'POST',
         body: JSON.stringify({
           is_correct: true,
@@ -255,7 +256,7 @@ describe('decision feedback route', () => {
     getSupabaseAdminMock.mockReturnValue(db);
 
     const response = await POST(
-      new Request('http://localhost/api/decisions/decision-1/feedback', {
+      new NextRequest('http://localhost/api/decisions/decision-1/feedback', {
         method: 'POST',
         body: JSON.stringify({
           is_correct: false,

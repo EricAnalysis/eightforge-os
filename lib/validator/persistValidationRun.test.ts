@@ -87,7 +87,7 @@ function evidence(overrides: Partial<ValidationEvidence>): ValidationEvidence {
 }
 
 type Row = Record<string, unknown>;
-type TestFinding = ValidatorResult['findings'][number];
+type TestFinding = ValidatorResult['findings'][number] & { evidence?: ValidationEvidence[] };
 type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
 
 class MockQuery {

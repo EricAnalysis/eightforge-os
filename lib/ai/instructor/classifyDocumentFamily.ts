@@ -1,6 +1,5 @@
 import type { InstructorClassificationSnapshot } from '@/lib/ai/instructor/types';
-import { runStructuredOutput, type InstructorLikeClient } from '@/lib/ai/instructor/client';
-import { instructorClassificationSchema } from '@/lib/ai/instructor/schemas';
+import type { InstructorLikeClient } from '@/lib/ai/instructor/client';
 import type { DocumentFamily } from '@/lib/types/documentIntelligence';
 
 function normalizeWhitespace(value: string): string {
@@ -287,47 +286,15 @@ export async function classifyDocumentFamily(params: {
     return deterministic;
   }
 
-  const model = params.model ?? process.env.EIGHTFORGE_INSTRUCTOR_CLASSIFICATION_MODEL ?? 'gpt-4o-mini';
-  const result = await runStructuredOutput({
-    model,
-    schema: instructorClassificationSchema,
-    schemaName: 'DocumentFamilyClassification',
-    system:
-      'You classify operational documents into one of these families: contract, invoice, payment_recommendation, ticket, spreadsheet, operational, generic.',
-    user: buildClassificationPrompt({
-      fileName: params.fileName,
-      title: params.title,
-      mimeType: params.mimeType,
-      textPreview: boundedText(params.textPreview, 6000),
-      tableHeaders: (params.tableHeaders ?? []).slice(0, 10),
-      sectionLabels: (params.sectionLabels ?? []).slice(0, 10),
-      deterministic,
-    }),
-    client: params.client,
-    createClient: params.createClient,
-  });
-
-  if (result.status !== 'applied' || !result.data) {
-    return {
-      ...deterministic,
-      status: result.status === 'skipped' ? 'skipped' : 'failed',
-      source: deterministic.family === 'generic' ? 'fallback' : deterministic.source,
-      warnings: result.warnings,
-      attempts: result.attempts,
-      model: result.model,
-    };
-  }
-
   return {
-    parser_version: 'instructor_classification_v1',
-    status: 'applied',
-    source: 'instructor',
-    family: result.data.family,
-    detected_document_type: result.data.detected_document_type,
-    confidence: result.data.confidence,
-    reasons: result.data.reasons ?? [],
-    warnings: result.warnings,
-    attempts: result.attempts,
-    model: result.model,
+    ...deterministic,
+    status: deterministic.source === 'deterministic' ? 'skipped' : 'failed',
+    source: deterministic.source === 'deterministic' ? 'deterministic' : 'fallback',
+    warnings: [
+      ...deterministic.warnings,
+      'Model-assisted document classification is disabled; deterministic routing only.',
+    ],
+    attempts: 0,
+    model: null,
   };
 }

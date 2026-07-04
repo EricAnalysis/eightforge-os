@@ -79,6 +79,14 @@ export type IssueTypeCount = {
   percentage: number;
 };
 
+function requireQuerySuccess(
+  context: string,
+  error: { message?: string } | null | undefined
+): void {
+  if (!error) return;
+  throw new Error(`${context}: ${error.message ?? 'query failed'}`);
+}
+
 /**
  * Build portfolio command center overview
  * Aggregates cross-project metrics, risk scoring, and vendor analysis
@@ -138,7 +146,7 @@ export async function buildPortfolioCommandCenter(
         .from('decision_detections')
         .select('project_id')
         .in('project_id', projectIds)
-        .neq('resolved_at', null),
+        .not('resolved_at', 'is', null),
 
       // Query 3: Decision detection metadata for issue-type breakdown
       admin
@@ -161,6 +169,15 @@ export async function buildPortfolioCommandCenter(
         .eq('status', 'pending')
         .lt('due_date', new Date().toISOString()),
     ]);
+
+    requireQuerySuccess(
+      '[buildPortfolioCommandCenter] decision_detections resolved-count query failed',
+      issueCountsResult.error
+    );
+    requireQuerySuccess(
+      '[buildPortfolioCommandCenter] decision_detections metadata query failed',
+      decisionsResult.error
+    );
 
     // 3. Group results by project_id in memory
 

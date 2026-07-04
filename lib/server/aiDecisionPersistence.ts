@@ -68,12 +68,16 @@ export async function persistAiEnrichmentDecisions({
         enrichment.confidence_note.toLowerCase().includes("rate limit")
       );
 
-    await supabase
+    const { error: deleteError } = await supabase
       .from("decision_detections")
       .delete()
       .eq("document_id", documentId)
       .eq("source", "ai_enriched")
       .contains("metadata", { job_id: jobId });
+
+    if (deleteError) {
+      return { inserted: 0, skipped: false, error: deleteError.message };
+    }
 
     const rows: any[] = [];
 

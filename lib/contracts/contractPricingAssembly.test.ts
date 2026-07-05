@@ -1113,7 +1113,7 @@ describe('assembleContractPricingRows', () => {
     assert.equal(rows.length, 0);
   });
 
-  it('caps large Exhibit A assemblies at expected category counts', () => {
+  it('retains every row of an Exhibit A category larger than Williamson\'s historical count, flagging the overflow for review instead of dropping it', () => {
     const sourceRows = Array.from({ length: 105 }, (_, index) =>
       row({
         row_id: `tm-equipment-${index + 1}`,
@@ -1131,8 +1131,10 @@ describe('assembleContractPricingRows', () => {
     );
 
     const rows = assembleContractPricingRows(sourceRows);
-    assert.equal(rows.length, 51);
+    assert.equal(rows.length, 105);
     assert.ok(rows.every((assembled) => assembled.category === 'Equipment'));
+    assert.equal(rows.filter((assembled) => assembled.confidence !== 'needs_review').length, 51);
+    assert.equal(rows.filter((assembled) => assembled.confidence === 'needs_review').length, 54);
   });
 
   it('recovers vegetative 16 to 30 and rural area descriptions from noisy table text', () => {

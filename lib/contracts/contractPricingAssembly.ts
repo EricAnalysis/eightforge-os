@@ -1558,17 +1558,27 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
 
   const selected: ContractPricingAssemblyRow[] = [];
   for (const [category, categoryRows] of grouped) {
+    // EXPECTED_CATEGORY_COUNTS is derived from the Williamson contract this
+    // assembler was built against, not a business rule -- a category legitimately
+    // having more line items than Williamson's is not garbage. Rows already
+    // passed shouldKeepOperatorRow + dedupe above, so anything beyond the
+    // historical count is retained, just downgraded to needs_review so the
+    // operator sees and can confirm the unusually large category instead of
+    // losing rows with no signal at all.
     const limit = EXPECTED_CATEGORY_COUNTS[category];
+    const ranked = categoryRows.sort((left, right) => {
+      const scoreDelta = rowQualityScore(right) - rowQualityScore(left);
+      if (scoreDelta !== 0) return scoreDelta;
+      const pageDelta = (left.page ?? 0) - (right.page ?? 0);
+      if (pageDelta !== 0) return pageDelta;
+      return left.id.localeCompare(right.id);
+    });
     selected.push(
-      ...categoryRows
-        .sort((left, right) => {
-          const scoreDelta = rowQualityScore(right) - rowQualityScore(left);
-          if (scoreDelta !== 0) return scoreDelta;
-          const pageDelta = (left.page ?? 0) - (right.page ?? 0);
-          if (pageDelta !== 0) return pageDelta;
-          return left.id.localeCompare(right.id);
-        })
-        .slice(0, limit),
+      ...ranked.map((row, index) =>
+        index >= limit && row.confidence !== 'needs_review'
+          ? { ...row, confidence: 'needs_review' as ContractPricingAssemblyConfidence }
+          : row,
+      ),
     );
   }
 

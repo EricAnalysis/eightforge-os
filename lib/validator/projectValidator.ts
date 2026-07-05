@@ -1802,9 +1802,15 @@ export function buildContractValidationContext(params: {
       const hasHumanOverrides = contractFacts.some(
         (fact) => fact.source === 'human_override' || fact.source === 'human_review',
       );
+      // Computed regardless of hasHumanOverrides: fact overrides confirm scalar
+      // pricing-model fields (e.g. disposal_fee_treatment, rate_schedule_kind),
+      // never individual rate_schedule_rows entries. The synthetic re-derivation
+      // path below rebuilds rate_schedule_rows from a low-fidelity page-text
+      // fallback, so we still prefer the richer persisted-trace extraction for
+      // that one field when it has more rows than the synthetic result.
+      const persistedContext = buildPersistedContractValidationContextFromTrace(document);
 
       if (!hasHumanOverrides) {
-        const persistedContext = buildPersistedContractValidationContextFromTrace(document);
         if (persistedContext) {
           return {
             ...persistedContext,
@@ -1840,9 +1846,17 @@ export function buildContractValidationContext(params: {
           confirmedDisposalTreatmentResolved,
         });
         if (analysis) {
+          const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
+          const syntheticRateScheduleRows = analysis.rate_schedule_rows;
+          const preferPersistedRateSchedule =
+            persistedRateScheduleRows != null
+            && persistedRateScheduleRows.length > (syntheticRateScheduleRows?.length ?? 0);
+
           return {
             document_id: contractDocumentId,
-            analysis,
+            analysis: preferPersistedRateSchedule
+              ? { ...analysis, rate_schedule_rows: persistedRateScheduleRows }
+              : analysis,
             evidence_by_id: new Map(
               syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
             ),
@@ -1952,7 +1966,9 @@ function buildFactLookups(params: {
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
   const derivedRateRowCount =
-    toNumber(rateRowCountFact?.value ?? null) ?? rateScheduleItems.length;
+    rateScheduleItems.length > 0
+      ? rateScheduleItems.length
+      : toNumber(rateRowCountFact?.value ?? null);
 
   const hasRateScheduleFacts = rateScheduleFacts.some((fact) => {
     if (Array.isArray(fact.value)) return fact.value.length > 0;

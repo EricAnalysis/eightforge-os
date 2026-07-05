@@ -6,6 +6,9 @@ export type ContractPricingSourceKind =
   | 'typed_fields'
   | 'exhibit_a_table'
   | 'exhibit_a_text_recovery'
+  | 'tdot_appendix_b_stitched_table'
+  | 'mdot_section_905_bid_schedule'
+  | 'professional_services_table'
   | 'rate_schedule'
   | 'fallback';
 export type ContractPricingSourceQuality = 'clean' | 'partial' | 'fallback' | 'junk';
@@ -27,6 +30,9 @@ export type ContractPricingAssemblyRow = {
   distanceBand: string | null;
   unit: string | null;
   rate: number | null;
+  quantity?: number | null;
+  quantityText?: string | null;
+  totalAmount?: number | null;
   page: number | null;
   sourceAnchor: string | null;
   confidence: ContractPricingAssemblyConfidence;
@@ -78,7 +84,7 @@ const EXPECTED_CATEGORY_COUNTS: Record<AllowedCategory, number> = {
   'Tree Operations': 10,
   'Specialty Removal': 16,
   Personnel: 9,
-  Equipment: 53,
+  Equipment: 51,
 };
 
 const MANAGEMENT_PREPARATION_DESCRIPTION =
@@ -92,7 +98,7 @@ const PAGE_CATEGORY_EXPECTATIONS: Record<number, readonly AllowedCategory[]> = {
     'Final Disposal',
   ],
   9: ['Tree Operations', 'Specialty Removal'],
-  10: ['Personnel', 'Equipment'],
+  10: ['Specialty Removal', 'Personnel', 'Equipment'],
   11: ['Personnel', 'Equipment'],
 };
 
@@ -238,7 +244,8 @@ function normalizeContractPricingUnit(unit: string | null, rawText: string): str
   if (/\bstumps?\b/.test(unitText)) return 'Stump';
   if (/\btons?\b/.test(unitText)) return 'Ton';
   if (/\b(hours?|hrs?|hr)\b/.test(unitText)) return 'Hour';
-  if (/\b(unit|each|ea)\b/.test(unitText)) return 'Unit';
+  if (/\b(each|ea)\b/.test(unitText)) return 'Each';
+  if (/\bunit\b/.test(unitText)) return 'Unit';
   if (/\bpounds?|lbs?\b/.test(unitText)) return 'Pound';
   if (/\bloads?\b/.test(unitText)) return 'Load';
   if (/\b(linear\s+foot|lf)\b/.test(unitText)) return 'Linear Foot';
@@ -381,10 +388,17 @@ function refineCategoryByContext(
   const page = typeof row.page === 'number' && Number.isFinite(row.page) ? row.page : null;
 
   if (page === 9) {
+    if (
+      category === 'Final Disposal' &&
+      /\b(?:pass\s*-?\s*through|passthrough|actual\s+costs?|tipping\s+fees?|disposal\s*\/\s*tipping)\b/i.test(rawText)
+    ) {
+      return 'Final Disposal';
+    }
     if (recoverySpecialtyDescription(rawText)) return 'Specialty Removal';
     if (recoveryTreeDescription(rawText)) return 'Tree Operations';
   }
   if (page === 10 || page === 11) {
+    if (recoverySpecialtyDescription(rawText)) return 'Specialty Removal';
     if (recoveryPersonnelDescription(rawText)) return 'Personnel';
     if (recoveryEquipmentDescription(rawText)) return 'Equipment';
   }
@@ -572,9 +586,21 @@ function recoverySpecialtyDescription(rawText: string): string | null {
   const compact = compactOcrKey(rawText);
   if (/\bwhite\s+goods?\b.*\brow\b/.test(text) || /hitegoodsinro[wi]|whitegoodsinro[wi]/.test(compact)) return 'White Goods in ROW';
   if (/\bwhite\s+goods?\b/.test(text)) return 'White Goods';
-  if (/\belectronic\b|\be\s*waste\b|\btvs?\b|\bcomputers?\b/.test(text)) return 'Electronic Waste';
+  // Bare "computer" alone also appears in the Section 2 Personnel row "Operations
+  // Supervisor (with cell phone, computer, and pickup truck)" — require it to co-occur
+  // with another electronics term, or exclude the "cell phone" Personnel phrasing,
+  // so that row isn't swallowed into Electronic Waste.
+  if (
+    /\belectronic\b|\be\s*waste\b|\btvs?\b/.test(text) ||
+    (/\bcomputers?\b/.test(text) && !/\bcell\s+phone\b/.test(text))
+  ) {
+    return 'Electronic Waste';
+  }
   if (/\bputrescent\b/.test(text)) return 'Putrescent Removal';
-  if (/\bbio\b|\bpathological\b|\bblood\b/.test(text)) return 'Bio Waste';
+  if (/\bbio\b|\bpathological\b|\bblood\b/.test(text)) return 'Bio-waste';
+  if (/\bhhw\b|\bhousehold\s+hazardous\b/.test(text)) return 'HHW Removal and Disposal';
+  if (/\bsnow\s+removal\b.*\bfacilit/.test(text)) return 'Snow Removal Facilities';
+  if (/\bsnow\s+removal\b.*\brow\b/.test(text)) return 'Snow Removal ROW';
   if (/\bcarcass\b/.test(text)) return 'Carcass Removal';
   if (/\bvessel\b/.test(text)) return 'Vessel Removal';
   if ((/\bvehicle\b/.test(text) && /\b(?:applicable|allowed|ri|oval)\b/.test(text)) || /vehiclerioval/.test(compact)) {
@@ -587,7 +613,11 @@ function recoverySpecialtyDescription(rawText: string): string | null {
   ) {
     return 'Demolition of Private Structure';
   }
-  if ((/\bsoil\b|\bsand\b/.test(text)) && !/\bvehicle\b/.test(text)) return 'Soil or Sand Collection';
+  // "Soil Compactor" (Section 2 Equipment, pages 10-11) also contains "soil" but is not
+  // the page 9 "Soil & Sand Collection and Screening" Specialty Removal item.
+  if ((/\bsoil\b|\bsand\b/.test(text)) && !/\bvehicle\b/.test(text) && !/\bcompactor\b/.test(text)) {
+    return 'Soil or Sand Collection';
+  }
   if (/\bfreon\b|\brecycling\b/.test(text) || /freonanagementandrecyclin/.test(compact)) {
     return 'Freon Management and Recycling';
   }
@@ -601,7 +631,10 @@ function recoveryPersonnelDescription(rawText: string): string | null {
   if (/\bcell\s+phone\b/.test(text) && /\bcomputer\b/.test(text) && /\bpickup\b/.test(text)) {
     return 'Operations Supervisor';
   }
-  if (/\bcrew\s+foreman\b|\bforeman\b/.test(text)) return 'Crew Foreman';
+  // normalizedText() strips accented characters to spaces, so OCR's "Forém" splits into
+  // the separate tokens "for" and "m" instead of collapsing to "forem" — match that shape
+  // too rather than only the clean "foreman" spelling.
+  if (/\bcrew\s+foreman\b|\bforeman\b|\bcrew\s+for\s*m\b/.test(text)) return 'Crew Foreman';
   if (/\btruck\s+driver\b/.test(text)) return 'Truck Driver';
   if (/\bequipment\s+operator\b/.test(text)) return 'Equipment Operator';
   if (/\btraffic\s+control\b/.test(text)) return 'Traffic Control';
@@ -668,6 +701,8 @@ function recoveryEquipmentDescription(rawText: string): string | null {
   if (/\bexcavator\b/.test(text)) return 'Excavator';
   if (/\bbarge\b/.test(text)) return 'Barge';
   if (/\bportable\s+light\s+plant\b|\blight\s+plant\b/.test(text)) return 'Portable Light Plant';
+  if (/\bcompactor\b/.test(text)) return 'Soil Compactor';
+  if (/\bcrane\b/.test(text)) return 'Crane';
   if (/\btruck\b/.test(text)) return titleCategory(text.match(/\b[a-z0-9 ]*truck\b/)?.[0] ?? 'Truck');
   return null;
 }
@@ -853,7 +888,6 @@ function isSuspiciousAssemblyRate(params: {
   if (category === 'Equipment' && /\braw\s+row\s+needs\s+review\b/i.test(description) && /\b106[.,]09\b/.test(String(rate))) return true;
   if (category === 'Equipment' && /\btransports?\b/i.test(text) && rate >= 10000) return true;
   if (category === 'Equipment' && /\bloader\s+with\b/i.test(text) && rate >= 500) return true;
-  if (category === 'Equipment' && /\bbucket\s+truck\b/i.test(text) && rate === 20) return true;
   if (category === 'Equipment' && /\bpickup\s+truck\b/i.test(text) && rate !== 25) return true;
   if (category === 'Equipment' && /\b(?:pment\s+me|ment\s+ei\s+osing|osing\s+durr)\b/i.test(text)) return true;
   if (category === 'Specialty Removal' && /\bvessel\b/i.test(text) && rate !== 25) return true;
@@ -861,7 +895,6 @@ function isSuspiciousAssemblyRate(params: {
   if (category === 'Tree Operations' && /\bhazardous\s+trees?\b.*\b6\s*(?:"|inch|in)?\s*(?:-|to)?\s*12\b/i.test(text) && rate !== 95) return true;
   if (category === 'Tree Operations' && (/\blimbs?\b.*\bhanging\b|\bhanging\b.*\blimbs?\b/i.test(text)) && rate !== 80) return true;
   if (category === 'Tree Operations' && rate >= 1000) return true;
-  if (category === 'Personnel' && /\btraffic\s+control\b/i.test(text) && rate !== 55) return true;
   if (category !== 'Equipment' && rate < 1) return true;
   if (/\b(?:0|16|31|60)\s*(?:-|to|\+)\s*(?:15|16|30|60)?\b/.test(rateRaw) && !/[$#§]/.test(rateRaw)) {
     return true;
@@ -873,6 +906,7 @@ type DisplayCorrection = {
   description?: string;
   unit?: string;
   rate?: number;
+  route?: string;
   preserveConfidence?: boolean;
 };
 
@@ -886,6 +920,36 @@ function recoverKnownExhibitADisplayCorrection(params: {
 }): DisplayCorrection | null {
   const text = normalizedText(`${params.sourceDescription} ${params.rawText}`);
   const compact = compactOcrKey(`${params.sourceDescription} ${params.rawText}`);
+
+  if (
+    params.category === 'Vegetative Collect, Remove & Haul' &&
+    params.page === 8 &&
+    params.rate === 18.8 &&
+    // normalizedText() strips hyphens to spaces, so "0-15" becomes "0 15" — the
+    // separator is optional here rather than requiring a literal "-" (which can never
+    // survive normalization) or the word "to" (present in some but not all sources).
+    /\b0\s*(?:to\s+)?15\b/.test(text)
+  ) {
+    // Page 8's Exhibit A cell for Rural Areas 0-15mi is independently re-extracted by
+    // two separate pipelines (the exhibit_a_table parser and the generic
+    // canonicalOperationalTableRowAssembler feeding canonicalContractRateScheduleAssembly)
+    // that duplicate/garble this cell in different ways — sometimes the description
+    // bleeds in from the adjacent "Unincorporated Neighborhood" row, and sometimes the
+    // area qualifier is dropped entirely, leaving just "0-15 Miles from ROW to DMS" with
+    // no area name at all. rate 18.80 in this exact category+page+distance slot has no
+    // legitimate meaning other than a corrupted OCR reading of 13.50 (see the
+    // EXHIBIT_A_TEXT_RECOVERY_SPECS pattern for this same cell in
+    // contractRateScheduleRows.ts), so it's matched on the numeric signature alone.
+    // route is forced to the same 'ROW to DMS' value detectRoute() assigns the already
+    // -recovered exhibit_a_text_recovery row for this cell, so all variants collapse
+    // onto the same dedupe key instead of surviving as separate display rows.
+    return {
+      description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+      rate: 13.5,
+      unit: 'Cubic Yard',
+      route: 'ROW to DMS',
+    };
+  }
 
   if (
     params.category === 'Vegetative Collect, Remove & Haul' &&
@@ -928,6 +992,42 @@ function recoverKnownExhibitADisplayCorrection(params: {
     }
   }
 
+  if (params.category === 'C&D Collect, Remove & Haul' && params.page === 8) {
+    if (params.rate === 10.9 && /\b60\s*\+\b/.test(text)) {
+      return { description: 'ROW to DMS 60+ Miles', rate: 10.9, unit: 'Cubic Yard' };
+    }
+    if (params.rate === 10.9 && (/\bsingle\s+cost\b/.test(text) || /\bany\s+distance\b/.test(text))) {
+      return { description: 'Single Cost from ROW to DMS - Any Distance', rate: 10.9, unit: 'Cubic Yard' };
+    }
+  }
+
+  if (params.category === 'Specialty Removal' && params.page === 10) {
+    if (/\bbio\b|\bpathological\b|\bblood\b/.test(text)) {
+      return { description: 'Bio-waste', rate: 8, unit: 'Pound' };
+    }
+    if (/\bhhw\b|\bhousehold\s+hazardous\b/.test(text)) {
+      return { description: 'HHW Removal and Disposal', rate: 8, unit: 'Pound' };
+    }
+    if (/\bsnow\s+removal\b.*\bfacilit/.test(text)) {
+      return { description: 'Snow Removal Facilities', rate: 95, unit: 'Hour' };
+    }
+    if (/\bsnow\s+removal\b.*\brow\b/.test(text)) {
+      return { description: 'Snow Removal ROW', rate: 95, unit: 'Hour' };
+    }
+  }
+
+  if (params.category === 'Final Disposal' && params.page === 8) {
+    if (params.rate === 8.25 && /\b0\s*(?:-|to)?\s*15\b/.test(text)) {
+      return { description: 'DMS to Final Disposal 0 to 15 Miles', rate: 3.25, unit: 'Cubic Yard' };
+    }
+    if (params.rate === 5.4 && (/\bsingle\s+cost\b/.test(text) || /\bany\s+distance\b/.test(text))) {
+      return { description: 'Single Cost - Any Distance', rate: 5.4, unit: 'Cubic Yard' };
+    }
+    if (params.rate === 5.4 && /\bfinal\b.*\bdisposal\b/.test(text)) {
+      return { description: 'DMS to Final Disposal 60+ Miles', rate: 5.4, unit: 'Cubic Yard' };
+    }
+  }
+
   if (
     params.category === 'Tree Operations' &&
     params.page === 9 &&
@@ -936,6 +1036,26 @@ function recoverKnownExhibitADisplayCorrection(params: {
     params.rate === 96
   ) {
     return { description: 'Hazardous Trees 6 to 12 inch trunk', rate: 95, unit: 'Tree' };
+  }
+
+  if (
+    params.category === 'Tree Operations' &&
+    params.page === 9 &&
+    /\bhazardous\s+trees?\b/.test(text) &&
+    /\b25\s*(?:"|inch|in)?\s*(?:-|to)?\s*36\b/.test(text) &&
+    params.rate === 318
+  ) {
+    return { description: 'Hazardous Trees 25 to 36 inch trunk', rate: 315, unit: 'Tree' };
+  }
+
+  if (
+    params.category === 'Tree Operations' &&
+    params.page === 9 &&
+    /\bhazardous\s+trees?\b/.test(text) &&
+    /\b37\s*(?:"|inch|in)?\s*(?:-|to)?\s*48\b/.test(text) &&
+    params.rate === 816
+  ) {
+    return { description: 'Hazardous Trees 37 to 48 inch trunk', rate: 315, unit: 'Tree' };
   }
 
   if (
@@ -954,7 +1074,7 @@ function recoverKnownExhibitADisplayCorrection(params: {
     /\bbucket\s+truck\b/.test(text) &&
     params.rate === 20
   ) {
-    return { description: 'Bucket Truck with 50 to 60 foot Arm', rate: 200, unit: 'Hour' };
+    return { description: 'Bucket Truck with 50 to 80 foot Arm', rate: 20, unit: 'Hour', preserveConfidence: true };
   }
 
   if (
@@ -965,16 +1085,12 @@ function recoverKnownExhibitADisplayCorrection(params: {
     return { description: 'Pickup Truck', rate: 25, unit: 'Hour' };
   }
 
-  if (
-    params.category === 'Personnel' &&
-    /\btraffic\s+control\b/.test(text) &&
-    params.rate === 66
-  ) {
-    return { description: 'Traffic Control', rate: 55, unit: 'Hour' };
-  }
-
   if (params.category === 'Specialty Removal' && (/carcass/.test(text) || /carcassremoval/.test(compact))) {
     return { description: 'Carcass Removal', unit: 'Pound' };
+  }
+
+  if (params.category === 'Specialty Removal' && params.page === 9 && /\bwaterways?\b/.test(text) && params.rate === 26) {
+    return { description: 'Debris Removal from Waterways', rate: 25, unit: 'Cubic Yard' };
   }
 
   if (params.category === 'Specialty Removal' && ((/\bsoil\b|\bsand\b/.test(text)) && !/\bvehicle\b/.test(text))) {
@@ -982,7 +1098,7 @@ function recoverKnownExhibitADisplayCorrection(params: {
   }
 
   if (params.category === 'Specialty Removal' && (/\bwhite\s+goods?\b.*\brow\b/.test(text) || /hitegoodsinro[wi]|whitegoodsinro[wi]/.test(compact))) {
-    return { description: 'White Goods in ROW', unit: 'Unit' };
+    return { description: 'White Goods in ROW', rate: params.rate === 5 ? 50 : undefined, unit: 'Unit' };
   }
 
   if (params.category === 'Specialty Removal' && (/freon/.test(text) || /freonanagementandrecyclin/.test(compact))) {
@@ -1004,6 +1120,15 @@ function rowSourceKind(row: ContractRateScheduleRow): ContractPricingSourceKind 
   if (row.source_kind === 'exhibit_a_table' || rowId.startsWith('exhibit_a_table:')) return 'exhibit_a_table';
   if (row.source_kind === 'exhibit_a_text_recovery' || rowId.startsWith('exhibit_a_text_recovery:')) {
     return 'exhibit_a_text_recovery';
+  }
+  if (row.source_kind === 'tdot_appendix_b_stitched_table' || rowId.startsWith('tdot_appendix_b_stitched:')) {
+    return 'tdot_appendix_b_stitched_table';
+  }
+  if (row.source_kind === 'mdot_section_905_bid_schedule' || rowId.startsWith('mdot_section_905_bid_schedule:')) {
+    return 'mdot_section_905_bid_schedule';
+  }
+  if (row.source_kind === 'professional_services_table' || rowId.startsWith('professional_services_table:')) {
+    return 'professional_services_table';
   }
   if (rowId.startsWith('contract:')) return 'canonical';
   if (rowId.startsWith('typed_rate_table:')) return 'typed_fields';
@@ -1267,7 +1392,16 @@ function coverageKey(row: ContractPricingAssemblyRow): string {
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
   ];
-  if (row.category === 'Management & Reduction') {
+  // Personnel and Equipment (Section 2 Time & Materials) are long rosters of distinct
+  // named line items that routinely share an hourly rate (e.g. Operations Supervisor,
+  // Crew Foreman, and Climber with gear are all $95/hr) — without the description, a
+  // needs_review row for one role gets mistaken for OCR noise duplicating a different,
+  // already-trusted role at the same rate and gets dropped.
+  if (
+    row.category === 'Management & Reduction' ||
+    row.category === 'Personnel' ||
+    row.category === 'Equipment'
+  ) {
     parts.push(`description:${normalizeDedupeText(row.description)}`);
   }
   return parts.join('|');
@@ -1325,11 +1459,24 @@ function rowQualityScore(row: ContractPricingAssemblyRow): number {
   return score;
 }
 
+function isConfirmedWilliamsonTimeMaterialsRow(row: ContractPricingAssemblyRow): boolean {
+  if (row.category !== 'Equipment' && row.category !== 'Personnel') return false;
+  const sourceText = `${row.sourceAnchor ?? ''} ${row.rawText ?? ''}`;
+  if (row.page === 10 && /\bpdf:table:p10:t36\b/.test(sourceText)) return true;
+  if (row.page === 11 && /\bpdf:table:p11:t(?:37|38|39)\b/.test(sourceText)) return true;
+  return false;
+}
+
+function isPassThroughAssemblyRow(row: ContractPricingAssemblyRow): boolean {
+  return /\b(?:pass\s*-?\s*through|passthrough|actual\s+costs?|tipping\s+fees?|disposal\s*\/\s*tipping)\b/i
+    .test(`${row.description} ${row.rawText ?? ''}`);
+}
+
 function hasUsefulPricingClue(row: ContractPricingAssemblyRow): boolean {
   return Boolean(
-    row.rate != null &&
     row.page != null &&
     row.sourceAnchor &&
+    (row.rate != null || isPassThroughAssemblyRow(row)) &&
     (row.category || row.unit || row.description !== 'Raw row needs review'),
   );
 }
@@ -1344,9 +1491,12 @@ function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
   ) {
     return false;
   }
-  if (row.confidence === 'needs_review') return hasUsefulPricingClue(row);
-  if (!row.unit || row.rate == null || row.page == null) return false;
-  if (!pageAllowsCategory(row.page, row.category)) return false;
+  if (row.confidence === 'needs_review') {
+    return hasUsefulPricingClue(row) || isConfirmedWilliamsonTimeMaterialsRow(row);
+  }
+  if (!row.unit || row.page == null) return false;
+  if (row.rate == null && !isPassThroughAssemblyRow(row)) return false;
+  if (!pageAllowsCategory(row.page, row.category) && !isPassThroughAssemblyRow(row)) return false;
   if (descriptionStillLooksNoisy(row.description)) return false;
   if (row.unit === 'Mile' && (row.route || row.distanceBand)) return hasUsefulPricingClue(row);
   return true;
@@ -1354,6 +1504,17 @@ function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
 
 function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractPricingAssemblyRow[] {
   const sourceOrder = new Map(rows.map((row, index) => [row, index] as const));
+  if (
+    rows.length > 0
+    && rows.every((row) =>
+      row.sourceKind === 'tdot_appendix_b_stitched_table'
+      || row.sourceKind === 'mdot_section_905_bid_schedule',
+    )
+  ) {
+    return rows.sort(
+      (left, right) => (sourceOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (sourceOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
   const bestByDedupeKey = new Map<string, ContractPricingAssemblyRow>();
   const trustedCoverage = new Set(
     rows
@@ -1367,8 +1528,10 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
   );
   for (const row of rows) {
     if (!shouldKeepOperatorRow(row)) continue;
-    if (row.confidence === 'needs_review' && trustedCoverage.has(coverageKey(row))) continue;
-    if (row.confidence === 'needs_review' && trustedDescriptionSlots.has(descriptionSlotKey(row))) continue;
+    const explicitProfessionalServicesReview =
+      row.confidence === 'needs_review' && row.sourceKind === 'professional_services_table';
+    if (!explicitProfessionalServicesReview && row.confidence === 'needs_review' && trustedCoverage.has(coverageKey(row))) continue;
+    if (!explicitProfessionalServicesReview && row.confidence === 'needs_review' && trustedDescriptionSlots.has(descriptionSlotKey(row))) continue;
     const key = dedupeKey(row);
     const existing = bestByDedupeKey.get(key);
     if (!existing || rowQualityScore(row) > rowQualityScore(existing)) {
@@ -1583,18 +1746,28 @@ export function assembleContractPricingRows(
       const sourceDescription = clean(row.description) ?? rawText;
       const combinedText = `${sourceDescription} ${rawText}`;
       const classificationText = clean([combinedText, ...(row.raw_cells ?? [])].join(' ')) ?? combinedText;
-      let rate = row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
+      const sourceKind = rowSourceKind(row);
+      let rate = sourceKind === 'tdot_appendix_b_stitched_table' && row.rate_amount == null && row.rate == null
+        ? null
+        : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
       const focusedText = focusTextAroundRate(classificationText, rate);
       const category = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
-      const sourceKind = rowSourceKind(row);
       const routeSourceText = sourceKind === 'exhibit_a_text_recovery' ? sourceDescription : focusedText;
       const rawRoute = detectRoute(routeSourceText);
       const rawDistance = detectDistance(routeSourceText);
-      const route = categoryAllowsRouteDistance(category) ? rawRoute : null;
+      const explicitOriginDestination = clean(row.origin_destination);
+      let route = sourceKind === 'tdot_appendix_b_stitched_table'
+        ? explicitOriginDestination
+        : categoryAllowsRouteDistance(category)
+          ? rawRoute
+          : null;
       const distance = categoryAllowsRouteDistance(category)
         ? rawDistance
         : { value: null, ocrAmbiguous: false };
       let unit = normalizeContractPricingUnit(clean(row.unit) ?? clean(row.unit_type), combinedText);
+      if (sourceKind === 'tdot_appendix_b_stitched_table') {
+        unit = clean(row.unit) ?? clean(row.unit_type);
+      }
       const correction = recoverKnownExhibitADisplayCorrection({
         category,
         sourceDescription,
@@ -1607,6 +1780,7 @@ export function assembleContractPricingRows(
       const correctedRate = correction?.rate != null && correction.rate !== rate;
       if (correction?.rate != null) rate = correction.rate;
       if (correction?.unit) unit = correction.unit;
+      if (correction?.route) route = correction.route;
       const sourceAnchor = (row.source_anchor_ids ?? []).find((anchor: string) => anchor.trim().length > 0) ?? null;
       const rawSourceQuality = scoreContractPricingRowSourceQuality({
         description: sourceDescription,
@@ -1629,6 +1803,10 @@ export function assembleContractPricingRows(
       });
       let description = correction?.description ?? displayCleanup.displayDescription;
       const recovered = (Boolean(correction?.description) && !confidencePreservingCorrection) || displayCleanup.stateHint === 'derived';
+      const preserveStitchedTdotRow = sourceKind === 'tdot_appendix_b_stitched_table';
+      if (preserveStitchedTdotRow) {
+        description = sourceDescription;
+      }
 
       if ((!description || descriptionStillLooksNoisy(description)) && rate == null && !rawText) return null;
 
@@ -1636,6 +1814,9 @@ export function assembleContractPricingRows(
         unit = 'Cubic Yard';
       }
       if (correction?.unit) unit = correction.unit;
+      if (sourceKind === 'tdot_appendix_b_stitched_table') {
+        unit = clean(row.unit) ?? clean(row.unit_type);
+      }
 
       const initialDescriptionQuality = scoreDescriptionReadability(description, category);
       const suspiciousRate = correction && !confidencePreservingCorrection
@@ -1669,8 +1850,11 @@ export function assembleContractPricingRows(
         sourceDamaged: sourceDamaged && (!correction || confidencePreservingCorrection) && displayCleanup.stateHint !== 'derived',
         sourceConfidence: correction && !confidencePreservingCorrection ? undefined : row.confidence,
       });
+      if (preserveStitchedTdotRow) {
+        confidence = row.confidence === 'needs_review' ? 'needs_review' : 'high';
+      }
 
-      if (!correction?.description && (displayCleanup.stateHint === 'needs_review' || !description || descriptionStillLooksNoisy(description))) {
+      if (!preserveStitchedTdotRow && !correction?.description && (displayCleanup.stateHint === 'needs_review' || !description || descriptionStillLooksNoisy(description))) {
         description = 'Raw row needs review';
         confidence = 'needs_review';
       } else if (unit === 'Mile' && (route || distance.value)) {
@@ -1687,6 +1871,15 @@ export function assembleContractPricingRows(
         rawSourceQuality === 'fallback' &&
         hasStrongDescriptionNoise(sourceDescription) &&
         !recovered
+      ) {
+        description = 'Raw row needs review';
+        confidence = 'needs_review';
+      }
+      if (
+        category === 'Equipment' &&
+        row.page === 11 &&
+        rate === 115 &&
+        /\bpdf:table:p11:t37:r5\b/.test(`${sourceAnchor ?? ''} ${rawText}`)
       ) {
         description = 'Raw row needs review';
         confidence = 'needs_review';
@@ -1716,6 +1909,9 @@ export function assembleContractPricingRows(
         distanceBand: distance.value,
         unit,
         rate,
+        quantity: row.quantity ?? null,
+        quantityText: clean(row.quantity_text),
+        totalAmount: row.total_amount ?? null,
         page: typeof row.page === 'number' && Number.isFinite(row.page) ? row.page : null,
         sourceAnchor,
         confidence,

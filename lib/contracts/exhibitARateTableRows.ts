@@ -83,7 +83,7 @@ function moneyTokens(value: string): string[] {
 }
 
 function hasPassthroughRate(value: string): boolean {
-  return /\bpass\s*through\b|\bpassthrough\b/i.test(value);
+  return /\bpass\s*-?\s*through\b|\bpassthrough\b/i.test(value);
 }
 
 function hasRateEvidence(value: string): boolean {
@@ -164,6 +164,7 @@ function normalizeSuspiciousRate(params: {
 function normalizeUnit(value: string | null): string | null {
   if (!value) return null;
   const text = value.toLowerCase();
+  if (/\bactual\s+costs?\b/.test(text)) return 'Actual Cost';
   if (/\bhours?\b|\bhrs?\b|\blhour\b|\bi'?hour\b|\biour\b|\btour\b/.test(text)) return 'Hour';
   if (/\btrees?\b/.test(text)) return 'Tree';
   if (/\bstumps?\b/.test(text)) return 'Stump';
@@ -237,7 +238,7 @@ function stripUnitAndRate(value: string): string {
   return normalizeWhitespace(
     value
       .replace(/[$#]\s*[\d,]+(?:\.\d{1,2})?/g, ' ')
-      .replace(/\b(?:cubic\s+yard|cy|cyd|hour|hours|hr|tree|stump|pound|lb|unit|ton)\b/gi, ' ')
+      .replace(/\b(?:actual\s+costs?|cubic\s+yard|cy|cyd|hour|hours|hr|tree|stump|pound|lb|unit|ton)\b/gi, ' ')
       .replace(/\bPDF\s+(?:text\s+block|table(?:\s+row)?)\s+on\s+page\s+\d+\b/gi, ' ')
       .replace(/[|[\]{}]+/g, ' '),
   );
@@ -439,10 +440,13 @@ function parseCells(
   const descriptionSource = textCells.length >= 2 ? textCells.slice(explicitCategory ? 1 : 0).join(' ') : textCells.join(' ');
   const cellDescription = cleanText(stripUnitAndRate(stripCategory(descriptionSource, category)));
   const rateCellDescription = cleanText(stripUnitAndRate(stripCategory(rateCell, category)));
-  const description =
+  let description =
     !cellDescription || /^\d+$/.test(cellDescription) || cellDescription.length < 4
       ? piped?.description ?? rateCellDescription ?? cellDescription ?? null
       : cellDescription;
+  if (hasPassthrough && description) {
+    description = cleanText(description.replace(/\bactual\s+costs?\b/gi, ' '));
+  }
 
   if (!rate && !description) return null;
 

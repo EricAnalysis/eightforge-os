@@ -1066,6 +1066,7 @@ export function analyzeContractIntelligence(
   ]).map((value) => Number.parseInt(value, 10));
   const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
   const structuralRateScheduleRows = buildContractRateScheduleRows({
+    documentType: input.primaryDocument.document_type,
     rateTable: input.primaryDocument.typed_fields.rate_table,
     canonicalRateScheduleAssembly: input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
     pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),

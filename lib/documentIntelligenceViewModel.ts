@@ -44,6 +44,7 @@ import {
 import { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
 import type { PipelineFact } from '@/lib/pipeline/types';
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
+import { isContractPricingSupportDocument } from '@/lib/contractPricingSupport';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
 import type {
   AuditNote,
@@ -439,6 +440,7 @@ export type DocumentIntelligenceViewModel = {
   spreadsheetReviewDataset: SpreadsheetReviewDataset | null;
   contractRateRows?: DocumentContractRateRow[];
   contractPricingAssemblyRows?: ContractPricingAssemblyRow[];
+  shouldSurfaceContractPricingAssembly: boolean;
   extractionStalenessWarning: {
     latestAttemptedAt: string;
     showingBlobFromAt: string;
@@ -6068,12 +6070,18 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
   const transactionDataExtraction: TransactionDataExtraction | null =
     preferredTransactionDataExtraction
     ?? traceTransactionDataExtraction;
+  const contractPricingSupportDocument = isContractPricingSupportDocument({
+    documentType: params.documentType,
+    relatedDocs: params.relatedDocs,
+  });
+  const shouldBuildContractPricing =
+    family === 'contract' || contractPricingSupportDocument;
   const contractRateRows =
-    family === 'contract'
+    shouldBuildContractPricing
       ? toDocumentContractRateRows(params.executionTrace?.contract_analysis?.rate_schedule_rows)
       : [];
   const contractPricingAssemblyRows =
-    family === 'contract'
+    shouldBuildContractPricing
       ? assembleContractPricingRows(params.executionTrace?.contract_analysis?.rate_schedule_rows, {
           canonicalRows: asArray(
             asRecord(extracted.canonicalContractRateScheduleAssembly)?.rows,
@@ -6081,6 +6089,8 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
           typedRows: asArray(typedFields.rate_table),
         })
       : [];
+  const shouldSurfaceContractPricingAssembly =
+    shouldBuildContractPricing && contractPricingAssemblyRows.length > 0;
   const spreadsheetReviewDataset = toSpreadsheetReviewDataset(transactionDataExtraction, {
     projectValidationSummary: params.projectValidationSummary ?? null,
     projectValidationStatus: params.projectValidationStatus ?? null,
@@ -6141,6 +6151,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
     spreadsheetReviewDataset,
     contractRateRows,
     contractPricingAssemblyRows,
+    shouldSurfaceContractPricingAssembly,
     extractionStalenessWarning: (() => {
       const latestRow = params.extractionHistory[0] ?? null;
       if (

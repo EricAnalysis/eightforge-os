@@ -196,6 +196,7 @@ function toRelatedDocInput(
   document: DocumentPrecedenceRecord,
   extraction: Record<string, unknown> | null,
   resolved: ResolvedDocumentPrecedenceRecord | null,
+  relationshipToCurrent: DocumentRelationshipRecord | null,
 ): RelatedDocInput {
   return {
     id: document.id,
@@ -203,6 +204,9 @@ function toRelatedDocInput(
     name: document.name,
     title: document.title ?? null,
     extraction,
+    relationship_type: relationshipToCurrent?.relationship_type ?? null,
+    relationship_source_document_id: relationshipToCurrent?.source_document_id ?? null,
+    relationship_target_document_id: relationshipToCurrent?.target_document_id ?? null,
     document_role: document.document_role ?? null,
     document_subtype: document.document_subtype ?? null,
     authority_status: document.authority_status ?? null,
@@ -235,6 +239,16 @@ export async function loadPrecedenceAwareRelatedDocs(
   const familyDocumentsInOrder = snapshot.families.flatMap((family) => family.documents);
   const familyDocumentIds = new Set(familyDocumentsInOrder.map((document) => document.id));
   const currentDocumentId = params.currentDocumentId ?? null;
+  const relationshipsByRelatedDocumentId = new Map<string, DocumentRelationshipRecord>();
+  if (currentDocumentId) {
+    for (const relationship of snapshot.relationships) {
+      if (relationship.source_document_id === currentDocumentId) {
+        relationshipsByRelatedDocumentId.set(relationship.target_document_id, relationship);
+      } else if (relationship.target_document_id === currentDocumentId) {
+        relationshipsByRelatedDocumentId.set(relationship.source_document_id, relationship);
+      }
+    }
+  }
 
   const orderedDocuments: DocumentPrecedenceRecord[] = [
     ...familyDocumentsInOrder,
@@ -256,6 +270,7 @@ export async function loadPrecedenceAwareRelatedDocs(
       document,
       extractionMap.get(document.id) ?? null,
       resolvedById.get(document.id) ?? null,
+      relationshipsByRelatedDocumentId.get(document.id) ?? null,
     ),
   );
 }

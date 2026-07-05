@@ -205,7 +205,7 @@ function canonicalizeContractFacts(params: {
   if (facts.rate_table == null && persistedRateScheduleRows.length > 0) {
     facts.rate_table = persistedRateScheduleRows;
   }
-  if ((facts.rate_row_count == null || facts.rate_row_count === 0) && rateScheduleRows.length > 0) {
+  if (rateScheduleRows.length > 0) {
     facts.rate_row_count = rateScheduleRows.length;
   }
 

@@ -2066,8 +2066,14 @@ describe('resolveCanonicalProjectFacts', () => {
             facts: {
               rate_schedule_present: true,
               rate_schedule_pages: 4,
-              rate_row_count: 12,
+              rate_row_count: 0,
               pricing_applicability: 'Exhibit rates apply to debris hauling',
+            },
+            contract_analysis: {
+              rate_schedule_rows: [
+                { row_id: 'rate-row-1', description: 'Vegetative debris', rate: 6.9 },
+                { row_id: 'rate-row-2', description: 'Mixed debris', rate: 9.25 },
+              ],
             },
           },
         },

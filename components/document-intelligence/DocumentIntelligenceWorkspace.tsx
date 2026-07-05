@@ -242,8 +242,8 @@ export function DocumentIntelligenceWorkspace({
               onSelectFact={handleSelectFact}
               variant="workspace"
               belowFiltersSlot={
-                model.family === 'contract' && model.contractPricingAssemblyRows?.length
-                  ? <ContractPricingAssemblySection rows={model.contractPricingAssemblyRows} />
+                model.shouldSurfaceContractPricingAssembly
+                  ? <ContractPricingAssemblySection rows={model.contractPricingAssemblyRows ?? []} />
                   : null
               }
             />

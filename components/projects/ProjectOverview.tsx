@@ -1513,7 +1513,7 @@ export function ProjectOverview({
               The Forge
             </p>
             <p className="mt-1 text-[11px] text-[#64748B]">
-              Documents -&gt; Facts -&gt; Validator -&gt; Decisions -&gt; Audit
+              Documents (incl. Facts) -&gt; Validator -&gt; Decisions -&gt; Audit
             </p>
           </div>
 
@@ -1644,18 +1644,18 @@ export function ProjectOverview({
             </section>
 
             <DocumentPrecedenceSection projectId={model.project.id} />
-          </section>
-        ) : activeTab === 'facts' ? (
-          <section id="project-facts" className="space-y-6">
-            <SectionHeading
-              title="Project Facts"
-              subtitle="Resolved canonical project truth across contract, invoice, transaction, and validation layers."
-            />
-            <div className="space-y-5">
-              {truthSections.map((section) => (
-                <TruthSheetSection key={section.key} section={section} />
-              ))}
-            </div>
+
+            <section id="project-facts" className="space-y-6">
+              <SectionHeading
+                title="Project Facts"
+                subtitle="Resolved canonical project truth across contract, invoice, transaction, and validation layers."
+              />
+              <div className="space-y-5">
+                {truthSections.map((section) => (
+                  <TruthSheetSection key={section.key} section={section} />
+                ))}
+              </div>
+            </section>
           </section>
         ) : activeTab === 'validator' ? (
           <section id="project-validator" className="space-y-4">

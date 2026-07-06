@@ -29,9 +29,12 @@ type ValidatorEvidenceDrawerProps = {
   finding: ValidationFinding | null;
   evidence: ValidationEvidence[];
   executionItemId?: string | null;
+  /**
+   * Prior-decision context from a similar finding on this project, surfaced for
+   * operator awareness only. Never applied automatically to the current finding.
+   */
+  odpNote?: string | null;
   loading: boolean;
-  onClose: () => void;
-  onFindingActionComplete?: (() => void | Promise<void>) | undefined;
 };
 
 type EvidenceEntry = {
@@ -321,8 +324,8 @@ export function ValidatorEvidenceDrawer({
   finding,
   evidence,
   executionItemId = null,
+  odpNote = null,
   loading,
-  onClose,
 }: ValidatorEvidenceDrawerProps) {
   if (!finding) {
     return (
@@ -333,13 +336,13 @@ export function ValidatorEvidenceDrawer({
         padding="md"
       >
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
-          Selected Issue Detail
+          Evidence &amp; Truth
         </p>
         <h3 className="mt-3 text-lg font-bold text-[var(--ef-text-primary)]">
-          Select a blocker
+          Select a finding
         </h3>
         <p className="mt-2 text-sm leading-6 text-[var(--ef-text-muted)]">
-          Choose a blocker to review the approval gap, compare expected versus actual values, and jump into the linked evidence or decision flow.
+          Choose a finding from the list to review its full evidence chain and compare expected versus actual values.
         </p>
       </ForgeDetailPanel>
     );
@@ -347,6 +350,10 @@ export function ValidatorEvidenceDrawer({
 
   const activeFinding = finding;
   const normalizedFinding = normalizeValidationFinding(activeFinding);
+  const hasConflict =
+    Boolean(normalizedFinding.expected?.trim())
+    && Boolean(normalizedFinding.actual?.trim())
+    && normalizedFinding.expected !== normalizedFinding.actual;
   const evidenceEntries = evidence.map((item) => ({
     item,
     target: buildEvidenceTarget({
@@ -364,13 +371,6 @@ export function ValidatorEvidenceDrawer({
     ?? evidenceEntries.find((entry) => entry.target.href)
     ?? null;
   const primaryReviewHref = primaryEvidence?.target.href ?? null;
-  const primaryOverrideHref = primaryEvidence
-    ? buildEvidenceHref({
-        finding: activeFinding,
-        item: primaryEvidence.item,
-        action: 'manual_override',
-      })
-    : null;
   const executionHref = executionItemProjectHref(activeFinding.project_id, executionItemId);
   const approvalLabel = findingApprovalLabel(activeFinding);
   const gateImpact = findingGateImpact(activeFinding);
@@ -395,22 +395,13 @@ export function ValidatorEvidenceDrawer({
       radius="sm"
       padding="md"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
-            Selected Issue Detail
-          </p>
-          <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
-            {findingProblem(activeFinding)}
-          </h3>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-sm border border-[var(--ef-border-subtle)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-muted)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-[var(--ef-text-primary)]"
-        >
-          Close
-        </button>
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+          Evidence &amp; Truth
+        </p>
+        <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
+          {findingProblem(activeFinding)}
+        </h3>
       </div>
 
       <section className="mt-5 space-y-3">
@@ -446,12 +437,31 @@ export function ValidatorEvidenceDrawer({
 
       <section className="mt-6 space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
-          Expected vs Actual
+          {hasConflict ? 'Conflict' : 'Expected vs Actual'}
         </p>
-        <div className="grid gap-3">
-          <DetailBlock label="Expected" value={normalizedFinding.expected} />
-          <DetailBlock label="Actual" value={normalizedFinding.actual} tone="critical" />
+        <div className={`grid gap-3 rounded-sm ${hasConflict ? 'border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-bg)] p-3' : ''}`}>
+          <DetailBlock label="Expected (governing truth)" value={normalizedFinding.expected} />
+          <DetailBlock label="Actual (canonical truth — current value)" value={normalizedFinding.actual} tone="critical" />
         </div>
+        {hasConflict ? (
+          <p className="text-[11px] leading-5 text-[var(--ef-warning-soft)]">
+            Both values are retained above; no trace is discarded until an operator resolves this finding.
+          </p>
+        ) : null}
+      </section>
+
+      <section className="mt-6 space-y-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+          ODP Note
+        </p>
+        <ForgeSectionCard as="div" surface="secondary" radius="sm" padding="md">
+          <p className="text-sm leading-6 text-[var(--ef-text-secondary)]">
+            {odpNote ?? 'No comparable prior decision is on record for this finding type in this project.'}
+          </p>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-faint)]">
+            Informational only &mdash; never applied automatically to this finding.
+          </p>
+        </ForgeSectionCard>
       </section>
 
       <section className="mt-6 space-y-3">
@@ -577,34 +587,24 @@ export function ValidatorEvidenceDrawer({
 
       <section className="mt-6 space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
-          Decision Linkage
+          Inspect Evidence
         </p>
         <ForgeSectionCard as="div" surface="primary" radius="sm" padding="md">
           <div className="flex flex-wrap gap-2">
-            <Link
-              href={executionHref}
-              className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-            >
-              {executionItemId ? 'Open Execution Item' : 'Open Execution'}
-            </Link>
-
             {primaryReviewHref ? (
               <Link
                 href={primaryReviewHref}
-                className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+                className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
               >
-                {primaryEvidence?.target.exactTarget ? 'Inspect Evidence' : 'Open Source Document'}
+                {primaryEvidence?.target.exactTarget ? 'Inspect Evidence →' : 'Open Source Document →'}
               </Link>
             ) : null}
-
-            {primaryOverrideHref ? (
-              <Link
-                href={primaryOverrideHref}
-                className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
-              >
-                Manual Override
-              </Link>
-            ) : null}
+            <Link
+              href={executionHref}
+              className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+            >
+              {executionItemId ? 'Open Execution History' : 'Open Execution'}
+            </Link>
           </div>
 
           {!primaryReviewHref ? (
@@ -614,7 +614,7 @@ export function ValidatorEvidenceDrawer({
           ) : null}
 
           <p className="mt-4 text-sm leading-6 text-[var(--ef-text-muted)]">
-            Approval outcomes are finalized in Execution Forge. Use the linked execution surface to approve, correct, or override this issue after reviewing the evidence.
+            Validator is read only. Use the Decision &amp; Execution panel to confirm, correct, or override this finding once the evidence above supports a decision.
           </p>
         </ForgeSectionCard>
       </section>

@@ -12,7 +12,6 @@ import { AskProjectSection } from '@/components/projects/AskProjectSection';
 import { ProjectAskBar } from '@/components/projects/ProjectAskBar';
 import { DocumentPrecedenceSection } from '@/components/projects/DocumentPrecedenceSection';
 import { ProjectDecisionExecutionCard } from '@/components/projects/ProjectDecisionExecutionCard';
-import { ProjectIssueBoard } from '@/components/projects/ProjectIssueBoard';
 import { ProjectAdminControls } from '@/components/projects/ProjectAdminControls';
 import { ApprovalActionTimeline } from '@/components/approval/ApprovalActionTimeline';
 import { ValidationAuditEventSummary } from '@/components/validator/ValidationAuditEventSummary';
@@ -32,6 +31,7 @@ import {
   type CanonicalProjectTruthState,
 } from '@/lib/projectFacts';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
+import type { IssueObject } from '@/lib/issueObjects';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   OverviewTone,
@@ -60,10 +60,10 @@ type ProjectOverviewProps = {
   activityEvents?: ProjectActivityEventRow[];
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
-  validatorTab?: ReactNode;
+  validatorTab?: (issueObjects: readonly IssueObject[]) => ReactNode;
 };
 
-type ProjectWorkModeKey = 'documents' | 'decisions';
+type ProjectWorkModeKey = 'documents';
 type DocumentRoleKey = 'contract' | 'invoice' | 'transaction_data' | 'support';
 
 function readActiveTabFromLocation(): ProjectTabKey {
@@ -79,7 +79,7 @@ function readActiveTabFromLocation(): ProjectTabKey {
 }
 
 function isWorkModeTab(tab: ProjectTabKey): tab is ProjectWorkModeKey {
-  return tab === 'documents' || tab === 'decisions';
+  return tab === 'documents';
 }
 
 function toneTextClass(tone: OverviewTone): string {
@@ -1161,10 +1161,6 @@ export function ProjectOverview({
     };
   }, []);
 
-  const blockedFilterActive =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('filter') === 'blocked';
-
   const issueObjects = useMemo(() => resolveProjectIssueObjects({
     projectId: model.project.id,
     findings: validationFindings ?? [],
@@ -1183,13 +1179,6 @@ export function ProjectOverview({
     validationFindings,
   ]);
 
-  const visibleIssues = blockedFilterActive
-    ? issueObjects.filter((issue) => issue.lifecycleState === 'blocked')
-    : issueObjects;
-
-  const visibleDecisionTotal = blockedFilterActive
-    ? visibleIssues.length
-    : issueObjects.length;
   const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
   const requiredReviewCount =
     model.validator_summary.required_review_total > 0
@@ -1513,7 +1502,7 @@ export function ProjectOverview({
               The Forge
             </p>
             <p className="mt-1 text-[11px] text-[#64748B]">
-              Documents (incl. Facts) -&gt; Validator -&gt; Decisions -&gt; Audit
+              Documents (incl. Facts) -&gt; Validator (incl. Decisions) -&gt; Audit
             </p>
           </div>
 
@@ -1537,28 +1526,7 @@ export function ProjectOverview({
       </nav>
 
       <div className="space-y-8 p-8">
-        {activeTab === 'decisions' ? (
-          <section id="project-actions" className="space-y-6">
-            <SectionHeading
-              id="project-decisions"
-              title="Project Decisions"
-              subtitle={
-                blockedFilterActive
-                  ? `${visibleDecisionTotal} blocked decision${visibleDecisionTotal === 1 ? '' : 's'}`
-                  : `${model.decision_total} linked validator decision records`
-              }
-            />
-            <p className="-mt-4 text-[11px] text-[#94A3B8]">
-              Counters reflect all active project issues.
-            </p>
-
-            <ProjectIssueBoard
-              issues={visibleIssues}
-              emptyState={model.decision_empty_state}
-              onProjectRefresh={onProjectRefresh}
-            />
-          </section>
-        ) : activeTab === 'documents' ? (
+        {activeTab === 'documents' ? (
           <section id="project-documents" className="space-y-8">
             <section className="space-y-4">
               <SectionHeading
@@ -1659,12 +1627,15 @@ export function ProjectOverview({
           </section>
         ) : activeTab === 'validator' ? (
           <section id="project-validator" className="space-y-4">
+            {/* Legacy deep-link anchors: Decisions was folded into this surface. */}
+            <span id="project-actions" className="sr-only" aria-hidden="true" />
+            <span id="project-decisions" className="sr-only" aria-hidden="true" />
             <SectionHeading
               title="Validator"
-              subtitle="Rule-backed validation findings and approval analysis for this project."
+              subtitle="Rule-backed validation findings, evidence, and decision & execution for this project."
             />
             {validatorTab ? (
-              validatorTab
+              validatorTab(issueObjects)
             ) : (
               <div className="rounded-sm border border-[#2F3B52]/70 bg-[#111827] p-4 text-sm text-[#94A3B8]">
                 Validator details are not available for this project yet.
@@ -1785,13 +1756,9 @@ export function ProjectOverview({
             <Link href="/platform/documents" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
               Upload Document
             </Link>
-            <button
-              type="button"
-              onClick={() => switchWorkMode('decisions')}
-              className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]"
-            >
-              Decisions
-            </button>
+            <a href="#project-validator" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
+              Validator
+            </a>
             <a href="#project-audit" className="text-xs font-bold uppercase tracking-[0.14em] text-[#C7D2E3] transition-colors hover:text-[#3B82F6]">
               Audit Trail
             </a>

@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ForgeMetricCard } from '@/components/forge/ForgeMetricCard';
 import { ForgeSectionCard } from '@/components/forge/ForgeSectionCard';
+import { ValidatorDecisionExecutionPanel } from '@/components/validator/ValidatorDecisionExecutionPanel';
 import { ValidatorEvidenceDrawer } from '@/components/validator/ValidatorEvidenceDrawer';
-import {
-  executionItemProjectHref,
-  type ProjectExecutionItemRow,
-} from '@/lib/executionItems';
+import { ValidatorFindingsPanel } from '@/components/validator/ValidatorFindingsPanel';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
+import type { IssueObject } from '@/lib/issueObjects';
 import {
   resolveCanonicalProjectValidatorWorkspace,
   resolveValidationSummaryFromProjectFacts,
@@ -19,16 +19,7 @@ import {
   type CanonicalProjectValidatorCoverageItem,
 } from '@/lib/projectFacts';
 import { supabase } from '@/lib/supabaseClient';
-import {
-  findingGateImpact,
-  findingNextAction,
-  findingProblem,
-  humanizeTruthToken,
-} from '@/lib/truthToAction';
-import {
-  isBlockingFinding,
-  normalizeValidationFinding,
-} from '@/lib/validator/findingSemantics';
+import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import type {
   ValidationEvidence,
   ValidationFinding,
@@ -43,7 +34,8 @@ type ValidatorTabProps = {
   documents?: readonly CanonicalProjectTruthDocumentInput[];
   transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[];
   validationEvidence?: readonly ValidationEvidence[];
-  executionItems?: readonly ProjectExecutionItemRow[];
+  issueObjects?: readonly IssueObject[];
+  findingsEmptyState?: string;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
 };
 
@@ -271,146 +263,6 @@ function statusItemValueClass(state: CanonicalProjectTruthState): string {
   }
 }
 
-function findingSeverityClass(severity: ValidationFinding['severity']): string {
-  switch (severity) {
-    case 'critical':
-      return 'border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] text-[var(--ef-critical-soft)]';
-    case 'warning':
-      return 'border-[var(--ef-warning-a35)] bg-[var(--ef-warning-bg)] text-[var(--ef-warning-soft)]';
-    case 'info':
-    default:
-      return 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-surface-hover-a70)] text-[var(--ef-text-secondary)]';
-  }
-}
-
-function findingSourceReference(finding: ValidationFinding): string {
-  const normalized = normalizeValidationFinding(finding);
-  return [
-    finding.rule_id,
-    `${finding.subject_type}:${finding.subject_id}`,
-    normalized.field,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(' | ');
-}
-
-type InvoiceLineFindingContext = {
-  invoiceNumber: string | null;
-  invoiceDocumentTitle: string | null;
-  rateCode: string | null;
-  description: string | null;
-  quantity: string | null;
-  unitPrice: string | null;
-  lineTotal: string | null;
-  rawIdentity: string;
-  sourceLabel: string;
-};
-
-function evidenceFieldValue(
-  evidence: readonly ValidationEvidence[],
-  fieldNames: readonly string[],
-): string | null {
-  for (const fieldName of fieldNames) {
-    const match = evidence.find((entry) => entry.field_name === fieldName);
-    if (typeof match?.field_value === 'string' && match.field_value.trim().length > 0) {
-      return match.field_value.trim();
-    }
-  }
-  return null;
-}
-
-function parseEvidenceNumber(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number(value.replace(/[$,\s]/g, ''));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function formatContextNumber(value: string | null): string | null {
-  const parsed = parseEvidenceNumber(value);
-  if (parsed == null) return value;
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  }).format(parsed);
-}
-
-function formatContextCurrency(value: string | null): string | null {
-  const parsed = parseEvidenceNumber(value);
-  if (parsed == null) return value;
-  return formatCurrency(parsed);
-}
-
-function invoiceLineFindingContext(
-  finding: ValidationFinding,
-  evidence: readonly ValidationEvidence[],
-  documentTitleById: Map<string, string>,
-): InvoiceLineFindingContext | null {
-  if (finding.subject_type !== 'invoice_line') return null;
-
-  const invoiceEvidence = evidence.find((entry) => entry.evidence_type === 'invoice_line');
-  const invoiceNumber = evidenceFieldValue(evidence, ['invoice_number', 'invoice_no', 'number']);
-  const invoiceDocumentTitle = invoiceEvidence?.source_document_id
-    ? documentTitleById.get(invoiceEvidence.source_document_id) ?? null
-    : null;
-  const rateCode = evidenceFieldValue(evidence, ['rate_code', 'line_code', 'item_code']);
-  const rawIdentity = findingSourceReference(finding);
-  const sourceLabel = [
-    invoiceNumber ? `Invoice ${invoiceNumber}` : 'Invoice line',
-    rateCode ? `Line ${rateCode}` : null,
-    finding.rule_id === 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS'
-    || finding.rule_id === 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT'
-      ? 'Contract rate match'
-      : null,
-  ].filter(Boolean).join(' · ');
-
-  return {
-    invoiceNumber,
-    invoiceDocumentTitle,
-    rateCode,
-    description: evidenceFieldValue(evidence, ['description', 'line_description', 'rate_description']),
-    quantity: formatContextNumber(evidenceFieldValue(evidence, ['quantity', 'qty', 'billed_quantity'])),
-    unitPrice: formatContextCurrency(evidenceFieldValue(evidence, ['unit_price', 'billed_rate', 'invoice_rate', 'rate'])),
-    lineTotal: formatContextCurrency(evidenceFieldValue(evidence, ['line_total', 'extended_amount', 'extended_cost', 'line_amount'])),
-    rawIdentity,
-    sourceLabel,
-  };
-}
-
-function findingDescription(finding: ValidationFinding): string {
-  return getIssueDisplayLabel(finding.check_key || finding.rule_id, findingProblem(finding)).title;
-}
-
-function findingCategoryLabel(finding: ValidationFinding): string {
-  const display = getIssueDisplayLabel(finding.check_key || finding.rule_id, finding.category);
-  if (display.category !== 'Validation') return display.category;
-
-  const subject = finding.subject_type.toLowerCase();
-  const sourceFamily = finding.source_family?.toLowerCase() ?? '';
-
-  if (sourceFamily === 'contract' || subject.includes('contract') || finding.rule_id.includes('CONTRACT')) {
-    return 'Contract';
-  }
-  if (sourceFamily === 'invoice' || subject.includes('invoice')) {
-    return 'Invoice';
-  }
-  if (
-    sourceFamily === 'transaction'
-    || subject.includes('ticket')
-    || subject.includes('transaction')
-    || subject.includes('work')
-  ) {
-    return 'Transaction';
-  }
-  if (sourceFamily === 'support' || finding.category === 'required_sources') {
-    return 'Support';
-  }
-  if (finding.category === 'financial_integrity') {
-    return 'Financial';
-  }
-
-  return humanizeTruthToken(finding.category);
-}
-
 function approvalGateState(params: {
   status: ValidationStatus;
   blockerCount: number;
@@ -523,43 +375,6 @@ function approvalGateAmount(summary: ValidationSummary): number | null {
   );
 }
 
-function isCriticalIssueFinding(finding: ValidationFinding): boolean {
-  if (finding.status !== 'open') return false;
-
-  const normalized = normalizeValidationFinding(finding);
-  return normalized.approval_gate_effect === 'blocks_approval'
-    || normalized.business_severity === 'high';
-}
-
-function sortCriticalIssues(findings: ValidationFinding[]): ValidationFinding[] {
-  return [...findings].sort((left, right) => {
-    const leftBlocked = isBlockingFinding(left) ? 0 : 1;
-    const rightBlocked = isBlockingFinding(right) ? 0 : 1;
-    if (leftBlocked !== rightBlocked) return leftBlocked - rightBlocked;
-
-    const leftSeverity = normalizeValidationFinding(left).business_severity;
-    const rightSeverity = normalizeValidationFinding(right).business_severity;
-    const severityDelta =
-      (leftSeverity === 'critical' ? 0 : leftSeverity === 'high' ? 1 : leftSeverity === 'medium' ? 2 : 3)
-      - (rightSeverity === 'critical' ? 0 : rightSeverity === 'high' ? 1 : rightSeverity === 'medium' ? 2 : 3);
-    if (severityDelta !== 0) return severityDelta;
-
-    return left.rule_id.localeCompare(right.rule_id, 'en-US');
-  });
-}
-
-function isCanonicalValidatorBlockerFinding(
-  finding: ValidationFinding,
-  summary: ValidationSummary,
-): boolean {
-  return summary.validator_blockers.some((item) => (
-    item.rule_id === finding.rule_id
-    && item.subject_type === finding.subject_type
-    && item.subject_id === finding.subject_id
-    && (item.field ?? null) === (finding.field ?? null)
-  ));
-}
-
 function ReadinessGapCard(props: {
   item: CanonicalProjectValidatorCoverageItem;
   label: string;
@@ -586,150 +401,35 @@ function ReadinessGapCard(props: {
   );
 }
 
-function CriticalIssueCard(props: {
-  projectId: string;
-  finding: ValidationFinding;
-  evidence: readonly ValidationEvidence[];
-  documentTitleById: Map<string, string>;
-  executionHref: string;
-  selected: boolean;
-  onSelect: (finding: ValidationFinding) => void;
-}) {
-  const { projectId, finding, evidence, documentTitleById, executionHref, selected, onSelect } = props;
-  const normalizedFinding = normalizeValidationFinding(finding);
-  const impact = findingGateImpact(finding);
-  const nextAction = findingNextAction(finding);
-  const issueDisplay = getIssueDisplayLabel(finding.check_key || finding.rule_id, findingProblem(finding));
-  const invoiceLineContext = invoiceLineFindingContext(finding, evidence, documentTitleById);
+function findComparableResolvedIssue(
+  issueObjects: readonly IssueObject[],
+  selectedIssue: IssueObject,
+): IssueObject | null {
+  const comparable = issueObjects
+    .filter((issue) =>
+      issue.issueId !== selectedIssue.issueId
+      && issue.issueType === selectedIssue.issueType
+      && issue.lifecycleState === 'resolved',
+    )
+    .sort((left, right) => {
+      const leftTime = left.executedAt?.getTime() ?? left.decisionMadeAt?.getTime() ?? 0;
+      const rightTime = right.executedAt?.getTime() ?? right.decisionMadeAt?.getTime() ?? 0;
+      return rightTime - leftTime;
+    });
 
-  return (
-    <article
-      className={`rounded-sm border p-5 transition-colors ${
-        selected
-          ? 'border-[var(--ef-purple-primary-a45)] bg-[var(--ef-surface-elevated)]'
-          : 'border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] hover:border-[var(--ef-purple-primary-a30)]'
-      }`}
-    >
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] ${findingSeverityClass(finding.severity)}`}>
-              {finding.severity}
-            </span>
-            <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-secondary)]">
-              {findingCategoryLabel(finding)}
-            </span>
-            {finding.affected_amount != null ? (
-              <span className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
-                At Risk {formatCurrency(finding.affected_amount)}
-              </span>
-            ) : null}
-          </div>
+  return comparable[0] ?? null;
+}
 
-          <h3 className="mt-3 text-base font-semibold tracking-tight text-[var(--ef-text-primary)]">
-            {findingDescription(finding)}
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-[var(--ef-text-secondary)]">
-            {normalizedFinding.problem ?? issueDisplay.explanation}
-          </p>
-          <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
-            Rule key: {issueDisplay.raw_key}
-          </p>
-        </div>
+function buildOdpNote(issueObjects: readonly IssueObject[], selectedIssue: IssueObject | null): string | null {
+  if (!selectedIssue) return null;
+  const comparable = findComparableResolvedIssue(issueObjects, selectedIssue);
+  if (!comparable) return null;
 
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {finding.linked_decision_id ? (
-            <Link
-              href={`/platform/projects/${projectId}?activeTab=decisions&selectedIssue=${finding.id}#project-decisions`}
-              className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-purple-glow)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-            >
-              Open Decision Frame
-            </Link>
-          ) : null}
-          {evidence.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => onSelect(finding)}
-              className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-            >
-              Inspect Evidence
-            </button>
-          ) : null}
-          <Link
-            href={executionHref}
-            className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-primary)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
-          >
-            Open Execution
-          </Link>
-        </div>
-      </div>
+  const when = comparable.executedAt ?? comparable.decisionMadeAt;
+  const outcome = comparable.executionItem?.outcome ?? comparable.decision?.status ?? 'resolved';
+  const label = getIssueDisplayLabel(comparable.issueType, comparable.title).title;
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
-            Expected
-          </p>
-          <p className="mt-2 text-[13px] leading-6 text-[var(--ef-text-primary)]">
-            {normalizedFinding.expected ?? 'Not provided'}
-          </p>
-        </div>
-        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
-            Actual
-          </p>
-          <p className="mt-2 text-[13px] leading-6 text-[var(--ef-text-primary)]">
-            {normalizedFinding.actual ?? 'Not provided'}
-          </p>
-        </div>
-      </div>
-
-      {invoiceLineContext ? (
-        <div className="mt-3 rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
-            Invoice Line Context
-          </p>
-          <div className="mt-2 grid gap-2 text-[12px] leading-5 text-[var(--ef-text-secondary)] sm:grid-cols-2">
-            {invoiceLineContext.invoiceNumber ? <p>Invoice: {invoiceLineContext.invoiceNumber}</p> : null}
-            {invoiceLineContext.invoiceDocumentTitle ? <p>Document: {invoiceLineContext.invoiceDocumentTitle}</p> : null}
-            {invoiceLineContext.rateCode || invoiceLineContext.description ? (
-              <p className="sm:col-span-2">
-                Line: {[invoiceLineContext.rateCode, invoiceLineContext.description].filter(Boolean).join(' - ')}
-              </p>
-            ) : null}
-            {invoiceLineContext.quantity ? <p>Quantity: {invoiceLineContext.quantity}</p> : null}
-            {invoiceLineContext.unitPrice ? <p>Invoice unit price: {invoiceLineContext.unitPrice}</p> : null}
-            {invoiceLineContext.lineTotal ? <p>Line total: {invoiceLineContext.lineTotal}</p> : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
-            Impact
-          </p>
-          <p className="mt-2 text-[12px] leading-6 text-[var(--ef-text-secondary)]">
-            {impact}
-          </p>
-        </div>
-        <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)] px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
-            Next Action
-          </p>
-          <p className="mt-2 text-[12px] leading-6 text-[var(--ef-text-secondary)]">
-            {nextAction}
-          </p>
-        </div>
-      </div>
-
-      <p className="mt-3 text-[11px] text-[var(--ef-text-faint)]">
-        {invoiceLineContext?.sourceLabel ?? findingSourceReference(finding)}
-        {invoiceLineContext ? (
-          <span className="block pt-1 text-[10px]">Raw key: {invoiceLineContext.rawIdentity}</span>
-        ) : null}
-      </p>
-    </article>
-  );
+  return `A similar finding (${label}) on this project was ${outcome}${when ? ` on ${when.toLocaleDateString()}` : ' previously'}. This is context only and has not been applied to the finding you are reviewing.`;
 }
 
 export function ValidatorTab({
@@ -737,15 +437,17 @@ export function ValidatorTab({
   documents = [],
   transactionDatasets = [],
   validationEvidence = [],
-  executionItems = [],
+  issueObjects = [],
+  findingsEmptyState = 'No open or recently resolved validator findings are on record for this project.',
   onProjectRefresh,
 }: ValidatorTabProps) {
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ValidationSummary>(EMPTY_SUMMARY);
   const [findings, setFindings] = useState<ValidationFinding[]>([]);
   const [latestRun, setLatestRun] = useState<ValidatorRunRow | null>(null);
-  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [evidenceByFindingId, setEvidenceByFindingId] = useState<Record<string, ValidationEvidence[]>>(() =>
     validationEvidence.reduce<Record<string, ValidationEvidence[]>>((accumulator, evidence) => {
       const current = accumulator[evidence.finding_id] ?? [];
@@ -820,17 +522,6 @@ export function ValidatorTab({
         loadedFindings,
         transactionDatasets,
       );
-      const prioritizedIssueId = sortCriticalIssues(
-        loadedFindings.filter((finding) => (
-          isCriticalIssueFinding(finding)
-          && isCanonicalValidatorBlockerFinding(finding, nextSummary)
-        )),
-      )[0]?.id ?? null;
-      const canonicalBlockerFindingIds = new Set(
-        loadedFindings
-          .filter((finding) => isCanonicalValidatorBlockerFinding(finding, nextSummary))
-          .map((finding) => finding.id),
-      );
       const loadedFindingIds = loadedFindings.map((finding) => finding.id);
       const evidenceByLoadedFindingId: Record<string, ValidationEvidence[]> = {};
       if (loadedFindingIds.length > 0) {
@@ -855,13 +546,6 @@ export function ValidatorTab({
         ...evidenceByLoadedFindingId,
       }));
       setLatestRun((runResult.data ?? null) as ValidatorRunRow | null);
-      setSelectedFindingId((current) => {
-        if (current && canonicalBlockerFindingIds.has(current)) {
-          return current;
-        }
-
-        return prioritizedIssueId;
-      });
       setLoading(false);
     },
     [projectId, transactionDatasets],
@@ -999,6 +683,49 @@ export function ValidatorTab({
     };
   }, [loadValidatorState, validationInProgress]);
 
+  // Restore the deep-linked finding/decision/execution item selection (Ask
+  // responses, execution links, prior decision context CTAs), falling back to
+  // the highest-priority open finding once the project's issue objects load.
+  useEffect(() => {
+    if (issueObjects.length === 0) {
+      setSelectedIssueId(null);
+      return;
+    }
+
+    const requestedIssueId = searchParams.get('selectedIssue');
+    const requestedDecisionId = searchParams.get('decisionId');
+    const requestedExecutionItemId = searchParams.get('executionItemId');
+
+    const requested =
+      (requestedExecutionItemId
+        ? issueObjects.find((issue) =>
+            issue.executionItemId === requestedExecutionItemId
+            || issue.issueId === `exec:${requestedExecutionItemId}`,
+          )
+        : null)
+      ?? (requestedIssueId ? issueObjects.find((issue) => issue.issueId === requestedIssueId) : null)
+      ?? (requestedDecisionId ? issueObjects.find((issue) => issue.decisionId === requestedDecisionId) : null);
+
+    if (requested) {
+      setSelectedIssueId(requested.issueId);
+      return;
+    }
+
+    setSelectedIssueId((current) => {
+      if (current && issueObjects.some((issue) => issue.issueId === current)) {
+        return current;
+      }
+      return issueObjects[0]?.issueId ?? null;
+    });
+  }, [issueObjects, searchParams]);
+
+  const selectedIssue = useMemo(
+    () => issueObjects.find((issue) => issue.issueId === selectedIssueId) ?? null,
+    [issueObjects, selectedIssueId],
+  );
+  const selectedFinding = selectedIssue?.finding ?? null;
+  const selectedFindingId = selectedFinding?.id ?? null;
+
   useEffect(() => {
     if (!selectedFindingId || evidenceByFindingId[selectedFindingId]) {
       return;
@@ -1047,43 +774,18 @@ export function ValidatorTab({
   }, [evidenceByFindingId, selectedFindingId]);
 
   const status = summary.status;
-  const selectedFinding = useMemo(
-    () => findings.find((finding) => finding.id === selectedFindingId) ?? null,
-    [findings, selectedFindingId],
-  );
   const selectedEvidence = selectedFindingId
     ? evidenceByFindingId[selectedFindingId] ?? []
     : [];
-  const documentTitleById = useMemo(() => {
-    const entries = new Map<string, string>();
-    for (const document of documents) {
-      entries.set(document.id, document.title?.trim() || document.name);
-    }
-    return entries;
-  }, [documents]);
-  const executionItemIdByFindingId = useMemo(() => {
-    const entries = new Map<string, string>();
-    for (const item of executionItems) {
-      if (item.source_type === 'validator_finding') {
-        entries.set(item.source_id, item.id);
-      }
-    }
-    return entries;
-  }, [executionItems]);
+  const odpNote = useMemo(
+    () => buildOdpNote(issueObjects, selectedIssue),
+    [issueObjects, selectedIssue],
+  );
   const lastRunAt = summary.last_run_at ?? latestRun?.completed_at ?? latestRun?.run_at ?? null;
   const triggerSource = summary.trigger_source ?? latestRun?.triggered_by ?? null;
   const rulesAppliedCount = Array.isArray(latestRun?.rules_applied)
     ? latestRun.rules_applied.length
     : 0;
-  const criticalIssues = useMemo(
-    () => sortCriticalIssues(
-      findings.filter((finding) => (
-        isCriticalIssueFinding(finding)
-        && isCanonicalValidatorBlockerFinding(finding, summary)
-      )),
-    ),
-    [findings, summary],
-  );
   const validatorWorkspace = useMemo(
     () => resolveCanonicalProjectValidatorWorkspace({
       validationStatus: summary.status,
@@ -1154,20 +856,12 @@ export function ValidatorTab({
 
           <div className="flex flex-wrap gap-2">
             {gateDisplayState === 'needs_review' || gateDisplayState === 'not_ready' ? null : (
-              <>
-                <Link
-                  href="#approval-blockers"
-                  className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
-                >
-                  Review Blockers
-                </Link>
-                <Link
-                  href="#project-decisions"
-                  className="rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
-                >
-                  View Execution
-                </Link>
-              </>
+              <Link
+                href="#validator-findings"
+                className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-background-secondary)] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-purple-primary-a60)]"
+              >
+                Review Findings
+              </Link>
             )}
             <button
               type="button"
@@ -1312,72 +1006,61 @@ export function ValidatorTab({
         </section>
       ) : null}
 
-      <section
-        id="approval-blockers"
-        className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.95fr)]"
-      >
-        <div className="space-y-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
-              Approval Blockers
-            </p>
-            <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
-              Blocking issues and high-impact mismatches
-            </h3>
-            <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
-              Each blocker explains why approval is held, what the system expected to be true, and where to go next.
-            </p>
-          </div>
-
-          {loading ? (
-            <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-4 py-5 text-sm text-[var(--ef-text-muted)]">
-              Loading validator findings...
-            </div>
-          ) : criticalIssues.length === 0 ? (
-            <section className="rounded-sm border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] p-6">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-success-soft)]">
-                Approval Blockers
-              </p>
-              <h3 className="mt-2 text-xl font-bold text-[var(--ef-text-primary)]">
-                No blocker-level inconsistencies are open.
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-[var(--ef-text-secondary)]">
-                Validator is not currently surfacing a blocking mismatch or high-risk inconsistency for this project.
-              </p>
-            </section>
-          ) : (
-            <div className="space-y-3">
-              {criticalIssues.map((finding) => (
-                <CriticalIssueCard
-                  key={finding.id}
-                  projectId={projectId}
-                  finding={finding}
-                  evidence={evidenceByFindingId[finding.id] ?? []}
-                  documentTitleById={documentTitleById}
-                  executionHref={executionItemProjectHref(
-                    projectId,
-                    executionItemIdByFindingId.get(finding.id) ?? finding.linked_action_id ?? null,
-                  )}
-                  selected={finding.id === selectedFindingId}
-                  onSelect={(nextFinding) => setSelectedFindingId(nextFinding.id)}
-                />
-              ))}
-            </div>
-          )}
+      <section id="validator-findings" className="space-y-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+            Findings / Evidence &amp; Truth / Decision &amp; Execution
+          </p>
+          <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
+            Every open and recently resolved project issue in one place
+          </h3>
+          <p className="mt-2 text-sm text-[var(--ef-text-muted)]">
+            Findings are read only. Evidence &amp; Truth is read only. Only Decision &amp; Execution writes,
+            and only through Execution.
+          </p>
         </div>
 
-        <ValidatorEvidenceDrawer
-          finding={selectedFinding}
-          evidence={selectedEvidence}
-          executionItemId={
-            selectedFinding
-              ? executionItemIdByFindingId.get(selectedFinding.id) ?? selectedFinding.linked_action_id ?? null
-              : null
-          }
-          loading={evidenceLoadingId === selectedFindingId}
-          onClose={() => setSelectedFindingId(null)}
-          onFindingActionComplete={() => loadValidatorState(false)}
-        />
+        {loading ? (
+          <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-4 py-5 text-sm text-[var(--ef-text-muted)]">
+            Loading validator findings...
+          </div>
+        ) : (
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.3fr)_minmax(280px,0.9fr)]">
+            <div className="h-[75vh] min-h-[420px] overflow-hidden rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)]">
+              <ValidatorFindingsPanel
+                issues={issueObjects}
+                selectedIssueId={selectedIssueId}
+                onSelect={setSelectedIssueId}
+                emptyState={findingsEmptyState}
+              />
+            </div>
+
+            <div className="max-h-[75vh] overflow-y-auto">
+              <ValidatorEvidenceDrawer
+                finding={selectedFinding}
+                evidence={selectedEvidence}
+                executionItemId={selectedIssue?.executionItemId ?? null}
+                odpNote={odpNote}
+                loading={evidenceLoadingId === selectedFindingId}
+              />
+            </div>
+
+            <div className="max-h-[75vh] overflow-y-auto">
+              <ValidatorDecisionExecutionPanel
+                issue={selectedIssue}
+                onActionComplete={async () => {
+                  await loadValidatorState(false);
+                  await onProjectRefresh?.();
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        <p className="text-[10px] leading-5 text-[var(--ef-text-faint)]">
+          Must not: mutate canonical truth directly, finalize outcomes outside Execution, or generate
+          findings from anything but canonical truth and prior decisions.
+        </p>
       </section>
     </div>
   );

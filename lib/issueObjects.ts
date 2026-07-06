@@ -96,6 +96,24 @@ export function getIssueStatusLabel(status: IssueObject['status']): string {
   }
 }
 
+export function getIssueLifecycleLabel(lifecycle: IssueObject['lifecycleState']): string {
+  switch (lifecycle) {
+    case 'blocked':
+      return 'Blocked';
+    case 'needs_verification':
+      return 'Needs Verification';
+    case 'ready_for_authorization':
+      return 'Ready for Authorization';
+    case 'escalated':
+      return 'Escalated';
+    case 'resolved':
+      return 'Resolved';
+    case 'open':
+    default:
+      return 'Open';
+  }
+}
+
 export function getIssueLifecycleColor(lifecycle: IssueObject['lifecycleState']): string {
   switch (lifecycle) {
     case 'blocked':

@@ -89,16 +89,17 @@ export default function ProjectDetailPage({
       activityEvents={data.activityEvents}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}
-      validatorTab={
+      validatorTab={(issueObjects) => (
         <ValidatorTab
           projectId={id}
           documents={data.documents}
           transactionDatasets={data.transactionDatasets}
           validationEvidence={data.validationEvidence}
-          executionItems={data.executionItems}
+          issueObjects={issueObjects}
+          findingsEmptyState={model.decision_empty_state}
           onProjectRefresh={data.refetch}
         />
-      }
+      )}
     />
   );
 }

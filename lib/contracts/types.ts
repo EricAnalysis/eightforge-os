@@ -202,6 +202,9 @@ export interface ContractRateScheduleRow {
   description: string | null;
   unit: string | null;
   rate: number | null;
+  quantity?: number | null;
+  quantity_text?: string | null;
+  total_amount?: number | null;
   origin_destination?: string | null;
   category: string | null;
   source_category?: string | null;
@@ -213,11 +216,14 @@ export interface ContractRateScheduleRow {
   material_type: string | null;
   unit_type: string | null;
   rate_amount: number | null;
-  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery' | 'structural_table';
+  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery' | 'structural_table' | 'professional_services_table' | 'tdot_appendix_b_stitched_table' | 'mdot_section_905_bid_schedule';
   confidence?: 'high' | 'medium' | 'needs_review';
   raw_cells?: string[];
   raw_text?: string;
   recovery_reason?: string;
+  category_requires_review?: boolean;
+  category_resolution_status?: 'resolved' | 'requires_review' | string;
+  category_resolution_reason?: string;
 }
 
 // ─── Batch 7: runtime type graduation ────────────────────────────────────────

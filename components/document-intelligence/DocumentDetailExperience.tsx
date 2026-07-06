@@ -899,8 +899,7 @@ export function DocumentDetailExperience({
                   shown/hidden via CSS — only render non-spreadsheet content here. */}
               {isSpreadsheetDocument ? null : (
                 <>
-                  {intelligenceViewModel.family === 'contract' &&
-                  (intelligenceViewModel.contractPricingAssemblyRows?.length ?? 0) > 0 ? (
+                  {intelligenceViewModel.shouldSurfaceContractPricingAssembly ? (
                     <ContractRateTablePanel
                       documentId={documentId}
                       rows={intelligenceViewModel.contractPricingAssemblyRows ?? []}

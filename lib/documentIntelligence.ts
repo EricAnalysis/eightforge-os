@@ -84,6 +84,9 @@ export type RelatedDocInput = {
   name: string;
   title?: string | null;
   extraction: Record<string, unknown> | null;
+  relationship_type?: string | null;
+  relationship_source_document_id?: string | null;
+  relationship_target_document_id?: string | null;
   document_role?: string | null;
   document_subtype?: string | null;
   authority_status?: string | null;

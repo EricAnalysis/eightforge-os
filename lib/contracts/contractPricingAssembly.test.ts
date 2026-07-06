@@ -139,7 +139,7 @@ describe('assembleContractPricingRows', () => {
     assert.equal(assembled?.description, 'Water Truck');
   });
 
-  it('recovers Rural Areas context for the Vegetative 15.50 row when source text supports it', () => {
+  it('recovers Rural Areas context for the Vegetative 15.80 row when source text supports it', () => {
     const [assembled] = assembleContractPricingRows([
       row({
         row_id: 'vegetative-rural-31-60',
@@ -148,15 +148,209 @@ describe('assembleContractPricingRows', () => {
         description: 'ROW to DMS 31 to 60 Miles',
         unit: 'Cubic Yard',
         unit_type: 'Cubic Yard',
-        rate: 15.5,
-        rate_amount: 15.5,
+        rate: 15.8,
+        rate_amount: 15.8,
         page: 8,
-        rate_raw: 'Vegetative Collect, Remove & Haul | 31-60 Miles from ROW to DMS | Cubic Yard | $15.50 | from Rural Areas',
+        rate_raw: 'Vegetative Collect, Remove & Haul | 31-60 Miles from ROW to DMS | Cubic Yard | $15.80 | from Rural Areas',
       }),
     ]);
 
     assert.equal(assembled?.description, 'from Rural Areas ROW to DMS 31 to 60 Miles');
     assert.equal(assembled?.confidence, 'low');
+  });
+
+  it('collapses the duplicated 18.80 Rural Areas 0-15 table detection into a single 13.50 row even when one copy is mislabeled Unincorporated', () => {
+    const assembled = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p8:t29:r2:v1',
+        category: 'Vegetative Collect, Remove & Haul',
+        source_category: 'Vegetative Collect, Remove & Haul',
+        description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
+        unit_type: 'Cubic Yard',
+        rate: 18.8,
+        rate_amount: 18.8,
+        page: 8,
+        rate_raw: 'Vegetative Collect, Remove & Haul | from Rural Areas ROW to DMS 0 to 15 Miles | Cubic Yard | $18.80',
+      }),
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p8:t27:r4',
+        category: 'Vegetative Collect, Remove & Haul',
+        source_category: 'Vegetative Collect, Remove & Haul',
+        description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
+        unit_type: 'Cubic Yard',
+        rate: 18.8,
+        rate_amount: 18.8,
+        page: 8,
+        rate_raw: 'Vegetative Collect, Remove & Haul | from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles | Cubic Yard | $18.80',
+      }),
+    ]);
+
+    const rural0to15Rows = assembled.filter(
+      (candidate) => candidate.description === 'from Rural Areas ROW to DMS 0 to 15 Miles' && candidate.page === 8,
+    );
+    assert.equal(rural0to15Rows.length, 1);
+    assert.equal(rural0to15Rows[0]?.rate, 13.5);
+    assert.equal(
+      assembled.some((candidate) => candidate.rate === 18.8),
+      false,
+    );
+  });
+
+  it('collapses the same 18.80 Rural Areas 0-15 cell when it arrives via canonicalContractRateScheduleAssembly with no area qualifier or category field', () => {
+    // Mirrors the live production shape of contract:pdf_table_p8_t27:p8:r4: a second,
+    // generic assembler (canonicalOperationalTableRowAssembler) independently
+    // re-extracts the same physical cell with a hyphenated "0-15" (no literal "to")
+    // and drops the area qualifier entirely, and it carries no category/material field
+    // at all (unlike exhibit_a_table rows), relying on text-based category resolution.
+    const assembled = assembleContractPricingRows(null, {
+      canonicalRows: [
+        {
+          row_id: 'contract:pdf_table_p8_t27:p8:r4',
+          description: 'Vegetative Collect; Remove & Haul 0-15 Miles from ROW to DMS.',
+          unit_price: 18.8,
+          page_number: 8,
+          document_id: '18550bfc-c057-4aae-bfa3-db896e36edb0',
+        },
+      ],
+    });
+
+    const rural0to15Rows = assembled.filter(
+      (candidate) => candidate.description === 'from Rural Areas ROW to DMS 0 to 15 Miles' && candidate.page === 8,
+    );
+    assert.equal(rural0to15Rows.length, 1);
+    assert.equal(rural0to15Rows[0]?.rate, 13.5);
+    assert.equal(
+      assembled.some((candidate) => candidate.rate === 18.8),
+      false,
+    );
+  });
+
+  it('classifies the Section 2 Operations Supervisor row as Personnel instead of Electronic Waste', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r7:v1',
+        category: 'Specialty Removal',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        canonical_category: 'specialty_removal',
+        category_confidence: 0.4,
+        page: 10,
+        description: 'Operations Supervisor (with cell phone, computer, and pickup',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 95,
+        rate_amount: 95,
+        rate_raw: 'Personnel Operations Supervisor (with cell phone, computer, and pickup Hour $95,00',
+        raw_cells: ['Personnel', 'Operations Supervisor (with cell phone, computer, and pickup truck)', 'Hour $95,00'],
+      }),
+    ]);
+
+    assert.equal(assembled?.category, 'Personnel');
+    assert.equal(assembled?.description, 'Operations Supervisor');
+  });
+
+  it('classifies the Section 2 Crew Foreman row as Personnel when OCR splits "Forém" into "for m"', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r8',
+        category: 'C&D Collect, Remove & Haul',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        canonical_category: 'construction_demolition',
+        category_confidence: 0.75,
+        page: 10,
+        description: 'Crew Forém: (phone, and pickup.truck)',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 95,
+        rate_amount: 95,
+        rate_raw: 'Hour $95,00',
+        raw_cells: ['Crew Forém:', '(phone, and pickup.truck)', 'Hour $95,00'],
+      }),
+    ]);
+
+    assert.equal(assembled?.category, 'Personnel');
+    assert.equal(assembled?.description, 'Crew Foreman');
+  });
+
+  it('does not drop a needs_review Personnel row just because another Personnel role on the same page shares its rate', () => {
+    const assembled = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r7:v1',
+        category: 'Personnel',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        page: 10,
+        description: 'Operations Supervisor (with cell phone, computer, and pickup',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 95,
+        rate_amount: 95,
+        confidence: 'needs_review',
+        rate_raw: 'Personnel Operations Supervisor (with cell phone, computer, and pickup Hour $95,00',
+        raw_cells: ['Personnel', 'Operations Supervisor (with cell phone, computer, and pickup truck)', 'Hour $95,00'],
+      }),
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r14',
+        category: 'Personnel',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        page: 10,
+        description: 'Climber with gear',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 95,
+        rate_amount: 95,
+        confidence: 'high',
+        rate_raw: 'Personnel | Climber with gear || Hour $95.00',
+      }),
+    ]);
+
+    const descriptions = assembled.map((candidate) => candidate.description);
+    assert.ok(descriptions.includes('Operations Supervisor'));
+    assert.ok(descriptions.includes('Climber with gear'));
+  });
+
+  it('classifies a Section 2 Crane row as Equipment instead of leaving it uncategorized', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p11:t37:r1',
+        category: null,
+        source_category: null,
+        material_type: null,
+        page: 11,
+        description: '== Equipm',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 1,
+        rate_amount: 1,
+        rate_raw: '== Equipm 61-90 Ton Crane ur $1',
+      }),
+    ]);
+
+    assert.equal(assembled?.category, 'Equipment');
+  });
+
+  it('classifies a merged Soil Compactor / Barge Section 2 row as Equipment instead of C&D', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p11:t39:r5',
+        category: 'C&D Collect, Remove & Haul',
+        source_category: 'Equipment',
+        material_type: 'Equipment',
+        page: 11,
+        description: 'ipment Tl : Self-loading Soil. Compactor Barge = up 30-45 to 80 Ti',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 85,
+        rate_amount: 85,
+        rate_raw: 'Equipment ipment Tl |: Self-loading Soil. Compactor Barge = up 30-45 to 80 Ti Hour Hour 85.00',
+      }),
+    ]);
+
+    assert.equal(assembled?.category, 'Equipment');
   });
 
   it('keeps suspicious Vessel Removal 2800 OCR rate visible as Needs Review', () => {
@@ -919,7 +1113,7 @@ describe('assembleContractPricingRows', () => {
     assert.equal(rows.length, 0);
   });
 
-  it('caps large Exhibit A assemblies at expected category counts', () => {
+  it('retains every row of an Exhibit A category larger than Williamson\'s historical count, flagging the overflow for review instead of dropping it', () => {
     const sourceRows = Array.from({ length: 105 }, (_, index) =>
       row({
         row_id: `tm-equipment-${index + 1}`,
@@ -937,8 +1131,10 @@ describe('assembleContractPricingRows', () => {
     );
 
     const rows = assembleContractPricingRows(sourceRows);
-    assert.equal(rows.length, 53);
+    assert.equal(rows.length, 105);
     assert.ok(rows.every((assembled) => assembled.category === 'Equipment'));
+    assert.equal(rows.filter((assembled) => assembled.confidence !== 'needs_review').length, 51);
+    assert.equal(rows.filter((assembled) => assembled.confidence === 'needs_review').length, 54);
   });
 
   it('recovers vegetative 16 to 30 and rural area descriptions from noisy table text', () => {
@@ -1051,7 +1247,7 @@ describe('assembleContractPricingRows', () => {
     assert.equal(fdsRow?.description, 'Mulch DMS to FDS 31 to 60 Miles');
     assert.equal(fdsRow?.route, 'DMS to FDS');
     assert.equal(fdsRow?.distanceBand, '31 to 60 Miles');
-    assert.equal(anyDistanceRow?.description, 'Single Cost Any Distance');
+    assert.equal(anyDistanceRow?.description, 'Single Cost - Any Distance');
     assert.equal(anyDistanceRow?.distanceBand, 'Any Distance');
   });
 
@@ -1149,7 +1345,7 @@ describe('assembleContractPricingRows', () => {
     ]);
 
     assert.deepEqual(rows.map((assembled) => assembled.description), [
-      'Bio Waste',
+      'Bio-waste',
       'Electronic Waste',
       'White Goods',
     ]);
@@ -1810,15 +2006,72 @@ describe('assembleContractPricingRows', () => {
     assert.equal(byId.get('tree-6-12-ocr-rate')?.rate, 95);
     assert.equal(byId.get('tree-6-12-ocr-rate')?.description, 'Hazardous Trees 6 to 12 inch trunk');
     assert.notEqual(byId.get('tree-6-12-ocr-rate')?.confidence, 'high');
-    assert.equal(byId.get('bucket-truck-dropped-zero')?.rate, 200);
-    assert.equal(byId.get('bucket-truck-dropped-zero')?.description, 'Bucket Truck with 50 to 60 foot Arm');
-    assert.notEqual(byId.get('bucket-truck-dropped-zero')?.confidence, 'high');
+    assert.equal(byId.get('bucket-truck-dropped-zero')?.rate, 20);
+    assert.equal(byId.get('bucket-truck-dropped-zero')?.description, 'Bucket Truck with 50 to 80 foot Arm');
+    assert.equal(byId.get('bucket-truck-dropped-zero')?.confidence, 'low');
     assert.equal(byId.get('tree-hanging-limbs-merged-rate')?.rate, 80);
     assert.equal(byId.get('tree-hanging-limbs-merged-rate')?.description, 'Trees with Hazardous Limbs Hanging');
     assert.equal(byId.get('pickup-truck-source-rate')?.rate, 25);
     assert.equal(byId.get('pickup-truck-source-rate')?.description, 'Pickup Truck');
-    assert.equal(byId.get('traffic-control-ocr-rate')?.rate, 55);
-    assert.notEqual(byId.get('traffic-control-ocr-rate')?.confidence, 'high');
+    assert.equal(byId.get('traffic-control-ocr-rate')?.rate, 66);
+    assert.equal(byId.get('traffic-control-ocr-rate')?.confidence, 'low');
+  });
+
+  it('preserves pass-through tipping fee rows without numeric rates', () => {
+    const rows = assembleContractPricingRows([
+      row({
+        row_id: 'tipping-vegetative',
+        source_kind: 'exhibit_a_table',
+        category: 'Final Disposal',
+        source_category: 'Final Disposal',
+        material_type: 'Final Disposal',
+        canonical_category: 'final_disposal',
+        page: 9,
+        description: 'Tipping Fee - Vegetative Debris',
+        unit: 'Actual Cost',
+        unit_type: 'Actual Cost',
+        rate: null,
+        rate_amount: null,
+        source_anchor_ids: ['pdf:table:p9:t33:r1'],
+        rate_raw: 'Final Disposal | Tipping Fee - Vegetative Debris | Actual Cost | Passthrough',
+      }),
+      row({
+        row_id: 'tipping-mixed',
+        source_kind: 'exhibit_a_text_recovery',
+        category: 'Final Disposal',
+        source_category: 'Final Disposal',
+        material_type: 'Final Disposal',
+        canonical_category: 'final_disposal',
+        page: 9,
+        description: 'Tipping Fee - Mixed Debris',
+        unit: 'Actual Cost',
+        unit_type: 'Actual Cost',
+        rate: null,
+        rate_amount: null,
+        source_anchor_ids: ['pdf:text:p9:exhibit-a-recovery'],
+        rate_raw: 'Pass-through',
+      }),
+      row({
+        row_id: 'tipping-cd',
+        source_kind: 'exhibit_a_text_recovery',
+        category: 'Final Disposal',
+        source_category: 'Final Disposal',
+        material_type: 'Final Disposal',
+        canonical_category: 'final_disposal',
+        page: 9,
+        description: 'Tipping Fee - C&D Debris',
+        unit: 'Actual Cost',
+        unit_type: 'Actual Cost',
+        rate: null,
+        rate_amount: null,
+        source_anchor_ids: ['pdf:text:p9:exhibit-a-recovery'],
+        rate_raw: 'Passthrough',
+      }),
+    ]);
+
+    assert.deepEqual(rows.map((assembled) => assembled.id).sort(), ['tipping-cd', 'tipping-mixed', 'tipping-vegetative']);
+    assert.ok(rows.every((assembled) => assembled.rate == null));
+    assert.ok(rows.every((assembled) => assembled.sourceAnchor));
   });
 
   it('does not trust zero-rate C&D rows', () => {
@@ -2005,6 +2258,36 @@ describe('assembleContractPricingRows', () => {
     assert.equal(byId.get('personnel-laborer-colon'), 'Laborer with Chain Saw');
     assert.equal(byId.get('equipment-service-truck'), 'Service Truck');
     assert.equal(byId.get('equipment-motor-grader'), 'Motor Grader with 12 foot Blade - CAT125 or equivalent');
+  });
+
+  it('keeps the damaged Williamson page 11 equipment transport row visible for review', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'equipment-damaged-transport',
+        source_kind: 'exhibit_a_table',
+        category: 'Equipment',
+        source_category: 'Equipment',
+        material_type: 'Equipment',
+        canonical_category: 'equipment',
+        page: 11,
+        description: 'quipment Equipment ansports',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 115,
+        rate_amount: 115,
+        source_anchor_ids: ['pdf:table:p11:t37:r5'],
+        rate_raw: 'quipment Equipment ansports | Hour | #11500',
+        raw_cells: ['quipment', 'Equipment ansports', 'Hour', '#11500'],
+        confidence: 'needs_review',
+      }),
+    ]);
+
+    assert.equal(assembled?.description, 'Raw row needs review');
+    assert.equal(assembled?.rate, 115);
+    assert.equal(assembled?.page, 11);
+    assert.equal(assembled?.sourceAnchor, 'pdf:table:p11:t37:r5');
+    assert.equal(assembled?.confidence, 'needs_review');
+    assert.equal(assembled?.rawText, 'quipment Equipment ansports | Hour | #11500');
   });
 
   it('recovers page 9 specialty units from source-backed descriptions', () => {

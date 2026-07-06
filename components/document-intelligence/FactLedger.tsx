@@ -529,6 +529,16 @@ function pricingStateClass(row: ContractPricingAssemblyRow): string {
   }
 }
 
+function formatContractPricingTotal(value: number | null | undefined): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 export function ContractPricingAssemblySection({
   rows,
 }: {
@@ -570,6 +580,13 @@ export function ContractPricingAssemblySection({
                 <td className="py-2 pr-3 text-[var(--ef-text-secondary)]">{row.category ?? 'Unavailable'}</td>
                 <td className="py-2 pr-3 text-[var(--ef-text-primary)]">
                   <div>{row.description}</div>
+                  {row.quantityText || row.totalAmount != null ? (
+                    <p className="mt-1 text-[10px] text-[var(--ef-text-soft)]">
+                      {[row.quantityText, formatContractPricingTotal(row.totalAmount)]
+                        .filter(Boolean)
+                        .join(' / ')}
+                    </p>
+                  ) : null}
                   {row.rawText ? (
                     <details className="mt-1">
                       <summary className="cursor-pointer text-[10px] text-[var(--ef-text-faint)]">Raw row</summary>

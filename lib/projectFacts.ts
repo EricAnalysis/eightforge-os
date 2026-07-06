@@ -2010,6 +2010,9 @@ function resolvePricingContextTruth(
       [facts, extracted],
       ['rate_schedule_present', 'rate_section_present', 'unit_price_structure_present'],
     );
+    const analysisRateRowCount = Array.isArray(analysis?.rate_schedule_rows)
+      ? analysis.rate_schedule_rows.length
+      : null;
     const rowCount = readFirstNumberFromRecords(
       [facts, extracted],
       ['rate_row_count', 'rate_items_detected'],
@@ -2025,7 +2028,7 @@ function resolvePricingContextTruth(
     const present =
       presentFromAnalysis
       ?? presentFromFacts
-      ?? ((rowCount ?? 0) > 0 || (pagesFromAnalysis ?? pagesFromFacts ?? 0) > 0 ? true : null);
+      ?? (((analysisRateRowCount ?? rowCount ?? 0) > 0) || (pagesFromAnalysis ?? pagesFromFacts ?? 0) > 0 ? true : null);
     const candidate = {
       present,
       pages: pagesFromAnalysis ?? pagesFromFacts,

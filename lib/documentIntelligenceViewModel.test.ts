@@ -189,6 +189,7 @@ function buildModel(params: {
   documentName: string;
   documentTitle: string;
   preferredExtraction: Record<string, unknown>;
+  relatedDocs?: Array<Record<string, unknown>>;
   normalizedDecisions?: NormalizedDecision[];
   executionTrace?: Record<string, unknown> | null;
   factOverrides?: DocumentFactOverrideRecord[];
@@ -211,7 +212,7 @@ function buildModel(params: {
       created_at: '2026-03-23T14:00:00Z',
       data: params.preferredExtraction,
     },
-    relatedDocs: [],
+    relatedDocs: (params.relatedDocs ?? []) as never,
     normalizedDecisions: params.normalizedDecisions ?? [],
     extractionGaps: [],
     auditNotes: [],
@@ -1933,6 +1934,62 @@ describe('document intelligence view model', () => {
     assert.equal(model.contractPricingAssemblyRows?.[0]?.sourceAnchor, 'anchor-1');
     assert.equal(model.contractPricingAssemblyRows?.[1]?.id, 'row-2');
     assert.equal(model.contractPricingAssemblyRows?.[1]?.rate, 87.86);
+  });
+
+  it('surfaces contract pricing assembly for an attached price-sheet support document', () => {
+    const model = buildModel({
+      documentId: 'mvsu-exhibit-a-price-sheet',
+      documentType: 'price_sheet',
+      documentName: 'MVSU Exhibit A.pdf',
+      documentTitle: 'MVSU Exhibit A',
+      relatedDocs: [
+        {
+          id: 'mvsu-draft-contract',
+          document_type: 'contract',
+          name: 'MVSU Draft Contract.pdf',
+          title: 'MVSU Draft Contract',
+          extraction: null,
+          relationship_type: 'attached_to',
+          relationship_source_document_id: 'mvsu-exhibit-a-price-sheet',
+          relationship_target_document_id: 'mvsu-draft-contract',
+        },
+      ],
+      preferredExtraction: {
+        extraction: {},
+      },
+      executionTrace: {
+        facts: {},
+        decisions: [],
+        flow_tasks: [],
+        generated_at: '2026-03-23T14:00:00Z',
+        engine_version: 'document_intelligence:v2',
+        extracted: {},
+        contract_analysis: {
+          rate_schedule_rows: [
+            {
+              row_id: 'pdf:table:p1:t1:professional:r1',
+              description: 'Operations Manager',
+              unit: 'Hour',
+              rate: 125,
+              quantity_text: '1 staff, 13 hrs/day, 7 days',
+              total_amount: 11375,
+              category: 'Personnel',
+              canonical_category: 'personnel',
+              category_confidence: 0.95,
+              page: 1,
+              source_anchor_ids: ['pdf:table:p1:t1:r1'],
+              source_kind: 'professional_services_table',
+            },
+          ],
+        },
+      },
+    });
+
+    assert.equal(model.shouldSurfaceContractPricingAssembly, true);
+    assert.equal(model.contractPricingAssemblyRows?.length, 1);
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.description, 'Operations Manager');
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.quantityText, '1 staff, 13 hrs/day, 7 days');
+    assert.equal(model.contractPricingAssemblyRows?.[0]?.totalAmount, 11375);
   });
 
   it('does not synthesize contract rate rows from legacy extraction signals alone', () => {

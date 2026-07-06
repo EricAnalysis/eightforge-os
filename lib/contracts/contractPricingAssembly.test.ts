@@ -227,6 +227,49 @@ describe('assembleContractPricingRows', () => {
     );
   });
 
+  it('records a merge diagnostic instead of silently discarding a dedupe-key collision loser', () => {
+    const assembled = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p9:t34:r3',
+        category: 'Tree Operations',
+        source_category: 'Tree Operations',
+        description: 'Hazardous Trees 6 to 12 inch trunk',
+        unit: 'Tree',
+        unit_type: 'Tree',
+        rate: 95,
+        rate_amount: 95,
+        page: 9,
+        rate_raw: 'Tree Operations | Hazardous Trees 6 to 12 inch trunk | Tree | $95.00',
+      }),
+      row({
+        row_id: 'contract:pdf_table_p9_t35:p9:r3',
+        category: 'Tree Operations',
+        source_category: 'Tree Operations',
+        description: 'Hazardous Trees 6 to 12 inch trunk',
+        unit: 'Tree',
+        unit_type: 'Tree',
+        rate: 95,
+        rate_amount: 95,
+        page: 9,
+        rate_raw: 'Tree Operations | Hazardous Trees 6 to 12 inch trunk | Tree | $95.00',
+      }),
+    ]);
+
+    const matches = assembled.filter(
+      (candidate) => candidate.description === 'Hazardous Trees 6 to 12 inch trunk' && candidate.page === 9,
+    );
+    assert.equal(matches.length, 1, 'the two competing extractions collapse to a single operator-facing row');
+
+    const survivor = matches[0];
+    assert.ok(survivor?.mergeDiagnostics && survivor.mergeDiagnostics.length > 0, 'the survivor carries a merge diagnostic for the discarded duplicate');
+    const diagnostic = survivor?.mergeDiagnostics?.[0];
+    assert.equal(diagnostic?.reason, 'dedupe_key_collision');
+    assert.equal(diagnostic?.comparisonMethod, 'content_key', 'no geometric provenance exists today, so every merge decision is honestly recorded as a content-key match');
+    assert.equal(diagnostic?.winningRowId, survivor?.id);
+    assert.notEqual(diagnostic?.droppedRowId, survivor?.id);
+    assert.ok(diagnostic && diagnostic.winningQualityScore >= diagnostic.droppedQualityScore, 'the recorded winner scored at least as high as the recorded loser');
+  });
+
   it('classifies the Section 2 Operations Supervisor row as Personnel instead of Electronic Waste', () => {
     const [assembled] = assembleContractPricingRows([
       row({

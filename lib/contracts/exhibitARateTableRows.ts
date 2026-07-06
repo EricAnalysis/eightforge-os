@@ -1,5 +1,6 @@
 import type { PdfTable, PdfTableCell } from '@/lib/extraction/pdf/extractTables';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 
 type ExhibitAConfidence = NonNullable<ContractRateScheduleRow['confidence']>;
 
@@ -545,7 +546,7 @@ function normalizedRowKey(row: ContractRateScheduleRow): string {
     row.page != null ? String(row.page) : '',
     row.rate != null ? String(row.rate) : '',
     (row.unit ?? '').toLowerCase(),
-    (row.description ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
+    collapseToAlphanumericTokens(row.description ?? ''),
   ].join('|');
 }
 

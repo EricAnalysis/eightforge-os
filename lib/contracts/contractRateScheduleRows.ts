@@ -462,6 +462,27 @@ function unitFromText(value: string): string | null {
   return normalizeUnit(match?.[1] ?? null);
 }
 
+// rateKey and rateRecoveryKey are intentionally NOT consolidated with
+// normalizedRowKey (exhibitARateTableRows.ts) or dedupeKey
+// (contractPricingAssembly.ts) into one canonical key. All four exist because
+// they serve genuinely different scopes, not because of accidental
+// duplication:
+//   - rateKey / rateRecoveryKey (here): dedupe *within a single Pipeline B
+//     extraction pass* on the raw ContractRateScheduleRow shape, before any
+//     cross-pipeline data even exists.
+//   - normalizedRowKey: dedupe within one Exhibit-A/structural table
+//     extraction call, also on the raw row shape.
+//   - dedupeKey: the only *cross-pipeline, post-assembly* key, operating on
+//     the fully OCR-corrected ContractPricingAssemblyRow (which carries
+//     route/distanceBand fields that don't exist on the raw row at all).
+// Forcing these into one function would mean unifying two different row
+// shapes at two different pipeline stages, which is out of scope here (see
+// the two-pipeline architecture note in buildContractRateScheduleRows).
+// safeLower is already the shared normalization primitive between these two;
+// it deliberately does NOT strip punctuation the way collapseToAlphanumericTokens
+// does, since these keys compare rows within one already-narrow extraction
+// context where punctuation differences are meaningful, unlike the
+// cross-pipeline OCR-noise case dedupeKey has to tolerate.
 function rateKey(row: Pick<ContractRateScheduleRow, 'description' | 'category' | 'unit' | 'rate' | 'page'>): string {
   return [
     safeLower(row.description ?? ''),

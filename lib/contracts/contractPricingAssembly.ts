@@ -1,4 +1,5 @@
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 
 export type ContractPricingAssemblyConfidence = 'high' | 'medium' | 'low' | 'needs_review';
 export type ContractPricingSourceKind =
@@ -22,6 +23,35 @@ export type ContractRateDescriptionDisplayCleanup = {
   stateHint: ContractRateDescriptionStateHint;
 };
 
+// A record of a row that selectOperatorFacingRows discarded in favor of this
+// row at the cross-pipeline merge boundary, so the decision is auditable
+// instead of the loser silently vanishing. Attached to the surviving row.
+//
+// comparisonMethod is always 'content_key' today: a real geometric/coordinate
+// same-cell signal ('geometric', reserved here for that future case) was
+// investigated and found unrecoverable without a much larger extraction-layer
+// rework -- PdfTableRow/PdfTable have no bounding box at all, PdfTableCell's
+// x_min/x_max is dropped by the canonical-assembler adapter before it reaches
+// row construction, and per-pipeline table indices are computed independently
+// so they aren't comparable across pipelines even where geometry does exist.
+// Recording the method explicitly (rather than defaulting to geometric-looking
+// confidence) keeps this honest: every decision today is a content-key match,
+// not a verified same-physical-cell match.
+export type ContractPricingRowMergeComparisonMethod = 'content_key' | 'geometric';
+
+export type ContractPricingRowMergeDiagnostic = {
+  droppedRowId: string;
+  droppedSourceKind: ContractPricingSourceKind | null;
+  droppedSourceAnchor: string | null;
+  droppedRate: number | null;
+  droppedDescription: string;
+  droppedQualityScore: number;
+  winningRowId: string;
+  winningQualityScore: number;
+  reason: 'dedupe_key_collision' | 'trusted_coverage_suppression' | 'trusted_description_slot_suppression';
+  comparisonMethod: ContractPricingRowMergeComparisonMethod;
+};
+
 export type ContractPricingAssemblyRow = {
   id: string;
   category: string | null;
@@ -39,6 +69,7 @@ export type ContractPricingAssemblyRow = {
   sourceKind?: ContractPricingSourceKind;
   sourceQuality?: ContractPricingSourceQuality;
   rawText?: string;
+  mergeDiagnostics?: ContractPricingRowMergeDiagnostic[];
 };
 
 export type ContractPricingAssemblySourceOptions = {
@@ -1359,11 +1390,13 @@ function confidenceFor(params: {
 }
 
 function normalizeDedupeText(value: string | null): string {
-  return normalizeOcrText(value ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // The alphanumeric-collapse tail here is mathematically identical to
+  // collapseToAlphanumericTokens (the [^a-z0-9]+ regex already collapses any
+  // run of non-alphanumeric characters -- including whitespace -- to a single
+  // space, so a separate \s+ collapse pass afterward is a no-op). This just
+  // adds the OCR-correction pass in front, which is specific to post-assembly
+  // rows and not shared with the pre-convergence pipeline-B key functions.
+  return collapseToAlphanumericTokens(normalizeOcrText(value ?? ''));
 }
 
 function dedupeKey(row: ContractPricingAssemblyRow): string {
@@ -1515,27 +1548,82 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
       (left, right) => (sourceOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (sourceOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
     );
   }
+  // Every place below that discards a row in favor of another (the dedupeKey
+  // content-key collision below, and the trusted-coverage/description-slot
+  // suppressions) records why via recordDropped rather than silently
+  // vanishing the loser. This is purely an audit-trail addition: it does not
+  // change which row wins anywhere, so it cannot regress the existing
+  // per-document fixes (e.g. the Williamson $18.80 recovery, which works by
+  // forcing two OCR duplicates to converge on an identical dedupeKey
+  // upstream in recoverKnownExhibitADisplayCorrection) -- those already rely
+  // on dedupeKey collision + rowQualityScore tiebreak exactly as today.
+  const diagnosticsByRow = new Map<ContractPricingAssemblyRow, ContractPricingRowMergeDiagnostic[]>();
+  function recordDropped(
+    winner: ContractPricingAssemblyRow,
+    dropped: ContractPricingAssemblyRow,
+    reason: ContractPricingRowMergeDiagnostic['reason'],
+  ): void {
+    const diagnostic: ContractPricingRowMergeDiagnostic = {
+      droppedRowId: dropped.id,
+      droppedSourceKind: dropped.sourceKind ?? null,
+      droppedSourceAnchor: dropped.sourceAnchor,
+      droppedRate: dropped.rate,
+      droppedDescription: dropped.description,
+      droppedQualityScore: rowQualityScore(dropped),
+      winningRowId: winner.id,
+      winningQualityScore: rowQualityScore(winner),
+      reason,
+      comparisonMethod: 'content_key',
+    };
+    const carriedFromDropped = diagnosticsByRow.get(dropped) ?? [];
+    const existingForWinner = diagnosticsByRow.get(winner) ?? [];
+    diagnosticsByRow.set(winner, [...existingForWinner, ...carriedFromDropped, diagnostic]);
+    diagnosticsByRow.delete(dropped);
+  }
+
   const bestByDedupeKey = new Map<string, ContractPricingAssemblyRow>();
-  const trustedCoverage = new Set(
+  const trustedCoverageRows = new Map(
     rows
       .filter((row) => row.confidence !== 'needs_review' && row.category && row.rate != null && row.page != null)
-      .map(coverageKey),
+      .map((row) => [coverageKey(row), row] as const),
   );
-  const trustedDescriptionSlots = new Set(
+  const trustedDescriptionSlotRows = new Map(
     rows
       .filter((row) => row.confidence !== 'needs_review' && row.category && row.page != null && row.description !== 'Raw row needs review')
-      .map(descriptionSlotKey),
+      .map((row) => [descriptionSlotKey(row), row] as const),
   );
   for (const row of rows) {
     if (!shouldKeepOperatorRow(row)) continue;
     const explicitProfessionalServicesReview =
       row.confidence === 'needs_review' && row.sourceKind === 'professional_services_table';
-    if (!explicitProfessionalServicesReview && row.confidence === 'needs_review' && trustedCoverage.has(coverageKey(row))) continue;
-    if (!explicitProfessionalServicesReview && row.confidence === 'needs_review' && trustedDescriptionSlots.has(descriptionSlotKey(row))) continue;
+    if (!explicitProfessionalServicesReview && row.confidence === 'needs_review') {
+      const trustedCoverageWinner = trustedCoverageRows.get(coverageKey(row));
+      if (trustedCoverageWinner) {
+        recordDropped(trustedCoverageWinner, row, 'trusted_coverage_suppression');
+        continue;
+      }
+      const trustedDescriptionWinner = trustedDescriptionSlotRows.get(descriptionSlotKey(row));
+      if (trustedDescriptionWinner) {
+        recordDropped(trustedDescriptionWinner, row, 'trusted_description_slot_suppression');
+        continue;
+      }
+    }
     const key = dedupeKey(row);
     const existing = bestByDedupeKey.get(key);
-    if (!existing || rowQualityScore(row) > rowQualityScore(existing)) {
+    if (!existing) {
       bestByDedupeKey.set(key, row);
+    } else if (rowQualityScore(row) > rowQualityScore(existing)) {
+      recordDropped(row, existing, 'dedupe_key_collision');
+      bestByDedupeKey.set(key, row);
+    } else {
+      recordDropped(existing, row, 'dedupe_key_collision');
+    }
+  }
+
+  for (const [key, row] of bestByDedupeKey) {
+    const diagnostics = diagnosticsByRow.get(row);
+    if (diagnostics && diagnostics.length > 0) {
+      bestByDedupeKey.set(key, { ...row, mergeDiagnostics: diagnostics });
     }
   }
 

@@ -71,6 +71,31 @@ function contentLayerSourceEntries(payload: Awaited<ReturnType<typeof extractDoc
 }
 
 describe('extractExhibitARateTableRows', () => {
+  it('preserves available PdfTableCell x bounds as optional row geometry refs', () => {
+    const rows = extractExhibitARateTableRows([
+      table({
+        id: 'pdf:table:p8:t1',
+        page: 8,
+        rows: [
+          ['Vegetative Collect, Remove & Haul', 'ROW to DMS 0-15 Miles', 'Cubic Yard', '$27.00'],
+        ],
+      }),
+    ]);
+
+    const row = rows[0];
+    const rateGeometry = row?.geometry_refs?.find((ref) => ref.text === '$27.00')?.geometry;
+    assert.equal(row?.source_anchor_ids[0], 'pdf:table:p8:t1:r1');
+    assert.equal(rateGeometry?.page_number, 8);
+    assert.equal(rateGeometry?.table_id, 'pdf:table:p8:t1');
+    assert.equal(rateGeometry?.row_id, 'pdf:table:p8:t1:r1');
+    assert.equal(rateGeometry?.row_index, 1);
+    assert.equal(rateGeometry?.cell_index, 3);
+    assert.equal(rateGeometry?.x_min, 640);
+    assert.equal(rateGeometry?.x_max, 780);
+    assert.equal(rateGeometry?.source_type, 'ocr_fallback');
+    assert.ok(rateGeometry?.diagnostics?.includes('missing_y_bounds'));
+  });
+
   it('extracts a clean four column Exhibit A table row', () => {
     const [row] = extractExhibitARateTableRows([
       table({
@@ -1242,5 +1267,133 @@ describe('extractExhibitARateTableRows', () => {
     ]);
 
     assert.ok(!JSON.stringify(row).includes('1A'));
+  });
+
+  it('flags a row needs_review instead of silently dropping a same-row sibling line with no discoverable rate (Mechanism 1: over-merge)', () => {
+    const mergedTable: PdfTable = {
+      id: 'pdf:table:p9:t99',
+      page_number: 9,
+      headers: ['Category', 'Description', 'Unit', 'Rate'],
+      header_context: ['EXHIBIT A', 'EMERGENCY DEBRIS REMOVAL UNIT RATES'],
+      confidence: 0.88,
+      rows: [
+        {
+          id: 'pdf:table:p9:t99:r1',
+          page_number: 9,
+          row_index: 1,
+          cells: [
+            { column_index: 0, text: 'Tree Operations', x_min: 100, x_max: 240, source: 'ocr_fallback' },
+            { column_index: 1, text: 'Hazardous Trees 49" trunk diameter', x_min: 280, x_max: 420, source: 'ocr_fallback' },
+            { column_index: 2, text: 'Tree', x_min: 460, x_max: 600, source: 'ocr_fallback' },
+            { column_index: 3, text: '$316.00', x_min: 640, x_max: 780, source: 'ocr_fallback' },
+          ],
+          // Simulates extractTables.ts's appendContinuation merging a second,
+          // rate-less line onto this row's raw_text during OCR row-continuation
+          // -- the exact Williamson page-9 shape, generalized: two logically
+          // distinct line items land on one table row, and the second one's
+          // rate was never recovered by OCR.
+          raw_text:
+            'Tree Operations | Hazardous Trees 49" trunk diameter | Tree | $316.00\nTrees with Hazardous Limbs Hanging Removal',
+          nearby_text: '',
+        },
+      ],
+    };
+
+    const rows = extractExhibitARateTableRows([mergedTable]);
+    const survivor = rows.find((row) => row.rate === 316);
+    assert.ok(survivor, 'the rate-bearing line survives as its own row');
+    assert.equal(
+      survivor?.confidence,
+      'needs_review',
+      'flagged because a sibling line with no rate evidence was found and dropped, not merged or guessed',
+    );
+    assert.match(survivor?.recovery_reason ?? '', /sibling line/i);
+    assert.equal(
+      rows.some((row) => (row.description ?? '').includes('Hazardous Limbs Hanging') && row.rate != null),
+      false,
+      'no row is ever created with a fabricated rate for the dropped sibling line',
+    );
+  });
+
+  it('flags a row needs_review when the rate cell has low OCR engine confidence, without changing the rate value (Mechanism 2)', () => {
+    const lowConfidenceTable: PdfTable = {
+      id: 'pdf:table:p9:t100',
+      page_number: 9,
+      headers: ['Category', 'Description', 'Unit', 'Rate'],
+      header_context: ['EXHIBIT A', 'EMERGENCY DEBRIS REMOVAL UNIT RATES'],
+      confidence: 0.88,
+      rows: [
+        {
+          id: 'pdf:table:p9:t100:r1',
+          page_number: 9,
+          row_index: 1,
+          cells: [
+            { column_index: 0, text: 'Equipment', x_min: 100, x_max: 240, source: 'ocr_fallback' },
+            { column_index: 1, text: 'Bucket Truck', x_min: 280, x_max: 420, source: 'ocr_fallback' },
+            { column_index: 2, text: 'Hour', x_min: 460, x_max: 600, source: 'ocr_fallback' },
+            { column_index: 3, text: '$20.00', x_min: 640, x_max: 780, source: 'ocr_fallback', confidence: 0.42 },
+          ],
+          raw_text: 'Equipment | Bucket Truck | Hour | $20.00',
+          nearby_text: '',
+        },
+      ],
+    };
+
+    const [row] = extractExhibitARateTableRows([lowConfidenceTable]);
+    assert.ok(row, 'the row is surfaced, not dropped');
+    assert.equal(row?.rate, 20, 'the rate value is never fabricated or auto-corrected by the confidence signal');
+    assert.equal(row?.rate_ocr_confidence, 0.42);
+    assert.equal(
+      row?.confidence,
+      'needs_review',
+      'flagged because the rate cell OCR confidence (0.42) is below the reused 0.65 medium-confidence threshold',
+    );
+  });
+
+  it('leaves a high-confidence rate cell unaffected by the new OCR confidence gate (Mechanism 2)', () => {
+    const highConfidenceTable: PdfTable = {
+      id: 'pdf:table:p9:t101',
+      page_number: 9,
+      headers: ['Category', 'Description', 'Unit', 'Rate'],
+      header_context: ['EXHIBIT A', 'EMERGENCY DEBRIS REMOVAL UNIT RATES'],
+      confidence: 0.88,
+      rows: [
+        {
+          id: 'pdf:table:p9:t101:r1',
+          page_number: 9,
+          row_index: 1,
+          cells: [
+            { column_index: 0, text: 'Equipment', x_min: 100, x_max: 240, source: 'ocr_fallback' },
+            { column_index: 1, text: 'Bucket Truck', x_min: 280, x_max: 420, source: 'ocr_fallback' },
+            { column_index: 2, text: 'Hour', x_min: 460, x_max: 600, source: 'ocr_fallback' },
+            { column_index: 3, text: '$200.00', x_min: 640, x_max: 780, source: 'ocr_fallback', confidence: 0.97 },
+          ],
+          raw_text: 'Equipment | Bucket Truck | Hour | $200.00',
+          nearby_text: '',
+        },
+      ],
+    };
+
+    const [row] = extractExhibitARateTableRows([highConfidenceTable]);
+    assert.ok(row);
+    assert.equal(row?.rate, 200);
+    assert.equal(row?.rate_ocr_confidence, 0.97);
+    assert.notEqual(row?.confidence, 'needs_review');
+  });
+
+  it('keeps an ambiguous multi-rate cell as needs_review with no guessed rate (Mechanism 1: incomplete/under-merged row, pre-existing invariant)', () => {
+    const ambiguousTable = table({
+      page: 9,
+      rows: [
+        ['Tree Operations', 'Hazardous Trees 6 to 12 inch trunk', 'Tree', '$95.00'],
+        ['Tree Operations', 'Hazardous Stump Removal 24 inch up', 'Stump', '$150.00 $185.00'],
+      ],
+    });
+
+    const rows = extractExhibitARateTableRows([ambiguousTable]);
+    const ambiguous = rows.find((row) => row.unit === 'Stump');
+    assert.ok(ambiguous, 'the row is surfaced for review rather than silently vanishing');
+    assert.equal(ambiguous?.rate, null, 'no rate is guessed when multiple competing values are present in the cell');
+    assert.equal(ambiguous?.confidence, 'needs_review');
   });
 });

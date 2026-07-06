@@ -11,6 +11,12 @@ export interface PdfToken {
   width: number;
   height: number;
   source?: 'pdfjs' | 'ocr_fallback';
+  // OCR engine recognition confidence for this token, normalized to 0-1 (the
+  // codebase's existing confidence scale, e.g. documentIntelligenceViewModel.ts's
+  // 0.85/0.65 high/medium boundaries). Only populated for ocr_fallback tokens
+  // sourced from Tesseract word-level output (see ocrGeometryLayout.ts);
+  // undefined for native pdfjs text, which has no per-character OCR confidence.
+  confidence?: number | null;
 }
 
 export interface PdfLayoutLine {

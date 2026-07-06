@@ -8,6 +8,10 @@ export interface PdfTableCell {
   x_min?: number;
   x_max?: number;
   source?: 'pdfjs' | 'ocr_fallback' | 'vision';
+  // Average OCR engine confidence (0-1) across this cell's constituent
+  // tokens; null/undefined when the cell has no ocr_fallback tokens (native
+  // pdfjs text) or none carried a confidence value. See PdfToken.confidence.
+  confidence?: number | null;
 }
 
 export interface PdfTableRow {
@@ -78,6 +82,14 @@ function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
   };
 }
 
+function averageTokenConfidence(tokens: readonly PdfToken[]): number | null {
+  const values = tokens
+    .map((token) => token.confidence)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function splitIntoCells(line: PdfLayoutLine): PdfTableCell[] {
   if (line.tokens.length === 0) return [];
   const cells: PdfTableCell[] = [];
@@ -94,6 +106,7 @@ function splitIntoCells(line: PdfLayoutLine): PdfTableCell[] {
       source: tokens.some((token) => token.source === 'ocr_fallback') || line.source === 'ocr_fallback'
         ? 'ocr_fallback'
         : 'pdfjs',
+      confidence: averageTokenConfidence(tokens),
     };
   };
 
@@ -127,6 +140,7 @@ function tokenCells(line: PdfLayoutLine): PdfTableCell[] {
       x_min: token.x,
       x_max: token.x + token.width,
       source: token.source === 'ocr_fallback' || line.source === 'ocr_fallback' ? 'ocr_fallback' as const : 'pdfjs' as const,
+      confidence: averageTokenConfidence([token]),
     }))
     .filter((cell) => cell.text.length > 0);
 }

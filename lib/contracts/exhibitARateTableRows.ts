@@ -1,6 +1,8 @@
 import type { PdfTable, PdfTableCell } from '@/lib/extraction/pdf/extractTables';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
+import { buildTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 
 type ExhibitAConfidence = NonNullable<ContractRateScheduleRow['confidence']>;
 
@@ -11,12 +13,14 @@ type ParsedExhibitRow = {
   rate: number | null;
   rateRaw: string | null;
   confidence: ExhibitAConfidence;
+  rateCellConfidence: number | null;
 };
 
 type RowVariant = {
   idSuffix: string;
   cells: Array<{ text: string; column_index: number }>;
   rawText: string;
+  segmentationSuspect?: boolean;
 };
 
 type ContextHint = {
@@ -39,14 +43,13 @@ const CATEGORY_ALIASES: Array<[RegExp, string]> = [
 ];
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return collapseWhitespace(value);
 }
 
 function cleanText(value: string | null | undefined): string | null {
   if (!value) return null;
   const cleaned = normalizeWhitespace(
-    value
-      .replace(/[\u2013\u2014]/g, '-')
+    normalizeDashCharacters(value)
       .replace(/_{2,}/g, ' ')
       .replace(/[{}<>]+/g, ' ')
       .replace(/\bROWtoDMS\b/gi, 'ROW to DMS')
@@ -115,8 +118,9 @@ function normalizeSuspiciousRate(params: {
   page: number;
   rateRaw: string | null;
   rawText: string;
+  rateOcrConfidence?: number | null;
 }): { rate: number | null; confidence: ExhibitAConfidence | null; suppress: boolean } {
-  const { rate, category, page, rateRaw, rawText } = params;
+  const { rate, category, page, rateRaw, rawText, rateOcrConfidence } = params;
   if (rate == null) return { rate, confidence: null, suppress: false };
 
   const combined = `${rateRaw ?? ''} ${rawText}`;
@@ -157,6 +161,15 @@ function normalizeSuspiciousRate(params: {
     && rate >= 10000
   ) {
     return { rate: Number((rate / 100).toFixed(2)), confidence: 'needs_review', suppress: false };
+  }
+
+  // None of the digit-shift correction patterns matched, so the rate is left
+  // exactly as extracted -- but if independent OCR engine confidence for the
+  // rate cell was already low, that uncertainty deserves surfacing even
+  // without a specific known-corruption pattern to match against. This never
+  // changes the rate value, only sharpens the confidence label.
+  if (rateOcrConfidence != null && rateOcrConfidence < 0.65) {
+    return { rate, confidence: 'needs_review', suppress: false };
   }
 
   return { rate, confidence: null, suppress: false };
@@ -363,16 +376,22 @@ function parsePipeRow(text: string): ParsedExhibitRow | null {
       rateTokens.length > 1 || !category || !description || !unit || (rate == null && !hasPassthrough)
         ? 'needs_review'
         : 'medium',
+    // parsePipeRow works on plain text columns (a raw string split on '|'),
+    // with no PdfTableCell object to read OCR confidence from.
+    rateCellConfidence: null,
   };
 }
 
 function parseCells(
-  cells: Array<{ text: string; column_index: number }>,
+  cells: Array<{ text: string; column_index: number; confidence?: number | null }>,
   inheritedCategory: string | null,
   pageNumber: number,
 ): ParsedExhibitRow | null {
   const ordered = [...cells].sort((left, right) => left.column_index - right.column_index);
-  const rawCells = ordered.map((cell) => cleanText(cell.text)).filter((cell): cell is string => Boolean(cell));
+  const orderedWithText = ordered
+    .map((cell) => ({ cell, cleaned: cleanText(cell.text) }))
+    .filter((entry): entry is { cell: typeof ordered[number]; cleaned: string } => Boolean(entry.cleaned));
+  const rawCells = orderedWithText.map((entry) => entry.cleaned);
   if (rawCells.length === 0) return null;
   const rawText = rawCells.join(' | ');
   const piped = parsePipeRow(rawText);
@@ -384,6 +403,7 @@ function parseCells(
   const rateCandidate = rateCandidateIndexes.at(-1);
   const rateCell = rateCandidate?.cell ?? rawCells.at(-1) ?? '';
   const rateIndex = rateCandidate?.index ?? rawCells.length - 1;
+  const rateCellConfidence = orderedWithText[rateIndex]?.cell.confidence ?? null;
   const rateTokens = moneyTokens(rateCell);
   const hasPassthrough = hasPassthroughRate(rateCell);
   const rate = parseRateCell(rateCell);
@@ -470,6 +490,7 @@ function parseCells(
     rate,
     rateRaw: cleanText(rateCell),
     confidence,
+    rateCellConfidence,
   };
 }
 
@@ -522,10 +543,13 @@ function rowVariants(row: PdfTable['rows'][number]): RowVariant[] {
     return [{ idSuffix: '', cells: row.cells, rawText: row.raw_text }];
   }
 
+  const segmentationSuspect = rateLines.length < lines.length;
+
   return rateLines.map(({ line, index }) => ({
     idSuffix: `:v${index + 1}`,
     cells: [{ column_index: 0, text: line }],
     rawText: line,
+    segmentationSuspect,
   }));
 }
 
@@ -560,6 +584,24 @@ function dedupeRows(rows: ContractRateScheduleRow[]): ContractRateScheduleRow[] 
     }
   }
   return [...byKey.values()];
+}
+
+function geometryRefsForRow(table: PdfTable, row: PdfTable['rows'][number]): GeometryCellRef[] {
+  return row.cells.map((cell) => ({
+    text: cell.text,
+    geometry: buildTableCellGeometry({
+      page_number: row.page_number ?? table.page_number,
+      table_id: table.id,
+      row_id: row.id,
+      row_index: row.row_index,
+      cell_index: cell.column_index,
+      text: cell.text,
+      x_min: cell.x_min,
+      x_max: cell.x_max,
+      source_type: cell.source,
+      anchor_id: row.id,
+    }),
+  }));
 }
 
 export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null | undefined): ContractRateScheduleRow[] {
@@ -606,9 +648,12 @@ export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null 
           page: row.page_number ?? table.page_number,
           rateRaw,
           rawText: rowText,
+          rateOcrConfidence: parsed.rateCellConfidence,
         });
         if (rateQuality.suppress) continue;
-        const confidence = rateQuality.confidence ?? parsed.confidence;
+        const confidence: ExhibitAConfidence = variant.segmentationSuspect
+          ? 'needs_review'
+          : rateQuality.confidence ?? parsed.confidence;
         rows.push({
           row_id: `exhibit_a_table:${row.id}${variant.idSuffix}`,
           description,
@@ -626,8 +671,13 @@ export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null 
           rate_amount: rateQuality.rate,
           source_kind: 'exhibit_a_table',
           confidence,
+          recovery_reason: variant.segmentationSuspect
+            ? 'A sibling line in this table row had no discoverable rate and was dropped rather than merged or guessed; flagged for review since this row may be incomplete.'
+            : undefined,
           raw_cells: row.cells.map((cell: PdfTableCell) => cell.text),
           raw_text: rowText,
+          geometry_refs: geometryRefsForRow(table, row),
+          rate_ocr_confidence: parsed.rateCellConfidence,
         });
       }
     }
@@ -675,6 +725,7 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
       if (!description) continue;
 
       const sourceAnchorIds = [row.id, table.id].filter((value): value is string => Boolean(value));
+      const rateCellConfidence = cells[3]?.confidence ?? null;
       rows.push({
         row_id: `structural_table:${row.id}`,
         description,
@@ -692,9 +743,11 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
         unit_type: unitCell,
         rate_amount: rate,
         source_kind: 'structural_table',
-        confidence: 'medium',
+        confidence: rateCellConfidence != null && rateCellConfidence < 0.65 ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PdfTableCell) => cell.text),
         raw_text: row.raw_text,
+        geometry_refs: geometryRefsForRow(table, row),
+        rate_ocr_confidence: rateCellConfidence,
       });
     }
   }

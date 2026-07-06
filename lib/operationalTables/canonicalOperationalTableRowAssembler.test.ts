@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  buildTableCellGeometry,
+  type TableCellGeometry,
+} from '@/lib/extraction/tableGeometry';
+import {
   assembleCanonicalOperationalTableRows,
   type CanonicalOperationalTableRow,
   type OperationalTableFragment,
@@ -16,6 +20,7 @@ function frag(params: {
   candidate?: unknown;
   hint?: string;
   source?: OperationalTableFragment['source'];
+  geometry?: TableCellGeometry;
 }): OperationalTableFragment {
   return {
     cell_text: params.text,
@@ -26,6 +31,7 @@ function frag(params: {
     candidate_value: params.candidate,
     extractor_hint: params.hint,
     source: params.source,
+    geometry: params.geometry,
   };
 }
 
@@ -109,6 +115,37 @@ const williamsonFragments: OperationalTableFragment[] = [
 ];
 
 describe('canonicalOperationalTableRowAssembler', () => {
+  it('preserves page/table/row/cell geometry in evidence refs and raw fragments', () => {
+    const geometry = buildTableCellGeometry({
+      page_number: 8,
+      table_id: 'pdf:table:p8:t1',
+      row_id: 'pdf:table:p8:t1:r1',
+      row_index: 1,
+      cell_index: 3,
+      text: '$27.00',
+      x_min: 620,
+      x_max: 690,
+      source_type: 'ocr_fallback',
+      anchor_id: 'pdf:table:p8:t1:r1',
+    });
+
+    const result = assembleContractRows([
+      frag({ row: 1, cell: 0, table: 'pdf:table:p8:t1', page: 8, text: 'Vegetative', hint: 'category' }),
+      frag({ row: 1, cell: 1, table: 'pdf:table:p8:t1', page: 8, text: 'Loading and Hauling Vegetative Debris', hint: 'description' }),
+      frag({ row: 1, cell: 2, table: 'pdf:table:p8:t1', page: 8, text: 'CY', hint: 'unit' }),
+      frag({ row: 1, cell: 3, table: 'pdf:table:p8:t1', page: 8, text: '$27.00', hint: 'unit_price', source: 'ocr_fallback', geometry }),
+    ]);
+
+    const row = result.rows[0];
+    const rateEvidence = row?.evidence_refs.find((ref) => ref.field_assigned === 'unit_price');
+    assert.equal(rateEvidence?.geometry?.x_min, 620);
+    assert.equal(rateEvidence?.geometry?.x_max, 690);
+    assert.equal(rateEvidence?.geometry?.table_id, 'pdf:table:p8:t1');
+    assert.equal(rateEvidence?.geometry?.row_id, 'pdf:table:p8:t1:r1');
+    assert.equal(rateEvidence?.geometry?.cell_index, 3);
+    assert.equal(row?.raw_fragments.find((fragment) => fragment.cell_text === '$27.00')?.geometry?.x_max, 690);
+  });
+
   it('assembles all 6 Williamson 2026-002 rows exactly', () => {
     const result = assemble(williamsonFragments);
 

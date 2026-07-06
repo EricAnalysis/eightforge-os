@@ -95,6 +95,59 @@ describe('contractRateScheduleFragmentAdapter', () => {
         { text: '$12.50', cell: 3, row: 3, table: 'exhibit-a', page: 7 },
       ],
     );
+    assert.deepEqual(
+      result.fragments.map((fragment) => ({
+        table: fragment.geometry?.table_id,
+        row: fragment.geometry?.row_index,
+        cell: fragment.geometry?.cell_index,
+        xMin: fragment.geometry?.x_min,
+        xMax: fragment.geometry?.x_max,
+        diagnostics: fragment.geometry?.diagnostics,
+      })),
+      [
+        { table: 'exhibit-a', row: 3, cell: 0, xMin: null, xMax: null, diagnostics: ['missing_x_bounds', 'missing_y_bounds', 'insufficient_geometry_for_same_cell'] },
+        { table: 'exhibit-a', row: 3, cell: 1, xMin: null, xMax: null, diagnostics: ['missing_x_bounds', 'missing_y_bounds', 'insufficient_geometry_for_same_cell'] },
+        { table: 'exhibit-a', row: 3, cell: 2, xMin: null, xMax: null, diagnostics: ['missing_x_bounds', 'missing_y_bounds', 'insufficient_geometry_for_same_cell'] },
+        { table: 'exhibit-a', row: 3, cell: 3, xMin: null, xMax: null, diagnostics: ['missing_x_bounds', 'missing_y_bounds', 'insufficient_geometry_for_same_cell'] },
+      ],
+    );
+  });
+
+  it('preserves PdfTableCell x bounds into operational fragment geometry', () => {
+    const result = adaptContractRateScheduleFragments({
+      document_id: 'contract-1',
+      source_family: 'contract',
+      schedule_kind: 'unit_rate',
+      tables: [
+        table({
+          id: 'pdf:table:p2:t3',
+          page: 2,
+          rows: [
+            {
+              row: 1,
+              cells: [
+                { text: 'Loading and Hauling Vegetative Debris', source: 'ocr_fallback', x_min: 100, x_max: 260 },
+                { text: 'CY', source: 'ocr_fallback', x_min: 300, x_max: 340 },
+                { text: 'ROW to DMS', source: 'ocr_fallback', x_min: 390, x_max: 530 },
+                { text: '$27.00', source: 'ocr_fallback', x_min: 620, x_max: 690 },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+
+    const rate = result.fragments.find((fragment) => fragment.cell_text === '$27.00');
+    assert.equal(rate?.geometry?.page_number, 2);
+    assert.equal(rate?.geometry?.table_id, 'pdf:table:p2:t3');
+    assert.equal(rate?.geometry?.row_id, 'pdf:table:p2:t3-r1');
+    assert.equal(rate?.geometry?.row_index, 1);
+    assert.equal(rate?.geometry?.cell_index, 3);
+    assert.equal(rate?.geometry?.x_min, 620);
+    assert.equal(rate?.geometry?.x_max, 690);
+    assert.equal(rate?.geometry?.width, 70);
+    assert.equal(rate?.geometry?.source_type, 'ocr_fallback');
+    assert.ok(rate?.geometry?.diagnostics?.includes('missing_y_bounds'));
   });
 
   it('adds header-derived hints only', () => {

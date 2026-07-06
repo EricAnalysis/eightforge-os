@@ -1,4 +1,5 @@
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { buildTableCellGeometry } from '@/lib/extraction/tableGeometry';
 import type { OperationalTableFragment } from '@/lib/operationalTables/canonicalOperationalTableRowAssembler';
 
 export type ContractRateScheduleSourceFamily = 'contract' | 'price_sheet';
@@ -127,6 +128,25 @@ function unitValue(value: string): string | null {
   return match?.[0] ?? null;
 }
 
+function geometryForCell(params: {
+  table: PdfTable;
+  row: PdfTable['rows'][number];
+  cell: PdfTable['rows'][number]['cells'][number];
+}) {
+  return buildTableCellGeometry({
+    page_number: params.row.page_number ?? params.table.page_number,
+    table_id: params.table.id,
+    row_id: params.row.id,
+    row_index: params.row.row_index,
+    cell_index: params.cell.column_index,
+    text: params.cell.text,
+    x_min: params.cell.x_min,
+    x_max: params.cell.x_max,
+    source_type: params.cell.source,
+    anchor_id: params.row.id,
+  });
+}
+
 function mixedOcrFragments(params: {
   cell: PdfTable['rows'][number]['cells'][number];
   row: PdfTable['rows'][number];
@@ -143,7 +163,8 @@ function mixedOcrFragments(params: {
     table_key: params.table.id,
     page_number: params.row.page_number ?? params.table.page_number,
     source: params.cell.source,
-  } satisfies Pick<OperationalTableFragment, 'cell_index' | 'row_index' | 'table_key' | 'page_number' | 'source'>;
+    geometry: geometryForCell(params),
+  } satisfies Pick<OperationalTableFragment, 'cell_index' | 'row_index' | 'table_key' | 'page_number' | 'source' | 'geometry'>;
   const fragments: OperationalTableFragment[] = [];
   const descriptionText = params.cell.text
     .replace(/[$Â§]\s*[\d,]+(?:\.\d{1,2})?/g, ' ')
@@ -239,6 +260,7 @@ export function adaptContractRateScheduleFragments(
           table_key: table.id,
           page_number: row.page_number ?? table.page_number,
           source: cell.source,
+          geometry: geometryForCell({ table, row, cell }),
           extractor_hint: extractorHint,
         });
       }

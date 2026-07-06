@@ -1,3 +1,5 @@
+import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+
 export const LANGUAGE_ENGINE_FIELDS_VERSION_V1 = 'language_engine_fields:v1';
 export const CLAUSE_PATTERN_LIBRARY_VERSION_V1 = 'clause_pattern_library:v1';
 export const COVERAGE_LIBRARY_VERSION_V1 = 'coverage_library:v1';
@@ -220,6 +222,14 @@ export interface ContractRateScheduleRow {
   confidence?: 'high' | 'medium' | 'needs_review';
   raw_cells?: string[];
   raw_text?: string;
+  geometry_refs?: GeometryCellRef[];
+  // OCR engine recognition confidence (0-1) for the rate cell specifically,
+  // when the rate was extracted from an ocr_fallback (Tesseract) table cell.
+  // Null/undefined when the rate came from native pdfjs text or a source
+  // with no per-token OCR confidence available (e.g. multi-line text-recovery
+  // variants). Never used to auto-correct or suppress a rate -- only to gate
+  // a needs_review flag when independently low.
+  rate_ocr_confidence?: number | null;
   recovery_reason?: string;
   category_requires_review?: boolean;
   category_resolution_status?: 'resolved' | 'requires_review' | string;

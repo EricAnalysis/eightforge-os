@@ -1,5 +1,7 @@
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
+import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 
 export type ContractPricingAssemblyConfidence = 'high' | 'medium' | 'low' | 'needs_review';
 export type ContractPricingSourceKind =
@@ -21,6 +23,7 @@ export type ContractRateDescriptionDisplayCleanup = {
   displayDescription: string;
   descriptionQuality: ContractRateDescriptionDisplayQuality;
   stateHint: ContractRateDescriptionStateHint;
+  viaTokenRejoinFallback: boolean;
 };
 
 // A record of a row that selectOperatorFacingRows discarded in favor of this
@@ -69,6 +72,7 @@ export type ContractPricingAssemblyRow = {
   sourceKind?: ContractPricingSourceKind;
   sourceQuality?: ContractPricingSourceQuality;
   rawText?: string;
+  geometryRefs?: GeometryCellRef[];
   mergeDiagnostics?: ContractPricingRowMergeDiagnostic[];
 };
 
@@ -237,8 +241,7 @@ export function formatContractPricingRate(value: number | null): string {
 }
 
 function normalizeOcrText(value: string): string {
-  return value
-    .replace(/[\u2013\u2014]/g, '-')
+  return normalizeDashCharacters(value)
     .replace(/\u2192/g, ' to ')
     .replace(/\bMilesfrom\b/gi, 'Miles from')
     .replace(/\bMilesftom\b/gi, 'Miles from')
@@ -766,6 +769,113 @@ function recoverDescriptionByCategory(params: {
   }
 }
 
+// Mechanism 3: category-item descriptions inside recoveryPersonnelDescription/
+// recoveryEquipmentDescription/recoverySpecialtyDescription assume unsplit
+// tokens (e.g. "bucket truck", "hydraulic excavator"). When OCR drops a
+// character such that a word gets tokenized as a longer fragment abutting a
+// short 1-2 character residue (the same shape as the already-handled "Crew
+// Forém" -> "for"+"m" case), direct matching against the original text can
+// fail entirely with no signal that anything was lost.
+//
+// This is a retry-ONLY fallback: it never runs before or instead of
+// recoverDescriptionByCategory, and it never modifies any of the ~70 existing
+// patterns above. It generates candidate re-joined text variants (merging one
+// suspicious adjacent token pair at a time) and re-tests them against the
+// exact same, unmodified recovery functions. A candidate only counts if the
+// resulting description is in that category's explicit multiword-anchor
+// allowlist below -- built from a manual audit of every branch in the three
+// recovery functions, so bare single-word aliases (e.g. "Equipment",
+// "Personnel", "dozer", "supervisor", "foreman", "clerical") can never be
+// reached via this path, per the false-positive lesson from Mechanism 1
+// (a single common word appearing incidentally inside an unrelated
+// description, like "Equipment" inside "Equipment Operator", is not a safe
+// signal to rejoin-and-match on).
+const TOKEN_REJOIN_ELIGIBLE_DESCRIPTIONS: Partial<Record<AllowedCategory, ReadonlySet<string>>> = {
+  Personnel: new Set([
+    'Truck Driver',
+    'Equipment Operator',
+    'Traffic Control',
+    'Laborer with Chain Saw',
+  ]),
+  Equipment: new Set([
+    '3.0 to 4.0 Cu. Yd. Articulated Loader with bucket',
+    'Tub Grinder 800 to 1,000 HP',
+    'Bucket Truck with 50 to 60 foot Arm',
+    'Bucket Truck',
+    'CAT D6 Dozer Tow',
+    'CAT Front End Dozer Loader',
+    'Trackhoe with Bucket and Thumb',
+    'Trackhoe with debris grapple',
+    'Rubber Tire Backhoe',
+    'Rubber Tired Excavator with Debris Grapple',
+    'Self Loader Scraper',
+    'Water Truck',
+    'Air-Curtain Incinerator-Self Contained System',
+    'Generator with Lighting',
+    'Self-loading Barge 30 to 45 ft',
+    '210 Prentiss Knuckle-boom with debris grapple',
+    'Marsh Buggy, Low Impact Excavator',
+    'Dump Self-loading Truck',
+    'Trailer Dump Truck',
+    'Dump Truck, 21-40 Cu. Yd. Capacity',
+    'Dump Truck',
+    'Motor Grader with 12 foot Blade - CAT125 or equivalent',
+    'Hydraulic Excavator',
+    'Marsh Buggy',
+    'Pickup Truck',
+  ]),
+  'Specialty Removal': new Set([
+    'White Goods in ROW',
+    'White Goods',
+    'Snow Removal Facilities',
+    'Snow Removal ROW',
+    'Vehicle Removal (if applicable/allowed)',
+    'Demolition of Private Structure',
+  ]),
+};
+
+function tokenRejoinCandidates(rawText: string): string[] {
+  const tokens = normalizedText(rawText).split(/\s+/).filter(Boolean);
+  const candidates: string[] = [];
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    const current = tokens[index];
+    const next = tokens[index + 1];
+    if (
+      current.length >= 3 &&
+      next.length > 0 &&
+      next.length <= 2 &&
+      /^[a-z]+$/i.test(current) &&
+      /^[a-z]+$/i.test(next)
+    ) {
+      const merged = [...tokens];
+      merged.splice(index, 2, `${current}${next}`);
+      candidates.push(merged.join(' '));
+    }
+  }
+  return candidates;
+}
+
+function recoverDescriptionByCategoryWithFallback(params: {
+  category: string | null;
+  rawText: string;
+  route: string | null;
+  distance: string | null;
+}): { description: string | null; viaTokenRejoinFallback: boolean } {
+  const direct = recoverDescriptionByCategory(params);
+  if (direct) return { description: direct, viaTokenRejoinFallback: false };
+
+  const eligible = TOKEN_REJOIN_ELIGIBLE_DESCRIPTIONS[params.category as AllowedCategory];
+  if (!eligible) return { description: null, viaTokenRejoinFallback: false };
+
+  for (const candidateText of tokenRejoinCandidates(params.rawText)) {
+    const retried = recoverDescriptionByCategory({ ...params, rawText: candidateText });
+    if (retried && eligible.has(retried)) {
+      return { description: retried, viaTokenRejoinFallback: true };
+    }
+  }
+  return { description: null, viaTokenRejoinFallback: false };
+}
+
 function displayHasLeakedPricingTokens(value: string): boolean {
   const text = normalizedText(value);
   return (
@@ -1260,6 +1370,7 @@ export function cleanContractRateDescriptionForDisplay(params: {
       displayDescription: cleanDescriptionColumn(sourceDescription),
       descriptionQuality: 'clean',
       stateHint: 'derived',
+      viaTokenRejoinFallback: false,
     };
   }
   if (
@@ -1271,18 +1382,21 @@ export function cleanContractRateDescriptionForDisplay(params: {
       displayDescription: 'Raw row needs review',
       descriptionQuality: 'damaged',
       stateHint: 'needs_review',
+      viaTokenRejoinFallback: false,
     };
   }
   const route = categoryAllowsRouteDistance(category) ? detectRoute(combinedText) : null;
   const distance = categoryAllowsRouteDistance(category)
     ? detectDistance(combinedText).value
     : null;
-  const recoveredDescription = recoverDescriptionByCategory({
+  const recoveryResult = recoverDescriptionByCategoryWithFallback({
     category,
     rawText: combinedText,
     route,
     distance,
   });
+  const recoveredDescription = recoveryResult.description;
+  const recoveredViaTokenRejoinFallback = recoveryResult.viaTokenRejoinFallback;
   const builtDescription = buildCleanDescription({
     category,
     sourceDescription: sourceDescription || rawText,
@@ -1330,6 +1444,7 @@ export function cleanContractRateDescriptionForDisplay(params: {
       displayDescription: 'Raw row needs review',
       descriptionQuality: 'damaged',
       stateHint: 'needs_review',
+      viaTokenRejoinFallback: false,
     };
   }
 
@@ -1342,6 +1457,7 @@ export function cleanContractRateDescriptionForDisplay(params: {
       displayDescription: 'Raw row needs review',
       descriptionQuality,
       stateHint: 'needs_review',
+      viaTokenRejoinFallback: false,
     };
   }
 
@@ -1350,6 +1466,7 @@ export function cleanContractRateDescriptionForDisplay(params: {
       displayDescription: 'Raw row needs review',
       descriptionQuality: 'damaged',
       stateHint: 'needs_review',
+      viaTokenRejoinFallback: false,
     };
   }
 
@@ -1362,6 +1479,14 @@ export function cleanContractRateDescriptionForDisplay(params: {
     displayDescription,
     descriptionQuality,
     stateHint,
+    // Distinct from stateHint: 'needs_review' means "the description could
+    // not be resolved at all, blank it out" downstream (see the call site's
+    // displayCleanup.stateHint === 'needs_review' branch). This flag means
+    // the opposite -- the description WAS resolved, via the token-rejoin
+    // retry rather than a direct match -- so it must stay visible but the
+    // row's overall confidence gets downgraded by the caller instead of the
+    // description being discarded.
+    viaTokenRejoinFallback: recovered && recoveredViaTokenRejoinFallback,
   };
 }
 
@@ -1763,6 +1888,33 @@ function rawTextFromCanonical(record: Record<string, unknown>): string | null {
     .join(' | ') || null;
 }
 
+function geometryRefsFromRecord(record: Record<string, unknown>): GeometryCellRef[] | undefined {
+  const directRefs = Array.isArray(record.geometry_refs) ? record.geometry_refs : [];
+  const refs: GeometryCellRef[] = directRefs
+    .map((value) => asRecord(value))
+    .filter((value): value is Record<string, unknown> => value != null)
+    .map((value) => {
+      const text = stringFromRecord(value, ['text']);
+      const geometry = asRecord(value.geometry);
+      return text && geometry
+        ? { text, geometry: geometry as GeometryCellRef['geometry'] }
+        : null;
+    })
+    .filter((value): value is GeometryCellRef => value != null);
+
+  const evidenceRefs = Array.isArray(record.evidence_refs) ? record.evidence_refs : [];
+  for (const ref of evidenceRefs) {
+    const refRecord = asRecord(ref);
+    const geometry = asRecord(refRecord?.geometry);
+    const text = refRecord ? stringFromRecord(refRecord, ['raw_text']) ?? stringFromRecord(geometry ?? {}, ['text']) : null;
+    if (geometry && text) {
+      refs.push({ text, geometry: geometry as GeometryCellRef['geometry'] });
+    }
+  }
+
+  return refs.length > 0 ? refs : undefined;
+}
+
 function canonicalRowsToRateRows(rows: readonly unknown[] | null | undefined): ContractRateScheduleRow[] {
   if (!Array.isArray(rows)) return [];
   return rows
@@ -1788,6 +1940,7 @@ function canonicalRowsToRateRows(rows: readonly unknown[] | null | undefined): C
         material_type: stringFromRecord(record, ['category', 'material']),
         unit_type: stringFromRecord(record, ['unit']),
         rate_amount: numberFromRecord(record, ['unit_price', 'rate', 'rate_amount']),
+        geometry_refs: geometryRefsFromRecord(record),
       };
     })
     .filter((row): row is ContractRateScheduleRow => row != null);
@@ -1821,6 +1974,7 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
         material_type: category,
         unit_type: unit,
         rate_amount: rate,
+        geometry_refs: geometryRefsFromRecord(record),
       };
     })
     .filter((row): row is ContractRateScheduleRow => row != null);
@@ -1982,6 +2136,14 @@ export function assembleContractPricingRows(
         description = 'Raw row needs review';
         confidence = 'needs_review';
       }
+      // Mechanism 3: the description WAS resolved (via the token-rejoin retry,
+      // not a direct match), so it stays visible -- unlike the needs_review
+      // branches above, this never blanks description to 'Raw row needs
+      // review'. It only ever downgrades confidence, flagging the row as
+      // lower-trust than a direct-match recovery.
+      if (!preserveStitchedTdotRow && displayCleanup.viaTokenRejoinFallback) {
+        confidence = 'needs_review';
+      }
       const cleanedSourceQuality = scoreContractPricingRowSourceQuality({
         description,
         category,
@@ -2016,6 +2178,7 @@ export function assembleContractPricingRows(
         sourceKind,
         sourceQuality,
         rawText: rawText || undefined,
+        geometryRefs: row.geometry_refs,
       };
     })
     .filter((row): row is ContractPricingAssemblyRow => row != null);

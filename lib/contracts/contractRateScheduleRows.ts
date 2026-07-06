@@ -1,11 +1,13 @@
 import type { ContractRateScheduleRow } from './types';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
+import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
   extractCleanStructuralRateRows,
   extractExhibitARateTableRows,
 } from '@/lib/contracts/exhibitARateTableRows';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
+import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 
 type ContractRateScheduleSourceEntry = {
   id?: string | null;
@@ -374,7 +376,7 @@ const EXHIBIT_A_TEXT_RECOVERY_SPECS: readonly ExhibitATextRecoverySpec[] = [
 ] as const;
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return collapseWhitespace(value);
 }
 
 function safeLower(value: string): string {
@@ -383,8 +385,7 @@ function safeLower(value: string): string {
 
 function normalizeSearchText(value: string): string {
   return normalizeWhitespace(
-    value
-      .replace(/[\u2013\u2014]/g, '-')
+    normalizeDashCharacters(value)
       .replace(/[|[\]{}]+/g, ' '),
   );
 }
@@ -430,7 +431,9 @@ function readNumber(
 
 function normalizeUnit(value: string | null): string | null {
   if (!value) return null;
-  return normalizeWhitespace(value).toLowerCase();
+  // Identical body to safeLower -- delegates directly rather than
+  // reimplementing the same whitespace-collapse + lowercase.
+  return safeLower(value);
 }
 
 function splitLineColumns(line: string): string[] {
@@ -1166,6 +1169,7 @@ function buildStructuredRow(params: {
   rateRaw: string | null;
   page: number | null;
   sourceAnchorIds: readonly string[];
+  geometryRefs?: GeometryCellRef[];
 }): ContractRateScheduleRow | null {
   const description = params.description ? normalizeWhitespace(params.description) : null;
   const category = params.category ? normalizeWhitespace(params.category) : null;
@@ -1202,6 +1206,7 @@ function buildStructuredRow(params: {
     material_type: category,
     unit_type: unit,
     rate_amount: params.rate,
+    geometry_refs: params.geometryRefs,
   };
 }
 
@@ -1324,6 +1329,42 @@ function canonicalRateScheduleConfidence(value: unknown): ContractRateScheduleRo
   return undefined;
 }
 
+function geometryRefsFromCanonical(record: Record<string, unknown>): GeometryCellRef[] | undefined {
+  const refs: GeometryCellRef[] = [];
+  const evidenceRefs = Array.isArray(record.evidence_refs) ? record.evidence_refs : [];
+  for (const ref of evidenceRefs) {
+    const evidenceRecord = asRecord(ref);
+    const geometry = asRecord(evidenceRecord?.geometry);
+    const text = readString(evidenceRecord ?? {}, ['raw_text']) ?? readString(geometry ?? {}, ['text']);
+    if (!geometry || !text) continue;
+    refs.push({
+      text,
+      geometry: geometry as GeometryCellRef['geometry'],
+    });
+  }
+
+  const rawFragments = Array.isArray(record.raw_fragments) ? record.raw_fragments : [];
+  for (const fragment of rawFragments) {
+    const fragmentRecord = asRecord(fragment);
+    const geometry = asRecord(fragmentRecord?.geometry);
+    const text = readString(fragmentRecord ?? {}, ['cell_text']) ?? readString(geometry ?? {}, ['text']);
+    if (!geometry || !text) continue;
+    const duplicate = refs.some((ref) =>
+      ref.geometry.table_id === geometry.table_id
+      && ref.geometry.row_index === geometry.row_index
+      && ref.geometry.cell_index === geometry.cell_index
+      && ref.text === text);
+    if (!duplicate) {
+      refs.push({
+        text,
+        geometry: geometry as GeometryCellRef['geometry'],
+      });
+    }
+  }
+
+  return refs.length > 0 ? refs : undefined;
+}
+
 function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unknown): ContractRateScheduleRow[] {
   const assembly = asRecord(canonicalRateScheduleAssembly);
   const sourceFamily = assembly ? readString(assembly, ['source_family']) : null;
@@ -1370,6 +1411,7 @@ function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unkno
       rateRaw,
       page,
       sourceAnchorIds,
+      geometryRefs: geometryRefsFromCanonical(record),
     });
     if (!row) continue;
     rows.push({
@@ -1377,6 +1419,7 @@ function normalizeCanonicalRateScheduleRows(canonicalRateScheduleAssembly: unkno
       confidence: canonicalRateScheduleConfidence(record.confidence),
       raw_cells: rawCells.length > 0 ? rawCells : row.raw_cells,
       raw_text: readString(record, ['description']) ?? rateRaw ?? undefined,
+      geometry_refs: row.geometry_refs,
     });
   }
 

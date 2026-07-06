@@ -60,6 +60,12 @@ function wordToToken(word: OcrGeometryWord): PdfToken | null {
   const width = Math.max(0, x1 - x0);
   const height = Math.max(0, y1 - y0);
   if (width === 0 && height === 0) return null;
+  // Tesseract reports word confidence on a 0-100 scale; normalize to 0-1 here
+  // so it's directly comparable against the codebase's existing 0.85/0.65
+  // confidence-label convention instead of carrying a second scale downstream.
+  const confidence = typeof word.confidence === 'number' && Number.isFinite(word.confidence)
+    ? Math.max(0, Math.min(1, word.confidence / 100))
+    : null;
   return {
     text,
     x: Math.round(x0 * 1000) / 1000,
@@ -67,6 +73,7 @@ function wordToToken(word: OcrGeometryWord): PdfToken | null {
     width: Math.round(width * 1000) / 1000,
     height: Math.round(height * 1000) / 1000,
     source: 'ocr_fallback',
+    confidence,
   };
 }
 

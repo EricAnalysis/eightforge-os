@@ -9,6 +9,7 @@ import {
   scoreContractPricingRowSourceQuality,
 } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import { buildTableCellGeometry } from '@/lib/extraction/tableGeometry';
 
 function row(overrides: Partial<ContractRateScheduleRow> = {}): ContractRateScheduleRow {
   return {
@@ -42,6 +43,34 @@ describe('assembleContractPricingRows', () => {
     assert.equal(assembled?.unit, 'Cubic Yard');
     assert.equal(assembled?.rate, 6.9);
     assert.equal(assembled?.page, 8);
+  });
+
+  it('passes optional geometry refs through without changing selected pricing values', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        geometry_refs: [
+          {
+            text: '$6.90',
+            geometry: buildTableCellGeometry({
+              page_number: 8,
+              table_id: 'pdf:table:p8:t1',
+              row_id: 'pdf:table:p8:t1:r1',
+              row_index: 1,
+              cell_index: 3,
+              text: '$6.90',
+              x_min: 620,
+              x_max: 690,
+              source_type: 'ocr_fallback',
+            }),
+          },
+        ],
+      }),
+    ]);
+
+    assert.equal(assembled?.rate, 6.9);
+    assert.equal(assembled?.sourceAnchor, 'pdf:text:p8:b12');
+    assert.equal(assembled?.geometryRefs?.[0]?.geometry.x_min, 620);
+    assert.ok(assembled?.geometryRefs?.[0]?.geometry.diagnostics?.includes('missing_y_bounds'));
   });
 
   it('keeps a clean description unchanged', () => {
@@ -78,6 +107,33 @@ describe('assembleContractPricingRows', () => {
 
     assert.equal(assembled?.description, 'Bucket Truck with 50 to 60 foot Arm');
     assert.equal(assembled?.confidence, 'low');
+  });
+
+  it('Mechanism 2: the Bucket Truck $20/$200 fixture has no real OCR engine confidence to gate on, and stays unaffected by the new signal', () => {
+    // This is a synthetic unit-test fixture (a hand-authored ContractRateScheduleRow),
+    // not a row derived from real Tesseract-recognized table cells -- it never carries
+    // rate_ocr_confidence, so Mechanism 2's new gate cannot and does not fire for it.
+    // The existing 'low' confidence protecting this row from being auto-corrected to
+    // $200 comes entirely from pre-existing heuristics, unrelated to this change.
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'bucket-truck-dropped-zero-mechanism2-check',
+        source_kind: 'exhibit_a_table',
+        category: 'Equipment',
+        source_category: 'Equipment',
+        material_type: 'Equipment',
+        page: 10,
+        description: '(Bucket Truck (with 50° - 80" Arm)',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 20,
+        rate_amount: 20,
+        rate_raw: 'Equipment | Bucket Truck (with 50° - 80" Arm) | Hour | $20',
+      }),
+    ]);
+
+    assert.equal(assembled?.rate, 20, 'the rate is never auto-corrected to 200 by this or any other change');
+    assert.equal(assembled?.confidence, 'low', 'protected by pre-existing heuristics, not by Mechanism 2 (no OCR confidence data exists for this synthetic fixture)');
   });
 
   it('downgrades merged Dump Truck capacity rows to Needs Review', () => {
@@ -316,6 +372,89 @@ describe('assembleContractPricingRows', () => {
 
     assert.equal(assembled?.category, 'Personnel');
     assert.equal(assembled?.description, 'Crew Foreman');
+  });
+
+  it('Mechanism 3: recovers a token-rejoin fallback match for an OCR-split "Traffic Control" description, flagged needs_review', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r9',
+        category: 'Personnel',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        canonical_category: 'personnel',
+        category_confidence: 0.75,
+        page: 10,
+        // "Control" arrives split as "Contro" + "l" -- the same shape as the
+        // already-fixed "Forém" -> "for"+"m" case, but on a different word,
+        // so direct matching against \btraffic\s+control\b fails and only
+        // the token-rejoin retry can recover it.
+        description: 'Traffic Contro l (Flag Person)',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 66,
+        rate_amount: 66,
+        rate_raw: 'Hour $66.00',
+        raw_cells: ['Traffic Contro l (Flag Person)', 'Hour $66.00'],
+      }),
+    ]);
+
+    assert.equal(assembled?.category, 'Personnel');
+    assert.equal(assembled?.description, 'Traffic Control', 'the description is recovered, not blanked out');
+    assert.equal(
+      assembled?.confidence,
+      'needs_review',
+      'fallback-resolved descriptions are flagged distinctly, never presented at the same confidence as a direct match',
+    );
+  });
+
+  it('Mechanism 3: does not force a match when the description is genuinely unmatchable, not an OCR split', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p10:t36:r10',
+        category: 'Personnel',
+        source_category: 'Personnel',
+        material_type: 'Personnel',
+        canonical_category: 'personnel',
+        category_confidence: 0.75,
+        page: 10,
+        description: 'Random Xyzabc q Unrelated Text',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 66,
+        rate_amount: 66,
+        rate_raw: 'Hour $66.00',
+        raw_cells: ['Random Xyzabc q Unrelated Text', 'Hour $66.00'],
+      }),
+    ]);
+
+    assert.notEqual(assembled?.description, 'Traffic Control');
+    assert.notEqual(assembled?.description, 'Truck Driver');
+    assert.notEqual(assembled?.description, 'Equipment Operator');
+    assert.notEqual(assembled?.description, 'Laborer with Chain Saw');
+  });
+
+  it('Mechanism 3: never resolves a rejoin to a bare single-word category alias like "Dozer"', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p11:t38:r11',
+        category: 'Equipment',
+        source_category: 'Equipment',
+        material_type: 'Equipment',
+        canonical_category: 'equipment',
+        category_confidence: 0.75,
+        page: 11,
+        description: 'Doz er',
+        unit: 'Hour',
+        unit_type: 'Hour',
+        rate: 150,
+        rate_amount: 150,
+        rate_raw: 'Hour $150.00',
+        raw_cells: ['Doz er', 'Hour $150.00'],
+      }),
+    ]);
+
+    assert.notEqual(assembled?.description, 'Dozer');
+    assert.notEqual(assembled?.description, 'CAT D6 Dozer');
   });
 
   it('does not drop a needs_review Personnel row just because another Personnel role on the same page shares its rate', () => {
@@ -1919,6 +2058,7 @@ describe('assembleContractPricingRows', () => {
       displayDescription: 'Wheel Loader with Debris Grapple',
       descriptionQuality: 'clean',
       stateHint: 'derived',
+      viaTokenRejoinFallback: false,
     });
     assert.equal(source.includes('@/lib/validator'), false);
     assert.equal(source.includes('contractValidation'), false);

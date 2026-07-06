@@ -1,3 +1,5 @@
+import type { TableCellGeometry } from '@/lib/extraction/tableGeometry';
+
 export type OperationalTableFragment = {
   cell_text: string;
   cell_index: number;
@@ -11,6 +13,7 @@ export type OperationalTableFragment = {
     height: number;
   };
   source?: 'pdfjs' | 'ocr_fallback' | 'vision';
+  geometry?: TableCellGeometry;
   extractor_hint?: string;
   candidate_value?: unknown;
   confidence?: number;
@@ -51,6 +54,7 @@ export type OperationalTableRowEvidenceRef = {
   table_key: string;
   row_index: number;
   cell_index?: number;
+  geometry?: TableCellGeometry;
   raw_text: string;
   field_assigned: keyof CanonicalOperationalTableRow;
   confidence: number;
@@ -692,6 +696,7 @@ function evidenceRefsForField(params: {
     table_key: fragment.table_key,
     row_index: fragment.row_index,
     cell_index: fragment.cell_index,
+    geometry: fragment.geometry,
     raw_text: fragment.cell_text,
     field_assigned: params.field,
     confidence: params.confidence,

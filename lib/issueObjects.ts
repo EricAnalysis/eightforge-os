@@ -132,6 +132,16 @@ export function getIssueLifecycleColor(lifecycle: IssueObject['lifecycleState'])
   }
 }
 
+/**
+ * Whether an issue still needs operator review, using the same non-resolved
+ * lifecycle states the Validator Findings panel treats as open work. Shared
+ * by Overview's "Required Reviews" count and Validator's Findings panel so
+ * the two surfaces never drift onto separate definitions of "open."
+ */
+export function isIssueRequiringReview(issue: IssueObject): boolean {
+  return issue.lifecycleState !== 'resolved';
+}
+
 export function isExecutionPending(issue: IssueObject): boolean {
   return issue.executionItem != null && issue.executionItem.status !== 'resolved';
 }

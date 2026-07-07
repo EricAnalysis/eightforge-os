@@ -31,7 +31,7 @@ import {
   type CanonicalProjectTruthState,
 } from '@/lib/projectFacts';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
-import type { IssueObject } from '@/lib/issueObjects';
+import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type {
   OverviewTone,
@@ -1180,10 +1180,10 @@ export function ProjectOverview({
   ]);
 
   const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
-  const requiredReviewCount =
-    model.validator_summary.required_review_total > 0
-      ? model.validator_summary.required_review_total
-      : requiredReviewDecisions.length;
+  // Single source of truth for "requires review" across Overview and Validator:
+  // the same resolveProjectIssueObjects() result the Validator Findings panel
+  // renders, filtered with the same shared lifecycle predicate.
+  const requiredReviewCount = issueObjects.filter(isIssueRequiringReview).length;
   const orderedDocuments = [...documents].sort((left, right) => {
     const leftTimestamp = new Date(left.processed_at ?? left.created_at).getTime();
     const rightTimestamp = new Date(right.processed_at ?? right.created_at).getTime();

@@ -1,4 +1,4 @@
-import type { TableCellGeometry } from '@/lib/extraction/tableGeometry';
+import { normalizeTableCellGeometry, type TableCellGeometry } from '@/lib/extraction/tableGeometry';
 
 export type OperationalTableFragment = {
   cell_text: string;
@@ -127,6 +127,13 @@ type ScheduleRateGovernance = {
   warnings: string[];
   rawCandidates: string[];
 };
+
+function normalizeFragmentGeometry(fragment: OperationalTableFragment): OperationalTableFragment {
+  return {
+    ...fragment,
+    geometry: normalizeTableCellGeometry(fragment.geometry) ?? undefined,
+  };
+}
 
 const UNIT_VOCAB = new Set([
   'ROW',
@@ -680,7 +687,7 @@ function emptyRow(params: {
     warnings: [],
     confidence: 0.3,
     evidence_refs: [],
-    raw_fragments: params.rawFragments.map((fragment) => ({ ...fragment })),
+    raw_fragments: params.rawFragments.map(normalizeFragmentGeometry),
   };
 }
 
@@ -690,17 +697,20 @@ function evidenceRefsForField(params: {
   confidence: number;
   fragments: readonly OperationalTableFragment[];
 }): OperationalTableRowEvidenceRef[] {
-  return params.fragments.map((fragment) => ({
+  return params.fragments.map((fragment) => {
+    const geometry = normalizeTableCellGeometry(fragment.geometry);
+    return {
     document_id: params.documentId,
     page_number: fragment.page_number,
     table_key: fragment.table_key,
     row_index: fragment.row_index,
     cell_index: fragment.cell_index,
-    geometry: fragment.geometry,
+    geometry: geometry ?? undefined,
     raw_text: fragment.cell_text,
     field_assigned: params.field,
     confidence: params.confidence,
-  }));
+    };
+  });
 }
 
 function setField(

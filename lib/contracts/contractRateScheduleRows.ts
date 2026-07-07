@@ -1,6 +1,6 @@
 import type { ContractRateScheduleRow } from './types';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
-import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
   extractCleanStructuralRateRows,
   extractExhibitARateTableRows,
@@ -693,16 +693,18 @@ function tdotCostRowAnchors(table: PdfTable): Map<number, {
   setAnchor(20, rows[16] ?? null, raw(16));
   setAnchor(21, rows[17] ?? null, raw(17));
   setAnchor(22, rows[18] ?? null, raw(18));
-  setAnchor(23, rows[19] ?? null, raw(19));
-  setAnchor(24, rows[20] ?? null, raw(20));
-  setAnchor(25, rows[21] ?? null, raw(21));
-  setAnchor(26, rows[22] ?? null, raw(22));
-  setAnchor(27, rows[23] ?? null, raw(23));
-  setAnchor(28, rows[24] ?? null, raw(24));
-  setAnchor(29, rows[25] ?? null, raw(25));
-  setAnchor(30, rows[26] ?? null, raw(26));
-  setAnchor(31, rows[27] ?? null, raw(27));
-  setAnchor(32, rows[28] ?? null, raw(28));
+  const actualCostsIndex = rows.findIndex((row) => /\bActual\s+Costs\b/i.test(rowRawText(row)));
+  const tailStartIndex = actualCostsIndex === 22 ? 20 : 19;
+  setAnchor(23, rows[tailStartIndex] ?? null, raw(tailStartIndex));
+  setAnchor(24, rows[tailStartIndex + 1] ?? null, raw(tailStartIndex + 1));
+  setAnchor(25, rows[tailStartIndex + 2] ?? null, raw(tailStartIndex + 2));
+  setAnchor(26, rows[tailStartIndex + 3] ?? null, raw(tailStartIndex + 3));
+  setAnchor(27, rows[tailStartIndex + 4] ?? null, raw(tailStartIndex + 4));
+  setAnchor(28, rows[tailStartIndex + 5] ?? null, raw(tailStartIndex + 5));
+  setAnchor(29, rows[tailStartIndex + 6] ?? null, raw(tailStartIndex + 6));
+  setAnchor(30, rows[tailStartIndex + 7] ?? null, raw(tailStartIndex + 7));
+  setAnchor(31, rows[tailStartIndex + 8] ?? null, raw(tailStartIndex + 8));
+  setAnchor(32, rows[tailStartIndex + 9] ?? null, raw(tailStartIndex + 9));
 
   return byRowNumber;
 }
@@ -712,7 +714,12 @@ function looksLikeTdotAppendixBSplitSchedule(tables: readonly PdfTable[]): {
   costAnchors: Map<number, { page: number; anchorId: string; rawText: string }>;
 } | null {
   const page43 = tables.find((table) => tablePage(table) === 43 && /schedule\s+of\s+items/i.test(tableText(table)));
-  const page44 = tables.find((table) => tablePage(table) === 44 && /^19\b/i.test(tableHeaders(table)[0] ?? ''));
+  const page44 = tables.find((table) => {
+    if (tablePage(table) !== 44) return false;
+    const headers = tableHeaders(table);
+    if (/^19\b/i.test(headers[0] ?? '')) return true;
+    return /\b19\s+Electronic\s+Waste\s+Per\s+Pound\s+From\s+DMS\s+to\s+Final\s+Disposal\b/i.test(tableText(table));
+  });
   const page46 = tables.find((table) => tablePage(table) === 46 && /description\s+unit\s+of\s+measure\s+origin\s*\/?\s*destination\s+cost/i.test(tableText(table)));
   if (!page43 || !page44 || !page46) return null;
 
@@ -1206,8 +1213,20 @@ function buildStructuredRow(params: {
     material_type: category,
     unit_type: unit,
     rate_amount: params.rate,
-    geometry_refs: params.geometryRefs,
+    geometry_refs: normalizeGeometryRefs(params.geometryRefs),
   };
+}
+
+function normalizeGeometryRefs(refs: readonly GeometryCellRef[] | null | undefined): GeometryCellRef[] | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const normalizedRefs = refs
+    .map((ref): GeometryCellRef | null => {
+      const geometry = normalizeTableCellGeometry(ref.geometry);
+      const text = readString({ text: ref.text }, ['text']) ?? readString(geometry ?? {}, ['text']);
+      return text && geometry ? { text, geometry } : null;
+    })
+    .filter((ref): ref is GeometryCellRef => ref != null);
+  return normalizedRefs.length > 0 ? normalizedRefs : undefined;
 }
 
 function normalizeOriginDestination(value: string | null | undefined): string | null {
@@ -1334,19 +1353,19 @@ function geometryRefsFromCanonical(record: Record<string, unknown>): GeometryCel
   const evidenceRefs = Array.isArray(record.evidence_refs) ? record.evidence_refs : [];
   for (const ref of evidenceRefs) {
     const evidenceRecord = asRecord(ref);
-    const geometry = asRecord(evidenceRecord?.geometry);
+    const geometry = normalizeTableCellGeometry(evidenceRecord?.geometry);
     const text = readString(evidenceRecord ?? {}, ['raw_text']) ?? readString(geometry ?? {}, ['text']);
     if (!geometry || !text) continue;
     refs.push({
       text,
-      geometry: geometry as GeometryCellRef['geometry'],
+      geometry,
     });
   }
 
   const rawFragments = Array.isArray(record.raw_fragments) ? record.raw_fragments : [];
   for (const fragment of rawFragments) {
     const fragmentRecord = asRecord(fragment);
-    const geometry = asRecord(fragmentRecord?.geometry);
+    const geometry = normalizeTableCellGeometry(fragmentRecord?.geometry);
     const text = readString(fragmentRecord ?? {}, ['cell_text']) ?? readString(geometry ?? {}, ['text']);
     if (!geometry || !text) continue;
     const duplicate = refs.some((ref) =>
@@ -1357,7 +1376,7 @@ function geometryRefsFromCanonical(record: Record<string, unknown>): GeometryCel
     if (!duplicate) {
       refs.push({
         text,
-        geometry: geometry as GeometryCellRef['geometry'],
+        geometry,
       });
     }
   }
@@ -1595,6 +1614,11 @@ export function buildContractRateScheduleRows(
     return mdotSection905Rows;
   }
 
+  const tdotAppendixBRows = buildTdotAppendixBStitchedRows(params.pdfTables);
+  if (tdotAppendixBRows.length > 0) {
+    return tdotAppendixBRows;
+  }
+
   // Phase 1 of retiring EXHIBIT_A_PAGES page-pinning.
   // This branch handles tables with clean pre-separated
   // cells (e.g. geometry-reconstructed scanned tables).
@@ -1607,11 +1631,6 @@ export function buildContractRateScheduleRows(
   const cleanStructuralRows = extractCleanStructuralRateRows(params.pdfTables);
   if (cleanStructuralRows.length > 0) {
     return cleanStructuralRows;
-  }
-
-  const tdotAppendixBRows = buildTdotAppendixBStitchedRows(params.pdfTables);
-  if (tdotAppendixBRows.length > 0) {
-    return tdotAppendixBRows;
   }
 
   const structuredRows = normalizeTypedRateTableRows({

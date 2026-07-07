@@ -57,6 +57,21 @@ function uniqueDiagnostics(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+}
+
 export function hasHorizontalGeometry(geometry: Pick<TableCellGeometry, 'x_min' | 'x_max'>): boolean {
   return finiteNumber(geometry.x_min) != null && finiteNumber(geometry.x_max) != null;
 }
@@ -120,6 +135,44 @@ export function buildTableCellGeometry(params: {
     diagnostics: params.diagnostics,
   });
   return geometry;
+}
+
+export function normalizeTableCellGeometry(value: unknown): TableCellGeometry | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const pageNumber = finiteNumber(record.page_number);
+  const xMin = finiteNumber(record.x_min);
+  const xMax = finiteNumber(record.x_max);
+  const yMin = finiteNumber(record.y_min);
+  const yMax = finiteNumber(record.y_max);
+  const hasBounds = xMin != null || xMax != null || yMin != null || yMax != null;
+  const hasLineage = [
+    record.source_document_id,
+    record.table_id,
+    record.row_id,
+    record.anchor_id,
+  ].some((entry) => stringValue(entry) != null)
+    || finiteNumber(record.row_index) != null
+    || finiteNumber(record.cell_index) != null;
+  if (pageNumber == null && !hasBounds && !hasLineage) return null;
+
+  return buildTableCellGeometry({
+    page_number: pageNumber,
+    text: stringValue(record.text),
+    x_min: xMin,
+    x_max: xMax,
+    y_min: yMin,
+    y_max: yMax,
+    source_type: stringValue(record.source_type),
+    source_document_id: stringValue(record.source_document_id),
+    table_id: stringValue(record.table_id),
+    row_id: stringValue(record.row_id),
+    row_index: finiteNumber(record.row_index),
+    cell_index: finiteNumber(record.cell_index),
+    anchor_id: stringValue(record.anchor_id),
+    diagnostics: stringArrayValue(record.diagnostics),
+  });
 }
 
 function sameRowIdentity(left: TableCellGeometry, right: TableCellGeometry): boolean {

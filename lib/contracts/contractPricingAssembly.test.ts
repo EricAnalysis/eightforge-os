@@ -9,7 +9,7 @@ import {
   scoreContractPricingRowSourceQuality,
 } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
-import { buildTableCellGeometry } from '@/lib/extraction/tableGeometry';
+import { buildTableCellGeometry, type TableCellGeometry } from '@/lib/extraction/tableGeometry';
 
 function row(overrides: Partial<ContractRateScheduleRow> = {}): ContractRateScheduleRow {
   return {
@@ -71,6 +71,22 @@ describe('assembleContractPricingRows', () => {
     assert.equal(assembled?.sourceAnchor, 'pdf:text:p8:b12');
     assert.equal(assembled?.geometryRefs?.[0]?.geometry.x_min, 620);
     assert.ok(assembled?.geometryRefs?.[0]?.geometry.diagnostics?.includes('missing_y_bounds'));
+  });
+
+  it('drops malformed geometry refs at the pricing assembly boundary', () => {
+    const [assembled] = assembleContractPricingRows([
+      row({
+        geometry_refs: [
+          {
+            text: '$6.90',
+            geometry: { text: '$6.90' } as TableCellGeometry,
+          },
+        ],
+      }),
+    ]);
+
+    assert.equal(assembled?.rate, 6.9);
+    assert.equal(assembled?.geometryRefs, undefined);
   });
 
   it('keeps a clean description unchanged', () => {

@@ -7,6 +7,7 @@ import {
   groupCellsByPageAndRow,
   hasHorizontalGeometry,
   hasVerticalGeometry,
+  normalizeTableCellGeometry,
   samePageRowCandidate,
   type GeometryCellRef,
 } from './tableGeometry';
@@ -103,5 +104,31 @@ describe('table geometry provenance helpers', () => {
       'missing_y_bounds',
       'insufficient_geometry_for_same_cell',
     ]);
+  });
+
+  it('normalizes loose geometry objects into typed provenance', () => {
+    const geometry = normalizeTableCellGeometry({
+      page_number: 8,
+      table_id: 'pdf:table:p8:t1',
+      row_id: 'pdf:table:p8:t1:r1',
+      row_index: 1,
+      cell_index: 3,
+      text: '$6.90',
+      x_min: 620,
+      x_max: 690,
+      source_type: 'ocr_fallback',
+      diagnostics: ['source_fragment'],
+    });
+
+    assert.equal(geometry?.page_number, 8);
+    assert.equal(geometry?.width, 70);
+    assert.equal(geometry?.table_id, 'pdf:table:p8:t1');
+    assert.ok(geometry?.diagnostics?.includes('source_fragment'));
+    assert.ok(geometry?.diagnostics?.includes('missing_y_bounds'));
+  });
+
+  it('rejects unlineaged objects as geometry provenance', () => {
+    assert.equal(normalizeTableCellGeometry({ text: '$6.90' }), null);
+    assert.equal(normalizeTableCellGeometry(['not', 'geometry']), null);
   });
 });

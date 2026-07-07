@@ -1,6 +1,6 @@
 import type { ContractRateScheduleRow } from './types';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
-import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
   extractCleanStructuralRateRows,
   extractExhibitARateTableRows,
@@ -1213,8 +1213,20 @@ function buildStructuredRow(params: {
     material_type: category,
     unit_type: unit,
     rate_amount: params.rate,
-    geometry_refs: params.geometryRefs,
+    geometry_refs: normalizeGeometryRefs(params.geometryRefs),
   };
+}
+
+function normalizeGeometryRefs(refs: readonly GeometryCellRef[] | null | undefined): GeometryCellRef[] | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const normalizedRefs = refs
+    .map((ref): GeometryCellRef | null => {
+      const geometry = normalizeTableCellGeometry(ref.geometry);
+      const text = readString({ text: ref.text }, ['text']) ?? readString(geometry ?? {}, ['text']);
+      return text && geometry ? { text, geometry } : null;
+    })
+    .filter((ref): ref is GeometryCellRef => ref != null);
+  return normalizedRefs.length > 0 ? normalizedRefs : undefined;
 }
 
 function normalizeOriginDestination(value: string | null | undefined): string | null {
@@ -1341,19 +1353,19 @@ function geometryRefsFromCanonical(record: Record<string, unknown>): GeometryCel
   const evidenceRefs = Array.isArray(record.evidence_refs) ? record.evidence_refs : [];
   for (const ref of evidenceRefs) {
     const evidenceRecord = asRecord(ref);
-    const geometry = asRecord(evidenceRecord?.geometry);
+    const geometry = normalizeTableCellGeometry(evidenceRecord?.geometry);
     const text = readString(evidenceRecord ?? {}, ['raw_text']) ?? readString(geometry ?? {}, ['text']);
     if (!geometry || !text) continue;
     refs.push({
       text,
-      geometry: geometry as GeometryCellRef['geometry'],
+      geometry,
     });
   }
 
   const rawFragments = Array.isArray(record.raw_fragments) ? record.raw_fragments : [];
   for (const fragment of rawFragments) {
     const fragmentRecord = asRecord(fragment);
-    const geometry = asRecord(fragmentRecord?.geometry);
+    const geometry = normalizeTableCellGeometry(fragmentRecord?.geometry);
     const text = readString(fragmentRecord ?? {}, ['cell_text']) ?? readString(geometry ?? {}, ['text']);
     if (!geometry || !text) continue;
     const duplicate = refs.some((ref) =>
@@ -1364,7 +1376,7 @@ function geometryRefsFromCanonical(record: Record<string, unknown>): GeometryCel
     if (!duplicate) {
       refs.push({
         text,
-        geometry: geometry as GeometryCellRef['geometry'],
+        geometry,
       });
     }
   }

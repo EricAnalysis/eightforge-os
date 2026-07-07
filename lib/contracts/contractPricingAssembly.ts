@@ -1,5 +1,5 @@
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
-import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 
@@ -1895,9 +1895,9 @@ function geometryRefsFromRecord(record: Record<string, unknown>): GeometryCellRe
     .filter((value): value is Record<string, unknown> => value != null)
     .map((value) => {
       const text = stringFromRecord(value, ['text']);
-      const geometry = asRecord(value.geometry);
+      const geometry = normalizeTableCellGeometry(value.geometry);
       return text && geometry
-        ? { text, geometry: geometry as GeometryCellRef['geometry'] }
+        ? { text, geometry }
         : null;
     })
     .filter((value): value is GeometryCellRef => value != null);
@@ -1905,14 +1905,26 @@ function geometryRefsFromRecord(record: Record<string, unknown>): GeometryCellRe
   const evidenceRefs = Array.isArray(record.evidence_refs) ? record.evidence_refs : [];
   for (const ref of evidenceRefs) {
     const refRecord = asRecord(ref);
-    const geometry = asRecord(refRecord?.geometry);
+    const geometry = normalizeTableCellGeometry(refRecord?.geometry);
     const text = refRecord ? stringFromRecord(refRecord, ['raw_text']) ?? stringFromRecord(geometry ?? {}, ['text']) : null;
     if (geometry && text) {
-      refs.push({ text, geometry: geometry as GeometryCellRef['geometry'] });
+      refs.push({ text, geometry });
     }
   }
 
   return refs.length > 0 ? refs : undefined;
+}
+
+function normalizeGeometryRefs(refs: readonly GeometryCellRef[] | null | undefined): GeometryCellRef[] | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const normalizedRefs = refs
+    .map((ref): GeometryCellRef | null => {
+      const text = clean(ref.text) ?? clean(normalizeTableCellGeometry(ref.geometry)?.text);
+      const geometry = normalizeTableCellGeometry(ref.geometry);
+      return text && geometry ? { text, geometry } : null;
+    })
+    .filter((ref): ref is GeometryCellRef => ref != null);
+  return normalizedRefs.length > 0 ? normalizedRefs : undefined;
 }
 
 function canonicalRowsToRateRows(rows: readonly unknown[] | null | undefined): ContractRateScheduleRow[] {
@@ -2178,7 +2190,7 @@ export function assembleContractPricingRows(
         sourceKind,
         sourceQuality,
         rawText: rawText || undefined,
-        geometryRefs: row.geometry_refs,
+        geometryRefs: normalizeGeometryRefs(row.geometry_refs),
       };
     })
     .filter((row): row is ContractPricingAssemblyRow => row != null);

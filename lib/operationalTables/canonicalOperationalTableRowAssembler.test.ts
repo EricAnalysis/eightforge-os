@@ -146,6 +146,21 @@ describe('canonicalOperationalTableRowAssembler', () => {
     assert.equal(row?.raw_fragments.find((fragment) => fragment.cell_text === '$27.00')?.geometry?.x_max, 690);
   });
 
+  it('does not preserve malformed fragment geometry as typed provenance', () => {
+    const malformedGeometry = { text: '$27.00' } as TableCellGeometry;
+    const result = assembleContractRows([
+      frag({ row: 1, cell: 0, table: 'pdf:table:p8:t1', page: 8, text: 'Vegetative', hint: 'category' }),
+      frag({ row: 1, cell: 1, table: 'pdf:table:p8:t1', page: 8, text: 'Loading and Hauling Vegetative Debris', hint: 'description' }),
+      frag({ row: 1, cell: 2, table: 'pdf:table:p8:t1', page: 8, text: 'CY', hint: 'unit' }),
+      frag({ row: 1, cell: 3, table: 'pdf:table:p8:t1', page: 8, text: '$27.00', hint: 'unit_price', source: 'ocr_fallback', geometry: malformedGeometry }),
+    ]);
+
+    const row = result.rows[0];
+    const rateEvidence = row?.evidence_refs.find((ref) => ref.field_assigned === 'unit_price');
+    assert.equal(rateEvidence?.geometry, undefined);
+    assert.equal(row?.raw_fragments.find((fragment) => fragment.cell_text === '$27.00')?.geometry, undefined);
+  });
+
   it('assembles all 6 Williamson 2026-002 rows exactly', () => {
     const result = assemble(williamsonFragments);
 

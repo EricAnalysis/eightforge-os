@@ -84,25 +84,30 @@ export async function loadProjectActivityEvents(params: {
   error: { message?: string | null } | null;
 }> {
   const rowLimit = params.limit ?? 150;
-  const projectScopedResult = await params.client
-    .from('activity_events')
-    .select(ACTIVITY_EVENT_SELECT)
-    .eq('organization_id', params.organizationId)
-    .eq('project_id', params.scope.projectId)
-    .order('created_at', { ascending: false })
-    .limit(rowLimit);
-
   const fallbackEntityIds = projectActivityFallbackEntityIds(params.scope);
-  const fallbackResult = fallbackEntityIds.length > 0
-    ? await params.client
-        .from('activity_events')
-        .select(ACTIVITY_EVENT_SELECT)
-        .eq('organization_id', params.organizationId)
-        .is('project_id', null)
-        .in('entity_id', fallbackEntityIds)
-        .order('created_at', { ascending: false })
-        .limit(rowLimit)
-    : { data: [], error: null };
+
+  // Project-scoped and null-project-id-fallback events are independent
+  // queries (the fallback's entity IDs come from params.scope, not from the
+  // project-scoped result), so they run concurrently.
+  const [projectScopedResult, fallbackResult] = await Promise.all([
+    params.client
+      .from('activity_events')
+      .select(ACTIVITY_EVENT_SELECT)
+      .eq('organization_id', params.organizationId)
+      .eq('project_id', params.scope.projectId)
+      .order('created_at', { ascending: false })
+      .limit(rowLimit),
+    fallbackEntityIds.length > 0
+      ? params.client
+          .from('activity_events')
+          .select(ACTIVITY_EVENT_SELECT)
+          .eq('organization_id', params.organizationId)
+          .is('project_id', null)
+          .in('entity_id', fallbackEntityIds)
+          .order('created_at', { ascending: false })
+          .limit(rowLimit)
+      : { data: [], error: null },
+  ]);
 
   const rows = [
     ...((projectScopedResult.data ?? []) as ProjectActivityEventRow[]),

@@ -225,27 +225,48 @@ async function fetchDecisionsAndTasksViaDocumentScope(
   projectDocumentIds: string[],
   issues: string[],
 ): Promise<{ decisions: ProjectDecisionRow[]; tasks: ProjectTaskRow[] }> {
-  const docDecisions =
+  // docDecisions, orphanDecisions, docTasks, and orphanTasks each depend only
+  // on projectDocumentIds/organizationId (already resolved by the caller) —
+  // none of them depend on each other's output, so they run concurrently.
+  // Only byDecisionTasks genuinely depends on decisionIds derived below, so
+  // it stays a separate, dependent await after the batch resolves.
+  const [docDecisions, orphanDecisions, docTasks, orphanTasks] = await Promise.all([
     projectDocumentIds.length === 0
       ? { data: [] as unknown[], error: null }
-      : await supabase
+      : supabase
           .from('decisions')
           .select(BASE_DECISION_SELECT)
           .eq('organization_id', organizationId)
           .in('document_id', projectDocumentIds)
-          .order('last_detected_at', { ascending: false });
+          .order('last_detected_at', { ascending: false }),
+    supabase
+      .from('decisions')
+      .select(BASE_DECISION_SELECT)
+      .eq('organization_id', organizationId)
+      .is('document_id', null)
+      .order('last_detected_at', { ascending: false })
+      .limit(100),
+    projectDocumentIds.length === 0
+      ? { data: [] as unknown[], error: null }
+      : supabase
+          .from('workflow_tasks')
+          .select(BASE_TASK_SELECT)
+          .eq('organization_id', organizationId)
+          .in('document_id', projectDocumentIds)
+          .order('created_at', { ascending: false }),
+    supabase
+      .from('workflow_tasks')
+      .select(BASE_TASK_SELECT)
+      .eq('organization_id', organizationId)
+      .is('document_id', null)
+      .order('created_at', { ascending: false })
+      .limit(150),
+  ]);
 
   collectError(issues, 'Decisions (by document)', docDecisions.error);
-
-  const orphanDecisions = await supabase
-    .from('decisions')
-    .select(BASE_DECISION_SELECT)
-    .eq('organization_id', organizationId)
-    .is('document_id', null)
-    .order('last_detected_at', { ascending: false })
-    .limit(100);
-
   collectError(issues, 'Decisions (unlinked)', orphanDecisions.error);
+  collectError(issues, 'Tasks (by document)', docTasks.error);
+  collectError(issues, 'Tasks (unlinked)', orphanTasks.error);
 
   const fromDocs = (docDecisions.data ?? []) as ProjectDecisionRow[];
   const fromOrphans = ((orphanDecisions.data ?? []) as ProjectDecisionRow[]).filter((d) =>
@@ -254,18 +275,6 @@ async function fetchDecisionsAndTasksViaDocumentScope(
   const projectDecisions = dedupeById([...fromDocs, ...fromOrphans]);
   const projectDecisionIds = new Set(projectDecisions.map((d) => d.id));
   const decisionIds = projectDecisions.map((d) => d.id);
-
-  const docTasks =
-    projectDocumentIds.length === 0
-      ? { data: [] as unknown[], error: null }
-      : await supabase
-          .from('workflow_tasks')
-          .select(BASE_TASK_SELECT)
-          .eq('organization_id', organizationId)
-          .in('document_id', projectDocumentIds)
-          .order('created_at', { ascending: false });
-
-  collectError(issues, 'Tasks (by document)', docTasks.error);
 
   const byDecisionTasks =
     decisionIds.length === 0
@@ -278,16 +287,6 @@ async function fetchDecisionsAndTasksViaDocumentScope(
           .order('created_at', { ascending: false });
 
   collectError(issues, 'Tasks (by decision)', byDecisionTasks.error);
-
-  const orphanTasks = await supabase
-    .from('workflow_tasks')
-    .select(BASE_TASK_SELECT)
-    .eq('organization_id', organizationId)
-    .is('document_id', null)
-    .order('created_at', { ascending: false })
-    .limit(150);
-
-  collectError(issues, 'Tasks (unlinked)', orphanTasks.error);
 
   const projectTasks = dedupeById([
     ...((docTasks.data ?? []) as ProjectTaskRow[]),
@@ -543,128 +542,12 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         projectExecutionItems = (executionItemsResult.data ?? []) as ProjectExecutionItemRow[];
       }
       const projectDocumentIds = projectDocuments.map((document) => document.id);
-      const reviewsResult = projectDocumentIds.length > 0
-        ? await perfMeasure('[EightForge] document reviews fetch', () =>
-            supabase
-              .from('document_reviews')
-              .select('document_id, status, reviewed_at')
-              .eq('organization_id', organizationId)
-              .in('document_id', projectDocumentIds),
-          )
-        : { data: [], error: null };
-      const projectDocumentReviews = !reviewsResult.error
-        ? ((reviewsResult.data ?? []) as ProjectDocumentReviewRow[])
-        : [];
       const hydratedProjectDocuments = projectDocuments;
       const generated: ForgeGeneratedDecision[] = [];
 
-      // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
-      // If columns are missing, fall back to document_id / decision_id scoping only.
-      const [linkedDecisionsResult, fallbackDecisionsResult, documentScopedDecisionsResult, contextualValidatorDecisionsResult, documentTasksResult, fallbackTasksResult] = await perfMeasure('[EightForge] decisions fetch', () => Promise.all([
-        supabase
-          .from('decisions')
-          .select(BASE_DECISION_SELECT)
-          .eq('organization_id', organizationId)
-          .eq('project_id', projectId)
-          .order('last_detected_at', { ascending: false }),
-        supabase
-          .from('decisions')
-          .select(BASE_DECISION_SELECT)
-          .eq('organization_id', organizationId)
-          .is('project_id', null)
-          .is('document_id', null)
-          .order('last_detected_at', { ascending: false })
-          .limit(50),
-        projectDocumentIds.length === 0
-          ? { data: [], error: null }
-          : supabase
-              .from('decisions')
-              .select(BASE_DECISION_SELECT)
-              .eq('organization_id', organizationId)
-              .is('project_id', null)
-              .in('document_id', projectDocumentIds)
-              .order('last_detected_at', { ascending: false }),
-        supabase
-          .from('decisions')
-          .select(BASE_DECISION_SELECT)
-          .eq('organization_id', organizationId)
-          .eq('source', 'project_validator')
-          .order('last_detected_at', { ascending: false })
-          .limit(200),
-        supabase
-          .from('workflow_tasks')
-          .select(BASE_TASK_SELECT)
-          .eq('organization_id', organizationId)
-          .eq('project_id', projectId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('workflow_tasks')
-          .select(BASE_TASK_SELECT)
-          .eq('organization_id', organizationId)
-          .is('project_id', null)
-          .is('document_id', null)
-          .order('created_at', { ascending: false })
-          .limit(50),
-      ]));
-
-      const projectIdColumnMissing =
-        isMissingProjectIdColumnError(linkedDecisionsResult.error) ||
-        isMissingProjectIdColumnError(fallbackDecisionsResult.error) ||
-        isMissingProjectIdColumnError(documentScopedDecisionsResult.error) ||
-        isMissingProjectIdColumnError(contextualValidatorDecisionsResult.error) ||
-        isMissingProjectIdColumnError(documentTasksResult.error) ||
-        isMissingProjectIdColumnError(fallbackTasksResult.error);
-
-      let projectDecisions: ProjectDecisionRow[];
-      let projectTasks: ProjectTaskRow[];
-
-      if (projectIdColumnMissing) {
-        issues.push(
-          'Loaded decisions/tasks via document links (project_id columns not on database yet). Apply supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql.',
-        );
-        const legacy = await perfMeasure('[EightForge] decisions fetch legacy fallback', () =>
-          fetchDecisionsAndTasksViaDocumentScope(
-            organizationId,
-            projectRow,
-            projectDocumentIds,
-            issues,
-          ),
-        );
-        projectDecisions = legacy.decisions;
-        projectTasks = legacy.tasks;
-      } else {
-        collectError(issues, 'Decisions', linkedDecisionsResult.error);
-        collectError(issues, 'Decision fallbacks', fallbackDecisionsResult.error);
-        collectError(issues, 'Decisions (document fallback)', documentScopedDecisionsResult.error);
-        collectError(issues, 'Validator decision fallbacks', contextualValidatorDecisionsResult.error);
-        collectError(issues, 'Tasks', documentTasksResult.error);
-        collectError(issues, 'Task fallbacks', fallbackTasksResult.error);
-
-        projectDecisions = dedupeById([
-          ...((linkedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
-          ...((documentScopedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
-          ...((contextualValidatorDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
-            matchesProjectDecision(decision, projectRow),
-          ),
-          ...((fallbackDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
-            matchesProjectDecision(decision, projectRow),
-          ),
-        ]);
-
-        const idsForFallbackTasks = new Set(projectDecisions.map((decision) => decision.id));
-
-        projectTasks = dedupeById([
-          ...((documentTasksResult.data ?? []) as ProjectTaskRow[]),
-          ...((fallbackTasksResult.data ?? []) as ProjectTaskRow[]).filter((task) =>
-            matchesProjectTask(task, projectRow, idsForFallbackTasks),
-          ),
-        ]);
-      }
-
-      const projectDecisionIds = new Set(projectDecisions.map((decision) => decision.id));
-
-      const projectTaskIds = new Set(projectTasks.map((task) => task.id));
-      const projectDocumentIdSet = new Set(projectDocumentIds);
+      // Computed here (not after decisions/tasks resolve) because both only
+      // depend on projectValidationFindings/projectExecutionItems, already
+      // available from the stage-1 Promise.all above.
       const executionItemIds = new Set(projectExecutionItems.map((item) => item.id));
       const executionFindingIds = new Set(
         [
@@ -675,19 +558,155 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         ].filter((value): value is string => typeof value === 'string' && value.length > 0),
       );
 
-      const validationEvidenceResult = executionFindingIds.size > 0
-        ? await perfMeasure('[EightForge] validation evidence fetch', () =>
-            supabase
-              .from('project_validation_evidence')
-              .select('*')
-              .in('finding_id', Array.from(executionFindingIds)),
-          )
-        : { data: [], error: null };
+      // document_reviews, decisions/tasks, and validation_evidence each
+      // depend only on state already resolved above (projectDocumentIds /
+      // executionFindingIds) — none of them depend on each other's output —
+      // so they run concurrently instead of as three sequential round trips.
+      // Only audit (below) has a genuine dependency, on the decision/task
+      // IDs this group produces, so it stays a separate, later await.
+      const [reviewsResult, decisionsAndTasks, validationEvidenceResult] = await perfMeasure(
+        '[EightForge] document reviews + decisions + evidence fetch',
+        () => Promise.all([
+          projectDocumentIds.length > 0
+            ? perfMeasure('[EightForge] document reviews fetch', () =>
+                supabase
+                  .from('document_reviews')
+                  .select('document_id, status, reviewed_at')
+                  .eq('organization_id', organizationId)
+                  .in('document_id', projectDocumentIds),
+              )
+            : { data: [], error: null },
+          (async () => {
+            // Prefer direct project_id (migration 20260329000000_add_project_id_to_decisions_and_tasks.sql).
+            // If columns are missing, fall back to document_id / decision_id scoping only.
+            const [linkedDecisionsResult, fallbackDecisionsResult, documentScopedDecisionsResult, contextualValidatorDecisionsResult, documentTasksResult, fallbackTasksResult] = await perfMeasure('[EightForge] decisions fetch', () => Promise.all([
+              supabase
+                .from('decisions')
+                .select(BASE_DECISION_SELECT)
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('last_detected_at', { ascending: false }),
+              supabase
+                .from('decisions')
+                .select(BASE_DECISION_SELECT)
+                .eq('organization_id', organizationId)
+                .is('project_id', null)
+                .is('document_id', null)
+                .order('last_detected_at', { ascending: false })
+                .limit(50),
+              projectDocumentIds.length === 0
+                ? { data: [], error: null }
+                : supabase
+                    .from('decisions')
+                    .select(BASE_DECISION_SELECT)
+                    .eq('organization_id', organizationId)
+                    .is('project_id', null)
+                    .in('document_id', projectDocumentIds)
+                    .order('last_detected_at', { ascending: false }),
+              supabase
+                .from('decisions')
+                .select(BASE_DECISION_SELECT)
+                .eq('organization_id', organizationId)
+                .eq('source', 'project_validator')
+                .order('last_detected_at', { ascending: false })
+                .limit(200),
+              supabase
+                .from('workflow_tasks')
+                .select(BASE_TASK_SELECT)
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('created_at', { ascending: false }),
+              supabase
+                .from('workflow_tasks')
+                .select(BASE_TASK_SELECT)
+                .eq('organization_id', organizationId)
+                .is('project_id', null)
+                .is('document_id', null)
+                .order('created_at', { ascending: false })
+                .limit(50),
+            ]));
+
+            const projectIdColumnMissing =
+              isMissingProjectIdColumnError(linkedDecisionsResult.error) ||
+              isMissingProjectIdColumnError(fallbackDecisionsResult.error) ||
+              isMissingProjectIdColumnError(documentScopedDecisionsResult.error) ||
+              isMissingProjectIdColumnError(contextualValidatorDecisionsResult.error) ||
+              isMissingProjectIdColumnError(documentTasksResult.error) ||
+              isMissingProjectIdColumnError(fallbackTasksResult.error);
+
+            let decisions: ProjectDecisionRow[];
+            let tasks: ProjectTaskRow[];
+
+            if (projectIdColumnMissing) {
+              issues.push(
+                'Loaded decisions/tasks via document links (project_id columns not on database yet). Apply supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql.',
+              );
+              const legacy = await perfMeasure('[EightForge] decisions fetch legacy fallback', () =>
+                fetchDecisionsAndTasksViaDocumentScope(
+                  organizationId,
+                  projectRow,
+                  projectDocumentIds,
+                  issues,
+                ),
+              );
+              decisions = legacy.decisions;
+              tasks = legacy.tasks;
+            } else {
+              collectError(issues, 'Decisions', linkedDecisionsResult.error);
+              collectError(issues, 'Decision fallbacks', fallbackDecisionsResult.error);
+              collectError(issues, 'Decisions (document fallback)', documentScopedDecisionsResult.error);
+              collectError(issues, 'Validator decision fallbacks', contextualValidatorDecisionsResult.error);
+              collectError(issues, 'Tasks', documentTasksResult.error);
+              collectError(issues, 'Task fallbacks', fallbackTasksResult.error);
+
+              decisions = dedupeById([
+                ...((linkedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
+                ...((documentScopedDecisionsResult.data ?? []) as ProjectDecisionRow[]),
+                ...((contextualValidatorDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
+                  matchesProjectDecision(decision, projectRow),
+                ),
+                ...((fallbackDecisionsResult.data ?? []) as ProjectDecisionRow[]).filter((decision) =>
+                  matchesProjectDecision(decision, projectRow),
+                ),
+              ]);
+
+              const idsForFallbackTasks = new Set(decisions.map((decision) => decision.id));
+
+              tasks = dedupeById([
+                ...((documentTasksResult.data ?? []) as ProjectTaskRow[]),
+                ...((fallbackTasksResult.data ?? []) as ProjectTaskRow[]).filter((task) =>
+                  matchesProjectTask(task, projectRow, idsForFallbackTasks),
+                ),
+              ]);
+            }
+
+            return { decisions, tasks };
+          })(),
+          executionFindingIds.size > 0
+            ? perfMeasure('[EightForge] validation evidence fetch', () =>
+                supabase
+                  .from('project_validation_evidence')
+                  .select('*')
+                  .in('finding_id', Array.from(executionFindingIds)),
+              )
+            : { data: [], error: null },
+        ]),
+      );
+
+      const projectDocumentReviews = !reviewsResult.error
+        ? ((reviewsResult.data ?? []) as ProjectDocumentReviewRow[])
+        : [];
+      const projectDecisions = decisionsAndTasks.decisions;
+      const projectTasks = decisionsAndTasks.tasks;
 
       collectError(issues, 'Validation evidence', validationEvidenceResult.error);
       const projectValidationEvidence = !validationEvidenceResult.error
         ? ((validationEvidenceResult.data ?? []) as ValidationEvidence[])
         : [];
+
+      const projectDecisionIds = new Set(projectDecisions.map((decision) => decision.id));
+      const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+      const projectDocumentIdSet = new Set(projectDocumentIds);
 
       const activityResult = await perfMeasure('[EightForge] audit fetch', () =>
         loadProjectActivityEvents({

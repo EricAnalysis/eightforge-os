@@ -1,6 +1,39 @@
 # Production Migration Apply Runbook
 
-Status: PRODUCTION APPLY COMPLETE. The Phase B follow-up migration `20260623000004_document_status_recompute_triggers.sql` was applied and verified on 2026-06-24 through the IPv4 shared Supavisor session pooler. Earlier halted attempts remain recorded below for audit history.
+Status: PRODUCTION APPLY COMPLETE. The workspace-load performance indexes (`20260707000000_activity_events_project_created_index.sql`, `20260707000001_transaction_data_rows_pagination_sort_index.sql`) were applied and verified on 2026-07-07. The Phase B follow-up migration `20260623000004_document_status_recompute_triggers.sql` was applied and verified on 2026-06-24 through the IPv4 shared Supavisor session pooler. Earlier halted attempts remain recorded below for audit history.
+
+## Workspace-load performance indexes, 2026-07-07
+
+Branch and source:
+
+- branch: `perf/parallelize-workspace-fetch-and-indexes`
+- migrations: `20260707000000_activity_events_project_created_index.sql`, `20260707000001_transaction_data_rows_pagination_sort_index.sql`
+- both are additive `CREATE INDEX IF NOT EXISTS` only — no column/table/constraint changes, no data writes.
+
+Production connection: direct connection via `DATABASE_URL` from `.env.local` (`db.jpzeckefppmiujwajgvk.supabase.co:5432`) using a temporary `pg` client (`npm install --no-save pg`, removed after use; `package.json`/`package-lock.json` unaffected). The direct hostname resolved and connected successfully this time (no pooler workaround needed).
+
+Pre-apply checks:
+
+- Neither target index existed yet (`pg_indexes` query returned zero rows for both names).
+- Table sizes at apply time: `activity_events` ~2,343 rows, `transaction_data_rows` ~9,983 rows (organization-wide) — small enough that a plain (non-`CONCURRENTLY`) `CREATE INDEX` was judged safe, consistent with the migration file's own reasoning.
+- Confirmed `activity_events.project_id` column already exists on this database (so the earlier audit's "missing index" diagnosis applies; the earlier "missing column" theory does not, for this environment).
+
+Apply output:
+
+```text
+--- Applying supabase/migrations/20260707000000_activity_events_project_created_index.sql ---
+OK (278ms): CREATE
+--- Applying supabase/migrations/20260707000001_transaction_data_rows_pagination_sort_index.sql ---
+OK (1189ms): CREATE
+```
+
+Post-apply verification:
+
+- Both indexes confirmed present via `pg_indexes`.
+- Row counts unchanged post-apply (`activity_events` 2,343; `transaction_data_rows` 9,983) — confirms no data was touched.
+- `EXPLAIN` against the live Golden Project (`437502f2-d46d-447f-81e3-f26fa7ba0c14`) confirmed the planner uses both new indexes:
+  - `activity_events`: `Index Scan using idx_activity_events_org_project_created`, `Index Cond` on `organization_id` + `project_id`.
+  - `transaction_data_rows`: `Index Scan using idx_transaction_data_rows_project_pagination_sort`, `Index Cond` on `project_id`, and **no separate Sort node** — the index fully satisfies the `ORDER BY invoice_date, source_sheet_name, source_row_number` pagination sort in-index.
 
 ## Phase B Follow-up Trigger Apply, 2026-06-24 America/New_York
 

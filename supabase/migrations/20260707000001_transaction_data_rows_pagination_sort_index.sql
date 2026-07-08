@@ -1,0 +1,23 @@
+-- Performance: index transaction_data_rows for the workspace-load pagination
+-- sort.
+--
+-- lib/useProjectWorkspaceData.ts loadTransactionRowsForProject() pages
+-- through this table 1000 rows at a time via:
+--   .eq('project_id', X)
+--   .order('invoice_date', { ascending: true })
+--   .order('source_sheet_name', { ascending: true })
+--   .order('source_row_number', { ascending: true })
+--   .range(offset, offset + 999)
+--
+-- The existing idx_transaction_data_rows_project index (and the other
+-- (project_id, <single column>) composites added for rate/description/site
+-- matching) only serve the project_id equality filter — none cover the
+-- three-column ascending sort this pagination loop depends on, so every
+-- page requires an in-memory sort of the project_id-filtered rows.
+--
+-- Table is small at current scale (low thousands of rows per project), so a
+-- plain (non-CONCURRENT) CREATE INDEX matches this repo's existing
+-- migration convention; revisit with CREATE INDEX CONCURRENTLY if
+-- per-project row counts grow large enough for the write lock to matter.
+CREATE INDEX IF NOT EXISTS idx_transaction_data_rows_project_pagination_sort
+  ON public.transaction_data_rows (project_id, invoice_date, source_sheet_name, source_row_number);

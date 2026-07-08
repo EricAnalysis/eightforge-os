@@ -1,0 +1,22 @@
+-- Performance: index activity_events for the project-scoped audit fetch.
+--
+-- lib/projectActivityEvents.ts loadProjectActivityEvents() queries:
+--   .eq('organization_id', X).eq('project_id', Y)
+--   .order('created_at', { ascending: false }).limit(150)
+--
+-- project_id was added to activity_events by
+-- 20260401010000_project_validator_activity_events.sql without an
+-- accompanying index. The only existing indexes covering this table are
+-- (organization_id, created_at) and (organization_id, entity_type,
+-- entity_id, created_at) — neither serves an (organization_id, project_id)
+-- equality filter, so this query falls back to filtering project_id
+-- without index support after narrowing by organization_id.
+--
+-- Table is small at current scale (low thousands of rows per organization),
+-- so a plain (non-CONCURRENT) CREATE INDEX matches this repo's existing
+-- migration convention (see 20260506000000_execution_items.sql) and
+-- completes well within a normal migration window; revisit with
+-- CREATE INDEX CONCURRENTLY if this table grows to a size where a brief
+-- write lock becomes disruptive.
+CREATE INDEX IF NOT EXISTS idx_activity_events_org_project_created
+  ON public.activity_events (organization_id, project_id, created_at DESC);

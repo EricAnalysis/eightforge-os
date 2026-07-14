@@ -81,6 +81,7 @@ export default function ProjectDetailPage({
       documents={data.documents}
       documentRelationships={data.documentRelationships}
       transactionDatasets={data.transactionDatasets}
+      transactionSummary={data.transactionSummary}
       validationFindings={data.validationFindings}
       validationEvidence={data.validationEvidence}
       executionItems={data.executionItems}

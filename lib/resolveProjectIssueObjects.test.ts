@@ -227,5 +227,102 @@ describe('resolveProjectIssueObjects', () => {
       surface: 'resolveProjectIssueObjects.findingBacked',
       timestamp: warn.mock.calls[0]?.[1].timestamp,
     });
+    warn.mockRestore();
+  });
+
+  it('does not let a stale resolved source-matched execution item resolve a persisted-open finding', () => {
+    const mismatches: unknown[] = [];
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({
+        severity: 'info',
+        finding_disposition: 'requires_review',
+        approval_gate_effect: 'requires_operator_review',
+        linked_decision_id: null,
+        linked_action_id: null,
+        resolved_at: null,
+        lifecycle_state: 'open',
+      })],
+      decisions: [],
+      executionItems: [execution({
+        id: 'stale-execution-1',
+        source_type: 'validator_finding',
+        source_id: 'finding-1',
+        status: 'resolved',
+        outcome: 'resolved',
+      })],
+      evidence: [],
+      activityEvents: [],
+      documents: [],
+    }, {
+      onMismatch: (payload) => mismatches.push(payload),
+    });
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].executionItemId, 'stale-execution-1');
+    assert.equal(issues[0].executionItem?.id, 'stale-execution-1');
+    assert.equal(issues[0].status, 'FINDING');
+    assert.equal(issues[0].lifecycleState, 'open');
+    assert.equal(mismatches.length, 0);
+  });
+
+  it('keeps terminal source-matched execution items complete when the finding is persisted resolved', () => {
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({
+        status: 'resolved',
+        linked_decision_id: null,
+        linked_action_id: null,
+        resolved_at: '2026-05-01T10:08:00.000Z',
+        lifecycle_state: 'resolved',
+      })],
+      decisions: [],
+      executionItems: [execution({
+        id: 'terminal-execution-1',
+        source_type: 'validator_finding',
+        source_id: 'finding-1',
+        status: 'resolved',
+        outcome: 'resolved',
+      })],
+      evidence: [],
+      activityEvents: [],
+      documents: [],
+    });
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].executionItemId, 'terminal-execution-1');
+    assert.equal(issues[0].status, 'COMPLETE');
+    assert.equal(issues[0].lifecycleState, 'resolved');
+  });
+
+  it('honors a resolved source-matched execution item when linked_action_id corroborates it mid-cascade', () => {
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({
+        severity: 'info',
+        finding_disposition: 'requires_review',
+        approval_gate_effect: 'requires_operator_review',
+        linked_decision_id: null,
+        linked_action_id: 'execution-1',
+        resolved_at: null,
+        lifecycle_state: 'resolved',
+      })],
+      decisions: [],
+      executionItems: [execution({
+        id: 'execution-1',
+        source_type: 'validator_finding',
+        source_id: 'finding-1',
+        status: 'resolved',
+        outcome: 'resolved',
+      })],
+      evidence: [],
+      activityEvents: [],
+      documents: [],
+    });
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].executionItemId, 'execution-1');
+    assert.equal(issues[0].status, 'COMPLETE');
+    assert.equal(issues[0].lifecycleState, 'resolved');
   });
 });

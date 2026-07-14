@@ -11,12 +11,15 @@ config({ path: '.env.test.local', override: false });
  * Run a single file:    npx playwright test tests/smoke.spec.ts
  * View report:          npx playwright show-report
  *
- * Authentication: tests that require a logged-in user use the
- * `storageState` set up in the 'setup' project below.
+ * Authentication: the setup project refreshes tests/.auth/user.json and
+ * authenticated browser projects reuse that storage state.
  */
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: '.',
+  // This repository may contain nested assistant worktrees. They are not part
+  // of this checkout's test suite and can resolve a second Playwright copy.
+  testIgnore: ['**/.claude/**'],
   fullyParallel: false,      // run sequentially so auth setup completes first
   retries: process.env.CI ? 1 : 0,
   timeout: 30_000,
@@ -35,7 +38,7 @@ export default defineConfig({
      */
     {
       name: 'setup',
-      testMatch: /global-setup\.ts/,
+      testMatch: 'playwright/auth.setup.ts',
     },
     {
       name: 'chromium-smoke',
@@ -44,6 +47,7 @@ export default defineConfig({
         // Reuse the authenticated session saved by the setup project.
         storageState: 'tests/.auth/user.json',
       },
+      testMatch: 'tests/**/*.spec.ts',
       dependencies: ['setup'],
     },
   ],

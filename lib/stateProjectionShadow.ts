@@ -41,6 +41,7 @@ type StateProjectionShadowAdminClient = {
 export type StateProjectionShadowSinkOptions = {
   adminClient?: StateProjectionShadowAdminClient | null;
   organization_id?: string | null;
+  onMismatch?: (payload: StateProjectionShadowMismatch) => void;
 };
 
 function shadowLoggingEnabled(): boolean {
@@ -93,6 +94,7 @@ export function logStateProjectionMismatch(
   };
 
   console.warn('[state-projection-shadow-mismatch]', payload);
+  options.onMismatch?.(payload);
   persistStateProjectionMismatch(payload, options);
   return true;
 }

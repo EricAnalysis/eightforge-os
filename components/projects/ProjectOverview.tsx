@@ -33,6 +33,7 @@ import {
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
 import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
+import type { StateProjectionShadowMismatch } from '@/lib/stateProjectionShadow';
 import type {
   OverviewTone,
   ProjectDecisionRow,
@@ -1146,6 +1147,7 @@ export function ProjectOverview({
   const [bulkReprocessing, setBulkReprocessing] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const tableReprocessInFlightRef = useRef(false);
+  const shadowMismatchQueueRef = useRef<StateProjectionShadowMismatch[]>([]);
 
   useEffect(() => {
     const syncWithLocation = () => {
@@ -1169,6 +1171,10 @@ export function ProjectOverview({
     executionItems,
     activityEvents,
     documents,
+  }, {
+    onMismatch: (payload) => {
+      shadowMismatchQueueRef.current.push(payload);
+    },
   }), [
     activityEvents,
     decisions,
@@ -1178,6 +1184,35 @@ export function ProjectOverview({
     validationEvidence,
     validationFindings,
   ]);
+
+  useEffect(() => {
+    if (shadowMismatchQueueRef.current.length === 0) return;
+
+    const payloads = shadowMismatchQueueRef.current;
+    shadowMismatchQueueRef.current = [];
+
+    void (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+
+      const response = await fetch(`/api/projects/${model.project.id}/shadow-mismatches`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payloads),
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+    })().catch((error) => {
+      console.error('[ProjectOverview] failed to persist state projection shadow mismatches', error);
+    });
+  }, [issueObjects, model.project.id]);
 
   const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
   // Single source of truth for "requires review" across Overview and Validator:

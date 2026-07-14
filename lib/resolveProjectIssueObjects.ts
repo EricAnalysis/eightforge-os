@@ -16,11 +16,14 @@ import {
 import { DECISION_OPEN_STATUSES } from '@/lib/overdue';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
-import { logStateProjectionMismatch } from '@/lib/stateProjectionShadow';
+import { logStateProjectionMismatch, type StateProjectionShadowMismatch } from '@/lib/stateProjectionShadow';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 type DocumentLike = NonNullable<IssueObjectResolverInput['documents']>[number];
 type ActivityLike = ProjectActivityEventRow | Record<string, unknown>;
+type ResolveProjectIssueObjectsOptions = {
+  onMismatch?: (payload: StateProjectionShadowMismatch) => void;
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -176,11 +179,43 @@ function executionMatchesFinding(
   return false;
 }
 
+function executionMatchesFindingByValidatorSource(
+  item: ProjectExecutionItemRow | null,
+  finding: ValidationFinding,
+): boolean {
+  return item?.source_type === 'validator_finding' && item.source_id === finding.id;
+}
+
 function isExecutionComplete(item: ProjectExecutionItemRow | null): boolean {
   if (!item) return false;
   const raw = asRecord(item);
   const outcomeStatus = stringValue(raw?.outcome_status);
   return item.status === 'resolved' || outcomeStatus === 'resolved' || outcomeStatus === 'complete';
+}
+
+function hasTerminalFindingExecutionEvidence(
+  finding: ValidationFinding,
+  executionItem: ProjectExecutionItemRow,
+): boolean {
+  return finding.status !== 'open'
+    || finding.resolved_at != null
+    || finding.linked_action_id === executionItem.id;
+}
+
+function executionItemForFindingLifecycle(
+  finding: ValidationFinding,
+  executionItem: ProjectExecutionItemRow | null,
+): ProjectExecutionItemRow | null {
+  if (
+    executionItem
+    && isExecutionComplete(executionItem)
+    && executionMatchesFindingByValidatorSource(executionItem, finding)
+    && !hasTerminalFindingExecutionEvidence(finding, executionItem)
+  ) {
+    return null;
+  }
+
+  return executionItem;
 }
 
 function statusForRecords(
@@ -460,6 +495,7 @@ function buildExecutionBackedIssueObject(params: {
   input: IssueObjectResolverInput;
   executionItem: ProjectExecutionItemRow;
   activityEvents: readonly ActivityLike[];
+  options?: ResolveProjectIssueObjectsOptions;
 }): IssueObject | null {
   const { input, executionItem, activityEvents } = params;
   if (!executionItem.project_id) {
@@ -481,6 +517,8 @@ function buildExecutionBackedIssueObject(params: {
     legacy_value: lifecycleState,
     persisted_value: executionItem.queue_state,
     surface: 'resolveProjectIssueObjects.executionBacked',
+  }, {
+    onMismatch: params.options?.onMismatch,
   });
   const auditChain = activityEvents
     .filter((event) => eventMatchesIssue({ event, finding, decisionId, executionItemId }))
@@ -586,7 +624,10 @@ function sortIssueObjects(issues: IssueObject[]): IssueObject[] {
   });
 }
 
-export function resolveProjectIssueObjects(input: IssueObjectResolverInput): IssueObject[] {
+export function resolveProjectIssueObjects(
+  input: IssueObjectResolverInput,
+  options: ResolveProjectIssueObjectsOptions = {},
+): IssueObject[] {
   const documentsById = new Map((input.documents ?? []).map((document) => [document.id, document] as const));
   const decisions = input.decisions ?? [];
   const executionItems = input.executionItems ?? [];
@@ -602,7 +643,7 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
       executionItems.find((candidate) => executionMatchesFinding(candidate, finding, decisionId))
       ?? null;
     const executionItemId = executionItem?.id ?? finding.linked_action_id ?? null;
-    const status = statusForRecords(decision, executionItem);
+    const status = statusForRecords(decision, executionItemForFindingLifecycle(finding, executionItem));
     const findingEvidence = evidenceRows.filter((evidence) => evidence.finding_id === finding.id);
     const evidenceTargets = findingEvidence.map((evidence) => buildIssueEvidenceTarget({
       projectId: input.projectId,
@@ -622,6 +663,8 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
       legacy_value: lifecycleState,
       persisted_value: finding.lifecycle_state,
       surface: 'resolveProjectIssueObjects.findingBacked',
+    }, {
+      onMismatch: options.onMismatch,
     });
     const summary = issueSummary(finding);
     const nextHref = `/platform/projects/${input.projectId}?activeTab=decisions&selectedIssue=${finding.id}#project-decisions`;
@@ -657,7 +700,7 @@ export function resolveProjectIssueObjects(input: IssueObjectResolverInput): Iss
     .filter((executionItem) => !findingBackedIssueObjects.some((issue) =>
       issue.executionItemId === executionItem.id || issue.findingId === executionItem.source_id,
     ))
-    .map((executionItem) => buildExecutionBackedIssueObject({ input, executionItem, activityEvents }))
+    .map((executionItem) => buildExecutionBackedIssueObject({ input, executionItem, activityEvents, options }))
     .filter((issue): issue is IssueObject => issue != null);
 
   const existingIssueObjects = [...findingBackedIssueObjects, ...executionBackedIssueObjects];

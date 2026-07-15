@@ -26,6 +26,7 @@ import {
   type CanonicalProjectOverviewSignal,
   type CanonicalProjectOverviewSummaryItem,
   type CanonicalProjectTransactionDatasetInput,
+  type CanonicalTransactionSummary,
   type CanonicalProjectTruthRow,
   type CanonicalProjectTruthSection,
   type CanonicalProjectTruthState,
@@ -53,6 +54,7 @@ type ProjectOverviewProps = {
   documents?: ProjectDocumentRow[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
   transactionDatasets?: CanonicalProjectTransactionDatasetInput[];
+  transactionSummary?: CanonicalTransactionSummary | null;
   validationFindings?: readonly ValidationFinding[];
   validationEvidence?: readonly ValidationEvidence[];
   executionItems?: readonly ProjectExecutionItemRow[];
@@ -1130,6 +1132,7 @@ export function ProjectOverview({
   documents = [],
   documentRelationships = [],
   transactionDatasets = [],
+  transactionSummary,
   validationFindings,
   validationEvidence = [],
   executionItems = [],
@@ -1413,6 +1416,7 @@ export function ProjectOverview({
     operator_override_precedence: document.operator_override_precedence ?? null,
     intelligence_trace: document.intelligence_trace ?? null,
   }));
+  const precomputedTransactionSummary = transactionSummary ?? null;
   const truthSections = resolveCanonicalProjectTruthSections({
     validationStatus: model.project.validation_status ?? null,
     validationSummary: model.project.validation_summary_json,
@@ -1421,6 +1425,7 @@ export function ProjectOverview({
     documents: truthDocuments,
     documentRelationships,
     transactionDatasets,
+    precomputed: precomputedTransactionSummary,
   });
   const overviewBriefing = resolveCanonicalProjectOverviewBriefing({
     validationStatus: model.project.validation_status ?? null,
@@ -1430,6 +1435,7 @@ export function ProjectOverview({
     documents: truthDocuments,
     documentRelationships,
     transactionDatasets,
+    precomputed: precomputedTransactionSummary,
     requiredReviewCount,
   });
 

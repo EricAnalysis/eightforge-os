@@ -14,7 +14,9 @@ import {
 import type {
   CanonicalProjectTransactionDatasetInput,
   CanonicalProjectTransactionRowInput,
+  CanonicalTransactionSummary,
 } from '@/lib/projectFacts';
+import { buildCanonicalTransactionSummaryFromRows } from '@/lib/projectFacts';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
@@ -304,6 +306,7 @@ export type ProjectWorkspaceDataState = {
   documents: ProjectDocumentRow[];
   documentRelationships: ProjectDocumentRelationshipRow[];
   transactionDatasets: ProjectTransactionDatasetRow[];
+  transactionSummary: CanonicalTransactionSummary | null;
   validationFindings: ValidationFinding[];
   validationEvidence: ValidationEvidence[];
   executionItems: ProjectExecutionItemRow[];
@@ -336,6 +339,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
   const [documents, setDocuments] = useState<ProjectDocumentRow[]>([]);
   const [documentRelationships, setDocumentRelationships] = useState<ProjectDocumentRelationshipRow[]>([]);
   const [transactionDatasets, setTransactionDatasets] = useState<ProjectTransactionDatasetRow[]>([]);
+  const [transactionSummary, setTransactionSummary] = useState<CanonicalTransactionSummary | null>(null);
   const [validationFindings, setValidationFindings] = useState<ValidationFinding[]>([]);
   const [validationEvidence, setValidationEvidence] = useState<ValidationEvidence[]>([]);
   const [executionItems, setExecutionItems] = useState<ProjectExecutionItemRow[]>([]);
@@ -526,6 +530,10 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
             transactionRowsResult.error ? [] : transactionRowsResult.data,
           )
         : [];
+      const projectTransactionSummary = (() => {
+        const rows = projectTransactionDatasets.flatMap((dataset) => dataset.rows ?? []);
+        return rows.length > 0 ? buildCanonicalTransactionSummaryFromRows(rows) : null;
+      })();
       const projectValidationFindings = !validationFindingsResult.error
         ? ((validationFindingsResult.data ?? []) as ValidationFinding[])
         : [];
@@ -731,6 +739,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       setDocuments(hydratedProjectDocuments);
       setDocumentRelationships(projectDocumentRelationships);
       setTransactionDatasets(projectTransactionDatasets);
+      setTransactionSummary(projectTransactionSummary);
       setValidationFindings(projectValidationFindings);
       setValidationEvidence(projectValidationEvidence);
       setExecutionItems(projectExecutionItems);
@@ -767,6 +776,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
     documents,
     documentRelationships,
     transactionDatasets,
+    transactionSummary,
     validationFindings,
     validationEvidence,
     executionItems,

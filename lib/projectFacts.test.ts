@@ -799,6 +799,23 @@ describe('resolveCanonicalProjectFacts', () => {
       transactionDatasets: [rowBackedDataset],
     });
     assert.deepEqual(rowBriefing, summaryBriefing);
+
+    const goldenShapedRows = Array.from({ length: 5063 }, (_, index) => ({
+      ...transactionRows[index % transactionRows.length],
+      id: `golden-row-${index}`,
+      source_row_number: index + 1,
+    }));
+    const goldenDataset = { ...summaryBackedDataset, row_count: goldenShapedRows.length, rows: goldenShapedRows };
+    const precomputed = buildCanonicalTransactionSummaryFromRows(goldenShapedRows);
+    assert.equal(Object.isFrozen(precomputed), true);
+    assert.deepEqual(
+      resolveCanonicalProjectTruthSections({ transactionDatasets: [goldenDataset] }),
+      resolveCanonicalProjectTruthSections({ transactionDatasets: [goldenDataset], precomputed }),
+    );
+    assert.deepEqual(
+      resolveCanonicalProjectOverviewBriefing({ transactionDatasets: [goldenDataset] }),
+      resolveCanonicalProjectOverviewBriefing({ transactionDatasets: [goldenDataset], precomputed }),
+    );
   });
 
   it('uses live unresolved validator findings for Facts validation truth when persisted counts are stale', () => {

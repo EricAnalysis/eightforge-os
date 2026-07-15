@@ -2938,9 +2938,11 @@ function normalizeTransactionProjectionRow(
   } as NormalizedTransactionDataRecord;
 }
 
+export type CanonicalTransactionSummary = Readonly<Record<string, unknown>>;
+
 export function buildCanonicalTransactionSummaryFromRows(
   rows: readonly CanonicalProjectTransactionRowInput[],
-): Record<string, unknown> {
+): CanonicalTransactionSummary {
   const records = rows.map(normalizeTransactionProjectionRow);
   const normalizedTransactionNumberSet = new Set<string>();
   const normalizedInvoicedTransactionNumberSet = new Set<string>();
@@ -3047,7 +3049,7 @@ export function buildCanonicalTransactionSummaryFromRows(
     evidence_refs: evidenceRefs,
   };
 
-  return summary;
+  return Object.freeze(summary);
 }
 
 function readRowBackedTransactionSummary(
@@ -3060,7 +3062,7 @@ function readRowBackedTransactionSummary(
 
 function readProjectRowBackedTransactionSummary(
   datasets: readonly CanonicalProjectTransactionDatasetInput[],
-): Record<string, unknown> | null {
+): CanonicalTransactionSummary | null {
   const rows = datasets.flatMap((dataset) => [...(dataset.rows ?? [])]);
   return rows.length > 0
     ? buildCanonicalTransactionSummaryFromRows(rows)
@@ -3699,9 +3701,10 @@ function resolveInvoiceTruthRows(params: {
 
 function resolveTransactionTruthRows(
   datasets: readonly CanonicalProjectTransactionDatasetInput[],
+  precomputed?: CanonicalTransactionSummary | null,
 ): CanonicalProjectTruthRow[] {
   const sourceLabel = 'Canonical transaction data';
-  const rowBackedSummary = readProjectRowBackedTransactionSummary(datasets);
+  const rowBackedSummary = precomputed ?? readProjectRowBackedTransactionSummary(datasets);
   const metricDatasets =
     rowBackedSummary != null
       ? [{
@@ -3828,6 +3831,7 @@ export function resolveCanonicalProjectTruthSections(params: {
   documents?: readonly CanonicalProjectTruthDocumentInput[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
   transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[];
+  precomputed?: CanonicalTransactionSummary | null;
 }): CanonicalProjectTruthSection[] {
   const documents = params.documents ?? [];
   const datasets = params.transactionDatasets ?? [];
@@ -3868,7 +3872,7 @@ export function resolveCanonicalProjectTruthSections(params: {
     {
       key: 'transaction',
       title: 'Transaction Truth',
-      rows: resolveTransactionTruthRows(datasets),
+      rows: resolveTransactionTruthRows(datasets, params.precomputed),
     },
     {
       key: 'validation',
@@ -3972,6 +3976,7 @@ export function resolveCanonicalProjectOverviewBriefing(params: {
   documents?: readonly CanonicalProjectTruthDocumentInput[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
   transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[];
+  precomputed?: CanonicalTransactionSummary | null;
   requiredReviewCount?: number | null;
 }): CanonicalProjectOverviewBriefing {
   const truthSections = resolveCanonicalProjectTruthSections(params);

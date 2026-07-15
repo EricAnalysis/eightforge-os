@@ -11,14 +11,15 @@ import { ValidatorFindingsPanel } from '@/components/validator/ValidatorFindings
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import type { IssueObject } from '@/lib/issueObjects';
 import {
-  resolveCanonicalProjectValidatorWorkspace,
   resolveValidationSummaryFromProjectFacts,
+  type CanonicalTransactionSummary,
   type CanonicalProjectTransactionDatasetInput,
   type CanonicalProjectTruthDocumentInput,
   type CanonicalProjectTruthState,
   type CanonicalProjectValidatorCoverageItem,
 } from '@/lib/projectFacts';
 import { supabase } from '@/lib/supabaseClient';
+import { resolveLoadedValidatorWorkspace } from '@/lib/validator/validatorWorkspaceLoad';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import type {
   ValidationEvidence,
@@ -33,6 +34,7 @@ type ValidatorTabProps = {
   projectId: string;
   documents?: readonly CanonicalProjectTruthDocumentInput[];
   transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[];
+  transactionSummary?: CanonicalTransactionSummary | null;
   validationEvidence?: readonly ValidationEvidence[];
   issueObjects?: readonly IssueObject[];
   findingsEmptyState?: string;
@@ -436,6 +438,7 @@ export function ValidatorTab({
   projectId,
   documents = [],
   transactionDatasets = [],
+  transactionSummary = null,
   validationEvidence = [],
   issueObjects = [],
   findingsEmptyState = 'No open or recently resolved validator findings are on record for this project.',
@@ -787,20 +790,21 @@ export function ValidatorTab({
     ? latestRun.rules_applied.length
     : 0;
   const validatorWorkspace = useMemo(
-    () => resolveCanonicalProjectValidatorWorkspace({
+    () => resolveLoadedValidatorWorkspace(loading, {
       validationStatus: summary.status,
       validationSummary: summary,
       documents,
       transactionDatasets,
+      precomputed: transactionSummary,
     }),
-    [documents, summary, transactionDatasets],
+    [documents, loading, summary, transactionDatasets, transactionSummary],
   );
   const readinessGaps = useMemo(
-    () => [...validatorWorkspace.coverage_items]
+    () => [...(validatorWorkspace?.coverage_items ?? [])]
       .filter((item) => COVERAGE_ITEM_CONFIG[item.key] != null)
       .sort((left, right) => COVERAGE_ITEM_CONFIG[left.key]!.order - COVERAGE_ITEM_CONFIG[right.key]!.order)
       .slice(0, 3),
-    [validatorWorkspace.coverage_items],
+    [validatorWorkspace],
   );
   const actionableReadinessGaps = useMemo(
     () => readinessGaps.filter((item) => item.state !== 'derived'),
@@ -830,6 +834,32 @@ export function ValidatorTab({
     summary,
     criticalCount: canonicalBlockerCount,
   });
+
+  if (loading) {
+    return (
+      <div className="space-y-6" aria-busy="true" aria-live="polite">
+        <section className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+            Validator
+          </p>
+          <h2 className="mt-3 text-2xl font-bold text-[var(--ef-text-primary)]">
+            Loading current validator state…
+          </h2>
+          <p className="mt-3 text-sm text-[var(--ef-text-secondary)]">
+            Loading the current approval status, coverage, findings, and evidence. No provisional validator state is shown.
+          </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {[0, 1, 2].map((index) => (
+              <div key={index} className="h-24 animate-pulse rounded-sm bg-[var(--ef-surface-elevated)]" />
+            ))}
+          </div>
+        </section>
+        <section id="validator-findings" className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] px-4 py-5 text-sm text-[var(--ef-text-muted)]">
+          Loading validator findings…
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -4603,6 +4603,7 @@ export function resolveCanonicalProjectValidatorWorkspace(params: {
   documents?: readonly CanonicalProjectTruthDocumentInput[];
   documentRelationships?: readonly CanonicalProjectDocumentRelationshipInput[];
   transactionDatasets?: readonly CanonicalProjectTransactionDatasetInput[];
+  precomputed?: CanonicalTransactionSummary | null;
 }): CanonicalProjectValidatorWorkspace {
   const truthSections = resolveCanonicalProjectTruthSections(params);
   const snapshot = resolveCanonicalProjectValidationSnapshot({

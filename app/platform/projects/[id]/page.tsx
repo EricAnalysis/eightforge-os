@@ -95,6 +95,7 @@ export default function ProjectDetailPage({
           projectId={id}
           documents={data.documents}
           transactionDatasets={data.transactionDatasets}
+          transactionSummary={data.transactionSummary}
           validationEvidence={data.validationEvidence}
           issueObjects={issueObjects}
           findingsEmptyState={model.decision_empty_state}

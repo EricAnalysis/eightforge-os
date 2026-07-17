@@ -327,7 +327,7 @@ describe('buildDecisionCausalChain', () => {
   it('shows calm incomplete states when the payload is missing operating context', () => {
     const chain = buildDecisionCausalChain({
       decisionId: 'decision-2',
-      decisionStatus: 'suppressed',
+      decisionStatus: 'dismissed',
       decisionDetails: null,
       documentId: null,
       hasStructuredEvidence: false,

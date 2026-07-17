@@ -10,7 +10,6 @@ const MOCKED_MODULES = [
   '@/lib/server/intelligenceAdapter',
   '@/lib/server/documentPrecedence',
   '@/lib/server/transactionDataPersistence',
-  '@/lib/server/invoicePersistence',
   '@/lib/server/supportTicketPersistence',
 ] as const;
 
@@ -50,14 +49,6 @@ describe('generateAndPersistCanonicalIntelligence support persistence', () => {
       reason: 'not_transaction_data' as const,
       rowCount: 0,
     }));
-    const persistCanonicalInvoiceForDocument = vi.fn(async () => ({
-      persisted: false,
-      skipped: true,
-      reason: 'not_invoice' as const,
-      invoiceCount: 0,
-      lineCount: 0,
-    }));
-
     const extractionData = {
       extraction: {
         content_layers_v1: {
@@ -129,9 +120,6 @@ describe('generateAndPersistCanonicalIntelligence support persistence', () => {
     }));
     vi.doMock('@/lib/server/transactionDataPersistence', () => ({
       persistTransactionDataForDocument,
-    }));
-    vi.doMock('@/lib/server/invoicePersistence', () => ({
-      persistCanonicalInvoiceForDocument,
     }));
     vi.doMock('@/lib/server/supportTicketPersistence', () => ({
       persistCanonicalSupportForDocument,
@@ -220,14 +208,6 @@ describe('generateAndPersistCanonicalIntelligence support persistence', () => {
       reason: 'not_transaction_data' as const,
       rowCount: 0,
     }));
-    const persistCanonicalInvoiceForDocument = vi.fn(async () => ({
-      persisted: false,
-      skipped: true,
-      reason: 'not_invoice' as const,
-      invoiceCount: 0,
-      lineCount: 0,
-    }));
-
     vi.doMock('@/lib/documentIntelligence', () => ({
       buildDocumentIntelligence: vi.fn(() => ({
         classification: { family: 'ticket' },
@@ -285,9 +265,6 @@ describe('generateAndPersistCanonicalIntelligence support persistence', () => {
     }));
     vi.doMock('@/lib/server/transactionDataPersistence', () => ({
       persistTransactionDataForDocument,
-    }));
-    vi.doMock('@/lib/server/invoicePersistence', () => ({
-      persistCanonicalInvoiceForDocument,
     }));
     vi.doMock('@/lib/server/supportTicketPersistence', () => ({
       persistCanonicalSupportForDocument,

@@ -22,7 +22,6 @@ import {
   type DocumentFactReviewRow,
 } from '@/lib/documentFactReviews';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
-import { getCanonicalInvoicesForProject } from '@/lib/server/invoicePersistence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getCanonicalTransactionDataForProject } from '@/lib/server/transactionDataPersistence';
 import {
@@ -196,9 +195,7 @@ const INVOICE_LINE_SERVICE_ITEM_KEYS = [
 
 type StructuredTable =
   | 'mobile_tickets'
-  | 'load_tickets'
-  | 'invoices'
-  | 'invoice_lines';
+  | 'load_tickets';
 
 type BlobExtractionData = Record<string, unknown> & {
   fields?: {
@@ -1146,51 +1143,6 @@ async function loadStructuredRows(
   if (error) throw new Error(error.message);
 
   return (data ?? []) as StructuredRow[];
-}
-
-async function loadInvoiceLines(
-  projectId: string,
-  invoices: readonly InvoiceRow[],
-): Promise<InvoiceLineRow[]> {
-  const admin = getSupabaseAdmin();
-  if (!admin) throw new Error('Server validation client is not configured.');
-
-  const projectQuery = await admin
-    .from('invoice_lines')
-    .select('*')
-    .eq('project_id', projectId);
-
-  if (!projectQuery.error) {
-    return (projectQuery.data ?? []) as InvoiceLineRow[];
-  }
-
-  if (isMissingTableError(projectQuery.error)) {
-    return [];
-  }
-
-  if (
-    isMissingColumnError(projectQuery.error, 'project_id') &&
-    invoices.length > 0
-  ) {
-    const invoiceIds = invoices
-      .map((row) => readRowString(row, ['id', 'invoice_id']))
-      .filter((value): value is string => typeof value === 'string' && value.length > 0);
-
-    if (invoiceIds.length === 0) return [];
-
-    const invoiceQuery = await admin
-      .from('invoice_lines')
-      .select('*')
-      .in('invoice_id', invoiceIds);
-
-    if (invoiceQuery.error && isMissingTableError(invoiceQuery.error)) {
-      return [];
-    }
-    if (invoiceQuery.error) throw new Error(invoiceQuery.error.message);
-    return (invoiceQuery.data ?? []) as InvoiceLineRow[];
-  }
-
-  throw new Error(projectQuery.error.message);
 }
 
 export function buildDocumentIdsByFamily(
@@ -2352,7 +2304,6 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     ruleStateByRuleId,
     mobileTickets,
     loadTickets,
-    canonicalInvoices,
     transactionData,
   ] =
     await Promise.all([
@@ -2363,17 +2314,11 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
       loadRuleState(projectId),
       loadStructuredRows('mobile_tickets', projectId),
       loadStructuredRows('load_tickets', projectId),
-      getCanonicalInvoicesForProject({
-        projectId,
-        documentIds,
-      }),
       getCanonicalTransactionDataForProject({
         projectId,
         documentIds,
       }),
     ]);
-  const invoices = canonicalInvoices.invoices as InvoiceRow[];
-  const invoiceLines = canonicalInvoices.invoiceLines as InvoiceLineRow[];
 
   let precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [];
   let documentRelationships: DocumentRelationshipRecord[] = [];
@@ -2410,17 +2355,11 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
   const syntheticInvoices = synthesizeInvoicesFromLegacyExtractions({
     legacyRowsByDocumentId,
     invoiceDocumentIds: validationInvoiceDocumentIds,
-    existingInvoices: invoices as InvoiceRow[],
-    existingInvoiceLines: invoiceLines as InvoiceLineRow[],
+    existingInvoices: [],
+    existingInvoiceLines: [],
   });
-  const baseInvoices = [
-    ...(invoices as InvoiceRow[]),
-    ...syntheticInvoices.invoices,
-  ];
-  const baseInvoiceLines = [
-    ...(invoiceLines as InvoiceLineRow[]),
-    ...syntheticInvoices.invoiceLines,
-  ];
+  const baseInvoices = syntheticInvoices.invoices;
+  const baseInvoiceLines = syntheticInvoices.invoiceLines;
   const { factsByDocumentId, allFacts } = buildFactsByDocumentId({
     documents,
     factRows,

@@ -335,29 +335,6 @@ async function countProjectScopedRows(
   return count ?? 0;
 }
 
-async function countInvoiceLineRows(projectId: string): Promise<number> {
-  const admin = requireAdminClient();
-  const { count, error } = await admin
-    .from('invoice_lines')
-    .select('id', { count: 'exact', head: true })
-    .eq('project_id', projectId);
-
-  if (
-    error &&
-    (
-      isMissingProjectTable(error, 'invoice_lines') ||
-      isMissingColumnError(error, 'project_id')
-    )
-  ) {
-    return 0;
-  }
-  if (error) {
-    throw new Error(`Failed to count invoice_lines: ${error.message}`);
-  }
-
-  return count ?? 0;
-}
-
 async function countNormalizedFacts(documentIds: readonly string[]): Promise<number> {
   if (documentIds.length === 0) return 0;
 
@@ -459,7 +436,6 @@ async function loadValidationTriggerMetrics(
   const [
     mobileTicketCount,
     loadTicketCount,
-    invoiceLineCount,
     normalizedFactCount,
     overrideCount,
     reviewCount,
@@ -469,7 +445,6 @@ async function loadValidationTriggerMetrics(
   ] = await Promise.all([
     countProjectScopedRows('mobile_tickets', projectId),
     countProjectScopedRows('load_tickets', projectId),
-    countInvoiceLineRows(projectId),
     countNormalizedFacts(documentIds),
     countDocumentFactOverrides(documentIds),
     countDocumentFactReviews(documentIds),
@@ -493,7 +468,7 @@ async function loadValidationTriggerMetrics(
       precedenceFingerprint,
       validationPhase,
     }),
-    relevantRecordCount: ticketCount + invoiceLineCount,
+    relevantRecordCount: ticketCount,
   };
 }
 

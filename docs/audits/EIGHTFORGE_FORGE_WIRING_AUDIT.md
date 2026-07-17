@@ -1,3 +1,5 @@
+> Historical: references components removed after 2026-07-16; retained as-is for audit history.
+
 # EIGHTFORGE FORGE WIRING AUDIT
 
 **Date:** 2026-06-21  

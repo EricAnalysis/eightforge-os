@@ -1,3 +1,5 @@
+> Historical: references components removed after 2026-07-16; retained as-is for audit history.
+
 # EightForge Downstream Display Audit — Phase A (Verified)
 
 Status: READ-ONLY. No files modified. No Phase B work performed.

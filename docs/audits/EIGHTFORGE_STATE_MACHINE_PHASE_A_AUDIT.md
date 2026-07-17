@@ -1,3 +1,5 @@
+> Historical: references components removed after 2026-07-16; retained as-is for audit history.
+
 # EIGHTFORGE — EXPLICIT STATE MACHINE CODIFICATION
 ## PHASE A — AUDIT & ANALYSIS (DERIVATION-MAPPING ONLY)
 **Date:** 2026-06-21  

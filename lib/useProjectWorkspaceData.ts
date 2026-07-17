@@ -168,33 +168,93 @@ function isMissingTransactionRowsTableError(
     || (error?.message ?? '').toLowerCase().includes('transaction_data_rows');
 }
 
-async function loadTransactionRowsForProject(
+export async function loadTransactionRowsForProject(
   projectId: string,
 ): Promise<ProjectTransactionRowsQueryResult> {
-  const rows: CanonicalProjectTransactionRowInput[] = [];
-  let offset = 0;
+  const loadSerially = async (): Promise<ProjectTransactionRowsQueryResult> => {
+    const rows: CanonicalProjectTransactionRowInput[] = [];
+    let offset = 0;
 
-  while (true) {
-    const result = await supabase
-      .from('transaction_data_rows')
-      .select(TRANSACTION_DATA_ROW_SELECT)
-      .eq('project_id', projectId)
-      .order('invoice_date', { ascending: true })
-      .order('source_sheet_name', { ascending: true })
-      .order('source_row_number', { ascending: true })
-      .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
+    while (true) {
+      const result = await supabase
+        .from('transaction_data_rows')
+        .select(TRANSACTION_DATA_ROW_SELECT)
+        .eq('project_id', projectId)
+        .order('invoice_date', { ascending: true })
+        .order('source_sheet_name', { ascending: true })
+        .order('source_row_number', { ascending: true })
+        .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
 
-    if (result.error) {
-      return { data: rows, error: result.error };
+      if (result.error) {
+        return { data: rows, error: result.error };
+      }
+
+      const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
+      rows.push(...batch);
+      if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+        return { data: rows, error: null };
+      }
+      offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
     }
+  };
 
-    const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
-    rows.push(...batch);
-    if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
-      return { data: rows, error: null };
-    }
-    offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
+  const firstPageResult = await supabase
+    .from('transaction_data_rows')
+    .select(TRANSACTION_DATA_ROW_SELECT, { count: 'exact' })
+    .eq('project_id', projectId)
+    .order('invoice_date', { ascending: true })
+    .order('source_sheet_name', { ascending: true })
+    .order('source_row_number', { ascending: true })
+    .range(0, TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
+
+  // Older PostgREST/schema-cache environments may not provide an exact count.
+  // Reuse the original serial behavior rather than guessing how many pages exist.
+  if (firstPageResult.error || firstPageResult.count === null) {
+    return loadSerially();
   }
+
+  const firstBatch = (firstPageResult.data ?? []) as CanonicalProjectTransactionRowInput[];
+  if (firstBatch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+    return { data: firstBatch, error: null };
+  }
+
+  const totalPages = Math.ceil(firstPageResult.count / TRANSACTION_DATA_ROW_PAGE_SIZE);
+  const remainingOffsets = Array.from(
+    { length: Math.max(0, totalPages - 1) },
+    (_, index) => (index + 1) * TRANSACTION_DATA_ROW_PAGE_SIZE,
+  );
+  const rows = [...firstBatch];
+
+  // Keep the fan-out bounded. Pages are appended below in offset order, matching
+  // the serial query's array exactly. Tie ordering across range queries remains
+  // the pre-existing database ORDER BY behavior.
+  for (let index = 0; index < remainingOffsets.length; index += 6) {
+    const offsets = remainingOffsets.slice(index, index + 6);
+    const results = await Promise.all(
+      offsets.map((offset) =>
+        supabase
+          .from('transaction_data_rows')
+          .select(TRANSACTION_DATA_ROW_SELECT)
+          .eq('project_id', projectId)
+          .order('invoice_date', { ascending: true })
+          .order('source_sheet_name', { ascending: true })
+          .order('source_row_number', { ascending: true })
+          .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1),
+      ),
+    );
+    for (const result of results) {
+      if (result.error) {
+        return { data: rows, error: result.error };
+      }
+      const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
+      rows.push(...batch);
+      if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+        return { data: rows, error: null };
+      }
+    }
+  }
+
+  return { data: rows, error: null };
 }
 
 function attachRowsToTransactionDatasets(

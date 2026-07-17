@@ -2991,11 +2991,15 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
     )
     : rateRowCountFromTables;
   const rateSchedulePresent = acceptedRateTables.length > 0 || rateFromSignals || extractedRateRowCount > 0;
-  const rateRowCount = acceptedRateTables.length > 0
+  const estimatedRateRowCount = acceptedRateTables.length > 0
     ? Math.max(rateRowCountFromTables, extractedRateRowCount)
     : Number(document.section_signals.rate_items_detected ?? 0) || 0;
+  // The qualification estimate stays diagnostic-only. The persisted fact below
+  // must track the same assembled canonical rows that later become
+  // contract_analysis.rate_schedule_rows.
+  const rateRowCount = contractRateScheduleAssembly?.rows.length ?? 0;
   const confirmedRateRowCount = 0;
-  const rateScheduleState = rateRowCount > 0 ? 'needs_review' : 'missing';
+  const rateScheduleState = estimatedRateRowCount > 0 ? 'needs_review' : 'missing';
   const inferredRatePages = acceptedRateTables.length > 0
     ? inferWeakContinuationRatePages(document, acceptedRateTables, pdfTables)
     : { pages: [] as number[], inferred_gap_pages: [] as number[] };
@@ -3606,6 +3610,7 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
         rate_schedule_present: rateSchedulePresent,
         rate_schedule_present_reason: ratePresentReason,
         rate_row_count: rateRowCount,
+        estimated_rate_row_count: estimatedRateRowCount,
         confirmed_rate_row_count: confirmedRateRowCount,
         rate_schedule_state: rateScheduleState,
         rate_row_count_reason: rateRowCountReason,
@@ -3618,7 +3623,6 @@ function normalizeContract(document: ExtractedNodeDocument): { facts: PipelineFa
         row_shape_consistency: selectedRateTable?.qualification_signals.row_shape_consistency ?? null,
         inline_unit_signal_detected: selectedRateTable?.qualification_signals.inline_unit_signal_detected ?? null,
         price_column_count: selectedRateTable?.qualification_signals.price_column_count ?? null,
-        estimated_rate_row_count: selectedRateTable?.qualification_signals.estimated_rate_row_count ?? null,
         price_unit_description_signals: selectedRateTable?.qualification_signals.price_unit_description_signals ?? null,
         clin_detected: selectedRateTable?.qualification_signals.clin_detected ?? null,
         money_column_detected: selectedRateTable?.qualification_signals.money_column_detected ?? null,

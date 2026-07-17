@@ -34,8 +34,6 @@ jobs:
         shell: bash
         run: |
           QUARANTINED_TEST_FILES=(
-            # Quarantined pending CS-12 owner decision (retry source instructor→fallback).
-            "lib/ai/instructor/instructorAssist.test.ts"
             # Quarantined pending CS-9 follow-up (stale diagnostic estimate assertions conflict with canonical assembled row counts).
             "lib/pipeline/nodes/normalizeNode.anchor.test.ts"
           )

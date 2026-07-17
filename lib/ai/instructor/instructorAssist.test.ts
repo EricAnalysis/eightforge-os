@@ -65,7 +65,7 @@ describe('Instructor classification assist', () => {
     expect(createClient).not.toHaveBeenCalled();
   });
 
-  it('retries malformed model output before accepting a valid structured classification', async () => {
+  it('ignores the model client and routes deterministically while model-assist is disabled', async () => {
     const { client, create } = mockClient([
       { family: 'invoice' },
       {
@@ -85,11 +85,15 @@ describe('Instructor classification assist', () => {
       client,
     });
 
-    expect(result.source).toBe('instructor');
-    expect(result.family).toBe('invoice');
-    expect(result.detected_document_type).toBe('invoice');
-    expect(result.attempts).toBe(2);
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(result.source).toBe('fallback');
+    expect(result.family).toBe('generic');
+    expect(result.detected_document_type).toBeNull();
+    expect(result.attempts).toBe(0);
+    expect(result.model).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(result.warnings).toContain(
+      'Model-assisted document classification is disabled; deterministic routing only.',
+    );
   });
 });
 

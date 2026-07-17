@@ -1,4 +1,6 @@
-﻿# Pre-Simplification Snapshot Recovery
+> Historical: references components removed after 2026-07-16; retained as-is for audit history.
+
+# Pre-Simplification Snapshot Recovery
 
 **Date:** 2026-06-21
 **Git tag:** pre-surface-simplification-snapshot

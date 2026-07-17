@@ -206,12 +206,12 @@ components/projects/DocumentPrecedenceSection.tsx
 components/projects/ProjectAdminControls.tsx
 components/projects/ProjectAuditForge.tsx
 components/projects/ProjectDecisionExecutionCard.tsx
-components/projects/ProjectDecisionQueueFrame.tsx
+components/validator/ValidatorEvidenceDrawer.tsx (legacy Decisions detail)
 components/projects/ProjectDocumentsForge.tsx
 components/projects/ProjectExecutionForge.tsx
 components/projects/ProjectFactsForge.tsx
 components/projects/ProjectIntelligenceSnapshot.tsx
-components/projects/ProjectIssueBoard.tsx
+components/validator/ValidatorFindingsPanel.tsx (legacy project issue list)
 components/projects/ProjectOverview.tsx
 components/projects/ValidatorTab.tsx
 components/rules/ActionBuilder.tsx
@@ -1266,9 +1266,8 @@ components/PortfolioCommandCenter.tsx:345:  if (totalIssues === 0) {
 components/projects\DocumentPrecedenceSection.tsx:763:                    {relationship.summary}
 components/projects\DocumentPrecedenceSection.tsx:1003:                    {relationship.summary}
 components/approval\ApprovalActionTimeline.tsx:375:            {history.total_actions} action{history.total_actions === 1 ? '' : 's'} across{' '}
-components/projects\ProjectDecisionQueueFrame.tsx:97:        <p className="mt-2 text-sm leading-6 text-[var(--ef-text-muted)]">{issue.summary}</p>
-components/projects\ProjectDecisionQueueFrame.tsx:132:        <FrameRow label="Decision question" value={decision?.summary ?? issue.finding.required_action ?? issue.nextAction} />
-components/projects\ProjectDecisionQueueFrame.tsx:134:        <FrameRow label="Impact" value={issue.finding.impact ?? decision?.summary ?? 'Impact is captured on the validator finding and decision record.'} />
+components/projects\ValidatorTab.tsx:1060:              <ValidatorFindingsPanel
+components/projects\ValidatorTab.tsx:1069:              <ValidatorEvidenceDrawer
 components/projects\ProjectFactsForge.tsx:235:  if (validatorSummary.required_review_total > 0) {
 components/projects\ProjectFactsForge.tsx:236:    return `${validatorSummary.required_review_total} review${validatorSummary.required_review_total === 1 ? '' : 's'} still require operator action`;
 components/projects\ProjectFactsForge.tsx:518:          validatorSummary.required_review_total,
@@ -1346,7 +1345,6 @@ app/login\page.tsx
 components/projects\ValidatorTab.tsx
 components/projects\ProjectOverview.tsx
 components/projects\ProjectExecutionForge.tsx
-components/projects\ProjectDecisionQueueFrame.tsx
 app/platform\workflows\[id]\page.tsx
 components/projects\ProjectDecisionExecutionCard.tsx
 app/platform\workflows\page.tsx

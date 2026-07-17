@@ -1,3 +1,5 @@
+> Historical: references components removed after 2026-07-16; retained as-is for audit history.
+
 # EightForge Full System Audit - 2026-07-08
 
 Phase: A only, read-only.

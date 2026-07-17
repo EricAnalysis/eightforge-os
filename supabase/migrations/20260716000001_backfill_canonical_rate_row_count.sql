@@ -1,10 +1,11 @@
--- Keep facts.rate_row_count transactionally aligned with the persisted canonical
--- contract_analysis.rate_schedule_rows array. This backfill intentionally leaves
--- the row arrays and their evidence anchors unchanged.
+-- Keep facts.rate_row_count transactionally aligned with the distinct row_id values
+-- in the persisted canonical contract_analysis.rate_schedule_rows array. Fail loudly
+-- on duplicate row IDs; this backfill leaves row arrays and evidence anchors unchanged.
 DO $$
 DECLARE
   target record;
   live_rows jsonb;
+  raw_count integer;
   live_count integer;
   persisted_count integer;
 BEGIN
@@ -27,7 +28,17 @@ BEGIN
         target.label, target.document_id;
     END IF;
 
-    live_count := jsonb_array_length(live_rows);
+    raw_count := jsonb_array_length(live_rows);
+    SELECT COUNT(DISTINCT rate_row ->> 'row_id')::integer
+    INTO live_count
+    FROM jsonb_array_elements(live_rows) AS rate_rows(rate_row);
+
+    IF raw_count <> live_count THEN
+      RAISE EXCEPTION
+        'CS-9 rate row count duplicate guard failed for contract % (%): found % raw rows but % distinct row_id values.',
+        target.label, target.document_id, raw_count, live_count;
+    END IF;
+
     IF live_count <> target.expected_count THEN
       RAISE EXCEPTION
         'CS-9 rate row count guard failed for % (%): expected %, found %.',

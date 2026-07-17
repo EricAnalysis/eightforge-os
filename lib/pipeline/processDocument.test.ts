@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const MOCKED_MODULES = [
   '@/lib/server/supabaseAdmin',
@@ -31,6 +31,13 @@ async function loadProcessDocument() {
   const importedProcessDocument = await import('@/lib/pipeline/processDocument');
   return importedProcessDocument.processDocument;
 }
+
+beforeAll(async () => {
+  // Warm Vitest's transformed module graph outside the per-test timeout. Each test still
+  // resets the module cache so its isolated doMock factories remain authoritative.
+  await import('@/lib/pipeline/processDocument');
+  vi.resetModules();
+}, 30_000);
 
 function buildCanonicalResult(overrides: Record<string, unknown> = {}) {
   return {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const MOCKED_MODULES = [
   '@/lib/ai/instructor/classifyDocumentFamily',
@@ -24,6 +24,13 @@ async function loadExtractDocument() {
   const documentExtractionModule = await import('@/lib/server/documentExtraction');
   return documentExtractionModule.extractDocument;
 }
+
+beforeAll(async () => {
+  // Warm Vitest's transformed module graph outside the per-test timeout. Each test still
+  // resets the module cache so its isolated PDF/OCR doMock factories remain authoritative.
+  await import('@/lib/server/documentExtraction');
+  vi.resetModules();
+}, 30_000);
 
 function mockCommonPdfPipeline(pageCount: number) {
   const buildPdfTextExtraction = vi.fn((

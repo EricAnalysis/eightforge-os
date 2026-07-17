@@ -532,7 +532,14 @@ export function headerWordBoundaryMatch(
   const cached = HEADER_WORD_BOUNDARY_MATCH_CACHE.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const result = NORMALIZED_ALIAS_REGEXES.get(normalizedAlias)?.test(normalizedHeader) ?? false;
+  let aliasRegex = NORMALIZED_ALIAS_REGEXES.get(normalizedAlias);
+  if (!aliasRegex) {
+    const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    aliasRegex = new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'i');
+    NORMALIZED_ALIAS_REGEXES.set(normalizedAlias, aliasRegex);
+  }
+
+  const result = aliasRegex.test(normalizedHeader);
   HEADER_WORD_BOUNDARY_MATCH_CACHE.set(cacheKey, result);
   return result;
 }

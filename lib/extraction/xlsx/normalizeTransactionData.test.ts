@@ -101,6 +101,21 @@ describe('normalizeTransactionData', () => {
     expect(optimizedDurationMs).toBeLessThanOrEqual(legacyDurationMs);
   });
 
+  it('self-heals the regex cache for an alias outside the prewarmed alias sets', () => {
+    const normalizedHeader = normalizeHeader('Current Custom Dispatch Marker Value');
+    const normalizedAlias = normalizeHeader('Custom Dispatch Marker');
+    const escapedAlias = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const freshlyCompiledResult = new RegExp(
+      `(?:^|\\s)${escapedAlias}(?:$|\\s)`,
+      'i',
+    ).test(normalizedHeader);
+
+    expect(freshlyCompiledResult).toBe(true);
+    expect(headerWordBoundaryMatch(normalizedHeader, normalizedAlias)).toBe(
+      freshlyCompiledResult,
+    );
+  });
+
   it('normalizes ticket_query style exports into canonical rows and rollups', async () => {
     const workbook = await parseWorkbook(
       workbookBytes([

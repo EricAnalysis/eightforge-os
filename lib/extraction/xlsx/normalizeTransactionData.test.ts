@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { utils, write } from 'xlsx';
 
 import { detectSheets } from '@/lib/extraction/xlsx/detectSheets';
-import { normalizeTransactionData } from '@/lib/extraction/xlsx/normalizeTransactionData';
+import {
+  headerWordBoundaryMatch,
+  normalizeHeader,
+  normalizeTransactionData,
+} from '@/lib/extraction/xlsx/normalizeTransactionData';
 import { parseWorkbook } from '@/lib/extraction/xlsx/parseWorkbook';
+import { buildCanonicalTransactionSummaryFromRows } from '@/lib/projectFacts';
+import { TRANSACTION_DATA_HEADER_ALIASES } from '@/lib/types/transactionData';
 
 function workbookBytes(sheets: Array<{ name: string; rows: unknown[][] }>): ArrayBuffer {
   const workbook = utils.book_new();
@@ -18,6 +24,83 @@ function workbookBytes(sheets: Array<{ name: string; rows: unknown[][] }>): Arra
 }
 
 describe('normalizeTransactionData', () => {
+  it('preserves the captured canonical summary for repeated Golden-like headers', () => {
+    const rows = Array.from({ length: 16 }, (_, index) => ({
+      id: `golden-${index}`,
+      document_id: 'golden-document',
+      project_id: 'golden-project',
+      invoice_number: index % 3 === 0 ? null : 'INV-100',
+      transaction_number: `T-${Math.floor(index / 2)}`,
+      rate_code: 'RC-01',
+      transaction_quantity: 10,
+      extended_cost: 125,
+      invoice_date: '2026-07-15',
+      source_sheet_name: 'Golden Tickets',
+      source_row_number: index + 2,
+      record_json: {
+        id: `golden-${index}`,
+        evidence_ref: `sheet:golden:row:${index + 2}`,
+        invoice_number: index % 3 === 0 ? null : 'INV-100',
+        transaction_number: `T-${Math.floor(index / 2)}`,
+        rate_code: 'RC-01',
+        transaction_quantity: 10,
+        extended_cost: 125,
+        cyd: 4,
+        material: 'Vegetative',
+        service_item: 'Hauling',
+        eligibility: 'Eligible',
+        source_sheet_name: 'Golden Tickets',
+        source_row_number: index + 2,
+        raw_row: {
+          'Transaction #': `T-${Math.floor(index / 2)}`,
+          'Invoice #': index % 3 === 0 ? '' : 'INV-100',
+          'Rate Code': 'RC-01',
+          Quantity: 10,
+          'Line Total': 125,
+          CYD: 4,
+          Material: 'Vegetative',
+          'Service Item': 'Hauling',
+          'Disposal Site': 'Alpha Landfill',
+          'Site Type': 'Landfill',
+        },
+      },
+      raw_row_json: {},
+      created_at: '2026-07-15T00:00:00.000Z',
+    }));
+
+    expect(buildCanonicalTransactionSummaryFromRows(rows)).toMatchSnapshot('canonical summary');
+  });
+
+  it('matches legacy header semantics while avoiding per-comparison regex construction', () => {
+    const aliases = Object.values(TRANSACTION_DATA_HEADER_ALIASES).flat();
+    const headers = [
+      'Transaction #', 'Invoice #', 'Rate Code', 'Quantity', 'Line Total',
+      'Disposal Site', 'Site Type', 'Load Call Number', 'Truck Trip Time',
+    ];
+    const comparisons = Array.from({ length: 40 }, () => headers).flat();
+    const legacyNormalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const legacyMatches = (header: string, alias: string) => {
+      const normalizedHeader = legacyNormalizeHeader(header);
+      const normalizedAlias = legacyNormalizeHeader(alias);
+      const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'i').test(normalizedHeader);
+    };
+
+    const legacyStartedAt = performance.now();
+    const legacyResults = comparisons.map((header) => aliases.map((alias) => legacyMatches(header, alias)));
+    const legacyDurationMs = performance.now() - legacyStartedAt;
+
+    const optimizedStartedAt = performance.now();
+    const optimizedResults = comparisons.map((header) => {
+      const normalizedHeader = normalizeHeader(header);
+      return aliases.map((alias) => headerWordBoundaryMatch(normalizedHeader, normalizeHeader(alias)));
+    });
+    const optimizedDurationMs = performance.now() - optimizedStartedAt;
+
+    assert.deepEqual(optimizedResults, legacyResults);
+    expect(optimizedDurationMs).toBeLessThanOrEqual(legacyDurationMs);
+  });
+
   it('normalizes ticket_query style exports into canonical rows and rollups', async () => {
     const workbook = await parseWorkbook(
       workbookBytes([

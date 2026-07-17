@@ -115,8 +115,17 @@ function buildGap(input: Omit<ExtractionGap, 'id' | 'source'>): ExtractionGap {
   };
 }
 
-function normalizeHeader(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const NORMALIZED_HEADER_CACHE = new Map<string, string>();
+const HEADER_WORD_BOUNDARY_MATCH_CACHE = new Map<string, boolean>();
+const NORMALIZED_ALIAS_REGEXES = new Map<string, RegExp>();
+
+export function normalizeHeader(value: string): string {
+  const cached = NORMALIZED_HEADER_CACHE.get(value);
+  if (cached !== undefined) return cached;
+
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  NORMALIZED_HEADER_CACHE.set(value, normalized);
+  return normalized;
 }
 
 function compactNormalizedHeader(value: string): string {
@@ -231,6 +240,44 @@ const RAW_TRIP_END_HEADER_ALIASES = [
   'return time',
   'trip end',
 ] as const;
+
+const RAW_COORDINATE_HEADER_ALIASES = [
+  'load latitude',
+  'load longitude',
+  'disposal latitude',
+  'disposal longitude',
+] as const;
+
+const RAW_MILEAGE_HEADER_ALIASES = ['mileage'] as const;
+
+const HEADER_ALIAS_SETS: readonly (readonly string[])[] = [
+  ...Object.values(TRANSACTION_DATA_HEADER_ALIASES),
+  RAW_DISPOSAL_SITE_HEADER_ALIASES,
+  RAW_SITE_TYPE_HEADER_ALIASES,
+  RAW_BOUNDARY_LOCATION_HEADER_ALIASES,
+  RAW_DISTANCE_FROM_FEATURE_HEADER_ALIASES,
+  RAW_LOAD_CALL_HEADER_ALIASES,
+  RAW_MOBILE_TICKET_HEADER_ALIASES,
+  RAW_LINKED_MOBILE_HEADER_ALIASES,
+  RAW_LOAD_TICKET_HEADER_ALIASES,
+  RAW_TRIP_TIME_HEADER_ALIASES,
+  RAW_TRIP_START_HEADER_ALIASES,
+  RAW_TRIP_END_HEADER_ALIASES,
+  RAW_COORDINATE_HEADER_ALIASES,
+  RAW_MILEAGE_HEADER_ALIASES,
+];
+
+for (const aliases of HEADER_ALIAS_SETS) {
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeHeader(alias);
+    if (!normalizedAlias || NORMALIZED_ALIAS_REGEXES.has(normalizedAlias)) continue;
+    const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    NORMALIZED_ALIAS_REGEXES.set(
+      normalizedAlias,
+      new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'i'),
+    );
+  }
+}
 
 type ReviewRowSignal = {
   recordId: string;
@@ -476,13 +523,18 @@ function rawHeaderMatchesAliases(
   });
 }
 
-function headerWordBoundaryMatch(
+export function headerWordBoundaryMatch(
   normalizedHeader: string,
   normalizedAlias: string,
 ): boolean {
   if (!normalizedHeader || !normalizedAlias) return false;
-  const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'i').test(normalizedHeader);
+  const cacheKey = `${normalizedHeader}\u0000${normalizedAlias}`;
+  const cached = HEADER_WORD_BOUNDARY_MATCH_CACHE.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const result = NORMALIZED_ALIAS_REGEXES.get(normalizedAlias)?.test(normalizedHeader) ?? false;
+  HEADER_WORD_BOUNDARY_MATCH_CACHE.set(cacheKey, result);
+  return result;
 }
 
 function findRawRowText(
@@ -1527,7 +1579,7 @@ function buildBoundaryLocationReview(
 ): TransactionDataOpsReviewBucket {
   const supportingColumns = sortDistinctStrings([
     ...collectMatchingHeaders(records, RAW_BOUNDARY_LOCATION_HEADER_ALIASES),
-    ...collectMatchingHeaders(records, ['load latitude', 'load longitude', 'disposal latitude', 'disposal longitude']),
+    ...collectMatchingHeaders(records, RAW_COORDINATE_HEADER_ALIASES),
     ...collectMatchingHeaders(records, RAW_DISPOSAL_SITE_HEADER_ALIASES),
   ]);
 
@@ -1643,7 +1695,7 @@ function buildMileageReview(
 ): TransactionDataOpsReviewBucket {
   const supportingColumns = sortDistinctStrings([
     ...collectMatchingHeaders(records, TRANSACTION_DATA_HEADER_ALIASES.mileage),
-    ...collectMatchingHeaders(records, ['mileage']),
+    ...collectMatchingHeaders(records, RAW_MILEAGE_HEADER_ALIASES),
   ]);
   const numericValues = records
     .map((record) => record.mileage)

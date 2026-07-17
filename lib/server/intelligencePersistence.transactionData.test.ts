@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, it, vi } from 'vitest';
 
 const MOCKED_MODULES = [
   '@/lib/documentIntelligence',
@@ -15,6 +15,13 @@ const MOCKED_MODULES = [
 async function loadModule() {
   return import('@/lib/server/intelligencePersistence');
 }
+
+beforeAll(async () => {
+  // Warm Vitest's transformed module graph outside the per-test timeout. Tests still reset
+  // the module cache so their isolated persistence doMock factories remain authoritative.
+  await import('@/lib/server/intelligencePersistence');
+  vi.resetModules();
+}, 30_000);
 
 afterEach(() => {
   vi.restoreAllMocks();

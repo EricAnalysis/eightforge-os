@@ -32,7 +32,11 @@ import {
   type CanonicalProjectTruthState,
 } from '@/lib/projectFacts';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
-import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
+import { resolveProjectIssueObjectDecisionSummary } from '@/lib/projectOverview';
+import {
+  isIssueRequiringReview,
+  type IssueObject,
+} from '@/lib/issueObjects';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import type { StateProjectionShadowMismatch } from '@/lib/stateProjectionShadow';
 import type {
@@ -45,6 +49,7 @@ import type {
   ProjectOverviewModel,
   ProjectOverviewTag,
   ProjectActivityEventRow,
+  ProjectMember,
   ProjectTaskRow,
 } from '@/lib/projectOverview';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
@@ -60,6 +65,7 @@ type ProjectOverviewProps = {
   executionItems?: readonly ProjectExecutionItemRow[];
   decisions?: ProjectDecisionRow[];
   tasks?: ProjectTaskRow[];
+  members?: ProjectMember[];
   activityEvents?: ProjectActivityEventRow[];
   loadIssue?: string | null;
   onProjectRefresh?: (() => void) | (() => Promise<void>);
@@ -182,10 +188,6 @@ function ProjectTagPill({ tag }: { tag: ProjectOverviewTag }) {
       {tag.label}
     </span>
   );
-}
-
-function isOpenDecisionCardStatus(status: string): boolean {
-  return status === 'open' || status === 'in_review';
 }
 
 function fmtActionMoney(value: number | null | undefined): string {
@@ -1138,6 +1140,7 @@ export function ProjectOverview({
   executionItems = [],
   decisions = [],
   tasks = [],
+  members = [],
   activityEvents = [],
   loadIssue,
   onProjectRefresh,
@@ -1217,7 +1220,16 @@ export function ProjectOverview({
     });
   }, [issueObjects, model.project.id]);
 
-  const requiredReviewDecisions = model.decisions.filter((decision) => isOpenDecisionCardStatus(decision.status_key));
+  const requiredReviewDecisions = useMemo(
+    () => resolveProjectIssueObjectDecisionSummary(
+      issueObjects,
+      tasks,
+      members,
+      model.project.id,
+      activityEvents,
+    ),
+    [activityEvents, issueObjects, members, model.project.id, tasks],
+  );
   // Single source of truth for "requires review" across Overview and Validator:
   // the same resolveProjectIssueObjects() result the Validator Findings panel
   // renders, filtered with the same shared lifecycle predicate.

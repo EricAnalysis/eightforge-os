@@ -39,6 +39,7 @@ import type {
   ValidationTriggerSource,
   ValidatorStatus,
 } from '@/types/validator';
+import type { IssueObject } from '@/lib/issueObjects';
 
 type Relation<T> = T | T[] | null | undefined;
 
@@ -2428,6 +2429,37 @@ export function resolveProjectDecisionSummary(
       border_tone: decisionBorderTone(decision),
     };
   });
+}
+
+/**
+ * Builds Overview decision cards from the unified issue-object stream while
+ * retaining the existing canonical card projection for presentation parity.
+ */
+export function resolveProjectIssueObjectDecisionSummary(
+  issueObjects: readonly IssueObject[],
+  tasks: ProjectTaskRow[],
+  members: ProjectMember[],
+  projectId: string,
+  activityEvents: readonly ProjectActivityEventRow[] = [],
+): ProjectOverviewDecisionCard[] {
+  const seenDecisionIds = new Set<string>();
+  const openDecisions: ProjectDecisionRow[] = [];
+
+  for (const issue of issueObjects) {
+    const decision = issue.decision;
+    if (
+      !decision
+      || !isValidatorManagedDecision(decision)
+      || (decision.status !== 'open' && decision.status !== 'in_review')
+      || seenDecisionIds.has(decision.id)
+    ) {
+      continue;
+    }
+    seenDecisionIds.add(decision.id);
+    openDecisions.push(decision);
+  }
+
+  return resolveProjectDecisionSummary(openDecisions, tasks, members, projectId, activityEvents);
 }
 
 function taskPriorityTone(priority: string): OverviewTone {

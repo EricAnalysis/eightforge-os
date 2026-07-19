@@ -87,6 +87,7 @@ export default function ProjectDetailPage({
       executionItems={data.executionItems}
       decisions={data.decisions}
       tasks={data.tasks}
+      members={data.members}
       activityEvents={data.activityEvents}
       loadIssue={data.loadIssue}
       onProjectRefresh={data.refetch}

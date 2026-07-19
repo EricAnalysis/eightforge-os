@@ -94,41 +94,91 @@ export type ActivityInput = {
 
 export type ActivityEventResult =
   | { ok: true; id: string }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      diagnostic: ActivityEventDeliveryFailureDiagnostic;
+    };
+
+export const ACTIVITY_EVENT_DELIVERY_FAILURE_CODE =
+  'ACTIVITY_EVENT_DELIVERY_FAILED' as const;
+
+export type ActivityEventDeliveryFailureDiagnostic = {
+  code: typeof ACTIVITY_EVENT_DELIVERY_FAILURE_CODE;
+  organization_id: string;
+  project_id: string | null;
+  entity_type: ActivityEntityType;
+  entity_id: string;
+  event_type: ActivityEventType;
+  error: string;
+};
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown activity event delivery failure';
+}
+
+function activityEventDeliveryFailure(
+  input: ActivityInput,
+  error: unknown,
+): Extract<ActivityEventResult, { ok: false }> {
+  const message = errorMessage(error);
+  const diagnostic: ActivityEventDeliveryFailureDiagnostic = {
+    code: ACTIVITY_EVENT_DELIVERY_FAILURE_CODE,
+    organization_id: input.organization_id,
+    project_id: input.project_id ?? null,
+    entity_type: input.entity_type,
+    entity_id: input.entity_id,
+    event_type: input.event_type,
+    error: message,
+  };
+
+  // Best-effort delivery must still be observable, including at call sites that
+  // intentionally do not inspect the result. Keep this deterministic so log
+  // aggregation and alerting can key on the code and event identity.
+  console.error('[activity-event-delivery]', diagnostic);
+  return { ok: false, error: message, diagnostic };
+}
 
 /**
  * Inserts a single activity event row. Uses the service role client so it
  * bypasses RLS — the browser should never call this directly.
  *
- * Returns the inserted row id on success, or an error string on failure.
- * Does not throw; callers should log failures and continue.
+ * Returns the inserted row id on success. Delivery is explicitly best-effort:
+ * every failure returns a structured diagnostic and emits it centrally, while
+ * preserving the originating mutation's existing non-fatal route behavior.
  */
 export async function logActivityEvent(
   input: ActivityInput,
 ): Promise<ActivityEventResult> {
-  const admin = getSupabaseAdmin();
-  if (!admin) {
-    return { ok: false, error: 'Server not configured' };
+  try {
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return activityEventDeliveryFailure(input, 'Server not configured');
+    }
+
+    const { data, error } = await admin
+      .from('activity_events')
+      .insert({
+        organization_id: input.organization_id,
+        project_id: input.project_id ?? null,
+        entity_type: input.entity_type,
+        entity_id: input.entity_id,
+        event_type: input.event_type,
+        changed_by: input.changed_by,
+        old_value: input.old_value ?? null,
+        new_value: input.new_value ?? null,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      return activityEventDeliveryFailure(input, error.message);
+    }
+
+    return { ok: true, id: (data as { id: string }).id };
+  } catch (error) {
+    return activityEventDeliveryFailure(input, error);
   }
-
-  const { data, error } = await admin
-    .from('activity_events')
-    .insert({
-      organization_id: input.organization_id,
-      project_id: input.project_id ?? null,
-      entity_type: input.entity_type,
-      entity_id: input.entity_id,
-      event_type: input.event_type,
-      changed_by: input.changed_by,
-      old_value: input.old_value ?? null,
-      new_value: input.new_value ?? null,
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    return { ok: false, error: error.message };
-  }
-
-  return { ok: true, id: (data as { id: string }).id };
 }

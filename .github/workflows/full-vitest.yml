@@ -30,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Type gate runs before the suite: it is cheaper than the full run, and a
+      # `tsc --noEmit` regression previously drifted unnoticed because only test
+      # lanes were enforced in CI. There is deliberately no quarantine here.
+      - name: Type-check
+        run: npx tsc --noEmit
+
       - name: Run full Vitest suite with explicit quarantine
         shell: bash
         run: |

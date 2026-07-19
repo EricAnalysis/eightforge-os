@@ -1639,7 +1639,8 @@ describe('normalizeNode anchor resolution', () => {
     const facts = normalized.primaryDocument.fact_map;
 
     assert.equal(facts.rate_schedule_present?.value, true);
-    assert.equal(facts.rate_row_count?.value, 4);
+    // CS-9: rate_row_count now reflects 0 assembled canonical rows, not the 4-row qualification estimate.
+    assert.equal(facts.rate_row_count?.value, 0);
     assert.equal(facts.rate_schedule_pages?.value, 'pages 32, 33');
   });
 
@@ -1755,7 +1756,8 @@ describe('normalizeNode anchor resolution', () => {
     const normalized = normalizeNode(extracted);
     const facts = normalized.primaryDocument.fact_map;
 
-    assert.equal(facts.rate_row_count?.value, 8);
+    // CS-9: rate_row_count now reflects 0 assembled canonical rows, not the 8-row qualification estimate.
+    assert.equal(facts.rate_row_count?.value, 0);
     assert.equal(facts.rate_schedule_pages?.value, 'pages 32, 33, 34, 35, 36, 37');
   });
 

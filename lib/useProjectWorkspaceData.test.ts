@@ -55,6 +55,13 @@ describe('workspace load issue classification', () => {
       isNonCoreWorkspaceLoadError('Transaction datasets', { message: 'relation missing', code: '42P01' }),
       false,
     );
+    assert.equal(
+      isNonCoreWorkspaceLoadError('Documents', {
+        message: 'column documents.document_role does not exist',
+        code: '42703',
+      }),
+      false,
+    );
   });
 });
 

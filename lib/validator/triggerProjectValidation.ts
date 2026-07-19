@@ -55,23 +55,6 @@ function isMissingProjectTable(
   );
 }
 
-function isMissingColumnError(
-  error: TableError,
-  columnName: string,
-): boolean {
-  if (!error) return false;
-
-  const message = (error.message ?? '').toLowerCase();
-  const normalizedColumnName = columnName.toLowerCase();
-
-  return (
-    error.code === '42703' ||
-    error.code === 'PGRST204' ||
-    message.includes(`'${normalizedColumnName}'`) ||
-    message.includes(normalizedColumnName)
-  );
-}
-
 async function hasRecentInFlightRun(projectId: string): Promise<boolean> {
   const admin = requireAdminClient();
   const threshold = new Date(Date.now() - DEBOUNCE_WINDOW_MS).toISOString();
@@ -244,7 +227,7 @@ async function loadProjectOrganizationId(projectId: string): Promise<string | nu
   return typeof data?.organization_id === 'string' ? data.organization_id : null;
 }
 
-async function loadProjectValidationPhase(projectId: string): Promise<string | null> {
+export async function loadProjectValidationPhase(projectId: string): Promise<string | null> {
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('projects')
@@ -252,9 +235,6 @@ async function loadProjectValidationPhase(projectId: string): Promise<string | n
     .eq('id', projectId)
     .maybeSingle();
 
-  if (error && isMissingColumnError(error, 'validation_phase')) {
-    return 'contract_setup';
-  }
   if (error) {
     throw new Error(`Failed to load project validation phase: ${error.message}`);
   }

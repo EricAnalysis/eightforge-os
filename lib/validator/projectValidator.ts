@@ -109,8 +109,6 @@ const PACK_TICKET_INTEGRITY = 'ticket_integrity';
 
 const PROJECT_SELECT =
   'id, organization_id, name, code, validation_status, validation_summary_json, validation_phase';
-const LEGACY_PROJECT_SELECT =
-  'id, organization_id, name, code, validation_status, validation_summary_json';
 export const VALIDATOR_DOCUMENT_SELECT =
   'id, project_id, organization_id, title, name, document_type, created_at, processing_status, operational_status, processed_at, intelligence_trace';
 const EXTRACTION_FACT_SELECT =
@@ -249,21 +247,6 @@ function isMissingTableError(
   return error.code === 'PGRST205'
     || error.code === '42P01'
     || (error.message ?? '').toLowerCase().includes('schema cache');
-}
-
-function isMissingColumnError(
-  error: { code?: string | null; message?: string | null } | null | undefined,
-  columnName: string,
-): boolean {
-  if (!error) return false;
-
-  const message = (error.message ?? '').toLowerCase();
-  return (
-    error.code === '42703' ||
-    error.code === 'PGRST204' ||
-    message.includes(`'${columnName.toLowerCase()}'`) ||
-    message.includes(columnName.toLowerCase())
-  );
 }
 
 function isInvoiceLineRateLinksTableUnavailableError(
@@ -819,7 +802,7 @@ function buildSyntheticContractDocument(params: {
   };
 }
 
-async function loadProject(projectId: string): Promise<ValidatorProjectRow> {
+export async function loadProject(projectId: string): Promise<ValidatorProjectRow> {
   const admin = getSupabaseAdmin();
   if (!admin) throw new Error('Server validation client is not configured.');
 
@@ -828,21 +811,6 @@ async function loadProject(projectId: string): Promise<ValidatorProjectRow> {
     .select(PROJECT_SELECT)
     .eq('id', projectId)
     .maybeSingle();
-
-  if (error && isMissingColumnError(error, 'validation_phase')) {
-    const legacy = await admin
-      .from('projects')
-      .select(LEGACY_PROJECT_SELECT)
-      .eq('id', projectId)
-      .maybeSingle();
-
-    if (legacy.error) throw new Error(legacy.error.message);
-    if (!legacy.data) throw new Error(`Project ${projectId} was not found.`);
-    return {
-      ...(legacy.data as ValidatorProjectRow),
-      validation_phase: 'contract_setup',
-    };
-  }
 
   if (error) throw new Error(error.message);
   if (!data) throw new Error(`Project ${projectId} was not found.`);

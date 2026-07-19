@@ -1197,6 +1197,7 @@ export async function persistValidationRun(
         admin: requireAdminClient(),
         projectId,
         organizationId: project.organization_id,
+        runId: completedRunId,
         actorId: triggeredByUserId,
         findings: persistedFindings,
       });

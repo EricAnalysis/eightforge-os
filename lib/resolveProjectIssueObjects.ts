@@ -276,7 +276,11 @@ function nextActionForIssue(issue: {
 }): string {
   if (!issue.decision) return 'Needs decision';
   if (issue.status === 'COMPLETE') return 'Resolved';
-  if (issue.executionItem && issue.executionItem.status !== 'resolved') {
+  if (
+    issue.executionItem
+    && issue.executionItem.status !== 'resolved'
+    && issue.executionItem.status !== 'superseded'
+  ) {
     return 'Awaiting execution approval';
   }
   return 'Review decision';
@@ -360,7 +364,7 @@ function executedAt(item: ProjectExecutionItemRow | null): Date | null {
     stringValue(raw?.outcome_timestamp)
     ?? item.resolved_at
     ?? item.overridden_at
-    ?? (item.status === 'resolved' ? item.updated_at : null),
+    ?? (item.status === 'resolved' || item.status === 'superseded' ? item.updated_at : null),
   );
 }
 
@@ -369,14 +373,14 @@ function executionItemHref(projectId: string, executionItemId: string): string {
 }
 
 function queueLifecycleForExecutionItem(item: ProjectExecutionItemRow): IssueLifecycleState {
-  if (item.status === 'resolved') return 'resolved';
+  if (item.status === 'resolved' || item.status === 'superseded') return 'resolved';
   if (item.status === 'open') return 'blocked';
   if (item.status === 'resolvable') return 'needs_verification';
   return 'open';
 }
 
 function statusForExecutionItem(item: ProjectExecutionItemRow): IssueStatus {
-  return item.status === 'resolved' ? 'COMPLETE' : 'EXECUTING';
+  return item.status === 'resolved' || item.status === 'superseded' ? 'COMPLETE' : 'EXECUTING';
 }
 
 function isPipelineBLegacyDecision(decision: ProjectDecisionRow): boolean {
@@ -419,7 +423,7 @@ function syntheticFindingForExecutionItem(item: ProjectExecutionItemRow): Valida
     check_key: item.source_key,
     category: 'financial_integrity',
     severity,
-    status: item.status === 'resolved' ? 'resolved' : 'open',
+    status: item.status === 'resolved' || item.status === 'superseded' ? 'resolved' : 'open',
     subject_type: item.source_type,
     subject_id: item.source_id,
     field: null,
@@ -631,6 +635,7 @@ export function resolveProjectIssueObjects(
   const documentsById = new Map((input.documents ?? []).map((document) => [document.id, document] as const));
   const decisions = input.decisions ?? [];
   const executionItems = input.executionItems ?? [];
+  const currentExecutionItems = executionItems.filter((item) => item.status !== 'superseded');
   const evidenceRows = (input.evidence ?? []) as ValidationEvidence[];
   const activityEvents = input.activityEvents ?? [];
 
@@ -640,7 +645,7 @@ export function resolveProjectIssueObjects(
       ?? (finding.linked_decision_id ? decisions.find((candidate) => candidate.id === finding.linked_decision_id) ?? null : null);
     const decisionId = decision?.id ?? finding.linked_decision_id ?? null;
     const executionItem =
-      executionItems.find((candidate) => executionMatchesFinding(candidate, finding, decisionId))
+      currentExecutionItems.find((candidate) => executionMatchesFinding(candidate, finding, decisionId))
       ?? null;
     const executionItemId = executionItem?.id ?? finding.linked_action_id ?? null;
     const status = statusForRecords(decision, executionItemForFindingLifecycle(finding, executionItem));

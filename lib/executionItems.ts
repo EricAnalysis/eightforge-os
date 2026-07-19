@@ -6,7 +6,7 @@ export type ExecutionItemSourceType = (typeof EXECUTION_ITEM_SOURCE_TYPES)[numbe
 export const EXECUTION_ITEM_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 export type ExecutionItemSeverity = (typeof EXECUTION_ITEM_SEVERITIES)[number];
 
-export const EXECUTION_ITEM_STATUSES = ['open', 'resolvable', 'resolved'] as const;
+export const EXECUTION_ITEM_STATUSES = ['open', 'resolvable', 'resolved', 'superseded'] as const;
 export type ExecutionItemStatus = (typeof EXECUTION_ITEM_STATUSES)[number];
 
 export const EXECUTION_ITEM_OUTCOMES = ['confirmed', 'resolved', 'overridden'] as const;
@@ -45,6 +45,7 @@ export type ProjectExecutionItemRow = {
   last_seen_at: string | null;
   overridden_at: string | null;
   resolved_at: string | null;
+  superseded_by_run_id?: string | null;
 };
 
 export type ExecutionItemSuppressionSignatureInput = {
@@ -123,6 +124,8 @@ export function executionItemStatusLabel(status: ExecutionItemStatus): string {
       return 'Resolvable Now';
     case 'resolved':
       return 'Resolved';
+    case 'superseded':
+      return 'Superseded';
     default:
       return 'Open';
   }

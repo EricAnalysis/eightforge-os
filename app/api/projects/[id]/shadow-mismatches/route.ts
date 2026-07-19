@@ -4,6 +4,7 @@ import { loadScopedProject } from '@/lib/server/projectAdmin';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import type { StateProjectionRecordType, StateProjectionShadowMismatch } from '@/lib/stateProjectionShadow';
 
+// Deliberate tripwire: cap client-provided shadow evidence batches to contain runaway logging.
 const MAX_BATCH_SIZE = 50;
 const RECORD_TYPES: readonly StateProjectionRecordType[] = [
   'document',
@@ -113,7 +114,10 @@ export async function POST(
 
   const { error } = await admin
     .from('state_projection_shadow_mismatches')
-    .insert(rows);
+    .upsert(rows, {
+      onConflict: 'record_type,record_id,project_id,surface',
+      ignoreDuplicates: true,
+    });
 
   if (error) return jsonError(error.message, 500);
 

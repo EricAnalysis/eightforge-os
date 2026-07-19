@@ -39,7 +39,6 @@ import {
   persistTransactionDataForDocument,
   type PersistTransactionDataResult,
 } from '@/lib/server/transactionDataPersistence';
-import { persistCanonicalInvoiceForDocument } from '@/lib/server/invoicePersistence';
 import { persistCanonicalSupportForDocument } from '@/lib/server/supportTicketPersistence';
 import { withStageTimeout } from '@/lib/server/stageTimeout';
 import {
@@ -51,7 +50,6 @@ import type {
 
 const EXECUTION_TRACE_PERSIST_TIMEOUT_MS = 60_000;
 const TRANSACTION_DATA_PERSIST_TIMEOUT_MS = 180_000;
-const INVOICE_PERSIST_TIMEOUT_MS = 60_000;
 const SUPPORT_PERSIST_TIMEOUT_MS = 60_000;
 
 type DocumentRow = {
@@ -535,15 +533,6 @@ function prepareExecutionTraceForPersistence(
     beforeBytes: jsonByteLength(executionTrace),
     afterBytes: jsonByteLength(compactedTrace),
   };
-}
-
-function formatInvoicePersistenceError(
-  documentId: string,
-  result: {
-    reason?: 'missing_admin' | 'missing_project_id' | 'not_invoice' | 'no_invoice_data' | 'missing_table' | 'schema_mismatch';
-  },
-): string {
-  return `Invoice persistence failed for ${documentId}: ${result.reason ?? 'unknown'}.`;
 }
 
 function formatSupportPersistenceError(
@@ -1379,43 +1368,6 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       canonicalPersistenceError = `Transaction data persistence failed for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`;
     }
     console.error('[generateAndPersistCanonicalIntelligence] persist transaction data failed', {
-      documentId: params.documentId,
-      projectId: params.projectId ?? null,
-      documentType: buildContext.buildParams.documentType,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  try {
-    if (invoiceDocument) {
-      const invoiceResult = await withStageTimeout(
-        persistCanonicalInvoiceForDocument({
-          admin: params.admin,
-          documentId: params.documentId,
-          projectId: params.projectId ?? null,
-          extractionData: buildContext.buildParams.extractionData,
-        }),
-        'persistCanonicalInvoiceForDocument',
-        INVOICE_PERSIST_TIMEOUT_MS,
-      );
-
-      if (!(invoiceResult.persisted === true && invoiceResult.skipped !== true)) {
-        canonicalPersistenceError = canonicalPersistenceError
-          ?? formatInvoicePersistenceError(params.documentId, invoiceResult);
-        console.error('[generateAndPersistCanonicalIntelligence] invoice persistence did not complete', {
-          documentId: params.documentId,
-          projectId: params.projectId ?? null,
-          documentType: buildContext.buildParams.documentType,
-          reason: invoiceResult.reason ?? null,
-        });
-      }
-    }
-  } catch (error) {
-    if (invoiceDocument) {
-      canonicalPersistenceError = canonicalPersistenceError
-        ?? `Invoice persistence failed for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    console.error('[generateAndPersistCanonicalIntelligence] persist invoice data failed', {
       documentId: params.documentId,
       projectId: params.projectId ?? null,
       documentType: buildContext.buildParams.documentType,

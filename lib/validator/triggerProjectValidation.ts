@@ -55,23 +55,6 @@ function isMissingProjectTable(
   );
 }
 
-function isMissingColumnError(
-  error: TableError,
-  columnName: string,
-): boolean {
-  if (!error) return false;
-
-  const message = (error.message ?? '').toLowerCase();
-  const normalizedColumnName = columnName.toLowerCase();
-
-  return (
-    error.code === '42703' ||
-    error.code === 'PGRST204' ||
-    message.includes(`'${normalizedColumnName}'`) ||
-    message.includes(normalizedColumnName)
-  );
-}
-
 async function hasRecentInFlightRun(projectId: string): Promise<boolean> {
   const admin = requireAdminClient();
   const threshold = new Date(Date.now() - DEBOUNCE_WINDOW_MS).toISOString();
@@ -244,7 +227,7 @@ async function loadProjectOrganizationId(projectId: string): Promise<string | nu
   return typeof data?.organization_id === 'string' ? data.organization_id : null;
 }
 
-async function loadProjectValidationPhase(projectId: string): Promise<string | null> {
+export async function loadProjectValidationPhase(projectId: string): Promise<string | null> {
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('projects')
@@ -252,9 +235,6 @@ async function loadProjectValidationPhase(projectId: string): Promise<string | n
     .eq('id', projectId)
     .maybeSingle();
 
-  if (error && isMissingColumnError(error, 'validation_phase')) {
-    return 'contract_setup';
-  }
   if (error) {
     throw new Error(`Failed to load project validation phase: ${error.message}`);
   }
@@ -330,29 +310,6 @@ async function countProjectScopedRows(
   }
   if (error) {
     throw new Error(`Failed to count ${table}: ${error.message}`);
-  }
-
-  return count ?? 0;
-}
-
-async function countInvoiceLineRows(projectId: string): Promise<number> {
-  const admin = requireAdminClient();
-  const { count, error } = await admin
-    .from('invoice_lines')
-    .select('id', { count: 'exact', head: true })
-    .eq('project_id', projectId);
-
-  if (
-    error &&
-    (
-      isMissingProjectTable(error, 'invoice_lines') ||
-      isMissingColumnError(error, 'project_id')
-    )
-  ) {
-    return 0;
-  }
-  if (error) {
-    throw new Error(`Failed to count invoice_lines: ${error.message}`);
   }
 
   return count ?? 0;
@@ -459,7 +416,6 @@ async function loadValidationTriggerMetrics(
   const [
     mobileTicketCount,
     loadTicketCount,
-    invoiceLineCount,
     normalizedFactCount,
     overrideCount,
     reviewCount,
@@ -469,7 +425,6 @@ async function loadValidationTriggerMetrics(
   ] = await Promise.all([
     countProjectScopedRows('mobile_tickets', projectId),
     countProjectScopedRows('load_tickets', projectId),
-    countInvoiceLineRows(projectId),
     countNormalizedFacts(documentIds),
     countDocumentFactOverrides(documentIds),
     countDocumentFactReviews(documentIds),
@@ -493,7 +448,7 @@ async function loadValidationTriggerMetrics(
       precedenceFingerprint,
       validationPhase,
     }),
-    relevantRecordCount: ticketCount + invoiceLineCount,
+    relevantRecordCount: ticketCount,
   };
 }
 

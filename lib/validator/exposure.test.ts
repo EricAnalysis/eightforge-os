@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
+import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
+import { evaluateApprovalGate } from '@/lib/validator/approvalGate';
 import { deriveBillingKeysForTransactionRecord } from '@/lib/validator/billingKeys';
 import { evaluateProjectExposure } from '@/lib/validator/exposure';
+import { synthesizeInvoicesFromLegacyExtractions } from '@/lib/validator/projectValidator';
 import {
   buildValidationSummary,
   makeFinding,
@@ -14,6 +17,7 @@ import {
   type ValidatorProjectRow,
   type ValidatorTransactionDataRow,
 } from '@/lib/validator/shared';
+import type { ValidatorResult } from '@/types/validator';
 
 const TEST_TIMESTAMP = '1970-01-01T00:00:00.000Z';
 const PROJECT_ID = 'project-1';
@@ -202,6 +206,150 @@ function buildInput(params?: {
 }
 
 describe('project exposure math', () => {
+  it('keeps exposure and approval identical with persisted or synthesis-only invoice input', () => {
+    const documentId = 'invoice-parity-doc';
+    const typedFields = {
+      schema_type: 'invoice',
+      invoice_number: 'INV-PARITY-1',
+      invoice_date: '2026-07-01',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      vendor_name: 'Parity Debris LLC',
+      client_name: 'Parity County',
+      subtotal_amount: 100.5,
+      total_amount: 100.5,
+      line_items: [{
+        line_code: 'RC-01',
+        description: 'Haul debris',
+        material: 'vegetative debris',
+        service_item: 'hauling',
+        quantity: 10,
+        unit: 'CYD',
+        unit_price: 10.05,
+        line_total: 100.5,
+      }],
+    };
+    const canonical = buildCanonicalInvoiceRowsFromTypedFields({
+      documentId,
+      typedFields,
+    });
+    assert.ok(canonical.invoiceRow);
+    assert.equal(canonical.invoiceLines.length, 1);
+
+    const persistedInvoiceId = 'db-invoice-parity-1';
+    const persistedInvoices = [{
+      id: persistedInvoiceId,
+      project_id: PROJECT_ID,
+      source_document_id: documentId,
+      document_id: documentId,
+      invoice_number: canonical.invoiceRow.invoice_number,
+      invoice_status: canonical.invoiceRow.invoice_status,
+      invoice_date: canonical.invoiceRow.invoice_date,
+      period_start: canonical.invoiceRow.period_start,
+      period_end: canonical.invoiceRow.period_end,
+      period_through: canonical.invoiceRow.period_through,
+      vendor_name: canonical.invoiceRow.vendor_name,
+      client_name: canonical.invoiceRow.client_name,
+      subtotal_amount: canonical.invoiceRow.subtotal_amount,
+      total_amount: canonical.invoiceRow.total_amount,
+      billed_amount: canonical.invoiceRow.billed_amount,
+      line_item_count: canonical.invoiceRow.line_item_count,
+    }];
+    const persistedInvoiceLines = canonical.invoiceLines.map((line) => ({
+      project_id: PROJECT_ID,
+      source_document_id: documentId,
+      document_id: documentId,
+      invoice_id: persistedInvoiceId,
+      invoice_number: line.invoice_number,
+      line_code: line.line_code,
+      rate_code: line.rate_code,
+      description: line.description,
+      line_description: line.line_description,
+      material: line.material,
+      service_item: line.service_item,
+      quantity: line.quantity,
+      unit: line.unit,
+      unit_price: line.unit_price,
+      line_total: line.line_total,
+      total_amount: line.total_amount,
+      billing_rate_key: line.billing_rate_key,
+      description_match_key: line.description_match_key,
+      invoice_rate_key: line.invoice_rate_key,
+      canonical_category: line.canonical_category,
+      category_confidence: line.category_confidence,
+    }));
+    const legacyRowsByDocumentId = new Map([[
+      documentId,
+      {
+        document_id: documentId,
+        created_at: TEST_TIMESTAMP,
+        data: { fields: { typed_fields: typedFields } },
+      },
+    ]]);
+
+    const withProjectionSynthesis = synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId,
+      invoiceDocumentIds: [documentId],
+      existingInvoices: persistedInvoices,
+      existingInvoiceLines: persistedInvoiceLines,
+    });
+    const withoutProjectionSynthesis = synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId,
+      invoiceDocumentIds: [documentId],
+      existingInvoices: [],
+      existingInvoiceLines: [],
+    });
+    const withProjection = {
+      invoices: [...persistedInvoices, ...withProjectionSynthesis.invoices],
+      invoiceLines: [...persistedInvoiceLines, ...withProjectionSynthesis.invoiceLines],
+    };
+    const synthesisOnly = withoutProjectionSynthesis;
+
+    assert.equal(withProjection.invoices.length, 1);
+    assert.equal(withProjection.invoiceLines.length, 1);
+    assert.equal(synthesisOnly.invoices.length, 1);
+    assert.equal(synthesisOnly.invoiceLines.length, 1);
+    assert.equal(withProjection.invoices[0]?.source_document_id, documentId);
+    assert.equal(synthesisOnly.invoices[0]?.source_document_id, documentId);
+
+    const projectedAssessment = evaluateProjectExposure(buildInput({
+      invoiceRows: withProjection.invoices,
+      invoiceLines: withProjection.invoiceLines,
+    }), []);
+    const synthesizedAssessment = evaluateProjectExposure(buildInput({
+      invoiceRows: synthesisOnly.invoices,
+      invoiceLines: synthesisOnly.invoiceLines,
+    }), []);
+    // Assert both summaries exist before comparing: without this the deepEqual below
+    // would pass vacuously if both sides were null, and it also narrows the
+    // possibly-null summary for the total_billed_amount read.
+    assert.ok(projectedAssessment.summary);
+    assert.ok(synthesizedAssessment.summary);
+    assert.equal(projectedAssessment.summary.total_billed_amount, 100.5);
+    assert.deepEqual(projectedAssessment.summary, synthesizedAssessment.summary);
+
+    const approvalFor = (
+      assessment: typeof projectedAssessment,
+    ) => evaluateApprovalGate({
+      status: 'FINDINGS_OPEN',
+      blocked_reasons: [],
+      findings: assessment.findings,
+      summary: buildValidationSummary(assessment.findings, 'FINDINGS_OPEN', {
+        exposure: assessment.summary,
+      }),
+      rulesApplied: [],
+      validator_status: 'NEEDS_REVIEW',
+      validator_open_items: [],
+      validator_blockers: [],
+      exposure: assessment.summary,
+      reconciliation: null,
+    } satisfies ValidatorResult);
+    assert.deepEqual(
+      approvalFor(projectedAssessment),
+      approvalFor(synthesizedAssessment),
+    );
+  });
+
   it('computes project and invoice exposure totals and emits exposure findings', () => {
     const input = buildInput({
       invoiceRows: [

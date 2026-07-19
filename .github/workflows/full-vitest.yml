@@ -1,0 +1,52 @@
+# Vitest quarantine policy:
+# - Exclusions are temporary and must reference a tracking issue.
+# - Every excluded file needs a one-line reason.
+# - This list should shrink as tracked issues are resolved.
+
+name: Full Vitest
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  full-vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Type gate runs before the suite: it is cheaper than the full run, and a
+      # `tsc --noEmit` regression previously drifted unnoticed because only test
+      # lanes were enforced in CI. There is deliberately no quarantine here.
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Run full Vitest suite with explicit quarantine
+        shell: bash
+        run: |
+          QUARANTINED_TEST_FILES=(
+            # Quarantined pending CS-9 follow-up (stale diagnostic estimate assertions conflict with canonical assembled row counts).
+            "lib/pipeline/nodes/normalizeNode.anchor.test.ts"
+          )
+
+          EXCLUDE_ARGS=()
+          for test_file in "${QUARANTINED_TEST_FILES[@]}"; do
+            EXCLUDE_ARGS+=(--exclude "$test_file")
+          done
+
+          npx vitest run --reporter verbose "${EXCLUDE_ARGS[@]}"

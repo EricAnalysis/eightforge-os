@@ -424,7 +424,9 @@ describe('normalizeNode contract rate schedule qualification', () => {
       };
 
       assert.equal(facts.rate_schedule_present?.value, true);
-      assert.equal(facts.rate_row_count?.value, 3);
+      // This table qualification estimates three rows, but no canonical row
+      // array was assembled, so it must not persist the estimate as fact truth.
+      assert.equal(facts.rate_row_count?.value, 0);
       assert.equal(facts.rate_schedule_pages?.value, 'page 32');
       assert.equal(debug.selected_rate_table?.id, 'emerg03-rate-table');
       assert.equal(debug.selected_rate_table?.estimated_rate_row_count, 3);
@@ -508,7 +510,8 @@ describe('normalizeNode contract rate schedule qualification', () => {
       };
 
       assert.equal(facts.rate_schedule_present?.value, true);
-      assert.equal(facts.rate_row_count?.value, 3);
+      // This is a table-detection estimate; the canonical assembled array is empty.
+      assert.equal(facts.rate_row_count?.value, 0);
       assert.equal(facts.rate_schedule_pages?.value, 'page 14');
       assert.ok((debug.rate_schedule_qualification?.title_alias_matches ?? []).includes('rateSchedules.titleAliases.scheduleOfValues'));
       assert.ok((debug.rate_schedule_qualification?.header_signal_matches ?? []).includes('rateSchedules.headerSignals.scheduledValue'));
@@ -555,7 +558,8 @@ describe('normalizeNode contract rate schedule qualification', () => {
       };
 
       assert.equal(facts.rate_schedule_present?.value, true);
-      assert.equal(facts.rate_row_count?.value, 3);
+      // Only two canonical rows survived assembly; do not persist the three-row estimate.
+      assert.equal(facts.rate_row_count?.value, 2);
       assert.equal(facts.rate_schedule_pages?.value, 'page 21');
       assert.equal(debug.rate_schedule_qualification?.clin_detected, true);
       assert.ok((debug.rate_schedule_qualification?.title_alias_matches ?? []).includes('rateSchedules.titleAliases.contractPriceSchedule'));

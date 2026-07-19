@@ -158,6 +158,45 @@ function readContractFieldValue(
   return familyMap?.[fieldId]?.value;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value != null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function persistCanonicalRateScheduleRows(
+  rows: ContractAnalysisResult['rate_schedule_rows'],
+): Record<string, unknown>[] {
+  const persistedRows: Record<string, unknown>[] = [];
+  const persistedRowById = new Map<string, { row: Record<string, unknown>; index: number }>();
+
+  for (const [index, row] of (rows ?? []).entries()) {
+    const persistedRow = {
+      ...row,
+      unit_of_measure: row.unit,
+      unit_type: row.unit ?? row.unit_type,
+      rate_amount: row.rate_amount ?? row.rate,
+    };
+    const existing = persistedRowById.get(row.row_id);
+    if (!existing) {
+      persistedRowById.set(row.row_id, { row: persistedRow, index });
+      persistedRows.push(persistedRow);
+      continue;
+    }
+
+    if (stableJson(existing.row) !== stableJson(persistedRow)) {
+      throw new Error(
+        `Conflicting canonical rate_schedule_rows for row_id ${JSON.stringify(row.row_id)} at indexes ${existing.index} and ${index}.`,
+      );
+    }
+  }
+
+  return persistedRows;
+}
+
 function canonicalizeContractFacts(params: {
   facts: Record<string, unknown> | undefined;
   contractAnalysis: ContractAnalysisResult | null | undefined;
@@ -186,12 +225,9 @@ function canonicalizeContractFacts(params: {
   const rateScheduleRows = Array.isArray(contractAnalysis.rate_schedule_rows)
     ? contractAnalysis.rate_schedule_rows
     : [];
-  const persistedRateScheduleRows = rateScheduleRows.map((row) => ({
-    ...row,
-    unit_of_measure: row.unit,
-    unit_type: row.unit ?? row.unit_type,
-    rate_amount: row.rate_amount ?? row.rate,
-  }));
+  // Persist and count the same distinct canonical rows atomically so this fact
+  // cannot drift to a table-detection estimate or a duplicate physical row.
+  const persistedRateScheduleRows = persistCanonicalRateScheduleRows(rateScheduleRows);
 
   if (facts.rate_schedule_present == null && typeof rateSchedulePresent === 'boolean') {
     facts.rate_schedule_present = rateSchedulePresent;
@@ -205,9 +241,7 @@ function canonicalizeContractFacts(params: {
   if (facts.rate_table == null && persistedRateScheduleRows.length > 0) {
     facts.rate_table = persistedRateScheduleRows;
   }
-  if (rateScheduleRows.length > 0) {
-    facts.rate_row_count = rateScheduleRows.length;
-  }
+  facts.rate_row_count = persistedRateScheduleRows.length;
 
   const governingRateTables = asRecord(facts.governing_rate_tables);
   if (governingRateTables) {

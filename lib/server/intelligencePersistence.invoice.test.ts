@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, it, vi } from 'vitest';
 
 const MOCKED_MODULES = [
   '@/lib/documentIntelligence',
@@ -10,12 +10,18 @@ const MOCKED_MODULES = [
   '@/lib/server/intelligenceAdapter',
   '@/lib/server/documentPrecedence',
   '@/lib/server/transactionDataPersistence',
-  '@/lib/server/invoicePersistence',
 ] as const;
 
 async function loadModule() {
   return import('@/lib/server/intelligencePersistence');
 }
+
+beforeAll(async () => {
+  // Warm Vitest's transformed module graph outside the per-test timeout. Tests still reset
+  // the module cache so their isolated persistence doMock factories remain authoritative.
+  await import('@/lib/server/intelligencePersistence');
+  vi.resetModules();
+}, 30_000);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -25,17 +31,8 @@ afterEach(() => {
   }
 });
 
-describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
-  it('writes canonical invoice rows from the shared extraction blob on the invoice path', async () => {
-    const persistCanonicalInvoiceForDocument = vi.fn(async (_params: unknown) => {
-      void _params;
-      return {
-        persisted: true,
-        skipped: false,
-        invoiceCount: 1,
-        lineCount: 2,
-      };
-    });
+describe('generateAndPersistCanonicalIntelligence invoice intelligence', () => {
+  it('completes the invoice path without a persisted invoice projection', async () => {
     const persistTransactionDataForDocument = vi.fn(async () => ({
       persisted: false,
       skipped: true,
@@ -99,10 +96,6 @@ describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
     vi.doMock('@/lib/server/transactionDataPersistence', () => ({
       persistTransactionDataForDocument,
     }));
-    vi.doMock('@/lib/server/invoicePersistence', () => ({
-      persistCanonicalInvoiceForDocument,
-    }));
-
     const updateChain = {
       eq() {
         return updateChain;
@@ -170,13 +163,6 @@ describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
     assert.equal(result.family, 'invoice');
     assert.equal(result.execution_trace_persisted, true);
     assert.equal(result.canonical_persistence_error, null);
-    assert.equal(persistCanonicalInvoiceForDocument.mock.calls.length, 1);
-    assert.deepEqual(persistCanonicalInvoiceForDocument.mock.calls[0]?.[0], {
-      admin,
-      documentId: 'doc-1',
-      projectId: 'project-1',
-      extractionData,
-    });
   });
 
   it('persists shadow rate diff after invoice and contract assembly snapshots exist', async () => {
@@ -306,9 +292,6 @@ describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
     vi.doMock('@/lib/server/transactionDataPersistence', () => ({
       persistTransactionDataForDocument: vi.fn(async () => ({ persisted: false, skipped: true, reason: 'not_transaction_data', rowCount: 0 })),
     }));
-    vi.doMock('@/lib/server/invoicePersistence', () => ({
-      persistCanonicalInvoiceForDocument: vi.fn(async () => ({ persisted: true, skipped: false, invoiceCount: 1, lineCount: 1 })),
-    }));
 
     const admin = makePersistenceAdmin({ extractionData, updates, onExtractionUpdate: (next) => { extractionData = next; } });
     const { generateAndPersistCanonicalIntelligence } = await loadModule();
@@ -387,9 +370,6 @@ describe('generateAndPersistCanonicalIntelligence invoice persistence', () => {
     }));
     vi.doMock('@/lib/server/transactionDataPersistence', () => ({
       persistTransactionDataForDocument: vi.fn(async () => ({ persisted: false, skipped: true, reason: 'not_transaction_data', rowCount: 0 })),
-    }));
-    vi.doMock('@/lib/server/invoicePersistence', () => ({
-      persistCanonicalInvoiceForDocument: vi.fn(async () => ({ persisted: true, skipped: false, invoiceCount: 1, lineCount: 1 })),
     }));
 
     const admin = makePersistenceAdmin({ extractionData, updates, onExtractionUpdate: (next) => { extractionData = next; } });

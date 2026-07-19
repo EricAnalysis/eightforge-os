@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
 
+vi.mock('@/lib/server/supabaseAdmin', () => ({
+  getSupabaseAdmin: vi.fn(),
+}));
+
 import {
   buildInvoiceLineToRateMap,
   buildManualRateLinkOverrides,
@@ -9,11 +13,13 @@ import {
   buildDocumentIdsByFamily,
   buildExcludedValidationDocumentIds,
   buildPersistedContractValidationContextFromProjectSummary,
+  loadProject,
   resolveValidationInvoiceScope,
   synthesizeInvoicesFromLegacyExtractions,
   VALIDATOR_DOCUMENT_SELECT,
   type InvoiceLineRateLinkRow,
 } from '@/lib/validator/projectValidator';
+import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { deriveBillingKeysForRateScheduleItem } from '@/lib/validator/billingKeys';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import {
@@ -80,6 +86,52 @@ describe('project validator input loading', () => {
   it('does not select deprecated document_subtype from documents', () => {
     assert.equal(VALIDATOR_DOCUMENT_SELECT.includes('document_subtype'), false);
     assert.equal(DOCUMENT_PRECEDENCE_SELECT.includes('document_subtype'), false);
+  });
+
+  it('reads the persisted projects.validation_phase value', async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: {
+        id: 'project-1',
+        organization_id: 'org-1',
+        name: 'Billing Review Project',
+        code: 'BRP',
+        validation_status: null,
+        validation_summary_json: null,
+        validation_phase: 'billing_review',
+      },
+      error: null,
+    });
+    const eq = vi.fn(() => ({ maybeSingle }));
+    const select = vi.fn((_columns: string) => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    vi.mocked(getSupabaseAdmin).mockReturnValue({ from } as never);
+
+    const project = await loadProject('project-1');
+
+    assert.equal(project.validation_phase, 'billing_review');
+    assert.equal(from.mock.calls.length, 1);
+    assert.match(String(select.mock.calls[0]?.[0] ?? ''), /validation_phase/);
+  });
+
+  it('surfaces a project query error without retrying a legacy select', async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: '42703',
+        message: 'column projects.validation_phase does not exist',
+      },
+    });
+    const eq = vi.fn(() => ({ maybeSingle }));
+    const select = vi.fn((_columns: string) => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    vi.mocked(getSupabaseAdmin).mockReturnValue({ from } as never);
+
+    await assert.rejects(
+      () => loadProject('project-1'),
+      /column projects\.validation_phase does not exist/,
+    );
+    assert.equal(from.mock.calls.length, 1);
+    assert.equal(select.mock.calls.length, 1);
   });
 
   it('resolves active manual invoice-line rate links by contract rate row id', () => {

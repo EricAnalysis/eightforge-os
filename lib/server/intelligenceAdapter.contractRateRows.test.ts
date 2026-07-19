@@ -97,4 +97,76 @@ describe('intelligence adapter contract rate schedule persistence', () => {
     assert.equal(governingRateTables.rate_row_count, 1);
     assert.ok(Array.isArray(governingRateTables.rate_schedule_rows));
   });
+
+  it('persists the row-array count instead of a conflicting rate-table estimate', () => {
+    const intelligence = buildContractIntelligenceOutput();
+    (intelligence.facts ??= {}).rate_row_count = 49;
+    const sourceRateRow = CONTRACT_ANALYSIS.rate_schedule_rows?.[0];
+    assert.ok(sourceRateRow);
+    intelligence.contractAnalysis = {
+      ...CONTRACT_ANALYSIS,
+      rate_schedule_rows: Array.from({ length: 5 }, (_, index) => ({
+        ...sourceRateRow,
+        row_id: `mdot:section-905:${index + 1}`,
+      })),
+    } as ContractAnalysisResult;
+
+    const rows = mapIntelligenceToPersistenceRows({
+      documentId: 'mdot-contract-doc',
+      organizationId: 'org-1',
+      intelligence,
+    });
+    const facts = rows.executionTrace.facts as Record<string, unknown>;
+    const contractAnalysis = rows.executionTrace.contract_analysis as ContractAnalysisResult;
+
+    assert.equal((contractAnalysis.rate_schedule_rows ?? []).length, 5);
+    assert.equal(facts.rate_row_count, 5);
+  });
+
+  it('replaces a prior estimate with zero when the canonical row array is empty', () => {
+    const intelligence = buildContractIntelligenceOutput();
+    (intelligence.facts ??= {}).rate_row_count = 49;
+    intelligence.contractAnalysis = {
+      ...CONTRACT_ANALYSIS,
+      rate_schedule_rows: [],
+    } as ContractAnalysisResult;
+
+    const rows = mapIntelligenceToPersistenceRows({
+      documentId: 'empty-rate-array-contract-doc',
+      organizationId: 'org-1',
+      intelligence,
+    });
+
+    assert.equal((rows.executionTrace.facts as Record<string, unknown>).rate_row_count, 0);
+  });
+
+  it('deduplicates identical canonical rows and rejects conflicting row identities', () => {
+    const intelligence = buildContractIntelligenceOutput();
+    const canonicalRow = CONTRACT_ANALYSIS.rate_schedule_rows?.[0];
+    assert.ok(canonicalRow);
+    intelligence.contractAnalysis = {
+      ...CONTRACT_ANALYSIS,
+      rate_schedule_rows: [canonicalRow, { ...canonicalRow }],
+    } as ContractAnalysisResult;
+
+    const deduplicated = mapIntelligenceToPersistenceRows({
+      documentId: 'duplicate-contract-doc',
+      organizationId: 'org-1',
+      intelligence,
+    });
+    assert.equal((deduplicated.executionTrace.facts as Record<string, unknown>).rate_row_count, 1);
+
+    intelligence.contractAnalysis = {
+      ...CONTRACT_ANALYSIS,
+      rate_schedule_rows: [canonicalRow, { ...canonicalRow, rate: 7.1 }],
+    } as ContractAnalysisResult;
+    assert.throws(
+      () => mapIntelligenceToPersistenceRows({
+        documentId: 'conflicting-contract-doc',
+        organizationId: 'org-1',
+        intelligence,
+      }),
+      /Conflicting canonical rate_schedule_rows for row_id "rate_row:1" at indexes 0 and 1/,
+    );
+  });
 });

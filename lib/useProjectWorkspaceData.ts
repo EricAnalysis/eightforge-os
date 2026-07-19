@@ -40,8 +40,6 @@ const BASE_TASK_SELECT =
   'id, decision_id, document_id, task_type, title, description, priority, status, created_at, updated_at, due_at, assigned_to, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const DOCUMENT_SELECT_WITH_PRECEDENCE =
   'id, title, name, document_type, domain, processing_status, operational_status, processing_error, created_at, processed_at, project_id, document_role, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
-const DOCUMENT_SELECT_LEGACY =
-  'id, title, name, document_type, domain, processing_status, operational_status, processing_error, created_at, processed_at, project_id, intelligence_trace';
 const DOCUMENT_RELATIONSHIP_SELECT =
   'id, project_id, source_document_id, target_document_id, relationship_type, created_by, created_at';
 const TRANSACTION_DATA_ROW_SELECT =
@@ -95,44 +93,12 @@ function collectError(
   }
 }
 
-function logDeveloperSchemaFallback(
-  message: string,
-  migration: string,
-  error: { message?: string | null } | null | undefined,
-) {
-  console.warn(`[project workspace schema fallback] ${message}`, {
-    migration,
-    error: error?.message ?? null,
-  });
-}
-
 type ProjectTransactionDatasetRow = CanonicalProjectTransactionDatasetInput;
-
-type ProjectRowsQueryResult = {
-  data: unknown[] | null;
-  error: { code?: string | null; message?: string | null } | null;
-};
 
 type ProjectTransactionRowsQueryResult = {
   data: CanonicalProjectTransactionRowInput[];
   error: { code?: string | null; message?: string | null } | null;
 };
-
-function isMissingDocumentPrecedenceColumnError(
-  error: { code?: string | null; message?: string | null } | null | undefined,
-): boolean {
-  const message = (error?.message ?? '').toLowerCase();
-  if (error?.code !== '42703' && error?.code !== 'PGRST204') {
-    return false;
-  }
-  return [
-    'document_role',
-    'authority_status',
-    'effective_date',
-    'precedence_rank',
-    'operator_override_precedence',
-  ].some((column) => message.includes(column));
-}
 
 function isMissingDocumentRelationshipsTableError(
   error: { code?: string | null; message?: string | null } | null | undefined,
@@ -140,16 +106,6 @@ function isMissingDocumentRelationshipsTableError(
   return error?.code === '42P01'
     || error?.code === 'PGRST205'
     || (error?.message ?? '').toLowerCase().includes('document_relationships');
-}
-
-function isMissingProjectValidationPhaseColumnError(
-  error: { code?: string | null; message?: string | null } | null | undefined,
-): boolean {
-  const message = (error?.message ?? '').toLowerCase();
-  return (
-    (error?.code === '42703' || error?.code === 'PGRST204')
-    && message.includes('validation_phase')
-  );
 }
 
 function isMissingExecutionItemsTableError(
@@ -168,33 +124,93 @@ function isMissingTransactionRowsTableError(
     || (error?.message ?? '').toLowerCase().includes('transaction_data_rows');
 }
 
-async function loadTransactionRowsForProject(
+export async function loadTransactionRowsForProject(
   projectId: string,
 ): Promise<ProjectTransactionRowsQueryResult> {
-  const rows: CanonicalProjectTransactionRowInput[] = [];
-  let offset = 0;
+  const loadSerially = async (): Promise<ProjectTransactionRowsQueryResult> => {
+    const rows: CanonicalProjectTransactionRowInput[] = [];
+    let offset = 0;
 
-  while (true) {
-    const result = await supabase
-      .from('transaction_data_rows')
-      .select(TRANSACTION_DATA_ROW_SELECT)
-      .eq('project_id', projectId)
-      .order('invoice_date', { ascending: true })
-      .order('source_sheet_name', { ascending: true })
-      .order('source_row_number', { ascending: true })
-      .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
+    while (true) {
+      const result = await supabase
+        .from('transaction_data_rows')
+        .select(TRANSACTION_DATA_ROW_SELECT)
+        .eq('project_id', projectId)
+        .order('invoice_date', { ascending: true })
+        .order('source_sheet_name', { ascending: true })
+        .order('source_row_number', { ascending: true })
+        .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
 
-    if (result.error) {
-      return { data: rows, error: result.error };
+      if (result.error) {
+        return { data: rows, error: result.error };
+      }
+
+      const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
+      rows.push(...batch);
+      if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+        return { data: rows, error: null };
+      }
+      offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
     }
+  };
 
-    const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
-    rows.push(...batch);
-    if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
-      return { data: rows, error: null };
-    }
-    offset += TRANSACTION_DATA_ROW_PAGE_SIZE;
+  const firstPageResult = await supabase
+    .from('transaction_data_rows')
+    .select(TRANSACTION_DATA_ROW_SELECT, { count: 'exact' })
+    .eq('project_id', projectId)
+    .order('invoice_date', { ascending: true })
+    .order('source_sheet_name', { ascending: true })
+    .order('source_row_number', { ascending: true })
+    .range(0, TRANSACTION_DATA_ROW_PAGE_SIZE - 1);
+
+  // Older PostgREST/schema-cache environments may not provide an exact count.
+  // Reuse the original serial behavior rather than guessing how many pages exist.
+  if (firstPageResult.error || firstPageResult.count === null) {
+    return loadSerially();
   }
+
+  const firstBatch = (firstPageResult.data ?? []) as CanonicalProjectTransactionRowInput[];
+  if (firstBatch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+    return { data: firstBatch, error: null };
+  }
+
+  const totalPages = Math.ceil(firstPageResult.count / TRANSACTION_DATA_ROW_PAGE_SIZE);
+  const remainingOffsets = Array.from(
+    { length: Math.max(0, totalPages - 1) },
+    (_, index) => (index + 1) * TRANSACTION_DATA_ROW_PAGE_SIZE,
+  );
+  const rows = [...firstBatch];
+
+  // Keep the fan-out bounded. Pages are appended below in offset order, matching
+  // the serial query's array exactly. Tie ordering across range queries remains
+  // the pre-existing database ORDER BY behavior.
+  for (let index = 0; index < remainingOffsets.length; index += 6) {
+    const offsets = remainingOffsets.slice(index, index + 6);
+    const results = await Promise.all(
+      offsets.map((offset) =>
+        supabase
+          .from('transaction_data_rows')
+          .select(TRANSACTION_DATA_ROW_SELECT)
+          .eq('project_id', projectId)
+          .order('invoice_date', { ascending: true })
+          .order('source_sheet_name', { ascending: true })
+          .order('source_row_number', { ascending: true })
+          .range(offset, offset + TRANSACTION_DATA_ROW_PAGE_SIZE - 1),
+      ),
+    );
+    for (const result of results) {
+      if (result.error) {
+        return { data: rows, error: result.error };
+      }
+      const batch = (result.data ?? []) as CanonicalProjectTransactionRowInput[];
+      rows.push(...batch);
+      if (batch.length < TRANSACTION_DATA_ROW_PAGE_SIZE) {
+        return { data: rows, error: null };
+      }
+    }
+  }
+
+  return { data: rows, error: null };
 }
 
 function attachRowsToTransactionDatasets(
@@ -448,42 +464,9 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
       }
       collectError(issues, 'Validation findings', validationFindingsResult.error);
 
-      let resolvedProjectResult = projectResult;
-      if (projectResult.error && isMissingProjectValidationPhaseColumnError(projectResult.error)) {
-        logDeveloperSchemaFallback(
-          'projects.validation_phase is unavailable; defaulting to contract_setup for this workspace load.',
-          'supabase/migrations/20260430000000_document_truth_governance_phase.sql',
-          projectResult.error,
-        );
-        resolvedProjectResult = await supabase
-          .from('projects')
-          .select('id, name, code, status, created_at, validation_status, validation_summary_json')
-          .eq('organization_id', organizationId)
-          .eq('id', projectId)
-          .maybeSingle();
-      }
+      collectError(issues, 'Documents', documentsWithPrecedenceResult.error);
 
-      let documentsResult = documentsWithPrecedenceResult as ProjectRowsQueryResult;
-      if (documentsWithPrecedenceResult.error && isMissingDocumentPrecedenceColumnError(documentsWithPrecedenceResult.error)) {
-        logDeveloperSchemaFallback(
-          'Document precedence columns are unavailable; using legacy document records for this workspace load.',
-          'supabase/migrations/20260323000000_document_precedence.sql',
-          documentsWithPrecedenceResult.error,
-        );
-        documentsResult = await perfMeasure('[EightForge] documents fetch legacy fallback', () =>
-          supabase
-            .from('documents')
-            .select(DOCUMENT_SELECT_LEGACY)
-            .eq('organization_id', organizationId)
-            .eq('project_id', projectId)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false }),
-        ) as ProjectRowsQueryResult;
-      }
-
-      collectError(issues, 'Documents', documentsResult.error);
-
-      if (resolvedProjectResult.error) {
+      if (projectResult.error) {
         if (!cancelled) {
           setPageError('Failed to load this project.');
           setDocumentRelationships([]);
@@ -496,7 +479,7 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         return;
       }
 
-      if (!resolvedProjectResult.data) {
+      if (!projectResult.data) {
         if (!cancelled) {
           setNotFound(true);
           setDocumentRelationships([]);
@@ -509,8 +492,8 @@ export function useProjectWorkspaceData(projectId: string): ProjectWorkspaceData
         return;
       }
 
-      const projectRow = resolvedProjectResult.data as ProjectRecord;
-      const projectDocuments = (documentsResult.data ?? []) as ProjectDocumentRow[];
+      const projectRow = projectResult.data as ProjectRecord;
+      const projectDocuments = (documentsWithPrecedenceResult.data ?? []) as ProjectDocumentRow[];
       let projectDocumentRelationships: ProjectDocumentRelationshipRow[] = [];
       if (documentRelationshipsResult.error) {
         if (isMissingDocumentRelationshipsTableError(documentRelationshipsResult.error)) {

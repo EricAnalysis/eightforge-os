@@ -1742,7 +1742,7 @@ export async function loadOperationalQueueModel(params: {
         'id, project_id, status, outcome, queue_state, severity, title, problem, expected_value, actual_value, impact, required_action, source_type, source_id, evidence_refs, validator_rule_key, source_key, created_at, updated_at',
       )
       .eq('organization_id', organizationId)
-      .neq('status', 'resolved')
+      .in('status', ['open', 'resolvable'])
       .order('updated_at', { ascending: false }),
     admin
       .from('document_reviews')

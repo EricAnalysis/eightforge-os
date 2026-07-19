@@ -348,6 +348,7 @@ async function loadExecutionItems(
       'id, organization_id, project_id, source_type, source_id, source_key, severity, title, problem, expected_value, actual_value, impact, required_action, status, outcome, queue_state, evidence_refs, fact_refs, validator_rule_key, created_at, updated_at, projects(id, name)',
     )
     .eq('organization_id', orgId)
+    .neq('status', 'superseded')
     .order('updated_at', { ascending: false });
 
   if (!options.include_resolved) {

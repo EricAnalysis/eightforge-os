@@ -143,7 +143,9 @@ export function isIssueRequiringReview(issue: IssueObject): boolean {
 }
 
 export function isExecutionPending(issue: IssueObject): boolean {
-  return issue.executionItem != null && issue.executionItem.status !== 'resolved';
+  return issue.executionItem != null
+    && issue.executionItem.status !== 'resolved'
+    && issue.executionItem.status !== 'superseded';
 }
 
 export function isIssueActionable(issue: IssueObject): boolean {

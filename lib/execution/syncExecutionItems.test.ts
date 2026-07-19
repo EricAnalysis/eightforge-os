@@ -177,6 +177,7 @@ function createAdminMock(params: {
                 last_seen_at: (row.last_seen_at as string | null | undefined) ?? null,
                 overridden_at: (row.overridden_at as string | null | undefined) ?? null,
                 resolved_at: (row.resolved_at as string | null | undefined) ?? null,
+                superseded_by_run_id: (row.superseded_by_run_id as string | null | undefined) ?? null,
               };
               state.executionItems.push(insertedRow);
 
@@ -259,6 +260,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       actorId: 'user-1',
       findings: [finding],
     });
@@ -294,6 +296,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [finding],
     });
 
@@ -338,6 +341,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       actorId: 'user-1',
       findings: [finding],
     });
@@ -349,7 +353,7 @@ describe('syncExecutionItems', () => {
     expect(logActivityEventMock).not.toHaveBeenCalled();
   });
 
-  it('does not relink a diagnostic warning to a stale execution item with the same source key', async () => {
+  it('does not relink a diagnostic warning to a superseded execution item with the same source key', async () => {
     const finding = makeFinding({
       id: 'finding-warning-stale',
       rule_id: 'FINANCIAL_RATE_CODE_MISSING',
@@ -411,6 +415,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       actorId: 'user-1',
       findings: [finding],
     });
@@ -420,9 +425,10 @@ describe('syncExecutionItems', () => {
     assert.equal(result.resolvable, 0);
     assert.equal(result.staleResolved, 1);
     assert.equal(result.executionItemIdsBySourceKey.size, 0);
-    assert.equal(adminMock.state.executionItems[0]?.status, 'resolved');
-    assert.equal(adminMock.state.executionItems[0]?.outcome, 'resolved');
-    assert.ok(adminMock.state.executionItems[0]?.resolved_at);
+    assert.equal(adminMock.state.executionItems[0]?.status, 'superseded');
+    assert.equal(adminMock.state.executionItems[0]?.outcome, null);
+    assert.equal(adminMock.state.executionItems[0]?.resolved_at, null);
+    assert.equal(adminMock.state.executionItems[0]?.superseded_by_run_id, 'run-current');
     assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, null);
     expect(logActivityEventMock).toHaveBeenCalledTimes(1);
     expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -432,7 +438,7 @@ describe('syncExecutionItems', () => {
     }));
   });
 
-  it('resolves stale prior-run items when the latest run no longer emits an actionable finding', async () => {
+  it('supersedes stale prior-run items when the latest run no longer emits an actionable finding', async () => {
     const activeFinding = makeFinding({
       id: 'finding-active-1',
       check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:active',
@@ -517,14 +523,19 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       actorId: 'user-1',
       findings: [activeFinding],
     });
 
     assert.equal(result.created, 0);
     assert.equal(result.staleResolved, 1);
-    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.status, 'resolved');
-    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.outcome, 'resolved');
+    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.status, 'superseded');
+    assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.outcome, null);
+    assert.equal(
+      adminMock.state.executionItems.find((item) => item.id === 'execution-stale-prior')?.superseded_by_run_id,
+      'run-current',
+    );
     assert.equal(adminMock.state.executionItems.find((item) => item.id === 'execution-active-latest')?.status, 'open');
     assert.equal(findValidationFinding(adminMock.state, activeFinding.id).linked_action_id, 'execution-active-latest');
   });
@@ -550,6 +561,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [firstFinding],
     });
 
@@ -573,6 +585,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [rerunFinding],
     });
 
@@ -581,6 +594,140 @@ describe('syncExecutionItems', () => {
     assert.equal(adminMock.state.executionItems[0]?.source_id, rerunFinding.id);
     assert.equal(adminMock.state.executionItems[0]?.status, 'open');
     assert.equal(findValidationFinding(adminMock.state, rerunFinding.id).linked_action_id, adminMock.state.executionItems[0]?.id ?? null);
+  });
+
+  it('marks a resolved prior-generation item superseded and creates a new item when the finding reopens', async () => {
+    const finding = makeFinding({
+      id: 'finding-reopened',
+      run_id: 'run-current',
+      check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:reopened',
+    });
+    const priorResolvedAt = '2026-05-05T12:00:00.000Z';
+    const adminMock = createAdminMock({
+      executionItems: [{
+        id: 'execution-prior-resolved',
+        organization_id: 'org-1',
+        project_id: 'project-1',
+        source_type: 'validator_finding',
+        source_id: 'finding-prior',
+        source_key: finding.check_key,
+        severity: 'critical',
+        title: 'Prior blocker',
+        problem: 'Prior blocker',
+        expected_value: finding.expected,
+        actual_value: finding.actual,
+        impact: 'Prior impact.',
+        required_action: 'Prior action.',
+        status: 'resolved',
+        outcome: 'resolved',
+        evidence_refs: ['document:doc-prior:page:1'],
+        fact_refs: ['fact:fact-prior'],
+        validator_rule_key: finding.rule_id,
+        override_reason: 'Operator resolved the prior generation.',
+        suppression_signature: null,
+        created_at: TS,
+        updated_at: priorResolvedAt,
+        last_seen_at: TS,
+        overridden_at: null,
+        resolved_at: priorResolvedAt,
+        superseded_by_run_id: null,
+      }],
+      validationFindings: [{
+        id: finding.id,
+        check_key: finding.check_key,
+        status: 'open',
+        linked_action_id: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        updated_at: TS,
+      }],
+    });
+
+    const result = await syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      runId: 'run-current',
+      actorId: 'user-1',
+      findings: [finding],
+    });
+
+    assert.equal(result.created, 1);
+    assert.equal(result.superseded, 1);
+    assert.equal(adminMock.state.executionItems.length, 2);
+
+    const prior = adminMock.state.executionItems.find((item) => item.id === 'execution-prior-resolved');
+    assert.equal(prior?.status, 'superseded');
+    assert.equal(prior?.outcome, 'resolved');
+    assert.equal(prior?.source_id, 'finding-prior');
+    assert.equal(prior?.source_key, finding.check_key);
+    assert.equal(prior?.resolved_at, priorResolvedAt);
+    assert.equal(prior?.last_seen_at, TS);
+    assert.equal(prior?.override_reason, 'Operator resolved the prior generation.');
+    assert.deepEqual(prior?.evidence_refs, ['document:doc-prior:page:1']);
+    assert.deepEqual(prior?.fact_refs, ['fact:fact-prior']);
+    assert.equal(prior?.superseded_by_run_id, 'run-current');
+
+    const current = adminMock.state.executionItems.find((item) => item.id !== 'execution-prior-resolved');
+    assert.equal(current?.status, 'open');
+    assert.equal(current?.source_id, finding.id);
+    assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, current?.id ?? null);
+    expect(logActivityEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      entity_id: 'execution-prior-resolved',
+      event_type: 'status_changed',
+      new_value: expect.objectContaining({
+        status: 'superseded',
+        superseded_by_run_id: 'run-current',
+      }),
+    }));
+  });
+
+  it('fails loudly when more than one active item matches the same source key', async () => {
+    const finding = makeFinding({ check_key: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:ambiguous' });
+    const base = {
+      organization_id: 'org-1',
+      project_id: 'project-1',
+      source_type: 'validator_finding' as const,
+      source_id: 'finding-prior',
+      source_key: finding.check_key,
+      severity: 'critical' as const,
+      title: 'Ambiguous blocker',
+      problem: 'Ambiguous blocker',
+      expected_value: finding.expected,
+      actual_value: finding.actual,
+      impact: 'Impact.',
+      required_action: 'Action.',
+      status: 'open' as const,
+      outcome: null,
+      evidence_refs: null,
+      fact_refs: null,
+      validator_rule_key: finding.rule_id,
+      override_reason: null,
+      suppression_signature: null,
+      created_at: TS,
+      updated_at: TS,
+      last_seen_at: TS,
+      overridden_at: null,
+      resolved_at: null,
+      superseded_by_run_id: null,
+    };
+    const adminMock = createAdminMock({
+      executionItems: [
+        { ...base, id: 'execution-ambiguous-a' },
+        { ...base, id: 'execution-ambiguous-b' },
+      ],
+    });
+
+    await expect(syncExecutionItems({
+      admin: adminMock.admin as never,
+      projectId: 'project-1',
+      organizationId: 'org-1',
+      runId: 'run-current',
+      findings: [finding],
+    })).rejects.toThrow(
+      'Ambiguous active execution items for project project-1, source_key CROSS_DOCUMENT_CONTRACT_RATE_EXISTS:ambiguous: execution-ambiguous-a, execution-ambiguous-b',
+    );
+    assert.equal(adminMock.state.executionItems.every((item) => item.status === 'open'), true);
   });
 
   it('keeps an overridden execution item suppressed when the rerun finding signature matches', async () => {
@@ -604,6 +751,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [firstFinding],
     });
 
@@ -637,6 +785,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       actorId: 'user-2',
       findings: [rerunFinding],
     });
@@ -652,7 +801,7 @@ describe('syncExecutionItems', () => {
     assert.equal(findValidationFinding(adminMock.state, rerunFinding.id).linked_action_id, existingItem.id);
   });
 
-  it('reopens an overridden execution item when the finding meaningfully changes', async () => {
+  it('supersedes an overridden execution item when the finding meaningfully changes', async () => {
     const firstFinding = makeFinding({
       id: 'finding-changed-1',
       run_id: 'run-1',
@@ -673,6 +822,7 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [firstFinding],
     });
 
@@ -714,16 +864,22 @@ describe('syncExecutionItems', () => {
       admin: adminMock.admin as never,
       projectId: 'project-1',
       organizationId: 'org-1',
+      runId: 'run-current',
       findings: [rerunFinding],
     });
 
-    assert.equal(result.created, 0);
-    assert.equal(result.updated, 1);
+    assert.equal(result.created, 1);
+    assert.equal(result.updated, 0);
+    assert.equal(result.superseded, 1);
     assert.equal(result.suppressed, 0);
-    assert.equal(adminMock.state.executionItems.length, 1);
-    assert.equal(adminMock.state.executionItems[0]?.status, 'open');
-    assert.equal(adminMock.state.executionItems[0]?.outcome, null);
-    assert.equal(adminMock.state.executionItems[0]?.override_reason, null);
+    assert.equal(adminMock.state.executionItems.length, 2);
+    assert.equal(existingItem.status, 'superseded');
+    assert.equal(existingItem.outcome, 'overridden');
+    assert.equal(existingItem.override_reason, 'Approved on prior evidence.');
+    assert.equal(existingItem.superseded_by_run_id, 'run-current');
+    const currentItem = adminMock.state.executionItems.find((item) => item.id !== existingItem.id);
+    assert.equal(currentItem?.status, 'open');
+    assert.equal(currentItem?.outcome, null);
 
     const nextSignature = buildExecutionItemSuppressionSignature({
       project_id: 'project-1',
@@ -738,7 +894,7 @@ describe('syncExecutionItems', () => {
       ],
       fact_refs: [],
     });
-    assert.equal(adminMock.state.executionItems[0]?.suppression_signature, nextSignature);
+    assert.equal(currentItem?.suppression_signature, nextSignature);
     assert.equal(findValidationFinding(adminMock.state, rerunFinding.id).status, 'open');
   });
 });

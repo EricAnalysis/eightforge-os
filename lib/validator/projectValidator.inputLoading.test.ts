@@ -83,9 +83,9 @@ function makeManualRateLinkRow(overrides: Partial<InvoiceLineRateLinkRow> = {}):
 }
 
 describe('project validator input loading', () => {
-  it('does not select deprecated document_subtype from documents', () => {
+  it('loads document_subtype only through the precedence snapshot', () => {
     assert.equal(VALIDATOR_DOCUMENT_SELECT.includes('document_subtype'), false);
-    assert.equal(DOCUMENT_PRECEDENCE_SELECT.includes('document_subtype'), false);
+    assert.equal(DOCUMENT_PRECEDENCE_SELECT.includes('document_subtype'), true);
   });
 
   it('reads the persisted projects.validation_phase value', async () => {

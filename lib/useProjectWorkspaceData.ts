@@ -39,7 +39,7 @@ const BASE_DECISION_SELECT =
 const BASE_TASK_SELECT =
   'id, decision_id, document_id, task_type, title, description, priority, status, created_at, updated_at, due_at, assigned_to, details, source_metadata, assignee:user_profiles!assigned_to(id, display_name), documents(id, project_id, title, name, document_type)';
 const DOCUMENT_SELECT_WITH_PRECEDENCE =
-  'id, title, name, document_type, domain, processing_status, operational_status, processing_error, created_at, processed_at, project_id, document_role, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
+  'id, title, name, document_type, domain, processing_status, operational_status, processing_error, created_at, processed_at, project_id, document_role, document_subtype, authority_status, effective_date, precedence_rank, operator_override_precedence, intelligence_trace';
 const DOCUMENT_RELATIONSHIP_SELECT =
   'id, project_id, source_document_id, target_document_id, relationship_type, created_by, created_at';
 const TRANSACTION_DATA_ROW_SELECT =

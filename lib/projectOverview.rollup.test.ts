@@ -9,6 +9,7 @@ import {
   parseDocumentExecutionTrace,
   resolveProjectAuditEvents,
   resolveProjectDecisionSummary,
+  resolveProjectIssueObjectDecisionSummary,
   resolveProjectPendingActions,
   type ProjectActivityEventRow,
   type ProjectDecisionRow,
@@ -20,6 +21,7 @@ import {
   type ProjectTaskRow,
   type ProjectValidatorSummarySnapshot,
 } from './projectOverview';
+import { resolveProjectIssueObjects } from './resolveProjectIssueObjects';
 
 const baseProject: ProjectRecord = {
   id: 'project-1',
@@ -1082,8 +1084,20 @@ describe('project operational rollup', () => {
       members: [],
     });
 
+    const issueObjects = resolveProjectIssueObjects({
+      projectId: baseProject.id,
+      findings: [],
+      decisions: [],
+    });
+    const decisionCards = resolveProjectIssueObjectDecisionSummary(
+      issueObjects,
+      [],
+      [],
+      baseProject.id,
+    );
+
     assert.equal(model.decision_total, 0);
-    assert.equal(model.decisions.length, 0);
+    assert.equal(decisionCards.length, 0);
     assert.match(
       model.decision_empty_state,
       /Validator has not produced decision outputs yet/,
@@ -1179,10 +1193,200 @@ describe('project operational rollup', () => {
       members: [],
     });
 
+    const issueObjects = resolveProjectIssueObjects({
+      projectId: baseProject.id,
+      findings: [
+        buildValidationFinding({
+          id: 'finding-1',
+          linked_decision_id: 'validator-decision-1',
+        }),
+      ],
+      decisions: [
+        {
+          id: 'validator-decision-1',
+          project_id: baseProject.id,
+          document_id: 'doc-invoice-1',
+          source: 'project_validator',
+          decision_type: 'validator_invoice_approval',
+          title: 'Invoice 2026-003 cannot be approved',
+          summary: 'Validator-backed invoice approval decision.',
+          severity: 'critical',
+          status: 'open',
+          confidence: 1,
+          last_detected_at: '2026-04-11T00:00:00Z',
+          created_at: '2026-04-11T00:00:00Z',
+          due_at: null,
+          assigned_to: null,
+          details: {
+            origin: 'project_validator',
+            source_label: 'Validator output',
+            validator_finding_ids: ['finding-1'],
+            evidence_refs: ['record:invoice-line-1'],
+          },
+        },
+      ],
+    });
+    const decisionCards = resolveProjectIssueObjectDecisionSummary(
+      issueObjects,
+      [],
+      [],
+      baseProject.id,
+    );
+
     assert.equal(model.decision_total, 1);
-    assert.equal(model.decisions.length, 1);
-    assert.equal(model.decisions[0]?.title, 'Invoice 2026-003 cannot be approved');
-    assert.ok(model.decisions[0]?.source_evidence_label.includes('Validator output'));
+    assert.equal(decisionCards.length, 1);
+    assert.equal(decisionCards[0]?.title, 'Invoice 2026-003 cannot be approved');
+    assert.ok(decisionCards[0]?.source_evidence_label.includes('Validator output'));
+  });
+
+  it('preserves decision-card count, order, titles, statuses, IDs, evidence, and provenance through issue objects', () => {
+    const decisions: ProjectDecisionRow[] = [
+      {
+        id: 'decision-warning',
+        project_id: baseProject.id,
+        document_id: 'doc-invoice-1',
+        source: 'project_validator',
+        decision_type: 'validator_invoice_warning',
+        title: 'Verify invoice support',
+        summary: 'Support requires review.',
+        severity: 'warning',
+        status: 'in_review',
+        confidence: 0.9,
+        last_detected_at: '2026-04-12T00:00:00Z',
+        created_at: '2026-04-12T00:00:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          origin: 'project_validator',
+          validator_finding_ids: ['finding-warning'],
+          evidence_refs: ['record:invoice-line-warning'],
+          source_label: 'Validator output',
+        },
+      },
+      {
+        id: 'decision-critical',
+        project_id: baseProject.id,
+        document_id: 'doc-invoice-1',
+        source: 'project_validator',
+        decision_type: 'validator_invoice_approval',
+        title: 'Invoice cannot be approved',
+        summary: 'Unsupported amount blocks approval.',
+        severity: 'critical',
+        status: 'open',
+        confidence: 1,
+        last_detected_at: '2026-04-11T00:00:00Z',
+        created_at: '2026-04-11T00:00:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          origin: 'project_validator',
+          validator_finding_ids: ['finding-critical'],
+          evidence_refs: ['record:invoice-line-critical'],
+          source_label: 'Validator output',
+        },
+      },
+      {
+        id: 'decision-resolved',
+        project_id: baseProject.id,
+        document_id: 'doc-invoice-1',
+        source: 'project_validator',
+        decision_type: 'validator_invoice_resolved',
+        title: 'Resolved invoice review',
+        summary: 'Review is complete.',
+        severity: 'low',
+        status: 'resolved',
+        confidence: 1,
+        last_detected_at: '2026-04-10T00:00:00Z',
+        created_at: '2026-04-10T00:00:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          origin: 'project_validator',
+          validator_finding_ids: ['finding-resolved'],
+          evidence_refs: ['record:invoice-line-resolved'],
+          source_label: 'Validator output',
+        },
+      },
+      {
+        id: 'legacy-supporting-decision',
+        project_id: baseProject.id,
+        document_id: null,
+        source: 'deterministic',
+        decision_type: 'contract_pricing_review',
+        title: 'Legacy pricing context',
+        summary: 'Supporting context only.',
+        severity: 'high',
+        status: 'open',
+        confidence: 0.8,
+        last_detected_at: '2026-04-08T00:00:00Z',
+        created_at: '2026-04-08T00:00:00Z',
+        due_at: null,
+        assigned_to: null,
+        details: {
+          document_family: 'contract',
+          evidence_refs: ['contract:pricing'],
+        },
+      },
+    ];
+    const model = buildProjectOverviewModel({
+      project: baseProject,
+      documents: [],
+      documentReviews: [],
+      decisions,
+      tasks: [],
+      activityEvents: [],
+      members: [],
+    });
+    const issueObjects = resolveProjectIssueObjects({
+      projectId: baseProject.id,
+      findings: [
+        buildValidationFinding({
+          id: 'finding-warning',
+          linked_decision_id: 'decision-warning',
+          severity: 'warning',
+        }),
+        buildValidationFinding({
+          id: 'finding-critical',
+          linked_decision_id: 'decision-critical',
+        }),
+        buildValidationFinding({
+          id: 'finding-resolved',
+          linked_decision_id: 'decision-resolved',
+          status: 'resolved',
+          resolved_at: '2026-04-13T00:00:00Z',
+        }),
+      ],
+      decisions,
+    });
+
+    const legacyCards = model.decisions.filter(
+      (decision) => decision.status_key === 'open' || decision.status_key === 'in_review',
+    );
+    const unifiedCards = resolveProjectIssueObjectDecisionSummary(
+      issueObjects,
+      [],
+      [],
+      baseProject.id,
+    );
+
+    assert.deepEqual(
+      unifiedCards.map((decision) => ({
+        id: decision.id,
+        title: decision.title,
+        status: decision.status_key,
+        evidenceRefs: decision.evidence_refs,
+        sourceEvidenceLabel: decision.source_evidence_label,
+      })),
+      legacyCards.map((decision) => ({
+        id: decision.id,
+        title: decision.title,
+        status: decision.status_key,
+        evidenceRefs: decision.evidence_refs,
+        sourceEvidenceLabel: decision.source_evidence_label,
+      })),
+    );
+    assert.deepEqual(unifiedCards, legacyCards);
+    assert.ok(unifiedCards.every((decision) => decision.id !== 'legacy-supporting-decision'));
   });
 
   it('builds audit events as a project history trail from canonical activity sources', () => {

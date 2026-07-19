@@ -41,6 +41,7 @@ describe('buildProjectExecutionSummary', () => {
       executionItem({ id: 'execution-low', severity: 'low', status: 'resolvable' }),
       executionItem({ id: 'execution-blocker', severity: 'high', status: 'open' }),
       executionItem({ id: 'execution-resolved', status: 'resolved' }),
+      executionItem({ id: 'execution-superseded', status: 'superseded' }),
     ]);
 
     assert.deepEqual(summary.recommended_next_action, {

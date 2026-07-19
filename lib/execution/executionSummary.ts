@@ -61,7 +61,7 @@ export function buildProjectExecutionSummary(
   items: readonly ProjectExecutionItemRow[],
 ): ProjectExecutionSummary {
   const unresolved = [...items]
-    .filter((item) => item.status !== 'resolved')
+    .filter((item) => item.status !== 'resolved' && item.status !== 'superseded')
     .sort((left, right) => {
       const statusDelta = statusRank(left) - statusRank(right);
       if (statusDelta !== 0) return statusDelta;

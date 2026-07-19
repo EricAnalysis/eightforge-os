@@ -40,6 +40,7 @@ type ExistingExecutionItemRow = Pick<
   | 'last_seen_at'
   | 'overridden_at'
   | 'resolved_at'
+  | 'superseded_by_run_id'
 >;
 
 export type SyncExecutionItemsResult = {
@@ -47,6 +48,7 @@ export type SyncExecutionItemsResult = {
   updated: number;
   resolvable: number;
   staleResolved: number;
+  superseded: number;
   suppressed: number;
   suppressedFindingIds: Set<string>;
   executionItemIdsBySourceKey: Map<string, string>;
@@ -226,10 +228,11 @@ async function logExecutionItemCreated(params: {
   }
 }
 
-async function logExecutionItemStaleResolved(params: {
+async function logExecutionItemSuperseded(params: {
   organizationId: string;
   projectId: string;
   executionItem: ExistingExecutionItemRow;
+  runId: string;
   actorId?: string;
 }) {
   const result = await logActivityEvent({
@@ -246,16 +249,16 @@ async function logExecutionItemStaleResolved(params: {
       validator_rule_key: params.executionItem.validator_rule_key,
     },
     new_value: {
-      status: 'resolved',
-      outcome: 'resolved',
+      status: 'superseded',
+      outcome: params.executionItem.outcome,
       source_key: params.executionItem.source_key,
       validator_rule_key: params.executionItem.validator_rule_key,
-      resolution_reason: 'superseded_by_latest_validation_run',
+      superseded_by_run_id: params.runId,
     },
   });
 
   if (!result.ok) {
-    console.error('[syncExecutionItems] failed to log stale execution item resolution', {
+    console.error('[syncExecutionItems] failed to log execution item supersession', {
       executionItemId: params.executionItem.id,
       error: result.error,
     });
@@ -269,7 +272,7 @@ async function loadExistingExecutionItems(params: {
   const { data, error } = await params.admin
     .from('execution_items')
     .select(
-      'id, source_type, source_id, source_key, severity, title, problem, expected_value, actual_value, impact, required_action, status, outcome, evidence_refs, fact_refs, validator_rule_key, override_reason, suppression_signature, last_seen_at, overridden_at, resolved_at',
+      'id, source_type, source_id, source_key, severity, title, problem, expected_value, actual_value, impact, required_action, status, outcome, evidence_refs, fact_refs, validator_rule_key, override_reason, suppression_signature, last_seen_at, overridden_at, resolved_at, superseded_by_run_id',
     )
     .eq('project_id', params.projectId);
 
@@ -323,10 +326,11 @@ export async function syncExecutionItems(params: {
   admin: SupabaseClient;
   projectId: string;
   organizationId: string;
+  runId: string;
   actorId?: string;
   findings: readonly PersistableValidationFinding[];
 }): Promise<SyncExecutionItemsResult> {
-  const { admin, projectId, organizationId, actorId } = params;
+  const { admin, projectId, organizationId, runId, actorId } = params;
   const now = new Date().toISOString();
   const actionableFindings = params.findings.filter(
     (finding) =>
@@ -338,13 +342,39 @@ export async function syncExecutionItems(params: {
     finding,
     record: buildExecutionItemRecord(projectId, finding),
   }));
+  const currentSourceKeyCounts = new Map<string, number>();
+  for (const { record } of records) {
+    currentSourceKeyCounts.set(
+      record.source_key,
+      (currentSourceKeyCounts.get(record.source_key) ?? 0) + 1,
+    );
+  }
+  const duplicateCurrentSourceKeys = [...currentSourceKeyCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([sourceKey]) => sourceKey)
+    .sort();
+  if (duplicateCurrentSourceKeys.length > 0) {
+    throw new Error(
+      `Ambiguous current execution findings for project ${projectId}, duplicate source_key values: ${duplicateCurrentSourceKeys.join(', ')}`,
+    );
+  }
 
   const existingRows = await loadExistingExecutionItems({ admin, projectId });
-  const existingBySourceKey = new Map(
-    existingRows
-      .filter((row) => row.source_type === 'validator_finding')
-      .map((row) => [row.source_key, row] as const),
-  );
+  const activeRowsBySourceKey = new Map<string, ExistingExecutionItemRow[]>();
+  for (const row of existingRows) {
+    if (row.source_type !== 'validator_finding' || row.status === 'superseded') continue;
+    const matches = activeRowsBySourceKey.get(row.source_key) ?? [];
+    matches.push(row);
+    activeRowsBySourceKey.set(row.source_key, matches);
+  }
+  for (const [sourceKey, matches] of activeRowsBySourceKey) {
+    if (matches.length > 1) {
+      const ids = matches.map((row) => row.id).sort();
+      throw new Error(
+        `Ambiguous active execution items for project ${projectId}, source_key ${sourceKey}: ${ids.join(', ')}`,
+      );
+    }
+  }
   const currentSourceKeys = new Set(records.map(({ record }) => record.source_key));
   const executionItemIdsBySourceKey = new Map<string, string>();
   const findingExecutionLinks: Array<{ findingId: string; executionItemId: string }> = [];
@@ -354,10 +384,11 @@ export async function syncExecutionItems(params: {
   let updated = 0;
   const resolvable = 0;
   let staleResolved = 0;
+  let superseded = 0;
   let suppressed = 0;
 
   for (const { finding, record } of records) {
-    const existing = existingBySourceKey.get(record.source_key) ?? null;
+    let existing = activeRowsBySourceKey.get(record.source_key)?.[0] ?? null;
 
     if (existing) {
       const existingSuppressionSignature =
@@ -416,6 +447,33 @@ export async function syncExecutionItems(params: {
         continue;
       }
 
+      if (existing.status === 'resolved') {
+        const { error } = await admin
+          .from('execution_items')
+          .update({
+            status: 'superseded',
+            superseded_by_run_id: runId,
+          })
+          .eq('id', existing.id);
+
+        if (error) {
+          throw new Error(`Failed to supersede execution item ${existing.id}: ${error.message}`);
+        }
+
+        await logExecutionItemSuperseded({
+          organizationId,
+          projectId,
+          executionItem: existing,
+          runId,
+          actorId,
+        });
+        superseded += 1;
+        existing = null;
+      }
+
+    }
+
+    if (existing) {
       if (executionItemChanged(existing, record, 'open')) {
         const { error } = await admin
           .from('execution_items')
@@ -517,32 +575,30 @@ export async function syncExecutionItems(params: {
   for (const row of existingRows) {
     if (row.source_type !== 'validator_finding') continue;
     if (currentSourceKeys.has(row.source_key)) continue;
-    if (row.status === 'resolved') continue;
+    if (row.status === 'resolved' || row.status === 'superseded') continue;
 
     const { error } = await admin
       .from('execution_items')
       .update({
-        status: 'resolved',
-        outcome: 'resolved',
-        override_reason: row.override_reason ?? 'Superseded by latest validation run.',
-        resolved_at: now,
-        last_seen_at: row.last_seen_at ?? now,
-        updated_at: now,
+        status: 'superseded',
+        superseded_by_run_id: runId,
       })
       .eq('id', row.id);
 
     if (error) {
-      throw new Error(`Failed to resolve stale execution item ${row.id}: ${error.message}`);
+      throw new Error(`Failed to supersede stale execution item ${row.id}: ${error.message}`);
     }
 
     staleResolved += 1;
 
-    await logExecutionItemStaleResolved({
+    await logExecutionItemSuperseded({
       organizationId,
       projectId,
       executionItem: row,
+      runId,
       actorId,
     });
+    superseded += 1;
   }
 
   await linkFindingsToExecutionItems({
@@ -555,6 +611,7 @@ export async function syncExecutionItems(params: {
     updated,
     resolvable,
     staleResolved,
+    superseded,
     suppressed,
     suppressedFindingIds,
     executionItemIdsBySourceKey,

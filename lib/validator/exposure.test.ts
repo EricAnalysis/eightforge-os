@@ -320,6 +320,11 @@ describe('project exposure math', () => {
       invoiceRows: synthesisOnly.invoices,
       invoiceLines: synthesisOnly.invoiceLines,
     }), []);
+    // Assert both summaries exist before comparing: without this the deepEqual below
+    // would pass vacuously if both sides were null, and it also narrows the
+    // possibly-null summary for the total_billed_amount read.
+    assert.ok(projectedAssessment.summary);
+    assert.ok(synthesizedAssessment.summary);
     assert.equal(projectedAssessment.summary.total_billed_amount, 100.5);
     assert.deepEqual(projectedAssessment.summary, synthesizedAssessment.summary);
 

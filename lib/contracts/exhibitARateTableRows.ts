@@ -29,6 +29,10 @@ type ContextHint = {
 
 const EXHIBIT_A_PAGES = new Set([8, 9, 10, 11]);
 const MIN_CLEAN_STRUCTURAL_TABLE_CONFIDENCE = 0.55;
+// Mechanism 2: rate cells whose independent OCR-engine confidence falls below this
+// threshold are surfaced as `needs_review` (the rate value itself is never changed).
+// Named so the gate is greppable and does not read as an anonymous magic number.
+const RATE_OCR_NEEDS_REVIEW_THRESHOLD = 0.65;
 
 const CATEGORY_ALIASES: Array<[RegExp, string]> = [
   [/\bveg[ae]tative\b.*\bcollect\b.*\bremove\b.*\bha?ul\b/i, 'Vegetative Collect, Remove & Haul'],
@@ -168,7 +172,7 @@ function normalizeSuspiciousRate(params: {
   // rate cell was already low, that uncertainty deserves surfacing even
   // without a specific known-corruption pattern to match against. This never
   // changes the rate value, only sharpens the confidence label.
-  if (rateOcrConfidence != null && rateOcrConfidence < 0.65) {
+  if (rateOcrConfidence != null && rateOcrConfidence < RATE_OCR_NEEDS_REVIEW_THRESHOLD) {
     return { rate, confidence: 'needs_review', suppress: false };
   }
 
@@ -743,7 +747,7 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
         unit_type: unitCell,
         rate_amount: rate,
         source_kind: 'structural_table',
-        confidence: rateCellConfidence != null && rateCellConfidence < 0.65 ? 'needs_review' : 'medium',
+        confidence: rateCellConfidence != null && rateCellConfidence < RATE_OCR_NEEDS_REVIEW_THRESHOLD ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PdfTableCell) => cell.text),
         raw_text: row.raw_text,
         geometry_refs: geometryRefsForRow(table, row),

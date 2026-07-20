@@ -167,10 +167,82 @@ passed. Both are fixed, and the type gate is now enforced in CI (§3).
 
 ---
 
-## 5. Open follow-ups
+## 5. Follow-up dispositions
 
-| Item | Notes |
+### 5.1 `document_subtype` — activated (operator-driven)
+
+`document_subtype` is now selected by both precedence selects and flows into workspace,
+precedence resolution, project facts, validator categorization and related-document
+intelligence. The write path is operator-driven and already existed:
+
+```
+PATCH /api/projects/:id/document-precedence
+  → validate against DOCUMENT_SUBTYPE_VALUES
+  → scoped update
+  → document_subtype_updated event
+  → precedence reload → validator refresh
+```
+
+No extraction/classification writer exists, and none was invented — automatic population
+would require new inference. Null-subtype and `document_role` semantics are unchanged.
+
+The legacy precedence select/retry path was removed. It was reachable only on a
+missing-column `42703`; now that every column it guarded is restored (§1.3), retaining it
+would **mask** future schema drift rather than protect against it. This is the direct
+corollary of the rule in §4.2.
+
+**Still open:** whether to add automatic subtype classification and/or a backfill, and
+whether to build operator-facing UI for it.
+
+### 5.2 Activity-event delivery — explicit best-effort
+
+Resolved as **explicit, observable best-effort delivery**. Every failure — returned insert
+errors, missing configuration, and thrown client/network errors — now returns a structured
+`ACTIVITY_EVENT_DELIVERY_FAILED` diagnostic, emitted centrally with organization, project,
+entity, event type and error. Non-fatal user-route behaviour, event payloads and database
+constraints are unchanged.
+
+The audit-critical mutation list is now documented in
+`activity-event-delivery-semantics.md`, covering decision/workflow lifecycle, document truth
+and deletion, project archive/validation-phase/precedence/relationships/subtype, execution
+creation/outcome/supersession, manual rate-link closure, validation request/completion, and
+validator approval-decision sync.
+
+**Known limitation:** this makes event loss *observable*, not *impossible*. That is
+acceptable while the mutating row remains the system of record — CS-11 supersession, for
+example, is durable in the row (`status` + `superseded_by_run_id`), so the event is a
+secondary notification. If any listed event ever becomes required to *reconstruct* history
+for compliance rather than merely to observe it, that specific event must be upgraded to a
+durable outbox/retry.
+
+### 5.3 Portfolio operations-query migration — stopped, by design
+
+Migration onto the unified issue-object path was attempted and **correctly halted**: parity
+is not achievable against the current canonical model. No source code was changed.
+
+| Consumer requirement | Issue-object gap |
 |---|---|
-| Portfolio operations-query migration | `cs-13-operations-query-follow-up-2026-07-19.md` |
-| Non-transactional activity-event delivery | Inherited. Low severity: supersession is durable in the row (`status` + `superseded_by_run_id`), so the event is a secondary notification, not the system of record. |
-| `document_subtype` activation | Column, check constraint and index now exist, but nothing selects or populates it, so subtype resolution still yields `null`. |
+| Invoice `review_status` | Not represented |
+| Trace-decision rows | Resolver accepts no `intelligence_trace` input |
+| Queue `kind` + canonical record ID | Not represented losslessly |
+| Raw `open` / `in_review` status | Issue lifecycle semantics differ |
+| Blocked state | Portfolio rules differ |
+| Severity | Finding normalization can change raw critical severity |
+| Detected timestamp / ordering | Resolver orders by lifecycle/exposure/creation |
+| Suppression + deduplication | Portfolio-specific rules absent |
+| Superseded execution filtering | Requires canonical CS-11 integration first |
+
+Migrating regardless would have changed items, counts, ordering, severities, invoice-review
+signals, chips and superseded-generation visibility. This is why the work was scoped with an
+explicit "stop and report rather than half-migrate" instruction.
+
+**Owner decisions required before this can proceed:**
+
+1. Land/rebase CS-11 into the portfolio branch.
+2. Define a canonical trace-decision issue representation.
+3. Define a canonical portfolio projection carrying queue IDs, kind, raw/review status,
+   blocked semantics, timestamps, deduplication and suppression rules.
+4. Decide whether bare findings and unmatched non-Pipeline-B decisions belong in the
+   portfolio queue.
+
+Detail: `cs-13-operations-query-follow-up-2026-07-19.md`.

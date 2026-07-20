@@ -53,7 +53,7 @@ type EvidenceGroup = {
   entries: EvidenceEntry[];
 };
 
-const NOT_CAPTURED = 'Not captured during extraction';
+const NOT_CAPTURED = 'Not retained with this finding';
 
 const SUMMARY_FIELDS: Record<string, readonly string[]> = {
   invoice: ['invoice_number', 'contractor_name', 'client_name', 'service_period', 'line_total'],
@@ -287,6 +287,22 @@ function resolveFixSteps(finding: ValidationFinding): string[] {
   const subject = finding.subject_type.toLowerCase();
   const field = finding.field?.toLowerCase() ?? '';
   const nextAction = findingNextAction(finding);
+
+  if (finding.rule_id === 'FINANCIAL_RATE_CODE_MISSING') {
+    return finding.severity === 'info' && finding.decision_eligible === false
+      ? [
+        "Confirm the invoice line's billing code. If the contract schedule has no explicit code, confirm the matched schedule row or approved description-based billing key. Reject the proposed match if it points to the wrong rate item.",
+      ]
+      : [
+        'Populate the invoice line billing code, or confirm the description-based billing key used for validation.',
+      ];
+  }
+
+  if (finding.rule_id === 'FINANCIAL_UNIT_TYPE_MISMATCH') {
+    return [
+      'Review the billed unit against the contract unit and correct the invoice or contract mapping before approval.',
+    ];
+  }
 
   if (
     finding.category === 'required_sources'

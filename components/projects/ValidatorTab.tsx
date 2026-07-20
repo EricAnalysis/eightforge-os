@@ -1069,6 +1069,7 @@ export function ValidatorTab({
               <ValidatorEvidenceDrawer
                 finding={selectedFinding}
                 evidence={selectedEvidence}
+                documents={documents}
                 executionItemId={selectedIssue?.executionItemId ?? null}
                 odpNote={odpNote}
                 loading={evidenceLoadingId === selectedFindingId}

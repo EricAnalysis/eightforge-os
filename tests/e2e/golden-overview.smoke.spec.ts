@@ -97,7 +97,11 @@ test('Golden Overview reaches the authenticated surface without shadow mismatch 
     await screenshot(page, 'golden-validator-financial-rate-code-missing.png');
 
     await rateCodeFindings.first().click({ timeout: 30_000 });
-    await expect(page.getByText('FINANCIAL_RATE_CODE_MISSING', { exact: true })).toBeVisible({ timeout: 30_000 });
+    const technicalDetails = page.getByText('Technical Details', { exact: true }).locator('..');
+    await technicalDetails.click({ timeout: 30_000 });
+    await expect(technicalDetails.getByText('FINANCIAL_RATE_CODE_MISSING', { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText('Resolved — history record', { exact: true })).toBeVisible({ timeout: 30_000 });
     await screenshot(page, 'golden-validator-stale-execution-history.png');
   } catch (error) {

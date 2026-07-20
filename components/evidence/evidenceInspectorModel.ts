@@ -72,6 +72,30 @@ function titleize(value: string): string {
     .replace(/\b\w/g, (segment) => segment.toUpperCase());
 }
 
+const EVIDENCE_FIELD_LABELS: Record<string, string> = {
+  invoice_number: 'Invoice number',
+  rate_code: 'Rate code',
+  unit_price: 'Unit price',
+  line_total: 'Line total',
+  canonical_category: 'Category',
+  contractor_name: 'Contractor',
+  client_name: 'Client',
+  service_period: 'Service period',
+  description: 'Description',
+  quantity: 'Quantity',
+};
+
+export function humanizeEvidenceFieldLabel(fieldName: string): string {
+  const normalized = fieldName.trim();
+  if (!normalized) return 'Field';
+
+  return EVIDENCE_FIELD_LABELS[normalized]
+    ?? normalized
+      .replace(/[_-]+/g, ' ')
+      .trim()
+      .replace(/^./, (segment) => segment.toUpperCase());
+}
+
 function joinValues(values: Array<string | null | undefined>, separator = ' | '): string | null {
   const parts = values
     .map((value) => value?.trim())
@@ -211,18 +235,24 @@ export function buildValidatorEvidenceInspectorModel(args: {
 
   return {
     id: evidence.id,
-    title: target.label,
+    title: titleize(evidence.evidence_type),
     documentName,
     sourceType: sourceType ?? titleize(evidence.evidence_type),
     pageNumber: target.page,
-    regionLabel: target.rateRowId ?? target.recordId ?? target.detail,
-    anchorLabel: target.label,
+    regionLabel: null,
+    anchorLabel: evidence.field_name
+      ? humanizeEvidenceFieldLabel(evidence.field_name)
+      : 'Document context',
     extractedValue: firstAvailable(evidence.field_value, evidence.note),
-    canonicalField: evidence.field_name ?? target.fieldKey ?? evidence.fact_id,
+    canonicalField: evidence.field_name
+      ? humanizeEvidenceFieldLabel(evidence.field_name)
+      : target.fieldKey
+        ? humanizeEvidenceFieldLabel(target.fieldKey)
+        : null,
     statusLabel: titleize(finding.status),
     statusTone: findingStatusTone(finding.status),
     snippet: evidence.note,
-    context: target.detail,
+    context: null,
     expectedValue: finding.expected,
     actualValue: finding.actual,
     linkedExecutionItem: executionHref
@@ -230,9 +260,6 @@ export function buildValidatorEvidenceInspectorModel(args: {
       : null,
     details: compactDetail([
       { label: 'Evidence type', value: titleize(evidence.evidence_type) },
-      { label: 'Record ID', value: evidence.record_id },
-      { label: 'Rule', value: finding.rule_id },
-      { label: 'Subject', value: `${finding.subject_type}:${finding.subject_id}` },
     ]),
     warning: target.missingReason,
     actions: compactActions([

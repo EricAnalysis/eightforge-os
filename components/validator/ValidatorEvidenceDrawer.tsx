@@ -2,10 +2,14 @@
 
 import Link from 'next/link';
 import { EvidenceInspector } from '@/components/evidence/EvidenceInspector';
-import { buildValidatorEvidenceInspectorModel } from '@/components/evidence/evidenceInspectorModel';
+import {
+  buildValidatorEvidenceInspectorModel,
+  humanizeEvidenceFieldLabel,
+} from '@/components/evidence/evidenceInspectorModel';
 import { ForgeDetailPanel } from '@/components/forge/ForgeDetailPanel';
 import { ForgeSectionCard } from '@/components/forge/ForgeSectionCard';
 import { executionItemProjectHref } from '@/lib/executionItems';
+import type { CanonicalProjectTruthDocumentInput } from '@/lib/projectFacts';
 import {
   findingApprovalLabel,
   findingGateImpact,
@@ -28,6 +32,7 @@ import type {
 type ValidatorEvidenceDrawerProps = {
   finding: ValidationFinding | null;
   evidence: ValidationEvidence[];
+  documents?: readonly CanonicalProjectTruthDocumentInput[];
   executionItemId?: string | null;
   /**
    * Prior-decision context from a similar finding on this project, surfaced for
@@ -40,6 +45,24 @@ type ValidatorEvidenceDrawerProps = {
 type EvidenceEntry = {
   item: ValidationEvidence;
   target: ValidationEvidenceTarget;
+};
+
+type EvidenceGroup = {
+  key: string;
+  evidenceType: string;
+  entries: EvidenceEntry[];
+};
+
+const NOT_CAPTURED = 'Not captured during extraction';
+
+const SUMMARY_FIELDS: Record<string, readonly string[]> = {
+  invoice: ['invoice_number', 'contractor_name', 'client_name', 'service_period', 'line_total'],
+  invoice_line: ['invoice_number', 'description', 'quantity', 'unit_price', 'line_total', 'rate_code'],
+  rate_schedule: ['rate_code', 'description', 'rate_amount', 'unit', 'canonical_category'],
+  contract: ['rate_code', 'description', 'rate_amount', 'unit', 'canonical_category'],
+  transaction_row: ['transaction_number', 'material', 'quantity', 'unit', 'disposal_site'],
+  mobile_ticket: ['ticket_id', 'material', 'quantity', 'unit', 'disposal_site'],
+  load_ticket: ['ticket_id', 'material', 'quantity', 'unit', 'disposal_site'],
 };
 
 const SEVERITY_LABELS: Record<ValidationSeverity, string> = {
@@ -78,22 +101,12 @@ function formatSubject(finding: ValidationFinding): string {
 
 function formatVariance(finding: ValidationFinding): string {
   if (finding.variance == null) {
-    return 'Not provided';
+    return NOT_CAPTURED;
   }
 
   return finding.variance_unit
     ? `${finding.variance} ${finding.variance_unit}`
     : String(finding.variance);
-}
-
-function findingSourceReference(finding: ValidationFinding): string {
-  return [
-    finding.rule_id,
-    formatSubject(finding),
-    finding.field,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(' | ');
 }
 
 function issueCategoryLabel(finding: ValidationFinding): string {
@@ -135,6 +148,101 @@ function evidenceFieldValue(
     }
   }
   return null;
+}
+
+function formatEvidenceValue(value: string): string {
+  const numeric = Number(value);
+  return value.trim() !== '' && Number.isFinite(numeric)
+    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(numeric)
+    : value;
+}
+
+function evidenceGroupFieldValue(group: EvidenceGroup | null, fieldNames: readonly string[]): string | null {
+  if (!group) return null;
+  return evidenceFieldValue(group.entries.map((entry) => entry.item), fieldNames);
+}
+
+function groupEvidenceEntries(entries: readonly EvidenceEntry[]): EvidenceGroup[] {
+  const groups = new Map<string, EvidenceGroup>();
+
+  for (const entry of entries) {
+    const item = entry.item;
+    const documentKey = item.source_document_id ?? 'no-document';
+    const key = item.record_id
+      ? JSON.stringify([item.evidence_type, documentKey, item.record_id])
+      : JSON.stringify([
+          item.evidence_type,
+          documentKey,
+          item.field_name ?? 'no-field',
+          item.id,
+        ]);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.entries.push(entry);
+    } else {
+      groups.set(key, {
+        key,
+        evidenceType: item.evidence_type,
+        entries: [entry],
+      });
+    }
+  }
+
+  return [...groups.values()];
+}
+
+function populatedPriorityFieldCount(group: EvidenceGroup): number {
+  const priorityFields = SUMMARY_FIELDS[group.evidenceType] ?? [];
+  return priorityFields.reduce(
+    (count, fieldName) => count + (evidenceGroupFieldValue(group, [fieldName]) ? 1 : 0),
+    0,
+  );
+}
+
+function primaryEvidenceType(subjectType: string): string | null {
+  switch (subjectType) {
+    case 'invoice_line':
+      return 'invoice_line';
+    case 'invoice':
+      return 'invoice';
+    case 'invoice_rate_group':
+      return 'invoice_line';
+    case 'transaction_row':
+    case 'transaction_group':
+      return 'transaction_row';
+    case 'mobile_ticket':
+    case 'load_ticket':
+      return subjectType;
+    default:
+      return SUMMARY_FIELDS[subjectType] ? subjectType : null;
+  }
+}
+
+function findPrimaryEvidenceGroup(
+  finding: ValidationFinding,
+  groups: readonly EvidenceGroup[],
+): EvidenceGroup | null {
+  const evidenceType = primaryEvidenceType(finding.subject_type);
+  if (!evidenceType) return null;
+
+  return groups
+    .filter((group) => group.evidenceType === evidenceType)
+    .sort((left, right) => populatedPriorityFieldCount(right) - populatedPriorityFieldCount(left))[0]
+    ?? null;
+}
+
+function documentDisplayName(
+  documentId: string | null,
+  documents: readonly CanonicalProjectTruthDocumentInput[],
+): string | null {
+  if (!documentId) return null;
+  const document = documents.find((candidate) => candidate.id === documentId);
+  const name = document?.title?.trim() || document?.name?.trim();
+  return name || `Unnamed document (${documentId.slice(0, 8)})`;
+}
+
+function subjectLabel(subjectType: string): string {
+  return humanizeTruthToken(subjectType);
 }
 
 function sourceTraceLabel(finding: ValidationFinding, evidence: readonly ValidationEvidence[]): string {
@@ -296,7 +404,7 @@ function DetailBlock(props: {
         tone === 'critical' ? 'text-[var(--ef-critical-soft)]' : 'text-[var(--ef-text-primary)]'
       }`}
       >
-        {value && value.trim().length > 0 ? value : 'Not provided'}
+        {value && value.trim().length > 0 ? value : NOT_CAPTURED}
       </p>
     </ForgeSectionCard>
   );
@@ -311,10 +419,179 @@ function StructuredEvidenceCard(props: {
   return (
     <ForgeSectionCard as="div" surface="primary" radius="sm" padding="md">
       <div className="grid gap-3 sm:grid-cols-2">
-        <DetailBlock label="Record ID" value={entry.item.record_id} />
-        <DetailBlock label="Field" value={entry.item.field_name ?? entry.target.fieldKey} />
+        <DetailBlock
+          label="Field"
+          value={humanizeEvidenceFieldLabel(entry.item.field_name ?? entry.target.fieldKey ?? 'field')}
+        />
         <DetailBlock label="Category" value={categoryLabel} />
-        <DetailBlock label="Values" value={entry.item.field_value ?? entry.item.note ?? entry.target.detail} />
+        <DetailBlock label="Values" value={entry.item.field_value ?? entry.item.note} />
+      </div>
+    </ForgeSectionCard>
+  );
+}
+
+function BusinessRecordBlock(props: {
+  group: EvidenceGroup;
+  categoryLabel: string;
+}) {
+  const fieldEntries = props.group.entries.filter(
+    (entry) => entry.item.field_name && entry.item.field_value?.trim(),
+  );
+
+  return (
+    <ForgeSectionCard
+      as="div"
+      surface="primary"
+      radius="sm"
+      padding="md"
+      className="space-y-3"
+    >
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
+        {humanizeTruthToken(props.group.evidenceType)}
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {fieldEntries.map((entry) => (
+          <DetailBlock
+            key={entry.item.id}
+            label={humanizeEvidenceFieldLabel(entry.item.field_name ?? 'field')}
+            value={entry.item.field_value}
+          />
+        ))}
+        <DetailBlock label="Category" value={props.categoryLabel} />
+      </div>
+    </ForgeSectionCard>
+  );
+}
+
+function SubjectIdentitySummary(props: {
+  finding: ValidationFinding;
+  primaryGroup: EvidenceGroup | null;
+  documents: readonly CanonicalProjectTruthDocumentInput[];
+}) {
+  const { finding, primaryGroup, documents } = props;
+  const isAggregate = finding.subject_type === 'project' || finding.subject_type === 'contract';
+
+  if (isAggregate) {
+    const matchingDocument = finding.subject_type === 'contract'
+      ? documentDisplayName(finding.subject_id, documents)
+      : null;
+    return (
+      <ForgeSectionCard as="div" surface="secondary" radius="sm" padding="md">
+        <h4 className="text-base font-bold text-[var(--ef-text-primary)]">
+          {matchingDocument ?? subjectLabel(finding.subject_type)}
+        </h4>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <DetailBlock label="Expected" value={finding.expected} />
+          <DetailBlock label="Actual" value={finding.actual} />
+          <DetailBlock label="Variance" value={formatVariance(finding)} />
+        </div>
+      </ForgeSectionCard>
+    );
+  }
+
+  const evidenceType = primaryGroup?.evidenceType ?? primaryEvidenceType(finding.subject_type);
+  const invoiceNumber = evidenceGroupFieldValue(primaryGroup, ['invoice_number']);
+  const description = evidenceGroupFieldValue(primaryGroup, ['description', 'item_description']);
+  const quantity = evidenceGroupFieldValue(primaryGroup, ['quantity']);
+  const unit = evidenceGroupFieldValue(primaryGroup, ['unit', 'unit_type', 'billed_unit']);
+  const unitPrice = evidenceGroupFieldValue(primaryGroup, ['unit_price']);
+  const lineTotal = evidenceGroupFieldValue(primaryGroup, ['line_total']);
+  const rateCode = evidenceGroupFieldValue(primaryGroup, ['rate_code']);
+  const contractor = evidenceGroupFieldValue(primaryGroup, ['contractor_name']);
+  const client = evidenceGroupFieldValue(primaryGroup, ['client_name']);
+  const servicePeriod = evidenceGroupFieldValue(primaryGroup, ['service_period']);
+  const transactionNumber = evidenceGroupFieldValue(primaryGroup, ['transaction_number']);
+  const ticketId = evidenceGroupFieldValue(primaryGroup, ['ticket_id']);
+  const material = evidenceGroupFieldValue(primaryGroup, ['material']);
+  const disposalSite = evidenceGroupFieldValue(primaryGroup, ['disposal_site']);
+  const rateAmount = evidenceGroupFieldValue(primaryGroup, ['rate_amount']);
+  const category = evidenceGroupFieldValue(primaryGroup, ['canonical_category']);
+  const governingDocumentName = documentDisplayName(
+    primaryGroup?.entries[0]?.item.source_document_id ?? null,
+    documents,
+  );
+  const isInvoiceLine = evidenceType === 'invoice_line';
+  const isInvoice = evidenceType === 'invoice';
+  const isRate = evidenceType === 'rate_schedule' || evidenceType === 'contract';
+  const isTicket = evidenceType === 'mobile_ticket' || evidenceType === 'load_ticket';
+  const isTransaction = evidenceType === 'transaction_row';
+  const hasPopulatedPriorityFields = primaryGroup ? populatedPriorityFieldCount(primaryGroup) > 0 : false;
+
+  let heading = subjectLabel(finding.subject_type);
+  if ((isInvoiceLine || isInvoice) && invoiceNumber) heading = `Invoice ${invoiceNumber}`;
+  if (isRate) heading = governingDocumentName ?? (rateCode ? `Contract rate ${rateCode}` : 'Contract rate');
+  if (isTransaction && transactionNumber) heading = `Transaction ${transactionNumber}`;
+  if (isTicket && ticketId) heading = `Ticket ${ticketId}`;
+
+  const summaryFields: Array<{ label: string; value: string | null }> = [];
+  if (isInvoiceLine) {
+    if (!invoiceNumber) summaryFields.push({ label: 'Invoice number', value: null });
+    summaryFields.push(
+      { label: 'Description', value: description },
+      {
+        label: 'Quantity',
+        value: quantity
+          ? `${formatEvidenceValue(quantity)}${unit ? ` ${unit}` : ''}`
+          : null,
+      },
+      { label: 'Unit price', value: unitPrice ? formatEvidenceValue(unitPrice) : null },
+      { label: 'Line total', value: lineTotal ? formatEvidenceValue(lineTotal) : null },
+      { label: 'Rate code', value: rateCode },
+    );
+  } else if (isInvoice) {
+    if (!invoiceNumber) summaryFields.push({ label: 'Invoice number', value: null });
+    summaryFields.push(
+      { label: 'Contractor', value: contractor },
+      { label: 'Client', value: client },
+      { label: 'Service period', value: servicePeriod },
+      { label: 'Line total', value: lineTotal ? formatEvidenceValue(lineTotal) : null },
+    );
+  } else if (isRate) {
+    summaryFields.push(
+      { label: 'Description', value: description },
+      {
+        label: 'Rate',
+        value: rateAmount
+          ? `${formatEvidenceValue(rateAmount)}${unit ? `/${unit}` : ''}`
+          : null,
+      },
+      { label: 'Category', value: category },
+    );
+  } else if (isTransaction || isTicket) {
+    if (!(transactionNumber || ticketId)) {
+      summaryFields.push({
+        label: isTicket ? 'Ticket' : 'Transaction',
+        value: null,
+      });
+    }
+    summaryFields.push(
+      { label: 'Material', value: material },
+      {
+        label: 'Quantity',
+        value: quantity
+          ? `${formatEvidenceValue(quantity)}${unit ? ` ${unit}` : ''}`
+          : null,
+      },
+    );
+    if (finding.field?.toLowerCase().includes('disposal')) {
+      summaryFields.push({ label: 'Disposal site', value: disposalSite });
+    }
+  } else {
+    summaryFields.push({ label: 'Details', value: null });
+  }
+
+  return (
+    <ForgeSectionCard
+      as="div"
+      surface={hasPopulatedPriorityFields ? 'secondary' : 'primary'}
+      radius="sm"
+      padding="md"
+    >
+      <h4 className="text-base font-bold text-[var(--ef-text-primary)]">{heading}</h4>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {summaryFields.map((field) => (
+          <DetailBlock key={field.label} label={field.label} value={field.value} />
+        ))}
       </div>
     </ForgeSectionCard>
   );
@@ -323,6 +600,7 @@ function StructuredEvidenceCard(props: {
 export function ValidatorEvidenceDrawer({
   finding,
   evidence,
+  documents = [],
   executionItemId = null,
   odpNote = null,
   loading,
@@ -364,7 +642,8 @@ export function ValidatorEvidenceDrawer({
       findingId: activeFinding.id,
     }),
   }));
-  const structuredEvidence = evidenceEntries.filter((entry) => !isDocumentEvidence(entry.item));
+  const evidenceGroups = groupEvidenceEntries(evidenceEntries);
+  const primaryEvidenceGroup = findPrimaryEvidenceGroup(activeFinding, evidenceGroups);
   const documentEvidence = evidenceEntries.filter((entry) => isDocumentEvidence(entry.item));
   const primaryEvidence =
     evidenceEntries.find((entry) => entry.target.exactTarget && entry.target.href)
@@ -400,11 +679,22 @@ export function ValidatorEvidenceDrawer({
           Evidence &amp; Truth
         </p>
         <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
-          {findingProblem(activeFinding)}
+          {issueCategoryLabel(activeFinding)} finding review
         </h3>
       </div>
 
-      <section className="mt-5 space-y-3">
+      <section className="mt-5 space-y-3" data-testid="subject-identity-summary">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+          Subject
+        </p>
+        <SubjectIdentitySummary
+          finding={activeFinding}
+          primaryGroup={primaryEvidenceGroup}
+          documents={documents}
+        />
+      </section>
+
+      <section className="mt-6 space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
           Issue Overview
         </p>
@@ -483,9 +773,10 @@ export function ValidatorEvidenceDrawer({
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <DetailBlock label="Data Source" value={sourceTraceLabel(activeFinding, evidence)} />
-          <DetailBlock label="Field Mapping" value={activeFinding.field} />
-          <DetailBlock label="Subject" value={formatSubject(activeFinding)} />
-          <DetailBlock label="Rule" value={activeFinding.rule_id} />
+          <DetailBlock
+            label="Field Mapping"
+            value={activeFinding.field ? humanizeEvidenceFieldLabel(activeFinding.field) : null}
+          />
         </div>
       </section>
 
@@ -493,11 +784,13 @@ export function ValidatorEvidenceDrawer({
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
           Structured Data
         </p>
-        {structuredEvidence.length === 0 ? (
+        {evidenceGroups.length === 0 ? (
           <ForgeSectionCard as="div" surface="primary" radius="sm" padding="md">
             <div className="grid gap-3 sm:grid-cols-2">
-              <DetailBlock label="Record ID" value={activeFinding.subject_id} />
-              <DetailBlock label="Field" value={activeFinding.field} />
+              <DetailBlock
+                label="Field"
+                value={activeFinding.field ? humanizeEvidenceFieldLabel(activeFinding.field) : null}
+              />
               <DetailBlock label="Category" value={issueCategoryLabel(activeFinding)} />
               <DetailBlock
                 label="Values"
@@ -509,20 +802,36 @@ export function ValidatorEvidenceDrawer({
             </div>
           </ForgeSectionCard>
         ) : (
-          <div className="space-y-3">
-            {structuredEvidence.map((entry) => (
-              <StructuredEvidenceCard
-                key={entry.item.id}
-                entry={entry}
-                categoryLabel={issueCategoryLabel(activeFinding)}
-              />
-            ))}
+          <div className="space-y-3" data-testid="assembled-evidence-blocks">
+            {evidenceGroups.map((group) => {
+              const populatedFields = group.entries.filter(
+                (entry) => entry.item.field_name && entry.item.field_value?.trim(),
+              );
+              const distinctFieldNames = new Set(
+                populatedFields.map((entry) => entry.item.field_name),
+              );
+              return (
+                <div key={group.key} data-testid="evidence-record-block">
+                  {populatedFields.length >= 2 && distinctFieldNames.size >= 2 ? (
+                    <BusinessRecordBlock
+                      group={group}
+                      categoryLabel={issueCategoryLabel(activeFinding)}
+                    />
+                  ) : group.entries.map((entry) => (
+                    <StructuredEvidenceCard
+                      key={entry.item.id}
+                      entry={entry}
+                      categoryLabel={issueCategoryLabel(activeFinding)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           <DetailBlock label="Variance" value={formatVariance(activeFinding)} />
-          <DetailBlock label="Reference" value={findingSourceReference(activeFinding)} />
         </div>
       </section>
 
@@ -566,9 +875,7 @@ export function ValidatorEvidenceDrawer({
                       evidence: entry.item,
                       target: entry.target,
                       sourceType: groupLabel,
-                      documentName: entry.item.source_document_id
-                        ? `Document ${entry.item.source_document_id.slice(0, 8)}`
-                        : null,
+                      documentName: documentDisplayName(entry.item.source_document_id, documents),
                       executionHref,
                       evidenceHref: entry.target.href,
                       overrideHref: buildEvidenceHref({
@@ -618,6 +925,24 @@ export function ValidatorEvidenceDrawer({
           </p>
         </ForgeSectionCard>
       </section>
+
+      <details className="mt-6 rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-primary)]">
+        <summary className="cursor-pointer px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+          Technical Details
+        </summary>
+        <div className="grid gap-3 border-t border-[var(--ef-border-subtle-a70)] p-4 sm:grid-cols-2">
+          <DetailBlock label="Subject" value={formatSubject(activeFinding)} />
+          <DetailBlock label="Rule" value={activeFinding.rule_id} />
+          <DetailBlock label="Check key" value={activeFinding.check_key} />
+          {evidence.map((item) => (
+            <DetailBlock
+              key={`technical:${item.id}`}
+              label="Evidence record ID"
+              value={item.record_id}
+            />
+          ))}
+        </div>
+      </details>
     </ForgeDetailPanel>
   );
 }

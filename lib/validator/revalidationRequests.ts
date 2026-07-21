@@ -47,3 +47,11 @@ export async function requestDocumentPrecedenceRevalidation(params: {
   if (!params.projectId) return null;
   return triggerProjectValidation(params.projectId, 'relationship_change', params.actorId);
 }
+
+export async function requestManualRateLinkRevalidation(params: {
+  projectId: string | null;
+  actorId?: string;
+}): Promise<TriggerProjectValidationResult | null> {
+  if (!params.projectId) return null;
+  return triggerProjectValidation(params.projectId, 'relationship_change', params.actorId);
+}

@@ -14,6 +14,7 @@ import {
   requestDecisionStatusRevalidation,
   requestDocumentPrecedenceRevalidation,
   requestFactOverrideRevalidation,
+  requestManualRateLinkRevalidation,
 } from '@/lib/validator/revalidationRequests';
 
 describe('revalidation requests', () => {
@@ -114,5 +115,31 @@ describe('revalidation requests', () => {
     });
 
     expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'relationship_change', 'user-4');
+  });
+
+  it('triggers a validator rerun after a manual rate link is confirmed', async () => {
+    triggerProjectValidationMock.mockResolvedValue({
+      status: 'triggered',
+      mode: 'sync',
+      inputsSnapshotHash: 'manual-rate-link-hash',
+    });
+
+    const result = await requestManualRateLinkRevalidation({
+      projectId: 'project-1',
+      actorId: 'user-5',
+    });
+
+    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'relationship_change', 'user-5');
+    assert.equal(result?.status, 'triggered');
+  });
+
+  it('does not rerun validation when no project id is available for a manual rate link', async () => {
+    const result = await requestManualRateLinkRevalidation({
+      projectId: null,
+      actorId: 'user-5',
+    });
+
+    expect(triggerProjectValidationMock).not.toHaveBeenCalled();
+    assert.equal(result, null);
   });
 });

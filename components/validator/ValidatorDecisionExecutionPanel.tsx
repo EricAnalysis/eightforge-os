@@ -12,6 +12,7 @@ import {
 } from '@/lib/projectExecutionResolution';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
+import { ManualRateLinkResolutionPanel } from '@/components/validator/ManualRateLinkResolutionPanel';
 
 type ValidatorDecisionExecutionPanelProps = {
   issue: IssueObject | null;
@@ -50,6 +51,15 @@ export function ValidatorDecisionExecutionPanel({
     setError(null);
     setSavingAction(null);
   }, [issue?.issueId]);
+
+  if (issue?.finding.rule_id === 'FINANCIAL_RATE_CODE_MISSING') {
+    return (
+      <ManualRateLinkResolutionPanel
+        issue={issue}
+        onActionComplete={onActionComplete}
+      />
+    );
+  }
 
   const header = (
     <div className="space-y-2">

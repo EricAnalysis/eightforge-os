@@ -278,8 +278,11 @@ describe('closeManualRateLinkFindings', () => {
     const result = await closeManualRateLinkFindings({ admin: createAdminMock(state) as never, ...CLOSE_INPUT });
 
     assert.deepEqual(result.errors, []);
-    assert.equal(result.closurePath, 'direct_update');
-    assert.deepEqual(result.closedFindingIds, ['finding-1']);
+    assert.deepEqual(result.closedFindings, [{
+      findingId: 'finding-1',
+      ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+      closurePath: 'direct_update',
+    }]);
 
     const finding = state.findings[0]!;
     assert.equal(finding.status, 'resolved');
@@ -304,6 +307,55 @@ describe('closeManualRateLinkFindings', () => {
     );
   });
 
+  it('closes FINANCIAL_RATE_CODE_MISSING with rule and direct closure attribution', async () => {
+    const state = createState();
+    state.findings.push({
+      ...OPEN_FINDING,
+      id: 'financial-finding-1',
+      rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+    });
+
+    const result = await closeManualRateLinkFindings({
+      admin: createAdminMock(state) as never,
+      ...CLOSE_INPUT,
+    });
+
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(result.closedFindings, [{
+      findingId: 'financial-finding-1',
+      ruleId: 'FINANCIAL_RATE_CODE_MISSING',
+      closurePath: 'direct_update',
+    }]);
+    assert.equal(state.findings[0]?.status, 'resolved');
+  });
+
+  it('closes both eligible open rate-link findings for the same invoice line', async () => {
+    const state = createState();
+    state.findings.push(
+      { ...OPEN_FINDING },
+      { ...OPEN_FINDING, id: 'financial-finding-1', rule_id: 'FINANCIAL_RATE_CODE_MISSING' },
+    );
+
+    const result = await closeManualRateLinkFindings({
+      admin: createAdminMock(state) as never,
+      ...CLOSE_INPUT,
+    });
+
+    assert.deepEqual(result.closedFindings, [
+      {
+        findingId: 'finding-1',
+        ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+        closurePath: 'direct_update',
+      },
+      {
+        findingId: 'financial-finding-1',
+        ruleId: 'FINANCIAL_RATE_CODE_MISSING',
+        closurePath: 'direct_update',
+      },
+    ]);
+    assert.equal(state.findings.every((finding) => finding.status === 'resolved'), true);
+  });
+
   it('cascades through finalizeDecision when linked_decision_id is present', async () => {
     vi.mocked(finalizeDecision).mockResolvedValue({
       decision: { id: 'decision-1' },
@@ -325,8 +377,11 @@ describe('closeManualRateLinkFindings', () => {
     const result = await closeManualRateLinkFindings({ admin: createAdminMock(state) as never, ...CLOSE_INPUT });
 
     assert.deepEqual(result.errors, []);
-    assert.equal(result.closurePath, 'finalize_decision');
-    assert.deepEqual(result.closedFindingIds, ['finding-1']);
+    assert.deepEqual(result.closedFindings, [{
+      findingId: 'finding-1',
+      ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+      closurePath: 'finalize_decision',
+    }]);
 
     assert.ok(vi.mocked(finalizeDecision).mock.calls.length > 0, 'finalizeDecision was called');
     const [closureInput] = vi.mocked(finalizeDecision).mock.calls[0]!;
@@ -343,7 +398,6 @@ describe('closeManualRateLinkFindings', () => {
     const result = await closeManualRateLinkFindings({ admin: createAdminMock(state) as never, ...CLOSE_INPUT });
 
     assert.deepEqual(result.errors, []);
-    assert.equal(result.closurePath, 'no_open_finding');
-    assert.deepEqual(result.closedFindingIds, []);
+    assert.deepEqual(result.closedFindings, []);
   });
 });

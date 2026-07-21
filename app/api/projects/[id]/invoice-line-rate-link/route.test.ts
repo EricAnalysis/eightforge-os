@@ -18,15 +18,33 @@ vi.mock('@/lib/server/manualRateLinkClosure', () => ({
     supersededLinkId: null,
   }),
   closeManualRateLinkFindings: vi.fn().mockResolvedValue({
-    closedFindingIds: [],
-    closurePath: 'no_open_finding',
+    closedFindings: [{
+      findingId: 'finding-1',
+      ruleId: 'FINANCIAL_RATE_CODE_MISSING',
+      closurePath: 'direct_update',
+    }],
     errors: [],
   }),
 }));
 
+vi.mock('@/lib/server/manualRateLinkOptions', async () => {
+  class ManualRateLinkOptionsError extends Error {
+    constructor(message: string, readonly status: number) { super(message); }
+  }
+  return {
+    ManualRateLinkOptionsError,
+    loadManualRateLinkOptions: vi.fn(),
+    findManualRateLinkOption: vi.fn((result: typeof OPTIONS, selected: { documentId: string; recordId: string }) =>
+      result.options.find((option) =>
+        option.documentId === selected.documentId && option.recordId === selected.recordId,
+      ) ?? null),
+  };
+});
+
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { POST } from '@/app/api/projects/[id]/invoice-line-rate-link/route';
+import { findManualRateLinkOption, loadManualRateLinkOptions } from '@/lib/server/manualRateLinkOptions';
+import { GET, POST } from '@/app/api/projects/[id]/invoice-line-rate-link/route';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,6 +69,27 @@ const VALID_BODY = {
   rate_row_unit_type: 'per cubic yard',
   rate_row_rate_amount: 79.52,
   reason: 'Automated matcher failed.',
+};
+
+const OPTIONS = {
+  options: [{
+    documentId: 'contract-doc-1',
+    recordId: 'exhibit_a_table:/structural_table:row:5',
+    rateCode: '6A',
+    description: 'Hazardous debris haul',
+    unitType: 'per cubic yard',
+    rateAmount: 79.52,
+    canonicalCategory: 'hauling_transport',
+  }],
+  recommendedRecordId: 'exhibit_a_table:/structural_table:row:5',
+  activeManualLinkRecordId: null,
+  invoiceLine: {
+    documentId: 'invoice-doc-1',
+    subjectId: 'fact:invoice-doc-1:line:6',
+    lineNumber: '6A',
+    description: 'Hazardous debris removal',
+    billingCode: null,
+  },
 };
 
 function makeRequest(body: unknown, token = 'Bearer test-token') {
@@ -85,6 +124,12 @@ describe('POST /api/projects/[id]/invoice-line-rate-link', () => {
     vi.clearAllMocks();
     vi.mocked(getActorContext).mockResolvedValue(ACTOR);
     vi.mocked(getSupabaseAdmin).mockReturnValue(projectFoundAdmin() as never);
+    vi.mocked(loadManualRateLinkOptions).mockResolvedValue(OPTIONS);
+    vi.mocked(findManualRateLinkOption).mockImplementation((result, selected) =>
+      result.options.find((option) =>
+        option.documentId === selected.documentId && option.recordId === selected.recordId,
+      ) ?? null,
+    );
   });
 
   it('returns 401 when Authorization header is absent', async () => {
@@ -135,10 +180,39 @@ describe('POST /api/projects/[id]/invoice-line-rate-link', () => {
       ok: boolean;
       linkId: string;
       supersededLinkId: string | null;
-      closurePath: string;
+      closedFindings: Array<{ findingId: string; ruleId: string; closurePath: string }>;
     };
     assert.equal(body.ok, true);
     assert.equal(body.linkId, 'new-link-1');
     assert.equal(body.supersededLinkId, null);
+    assert.deepEqual(body.closedFindings, [{
+      findingId: 'finding-1',
+      ruleId: 'FINANCIAL_RATE_CODE_MISSING',
+      closurePath: 'direct_update',
+    }]);
+  });
+
+  it('rejects a rate row outside the project governing pricing family', async () => {
+    vi.mocked(findManualRateLinkOption).mockReturnValue(null);
+
+    const res = await POST(makeRequest(VALID_BODY), { params: Promise.resolve({ id: 'proj-1' }) });
+
+    assert.equal(res.status, 400);
+    assert.match((await res.json() as { error: string }).error, /governing pricing family/i);
+  });
+
+  it('returns recommendation and active manual-link state as separate nullable fields', async () => {
+    const request = new Request(
+      'http://localhost/api/projects/proj-1/invoice-line-rate-link?invoice_line_subject_id=fact%3Ainvoice-doc-1%3Aline%3A6',
+      { headers: { Authorization: 'Bearer test-token' } },
+    );
+
+    const res = await GET(request, { params: Promise.resolve({ id: 'proj-1' }) });
+    const body = await res.json() as typeof OPTIONS;
+
+    assert.equal(res.status, 200);
+    assert.equal(body.recommendedRecordId, 'exhibit_a_table:/structural_table:row:5');
+    assert.equal(body.activeManualLinkRecordId, null);
+    assert.equal(body.options[0]?.recordId, 'exhibit_a_table:/structural_table:row:5');
   });
 });

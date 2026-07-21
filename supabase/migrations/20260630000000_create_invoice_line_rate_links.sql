@@ -3,14 +3,12 @@
 -- Date: 2026-06-30
 -- Purpose: Persist operator-chosen manual links between invoice lines and
 --          contract rate rows, for cases where the automated matcher fails.
---          Provides the persistence anchor for Pass 1 one-time closure of
---          CROSS_DOCUMENT_CONTRACT_RATE_EXISTS findings.
+--          Provides the persistence anchor for operator-confirmed rate mappings.
 -- Safety: Additive only. No existing table, column, constraint, or index is
 --         touched. CREATE TABLE IF NOT EXISTS and IF NOT EXISTS guards throughout.
--- Pass 2 note: This table is the lookup target for Pass 2's validation-time
---              injection into matchRateScheduleItemForInvoiceLine. Pass 1 only
---              closes the finding once; re-validation will reopen it until
---              Pass 2 ships.
+-- Validation note: active rows are loaded on every validation run and injected
+--                  ahead of automated matching for cross-document verification,
+--                  exposure, and financial-integrity missing-code resolution.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.invoice_line_rate_links (

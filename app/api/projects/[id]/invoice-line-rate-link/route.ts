@@ -2,9 +2,46 @@ import { NextResponse } from 'next/server';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { insertManualRateLink, closeManualRateLinkFindings } from '@/lib/server/manualRateLinkClosure';
+import {
+  findManualRateLinkOption,
+  loadManualRateLinkOptions,
+  ManualRateLinkOptionsError,
+} from '@/lib/server/manualRateLinkOptions';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function optionsErrorResponse(error: unknown) {
+  if (error instanceof ManualRateLinkOptionsError) {
+    return jsonError(error.message, error.status);
+  }
+  return jsonError(error instanceof Error ? error.message : 'Unable to load rate options', 500);
+}
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id: projectId } = await params;
+  const ctx = await getActorContext(request);
+  if (!ctx.ok) return jsonError(ctx.error, ctx.status);
+
+  const invoiceLineSubjectId = new URL(request.url).searchParams.get('invoice_line_subject_id');
+  if (!invoiceLineSubjectId) {
+    return jsonError('invoice_line_subject_id is required', 400);
+  }
+
+  try {
+    const result = await loadManualRateLinkOptions({
+      projectId,
+      organizationId: ctx.actor.organizationId,
+      invoiceLineSubjectId,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    return optionsErrorResponse(error);
+  }
 }
 
 export async function POST(
@@ -51,14 +88,33 @@ export async function POST(
     );
   }
 
-  // Optional stability anchor fields
-  const invoiceLineNumber = typeof body.invoice_line_number === 'string' ? body.invoice_line_number : null;
-  const invoiceLineDescription = typeof body.invoice_line_description === 'string' ? body.invoice_line_description : null;
-  const invoiceLineBillingCode = typeof body.invoice_line_billing_code === 'string' ? body.invoice_line_billing_code : null;
-  const rateRowDescription = typeof body.rate_row_description === 'string' ? body.rate_row_description : null;
-  const rateRowUnitType = typeof body.rate_row_unit_type === 'string' ? body.rate_row_unit_type : null;
-  const rateRowRateAmount = typeof body.rate_row_rate_amount === 'number' ? body.rate_row_rate_amount : null;
   const reason = typeof body.reason === 'string' ? body.reason : null;
+
+  let canonicalOptions;
+  try {
+    canonicalOptions = await loadManualRateLinkOptions({
+      projectId,
+      organizationId,
+      invoiceLineSubjectId,
+    });
+  } catch (error) {
+    return optionsErrorResponse(error);
+  }
+
+  if (canonicalOptions.invoiceLine.documentId !== invoiceDocumentId) {
+    return jsonError('Invoice line does not belong to the supplied invoice document', 400);
+  }
+
+  const selectedOption = findManualRateLinkOption(canonicalOptions, {
+    documentId: contractDocumentId,
+    recordId: contractRateRowId,
+  });
+  if (!selectedOption) {
+    return jsonError(
+      'Selected contract rate row is not part of this project\'s governing pricing family',
+      400,
+    );
+  }
 
   // Insert (or supersede) the link
   const linkResult = await insertManualRateLink({
@@ -67,14 +123,14 @@ export async function POST(
     projectId,
     invoiceDocumentId,
     invoiceLineSubjectId,
-    invoiceLineNumber,
-    invoiceLineDescription,
-    invoiceLineBillingCode,
+    invoiceLineNumber: canonicalOptions.invoiceLine.lineNumber,
+    invoiceLineDescription: canonicalOptions.invoiceLine.description,
+    invoiceLineBillingCode: canonicalOptions.invoiceLine.billingCode,
     contractDocumentId,
     contractRateRowId,
-    rateRowDescription,
-    rateRowUnitType,
-    rateRowRateAmount,
+    rateRowDescription: selectedOption.description,
+    rateRowUnitType: selectedOption.unitType,
+    rateRowRateAmount: selectedOption.rateAmount,
     actorId,
     reason,
   });
@@ -83,10 +139,7 @@ export async function POST(
     return jsonError(linkResult.error, linkResult.status);
   }
 
-  // One-time closure bridge: resolve the currently-open finding for this invoice line.
-  // PASS 1 KNOWN LIMITATION: The next re-validation run will reopen this finding
-  // because matchRateScheduleItemForInvoiceLine has no injection point yet.
-  // Pass 2 will consult invoice_line_rate_links during validation to prevent reopening.
+  // Close eligible findings; validation-time injection keeps the mapping durable.
   const closureResult = await closeManualRateLinkFindings({
     admin,
     organizationId,
@@ -94,7 +147,7 @@ export async function POST(
     invoiceLineSubjectId,
     actorId,
     contractRateRowId,
-    rateRowDescription,
+    rateRowDescription: selectedOption.description,
     reason,
   });
 
@@ -110,8 +163,7 @@ export async function POST(
     ok: true,
     linkId: linkResult.linkId,
     supersededLinkId: linkResult.supersededLinkId,
-    closurePath: closureResult.closurePath,
-    closedFindingIds: closureResult.closedFindingIds,
+    closedFindings: closureResult.closedFindings,
     closureErrors: closureResult.errors,
   });
 }

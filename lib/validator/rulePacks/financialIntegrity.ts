@@ -23,6 +23,7 @@ import { runRateBasedContractValidationRules } from '@/lib/validator/rulePacks/r
 const CATEGORY = 'financial_integrity';
 
 const INVOICE_LINE_ID_KEYS = ['id', 'invoice_line_id', 'line_id'] as const;
+const INVOICE_LINE_INVOICE_NUMBER_KEYS = ['invoice_number', 'invoice_no', 'number'] as const;
 const INVOICE_LINE_RATE_CODE_KEYS = [
   'rate_code',
   'contract_rate_code',
@@ -60,11 +61,33 @@ const INVOICE_LINE_RATE_KEYS = [
   'uom_rate',
 ] as const;
 const INVOICE_LINE_UNIT_KEYS = ['unit_type', 'unit', 'uom'] as const;
+const INVOICE_LINE_VALIDATION_TOTAL_KEYS = [
+  'line_total',
+  'extended_amount',
+  'total_amount',
+  'amount',
+] as const;
 const INVOICE_LINE_TOTAL_KEYS = [
   'line_total',
   'extended_amount',
   'total_amount',
   'amount',
+  'total',
+  'extended_cost',
+  'line_amount',
+  'net_amount',
+] as const;
+const INVOICE_LINE_QUANTITY_KEYS = [
+  'quantity',
+  'qty',
+  'billed_quantity',
+  'line_quantity',
+  'units',
+  'unit_count',
+  'hours',
+  'tons',
+  'tonnage',
+  'cyd',
 ] as const;
 const INVOICE_TOTAL_KEYS = ['total_amount', 'invoice_total', 'billed_amount'] as const;
 
@@ -242,7 +265,7 @@ function invoiceEvidence(input: ProjectValidatorInput) {
         evidenceType: 'invoice_line',
         row,
         fieldName: 'line_total',
-        fieldValue: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
+        fieldValue: readRowNumber(row, INVOICE_LINE_VALIDATION_TOTAL_KEYS),
         note: 'Invoice line contributes to the billed total considered by the validator.',
       }),
     );
@@ -257,6 +280,48 @@ function invoiceEvidence(input: ProjectValidatorInput) {
       note: 'Invoice total contributes to the billed total fallback used by the validator.',
     }),
   );
+}
+
+function invoiceLineBusinessEvidence(row: InvoiceLineRow) {
+  const fields = [
+    {
+      fieldName: 'invoice_number',
+      fieldValue: readRowString(row, INVOICE_LINE_INVOICE_NUMBER_KEYS),
+      note: 'Invoice number retained from the invoice line.',
+    },
+    {
+      fieldName: 'description',
+      fieldValue: readRowString(row, INVOICE_LINE_DESCRIPTION_KEYS),
+      note: 'Description retained from the invoice line.',
+    },
+    {
+      fieldName: 'quantity',
+      fieldValue: readRowNumber(row, INVOICE_LINE_QUANTITY_KEYS),
+      note: 'Quantity retained from the invoice line.',
+    },
+    {
+      fieldName: 'unit_price',
+      fieldValue: readRowNumber(row, INVOICE_LINE_RATE_KEYS),
+      note: 'Unit price retained from the invoice line.',
+    },
+    {
+      fieldName: 'line_total',
+      fieldValue: readRowNumber(row, INVOICE_LINE_TOTAL_KEYS),
+      note: 'Line total retained from the invoice line.',
+    },
+  ] as const;
+
+  return fields.flatMap(({ fieldName, fieldValue, note }) => (
+    fieldValue == null
+      ? []
+      : [structuredRowEvidenceInput({
+        evidenceType: 'invoice_line',
+        row,
+        fieldName,
+        fieldValue,
+        note,
+      })]
+  ));
 }
 
 export function runFinancialIntegrityRules(
@@ -276,6 +341,7 @@ export function runFinancialIntegrityRules(
 
     if (
       !rateCode &&
+      scheduleItem?.match_source_kind !== 'manual_link' &&
       isRuleEnabled(
         input.ruleStateByRuleId,
         'FINANCIAL_RATE_CODE_MISSING',
@@ -300,6 +366,7 @@ export function runFinancialIntegrityRules(
           decisionEligible: informational ? false : undefined,
           actionEligible: informational ? false : undefined,
           evidence: [
+            ...invoiceLineBusinessEvidence(row),
             structuredRowEvidenceInput({
               evidenceType: 'invoice_line',
               row,
@@ -353,6 +420,7 @@ export function runFinancialIntegrityRules(
           expected: scheduleItem.unit_type,
           actual: billedUnit,
           evidence: [
+            ...invoiceLineBusinessEvidence(row),
             structuredRowEvidenceInput({
               evidenceType: 'invoice_line',
               row,

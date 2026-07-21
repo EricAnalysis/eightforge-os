@@ -18,15 +18,45 @@ vi.mock('@/lib/server/manualRateLinkClosure', () => ({
     supersededLinkId: null,
   }),
   closeManualRateLinkFindings: vi.fn().mockResolvedValue({
-    closedFindingIds: [],
-    closurePath: 'no_open_finding',
+    closedFindings: [],
     errors: [],
   }),
 }));
 
+vi.mock('@/lib/server/manualRateLinkOptions', () => ({
+  ManualRateLinkOptionsError: class ManualRateLinkOptionsError extends Error {
+    constructor(message: string, readonly status: number) { super(message); }
+  },
+  loadManualRateLinkOptions: vi.fn().mockResolvedValue({
+    options: [{
+      documentId: 'contract-doc-1',
+      recordId: 'exhibit_a_table:/structural_table:row:5',
+      description: 'Hazardous debris haul',
+      unitType: 'per cubic yard',
+      rateAmount: 79.52,
+    }],
+    recommendedRecordId: null,
+    activeManualLinkRecordId: null,
+    invoiceLine: {
+      documentId: 'invoice-doc-1',
+      subjectId: 'fact:invoice-doc-1:line:6',
+      lineNumber: '6A',
+      description: 'Hazardous debris removal',
+      billingCode: null,
+    },
+  }),
+  findManualRateLinkOption: vi.fn((
+    result: { options: Array<{ documentId: string; recordId: string }> },
+    selected: { documentId: string; recordId: string },
+  ) => result.options.find((option: { documentId: string; recordId: string }) =>
+      option.documentId === selected.documentId && option.recordId === selected.recordId,
+    ) ?? null),
+}));
+
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { POST } from '@/app/api/projects/[id]/invoice-line-rate-link/route';
+import { findManualRateLinkOption, loadManualRateLinkOptions } from '@/lib/server/manualRateLinkOptions';
+import { GET, POST } from '@/app/api/projects/[id]/invoice-line-rate-link/route';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -80,6 +110,11 @@ describe('POST /api/projects/[id]/invoice-line-rate-link', () => {
     vi.clearAllMocks();
     vi.mocked(getActorContext).mockResolvedValue(ACTOR);
     vi.mocked(getSupabaseAdmin).mockReturnValue(projectFoundAdmin() as never);
+    vi.mocked(findManualRateLinkOption).mockImplementation((result, selected) =>
+      result.options.find((option) =>
+        option.documentId === selected.documentId && option.recordId === selected.recordId,
+      ) ?? null,
+    );
   });
 
   it('returns 401 when getActorContext indicates missing/invalid auth', async () => {
@@ -127,11 +162,48 @@ describe('POST /api/projects/[id]/invoice-line-rate-link', () => {
       ok: boolean;
       linkId: string;
       supersededLinkId: string | null;
-      closurePath: string;
+      closedFindings: unknown[];
     };
     assert.equal(body.ok, true);
     assert.equal(body.linkId, 'new-link-1');
     assert.equal(body.supersededLinkId, null);
-    assert.ok(typeof body.closurePath === 'string');
+    assert.deepEqual(body.closedFindings, []);
+  });
+
+  it('rejects a rate row outside the project governing pricing family', async () => {
+    vi.mocked(findManualRateLinkOption).mockReturnValue(null);
+
+    const res = await POST(makeRequest(VALID_BODY), { params: Promise.resolve({ id: 'proj-1' }) });
+
+    assert.equal(res.status, 400);
+    assert.match((await res.json() as { error: string }).error, /governing pricing family/i);
+  });
+
+  it('returns recommendation and active-link fields independently from the read endpoint', async () => {
+    vi.mocked(loadManualRateLinkOptions).mockResolvedValueOnce({
+      options: [],
+      recommendedRecordId: 'recommended-row',
+      activeManualLinkRecordId: null,
+      invoiceLine: {
+        documentId: 'invoice-doc-1',
+        subjectId: 'fact:invoice-doc-1:line:6',
+        lineNumber: '6A',
+        description: 'Hazardous debris removal',
+        billingCode: null,
+      },
+    });
+    const request = new Request(
+      'http://localhost/api/projects/proj-1/invoice-line-rate-link?invoice_line_subject_id=fact%3Ainvoice-doc-1%3Aline%3A6',
+      { headers: { Authorization: 'Bearer test-token' } },
+    );
+
+    const res = await GET(request, { params: Promise.resolve({ id: 'proj-1' }) });
+    const body = await res.json() as {
+      recommendedRecordId: string | null;
+      activeManualLinkRecordId: string | null;
+    };
+
+    assert.equal(body.recommendedRecordId, 'recommended-row');
+    assert.equal(body.activeManualLinkRecordId, null);
   });
 });

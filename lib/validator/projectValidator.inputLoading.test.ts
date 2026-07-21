@@ -28,7 +28,9 @@ import {
 } from '@/lib/validator/rulePacks/rateBasedContractValidation';
 import { DOCUMENT_PRECEDENCE_SELECT } from '@/lib/server/documentPrecedence';
 import type { RateScheduleItem, ValidatorLegacyExtractionRow } from '@/lib/validator/shared';
+import type { ProjectValidatorInput } from '@/lib/validator/shared';
 import type { ResolvedDocumentPrecedenceFamily } from '@/lib/documentPrecedence';
+import { runFinancialIntegrityRules } from '@/lib/validator/rulePacks/financialIntegrity';
 
 function makeRateScheduleItem(overrides: Partial<RateScheduleItem> = {}): RateScheduleItem {
   const description = overrides.description ?? 'Manual vegetative debris haul';
@@ -248,17 +250,17 @@ describe('project validator input loading', () => {
       manual_rate_link_id: '2a976e57-b648-4343-8b51-dde452b8e285',
     });
 
-    const map = buildInvoiceLineToRateMap(
-      [{
+    const invoiceLine = {
         id: typedLineId,
         source_document_id: documentId,
         invoice_number: '2026-002',
-        rate_code: '6A',
         description: 'Tree Operations Hazardous Hanging Limb Removal>2"per tree',
         quantity: 994,
         unit_price: 80,
         line_total: 79520,
-      }],
+      };
+    const map = buildInvoiceLineToRateMap(
+      [invoiceLine],
       [],
       new Map([[factSubjectLineId, manualRateItem]]),
     );
@@ -266,6 +268,81 @@ describe('project validator input loading', () => {
     assert.equal(map.get(typedLineId)?.record_id, 'exhibit_a_table:pdf:table:p9:t33:r8');
     assert.equal(map.get(typedLineId)?.match_source_kind, 'manual_link');
     assert.equal(map.has(factSubjectLineId), false);
+
+    const families = {
+      contract: ['contract-doc-1'],
+      rate_sheet: [],
+      permit: [],
+      invoice: [documentId],
+      ticket_support: [],
+    };
+    const revalidationInput = {
+      project: { id: 'project-1', organization_id: 'org-1', name: 'Project', code: 'P1' },
+      validationPhase: 'billing_review',
+      documents: [],
+      documentRelationships: [],
+      precedenceFamilies: [],
+      familyDocumentIds: families,
+      governingDocumentIds: families,
+      truthCategoryDocumentIds: {
+        contract_identity: ['contract-doc-1'],
+        pricing: ['contract-doc-1'],
+        compliance: [],
+        amendments: [],
+      },
+      ruleStateByRuleId: new Map(),
+      factsByDocumentId: new Map(),
+      allFacts: [],
+      mobileTickets: [],
+      loadTickets: [],
+      invoices: [],
+      invoiceLines: [invoiceLine],
+      mobileToLoadsMap: new Map(),
+      invoiceLineToRateMap: map,
+      manualRateLinkOverrides: new Map([[factSubjectLineId, manualRateItem]]),
+      projectTotals: {
+        billed_total: 79520,
+        invoice_count: 1,
+        invoice_line_count: 1,
+        mobile_ticket_count: 0,
+        load_ticket_count: 0,
+      },
+      factLookups: {
+        contractProjectCodeFacts: [],
+        invoiceProjectCodeFacts: [],
+        contractPartyNameFacts: [],
+        contractIdentityDocumentIds: ['contract-doc-1'],
+        pricingContextDocumentIds: [],
+        complianceContextDocumentIds: [],
+        amendmentContextDocumentIds: [],
+        nteFact: null,
+        contractDocumentId: 'contract-doc-1',
+        contractCeilingTypeFact: null,
+        contractCeilingType: null,
+        rateSchedulePresentFact: null,
+        rateSchedulePresent: true,
+        rateRowCountFact: null,
+        rateRowCount: 1,
+        rateSchedulePagesFact: null,
+        rateSchedulePagesDisplay: null,
+        rateUnitsDetectedFact: null,
+        rateUnitsDetected: ['tree'],
+        timeAndMaterialsPresentFact: null,
+        timeAndMaterialsPresent: false,
+        rateScheduleFacts: [],
+        rateScheduleItems: [manualRateItem],
+        hasRateScheduleFacts: true,
+      },
+      contractValidationContext: null,
+    } as ProjectValidatorInput;
+
+    assert.equal(
+      runFinancialIntegrityRules(revalidationInput).some(
+        (finding) => finding.rule_id === 'FINANCIAL_RATE_CODE_MISSING',
+      ),
+      false,
+      'revalidation input loading must not recreate the resolved missing-code finding',
+    );
   });
 
   it('keeps invoice-line rate map behavior unchanged when no manual link exists', () => {

@@ -188,11 +188,81 @@ describe('ValidatorEvidenceDrawer reviewer context', () => {
     const assembled = region(html, 'assembled-evidence-blocks');
 
     expect(summary).toContain('Invoice Line');
-    expect(summary.match(/Not captured during extraction/g)).toHaveLength(6);
+    expect(summary.match(/Not retained with this finding/g)).toHaveLength(6);
     expect(summary).not.toContain('CONTRACT-7');
     expect(summary).not.toContain('125');
     expect(assembled).toContain('CONTRACT-7');
     expect(assembled).toContain('125');
+  });
+
+  it('renders enriched missing-rate-code invoice-line identity while preserving the missing-code fallback', () => {
+    const html = renderDrawer({
+      activeFinding: finding({
+        rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+        check_key: 'financial-rate-code-missing',
+        decision_eligible: false,
+        action_eligible: false,
+      }),
+      items: [
+        evidence('invoice-number', { field_name: 'invoice_number', field_value: 'INV-ENRICHED' }),
+        evidence('description', { field_name: 'description', field_value: 'Emergency hauling' }),
+        evidence('quantity', { field_name: 'quantity', field_value: '12.5' }),
+        evidence('unit-price', { field_name: 'unit_price', field_value: '80' }),
+        evidence('line-total', { field_name: 'line_total', field_value: '1000' }),
+        evidence('rate-code', { field_name: 'rate_code', field_value: null }),
+      ],
+    });
+    const summary = region(html, 'subject-identity-summary');
+
+    expect(summary).toContain('Invoice INV-ENRICHED');
+    expect(summary).toContain('Emergency hauling');
+    expect(summary).toContain('12.5');
+    expect(summary).toContain('80');
+    expect(summary).toContain('1,000');
+    expect(summary.match(/Not retained with this finding/g)).toHaveLength(1);
+  });
+
+  it('renders the informational matched missing-rate-code fix guidance verbatim', () => {
+    const html = renderDrawer({
+      activeFinding: finding({
+        rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+        severity: 'info',
+        decision_eligible: false,
+        action_eligible: false,
+      }),
+    });
+
+    expect(textContent(html)).toContain(
+      "Confirm the invoice line's billing code. If the contract schedule has no explicit code, confirm the matched schedule row or approved description-based billing key. Reject the proposed match if it points to the wrong rate item.",
+    );
+  });
+
+  it('renders the reviewable missing-rate-code fix guidance verbatim', () => {
+    const html = renderDrawer({
+      activeFinding: finding({
+        rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+        decision_eligible: false,
+        severity: 'warning',
+      }),
+    });
+
+    expect(textContent(html)).toContain(
+      'Populate the invoice line billing code, or confirm the description-based billing key used for validation.',
+    );
+  });
+
+  it('renders the unit-type-mismatch fix guidance verbatim', () => {
+    const html = renderDrawer({
+      activeFinding: finding({
+        rule_id: 'FINANCIAL_UNIT_TYPE_MISMATCH',
+        field: 'unit_type',
+        severity: 'critical',
+      }),
+    });
+
+    expect(textContent(html)).toContain(
+      'Review the billed unit against the contract unit and correct the invoice or contract mapping before approval.',
+    );
   });
 
   it('keeps identity-ambiguous evidence separate and does not throw', () => {

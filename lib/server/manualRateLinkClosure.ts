@@ -2,15 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
 
-const CROSS_DOCUMENT_RATE_RULE_ID = 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// insertManualRateLink
-//
-// Inserts a new active invoice_line_rate_links row.  If an active link already
-// exists for the same invoice line, it is deactivated and its superseded_by
-// is set to the new row's id so the supersession chain is maintained.
-// ─────────────────────────────────────────────────────────────────────────────
+const MANUAL_RATE_LINK_RULE_IDS = [
+  'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
+  'FINANCIAL_RATE_CODE_MISSING',
+] as const;
 
 export type InsertManualRateLinkInput = {
   admin: SupabaseClient;
@@ -34,10 +29,10 @@ export type InsertManualRateLinkResult =
   | { ok: true; linkId: string; supersededLinkId: string | null }
   | { ok: false; error: string; status: number };
 
+/** Inserts an active link and preserves the prior selection in a supersession chain. */
 export async function insertManualRateLink(
   input: InsertManualRateLinkInput,
 ): Promise<InsertManualRateLinkResult> {
-  // Find any currently-active link for this invoice line.
   const { data: existing, error: existingError } = await input.admin
     .from('invoice_line_rate_links')
     .select('id')
@@ -53,9 +48,6 @@ export async function insertManualRateLink(
   }
 
   const existingRow = existing as { id: string } | null;
-
-  // Deactivate the old link before inserting so the unique partial index does
-  // not reject the insert.  superseded_by is set after we have the new id.
   if (existingRow) {
     const { error: deactivateError } = await input.admin
       .from('invoice_line_rate_links')
@@ -99,10 +91,6 @@ export async function insertManualRateLink(
   }
 
   const newLinkId = (inserted as { id: string }).id;
-
-  // Point the old link's superseded_by to the new link.  Non-fatal if this
-  // fails because the deactivation already prevents the old link from being
-  // used as an active link.
   if (existingRow) {
     const { error: supersededError } = await input.admin
       .from('invoice_line_rate_links')
@@ -121,31 +109,6 @@ export async function insertManualRateLink(
   return { ok: true, linkId: newLinkId, supersededLinkId: existingRow?.id ?? null };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// closeManualRateLinkFindings
-//
-// One-time closure bridge for CROSS_DOCUMENT_CONTRACT_RATE_EXISTS findings.
-//
-// PASS 1 KNOWN LIMITATION: This closure is one-shot.  Because Pass 2's
-// validation-time injection into matchRateScheduleItemForInvoiceLine has not
-// been built yet, the next re-validation run will reopen this finding.
-// The manual link IS persisted in invoice_line_rate_links; Pass 2 will use it
-// to prevent the finding from being generated again.
-//
-// Closure path selection:
-//   linked_decision_id present → finalizeDecision('dismissed') cascade
-//   linked_decision_id null    → direct finding update to 'resolved' +
-//                                explicit activity event for audit trail
-//                                (current confirmed real-world path)
-//
-// Exposure rollup NOTE: requestDecisionStatusRevalidation is intentionally NOT
-// called here.  Triggering a full re-validation run in Pass 1 would immediately
-// reopen the CROSS_DOCUMENT_CONTRACT_RATE_EXISTS finding since the validator's
-// matchRateScheduleItemForInvoiceLine has no injection point yet.  Exposure
-// rollup findings (INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO, etc.) will not
-// recompute until Pass 2 ships the injection and re-validation succeeds end-to-end.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type CloseManualRateLinkFindingsInput = {
   admin: SupabaseClient;
   organizationId: string;
@@ -157,130 +120,149 @@ export type CloseManualRateLinkFindingsInput = {
   reason: string | null;
 };
 
+export type ClosedManualRateLinkFinding = {
+  findingId: string;
+  ruleId: string;
+  closurePath: 'direct_update' | 'finalize_decision';
+};
+
 export type CloseManualRateLinkFindingsResult = {
-  closedFindingIds: string[];
-  closurePath: 'direct_update' | 'finalize_decision' | 'no_open_finding';
+  closedFindings: ClosedManualRateLinkFinding[];
   errors: string[];
 };
 
+/**
+ * Closes findings resolved by an operator-confirmed rate mapping.
+ *
+ * Validation-time manual-link injection is live in cross-document rate
+ * verification, exposure, and financial integrity, so the persisted mapping
+ * remains authoritative on subsequent validation runs.
+ */
 export async function closeManualRateLinkFindings(
   input: CloseManualRateLinkFindingsInput,
 ): Promise<CloseManualRateLinkFindingsResult> {
   const result: CloseManualRateLinkFindingsResult = {
-    closedFindingIds: [],
-    closurePath: 'no_open_finding',
+    closedFindings: [],
     errors: [],
   };
 
-  const { data: finding, error: findingError } = await input.admin
+  const { data: findings, error: findingError } = await input.admin
     .from('project_validation_findings')
-    .select('id, status, linked_decision_id')
+    .select('id, rule_id, status, linked_decision_id')
     .eq('project_id', input.projectId)
-    .eq('rule_id', CROSS_DOCUMENT_RATE_RULE_ID)
+    .in('rule_id', [...MANUAL_RATE_LINK_RULE_IDS])
     .eq('subject_id', input.invoiceLineSubjectId)
-    .eq('status', 'open')
-    .maybeSingle();
+    .eq('status', 'open');
 
   if (findingError) {
     result.errors.push(`finding_fetch_failed:${findingError.message}`);
     return result;
   }
 
-  if (!finding) {
-    return result;
-  }
-
-  const findingRow = finding as {
+  const findingRows = (findings ?? []) as Array<{
     id: string;
+    rule_id: string;
     status: string;
     linked_decision_id: string | null;
-  };
-
+  }>;
   const now = new Date().toISOString();
+  const finalizedDecisionIds = new Set<string>();
 
-  if (findingRow.linked_decision_id) {
-    // The finding has a linked decision → cascade closure through finalizeDecision.
-    const { data: decision, error: decisionError } = await input.admin
-      .from('decisions')
-      .select('id, organization_id, project_id, document_id, status, severity')
-      .eq('id', findingRow.linked_decision_id)
-      .single();
+  for (const findingRow of findingRows) {
+    if (findingRow.linked_decision_id) {
+      if (finalizedDecisionIds.has(findingRow.linked_decision_id)) continue;
+      finalizedDecisionIds.add(findingRow.linked_decision_id);
 
-    if (decisionError || !decision) {
-      result.errors.push(`decision_fetch_failed:${decisionError?.message ?? 'not found'}`);
-      return result;
+      const { data: decision, error: decisionError } = await input.admin
+        .from('decisions')
+        .select('id, organization_id, project_id, document_id, status, severity')
+        .eq('id', findingRow.linked_decision_id)
+        .single();
+
+      if (decisionError || !decision) {
+        result.errors.push(`decision_fetch_failed:${decisionError?.message ?? 'not found'}`);
+        continue;
+      }
+
+      try {
+        const closureResult = await finalizeDecision({
+          admin: input.admin,
+          decision: decision as {
+            id: string;
+            organization_id: string;
+            project_id: string | null;
+            document_id: string | null;
+            status: string | null;
+            severity: string | null;
+          },
+          organizationId: input.organizationId,
+          actorId: input.actorId,
+          status: 'dismissed',
+          operatorAction: 'manual_rate_link',
+        });
+        const closedIds = new Set(closureResult.linkedFindingIds);
+        for (const linkedFinding of findingRows) {
+          if (
+            linkedFinding.linked_decision_id === findingRow.linked_decision_id
+            && closedIds.has(linkedFinding.id)
+          ) {
+            result.closedFindings.push({
+              findingId: linkedFinding.id,
+              ruleId: linkedFinding.rule_id,
+              closurePath: 'finalize_decision',
+            });
+          }
+        }
+      } catch (error) {
+        result.errors.push(
+          `finalize_decision_failed:${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      continue;
     }
 
-    const decisionRow = decision as {
-      id: string;
-      organization_id: string;
-      project_id: string | null;
-      document_id: string | null;
-      status: string | null;
-      severity: string | null;
-    };
+    const { error: updateError } = await input.admin
+      .from('project_validation_findings')
+      .update({
+        status: 'resolved',
+        resolved_by_user_id: input.actorId,
+        resolved_at: now,
+        updated_at: now,
+      })
+      .eq('id', findingRow.id)
+      .eq('status', 'open');
 
-    try {
-      const closureResult = await finalizeDecision({
-        admin: input.admin,
-        decision: decisionRow,
-        organizationId: input.organizationId,
-        actorId: input.actorId,
-        status: 'dismissed',
-        operatorAction: 'manual_rate_link',
-      });
-      result.closedFindingIds = closureResult.linkedFindingIds;
-      result.closurePath = 'finalize_decision';
-    } catch (err) {
-      result.errors.push(
-        `finalize_decision_failed:${err instanceof Error ? err.message : String(err)}`,
-      );
+    if (updateError) {
+      result.errors.push(`finding_update_failed:${findingRow.id}:${updateError.message}`);
+      continue;
     }
 
-    return result;
-  }
+    result.closedFindings.push({
+      findingId: findingRow.id,
+      ruleId: findingRow.rule_id,
+      closurePath: 'direct_update',
+    });
 
-  // No linked decision — resolve the finding directly.
-  // An explicit audit event is required here because we bypass finalizeDecision's
-  // cascade so there is no other durable record of this resolution.
-  const { error: updateError } = await input.admin
-    .from('project_validation_findings')
-    .update({
-      status: 'resolved',
-      resolved_by_user_id: input.actorId,
-      resolved_at: now,
-      updated_at: now,
-    })
-    .eq('id', findingRow.id)
-    .eq('status', 'open');
+    const activityResult = await logActivityEvent({
+      organization_id: input.organizationId,
+      project_id: input.projectId,
+      entity_type: 'project_validation_finding',
+      entity_id: findingRow.id,
+      event_type: 'override_applied',
+      changed_by: input.actorId,
+      old_value: { status: 'open', rule_id: findingRow.rule_id },
+      new_value: {
+        status: 'resolved',
+        closure_method: 'manual_rate_link',
+        contract_rate_row_id: input.contractRateRowId,
+        rate_row_description: input.rateRowDescription,
+        reason: input.reason,
+      },
+    });
 
-  if (updateError) {
-    result.errors.push(`finding_update_failed:${updateError.message}`);
-    return result;
-  }
-
-  result.closedFindingIds = [findingRow.id];
-  result.closurePath = 'direct_update';
-
-  const activityResult = await logActivityEvent({
-    organization_id: input.organizationId,
-    project_id: input.projectId,
-    entity_type: 'project_validation_finding',
-    entity_id: findingRow.id,
-    event_type: 'override_applied',
-    changed_by: input.actorId,
-    old_value: { status: 'open', rule_id: CROSS_DOCUMENT_RATE_RULE_ID },
-    new_value: {
-      status: 'resolved',
-      closure_method: 'manual_rate_link',
-      contract_rate_row_id: input.contractRateRowId,
-      rate_row_description: input.rateRowDescription,
-      reason: input.reason,
-    },
-  });
-
-  if (!activityResult.ok) {
-    result.errors.push(`activity_event_failed:${activityResult.error}`);
+    if (!activityResult.ok) {
+      result.errors.push(`activity_event_failed:${findingRow.id}:${activityResult.error}`);
+    }
   }
 
   return result;

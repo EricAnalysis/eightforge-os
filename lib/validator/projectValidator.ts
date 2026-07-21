@@ -98,6 +98,7 @@ import type {
   ValidatorResult,
 } from '@/types/validator';
 import { isBlockingFinding } from '@/lib/validator/findingSemantics';
+import { completeEffectiveInvoiceLineCanonicalFields } from '@/lib/validator/effectiveInvoiceLineCompletion';
 
 const PACK_REQUIRED_SOURCES = 'required_sources';
 const PACK_IDENTITY_CONSISTENCY = 'identity_consistency';
@@ -1190,7 +1191,7 @@ export function buildDocumentIdsByFamily(
   };
 }
 
-function buildFactsByDocumentId(params: {
+export function buildFactsByDocumentId(params: {
   documents: readonly ValidatorDocumentRow[];
   factRows: readonly ValidatorExtractionFactRow[];
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
@@ -2182,7 +2183,7 @@ function applyInvoiceScalarFact(
   };
 }
 
-function applyEffectiveInvoiceFacts(params: {
+export function applyEffectiveInvoiceFacts(params: {
   invoices: readonly InvoiceRow[];
   invoiceLines: readonly InvoiceLineRow[];
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
@@ -2213,12 +2214,15 @@ function applyEffectiveInvoiceFacts(params: {
         .filter((entry): entry is Record<string, unknown> =>
           entry != null && typeof entry === 'object' && !Array.isArray(entry),
         )
-        .map((entry, index) => ({
-          ...entry,
-          id: readRowString(entry, ['id', 'invoice_line_id', 'line_id']) ?? `fact:${documentId}:line:${index + 1}`,
-          invoice_id: readRowString(entry, ['invoice_id', 'source_invoice_id']) ?? invoiceId,
-          invoice_number: readRowString(entry, ['invoice_number', 'invoice_no']) ?? invoiceNumber,
-          source_document_id: readRowString(entry, ['source_document_id', 'document_id']) ?? documentId,
+        .map((entry, index) => completeEffectiveInvoiceLineCanonicalFields({
+          row: {
+            ...entry,
+            id: readRowString(entry, ['id', 'invoice_line_id', 'line_id']) ?? `fact:${documentId}:line:${index + 1}`,
+            invoice_id: readRowString(entry, ['invoice_id', 'source_invoice_id']) ?? invoiceId,
+            invoice_number: readRowString(entry, ['invoice_number', 'invoice_no']) ?? invoiceNumber,
+            source_document_id: readRowString(entry, ['source_document_id', 'document_id']) ?? documentId,
+          },
+          effectiveFactSource: fact.source,
         })),
     );
   }

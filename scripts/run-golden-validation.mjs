@@ -36,18 +36,16 @@ async function main() {
   }
 
   const persistedSummary = persistedProject.validation_summary_json ?? {};
-  const validatorFieldNames = [
-    'invoice_exception_eligibility',
-    'reviewed_documents_with_warnings',
-    'first_document_to_inspect',
-  ];
-  const validatorFieldAssertions = Object.fromEntries(
-    validatorFieldNames.map((fieldName) => [
-      fieldName,
-      persistedSummary[fieldName] != null,
-    ]),
-  );
-  const missingValidatorFields = validatorFieldNames.filter((fieldName) => persistedSummary[fieldName] == null);
+  const validatorFieldAssertions = {
+    invoice_exception_eligibility: persistedSummary.invoice_exception_eligibility != null,
+    reviewed_documents_with_warnings: Array.isArray(persistedSummary.reviewed_documents_with_warnings),
+    // A clean validation has no document to inspect, but the derived field must
+    // still be present in the persisted summary with an explicit null value.
+    first_document_to_inspect: Object.hasOwn(persistedSummary, 'first_document_to_inspect'),
+  };
+  const missingValidatorFields = Object.entries(validatorFieldAssertions)
+    .filter(([, present]) => !present)
+    .map(([fieldName]) => fieldName);
 
   if (missingValidatorFields.length > 0) {
     throw new Error(JSON.stringify({

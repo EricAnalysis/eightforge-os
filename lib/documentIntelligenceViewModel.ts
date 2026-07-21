@@ -39,6 +39,7 @@ import {
 import {
   normalizeCanonicalInvoiceNumber,
   recoverInvoiceLineItemsFromExtractionData,
+  resolveInvoiceLineCode,
   resolveInvoiceLineUnitPrice,
 } from '@/lib/invoices/invoiceParser';
 import { normalizeInvoiceContractorDisplay } from '@/lib/invoices/invoiceCanonicalNames';
@@ -5025,18 +5026,6 @@ function invoiceLedgerEmbeddedRateSplit(
   return { rateCode: null, remainder: descFallback, matchedKey: null };
 }
 
-/**
- * Prefer explicit structured invoice rate codes (`line_code`) when they look real (digits + letters, not qty leak).
- * Embeddings / OCR row scans are skipped for code when this returns a value.
- */
-function pickStructuredPlausibleInvoiceLineCode(code: string | null | undefined, quantity: unknown): string | undefined {
-  if (!code) return undefined;
-  const t = code.trim();
-  if (!t || !isPlausibleEmbeddedInvoiceRateCode(t)) return undefined;
-  if (lineCodeLooksLikeQuantityLeak(t, quantity)) return undefined;
-  return t;
-}
-
 function cloneFullPersistedInvoiceLineRecordForDebug(record: Record<string, unknown>): Record<string, unknown> {
   /** Shallow copy so logs show every persisted key without masking undefined vs missing. */
   return { ...record };
@@ -5222,14 +5211,6 @@ export function buildInvoiceLedgerLineDisplay(record: Record<string, unknown>): 
   const rawDescFallback = invoiceLedgerPick(record, ['lineDescription', 'line_description', 'description', 'desc']);
   const split = invoiceLedgerEmbeddedRateSplit(record, columnDescTrim);
   const lineCodeField = invoiceLedgerPick(record, ['lineCode', 'line_code', 'code', 'rate_code']);
-  const lineCodeRawString =
-    lineCodeField == null
-      ? null
-      : typeof lineCodeField === 'string'
-        ? lineCodeField
-        : typeof lineCodeField === 'number' && Number.isFinite(lineCodeField)
-          ? String(lineCodeField)
-          : null;
   const billingKeyRaw = invoiceLedgerPick(record, ['billing_rate_key', 'billingRateKey']);
   let codeRaw = invoiceLedgerScalarText(lineCodeField);
   let description =
@@ -5243,12 +5224,13 @@ export function buildInvoiceLedgerLineDisplay(record: Record<string, unknown>): 
     && Number.isFinite(qtyPick)
     && Math.abs(Number.parseFloat(String(codeRaw).replace(/,/g, '')) - qtyPick) < 0.000_001;
 
-  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCodeRawString, qtyPick);
+  const codeResolution = resolveInvoiceLineCode(record);
+  const structuredResolved = codeResolution.method === 'structured' ? codeResolution.value : null;
 
   if (structuredResolved) {
     codeRaw = structuredResolved;
-  } else if (split.rateCode) {
-    codeRaw = split.rateCode;
+  } else if (codeResolution.value) {
+    codeRaw = codeResolution.value;
     const rem = split.remainder.trim();
     const pref = columnDescTrim;
     const parsedFromRawRow =
@@ -5432,15 +5414,16 @@ function normalizeInvoiceSurfaceLineItem(
   const unifiedDescTrim = pickUnifiedInvoiceStructuredDescription(record as Record<string, unknown>);
   const embedded = invoiceLedgerEmbeddedRateSplit(record as Record<string, unknown>, unifiedDescTrim);
   const codeCapturedAsQty = lineCodeLooksLikeQuantityLeak(lineCode, quantity);
-  const structuredResolved = pickStructuredPlausibleInvoiceLineCode(lineCode, quantity);
+  const codeResolution = resolveInvoiceLineCode(record as Record<string, unknown>);
+  const structuredResolved = codeResolution.method === 'structured' ? codeResolution.value : null;
 
   let resolvedCode: string | undefined;
   let lineDescriptionOut = unifiedDescTrim;
 
   if (structuredResolved) {
     resolvedCode = structuredResolved;
-  } else if (embedded.rateCode) {
-    resolvedCode = embedded.rateCode;
+  } else if (codeResolution.value) {
+    resolvedCode = codeResolution.value;
     if (!unifiedDescTrim.length) {
       const rem = embedded.remainder.trim();
       /** No structured prose cells — OCR remainder is the best available narrative text. */

@@ -510,6 +510,141 @@ function lineCodeLikeValue(value: string | null | undefined): string | null {
     : null;
 }
 
+export type InvoiceLineCodeResolution = {
+  status: 'resolved' | 'rejected' | 'missing';
+  value: string | null;
+  sourceField: string | null;
+  sourceValue: string | null;
+  method: 'structured' | 'embedded_text' | 'billing_key' | null;
+  rejectedCandidates: Array<{
+    sourceField: string;
+    value: string;
+    reason: 'matches_quantity' | 'missing_alpha_character' | 'invalid_format';
+  }>;
+};
+
+const INVOICE_LINE_CODE_STRUCTURED_FIELDS = ['line_code', 'lineCode', 'rate_code', 'code'] as const;
+const INVOICE_LINE_CODE_TEXT_FIELDS = [
+  'raw_text_for_display',
+  'rawTextForDisplay',
+  'full_row_text',
+  'fullRowText',
+  'raw_text',
+  'rawText',
+  'line_text',
+  'lineText',
+  'text',
+  'line_description',
+  'lineDescription',
+  'description',
+  'desc',
+] as const;
+const INVOICE_LINE_CODE_ORDINAL_RE = /^\d{1,6}(?:st|nd|rd|th)$/i;
+
+function invoiceLineCodeQuantityToken(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return null;
+  const parsed = toAmount(value);
+  return parsed == null ? null : String(parsed);
+}
+
+function invoiceLineCodeMatchesQuantity(value: string, quantity: unknown): boolean {
+  const candidate = toAmount(value);
+  const quantityToken = invoiceLineCodeQuantityToken(quantity);
+  return candidate != null && quantityToken != null && String(candidate) === quantityToken;
+}
+
+function embeddedInvoiceLineCode(value: string): string | null {
+  const restored = restoreOcrWordSpacing(value);
+  const pattern = /\b(\d{1,4}[A-Za-z]{1,12})\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(restored)) != null) {
+    const candidate = match[1] ?? '';
+    if (!INVOICE_LINE_CODE_ORDINAL_RE.test(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Resolves a line code from one invoice row only. The result records whether the
+ * value came from a typed field, the row's own evidence text, or a billing key,
+ * and retains explicit reasons for rejecting structured candidates.
+ */
+export function resolveInvoiceLineCode(record: Record<string, unknown>): InvoiceLineCodeResolution {
+  const quantity = record.quantity ?? record.qty;
+  const rejectedCandidates: InvoiceLineCodeResolution['rejectedCandidates'] = [];
+
+  for (const sourceField of INVOICE_LINE_CODE_STRUCTURED_FIELDS) {
+    const raw = record[sourceField];
+    if (raw == null) continue;
+    const value = restoreOcrWordSpacing(String(raw));
+    if (!value) continue;
+    if (invoiceLineCodeMatchesQuantity(value, quantity)) {
+      rejectedCandidates.push({ sourceField, value, reason: 'matches_quantity' });
+      continue;
+    }
+    const resolved = lineCodeLikeValue(value);
+    if (resolved) {
+      return {
+        status: 'resolved',
+        value: resolved,
+        sourceField,
+        sourceValue: value,
+        method: 'structured',
+        rejectedCandidates,
+      };
+    }
+    rejectedCandidates.push({
+      sourceField,
+      value,
+      reason: /[A-Za-z]/.test(value) ? 'invalid_format' : 'missing_alpha_character',
+    });
+  }
+
+  for (const sourceField of INVOICE_LINE_CODE_TEXT_FIELDS) {
+    const raw = record[sourceField];
+    if (typeof raw !== 'string' || raw.trim().length === 0) continue;
+    const resolved = embeddedInvoiceLineCode(raw);
+    if (resolved) {
+      return {
+        status: 'resolved',
+        value: resolved,
+        sourceField,
+        sourceValue: restoreOcrWordSpacing(raw),
+        method: 'embedded_text',
+        rejectedCandidates,
+      };
+    }
+  }
+
+  for (const sourceField of ['billing_rate_key', 'billingRateKey'] as const) {
+    const raw = record[sourceField];
+    if (raw == null) continue;
+    const value = restoreOcrWordSpacing(String(raw));
+    if (!value) continue;
+    const resolved = embeddedInvoiceLineCode(value);
+    if (resolved === value) {
+      return {
+        status: 'resolved',
+        value: resolved,
+        sourceField,
+        sourceValue: value,
+        method: 'billing_key',
+        rejectedCandidates,
+      };
+    }
+  }
+
+  return {
+    status: rejectedCandidates.length > 0 ? 'rejected' : 'missing',
+    value: null,
+    sourceField: null,
+    sourceValue: null,
+    method: null,
+    rejectedCandidates,
+  };
+}
+
 function cleanFlattenedLineDescription(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = restoreOcrWordSpacing(value)
@@ -2134,10 +2269,8 @@ function normalizeTypedInvoiceLine(
   const record = asRecord(value);
   if (!record) return null;
 
-  const line_code =
-    lineCodeLikeValue(recordString(record.line_code))
-    ?? lineCodeLikeValue(recordString(record.rate_code))
-    ?? lineCodeLikeValue(recordString(record.code));
+  const lineCodeResolution = resolveInvoiceLineCode(record);
+  const line_code = lineCodeResolution.value;
   const line_description =
     recordString(record.line_description)
     ?? recordString(record.description)
@@ -2216,6 +2349,19 @@ function normalizeTypedInvoiceLine(
     category_confidence: categoryResolution.category_confidence,
     evidence_refs: asArray<string>(record.evidence_refs),
     raw_text: recordString(record.raw_text),
+    line_code_resolution: {
+      status: lineCodeResolution.status,
+      value: lineCodeResolution.value,
+      source_field: lineCodeResolution.sourceField,
+      source_value: lineCodeResolution.sourceValue,
+      method: lineCodeResolution.method,
+      rejected_candidates: lineCodeResolution.rejectedCandidates.map((candidate) => ({
+        source_field: candidate.sourceField,
+        value: candidate.value,
+        reason: candidate.reason,
+      })),
+      evidence_refs: asArray<string>(record.evidence_refs),
+    },
   };
 }
 

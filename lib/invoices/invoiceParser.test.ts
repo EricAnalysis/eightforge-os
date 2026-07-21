@@ -557,6 +557,39 @@ describe('invoiceParser', () => {
     assert.equal(canonical.invoiceLines[0]?.quantity, 43_894);
   });
 
+  it('records why a typed line code was rejected when row evidence has no replacement code', () => {
+    const canonical = buildCanonicalInvoiceRowsFromTypedFields({
+      documentId: 'doc-rejected-code',
+      typedFields: {
+        invoice_number: 'INV-REJECTED',
+        line_items: [
+          {
+            line_code: '994',
+            line_description: 'Tree Operations Hazardous Hanging Limb Removal',
+            raw_text: 'Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00 79,520.00',
+            evidence_refs: ['table:rejected:r1'],
+            quantity: 994,
+            unit_price: 80,
+            line_total: 79_520,
+          },
+        ],
+      },
+    });
+
+    assert.equal(canonical.invoiceLines[0]?.rate_code, null);
+    assert.deepEqual(canonical.invoiceLines[0]?.line_code_resolution, {
+      status: 'rejected',
+      value: null,
+      source_field: null,
+      source_value: null,
+      method: null,
+      rejected_candidates: [
+        { source_field: 'line_code', value: '994', reason: 'matches_quantity' },
+      ],
+      evidence_refs: ['table:rejected:r1'],
+    });
+  });
+
   it('extracts the actual billed totals from Williamson invoice cover 2026-002 OCR evidence', () => {
     const typed = extractInvoiceTypedFields({
       text: williamsonActual002Text,

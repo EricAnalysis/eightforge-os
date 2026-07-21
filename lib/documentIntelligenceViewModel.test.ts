@@ -15,6 +15,7 @@ import type { DocumentFactAnchorRecord } from '@/lib/documentFactAnchors';
 import type { DocumentFactReviewRecord } from '@/lib/documentFactReviews';
 import type { DocumentFactOverrideRecord } from '@/lib/documentFactOverrides';
 import type { EvidenceObject } from '@/lib/extraction/types';
+import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
 import type { NormalizedDecision } from '@/lib/types/documentIntelligence';
 
 function makeEvidence(params: {
@@ -4764,6 +4765,42 @@ describe('buildInvoiceLedgerLineDisplay', () => {
     });
     assert.equal(row.rateCode, '6A');
     assert.equal(row.description, 'Tree Operations Hazardous Hanging Limb Removal');
+  });
+
+  it('resolves the same evidence-backed 6A code for InvoiceSurface and canonical typed rows', () => {
+    const sourceLine = {
+      line_code: '994',
+      line_description: 'Tree Operations Hazardous Hanging Limb Removal',
+      raw_text: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00 79,520.00',
+      evidence_refs: ['table:invoice-002:lines:r6'],
+      quantity: 994,
+      unit_price: 80,
+      line_total: 79_520,
+    };
+    const surface = buildInvoiceLedgerLineDisplay(
+      invoiceSurfaceLineItemToLedgerRecord(sourceLine),
+    );
+    const canonical = buildCanonicalInvoiceRowsFromTypedFields({
+      documentId: 'invoice-doc-2026-002',
+      typedFields: {
+        invoice_number: '2026-002',
+        line_items: [sourceLine],
+      },
+    });
+
+    assert.equal(surface.rateCode, '6A');
+    assert.equal(canonical.invoiceLines[0]?.rate_code, '6A');
+    assert.deepEqual(canonical.invoiceLines[0]?.line_code_resolution, {
+      status: 'resolved',
+      value: '6A',
+      source_field: 'raw_text',
+      source_value: '6A Tree Operations Hazardous Hanging Limb Removal 994.00 EA 80.00 79,520.00',
+      method: 'embedded_text',
+      rejected_candidates: [
+        { source_field: 'line_code', value: '994', reason: 'matches_quantity' },
+      ],
+      evidence_refs: ['table:invoice-002:lines:r6'],
+    });
   });
 
   it('prefers structured line_description when absent line_code relies on raw_text recovery', () => {

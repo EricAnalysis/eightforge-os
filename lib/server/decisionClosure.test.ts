@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
-import { closeDecisionLinkedWork } from '@/lib/server/decisionClosure';
+import { beforeEach, describe, it, vi } from 'vitest';
+import { closeDecisionLinkedWork, finalizeDecision } from '@/lib/server/decisionClosure';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+
+vi.mock('@/lib/server/activity/logActivityEvent', () => ({
+  logActivityEvent: vi.fn().mockResolvedValue({ ok: true, id: 'activity-1' }),
+}));
+
+vi.mock('@/lib/server/workflows/processWorkflowTriggers', () => ({
+  processWorkflowTriggers: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/lib/validator/revalidationRequests', () => ({
+  requestDecisionStatusRevalidation: vi.fn().mockResolvedValue({ status: 'triggered' }),
+}));
 
 const TS = '2026-06-27T12:00:00.000Z';
 
@@ -14,6 +27,18 @@ type FindingRow = {
   resolved_by_user_id: string | null;
   resolved_at: string | null;
   updated_at: string;
+  rule_id: string;
+  check_key: string;
+  category: string;
+  severity: 'critical' | 'warning' | 'info';
+  subject_type: string;
+  subject_id: string;
+  field: string | null;
+  expected: string | null;
+  actual: string | null;
+  variance: number | null;
+  variance_unit: string | null;
+  blocked_reason: string | null;
 };
 
 type TaskRow = {
@@ -30,6 +55,7 @@ type MockState = {
   findings: FindingRow[];
   tasks: TaskRow[];
   executionItems: ProjectExecutionItemRow[];
+  decisions: Array<Record<string, unknown>>;
   rpcCalls: Array<{ name: string; args: Record<string, unknown> }>;
 };
 
@@ -86,6 +112,7 @@ function createAdminMock(state: MockState) {
         if (table === 'project_validation_findings') return state.findings;
         if (table === 'workflow_tasks') return state.tasks;
         if (table === 'execution_items') return state.executionItems;
+        if (table === 'decisions') return state.decisions;
         throw new Error(`Unexpected table: ${table}`);
       };
 
@@ -113,6 +140,14 @@ function createAdminMock(state: MockState) {
           }
           return Promise.resolve({ data: matchedRows.map((row) => ({ ...row })), error: null }).then(resolve, reject);
         },
+        single() {
+          const rows = rowsForTable() as Array<Record<string, unknown>>;
+          const matchedRows = rows.filter((row) => matches(row, filters));
+          if (patch) {
+            for (const row of matchedRows) Object.assign(row, patch);
+          }
+          return Promise.resolve({ data: matchedRows[0] ? { ...matchedRows[0] } : null, error: null });
+        },
       };
 
       return query;
@@ -131,6 +166,18 @@ function createState(): MockState {
       resolved_by_user_id: null,
       resolved_at: null,
       updated_at: TS,
+      rule_id: 'RATE_MATCH',
+      check_key: 'RATE_MATCH:invoice-1',
+      category: 'financial',
+      severity: 'critical',
+      subject_type: 'invoice_line',
+      subject_id: 'invoice-1:line-1',
+      field: 'rate',
+      expected: '100',
+      actual: '125',
+      variance: 25,
+      variance_unit: 'amount',
+      blocked_reason: 'Rate mismatch',
     }],
     tasks: [{
       id: 'task-1',
@@ -142,9 +189,22 @@ function createState(): MockState {
       updated_at: TS,
     }],
     executionItems: [makeExecutionItem()],
+    decisions: [{
+      id: 'decision-1',
+      organization_id: 'org-1',
+      project_id: 'project-1',
+      document_id: 'doc-1',
+      status: 'open',
+      severity: 'critical',
+    }],
     rpcCalls: [],
   };
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(logActivityEvent).mockResolvedValue({ ok: true, id: 'activity-1' });
+});
 
 describe('closeDecisionLinkedWork', () => {
   it('resolves linked findings, workflow tasks, execution items, and document status', async () => {
@@ -173,6 +233,14 @@ describe('closeDecisionLinkedWork', () => {
     assert.equal(state.executionItems[0]?.resolved_at, TS);
     assert.equal(state.rpcCalls[0]?.name, 'recompute_document_operational_status');
     assert.deepEqual(state.rpcCalls[0]?.args, { p_document_id: 'doc-1' });
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvents.length, 1);
+    assert.equal(resolvedEvents[0]?.entity_id, 'finding-1');
+    assert.equal(resolvedEvents[0]?.old_value?.status, 'open');
+    assert.equal(resolvedEvents[0]?.new_value?.status, 'resolved');
   });
 
   it('suppresses linked work as dismissed, cancelled, and overridden', async () => {
@@ -198,5 +266,54 @@ describe('closeDecisionLinkedWork', () => {
     assert.equal(typeof state.executionItems[0]?.suppression_signature, 'string');
     assert.equal(state.rpcCalls[0]?.name, 'recompute_project_documents_operational_status');
     assert.deepEqual(state.rpcCalls[0]?.args, { p_project_id: 'project-1' });
+  });
+
+  it('emits one finding event per linked finding plus the decision status event', async () => {
+    const state = createState();
+    state.findings.push({
+      ...state.findings[0],
+      id: 'finding-2',
+      check_key: 'RATE_MATCH:invoice-2',
+      subject_id: 'invoice-2:line-1',
+      linked_action_id: null,
+    });
+
+    await finalizeDecision({
+      admin: createAdminMock(state) as never,
+      decision: state.decisions[0] as never,
+      organizationId: 'org-1',
+      actorId: 'user-1',
+      status: 'resolved',
+    });
+
+    const events = vi.mocked(logActivityEvent).mock.calls.map(([event]) => event);
+    assert.deepEqual(
+      events.filter((event) => event.event_type === 'validation_finding_resolved')
+        .map((event) => event.entity_id)
+        .sort(),
+      ['finding-1', 'finding-2'],
+    );
+    assert.equal(events.filter((event) => event.event_type === 'status_changed').length, 1);
+    assert.equal(state.findings.filter((finding) => finding.status === 'resolved').length, 2);
+  });
+
+  it('keeps decision closure successful when a finding event fails', async () => {
+    const state = createState();
+    vi.mocked(logActivityEvent).mockRejectedValueOnce(new Error('activity unavailable'));
+
+    const result = await closeDecisionLinkedWork({
+      admin: createAdminMock(state) as never,
+      decisionId: 'decision-1',
+      organizationId: 'org-1',
+      projectId: 'project-1',
+      documentId: 'doc-1',
+      actorId: 'user-1',
+      status: 'resolved',
+      now: TS,
+    });
+
+    assert.deepEqual(result.closedFindingIds, ['finding-1']);
+    assert.equal(state.findings[0]?.status, 'resolved');
+    assert.equal(result.errors.some((error) => error.startsWith('activity_event_failed:finding-1:')), true);
   });
 });

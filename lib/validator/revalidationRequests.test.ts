@@ -14,6 +14,7 @@ import {
   requestDecisionStatusRevalidation,
   requestDocumentPrecedenceRevalidation,
   requestFactOverrideRevalidation,
+  requestManualRateLinkRevalidation,
 } from '@/lib/validator/revalidationRequests';
 
 describe('revalidation requests', () => {
@@ -32,9 +33,12 @@ describe('revalidation requests', () => {
       projectId: 'project-1',
       actorId: 'user-1',
       newStatus: 'resolved',
+      decisionId: 'decision-1',
     });
 
-    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'manual', 'user-1');
+    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'manual', 'user-1', {
+      triggerEntity: { trigger_entity_type: 'decision', trigger_entity_id: 'decision-1' },
+    });
     assert.deepEqual(result, {
       status: 'triggered',
       mode: 'sync',
@@ -47,6 +51,7 @@ describe('revalidation requests', () => {
       projectId: 'project-1',
       actorId: 'user-1',
       newStatus: 'in_review',
+      decisionId: 'decision-1',
     });
 
     expect(triggerProjectValidationMock).not.toHaveBeenCalled();
@@ -96,9 +101,12 @@ describe('revalidation requests', () => {
     await requestFactOverrideRevalidation({
       projectId: 'project-1',
       actorId: 'user-3',
+      factId: 'fact-1',
     });
 
-    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'override_applied', 'user-3');
+    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'override_applied', 'user-3', {
+      triggerEntity: { trigger_entity_type: 'fact', trigger_entity_id: 'fact-1' },
+    });
   });
 
   it('triggers a validator rerun after document precedence changes', async () => {
@@ -114,5 +122,35 @@ describe('revalidation requests', () => {
     });
 
     expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'relationship_change', 'user-4');
+  });
+
+  it('triggers a validator rerun after a manual rate link is confirmed', async () => {
+    triggerProjectValidationMock.mockResolvedValue({
+      status: 'triggered',
+      mode: 'sync',
+      inputsSnapshotHash: 'manual-rate-link-hash',
+    });
+
+    const result = await requestManualRateLinkRevalidation({
+      projectId: 'project-1',
+      actorId: 'user-5',
+      linkId: 'link-1',
+    });
+
+    expect(triggerProjectValidationMock).toHaveBeenCalledWith('project-1', 'relationship_change', 'user-5', {
+      triggerEntity: { trigger_entity_type: 'invoice_line_rate_link', trigger_entity_id: 'link-1' },
+    });
+    assert.equal(result?.status, 'triggered');
+  });
+
+  it('does not rerun validation when no project id is available for a manual rate link', async () => {
+    const result = await requestManualRateLinkRevalidation({
+      projectId: null,
+      actorId: 'user-5',
+      linkId: 'link-1',
+    });
+
+    expect(triggerProjectValidationMock).not.toHaveBeenCalled();
+    assert.equal(result, null);
   });
 });

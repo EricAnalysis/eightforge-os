@@ -4,7 +4,12 @@
  * Converts approval snapshots into chronological timeline events
  */
 
-import type { ProjectApprovalSnapshot, InvoiceApprovalSnapshot } from './approvalSnapshots';
+import {
+  compareApprovalSnapshots,
+  getApprovalHistory,
+  type ProjectApprovalSnapshot,
+  type InvoiceApprovalSnapshot,
+} from './approvalSnapshots';
 import { getSupabaseAdmin } from './supabaseAdmin';
 
 /**
@@ -77,18 +82,7 @@ export async function buildApprovalTimeline(
   if (!admin) return null;
 
   try {
-    // Fetch project snapshots (newest first)
-    const { data: projectSnapshots, error: snapError } = await admin
-      .from('project_approval_snapshots')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (snapError || !projectSnapshots) {
-      console.error('[buildApprovalTimeline] Failed to fetch snapshots:', snapError);
-      return null;
-    }
+    const projectSnapshots = await getApprovalHistory(projectId, limit);
 
     if (projectSnapshots.length === 0) {
       return {
@@ -106,6 +100,7 @@ export async function buildApprovalTimeline(
     }
 
     const events: ApprovalTimelineEvent[] = [];
+    const findingLifecycleEvents = await getFindingLifecycleEvents(projectId);
 
     // Process snapshots in reverse chronological order (oldest → newest)
     const reversedSnapshots = [...projectSnapshots].reverse();
@@ -113,9 +108,10 @@ export async function buildApprovalTimeline(
     for (let i = 0; i < reversedSnapshots.length - 1; i++) {
       const previous = reversedSnapshots[i];
       const current = reversedSnapshots[i + 1];
+      const diff = compareApprovalSnapshots(previous, current);
 
       // 1. Approval status changed
-      if (previous.approval_status !== current.approval_status) {
+      if (diff.approval_status_changed) {
         events.push({
           id: `${current.created_at}-status-${current.approval_status}`,
           timestamp: current.created_at,
@@ -130,8 +126,7 @@ export async function buildApprovalTimeline(
       }
 
       // 2. Blocked amount changed
-      const blockedDelta =
-        (current.blocked_amount ?? 0) - (previous.blocked_amount ?? 0);
+      const blockedDelta = diff.blocked_amount_changed ?? 0;
       if (blockedDelta !== 0) {
         events.push({
           id: `${current.created_at}-blocked-${blockedDelta}`,
@@ -148,8 +143,7 @@ export async function buildApprovalTimeline(
       }
 
       // 3. At-risk amount changed
-      const atRiskDelta =
-        (current.at_risk_amount ?? 0) - (previous.at_risk_amount ?? 0);
+      const atRiskDelta = diff.at_risk_amount_changed ?? 0;
       if (atRiskDelta !== 0) {
         events.push({
           id: `${current.created_at}-atrisk-${atRiskDelta}`,
@@ -166,7 +160,7 @@ export async function buildApprovalTimeline(
       }
 
       // 4. Invoice count changed
-      const invoiceDelta = current.invoice_count - previous.invoice_count;
+      const invoiceDelta = diff.invoice_count_changed;
       if (invoiceDelta > 0) {
         events.push({
           id: `${current.created_at}-invoices-${invoiceDelta}`,
@@ -183,8 +177,7 @@ export async function buildApprovalTimeline(
       }
 
       // 5. Blocked invoices changed
-      const blockedInvoiceDelta =
-        current.blocked_invoice_count - previous.blocked_invoice_count;
+      const blockedInvoiceDelta = diff.blocked_invoice_count_changed;
       if (blockedInvoiceDelta !== 0) {
         events.push({
           id: `${current.created_at}-blocked-invoices-${blockedInvoiceDelta}`,
@@ -199,7 +192,45 @@ export async function buildApprovalTimeline(
         });
       }
 
-      // 6. Invoice-level events (fetch invoice snapshots for this moment)
+      // Legacy snapshots contain pseudo finding ids. Compare finding sets only
+      // when both sides are attributed to canonical validation runs.
+      if (previous.run_id && current.run_id) {
+        const runEvents = findingLifecycleEvents.filter((event) => event.runId === current.run_id);
+        const addedIds = new Set(diff.new_blocking_reasons);
+        const resolvedIds = new Set(diff.resolved_blocking_reasons);
+        for (const event of runEvents) {
+          if (event.eventType === 'validation_finding_generated') addedIds.add(event.findingId);
+          if (event.eventType === 'validation_finding_resolved') resolvedIds.add(event.findingId);
+        }
+
+        for (const findingId of [...addedIds].sort()) {
+          events.push({
+            id: `${current.created_at}-finding-added-${findingId}`,
+            timestamp: current.created_at,
+            type: 'blocking_reason_added',
+            title: 'Validation finding added',
+            description: `Finding ${findingId} entered the canonical open set.`,
+            severity: 'warning',
+            projectId,
+            newBlockingReasons: [findingId],
+          });
+        }
+
+        for (const findingId of [...resolvedIds].sort()) {
+          events.push({
+            id: `${current.created_at}-finding-resolved-${findingId}`,
+            timestamp: current.created_at,
+            type: 'blocking_reason_resolved',
+            title: 'Validation finding resolved',
+            description: `Finding ${findingId} left the canonical open set.`,
+            severity: 'info',
+            projectId,
+            resolvedBlockingReasons: [findingId],
+          });
+        }
+      }
+
+      // 7. Invoice-level events (fetch invoice snapshots for this moment)
       const invoiceEvents = await getInvoiceTimelineEvents(projectId, previous, current);
       events.push(...invoiceEvents);
     }
@@ -229,6 +260,43 @@ export async function buildApprovalTimeline(
     console.error('[buildApprovalTimeline] Error building timeline:', err);
     return null;
   }
+}
+
+type FindingLifecycleTimelineSource = {
+  findingId: string;
+  eventType: 'validation_finding_generated' | 'validation_finding_resolved';
+  runId: string;
+};
+
+async function getFindingLifecycleEvents(
+  projectId: string,
+): Promise<FindingLifecycleTimelineSource[]> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return [];
+
+  const { data, error } = await admin
+    .from('activity_events')
+    .select('entity_id, event_type, new_value')
+    .eq('project_id', projectId)
+    .in('event_type', ['validation_finding_generated', 'validation_finding_resolved']);
+
+  if (error) {
+    console.error('[buildApprovalTimeline] Failed to fetch finding lifecycle events:', error);
+    return [];
+  }
+
+  return (data ?? []).flatMap((row): FindingLifecycleTimelineSource[] => {
+    const eventType = row.event_type;
+    const runId = row.new_value?.run_id;
+    if (
+      (eventType !== 'validation_finding_generated' && eventType !== 'validation_finding_resolved')
+      || typeof row.entity_id !== 'string'
+      || typeof runId !== 'string'
+    ) {
+      return [];
+    }
+    return [{ findingId: row.entity_id, eventType, runId }];
+  });
 }
 
 /**

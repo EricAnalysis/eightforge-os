@@ -146,6 +146,7 @@ export async function PATCH(
         projectId: typeof existing.project_id === 'string' ? existing.project_id : null,
         actorId,
         newStatus,
+        decisionId,
       });
     }
 

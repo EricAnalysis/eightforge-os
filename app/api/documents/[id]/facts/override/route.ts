@@ -195,6 +195,7 @@ export async function POST(
     void requestFactOverrideRevalidation({
       projectId,
       actorId,
+      factId: inserted.id,
     });
   }
 

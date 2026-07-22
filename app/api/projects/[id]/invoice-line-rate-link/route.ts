@@ -7,6 +7,7 @@ import {
   loadManualRateLinkOptions,
   ManualRateLinkOptionsError,
 } from '@/lib/server/manualRateLinkOptions';
+import { requestManualRateLinkRevalidation } from '@/lib/validator/revalidationRequests';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -158,6 +159,16 @@ export async function POST(
       errors: closureResult.errors,
     });
   }
+
+  // Fire-and-forget so the response never blocks on a full revalidation run.
+  // The manual link is a canonical relationship change: exposure, Overview
+  // totals, and every rule pack that consults invoice-to-rate mappings must
+  // recompute from it, not just the two findings closed directly above.
+  void requestManualRateLinkRevalidation({
+    projectId,
+    actorId,
+    linkId: linkResult.linkId,
+  });
 
   return NextResponse.json({
     ok: true,

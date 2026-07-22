@@ -677,6 +677,40 @@ export function isBlockingFinding(finding: ValidationFinding): boolean {
   return normalizeValidationFinding(finding).approval_gate_effect === 'blocks_approval';
 }
 
+/**
+ * Sanctioned single-source predicate for "does this finding block approval."
+ *
+ * Phase B step 1 (blocked/approval state unification): a thin, intentional
+ * alias of {@link isBlockingFinding} so downstream surfaces can converge on one
+ * named entry point without re-deriving blockedness from raw severity or from a
+ * parallel execution-item representation. This introduces NO behavior change —
+ * it delegates verbatim. Later steps retarget consumers onto it; this step only
+ * publishes the entry point.
+ *
+ * Canonical basis: an `open` finding whose normalized
+ * `approval_gate_effect === 'blocks_approval'`. Status filtering is the caller's
+ * responsibility (this predicate is status-agnostic, matching every existing
+ * Group A helper).
+ */
+export function isApprovalBlocker(finding: ValidationFinding): boolean {
+  return isBlockingFinding(finding);
+}
+
+/**
+ * Count of approval-blocking findings. Sanctioned single-source counter for the
+ * "approval blocker" view concept.
+ *
+ * Status-agnostic by design — callers filter to `status === 'open'` first, exactly
+ * as they already do around {@link blockerFindingCount}. Today this returns the
+ * same value as {@link blockerFindingCount} for every finding produced by the
+ * current rule set (both reduce to normalized `business_severity === 'critical'`);
+ * that equivalence is pinned by tests so a future rule override that breaks it is
+ * caught rather than silently diverging the surfaces.
+ */
+export function countApprovalBlockers(findings: readonly ValidationFinding[]): number {
+  return findings.filter((finding) => isApprovalBlocker(finding)).length;
+}
+
 export function isReviewFinding(finding: ValidationFinding): boolean {
   const normalized = normalizeValidationFinding(finding);
   return (

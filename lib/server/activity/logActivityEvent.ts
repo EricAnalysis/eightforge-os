@@ -28,6 +28,8 @@
 //     'validation_run_requested',
 //     'validation_run_completed',
 //     'validation_finding_generated',
+//     'validation_finding_resolved',
+//     'validation_finding_changed',
 //     'override_applied',
 //     'review_recorded',
 //     'review_correction_applied',
@@ -67,6 +69,8 @@ export type ActivityEventType =
   | 'validation_run_requested'
   | 'validation_run_completed'
   | 'validation_finding_generated'
+  | 'validation_finding_resolved'
+  | 'validation_finding_changed'
   | 'override_applied'
   | 'review_recorded'
   | 'review_correction_applied'

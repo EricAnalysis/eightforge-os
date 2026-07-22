@@ -5,6 +5,7 @@ import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
+import { emitValidationFindingLifecycleActivity } from '@/lib/validator/validationFindingActivity';
 import type {
   ProjectOperationalRollup,
   ProjectValidatorSummarySnapshot,
@@ -47,15 +48,7 @@ type PersistableValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
 };
 
-type ExistingOpenFindingRow = {
-  id: string;
-  check_key: string;
-};
-
-type ExistingOpenFindingStatusRow = Pick<
-  ValidationFinding,
-  'id' | 'check_key' | 'status'
->;
+type ExistingOpenFindingRow = ValidationFinding & { id: string };
 
 type HistoricalResolvedFindingRow = Pick<
   ValidationFinding,
@@ -458,7 +451,7 @@ async function loadExistingOpenFindings(
     const batch = uniqueCheckKeys.slice(index, index + EXISTING_FINDING_CHECK_KEY_BATCH_SIZE);
     const { data, error } = await admin
       .from('project_validation_findings')
-      .select('id, check_key')
+      .select('*')
       .eq('project_id', projectId)
       .eq('status', 'open')
       .in('check_key', batch)
@@ -540,11 +533,11 @@ async function loadHistoricalResolvedFindings(
 
 async function loadAllExistingOpenFindings(
   projectId: string,
-): Promise<ExistingOpenFindingStatusRow[]> {
+): Promise<ExistingOpenFindingRow[]> {
   const admin = requireAdminClient();
   const { data, error } = await admin
     .from('project_validation_findings')
-    .select('id, check_key, status')
+    .select('*')
     .eq('project_id', projectId)
     .eq('status', 'open');
 
@@ -552,7 +545,7 @@ async function loadAllExistingOpenFindings(
     throw new Error(`Failed to load open validation findings for ${projectId}: ${error.message}`);
   }
 
-  return (data ?? []) as ExistingOpenFindingStatusRow[];
+  return (data ?? []) as ExistingOpenFindingRow[];
 }
 
 async function insertFindingEvidence(
@@ -669,9 +662,11 @@ async function persistFinding(params: {
 }
 
 async function markStaleOpenFindingsResolved(params: {
+  project: ProjectValidationActivityContext;
   projectId: string;
   currentOpenCheckKeys: Set<string>;
   actorId?: string;
+  runId: string;
 }) {
   const admin = requireAdminClient();
   const existingOpenFindings = await loadAllExistingOpenFindings(params.projectId);
@@ -682,7 +677,7 @@ async function markStaleOpenFindingsResolved(params: {
   if (staleFindingIds.length === 0) return;
 
   const now = new Date().toISOString();
-  const { error } = await admin
+  const { data: transitionedRows, error } = await admin
     .from('project_validation_findings')
     .update({
       status: 'resolved',
@@ -690,10 +685,40 @@ async function markStaleOpenFindingsResolved(params: {
       resolved_at: now,
       updated_at: now,
     })
-    .in('id', staleFindingIds);
+    .in('id', staleFindingIds)
+    .eq('status', 'open')
+    .select('id');
 
   if (error) {
     throw new Error(`Failed to resolve stale validation findings for ${params.projectId}: ${error.message}`);
+  }
+
+  const transitionedIds = new Set(
+    ((transitionedRows ?? []) as Array<{ id: string }>).map((row) => row.id),
+  );
+  for (const finding of existingOpenFindings.filter((row) => transitionedIds.has(row.id))) {
+    const activityResult = await emitValidationFindingLifecycleActivity({
+      organizationId: params.project.organization_id,
+      projectId: params.projectId,
+      findingId: finding.id,
+      changedBy: params.actorId,
+      previousFinding: finding,
+      currentFinding: {
+        ...finding,
+        status: 'resolved',
+        resolved_by_user_id: params.actorId ?? null,
+        resolved_at: now,
+        updated_at: now,
+      },
+      runId: params.runId,
+    });
+    if (!activityResult.ok) {
+      console.error('[persistValidationRun] failed to log validation finding lifecycle event', {
+        projectId: params.projectId,
+        findingId: finding.id,
+        error: activityResult.error,
+      });
+    }
   }
 }
 
@@ -1119,10 +1144,11 @@ export async function persistValidationRun(
         continue;
       }
 
-      const existingOpenFindingId =
+      const existingOpenFinding =
         finding.status === 'open'
-          ? existingOpenFindings.get(finding.check_key)?.id
+          ? existingOpenFindings.get(finding.check_key)
           : undefined;
+      const existingOpenFindingId = existingOpenFinding?.id;
 
       const persistedFindingId = await persistFinding({
         runId,
@@ -1133,8 +1159,8 @@ export async function persistValidationRun(
 
       if (finding.status === 'open') {
         existingOpenFindings.set(finding.check_key, {
+          ...finding,
           id: persistedFindingId,
-          check_key: finding.check_key,
         });
 
         if (!existingOpenFindingId) {
@@ -1144,6 +1170,25 @@ export async function persistValidationRun(
             finding,
             changedBy: triggeredByUserId,
           });
+        }
+
+        if (existingOpenFinding) {
+          const activityResult = await emitValidationFindingLifecycleActivity({
+            organizationId: project.organization_id,
+            projectId,
+            findingId: persistedFindingId,
+            changedBy: triggeredByUserId,
+            previousFinding: existingOpenFinding,
+            currentFinding: finding,
+            runId,
+          });
+          if (!activityResult.ok) {
+            console.error('[persistValidationRun] failed to log validation finding lifecycle event', {
+              projectId,
+              findingId: persistedFindingId,
+              error: activityResult.error,
+            });
+          }
         }
       }
 
@@ -1175,9 +1220,11 @@ export async function persistValidationRun(
     });
 
     await markStaleOpenFindingsResolved({
+      project,
       projectId,
       currentOpenCheckKeys,
       actorId: triggeredByUserId,
+      runId,
     });
     await closeSuppressedContractDecisions({
       project,

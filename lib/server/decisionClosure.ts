@@ -4,6 +4,8 @@ import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { logDecisionFeedback } from '@/lib/server/decisionFeedback';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionStatusRevalidation } from '@/lib/validator/revalidationRequests';
+import { emitValidationFindingLifecycleActivity } from '@/lib/validator/validationFindingActivity';
+import type { ValidationFinding } from '@/types/validator';
 
 export type TerminalDecisionStatus = 'resolved' | 'dismissed';
 export type DecisionTerminalStatus = TerminalDecisionStatus;
@@ -53,9 +55,8 @@ export type DecisionClosureResult = {
 const ACTIVE_WORKFLOW_TASK_STATUSES = ['open', 'in_progress', 'blocked'] as const;
 const OPEN_EXECUTION_ITEM_STATUSES = ['open', 'resolvable'] as const;
 
-type LinkedFindingRow = {
+type LinkedFindingRow = ValidationFinding & {
   id: string;
-  status: string | null;
   linked_action_id: string | null;
 };
 
@@ -108,7 +109,7 @@ export async function closeDecisionLinkedWork(
 
   const { data: linkedFindings, error: findingFetchError } = await input.admin
     .from('project_validation_findings')
-    .select('id, status, linked_action_id')
+    .select('*')
     .eq('linked_decision_id', input.decisionId)
     .eq('project_id', input.projectId);
 
@@ -123,7 +124,7 @@ export async function closeDecisionLinkedWork(
   const linkedExecutionItemIds = uniqueStrings(findingRows.map((finding) => finding.linked_action_id));
 
   if (openFindingIds.length > 0) {
-    const { error: findingCloseError } = await input.admin
+    const { data: closedFindings, error: findingCloseError } = await input.admin
       .from('project_validation_findings')
       .update({
         status: terminalFindingStatus,
@@ -131,14 +132,35 @@ export async function closeDecisionLinkedWork(
         resolved_at: input.now,
         updated_at: input.now,
       })
-      .eq('linked_decision_id', input.decisionId)
+      .in('id', openFindingIds)
       .eq('project_id', input.projectId)
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .select('id');
 
     if (findingCloseError) {
       result.errors.push(`findings_close_failed:${findingCloseError.message}`);
     } else {
-      result.closedFindingIds = openFindingIds;
+      result.closedFindingIds = ((closedFindings ?? []) as Array<{ id: string }>).map((row) => row.id);
+      const closedFindingIds = new Set(result.closedFindingIds);
+      for (const finding of findingRows.filter((row) => closedFindingIds.has(row.id))) {
+        const activityResult = await emitValidationFindingLifecycleActivity({
+          organizationId: input.organizationId,
+          projectId: input.projectId,
+          findingId: finding.id,
+          changedBy: input.actorId,
+          previousFinding: finding,
+          currentFinding: {
+            ...finding,
+            status: terminalFindingStatus,
+            resolved_by_user_id: input.actorId,
+            resolved_at: input.now,
+            updated_at: input.now,
+          },
+        });
+        if (!activityResult.ok) {
+          result.errors.push(`activity_event_failed:${finding.id}:${activityResult.error}`);
+        }
+      }
     }
   }
 

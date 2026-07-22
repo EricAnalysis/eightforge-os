@@ -11,6 +11,7 @@ import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
 import { syncValidatorDecisions } from '@/lib/validator/validatorDecisionSync';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
+import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import type { ValidationEvidence, ValidatorResult } from '@/types/validator';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({
@@ -195,7 +196,15 @@ class MockDatabase {
       project_id: PROJECT_ID,
       rule_id: 'OLD_RULE',
       check_key: 'OLD_RULE:old-subject',
+      category: 'financial',
       subject_id: 'old-subject',
+      subject_type: 'invoice',
+      field: 'total_amount',
+      expected: '10',
+      actual: '5',
+      variance: 5,
+      variance_unit: 'amount',
+      blocked_reason: null,
       status: 'open',
       severity: 'critical',
     },
@@ -215,7 +224,7 @@ class MockDatabase {
   }) {
     if (query.op === 'insert') return this.insert(query);
     if (query.op === 'update') return this.update(query);
-    return { data: this.selectRows(query), error: null };
+    return { data: this.selectRows(query).map((row) => ({ ...row })), error: null };
   }
 
   private tableRows(table: string) {
@@ -278,10 +287,11 @@ class MockDatabase {
   }
 
   private update(query: Parameters<MockDatabase['execute']>[0]) {
-    for (const row of this.selectRows(query)) {
+    const rows = this.selectRows(query);
+    for (const row of rows) {
       Object.assign(row, query.payload);
     }
-    return { data: [], error: null };
+    return { data: rows.map((row) => ({ ...row })), error: null };
   }
 }
 
@@ -374,6 +384,7 @@ function persistedOpenFindings(db: MockDatabase) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(logActivityEvent).mockResolvedValue({ ok: true, id: 'activity-1' });
 });
 
 describe('persistValidationRun evidence persistence', () => {
@@ -437,6 +448,98 @@ describe('persistValidationRun core persistence', () => {
     const stale = db.findings.find((finding) => finding.id === 'stale-finding');
     assert.equal(stale?.status, 'resolved');
     assert.ok(stale?.resolved_at);
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvents.length, 1);
+    assert.equal(resolvedEvents[0]?.entity_id, 'stale-finding');
+    assert.deepEqual(resolvedEvents[0]?.old_value, {
+      status: 'open',
+      rule_id: 'OLD_RULE',
+      check_key: 'OLD_RULE:old-subject',
+      severity: 'critical',
+      business_severity: 'critical',
+      finding_disposition: 'blocker',
+      affected_amount: null,
+    });
+    assert.equal(resolvedEvents[0]?.new_value?.status, 'resolved');
+    assert.equal(resolvedEvents[0]?.new_value?.run_id, RUN_ID);
+  });
+
+  it('emits one resolved event per stale finding without changing canonical counts', async () => {
+    const db = new MockDatabase();
+    db.findings.push({
+      ...db.findings[0],
+      id: 'stale-finding-2',
+      check_key: 'OLD_RULE:other-subject',
+      subject_id: 'other-subject',
+    });
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.deepEqual(resolvedEvents.map((event) => event.entity_id).sort(), [
+      'stale-finding',
+      'stale-finding-2',
+    ]);
+    assert.equal(db.runs[0]?.findings_count, 1);
+    assert.equal(db.findings.filter((finding) => finding.status === 'resolved').length, 2);
+  });
+
+  it('emits no lifecycle event for an unchanged finding that remains open', async () => {
+    const current = validationFinding({ id: 'existing-finding' });
+    const db = new MockDatabase();
+    db.findings = [{ ...current }];
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult([current]), 'manual');
+
+    const lifecycleEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved'
+        || event.event_type === 'validation_finding_changed');
+    assert.equal(lifecycleEvents.length, 0);
+    assert.equal(db.findings[0]?.status, 'open');
+  });
+
+  it('emits one changed event when a reused open finding changes severity', async () => {
+    const previous = validationFinding({ id: 'existing-finding', severity: 'warning' });
+    const current = validationFinding({ id: 'candidate-finding', severity: 'critical' });
+    const db = new MockDatabase();
+    db.findings = [{ ...previous }];
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult([current]), 'manual');
+
+    const changedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_changed');
+    assert.equal(changedEvents.length, 1);
+    assert.equal(changedEvents[0]?.entity_id, 'existing-finding');
+    assert.equal(changedEvents[0]?.old_value?.severity, 'warning');
+    assert.equal(changedEvents[0]?.new_value?.severity, 'critical');
+    assert.equal(db.findings[0]?.status, 'open');
+  });
+
+  it('keeps a validation run successful when lifecycle event delivery rejects', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    vi.mocked(logActivityEvent).mockImplementation(async (event) => {
+      if (event.event_type === 'validation_finding_resolved') {
+        throw new Error('activity unavailable');
+      }
+      return { ok: true, id: 'activity-1' };
+    });
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    assert.equal(db.runs[0]?.status, 'complete');
+    assert.equal(db.runs[0]?.findings_count, 1);
+    assert.equal(db.findings.find((finding) => finding.id === 'stale-finding')?.status, 'resolved');
   });
 
   it('closes a suppressed pricing applicability contract decision through finalizeDecision', async () => {

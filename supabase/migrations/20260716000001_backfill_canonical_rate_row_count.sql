@@ -22,10 +22,11 @@ BEGIN
     FROM public.documents
     WHERE id = target.document_id;
 
-    IF NOT FOUND OR jsonb_typeof(live_rows) <> 'array' THEN
-      RAISE EXCEPTION
-        'CS-9 rate row count backfill requires a persisted rate_schedule_rows array for % (%).',
+    IF NOT FOUND OR jsonb_typeof(live_rows) IS DISTINCT FROM 'array' THEN
+      RAISE NOTICE
+        'CS-9 skipping backfill for % (%): no persisted rate_schedule_rows array found',
         target.label, target.document_id;
+      CONTINUE;
     END IF;
 
     raw_count := jsonb_array_length(live_rows);

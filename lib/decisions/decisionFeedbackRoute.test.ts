@@ -237,6 +237,7 @@ describe('decision feedback route', () => {
       projectId: 'project-1',
       actorId: 'user-1',
       newStatus: 'resolved',
+      decisionId: 'decision-1',
     });
     expect(requestDecisionFeedbackRevalidationMock).not.toHaveBeenCalled();
   });
@@ -289,6 +290,7 @@ describe('decision feedback route', () => {
       projectId: 'project-1',
       actorId: 'user-1',
       newStatus: 'dismissed',
+      decisionId: 'decision-1',
     });
   });
 });

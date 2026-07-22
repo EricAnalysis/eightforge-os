@@ -167,6 +167,7 @@ export async function POST(
   void requestManualRateLinkRevalidation({
     projectId,
     actorId,
+    linkId: linkResult.linkId,
   });
 
   return NextResponse.json({

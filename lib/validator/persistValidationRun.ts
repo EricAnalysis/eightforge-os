@@ -6,6 +6,7 @@ import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
 import { emitValidationFindingLifecycleActivity } from '@/lib/validator/validationFindingActivity';
+import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
 import type {
   ProjectOperationalRollup,
   ProjectValidatorSummarySnapshot,
@@ -913,6 +914,7 @@ async function createValidationFindingGeneratedActivityEvent(params: {
   findingId: string;
   finding: PersistableValidationFinding;
   changedBy: string | undefined;
+  runId: string;
 }) {
   const normalized = normalizeValidationFinding(params.finding);
   const result = await logActivityEvent({
@@ -931,6 +933,7 @@ async function createValidationFindingGeneratedActivityEvent(params: {
       problem: normalized.problem ?? null,
       impact: normalized.impact ?? null,
       required_action: normalized.required_action ?? null,
+      run_id: params.runId,
     },
   });
 
@@ -1099,6 +1102,7 @@ export async function persistValidationRun(
   triggerSource: ValidationTriggerSource,
   triggeredByUserId?: string,
   inputsSnapshotHash?: string | null,
+  triggerEntity?: ValidationTriggerEntity,
 ): Promise<{ runId: string }> {
   const findings = suppressOverlappingMissingContractRateFindings(
     (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
@@ -1169,6 +1173,7 @@ export async function persistValidationRun(
             findingId: persistedFindingId,
             finding,
             changedBy: triggeredByUserId,
+            runId,
           });
         }
 
@@ -1178,9 +1183,9 @@ export async function persistValidationRun(
             projectId,
             findingId: persistedFindingId,
             changedBy: triggeredByUserId,
+            runId,
             previousFinding: existingOpenFinding,
             currentFinding: finding,
-            runId,
           });
           if (!activityResult.ok) {
             console.error('[persistValidationRun] failed to log validation finding lifecycle event', {
@@ -1344,6 +1349,14 @@ export async function persistValidationRun(
         projectId,
         (effectiveResult.summary as unknown as ProjectValidatorSummarySnapshot) || null,
         (rollup as unknown as ProjectOperationalRollup),
+        {
+          runId: completedRunId,
+          triggerEntity,
+          createdBy: triggeredByUserId ?? null,
+          findingIds: effectivePersistedFindings
+            .filter((finding) => finding.status === 'open')
+            .map((finding) => finding.id),
+        },
       );
     });
 

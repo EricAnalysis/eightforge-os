@@ -339,6 +339,7 @@ export async function finalizeDecision(
       projectId: params.decision.project_id,
       actorId: params.actorId,
       newStatus: params.status,
+      decisionId: params.decision.id,
     });
   }
 

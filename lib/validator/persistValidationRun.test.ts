@@ -449,6 +449,10 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(stale?.status, 'resolved');
     assert.ok(stale?.resolved_at);
 
+    const snapshotOptions = vi.mocked(persistApprovalSnapshot).mock.calls[0]?.[3];
+    assert.equal(snapshotOptions?.runId, RUN_ID);
+    assert.deepEqual(snapshotOptions?.findingIds, ['finding-1']);
+
     const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
       .map(([event]) => event)
       .filter((event) => event.event_type === 'validation_finding_resolved');
@@ -540,6 +544,29 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(db.runs[0]?.status, 'complete');
     assert.equal(db.runs[0]?.findings_count, 1);
     assert.equal(db.findings.find((finding) => finding.id === 'stale-finding')?.status, 'resolved');
+  });
+
+  it('correlates a decision-triggered snapshot and resolved event to the same run', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(
+      PROJECT_ID,
+      validatorResult(),
+      'manual',
+      'user-1',
+      'input-hash',
+      { trigger_entity_type: 'decision', trigger_entity_id: 'decision-1' },
+    );
+
+    const snapshotOptions = vi.mocked(persistApprovalSnapshot).mock.calls[0]?.[3];
+    const resolvedEvent = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .find((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(snapshotOptions?.runId, RUN_ID);
+    assert.equal(snapshotOptions?.triggerEntity?.trigger_entity_id, 'decision-1');
+    assert.equal(resolvedEvent?.new_value?.run_id, RUN_ID);
+    assert.equal(resolvedEvent?.entity_id, 'stale-finding');
   });
 
   it('closes a suppressed pricing applicability contract decision through finalizeDecision', async () => {

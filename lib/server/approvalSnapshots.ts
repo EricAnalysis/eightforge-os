@@ -10,6 +10,10 @@ import type {
   ProjectValidatorSummarySnapshot,
   ProjectOverviewInvoiceItem,
 } from '@/lib/projectOverview';
+import {
+  completeValidationTriggerEntity,
+  type ValidationTriggerEntity,
+} from '@/lib/validator/validationTriggerAttribution';
 
 /**
  * Project-level approval snapshot
@@ -30,7 +34,17 @@ export type ProjectApprovalSnapshot = {
   finding_ids: string[];
   billing_group_ids: string[] | null;
   validation_trigger_source: string | null;
+  run_id?: string | null;
+  triggering_decision_id?: string | null;
+  created_by?: string | null;
   created_at: string;
+};
+
+export type PersistApprovalSnapshotOptions = {
+  runId?: string | null;
+  triggerEntity?: ValidationTriggerEntity | null;
+  createdBy?: string | null;
+  findingIds?: readonly string[];
 };
 
 /**
@@ -96,6 +110,7 @@ export async function persistApprovalSnapshot(
   projectId: string,
   validatorSummary: ProjectValidatorSummarySnapshot | null,
   rollup: ProjectOperationalRollup,
+  options: PersistApprovalSnapshotOptions = {},
 ): Promise<ProjectApprovalSnapshot | null> {
   const admin = getSupabaseAdmin();
   if (!admin) return null;
@@ -115,8 +130,8 @@ export async function persistApprovalSnapshot(
   const totalBilled = invoices.reduce((sum, i) => sum + (i.billed_amount ?? 0), 0);
   const totalSupported = invoices.reduce((sum, i) => sum + (i.supported_amount ?? 0), 0);
 
-  // Extract finding IDs from rollup pending actions (use action id as finding reference)
-  const findingIds = rollup.pending_actions.map((action) => action.id);
+  const triggerEntity = completeValidationTriggerEntity(options.triggerEntity);
+  const findingIds = [...new Set(options.findingIds ?? [])].sort();
 
   const snapshot: ProjectApprovalSnapshot = {
     project_id: projectId,
@@ -132,6 +147,12 @@ export async function persistApprovalSnapshot(
     finding_ids: findingIds,
     billing_group_ids: null, // TODO: extract from invoice details if available
     validation_trigger_source: validatorSummary?.trigger_source ?? null,
+    run_id: options.runId ?? null,
+    triggering_decision_id:
+      triggerEntity?.trigger_entity_type === 'decision'
+        ? triggerEntity.trigger_entity_id
+        : null,
+    created_by: options.createdBy ?? null,
     created_at: new Date().toISOString(),
   };
 

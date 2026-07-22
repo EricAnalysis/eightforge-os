@@ -14,6 +14,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { persistValidationRun } from '@/lib/validator/persistValidationRun';
 import { validateProject } from '@/lib/validator/projectValidator';
 import type { ValidationTriggerSource } from '@/types/validator';
+import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
 
 type TableError = {
   code?: string | null;
@@ -393,6 +394,7 @@ export type TriggerProjectValidationResult =
 
 export type TriggerProjectValidationOptions = {
   force?: boolean;
+  triggerEntity?: ValidationTriggerEntity;
 };
 
 export function shouldSkipUnchangedValidationInputs(params: {
@@ -457,6 +459,7 @@ async function runValidationFlow(params: {
   source: ValidationTriggerSource;
   userId?: string;
   inputsSnapshotHash: string;
+  triggerEntity?: ValidationTriggerEntity;
 }): Promise<void> {
   const result = await validateProject(params.projectId);
   await persistValidationRun(
@@ -465,6 +468,7 @@ async function runValidationFlow(params: {
     params.source,
     params.userId,
     params.inputsSnapshotHash,
+    params.triggerEntity,
   );
 }
 
@@ -474,6 +478,7 @@ async function logValidationRunRequested(params: {
   userId?: string;
   inputsSnapshotHash: string;
   mode: 'sync' | 'background';
+  triggerEntity?: ValidationTriggerEntity;
 }): Promise<void> {
   const organizationId = await loadProjectOrganizationId(params.projectId);
   if (!organizationId) return;
@@ -489,6 +494,8 @@ async function logValidationRunRequested(params: {
       trigger_source: params.source,
       request_mode: params.mode,
       inputs_snapshot_hash: params.inputsSnapshotHash,
+      trigger_entity_type: params.triggerEntity?.trigger_entity_type ?? null,
+      trigger_entity_id: params.triggerEntity?.trigger_entity_id ?? null,
     },
   });
 
@@ -506,6 +513,7 @@ function startBackgroundValidation(params: {
   source: ValidationTriggerSource;
   userId?: string;
   inputsSnapshotHash: string;
+  triggerEntity?: ValidationTriggerEntity;
 }) {
   // Start immediately on the current tick instead of deferring with a timer.
   // Most trigger points are request-scoped handlers, so this keeps the work
@@ -560,12 +568,14 @@ export async function triggerProjectValidation(
         userId,
         inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
         mode: 'background',
+        triggerEntity: options.triggerEntity,
       });
       startBackgroundValidation({
         projectId,
         source,
         userId,
         inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+        triggerEntity: options.triggerEntity,
       });
       return {
         status: 'triggered',
@@ -580,12 +590,14 @@ export async function triggerProjectValidation(
       userId,
       inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
       mode: 'sync',
+      triggerEntity: options.triggerEntity,
     });
     await runValidationFlow({
       projectId,
       source,
       userId,
       inputsSnapshotHash: triggerMetrics.inputsSnapshotHash,
+      triggerEntity: options.triggerEntity,
     });
     return {
       status: 'triggered',

@@ -15,7 +15,7 @@ import {
 } from '@/lib/issueObjects';
 import { DECISION_OPEN_STATUSES } from '@/lib/overdue';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
-import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
+import { isApprovalBlocker, normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import { logStateProjectionMismatch, type StateProjectionShadowMismatch } from '@/lib/stateProjectionShadow';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
@@ -236,11 +236,28 @@ function isEscalated(finding: ValidationFinding, decision: ProjectDecisionRow | 
     || decisionDetails?.escalation_required === true;
 }
 
-function isBlocker(finding: ValidationFinding): boolean {
-  const normalized = normalizeValidationFinding(finding);
-  return normalized.approval_gate_effect === 'blocks_approval'
-    || normalized.finding_disposition === 'blocker'
-    || finding.severity === 'critical';
+/**
+ * Worklist concept: an approval-blocking finding that has no decision yet — a
+ * blocker still awaiting operator action.
+ *
+ * This is intentionally NOT the same question as "is this an approval blocker."
+ * The `!decision` gate makes it a worklist state, not a statement about approval
+ * health: once any decision exists, the issue flows through the decision-driven
+ * lifecycle branches in {@link lifecycleForIssue} and stops counting here.
+ *
+ * Basis is the sanctioned {@link isApprovalBlocker} (normalized
+ * `approval_gate_effect === 'blocks_approval'`). Phase B step 2 removed the
+ * prior raw `finding.severity === 'critical'` fallback so the issue board and
+ * Overview cannot disagree about the same finding. The removed fallback only
+ * ever affected findings whose rule downgrades a raw-critical severity via a
+ * semantic override (in the current rule set: FINANCIAL_RATE_BASED_PAGES_REQUIRED,
+ * medium / requires_operator_review); those are review items, not blockers.
+ */
+function isUnactionedBlocker(
+  finding: ValidationFinding,
+  decision: ProjectDecisionRow | null,
+): boolean {
+  return isApprovalBlocker(finding) && !decision;
 }
 
 function lifecycleForIssue(params: {
@@ -251,7 +268,7 @@ function lifecycleForIssue(params: {
   const { finding, decision, status } = params;
   if (status === 'COMPLETE') return 'resolved';
   if (isEscalated(finding, decision)) return 'escalated';
-  if (!decision && isBlocker(finding)) return 'blocked';
+  if (isUnactionedBlocker(finding, decision)) return 'blocked';
   if (!decision) return 'open';
 
   const decisionStatus = decision.status.toLowerCase();

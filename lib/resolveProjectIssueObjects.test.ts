@@ -295,6 +295,72 @@ describe('resolveProjectIssueObjects', () => {
     assert.equal(issues[0].lifecycleState, 'resolved');
   });
 
+  it('does not treat an override-downgraded raw-critical finding as an unactioned blocker', () => {
+    // FINANCIAL_RATE_BASED_PAGES_REQUIRED emits raw severity 'critical' but its
+    // semantic override downgrades it to medium / requires_operator_review. With
+    // no decision yet, the prior isBlocker() (raw severity fallback) forced a
+    // 'blocked' lifecycle; after Phase B step 2 it is an ordinary open review
+    // item, matching how Overview counts it.
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({
+        id: 'finding-pages',
+        rule_id: 'FINANCIAL_RATE_BASED_PAGES_REQUIRED',
+        check_key: 'FINANCIAL_RATE_BASED_PAGES_REQUIRED:project-1',
+        subject_type: 'project',
+        subject_id: 'project-1',
+        severity: 'critical',
+        business_severity: 'medium',
+        finding_disposition: 'warning',
+        approval_gate_effect: 'requires_operator_review',
+        linked_decision_id: null,
+        linked_action_id: null,
+        resolved_at: null,
+        lifecycle_state: 'open',
+      })],
+      decisions: [],
+      executionItems: [],
+      evidence: [],
+      activityEvents: [],
+      documents: [],
+    });
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].lifecycleState, 'open');
+  });
+
+  it('still treats a genuine approval-blocking finding with no decision as blocked', () => {
+    // Regression guard: the retarget must not weaken the real blocker path. A
+    // finding whose normalized approval_gate_effect is blocks_approval, with no
+    // decision, remains lifecycle 'blocked'.
+    const issues = resolveProjectIssueObjects({
+      projectId: 'project-1',
+      findings: [finding({
+        id: 'finding-exposure',
+        rule_id: 'PROJECT_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED',
+        check_key: 'PROJECT_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED:project-1',
+        subject_type: 'project',
+        subject_id: 'project-1',
+        severity: 'critical',
+        business_severity: 'critical',
+        finding_disposition: 'blocker',
+        approval_gate_effect: 'blocks_approval',
+        linked_decision_id: null,
+        linked_action_id: null,
+        resolved_at: null,
+        lifecycle_state: 'blocked',
+      })],
+      decisions: [],
+      executionItems: [],
+      evidence: [],
+      activityEvents: [],
+      documents: [],
+    });
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].lifecycleState, 'blocked');
+  });
+
   it('honors a resolved source-matched execution item when linked_action_id corroborates it mid-cascade', () => {
     const issues = resolveProjectIssueObjects({
       projectId: 'project-1',

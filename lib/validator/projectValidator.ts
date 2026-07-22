@@ -1636,6 +1636,7 @@ export function synthesizeInvoicesFromLegacyExtractions(params: {
     const canonical = buildCanonicalInvoiceRowsFromTypedFields({
       documentId,
       typedFields,
+      extractionData: legacyData,
     });
     const syntheticInvoiceRow = canonical.invoiceRow as InvoiceRow | null;
     const matchedInvoiceRow = syntheticInvoiceRow

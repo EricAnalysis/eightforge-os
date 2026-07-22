@@ -6,6 +6,8 @@ vi.mock('@/lib/server/supabaseAdmin', () => ({
 }));
 
 import {
+  applyEffectiveInvoiceFacts,
+  buildFactsByDocumentId,
   buildInvoiceLineToRateMap,
   buildManualRateLinkOverrides,
   buildContractValidationContext,
@@ -622,6 +624,319 @@ describe('project validator input loading', () => {
     assert.equal(synthetic.invoices[0]?.invoice_number, 'INV-100');
     assert.equal(synthetic.invoices[0]?.total_amount, 100.5);
     assert.equal(synthetic.invoiceLines[0]?.line_total, 100.5);
+  });
+
+  it('recovers a quantity-leaked invoice line code from legacy page text', () => {
+    const documentId = 'invoice-doc-thin-code';
+    const legacyRowsByDocumentId = new Map<string, ValidatorLegacyExtractionRow>([[
+      documentId,
+      {
+        document_id: documentId,
+        created_at: '2026-04-24T10:00:00Z',
+        data: {
+          fields: {
+            typed_fields: {
+              schema_type: 'invoice',
+              invoice_number: 'INV-THIN',
+              total_amount: 475,
+              line_items: [{
+                line_code: '5',
+                line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+                quantity: 5,
+                unit_price: 95,
+                line_total: 475,
+                evidence_refs: ['typed:line:1'],
+                raw_text: 'Tree Operations Hazardous Tree Removal 6-12 in 5 $95.00 $475.00',
+              }],
+            },
+          },
+          extraction: {
+            evidence_v1: {
+              page_text: [{
+                page_number: 1,
+                text: [
+                  'Q Quantity Description Unit Price Line Total',
+                  '5.00 5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00 $475.00',
+                  'Subtotal $475.00',
+                ].join('\n'),
+              }],
+            },
+          },
+        },
+      },
+    ]]);
+
+    const synthetic = synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId,
+      invoiceDocumentIds: [documentId],
+      existingInvoices: [],
+      existingInvoiceLines: [],
+    });
+    const line = synthetic.invoiceLines[0];
+    const resolution = line?.line_code_resolution as Record<string, unknown>;
+
+    assert.equal(synthetic.invoiceLines.length, 1);
+    assert.equal(line?.id, `typed:${documentId}:invoice:line:1`);
+    assert.equal(line?.source_document_id, documentId);
+    assert.equal(line?.rate_code, '5A');
+    assert.equal(line?.quantity, 5);
+    assert.equal(line?.unit_price, 95);
+    assert.equal(line?.line_total, 475);
+    assert.match(String(line?.raw_text ?? ''), /5A.*Hazardous Tree Removal 6-12 in/);
+    assert.equal(resolution.status, 'resolved');
+    assert.equal(resolution.value, '5A');
+    assert.equal(resolution.source_field, 'line_code');
+    assert.equal(resolution.method, 'structured');
+  });
+
+  it('recovers canonical invoice rows when typed line_items is empty but legacy text is rich', () => {
+    const documentId = 'invoice-doc-empty-lines';
+    const synthetic = synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId: new Map([[
+        documentId,
+        {
+          document_id: documentId,
+          created_at: '2026-04-24T10:00:00Z',
+          data: {
+            fields: {
+              typed_fields: {
+                schema_type: 'invoice',
+                invoice_number: 'INV-EMPTY-LINES',
+                total_amount: 475,
+                line_items: [],
+              },
+            },
+            extraction: {
+              text_preview: [
+                'Q Quantity Description Unit Price Line Total',
+                '5.00 5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00 $475.00',
+                'Subtotal $475.00',
+              ].join('\n'),
+            },
+          },
+        },
+      ]]),
+      invoiceDocumentIds: [documentId],
+      existingInvoices: [],
+      existingInvoiceLines: [],
+    });
+
+    assert.equal(synthetic.invoices.length, 1);
+    assert.equal(synthetic.invoiceLines.length, 1);
+    assert.equal(synthetic.invoiceLines[0]?.rate_code, '5A');
+    assert.equal(synthetic.invoiceLines[0]?.line_total, 475);
+  });
+
+  it('leaves complete persisted invoice rows deep-equal when legacy extraction text is also rich', () => {
+    const documentId = 'invoice-doc-complete-lines';
+    const typedFields = {
+      schema_type: 'invoice',
+      invoice_number: 'INV-COMPLETE',
+      total_amount: 200,
+      line_items: [
+        {
+          line_code: '1A',
+          line_description: 'Complete first line',
+          quantity: 10,
+          unit_price: 10,
+          line_total: 100,
+          evidence_refs: ['typed:p1:line:1'],
+          raw_text: '1A Complete first line 10 $10.00 $100.00',
+        },
+        {
+          line_code: '1B',
+          line_description: 'Complete second line',
+          quantity: 5,
+          unit_price: 20,
+          line_total: 100,
+          evidence_refs: ['typed:p1:line:2'],
+          raw_text: '1B Complete second line 5 $20.00 $100.00',
+        },
+      ],
+    };
+    const makeRows = (includeRichText: boolean) => new Map<string, ValidatorLegacyExtractionRow>([[
+      documentId,
+      {
+        document_id: documentId,
+        created_at: '2026-04-24T10:00:00Z',
+        data: {
+          fields: { typed_fields: typedFields },
+          ...(includeRichText
+            ? {
+                extraction: {
+                  evidence_v1: {
+                    page_text: [{
+                      page_number: 1,
+                      text: [
+                        '1A - Complete first line 10 $10.00 $100.00',
+                        '1B - Complete second line 5 $20.00 $100.00',
+                        'Subtotal $200.00',
+                      ].join('\n'),
+                    }],
+                  },
+                },
+              }
+            : {}),
+        },
+      },
+    ]]);
+    const synthesize = (includeRichText: boolean) => synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId: makeRows(includeRichText),
+      invoiceDocumentIds: [documentId],
+      existingInvoices: [],
+      existingInvoiceLines: [],
+    });
+
+    const withoutRichText = synthesize(false);
+    const withRichText = synthesize(true);
+
+    assert.deepEqual(withRichText, withoutRichText);
+    assert.deepEqual(withRichText.invoiceLines.map((line) => line.id), [
+      `typed:${documentId}:invoice:line:1`,
+      `typed:${documentId}:invoice:line:2`,
+    ]);
+    assert.deepEqual(withRichText.invoiceLines.map((line) => line.evidence_refs), [
+      ['typed:p1:line:1'],
+      ['typed:p1:line:2'],
+    ]);
+    assert.deepEqual(withRichText.invoiceLines.map((line) => line.line_total), [100, 100]);
+    assert.equal(withRichText.invoices[0]?.total_amount, 200);
+  });
+
+  it('leaves typed invoice rows unchanged when legacy extraction text is unusable', () => {
+    const documentId = 'invoice-doc-unusable-text';
+    const typedFields = {
+      schema_type: 'invoice',
+      invoice_number: 'INV-UNUSABLE',
+      total_amount: 100.5,
+      line_items: [{
+        line_code: 'RC-01',
+        description: 'Haul debris',
+        quantity: 10,
+        unit_price: 10.05,
+        line_total: 100.5,
+        evidence_refs: ['typed:p1:line:1'],
+      }],
+    };
+    const synthesize = (extraction: Record<string, unknown> | undefined) =>
+      synthesizeInvoicesFromLegacyExtractions({
+        legacyRowsByDocumentId: new Map([[
+          documentId,
+          {
+            document_id: documentId,
+            data: {
+              fields: { typed_fields: typedFields },
+              ...(extraction ? { extraction } : {}),
+            },
+          },
+        ]]),
+        invoiceDocumentIds: [documentId],
+        existingInvoices: [],
+        existingInvoiceLines: [],
+      });
+
+    assert.deepEqual(
+      synthesize({ text_preview: '   ', evidence_v1: { page_text: [] } }),
+      synthesize(undefined),
+    );
+  });
+
+  it('keeps corrected effective invoice facts higher priority than synthesized recovery', () => {
+    const documentId = 'invoice-doc-effective-correction';
+    const legacyRowsByDocumentId = new Map<string, ValidatorLegacyExtractionRow>([[
+      documentId,
+      {
+        document_id: documentId,
+        created_at: '2026-04-24T10:00:00Z',
+        data: {
+          fields: {
+            typed_fields: {
+              schema_type: 'invoice',
+              invoice_number: 'INV-EFFECTIVE',
+              total_amount: 475,
+              line_items: [{
+                line_code: '5',
+                line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+                quantity: 5,
+                unit_price: 95,
+                line_total: 475,
+              }],
+            },
+          },
+          extraction: {
+            text_preview: [
+              'Q Quantity Description Unit Price Line Total',
+              '5.00 5A - Tree Operations Hazardous Tree Removal 6-12 in $95.00 $475.00',
+              'Subtotal $475.00',
+            ].join('\n'),
+          },
+        },
+      },
+    ]]);
+    const synthetic = synthesizeInvoicesFromLegacyExtractions({
+      legacyRowsByDocumentId,
+      invoiceDocumentIds: [documentId],
+      existingInvoices: [],
+      existingInvoiceLines: [],
+    });
+    const documents = [{
+      id: documentId,
+      project_id: 'project-1',
+      organization_id: 'org-1',
+      title: 'Corrected invoice',
+      name: 'corrected-invoice.pdf',
+      document_type: 'invoice',
+      created_at: '2026-04-24T10:00:00Z',
+    }];
+    const correctedLines = [{
+      line_code: '5',
+      line_description: 'Tree Operations Hazardous Tree Removal 6-12 in',
+      billing_rate_key: 'OPERATOR-CONFIRMED-KEY',
+      quantity: 5,
+      unit_price: 95,
+      line_total: 475,
+      evidence_refs: ['operator:p1:line:1'],
+    }];
+    const facts = buildFactsByDocumentId({
+      documents,
+      factRows: [],
+      legacyRowsByDocumentId,
+      overrideRows: [],
+      reviewRows: [{
+        id: 'review-effective-correction',
+        organization_id: 'org-1',
+        document_id: documentId,
+        field_key: 'line_items',
+        review_status: 'corrected',
+        reviewed_value_json: correctedLines,
+        reviewed_by: 'operator-1',
+        reviewed_at: '2026-07-22T10:00:00Z',
+        notes: 'Confirmed corrected billing key.',
+      }],
+    });
+    const effective = applyEffectiveInvoiceFacts({
+      invoices: synthetic.invoices,
+      invoiceLines: synthetic.invoiceLines,
+      factsByDocumentId: facts.factsByDocumentId,
+      invoiceDocumentIds: [documentId],
+    });
+
+    assert.equal(synthetic.invoiceLines.length, 1);
+    assert.equal(synthetic.invoiceLines[0]?.rate_code, '5A');
+    assert.deepEqual(effective.invoiceLines.map((line) => ({
+      id: line.id,
+      source_document_id: line.source_document_id,
+      billing_rate_key: line.billing_rate_key,
+    })), [{
+      id: `fact:${documentId}:line:1`,
+      source_document_id: documentId,
+      billing_rate_key: 'OPERATOR-CONFIRMED-KEY',
+    }]);
+    assert.equal(effective.invoiceLines[0]?.id, `fact:${documentId}:line:1`);
+    assert.equal(effective.invoiceLines[0]?.rate_code, null);
+    assert.equal(effective.invoiceLines[0]?.billing_rate_key, 'OPERATOR-CONFIRMED-KEY');
+    assert.equal(effective.invoiceLines[0]?.line_description, 'Tree Operations Hazardous Tree Removal 6-12 in');
+    assert.deepEqual(effective.invoiceLines[0]?.evidence_refs, ['operator:p1:line:1']);
   });
 
   it('uses active precedence-selected invoice documents and excludes superseded invoice records', () => {

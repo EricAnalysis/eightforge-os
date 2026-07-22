@@ -16,7 +16,7 @@ import {
 } from '@/lib/contracts/contractPricingAssembly';
 import type { DocumentFamily } from '@/lib/types/documentIntelligence';
 
-function stateClass(state: DocumentFact['reviewState']): string {
+export function stateClass(state: DocumentFact['reviewState']): string {
   switch (state) {
     case 'reviewed':
       return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
@@ -46,7 +46,7 @@ function confidenceClass(label: DocumentFact['confidenceLabel']): string {
   }
 }
 
-function sourceClass(source: DocumentFact['displaySource']): string {
+export function sourceClass(source: DocumentFact['displaySource']): string {
   switch (source) {
     case 'human_added':
       return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
@@ -57,7 +57,7 @@ function sourceClass(source: DocumentFact['displaySource']): string {
   }
 }
 
-function sourceLabel(source: DocumentFact['displaySource']): string {
+export function sourceLabel(source: DocumentFact['displaySource']): string {
   switch (source) {
     case 'human_added':
       return 'human added';
@@ -244,7 +244,7 @@ function InvoiceBillingPeriodSummary({ facts }: { facts: readonly DocumentFact[]
   );
 }
 
-function reviewClass(status: NonNullable<DocumentFact['reviewStatus']>): string {
+export function reviewClass(status: NonNullable<DocumentFact['reviewStatus']>): string {
   switch (status) {
     case 'confirmed':
       return 'border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] text-[var(--ef-success-soft)]';
@@ -257,7 +257,7 @@ function reviewClass(status: NonNullable<DocumentFact['reviewStatus']>): string 
   }
 }
 
-function reviewLabel(status: NonNullable<DocumentFact['reviewStatus']>): string {
+export function reviewLabel(status: NonNullable<DocumentFact['reviewStatus']>): string {
   switch (status) {
     case 'confirmed':
       return 'confirmed';

@@ -6,8 +6,17 @@ import {
   invoiceSurfaceLineItemToLedgerRecord,
   logInvoiceLineDebug,
   normalizeInvoiceContractorDisplay,
+  type InvoiceLineItemsProvenanceSummary,
+  type InvoiceSurfaceExtraction,
 } from '@/lib/documentIntelligenceViewModel';
 import type { InvoiceExtraction } from '@/lib/types/documentIntelligence';
+import {
+  reviewClass,
+  reviewLabel,
+  sourceClass,
+  sourceLabel,
+  stateClass,
+} from './FactLedger';
 
 function fmt$(amount: number | undefined | null): string {
   if (amount == null) return '—';
@@ -76,7 +85,89 @@ type InvoiceSurfaceLineLike =
   NonNullable<InvoiceExtraction['lineItems']>[number]
   | NonNullable<NonNullable<InvoiceExtraction['line_items']>[number]>;
 
-export function InvoiceSurface({ extraction }: { extraction: InvoiceExtraction }) {
+function fmtTimestamp(value: string): string {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
+function provenanceChip(
+  provenance: InvoiceLineItemsProvenanceSummary,
+): { label: string; className: string } {
+  if (provenance.reviewStatus === 'confirmed' || provenance.reviewStatus === 'corrected') {
+    return {
+      label: reviewLabel(provenance.reviewStatus),
+      className: reviewClass(provenance.reviewStatus),
+    };
+  }
+  if (provenance.displaySource !== 'auto') {
+    return {
+      label: provenance.displaySource === 'human_corrected'
+        ? 'corrected'
+        : sourceLabel(provenance.displaySource),
+      className: sourceClass(provenance.displaySource),
+    };
+  }
+  return { label: 'extracted', className: stateClass(provenance.reviewState) };
+}
+
+function LineItemsTable({
+  items,
+  testId,
+}: {
+  items: readonly InvoiceSurfaceLineLike[];
+  testId: string;
+}) {
+  return (
+    <div className="overflow-x-auto" data-testid={testId}>
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-[var(--ef-border-white-10)]">
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
+              Rate Code
+            </th>
+            <th className="pb-2 text-left font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
+              Description
+            </th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
+              Quantity
+            </th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
+              Unit Price
+            </th>
+            <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
+              Line Total
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--ef-border-white-06)]">
+          {items.map((item, index) => {
+            const ledgerRecord = invoiceSurfaceLineItemToLedgerRecord(item as Record<string, unknown>);
+            const row = buildInvoiceLedgerLineDisplay(ledgerRecord);
+            logInvoiceLineDebug('InvoiceSurface billed line item record', {
+              index,
+              record: ledgerRecord,
+              row,
+              extra: { invoiceSurfaceItem: item },
+            });
+            // Per-line derived provenance is deferred until validator-completed lines have a document-scoped read path.
+            return (
+              <tr key={index} className="hover:bg-white/[0.02]">
+                <td className="py-2 pr-4 font-mono text-[11px] text-[var(--ef-text-soft)]">{row.rateCode}</td>
+                <td className="py-2 pr-4 text-[var(--ef-text-secondary)]">{row.description}</td>
+                <td className="py-2 pr-4 text-right tabular-nums text-[var(--ef-text-secondary)]">{row.quantity}</td>
+                <td className="py-2 pr-4 text-right tabular-nums text-[var(--ef-text-secondary)]">{row.unitPrice}</td>
+                <td className="py-2 pr-4 text-right font-semibold tabular-nums text-[var(--ef-text-primary)]">{row.lineTotal}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function InvoiceSurface({ extraction }: { extraction: InvoiceSurfaceExtraction }) {
   const {
     invoiceNumber,
     invoiceDate,
@@ -111,6 +202,10 @@ export function InvoiceSurface({ extraction }: { extraction: InvoiceExtraction }
   /** Prefer camelCase from `toInvoiceSurfaceExtraction`; fall back to snake_case payloads. */
   const itemsSource = lineItems ?? line_items ?? [];
   const items = (Array.isArray(itemsSource) ? itemsSource : []) as InvoiceSurfaceLineLike[];
+  const lineItemsProvenance = extraction.lineItemsProvenance;
+  const lineItemsChip = lineItemsProvenance ? provenanceChip(lineItemsProvenance) : null;
+  const extractedItems = (lineItemsProvenance?.extractedLineItems ?? []) as InvoiceSurfaceLineLike[];
+  const showExtractedItems = lineItemsProvenance?.displaySource !== 'auto' && extractedItems.length > 0;
   const hasLineItems = items.length > 0;
   const hasFinancials =
     subtotalAmount != null ||
@@ -252,61 +347,42 @@ export function InvoiceSurface({ extraction }: { extraction: InvoiceExtraction }
         </div>
 
         {/* Line items table */}
-        {hasLineItems ? (
+        {hasLineItems || showExtractedItems ? (
           <div className="px-5 py-4">
-            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-accent)]">
-              Billed Line Items
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr className="border-b border-[var(--ef-border-white-10)]">
-                    <th className="pb-2 text-left font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
-                      Rate Code
-                    </th>
-                    <th className="pb-2 text-left font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
-                      Description
-                    </th>
-                    <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
-                      Quantity
-                    </th>
-                    <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
-                      Unit Price
-                    </th>
-                    <th className="pb-2 text-right font-semibold uppercase tracking-[0.14em] text-[var(--ef-text-soft)]">
-                      Line Total
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--ef-border-white-06)]">
-                  {items.map((item, index) => {
-                    const ledgerRecord = invoiceSurfaceLineItemToLedgerRecord(item as Record<string, unknown>);
-                    const row = buildInvoiceLedgerLineDisplay(ledgerRecord);
-                    logInvoiceLineDebug('InvoiceSurface billed line item record', {
-                      index,
-                      record: ledgerRecord,
-                      row,
-                      extra: {
-                        invoiceSurfaceItem: item,
-                      },
-                    });
-                    return (
-                      <tr key={index} className="hover:bg-white/[0.02]">
-                        <td className="py-2 pr-4 font-mono text-[11px] text-[var(--ef-text-soft)]">{row.rateCode}</td>
-                        <td className="py-2 pr-4 text-[var(--ef-text-secondary)]">{row.description}</td>
-                        <td className="py-2 pr-4 text-right tabular-nums text-[var(--ef-text-secondary)]">{row.quantity}</td>
-                        <td className="py-2 pr-4 text-right tabular-nums text-[var(--ef-text-secondary)]">
-                          {row.unitPrice}
-                        </td>
-                        <td className="py-2 pr-4 text-right font-semibold tabular-nums text-[var(--ef-text-primary)]">
-                          {row.lineTotal}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ef-purple-accent)]">
+                Billed Line Items
+              </p>
+              {lineItemsChip ? (
+                <span
+                  className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${lineItemsChip.className}`}
+                  data-testid="line-items-provenance"
+                >
+                  {lineItemsChip.label}
+                  {lineItemsProvenance?.reviewedBy ? ` by ${lineItemsProvenance.reviewedBy}` : ''}
+                  {lineItemsProvenance?.reviewedAt ? (
+                    <time dateTime={lineItemsProvenance.reviewedAt}>
+                      {` · ${fmtTimestamp(lineItemsProvenance.reviewedAt)}`}
+                    </time>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
+            {hasLineItems ? (
+              <LineItemsTable items={items} testId="effective-line-items" />
+            ) : (
+              <p className="text-[11px] text-[var(--ef-text-soft)]">No effective line items</p>
+            )}
+            {showExtractedItems ? (
+              <details className="mt-3 rounded-xl border border-[var(--ef-border-white-10)] bg-white/[0.02] px-3 py-2">
+                <summary className="cursor-pointer text-[11px] font-semibold text-[var(--ef-text-secondary)]">
+                  View extracted
+                </summary>
+                <div className="mt-3">
+                  <LineItemsTable items={extractedItems} testId="extracted-line-items" />
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : null}
       </div>

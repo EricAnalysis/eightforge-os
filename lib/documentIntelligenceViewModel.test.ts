@@ -5049,6 +5049,113 @@ describe('normalizeInvoiceSurfaceLineItem passthrough and InvoiceSurface ledger 
     assert.equal(model.invoiceExtraction?.lineItems?.[0]?.unitPrice, 14.5);
   });
 
+  it('carries confirmed invoice_line_items provenance onto the invoice surface extraction', () => {
+    const reviewedAt = '2026-07-22T14:15:00.000Z';
+    const model = buildModel({
+      documentId: 'invoice-confirmed-line-items',
+      documentType: 'invoice',
+      documentName: 'invoice.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-CONFIRMED',
+            line_items: [{
+              line_code: '6A',
+              line_description: 'Confirmed hanging limb removal',
+              quantity: 2,
+              unit_price: 80,
+              line_total: 160,
+            }],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+      factReviews: [
+        makeFactReview({
+          id: 'review-line-items-confirmed',
+          documentId: 'invoice-confirmed-line-items',
+          fieldKey: 'line_items',
+          reviewStatus: 'confirmed',
+          reviewedAt,
+        }),
+      ],
+    });
+
+    assert.deepEqual(
+      model.invoiceExtraction?.lineItemsProvenance
+        ? {
+            reviewState: model.invoiceExtraction.lineItemsProvenance.reviewState,
+            reviewStatus: model.invoiceExtraction.lineItemsProvenance.reviewStatus,
+            displaySource: model.invoiceExtraction.lineItemsProvenance.displaySource,
+            reviewedBy: model.invoiceExtraction.lineItemsProvenance.reviewedBy,
+            reviewedAt: model.invoiceExtraction.lineItemsProvenance.reviewedAt,
+      }
+        : null,
+      {
+        reviewState: 'reviewed',
+        reviewStatus: 'confirmed',
+        displaySource: 'auto',
+        reviewedBy: 'user-1',
+        reviewedAt,
+      },
+    );
+    assert.equal(model.invoiceExtraction?.lineItemsProvenance?.extractedLineItems[0]?.lineCode, '6A');
+    assert.equal(model.invoiceExtraction?.lineItemsProvenance?.extractedLineItems[0]?.lineTotal, 160);
+    assert.equal(model.invoiceExtraction?.lineItems?.[0]?.lineTotal, 160);
+  });
+
+  it('carries neutral extracted invoice_line_items provenance when no review exists', () => {
+    const model = buildModel({
+      documentId: 'invoice-extracted-line-items',
+      documentType: 'invoice',
+      documentName: 'invoice.pdf',
+      documentTitle: 'Invoice',
+      preferredExtraction: {
+        fields: {
+          typed_fields: {
+            invoice_number: 'INV-EXTRACTED',
+            line_items: [{
+              line_code: '5A',
+              line_description: 'Extracted tree removal',
+              quantity: 1,
+              unit_price: 95,
+              line_total: 95,
+            }],
+          },
+        },
+        extraction: { evidence_v1: {} },
+      },
+      executionTrace: executionTraceMinimal as never,
+    });
+
+    assert.deepEqual(
+      model.invoiceExtraction?.lineItemsProvenance
+        ? {
+            reviewState: model.invoiceExtraction.lineItemsProvenance.reviewState,
+            reviewStatus: model.invoiceExtraction.lineItemsProvenance.reviewStatus,
+            displaySource: model.invoiceExtraction.lineItemsProvenance.displaySource,
+            reviewedBy: model.invoiceExtraction.lineItemsProvenance.reviewedBy,
+            reviewedAt: model.invoiceExtraction.lineItemsProvenance.reviewedAt,
+          }
+        : null,
+      {
+        reviewState: 'derived',
+        reviewStatus: null,
+        displaySource: 'auto',
+        reviewedBy: null,
+        reviewedAt: null,
+      },
+    );
+    const extractedLine = model.invoiceExtraction?.lineItemsProvenance?.extractedLineItems[0];
+    assert.ok(extractedLine);
+    assert.equal(extractedLine.lineCode, '5A');
+    assert.equal(extractedLine.lineTotal, 95);
+    assert.equal(model.invoiceExtraction?.lineItems?.[0]?.lineCode, '5A');
+    assert.equal(model.invoiceExtraction?.lineItems?.[0]?.lineTotal, 95);
+  });
+
   it('preserves raw_text / rawText / line_text / text on normalized surface lines', () => {
     const raw = '1A Vegetative Collect Remove Haul 43,894 CYD';
     const model = buildModel({

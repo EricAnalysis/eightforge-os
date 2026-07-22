@@ -228,6 +228,17 @@ export type DocumentFact = {
   machineClassification?: string | null;
 };
 
+export type InvoiceLineItemsProvenanceSummary = Pick<
+  DocumentFact,
+  'reviewState' | 'reviewStatus' | 'displaySource' | 'reviewedBy' | 'reviewedAt'
+> & {
+  extractedLineItems: NonNullable<InvoiceExtraction['lineItems']>;
+};
+
+export type InvoiceSurfaceExtraction = InvoiceExtraction & {
+  lineItemsProvenance?: InvoiceLineItemsProvenanceSummary;
+};
+
 export type DocumentFactGroup = {
   key: string;
   label: string;
@@ -432,7 +443,7 @@ export type DocumentIntelligenceViewModel = {
    * Typed extraction for invoice documents. Populated when family === 'invoice' and
    * the execution trace carries structured extracted data. Used by InvoiceSurface.
    */
-  invoiceExtraction: InvoiceExtraction | null;
+  invoiceExtraction: InvoiceSurfaceExtraction | null;
   /**
    * Typed extraction for transaction_data spreadsheets. Populated when family === 'spreadsheet'
    * and document_type includes 'transaction_data'.
@@ -5538,13 +5549,31 @@ function effectiveInvoiceFactArray(
   return Array.isArray(value) ? value : null;
 }
 
+function invoiceLineItemsFact(
+  facts: readonly DocumentFact[] | null | undefined,
+  family: DocumentFamily,
+): DocumentFact | null {
+  return facts?.find((candidate) =>
+    canonicalFieldKey(candidate.fieldKey, family) === 'invoice_line_items',
+  ) ?? null;
+}
+
+function normalizeInvoiceSurfaceLineItems(params: {
+  lineItems: unknown[];
+  extractionData?: Record<string, unknown> | null;
+}): NonNullable<InvoiceExtraction['lineItems']> {
+  return recoverInvoiceLineItemsFromExtractionData(params)
+    .map((line, index) => normalizeInvoiceSurfaceLineItem(line, index))
+    .filter((line): line is NonNullable<InvoiceExtraction['lineItems']>[number] => line != null);
+}
+
 function toInvoiceSurfaceExtraction(params: {
   typedFields: Record<string, unknown>;
   extracted: Record<string, unknown>;
   extractionData?: Record<string, unknown> | null;
   effectiveFacts?: readonly DocumentFact[];
   family?: DocumentFamily;
-}): InvoiceExtraction | null {
+}): InvoiceSurfaceExtraction | null {
   const source = {
     ...params.extracted,
     ...params.typedFields,
@@ -5604,6 +5633,7 @@ function toInvoiceSurfaceExtraction(params: {
     ?? asLooseNumber(source.currentPaymentDue)
     ?? totalAmount;
 
+  const lineItemsFact = invoiceLineItemsFact(params.effectiveFacts, family);
   const persistedLineItems =
     effectiveInvoiceFactArray(params.effectiveFacts, family, ['invoice_line_items', 'line_items'])
     ?? asArray<unknown>(source.line_items ?? source.lineItems);
@@ -5619,13 +5649,16 @@ function toInvoiceSurfaceExtraction(params: {
     });
   });
 
-  const lineItemSource = recoverInvoiceLineItemsFromExtractionData({
+  const lineItems = normalizeInvoiceSurfaceLineItems({
     lineItems: persistedLineItems,
     extractionData: params.extractionData,
   });
-  const lineItems = lineItemSource
-    .map((line, index) => normalizeInvoiceSurfaceLineItem(line, index))
-    .filter((line): line is NonNullable<InvoiceExtraction['lineItems']>[number] => line != null);
+  const extractedLineItems = lineItemsFact
+    ? normalizeInvoiceSurfaceLineItems({
+        lineItems: invoiceLineItemRows(lineItemsFact.machineValue),
+        extractionData: params.extractionData,
+      })
+    : [];
   const lineItemCount =
     asLooseNumber(source.line_item_count)
     ?? asLooseNumber(source.lineItemCount)
@@ -5672,6 +5705,16 @@ function toInvoiceSurfaceExtraction(params: {
     current_amount_due: currentPaymentDue ?? null,
     lineItemCount: lineItemCount ?? undefined,
     line_item_count: lineItemCount ?? null,
+    lineItemsProvenance: lineItemsFact
+      ? {
+          reviewState: lineItemsFact.reviewState,
+          reviewStatus: lineItemsFact.reviewStatus,
+          displaySource: lineItemsFact.displaySource,
+          reviewedBy: lineItemsFact.reviewedBy,
+          reviewedAt: lineItemsFact.reviewedAt,
+          extractedLineItems,
+        }
+      : undefined,
     lineItems,
     line_items: lineItems.map((line) => {
       const l = line as Record<string, unknown>;
@@ -6032,7 +6075,7 @@ export function buildDocumentIntelligenceViewModel(params: BuildParams): Documen
 
   const hasExtractedKeys = Object.keys(extracted).length > 0;
   const isTransactionDataType = (params.documentType ?? '').toLowerCase().includes('transaction_data');
-  const invoiceExtraction: InvoiceExtraction | null =
+  const invoiceExtraction: InvoiceSurfaceExtraction | null =
     family === 'invoice'
       ? toInvoiceSurfaceExtraction({
           typedFields,

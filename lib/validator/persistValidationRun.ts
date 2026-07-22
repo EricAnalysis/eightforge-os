@@ -666,6 +666,7 @@ async function markStaleOpenFindingsResolved(params: {
   currentOpenCheckKeys: Set<string>;
   actorId?: string;
   runId: string;
+  triggerSource: ValidationTriggerSource;
 }) {
   const admin = requireAdminClient();
   const existingOpenFindings = await loadAllExistingOpenFindings(params.projectId);
@@ -710,6 +711,7 @@ async function markStaleOpenFindingsResolved(params: {
         updated_at: now,
       },
       runId: params.runId,
+      triggerSource: params.triggerSource,
     });
     if (!activityResult.ok) {
       console.error('[persistValidationRun] failed to log validation finding lifecycle event', {
@@ -1228,6 +1230,7 @@ export async function persistValidationRun(
       currentOpenCheckKeys,
       actorId: triggeredByUserId,
       runId,
+      triggerSource,
     });
     await closeSuppressedContractDecisions({
       project,

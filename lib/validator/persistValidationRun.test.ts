@@ -458,6 +458,7 @@ describe('persistValidationRun core persistence', () => {
       .filter((event) => event.event_type === 'validation_finding_resolved');
     assert.equal(resolvedEvents.length, 1);
     assert.equal(resolvedEvents[0]?.entity_id, 'stale-finding');
+    assert.equal(db.findings.find((finding) => finding.id === 'stale-finding')?.status, 'resolved');
     assert.deepEqual(resolvedEvents[0]?.old_value, {
       status: 'open',
       rule_id: 'OLD_RULE',
@@ -469,6 +470,7 @@ describe('persistValidationRun core persistence', () => {
     });
     assert.equal(resolvedEvents[0]?.new_value?.status, 'resolved');
     assert.equal(resolvedEvents[0]?.new_value?.run_id, RUN_ID);
+    assert.equal(resolvedEvents[0]?.new_value?.trigger_source, 'manual');
   });
 
   it('persists N approval blockers once when their N execution items are synchronized', async () => {
@@ -571,6 +573,79 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(db.findings.filter((finding) => finding.status === 'resolved').length, 2);
   });
 
+  it('propagates an automatic trigger source to the resolved event', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'document_processed');
+
+    const resolvedEvent = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .find((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvent?.new_value?.trigger_source, 'document_processed');
+  });
+
+  it('does not emit a resolved event for a finding that was already resolved', async () => {
+    const db = new MockDatabase();
+    db.findings[0].status = 'resolved';
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvents.length, 0);
+  });
+
+  it('does not duplicate a resolved event on a repeated validation run', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvents.length, 1);
+  });
+
+  it('emits only one resolved event when validation runs race to resolve the same finding', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await Promise.all([
+      persistValidationRun(PROJECT_ID, validatorResult(), 'manual'),
+      persistValidationRun(PROJECT_ID, validatorResult(), 'document_processed'),
+    ]);
+
+    const resolvedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_finding_resolved');
+    assert.equal(resolvedEvents.length, 1);
+    assert.equal(resolvedEvents[0]?.entity_id, 'stale-finding');
+  });
+
+  it('preserves the validation run completed resolved findings aggregate', async () => {
+    const db = new MockDatabase();
+    db.runs.push({
+      id: 'old-run',
+      project_id: PROJECT_ID,
+      status: 'complete',
+      completed_at: '2026-05-20T00:00:00.000Z',
+    });
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+
+    await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+
+    const completedEvents = vi.mocked(logActivityEvent).mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event_type === 'validation_run_completed');
+    assert.equal(completedEvents.length, 1);
+    assert.equal(completedEvents[0]?.new_value?.resolved_findings, 1);
+  });
+
   it('emits no lifecycle event for an unchanged finding that remains open', async () => {
     const current = validationFinding({ id: 'existing-finding' });
     const db = new MockDatabase();
@@ -643,6 +718,7 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(snapshotOptions?.runId, RUN_ID);
     assert.equal(snapshotOptions?.triggerEntity?.trigger_entity_id, 'decision-1');
     assert.equal(resolvedEvent?.new_value?.run_id, RUN_ID);
+    assert.equal(resolvedEvent?.new_value?.trigger_source, 'manual');
     assert.equal(resolvedEvent?.entity_id, 'stale-finding');
   });
 

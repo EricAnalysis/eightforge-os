@@ -1,6 +1,6 @@
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
-import type { ValidationFinding } from '@/types/validator';
+import type { ValidationFinding, ValidationTriggerSource } from '@/types/validator';
 
 export type ValidationFindingLifecycleEventType =
   | 'validation_finding_resolved'
@@ -18,6 +18,7 @@ type ValidationFindingActivityContext = {
   previousFinding: ValidationFinding;
   currentFinding: ValidationFinding;
   runId?: string;
+  triggerSource?: ValidationTriggerSource;
 };
 
 function lifecycleValue(finding: ValidationFinding) {
@@ -84,6 +85,9 @@ export async function emitValidationFindingLifecycleActivity(
       new_value: {
         ...lifecycleValue(context.currentFinding),
         ...(context.runId ? { run_id: context.runId } : {}),
+        ...(eventType === 'validation_finding_resolved' && context.triggerSource
+          ? { trigger_source: context.triggerSource }
+          : {}),
       },
     });
 

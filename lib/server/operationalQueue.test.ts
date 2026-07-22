@@ -540,30 +540,58 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
     assert.equal(merged.unresolved_finding_count, 1);
   });
 
-  it('counts a blocking finding and its mirrored execution item once', () => {
+  it('counts N blocking findings and their N mirrored execution items once', () => {
+    const blockerCount = 3;
     const base = baseRollupFixture({
       status: {
         key: 'blocked',
         label: 'Blocked',
         tone: 'danger',
-        detail: 'One validation finding blocks approval.',
+        detail: 'Three validation findings block approval.',
         is_clear: false,
       },
-      blocked_count: 1,
+      blocked_count: blockerCount,
     });
-    const item = buildExecutionItem({ id: 'ex-block', status: 'open', severity: 'high' });
+    const items = Array.from({ length: blockerCount }, (_, index) => buildExecutionItem({
+      id: `ex-block-${index}`,
+      status: 'open',
+      severity: 'high',
+    }));
+    const executionActions = items.map((item, index) => ({
+      id: `exec-action-${index}`,
+      href: `/platform/projects/project-1?executionItemId=${item.id}`,
+      title: `Execution follow-up ${index + 1}`,
+      due_label: 'Blocking',
+      due_tone: 'danger' as const,
+      assignee_label: 'Unassigned',
+      priority_label: 'High',
+      priority_tone: 'warning' as const,
+      status_label: 'Open',
+      source_document_title: null,
+      source_document_type: 'validator',
+      approval_status: 'blocked' as const,
+    }));
     const merged = mergeProjectRollupWithExecutionItems({
       rollup: base,
-      unresolvedItems: [item],
-      pendingExecutionActions: [],
+      unresolvedItems: items,
+      pendingExecutionActions: executionActions,
     });
 
     assert.equal(merged.status.key, 'blocked');
     assert.equal(merged.status.label, 'Blocked');
-    assert.equal(merged.blocked_count, 1);
+    assert.equal(merged.blocked_count, blockerCount);
+    assert.notEqual(merged.blocked_count, blockerCount * 2);
+    assert.equal(merged.open_document_action_count, base.open_document_action_count + blockerCount);
+    assert.equal(merged.unresolved_finding_count, base.unresolved_finding_count + blockerCount);
+    assert.deepEqual(
+      merged.pending_actions.slice(0, blockerCount).map((action) => action.id),
+      executionActions.map((action) => action.id),
+    );
+    assert.equal(merged.pending_actions.at(-1)?.id, 'a1');
   });
 
-  it('does not let a stale execution item without a live blocking finding change approval state', () => {
+  it('does not let stale execution items without live blocking findings change approval state', () => {
+    const staleItemCount = 3;
     const base = baseRollupFixture({
       status: {
         key: 'operationally_clear',
@@ -575,10 +603,14 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
       needs_review_document_count: 0,
       project_clear: true,
     });
-    const item = buildExecutionItem({ status: 'resolvable', severity: 'critical' });
+    const items = Array.from({ length: staleItemCount }, (_, index) => buildExecutionItem({
+      id: `stale-execution-item-${index}`,
+      status: 'resolvable',
+      severity: 'critical',
+    }));
     const merged = mergeProjectRollupWithExecutionItems({
       rollup: base,
-      unresolvedItems: [item],
+      unresolvedItems: items,
       pendingExecutionActions: [],
     });
 
@@ -586,6 +618,8 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
     assert.equal(merged.status.key, 'operationally_clear');
     assert.equal(merged.status.label, 'Approved');
     assert.equal(merged.project_clear, true);
+    assert.equal(merged.open_document_action_count, base.open_document_action_count + staleItemCount);
+    assert.equal(merged.unresolved_finding_count, base.unresolved_finding_count + staleItemCount);
   });
 
   it('preserves execution items in worklist and action fields', () => {

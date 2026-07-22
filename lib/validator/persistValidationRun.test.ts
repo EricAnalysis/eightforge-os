@@ -471,6 +471,83 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(resolvedEvents[0]?.new_value?.run_id, RUN_ID);
   });
 
+  it('persists N approval blockers once when their N execution items are synchronized', async () => {
+    const db = new MockDatabase();
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    const blockerCount = 3;
+    const blockers = Array.from({ length: blockerCount }, (_, index) => validationFinding({
+      id: `candidate-finding-${index}`,
+      rule_id: 'INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO',
+      check_key: `INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO:invoice-${index}`,
+      category: 'financial_integrity',
+      subject_id: `invoice-${index}`,
+      decision_eligible: true,
+      action_eligible: true,
+      approval_gate_effect: 'blocks_approval',
+      finding_disposition: 'blocker',
+      business_severity: 'critical',
+    }));
+    const executionItemIdsBySourceKey = new Map(
+      blockers.map((finding, index) => [finding.check_key, `execution-item-${index}`]),
+    );
+    vi.mocked(syncExecutionItems).mockResolvedValueOnce({
+      created: blockerCount,
+      updated: 0,
+      resolvable: 0,
+      staleResolved: 0,
+      suppressed: 0,
+      superseded: 0,
+      suppressedFindingIds: new Set(),
+      executionItemIdsBySourceKey,
+    });
+
+    await persistValidationRun(
+      PROJECT_ID,
+      validatorResult(blockers),
+      'manual',
+      'user-1',
+      'input-hash',
+      { trigger_entity_type: 'decision', trigger_entity_id: 'decision-1' },
+    );
+
+    const snapshotCall = vi.mocked(persistApprovalSnapshot).mock.calls[0];
+    assert.ok(snapshotCall);
+    const [snapshotProjectId, , rollup, snapshotOptions] = snapshotCall;
+    assert.equal(snapshotProjectId, PROJECT_ID);
+    assert.equal(rollup.blocked_count, blockerCount);
+    assert.notEqual(rollup.blocked_count, blockerCount * 2);
+    assert.equal(rollup.unresolved_finding_count, blockerCount);
+    assert.equal(rollup.status.label, 'Blocked');
+    assert.equal(rollup.project_clear, false);
+    assert.deepEqual(
+      rollup.pending_actions.map((action) => ({
+        id: action.id,
+        status_label: action.status_label,
+        due_tone: action.due_tone,
+      })),
+      blockers.map((finding) => ({
+        id: `finding-${finding.check_key}`,
+        status_label: 'Blocked',
+        due_tone: 'danger',
+      })),
+    );
+
+    assert.equal(snapshotOptions?.runId, RUN_ID);
+    assert.equal(snapshotOptions?.createdBy, 'user-1');
+    assert.deepEqual(snapshotOptions?.triggerEntity, {
+      trigger_entity_type: 'decision',
+      trigger_entity_id: 'decision-1',
+    });
+    assert.deepEqual(snapshotOptions?.findingIds, ['finding-1', 'finding-2', 'finding-3']);
+
+    const persisted = persistedOpenFindings(db);
+    assert.equal(persisted.length, blockerCount);
+    for (const [index, finding] of blockers.entries()) {
+      const persistedFinding = persisted.find((row) => row.check_key === finding.check_key);
+      assert.equal(persistedFinding?.linked_action_id, `execution-item-${index}`);
+    }
+  });
+
   it('emits one resolved event per stale finding without changing canonical counts', async () => {
     const db = new MockDatabase();
     db.findings.push({

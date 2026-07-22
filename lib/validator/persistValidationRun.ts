@@ -7,12 +7,10 @@ import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
 import { emitValidationFindingLifecycleActivity } from '@/lib/validator/validationFindingActivity';
 import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
-import type {
-  ProjectOperationalRollup,
-  ProjectValidatorSummarySnapshot,
-} from '@/lib/projectOverview';
+import type { ProjectValidatorSummarySnapshot } from '@/lib/projectOverview';
 import { syncValidatorDecisions } from '@/lib/validator/validatorDecisionSync';
 import { buildValidationSummary } from '@/lib/validator/shared';
+import { buildValidationFindingOperationalRollup } from '@/lib/validator/validationFindingOperationalRollup';
 import {
   blockerFindingCount,
   infoFindingCount,
@@ -1303,52 +1301,20 @@ export async function persistValidationRun(
       });
     });
 
-    // Persist approval snapshot for audit trail (Phase 6)
-    // Construct a minimal ProjectOperationalRollup from validation findings
-    const rollupStatus = {
-      label: effectiveResult.status === 'VALIDATED' ? 'Approved' :
-             effectiveResult.status === 'BLOCKED' ? 'Blocked' :
-             effectiveResult.status === 'FINDINGS_OPEN' ? 'Needs Review' : 'Not Evaluated',
-    };
-
-    const pendingActions = effectivePersistedFindings
-      .filter((f) => f.decision_eligible && f.status === 'open')
-      .map((f, index) => {
-        const normalized = normalizeValidationFinding(f);
-        return ({
-        id: `finding-${f.check_key}`,
-        title: normalized.problem || f.blocked_reason || f.category,
-        description: normalized.impact || (f.actual ? `Expected: ${f.expected}, Actual: ${f.actual}` : f.category),
-        status_label: isBlockingFinding(f) ? 'Blocked' : 'Needs Review',
-        due_tone: isBlockingFinding(f) ? 'danger' : 'warning',
-        impacted_amount: normalized.affected_amount ?? null,
-        at_risk_amount: normalized.affected_amount ?? null,
-        blocked_amount: null,
-        next_step: normalized.required_action || `Review finding: ${f.check_key}`,
-        href: `/platform/projects/${projectId}#validator`,
-        invoice_number: null,
-        approval_status: null,
-        decision_id: f.rule_id || f.check_key,
-        entity_type: 'finding',
-        index,
-      })});
-
-    const rollup = {
-      status: rollupStatus,
-      project_clear: effectiveResult.status === 'VALIDATED',
-      pending_actions: pendingActions,
-      needs_review_document_count: 0,
-      unresolved_finding_count: effectivePersistedFindings.filter((f) => f.status === 'open').length,
-      blocked_count: effectivePersistedFindings.filter((f) => f.status === 'open' && isBlockingFinding(f)).length,
-      open_document_action_count: 0,
-    };
+    // Persist approval snapshot for audit trail (Phase 6).
+    // Approval truth is finding-derived; execution items remain workflow metadata.
+    const rollup = buildValidationFindingOperationalRollup({
+      projectId,
+      validationStatus: effectiveResult.status,
+      findings: effectivePersistedFindings,
+    });
 
     let approvalSnapshot: Awaited<ReturnType<typeof persistApprovalSnapshot>> | null = null;
     await runValidationSideEffect('persistApprovalSnapshot', sideEffectContext, async () => {
       approvalSnapshot = await persistApprovalSnapshot(
         projectId,
         (effectiveResult.summary as unknown as ProjectValidatorSummarySnapshot) || null,
-        (rollup as unknown as ProjectOperationalRollup),
+        rollup,
         {
           runId: completedRunId,
           triggerEntity,

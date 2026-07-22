@@ -788,62 +788,8 @@ function augmentRollupWithValidatorActions(
   };
 }
 
-function rollupStatusRank(key: ProjectOperationalRollup['status']['key']): number {
-  switch (key) {
-    case 'blocked':
-      return 0;
-    case 'needs_review':
-      return 1;
-    case 'attention_required':
-      return 2;
-    case 'operationally_clear':
-      return 3;
-    default:
-      return 3;
-  }
-}
-
 function executionItemIsUnresolved(item: Pick<ProjectExecutionItemRow, 'status'>): boolean {
   return item.status !== 'resolved';
-}
-
-function executionItemIsBlockedTier(item: ProjectExecutionItemRow): boolean {
-  if (!executionItemIsUnresolved(item)) return false;
-  return executionItemBlocksApproval(item) || item.severity === 'critical';
-}
-
-function statusFromUnresolvedExecutionItems(
-  unresolvedItems: ProjectExecutionItemRow[],
-): ProjectOperationalRollup['status'] | null {
-  const blockedTier = unresolvedItems.filter(executionItemIsBlockedTier);
-
-  if (blockedTier.length > 0) {
-    return {
-      key: 'blocked',
-      label: 'Blocked',
-      tone: 'danger',
-      detail: `${blockedTier.length} execution item${blockedTier.length === 1 ? '' : 's'} block approval or are critical.`,
-      is_clear: false,
-    };
-  }
-
-  return null;
-}
-
-function mergeOperationalRollupStatus(
-  base: ProjectOperationalRollup['status'],
-  exec: ProjectOperationalRollup['status'] | null,
-): ProjectOperationalRollup['status'] {
-  if (!exec) return base;
-  const baseRank = rollupStatusRank(base.key);
-  const execRank = rollupStatusRank(exec.key);
-  if (execRank < baseRank) return exec;
-  if (execRank > baseRank) return base;
-  return {
-    ...base,
-    detail: [base.detail, exec.detail].filter(Boolean).join(' '),
-    is_clear: false,
-  };
 }
 
 function suppressApprovedActivationBasisActions(
@@ -880,17 +826,11 @@ export function mergeProjectRollupWithExecutionItems(params: {
   pendingExecutionActions: ProjectOverviewActionItem[];
 }): ProjectOperationalRollup {
   const { rollup, unresolvedItems, pendingExecutionActions } = params;
-  const execStatus = statusFromUnresolvedExecutionItems(unresolvedItems);
-  const mergedStatus = mergeOperationalRollupStatus(rollup.status, execStatus);
-  const blockedTierCount = unresolvedItems.filter(executionItemIsBlockedTier).length;
 
   return suppressApprovedActivationBasisActions({
     ...rollup,
-    status: mergedStatus,
-    project_clear: mergedStatus.is_clear,
     open_document_action_count: rollup.open_document_action_count + unresolvedItems.length,
     unresolved_finding_count: rollup.unresolved_finding_count + unresolvedItems.length,
-    blocked_count: rollup.blocked_count + blockedTierCount,
     pending_actions: [...pendingExecutionActions, ...rollup.pending_actions],
   });
 }

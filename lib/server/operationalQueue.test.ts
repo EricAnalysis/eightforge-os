@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
+import { canonicalApprovalForProject } from '../commandCenterApproval';
 import type { ProjectExecutionItemRow } from '../executionItems';
 import type {
   ProjectDecisionRow,
@@ -539,15 +540,16 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
     assert.equal(merged.unresolved_finding_count, 1);
   });
 
-  it('escalates to Blocked when an open execution item blocks approval', () => {
+  it('counts a blocking finding and its mirrored execution item once', () => {
     const base = baseRollupFixture({
       status: {
-        key: 'needs_review',
-        label: 'Needs Review',
-        tone: 'warning',
-        detail: 'Review docs.',
+        key: 'blocked',
+        label: 'Blocked',
+        tone: 'danger',
+        detail: 'One validation finding blocks approval.',
         is_clear: false,
       },
+      blocked_count: 1,
     });
     const item = buildExecutionItem({ id: 'ex-block', status: 'open', severity: 'high' });
     const merged = mergeProjectRollupWithExecutionItems({
@@ -558,9 +560,10 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
 
     assert.equal(merged.status.key, 'blocked');
     assert.equal(merged.status.label, 'Blocked');
+    assert.equal(merged.blocked_count, 1);
   });
 
-  it('treats critical severity execution items as blocked tier even when status is resolvable', () => {
+  it('does not let a stale execution item without a live blocking finding change approval state', () => {
     const base = baseRollupFixture({
       status: {
         key: 'operationally_clear',
@@ -579,10 +582,13 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
       pendingExecutionActions: [],
     });
 
-    assert.equal(merged.status.key, 'blocked');
+    assert.equal(merged.blocked_count, 0);
+    assert.equal(merged.status.key, 'operationally_clear');
+    assert.equal(merged.status.label, 'Approved');
+    assert.equal(merged.project_clear, true);
   });
 
-  it('prepends execution pending actions without dropping existing rollup actions', () => {
+  it('preserves execution items in worklist and action fields', () => {
     const base = baseRollupFixture();
     const execAction = {
       id: 'exec-pending-1',
@@ -607,5 +613,46 @@ describe('mergeProjectRollupWithExecutionItems (Command Center rollups)', () => 
     assert.equal(merged.pending_actions.length, 2);
     assert.equal(merged.pending_actions[0]?.id, 'exec-pending-1');
     assert.equal(merged.pending_actions[1]?.id, 'a1');
+    assert.equal(merged.open_document_action_count, base.open_document_action_count + 1);
+    assert.equal(merged.unresolved_finding_count, base.unresolved_finding_count + 1);
+  });
+
+  it('keeps the Overview rollup aligned with Command Center canonical approval', () => {
+    const project = {
+      validation_status: 'BLOCKED' as const,
+      validation_summary_json: {
+        readiness: 'BLOCKED',
+        blocker_count: 1,
+        critical_count: 1,
+        open_count: 1,
+        validator_blockers: [
+          {
+            rule_id: 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT',
+            severity: 'critical',
+            subject_id: 'fact:doc:line:6',
+          },
+        ],
+      },
+    };
+    const commandCenterApproval = canonicalApprovalForProject(project);
+    const base = baseRollupFixture({
+      status: {
+        key: 'blocked',
+        label: commandCenterApproval.label,
+        tone: 'danger',
+        detail: 'One validation finding blocks approval.',
+        is_clear: false,
+      },
+      blocked_count: commandCenterApproval.blocker_count,
+    });
+    const overviewRollup = mergeProjectRollupWithExecutionItems({
+      rollup: base,
+      unresolvedItems: [buildExecutionItem({ id: 'mirrored-execution-item' })],
+      pendingExecutionActions: [],
+    });
+
+    assert.equal(overviewRollup.blocked_count, commandCenterApproval.blocker_count);
+    assert.equal(overviewRollup.blocked_count > 0, commandCenterApproval.is_blocked);
+    assert.equal(overviewRollup.status.key === 'blocked', commandCenterApproval.is_blocked);
   });
 });

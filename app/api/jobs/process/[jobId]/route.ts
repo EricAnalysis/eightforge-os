@@ -2,7 +2,7 @@
 // Processes a single document analysis job: download, extract, optional AI enrich, persist.
 // Auth required: only the organization that owns the job can trigger processing.
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
@@ -15,6 +15,10 @@ import { runWorkflowEngine } from '@/lib/server/legacyWorkflowEngine';
 import { createWorkflowTasksFromDecisions } from '@/lib/server/workflowTasks';
 import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
+import {
+  captureStorageObjectVersion,
+  scheduleExtractionComplianceShadow,
+} from '@/lib/extraction/persistence/complianceShadow';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -94,6 +98,11 @@ export async function POST(
     });
     await setDocumentStatus({ documentId: job.document_id, status: 'processing' });
 
+    const storageVersionBeforeDownload = await captureStorageObjectVersion(
+      admin,
+      BUCKET,
+      storagePath,
+    );
     const { data: fileData, error: downloadError } = await admin.storage
       .from(BUCKET)
       .download(storagePath);
@@ -115,12 +124,26 @@ export async function POST(
       storage_path: storagePath,
     };
 
-    let payload = (await extractDocument(
+    const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
       fileName
     )) as ExtractionPayload & { ai_enrichment?: unknown };
+
+    after(scheduleExtractionComplianceShadow({
+      admin,
+      organizationId: job.organization_id,
+      sourceDocumentId: job.document_id,
+      sourceBytes: bytes,
+      storageBucket: BUCKET,
+      storagePath,
+      storageVersionBeforeDownload,
+      mediaType: mimeType,
+      legacyExtractionPayload: payload as unknown as Record<string, unknown>,
+      analysisJobId: jobId,
+      analysisMode: job.analysis_mode,
+    }));
 
     if (job.analysis_mode === 'ai_enriched') {
       const aiResult = await runAiEnrichment({

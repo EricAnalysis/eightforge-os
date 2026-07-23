@@ -15,6 +15,7 @@ import { persistValidationRun } from '@/lib/validator/persistValidationRun';
 import { validateProject } from '@/lib/validator/projectValidator';
 import type { ValidationTriggerSource } from '@/types/validator';
 import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
+import { reportValidatorFreshnessShadow } from '@/lib/validator/validatorFreshnessAudit';
 
 type TableError = {
   code?: string | null;
@@ -454,13 +455,21 @@ async function loadValidationTriggerMetrics(
   };
 }
 
-async function runValidationFlow(params: {
+export async function runValidationFlow(params: {
   projectId: string;
   source: ValidationTriggerSource;
   userId?: string;
   inputsSnapshotHash: string;
   triggerEntity?: ValidationTriggerEntity;
 }): Promise<void> {
+  void reportValidatorFreshnessShadow(params.projectId).catch((error) => {
+    console.error('[validatorFreshnessAudit] non-fatal audit failure', {
+      mode: 'shadow',
+      blocking: false,
+      projectId: params.projectId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   const result = await validateProject(params.projectId);
   await persistValidationRun(
     params.projectId,

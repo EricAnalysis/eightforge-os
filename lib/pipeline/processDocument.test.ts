@@ -15,6 +15,7 @@ const MOCKED_MODULES = [
   '@/lib/server/activity/logActivityEvent',
   '@/lib/server/intelligencePersistence',
   '@/lib/pipeline/projectRerun',
+  '@/lib/extraction/persistence/complianceShadow',
 ] as const;
 
 type SetupParams = {
@@ -25,6 +26,9 @@ type SetupParams = {
   canonicalResult?: Record<string, unknown>;
   canonicalError?: Error;
   heuristicDecisions?: Array<Record<string, unknown>>;
+  storageVersions?: readonly [string | null, string | null];
+  pendingStorageVersion?: boolean;
+  pendingShadowPublisher?: boolean;
 };
 
 async function loadProcessDocument() {
@@ -165,6 +169,45 @@ async function setupProcessDocumentTest(params: SetupParams) {
   }));
   const logActivityEvent = vi.fn(async () => undefined);
   const getProjectRerunStoredDocTypes = vi.fn(() => []);
+  const storageVersions = params.storageVersions ?? [
+    'object-1:version-1',
+    'object-1:version-1',
+  ];
+  const captureStorageObjectVersion = params.pendingStorageVersion
+    ? vi.fn(async () => null)
+    : vi.fn()
+        .mockResolvedValueOnce(storageVersions[0])
+        .mockResolvedValueOnce(storageVersions[1]);
+  const publishExtractionComplianceShadowNonBlocking = params.pendingShadowPublisher
+    ? vi.fn((input: Record<string, unknown>) => {
+        void input;
+        return new Promise<null>(() => undefined);
+      })
+    : vi.fn(async (input: Record<string, unknown>) => {
+        void input;
+        return null;
+      });
+  const scheduleExtractionComplianceShadow = vi.fn((input: {
+    storageVersionBeforeDownload: string | null;
+    storageBucket: string;
+    storagePath: string;
+  } & Record<string, unknown>) => {
+    return (async () => {
+      if (!input.storageVersionBeforeDownload) return;
+      const after = await captureStorageObjectVersion(
+        admin as never,
+        input.storageBucket,
+        input.storagePath,
+      );
+      await publishExtractionComplianceShadowNonBlocking({
+        ...input,
+        storageObjectVersion:
+          input.storageVersionBeforeDownload === after
+            ? input.storageVersionBeforeDownload
+            : null,
+      });
+    })();
+  });
   const generateAndPersistCanonicalIntelligence = params.canonicalError
     ? vi.fn(async () => {
         throw params.canonicalError;
@@ -215,6 +258,11 @@ async function setupProcessDocumentTest(params: SetupParams) {
   vi.doMock('@/lib/pipeline/projectRerun', () => ({
     getProjectRerunStoredDocTypes,
   }));
+  vi.doMock('@/lib/extraction/persistence/complianceShadow', () => ({
+    captureStorageObjectVersion,
+    publishExtractionComplianceShadowNonBlocking,
+    scheduleExtractionComplianceShadow,
+  }));
 
   const processDocument = await loadProcessDocument();
 
@@ -236,6 +284,9 @@ async function setupProcessDocumentTest(params: SetupParams) {
       orchestrateWorkflows,
       logActivityEvent,
       getProjectRerunStoredDocTypes,
+      captureStorageObjectVersion,
+      publishExtractionComplianceShadowNonBlocking,
+      scheduleExtractionComplianceShadow,
     },
   };
 }
@@ -249,6 +300,75 @@ afterEach(() => {
 });
 
 describe('processDocument canonical persistence gating', () => {
+  it('captures one storage generation and completes the non-fatal compliance write', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentType: 'contract',
+    });
+    const result = await processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    });
+    expect(result.success).toBe(true);
+    await vi.waitFor(() => {
+      expect(spies.captureStorageObjectVersion).toHaveBeenCalledTimes(2);
+      expect(spies.publishExtractionComplianceShadowNonBlocking).toHaveBeenCalledWith(
+        expect.objectContaining({ storageObjectVersion: 'object-1:version-1' }),
+      );
+    });
+  });
+
+  it('refuses to bind downloaded bytes to a changed storage generation', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentType: 'contract',
+      storageVersions: ['object-1:version-1', 'object-1:version-2'],
+    });
+    const result = await processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    });
+    expect(result.success).toBe(true);
+    await vi.waitFor(() => {
+      expect(spies.publishExtractionComplianceShadowNonBlocking).toHaveBeenCalledWith(
+        expect.objectContaining({ storageObjectVersion: null }),
+      );
+    });
+  });
+
+  it('continues when bounded storage identity capture yields no identity', async () => {
+    const pendingStorage = await setupProcessDocumentTest({
+      documentType: 'contract',
+      pendingStorageVersion: true,
+    });
+    await expect(pendingStorage.processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+    })).resolves.toMatchObject({ success: true });
+    expect(pendingStorage.spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
+  });
+
+  it('does not wait for pending shadow publication', async () => {
+    const registerBackgroundTask = vi.fn();
+    const pendingPublisher = await setupProcessDocumentTest({
+      documentType: 'contract',
+      pendingShadowPublisher: true,
+    });
+    await expect(pendingPublisher.processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'deterministic',
+      triggeredBy: 'manual',
+      registerBackgroundTask,
+    })).resolves.toMatchObject({ success: true });
+    expect(pendingPublisher.spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
+    expect(registerBackgroundTask).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
   it('keeps Williamson-style contract failures at extracted and blocks all downstream decisioning', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { processDocument, spies } = await setupProcessDocumentTest({

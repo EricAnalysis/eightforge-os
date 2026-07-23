@@ -2,7 +2,7 @@
 // Unified POST endpoint that triggers the full document processing pipeline.
 // Org is taken only from authenticated actor context; body orgId is ignored.
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { processDocument } from '@/lib/pipeline/processDocument';
@@ -97,6 +97,7 @@ export async function POST(req: Request) {
       organizationId,
       analysisMode,
       triggeredBy: 'manual',
+      registerBackgroundTask: (task) => after(task),
     });
 
     console.log('[documents/process] pipeline result', {

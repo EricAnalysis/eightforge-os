@@ -28,6 +28,10 @@ import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidati
 import { withStageTimeout as sharedWithStageTimeout } from '@/lib/server/stageTimeout';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
+import {
+  captureStorageObjectVersion,
+  scheduleExtractionComplianceShadow,
+} from '@/lib/extraction/persistence/complianceShadow';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -241,6 +245,7 @@ export async function processDocument(params: {
   organizationId: string;
   analysisMode: string;
   triggeredBy: JobTrigger;
+  registerBackgroundTask?: (task: Promise<unknown>) => void;
 }): Promise<ProcessDocumentResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { success: false, error: 'Server not configured' };
@@ -290,6 +295,11 @@ export async function processDocument(params: {
     });
 
     // ── 3. Download file ─────────────────────────────────────────────────────
+    const storageVersionBeforeDownload = await captureStorageObjectVersion(
+      admin,
+      BUCKET,
+      storagePath,
+    );
     const { data: fileData, error: downloadError } = await admin.storage
       .from(BUCKET)
       .download(storagePath);
@@ -317,6 +327,25 @@ export async function processDocument(params: {
       mimeType,
       fileName,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
+
+    const complianceShadowTask = scheduleExtractionComplianceShadow({
+      admin,
+      organizationId: params.organizationId,
+      sourceDocumentId: params.documentId,
+      sourceBytes: bytes,
+      storageBucket: BUCKET,
+      storagePath,
+      storageVersionBeforeDownload,
+      mediaType: mimeType,
+      legacyExtractionPayload: payload as unknown as Record<string, unknown>,
+      analysisJobId: job.id,
+      analysisMode: params.analysisMode,
+    });
+    if (params.registerBackgroundTask) {
+      params.registerBackgroundTask(complianceShadowTask);
+    } else {
+      void complianceShadowTask;
+    }
 
     if (params.analysisMode === 'ai_enriched') {
       const aiResult = await runAiEnrichment({

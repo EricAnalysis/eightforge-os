@@ -1,4 +1,5 @@
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
+import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import type {
   ExtractionConfidence,
   ExtractionRun,
@@ -15,6 +16,12 @@ import type {
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const verifiedFieldConstructorToken: unique symbol = Symbol('verifiedFieldConstructorToken');
+export const DEPENDENCY_CLOSURE_VERIFIER: ParserIdentity = Object.freeze({
+  stage: 'field_verification',
+  name: 'dependency-closure-verifier',
+  version: '1',
+  configuration_hash: sha256Hex('dependency-closure-verifier:v1'),
+});
 
 export interface VerificationRepository {
   getCandidate(id: FieldCandidateId): Promise<FieldCandidate | null>;
@@ -66,6 +73,7 @@ export class VerifiedField {
     readonly raw_text: string,
     readonly normalized_value: NormalizedPrimitive,
     readonly transformations: FieldCandidate['transformations'],
+    readonly verifier: ParserIdentity,
     readonly confidence: ExtractionConfidence,
     readonly candidate_id: FieldCandidateId,
   ) {
@@ -91,6 +99,7 @@ export class VerifiedField {
       input.raw_text,
       input.normalized_value,
       input.transformations,
+      input.verifier,
       input.confidence,
       input.candidate_id,
     );
@@ -382,11 +391,11 @@ export async function verifyFieldCandidate(
   }
 
   const verifiedField = VerifiedField.createVerified(verifiedFieldConstructorToken, {
-    id: `vf_${hashCanonical({
+    id: opaqueIds.verifiedField({
       candidate_id: candidate.id,
       source_fragment_ids: candidate.source_fragment_ids,
       normalized,
-    })}` as VerifiedFieldId,
+    }),
     organization_id: candidate.organization_id,
     extraction_run_id: candidate.extraction_run_id,
     source_artifact_id: candidate.source_artifact_id,
@@ -397,6 +406,7 @@ export async function verifyFieldCandidate(
     raw_text: rawText,
     normalized_value: normalized,
     transformations: candidate.transformations,
+    verifier: DEPENDENCY_CLOSURE_VERIFIER,
     confidence: candidate.confidence,
     candidate_id: candidate.id,
   });

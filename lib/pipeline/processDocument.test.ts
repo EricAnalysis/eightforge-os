@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { attachLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 
 const MOCKED_MODULES = [
   '@/lib/server/supabaseAdmin',
@@ -74,6 +75,16 @@ async function setupProcessDocumentTest(params: SetupParams) {
       text_preview: 'Recovered OCR contract text',
     },
   };
+  attachLocatedOcrObservations(extractionPayload, {
+    pages: [{
+      page_number: 1,
+      render_sha256: 'a'.repeat(64),
+      width: 1224,
+      height: 1584,
+      text_detected: false,
+      words: [],
+    }],
+  });
   const insertedExtraction = {
     id: 'ext-1',
     data: extractionPayload,
@@ -312,6 +323,13 @@ describe('processDocument canonical persistence gating', () => {
     });
     expect(result.success).toBe(true);
     await vi.waitFor(() => {
+      expect(spies.scheduleExtractionComplianceShadow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locatedObservations: expect.objectContaining({
+            pages: [expect.objectContaining({ page_number: 1 })],
+          }),
+        }),
+      );
       expect(spies.captureStorageObjectVersion).toHaveBeenCalledTimes(2);
       expect(spies.publishExtractionComplianceShadowNonBlocking).toHaveBeenCalledWith(
         expect.objectContaining({ storageObjectVersion: 'object-1:version-1' }),
@@ -352,7 +370,7 @@ describe('processDocument canonical persistence gating', () => {
     expect(pendingStorage.spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
   });
 
-  it('does not wait for pending shadow publication', async () => {
+  it('does not wait for pending Step 1 shadow publication', async () => {
     const registerBackgroundTask = vi.fn();
     const pendingPublisher = await setupProcessDocumentTest({
       documentType: 'contract',

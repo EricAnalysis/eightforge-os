@@ -40,7 +40,9 @@ done
 "${psql[@]}" <<'SQL'
 SET request.jwt.claim.role = 'service_role';
 INSERT INTO public.organizations (id, name)
-VALUES ('10000000-0000-0000-0000-000000000001', 'Step 0 replay');
+VALUES
+  ('10000000-0000-0000-0000-000000000001', 'Step 0 replay'),
+  ('10000000-0000-0000-0000-000000000002', 'Other tenant');
 INSERT INTO public.documents (
   id, organization_id, name, storage_path
 ) VALUES (
@@ -105,11 +107,390 @@ SELECT public.publish_extraction_compliance_shadow(
 );
 RESET ROLE;
 
+SET ROLE service_role;
+SELECT (
+  public.resolve_extraction_step1_source(
+    jsonb_build_object(
+      'organization_id', '10000000-0000-0000-0000-000000000001',
+      'source_document_id', '20000000-0000-0000-0000-000000000001',
+      'source_sha256', repeat('6', 64),
+      'storage_object_version', 'step1-object:1',
+      'media_type_sniffed', 'application/pdf',
+      'byte_length', 200
+    )
+  )
+)->>'source_artifact_id' AS step1_source_id \gset
+SELECT 1 / CASE WHEN (
+  public.resolve_extraction_step1_source(
+    jsonb_build_object(
+      'organization_id', '10000000-0000-0000-0000-000000000001',
+      'source_document_id', '20000000-0000-0000-0000-000000000001',
+      'source_sha256', repeat('6', 64),
+      'storage_object_version', 'step1-object:1',
+      'media_type_sniffed', 'application/pdf',
+      'byte_length', 200
+    )
+  )
+)->>'source_artifact_id' = :'step1_source_id' THEN 1 ELSE 0 END
+  AS step1_source_resolution_idempotent;
+
+RESET ROLE;
+CREATE UNLOGGED TABLE public.step1_replay_payloads (
+  name text PRIMARY KEY,
+  payload jsonb NOT NULL
+);
+GRANT SELECT ON public.step1_replay_payloads TO service_role;
+INSERT INTO step1_replay_payloads (name, payload)
+VALUES (
+  'valid',
+  jsonb_build_object(
+    'organization_id', '10000000-0000-0000-0000-000000000001',
+    'source_document_id', '20000000-0000-0000-0000-000000000001',
+    'source_artifact_id', :'step1_source_id',
+    'source_sha256', repeat('6', 64),
+    'parser_manifest', jsonb_build_object(
+      'artifact_schema_version', 'extraction-artifact-v1',
+      'step', 'phase3-step1-replay'
+    ),
+    'parser_manifest_hash', repeat('7', 64),
+    'artifact_schema_version', 'extraction-artifact-v1',
+    'run_id', '70000000-0000-0000-0000-000000000010',
+    'snapshot_id', '70000000-0000-0000-0000-000000000011',
+    'idempotency_key', 'step1:replay:valid',
+    'run_status', 'partial_terminal',
+    'run_state_reason', 'source-grounded-field-with-quarantined-gap',
+    'snapshot_status', 'partial',
+    'started_at', '2026-07-24T00:00:00Z',
+    'completed_at', '2026-07-24T00:00:01Z',
+    'content_extraction_fingerprint', repeat('8', 64),
+    'artifact_root_hash', repeat('9', 64),
+    'pages', jsonb_build_array(jsonb_build_object(
+      'id', '70000000-0000-0000-0000-000000000001',
+      'page', 1, 'width', 612, 'height', 792, 'rotation_degrees', 0,
+      'render_sha256', repeat('a', 64),
+      'parser', jsonb_build_object(
+        'stage', 'page_render', 'name', 'step1-replay',
+        'version', '1', 'configuration_hash', repeat('b', 64)
+      ),
+      'status', 'processed'
+    )),
+    'fragments', jsonb_build_array(jsonb_build_object(
+      'id', '70000000-0000-0000-0000-000000000002',
+      'page_artifact_id', '70000000-0000-0000-0000-000000000001',
+      'kind', 'token', 'page', 1,
+      'bounding_box', jsonb_build_object(
+        'x0', 0.1, 'y0', 0.1, 'x1', 0.2, 'y1', 0.2, 'rotation', 0
+      ),
+      'raw_text', '123.45',
+      'parser', jsonb_build_object(
+        'stage', 'native_text', 'name', 'step1-replay',
+        'version', '1', 'configuration_hash', repeat('c', 64)
+      ),
+      'recognition_confidence', 0.99,
+      'reading_order', 1,
+      'artifact_data', '{}'::jsonb
+    )),
+    'candidates', jsonb_build_array(jsonb_build_object(
+      'id', '70000000-0000-0000-0000-000000000003',
+      'source_fragment_ids', jsonb_build_array(
+        '70000000-0000-0000-0000-000000000002'
+      ),
+      'raw_text', '123.45', 'primitive_kind', 'decimal',
+      'proposed_value', jsonb_build_object('type', 'decimal', 'value', '123.45'),
+      'transformations', '[]'::jsonb,
+      'parser', jsonb_build_object(
+        'stage', 'primitive_parse', 'name', 'step1-replay',
+        'version', '1', 'configuration_hash', repeat('d', 64)
+      ),
+      'confidence', jsonb_build_object('version', 'extraction-confidence-v1', 'overall', 0.99),
+      'status', 'candidate'
+    )),
+    'verified_fields', jsonb_build_array(jsonb_build_object(
+      'id', '70000000-0000-0000-0000-000000000004',
+      'candidate_id', '70000000-0000-0000-0000-000000000003',
+      'source_fragment_ids', jsonb_build_array(
+        '70000000-0000-0000-0000-000000000002'
+      ),
+      'raw_text', '123.45',
+      'normalized_value', jsonb_build_object('type', 'decimal', 'value', '123.45'),
+      'transformations', '[]'::jsonb,
+      'verifier', jsonb_build_object(
+        'stage', 'field_verification', 'name', 'step1-replay',
+        'version', '1', 'configuration_hash', repeat('e', 64)
+      ),
+      'confidence', jsonb_build_object('version', 'extraction-confidence-v1', 'overall', 0.99)
+    )),
+    'gaps', jsonb_build_array(jsonb_build_object(
+      'id', '70000000-0000-0000-0000-000000000005',
+      'gap_key', 'step1-no-source-span:secondary-field',
+      'page', 1,
+      'bounding_box', jsonb_build_object(
+        'x0', 0.3, 'y0', 0.3, 'x1', 0.4, 'y1', 0.4, 'rotation', 0
+      ),
+      'stage', 'field_verification', 'reason', 'no_source_span',
+      'retryable', false, 'attempts', 1,
+      'detail', 'Secondary candidate lacked a verifiable source span.',
+      'upstream_artifact_ids', jsonb_build_array(
+        '70000000-0000-0000-0000-000000000002'
+      )
+    )),
+    'snapshot_members', jsonb_build_array(
+      jsonb_build_object(
+        'member_kind', 'page', 'page_artifact_id', '70000000-0000-0000-0000-000000000001',
+        'dependency_hash', repeat('1', 64), 'sequence', 1
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment', 'fragment_artifact_id', '70000000-0000-0000-0000-000000000002',
+        'dependency_hash', repeat('2', 64), 'sequence', 2
+      ),
+      jsonb_build_object(
+        'member_kind', 'candidate', 'field_candidate_id', '70000000-0000-0000-0000-000000000003',
+        'dependency_hash', repeat('3', 64), 'sequence', 3
+      ),
+      jsonb_build_object(
+        'member_kind', 'verified_field', 'verified_field_id', '70000000-0000-0000-0000-000000000004',
+        'dependency_hash', repeat('4', 64), 'sequence', 4
+      ),
+      jsonb_build_object(
+        'member_kind', 'gap', 'processing_gap_id', '70000000-0000-0000-0000-000000000005',
+        'dependency_hash', repeat('5', 64), 'sequence', 5
+      )
+    )
+  )
+);
+
+SET ROLE service_role;
+SELECT public.publish_extraction_step1_shadow(payload)
+FROM step1_replay_payloads WHERE name = 'valid';
+SELECT public.publish_extraction_step1_shadow(payload)
+FROM step1_replay_payloads WHERE name = 'valid';
+RESET ROLE;
+
+DO $$
+DECLARE
+  valid_payload jsonb;
+  atomic_payload jsonb;
+  new_manifest_payload jsonb;
+  new_source_payload jsonb;
+  resolved_source jsonb;
+BEGIN
+  SELECT payload INTO valid_payload
+  FROM step1_replay_payloads WHERE name = 'valid';
+
+  IF (SELECT count(*) FROM public.extraction_runs
+      WHERE idempotency_key = 'step1:replay:valid') <> 1
+    OR (SELECT count(*) FROM public.extraction_page_artifacts
+        WHERE id = '70000000-0000-0000-0000-000000000001') <> 1
+    OR (SELECT count(*) FROM public.extraction_fragment_artifacts
+        WHERE id = '70000000-0000-0000-0000-000000000002') <> 1
+    OR (SELECT count(*) FROM public.extraction_field_candidates
+        WHERE id = '70000000-0000-0000-0000-000000000003') <> 1
+    OR (SELECT count(*) FROM public.extraction_verified_fields
+        WHERE id = '70000000-0000-0000-0000-000000000004') <> 1
+    OR (SELECT count(*) FROM public.extraction_processing_gaps
+        WHERE id = '70000000-0000-0000-0000-000000000005') <> 1 THEN
+    RAISE EXCEPTION 'Step 1 publisher is not idempotent';
+  END IF;
+
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(
+      jsonb_set(valid_payload, '{artifact_root_hash}', to_jsonb(repeat('f', 64)))
+    );
+    RAISE EXCEPTION 'divergent Step 1 idempotency reuse unexpectedly succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  -- Give the atomicity case fresh identities so it fails only after the run,
+  -- page, fragment, and candidate inserts have executed.
+  atomic_payload := replace(
+    replace(
+      replace(
+        replace(
+          replace(
+            replace(
+              replace(
+                replace(valid_payload::text,
+                  'step1:replay:valid', 'step1:replay:atomic'),
+                repeat('7', 64), repeat('c', 64)),
+              repeat('8', 64), repeat('d', 64)),
+            repeat('9', 64), repeat('e', 64)),
+          '70000000-0000-0000-0000-000000000001',
+          '71000000-0000-0000-0000-000000000001'),
+        '70000000-0000-0000-0000-000000000002',
+        '71000000-0000-0000-0000-000000000002'),
+      '70000000-0000-0000-0000-000000000003',
+      '71000000-0000-0000-0000-000000000003'),
+    '70000000-0000-0000-0000-000000000004',
+    '71000000-0000-0000-0000-000000000004')::jsonb;
+  atomic_payload := replace(
+    atomic_payload::text,
+    '70000000-0000-0000-0000-000000000005',
+    '71000000-0000-0000-0000-000000000005'
+  )::jsonb;
+  atomic_payload := replace(
+    replace(
+      atomic_payload::text,
+      '70000000-0000-0000-0000-000000000010',
+      '71000000-0000-0000-0000-000000000010'
+    ),
+    '70000000-0000-0000-0000-000000000011',
+    '71000000-0000-0000-0000-000000000011'
+  )::jsonb;
+  atomic_payload := jsonb_set(
+    atomic_payload,
+    '{candidates,0,source_fragment_ids,0}',
+    '"71000000-0000-0000-0000-000000000099"'::jsonb
+  );
+
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(atomic_payload);
+    RAISE EXCEPTION 'invalid Step 1 dependency unexpectedly succeeded';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key = 'step1:replay:atomic'
+  ) OR EXISTS (
+    SELECT 1 FROM public.extraction_page_artifacts
+    WHERE id = '71000000-0000-0000-0000-000000000001'
+  ) OR EXISTS (
+    SELECT 1 FROM public.extraction_fragment_artifacts
+    WHERE id = '71000000-0000-0000-0000-000000000002'
+  ) OR EXISTS (
+    SELECT 1 FROM public.extraction_field_candidates
+    WHERE id = '71000000-0000-0000-0000-000000000003'
+  ) THEN
+    RAISE EXCEPTION 'failed Step 1 publication left partial records';
+  END IF;
+
+  new_manifest_payload := replace(
+    valid_payload::text, '70000000-', '73000000-'
+  )::jsonb;
+  new_manifest_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          new_manifest_payload,
+          '{idempotency_key}', '"step1:replay:new-manifest"'::jsonb
+        ),
+        '{parser_manifest_hash}', to_jsonb(repeat('3', 64))
+      ),
+      '{content_extraction_fingerprint}', to_jsonb(repeat('4', 64))
+    ),
+    '{artifact_root_hash}', to_jsonb(repeat('5', 64))
+  );
+  PERFORM public.publish_extraction_step1_shadow(new_manifest_payload);
+  IF NOT EXISTS (
+    SELECT 1 FROM public.extraction_snapshots
+    WHERE id = '73000000-0000-0000-0000-000000000011'
+      AND parser_manifest_hash = repeat('3', 64)
+  ) THEN
+    RAISE EXCEPTION 'Step 1 new-manifest snapshot was not published';
+  END IF;
+
+  resolved_source := public.resolve_extraction_step1_source(jsonb_build_object(
+    'organization_id', '10000000-0000-0000-0000-000000000001',
+    'source_document_id', '20000000-0000-0000-0000-000000000001',
+    'source_sha256', repeat('4', 64),
+    'storage_object_version', 'step1-object:2',
+    'media_type_sniffed', 'application/pdf',
+    'byte_length', 201
+  ));
+  new_source_payload := replace(
+    valid_payload::text, '70000000-', '74000000-'
+  )::jsonb;
+  new_source_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              new_source_payload,
+              '{idempotency_key}', '"step1:replay:new-source"'::jsonb
+            ),
+            '{content_extraction_fingerprint}', to_jsonb(repeat('6', 64))
+          ),
+          '{artifact_root_hash}', to_jsonb(repeat('a', 64))
+        ),
+        '{source_artifact_id}', resolved_source->'source_artifact_id'
+      ),
+      '{source_sha256}', to_jsonb(repeat('4', 64))
+    ),
+    '{completed_at}', '"2026-07-24T00:00:03Z"'::jsonb
+  );
+  PERFORM public.publish_extraction_step1_shadow(new_source_payload);
+  IF NOT EXISTS (
+    SELECT 1 FROM public.extraction_snapshots
+    WHERE id = '74000000-0000-0000-0000-000000000011'
+      AND source_artifact_id = (resolved_source->>'source_artifact_id')::uuid
+  ) THEN
+    RAISE EXCEPTION 'Step 1 new-source snapshot was not published';
+  END IF;
+  PERFORM public.publish_extraction_step1_shadow(jsonb_set(
+    new_manifest_payload,
+    '{idempotency_key}',
+    '"step1:replay:stale-semantic-retry"'::jsonb
+  ));
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.document_extraction_snapshot_assignments
+    WHERE organization_id = '10000000-0000-0000-0000-000000000001'
+      AND source_document_id = '20000000-0000-0000-0000-000000000001'
+      AND source_artifact_id = (resolved_source->>'source_artifact_id')::uuid
+      AND extraction_snapshot_id = '74000000-0000-0000-0000-000000000011'
+      AND activation_mode = 'shadow'
+  ) THEN
+    RAISE EXCEPTION 'older Step 1 retry replaced the newer shadow assignment';
+  END IF;
+
+  BEGIN
+    PERFORM public.resolve_extraction_step1_source(jsonb_build_object(
+      'organization_id', '10000000-0000-0000-0000-000000000001',
+      'source_document_id', '20000000-0000-0000-0000-000000000001',
+      'source_sha256', repeat('4', 64),
+      'storage_object_version', 'step1-object:2',
+      'media_type_sniffed', 'application/pdf',
+      'byte_length', 999
+    ));
+    RAISE EXCEPTION 'divergent Step 1 source metadata unexpectedly succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(
+      jsonb_set(
+        valid_payload,
+        '{organization_id}',
+        '"10000000-0000-0000-0000-000000000002"'::jsonb
+      )
+    );
+    RAISE EXCEPTION 'cross-tenant Step 1 publication unexpectedly succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF EXISTS (SELECT 1 FROM public.canonical_document_facts)
+    OR (SELECT count(*) FROM public.document_projection_stamps) <> 1 THEN
+    RAISE EXCEPTION 'Step 1 shadow publication changed canonical or projection truth';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM public.extraction_runs) <> 1
-    OR (SELECT count(*) FROM public.extraction_processing_gaps) <> 1
-    OR (SELECT count(*) FROM public.extraction_snapshots) <> 1
+  IF (SELECT count(*) FROM public.extraction_runs
+      WHERE idempotency_key = 'analysis-job:replay-1') <> 1
+    OR (SELECT count(*)
+        FROM public.extraction_processing_gaps gap
+        JOIN public.extraction_runs run ON run.id = gap.extraction_run_id
+        WHERE run.idempotency_key = 'analysis-job:replay-1') <> 1
+    OR (SELECT count(*)
+        FROM public.extraction_snapshots snapshot
+        JOIN public.extraction_runs run ON run.id = snapshot.producing_run_id
+        WHERE run.idempotency_key = 'analysis-job:replay-1') <> 1
     OR (SELECT count(*) FROM public.document_projection_stamps) <> 1 THEN
     RAISE EXCEPTION 'transactional publisher is not idempotent';
   END IF;
@@ -266,8 +647,6 @@ BEGIN
 END;
 $$;
 
-INSERT INTO public.organizations (id, name)
-VALUES ('10000000-0000-0000-0000-000000000002', 'Other tenant');
 INSERT INTO public.documents (id, organization_id, name, storage_path)
 VALUES (
   '20000000-0000-0000-0000-000000000002',
@@ -296,7 +675,10 @@ SELECT auth.uid() AS rls_test_user, public.get_current_user_org_id() AS rls_test
 SELECT organization_id AS visible_source_org
 FROM public.extraction_source_artifacts
 ORDER BY organization_id;
-SELECT 1 / CASE WHEN count(*) = 1 THEN 1 ELSE 0 END AS tenant_rls_ok
+SELECT 1 / CASE WHEN count(*) >= 1
+  AND count(DISTINCT organization_id) = 1
+  AND min(organization_id::text) = '10000000-0000-0000-0000-000000000001'
+  THEN 1 ELSE 0 END AS tenant_rls_ok
 FROM public.extraction_source_artifacts;
 RESET ROLE;
 SET ROLE service_role;
@@ -313,6 +695,8 @@ $$;
 RESET ROLE;
 
 DO $$
+DECLARE
+  table_name text;
 BEGIN
   IF has_table_privilege(
     'service_role',
@@ -339,11 +723,58 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'service_role lost shadow publisher execute privilege';
   END IF;
+  IF NOT has_function_privilege(
+    'service_role',
+    'public.resolve_extraction_step1_source(jsonb)',
+    'EXECUTE'
+  ) OR NOT has_function_privilege(
+    'service_role',
+    'public.publish_extraction_step1_shadow(jsonb)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'service_role lost Step 1 RPC execute privilege';
+  END IF;
+  FOREACH table_name IN ARRAY ARRAY[
+    'extraction_source_artifacts',
+    'extraction_runs',
+    'extraction_run_states',
+    'extraction_page_artifacts',
+    'extraction_fragment_artifacts',
+    'extraction_fragment_dependencies',
+    'extraction_field_candidates',
+    'extraction_field_candidate_sources',
+    'extraction_verified_fields',
+    'extraction_verified_field_sources',
+    'extraction_processing_gaps',
+    'extraction_gap_sources',
+    'extraction_snapshots',
+    'extraction_snapshot_members',
+    'document_extraction_snapshot_assignments'
+  ] LOOP
+    IF has_table_privilege(
+      'service_role',
+      format('public.%I', table_name),
+      'INSERT,UPDATE,DELETE,TRUNCATE'
+    ) THEN
+      RAISE EXCEPTION 'service_role retains direct write privilege on %', table_name;
+    END IF;
+  END LOOP;
 END;
 $$;
 SQL
+
+concurrent_step1_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'valid\';'
+"${psql[@]}" --command "${concurrent_step1_sql}" >/dev/null &
+step1_pid_one=$!
+"${psql[@]}" --command "${concurrent_step1_sql}" >/dev/null &
+step1_pid_two=$!
+wait "${step1_pid_one}"
+wait "${step1_pid_two}"
+"${psql[@]}" --command "DROP TABLE public.step1_replay_payloads" >/dev/null
 
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "DATABASE APPEND-ONLY / IDEMPOTENCY: PASS"
 echo "DATABASE VERIFIED/CANONICAL ANTI-CAST / SNAPSHOT CLOSURE / TENANT RLS: PASS"
 echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"
+echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
+echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"

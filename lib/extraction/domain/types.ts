@@ -109,6 +109,7 @@ export interface SourceFragmentArtifact {
   readonly parser: ParserIdentity;
   readonly recognition_confidence: number | null;
   readonly reading_order: number;
+  readonly artifact_data?: Readonly<Record<string, unknown>>;
   readonly dependency_role?: 'content' | 'corroboration';
   readonly corroboration_kind?: 'independent_engine' | 'source_pixel_classifier';
 }
@@ -197,6 +198,7 @@ export type ExtractionRunStatus =
 
 export interface ProcessingGap {
   readonly id: string;
+  readonly gap_key: string;
   readonly organization_id: string;
   readonly source_document_id: string;
   readonly extraction_run_id: ExtractionRunId;
@@ -209,9 +211,11 @@ export interface ProcessingGap {
     | 'unsupported_size'
     | 'unprocessed_region'
     | 'engine_conflict'
-    | 'missing_geometry';
+    | 'missing_geometry'
+    | 'no_source_span';
   readonly retryable: boolean;
   readonly attempts: number;
+  readonly detail: string;
   readonly upstream_artifact_ids: readonly FragmentArtifactId[];
 }
 

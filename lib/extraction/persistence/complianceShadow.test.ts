@@ -140,4 +140,84 @@ describe('compliance shadow dual-write isolation', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(task).resolves.toBeUndefined();
   });
+
+  it('bounds pending Step 1 publication without changing the caller lifecycle', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'build-digest-1');
+    const admin = {
+      storage: {
+        from: vi.fn(() => ({
+          info: vi.fn(async () => ({
+            data: { id: 'object-1', version: 'version-1' },
+            error: null,
+          })),
+        })),
+      },
+      rpc: vi.fn(() => new Promise(() => undefined)),
+    };
+
+    const task = scheduleExtractionComplianceShadow({
+      admin: admin as never,
+      organizationId: 'org-1',
+      sourceDocumentId: 'document-1',
+      sourceBytes: new TextEncoder().encode('source bytes').buffer,
+      storageBucket: 'documents',
+      storagePath: 'org-1/document-1.pdf',
+      storageVersionBeforeDownload: 'version-1:object-1',
+      mediaType: 'application/pdf',
+      legacyExtractionPayload: {},
+      locatedObservations: { pages: [] },
+      analysisJobId: 'job-1',
+      analysisMode: 'deterministic',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'resolve_extraction_step1_source',
+      expect.any(Object),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(task).resolves.toBeUndefined();
+  });
+
+  it('keeps rejected Step 1 publication nonfatal', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'build-digest-1');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const admin = {
+      storage: {
+        from: vi.fn(() => ({
+          info: vi.fn(async () => ({
+            data: { id: 'object-1', version: 'version-1' },
+            error: null,
+          })),
+        })),
+      },
+      rpc: vi.fn(async () => {
+        throw new Error('Step 1 unavailable');
+      }),
+    };
+
+    await expect(scheduleExtractionComplianceShadow({
+      admin: admin as never,
+      organizationId: 'org-1',
+      sourceDocumentId: 'document-1',
+      sourceBytes: new TextEncoder().encode('source bytes').buffer,
+      storageBucket: 'documents',
+      storagePath: 'org-1/document-1.pdf',
+      storageVersionBeforeDownload: 'version-1:object-1',
+      mediaType: 'application/pdf',
+      legacyExtractionPayload: {},
+      locatedObservations: { pages: [] },
+      analysisJobId: 'job-1',
+      analysisMode: 'deterministic',
+    })).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[extractionStep1Shadow] non-fatal publish failure',
+      expect.objectContaining({
+        mode: 'shadow',
+        sourceDocumentId: 'document-1',
+      }),
+    );
+    consoleError.mockRestore();
+  });
 });

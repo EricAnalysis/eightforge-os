@@ -102,4 +102,20 @@ describe('parser manifest hashing', () => {
     expect(build({ instructorEnabled: false })).not.toBe(base);
     expect(build({ instructorMaxRetries: 3 })).not.toBe(base);
   });
+
+  it('gives the span-verified shadow path a distinct stable manifest identity', () => {
+    const step0 = manifest();
+    const step1 = buildLegacyShadowParserManifest({
+      analysisMode: 'heuristic',
+      unstructuredEnabled: true,
+      visionEnabled: true,
+      typedAiEnabled: true,
+      implementationBuild: 'fixture-commit',
+      verificationPolicy: 'step1_span_verified',
+    });
+
+    expect(step1.verification_policy.name).toBe('step1-span-verification-policy');
+    expect(hashParserManifest(step1)).not.toBe(hashParserManifest(step0));
+    expect(hashParserManifest(structuredClone(step1))).toBe(hashParserManifest(step1));
+  });
 });

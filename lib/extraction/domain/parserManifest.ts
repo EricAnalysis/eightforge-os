@@ -88,6 +88,7 @@ export function buildLegacyShadowParserManifest(params: {
   readonly typedAiModel?: string;
   readonly instructorEnabled?: boolean;
   readonly instructorMaxRetries?: number;
+  readonly verificationPolicy?: 'step0_gap' | 'step1_span_verified';
 }): ParserManifest {
   const implementationBuild = params.implementationBuild.trim();
   if (!implementationBuild) {
@@ -186,10 +187,18 @@ export function buildLegacyShadowParserManifest(params: {
         current_behavior_preserved: true,
       }),
     ],
-    verification_policy: component('step0-shadow-gap-policy', 'v1', {
-      implementation_build: implementationBuild,
-      publish_verified_fields: false,
-      reason: 'legacy payload lacks complete page geometry',
-    }),
+    verification_policy: params.verificationPolicy === 'step1_span_verified'
+      ? component('step1-span-verification-policy', 'v1', {
+          implementation_build: implementationBuild,
+          verification_basis: 'exact_source_text_and_page_geometry',
+          confidence_policy: 'structured_components_single_engine_cap_0_85',
+          unsupported_legacy_shapes: 'explicit_gap',
+          shadow_only: true,
+        })
+      : component('step0-shadow-gap-policy', 'v1', {
+          implementation_build: implementationBuild,
+          publish_verified_fields: false,
+          reason: 'legacy payload lacks complete page geometry',
+        }),
   };
 }

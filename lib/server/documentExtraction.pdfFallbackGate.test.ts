@@ -1,4 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { sha256Hex } from '@/lib/extraction/domain/hash';
+import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 
 const MOCKED_MODULES = [
   '@/lib/ai/instructor/classifyDocumentFamily',
@@ -71,6 +73,7 @@ function mockCommonPdfPipeline(pageCount: number) {
     })),
     buildPdfTextExtraction,
     computeLayoutPlainCombinedText: vi.fn(() => ''),
+    classifyLine: vi.fn(() => 'text'),
   }));
   vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
     buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
@@ -365,7 +368,23 @@ describe('documentExtraction pdf fallback gate', () => {
 
     const recognize = vi
       .fn()
-      .mockResolvedValueOnce({ data: { text: 'Recovered weak contract page 1', confidence: 84 } })
+      .mockResolvedValueOnce({
+        data: {
+          text: 'Recovered weak contract page 1',
+          confidence: 84,
+          blocks: [{
+            paragraphs: [{
+              lines: [{
+                words: [{
+                  text: 'Recovered',
+                  confidence: 86,
+                  bbox: { x0: 12, y0: 24, x1: 88, y1: 46 },
+                }],
+              }],
+            }],
+          }],
+        },
+      })
       .mockResolvedValueOnce({ data: { text: 'Recovered weak contract page 2', confidence: 82 } });
     vi.doMock('tesseract.js', () => ({
       createWorker: vi.fn(async () => ({
@@ -403,6 +422,31 @@ describe('documentExtraction pdf fallback gate', () => {
       ocr_pages_attempted: 2,
       canonical_persisted: false,
     });
+    expect(getLocatedOcrObservations(payload)).toEqual({
+      pages: [
+        {
+          page_number: 1,
+          render_sha256: sha256Hex(Buffer.from('png')),
+          width: 200,
+          height: 300,
+          text_detected: true,
+          words: [{
+            text: 'Recovered',
+            confidence: 86,
+            bbox: { x0: 12, y0: 24, x1: 88, y1: 46 },
+          }],
+        },
+        {
+          page_number: 2,
+          render_sha256: sha256Hex(Buffer.from('png')),
+          width: 200,
+          height: 300,
+          text_detected: true,
+          words: [],
+        },
+      ],
+    });
+    expect(JSON.stringify(payload)).not.toContain('render_sha256');
   });
 
   it('runs targeted front-matter OCR when later contract body text is meaningful but agreement pages are image-only', async () => {

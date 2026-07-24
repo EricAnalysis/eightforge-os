@@ -214,6 +214,9 @@ describe('verified field dependency integrity', () => {
         value: '1250',
       });
       expect(result.verifiedField.source_fragment_ids).toEqual([FRAGMENT_ID]);
+      expect(result.verifiedField.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
     }
   });
 

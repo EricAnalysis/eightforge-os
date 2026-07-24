@@ -1,13 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
-  buildLegacyShadowParserManifest,
   hashParserManifest,
 } from '@/lib/extraction/domain/parserManifest';
 import {
   STEP0_ENTITY_RESOLVER_VERSION,
   STEP0_INTERPRETER_MANIFEST_HASH,
 } from '@/lib/complianceFoundation/shadowVersions';
+import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
+import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
+import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
+import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
 
 const ARTIFACT_SCHEMA_VERSION = 'extraction-artifact-v1';
 const PROJECTION_SCHEMA_VERSION = 'step0-shadow-projection-v1';
@@ -25,12 +28,15 @@ export type ShadowWriteInput = {
   readonly legacyExtractionPayload: Record<string, unknown>;
   readonly analysisJobId: string;
   readonly analysisMode: string;
+  readonly observedAt?: string;
 };
 
 type ScheduledShadowWriteInput = Omit<ShadowWriteInput, 'storageObjectVersion'> & {
   readonly storageBucket: string;
   readonly storagePath: string;
   readonly storageVersionBeforeDownload: string | null;
+  readonly locatedObservations?: LocatedOcrObservationSidecar | null;
+  readonly observedAt?: string;
 };
 
 const STORAGE_IDENTITY_TIMEOUT_MS = 1_000;
@@ -68,20 +74,6 @@ export interface ShadowWriteResult {
   readonly interpretationSnapshotId: string;
   readonly parserManifestHash: string;
   readonly status: 'partial';
-}
-
-function sniffMediaType(bytes: ArrayBuffer, supplied: string | null): string {
-  const header = new Uint8Array(bytes.slice(0, 16));
-  const ascii = String.fromCharCode(...header);
-  if (ascii.startsWith('%PDF-')) return 'application/pdf';
-  if (header[0] === 0x50 && header[1] === 0x4b) return 'application/zip';
-  const suppliedNormalized = supplied?.split(';')[0]?.trim().toLowerCase();
-  if (suppliedNormalized && suppliedNormalized !== 'application/octet-stream') {
-    return suppliedNormalized;
-  }
-  const sample = new Uint8Array(bytes.slice(0, Math.min(bytes.byteLength, 512)));
-  const controlCount = [...sample].filter((value) => value === 0 || value < 9).length;
-  return controlCount === 0 ? 'text/plain' : 'application/octet-stream';
 }
 
 function rpcResult(
@@ -122,45 +114,7 @@ export async function persistExtractionComplianceShadow(
   }
 
   const sourceSha256 = sha256Hex(input.sourceBytes);
-  const openAiAvailable =
-    typeof process.env.OPENAI_API_KEY === 'string'
-    && process.env.OPENAI_API_KEY.trim().length > 0;
-  const instructorConfigured = process.env.EIGHTFORGE_INSTRUCTOR_ENABLED !== '0';
-  const implementationBuild =
-    process.env.VERCEL_GIT_COMMIT_SHA?.trim()
-    || process.env.GIT_COMMIT_SHA?.trim()
-    || process.env.EIGHTFORGE_BUILD_DIGEST?.trim();
-  if (!implementationBuild) {
-    throw new Error(
-      'VERCEL_GIT_COMMIT_SHA, GIT_COMMIT_SHA, or EIGHTFORGE_BUILD_DIGEST is required for compliance publication',
-    );
-  }
-  const manifest = buildLegacyShadowParserManifest({
-    analysisMode: input.analysisMode,
-    unstructuredEnabled:
-      typeof process.env.UNSTRUCTURED_API_KEY === 'string'
-      && process.env.UNSTRUCTURED_API_KEY.trim().length > 0,
-    visionEnabled: openAiAvailable,
-    typedAiEnabled: instructorConfigured && openAiAvailable,
-    implementationBuild,
-    unstructured: {
-      apiUrl:
-        process.env.UNSTRUCTURED_API_URL?.trim()
-        || 'https://api.unstructuredapp.io/general/v0/general',
-      strategy: process.env.UNSTRUCTURED_PARTITION_STRATEGY?.trim() || 'hi_res',
-      splitConcurrency:
-        process.env.UNSTRUCTURED_SPLIT_PDF_CONCURRENCY?.trim() || '8',
-      timeoutMs: Number(process.env.UNSTRUCTURED_API_TIMEOUT_MS) > 0
-        ? Number(process.env.UNSTRUCTURED_API_TIMEOUT_MS)
-        : 45_000,
-    },
-    visionModel: process.env.EIGHTFORGE_VISION_MODEL ?? 'gpt-4o',
-    typedAiModel: process.env.EIGHTFORGE_INSTRUCTOR_EXTRACTION_MODEL ?? 'gpt-4o-mini',
-    instructorEnabled: instructorConfigured && openAiAvailable,
-    instructorMaxRetries: Number(process.env.EIGHTFORGE_INSTRUCTOR_MAX_RETRIES) >= 0
-      ? Number(process.env.EIGHTFORGE_INSTRUCTOR_MAX_RETRIES)
-      : 2,
-  });
+  const manifest = buildRuntimeShadowParserManifest(input.analysisMode);
   const parserManifestHash = hashParserManifest(manifest);
   const gap = {
     gap_key: GAP_KEY,
@@ -183,7 +137,7 @@ export async function persistExtractionComplianceShadow(
     artifact_schema_version: ARTIFACT_SCHEMA_VERSION,
     members,
   });
-  const completedAt = new Date().toISOString();
+  const completedAt = input.observedAt ?? new Date().toISOString();
 
   const { data, error } = await input.admin.rpc('publish_extraction_compliance_shadow', {
     payload: {
@@ -191,7 +145,7 @@ export async function persistExtractionComplianceShadow(
       source_document_id: input.sourceDocumentId,
       source_sha256: sourceSha256,
       storage_object_version: storageObjectVersion,
-      media_type_sniffed: sniffMediaType(input.sourceBytes, input.mediaType),
+      media_type_sniffed: sniffExtractionMediaType(input.sourceBytes, input.mediaType),
       byte_length: input.sourceBytes.byteLength,
       parser_manifest: manifest,
       parser_manifest_hash: parserManifestHash,
@@ -275,7 +229,7 @@ export function scheduleExtractionComplianceShadow(
         ? input.storageVersionBeforeDownload
         : null;
 
-    await settleWithin(publishExtractionComplianceShadowNonBlocking({
+    const commonInput = {
       admin: input.admin,
       organizationId: input.organizationId,
       sourceDocumentId: input.sourceDocumentId,
@@ -285,7 +239,21 @@ export function scheduleExtractionComplianceShadow(
       legacyExtractionPayload: input.legacyExtractionPayload,
       analysisJobId: input.analysisJobId,
       analysisMode: input.analysisMode,
-    }), SHADOW_PUBLICATION_TIMEOUT_MS, 'publication');
+      observedAt: input.observedAt,
+    };
+    if (input.locatedObservations) {
+      await settleWithin(publishExtractionStep1ShadowNonBlocking({
+          ...commonInput,
+          locatedObservations: input.locatedObservations,
+          observedAt: input.observedAt ?? new Date().toISOString(),
+        }), SHADOW_PUBLICATION_TIMEOUT_MS, 'publication');
+    } else {
+      await settleWithin(
+        publishExtractionComplianceShadowNonBlocking(commonInput),
+        SHADOW_PUBLICATION_TIMEOUT_MS,
+        'publication',
+      );
+    }
   })().catch((error) => {
     console.error('[extractionComplianceShadow] detached shadow task failed', {
       mode: 'shadow',

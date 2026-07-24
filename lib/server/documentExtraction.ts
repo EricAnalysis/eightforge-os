@@ -55,6 +55,11 @@ import {
   countUnsafeTextControls,
   stripUnsafeTextControls,
 } from '@/lib/extraction/textSanitization';
+import { sha256Hex } from '@/lib/extraction/domain/hash';
+import {
+  attachLocatedOcrObservations,
+  type LocatedOcrObservationSidecar,
+} from '@/lib/extraction/ocrObservationSidecar';
 
 const TEXT_EXTENSIONS = new Set([
   'txt',
@@ -864,7 +869,14 @@ type PdfOcrExtractionResult = {
   geometryPages: OcrGeometryPage[];
   pagesAttempted: number;
   confidenceAvg: number | null;
-  pageImages?: Array<{ page_number: number; png_buffer: Buffer }>;
+  pageImages?: Array<{
+    page_number: number;
+    png_buffer: Buffer;
+    render_sha256: string;
+    width: number;
+    height: number;
+    text_detected: boolean;
+  }>;
 };
 
 function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
@@ -946,12 +958,14 @@ async function extractPdfPageTextViaOcr(
       const out: PageTextEvidence[] = [];
       const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];
-      const pageImages: Array<{ page_number: number; png_buffer: Buffer }> = [];
+      const pageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
         const viewport = page.getViewport({ scale: 2 });
-        const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+        const width = Math.floor(viewport.width);
+        const height = Math.floor(viewport.height);
+        const canvas = createCanvas(width, height);
         const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
 
         const renderContext: Parameters<typeof page.render>[0] = {
@@ -961,7 +975,6 @@ async function extractPdfPageTextViaOcr(
         };
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
-        pageImages.push({ page_number: pageNum, png_buffer: pngBuffer });
         const result = await worker.recognize(
           pngBuffer,
           {},
@@ -970,6 +983,14 @@ async function extractPdfPageTextViaOcr(
         const text = result?.data?.text;
         const confidence = result?.data?.confidence;
         const words = extractOcrGeometryWords(result?.data);
+        pageImages.push({
+          page_number: pageNum,
+          png_buffer: pngBuffer,
+          render_sha256: sha256Hex(pngBuffer),
+          width,
+          height,
+          text_detected: typeof text === 'string' && text.trim().length > 0,
+        });
 
         if (typeof confidence === 'number' && Number.isFinite(confidence)) {
           confidences.push(confidence);
@@ -984,8 +1005,8 @@ async function extractPdfPageTextViaOcr(
         if (words.length > 0) {
           geometryPages.push({
             page_number: pageNum,
-            width: Math.floor(viewport.width),
-            height: Math.floor(viewport.height),
+            width,
+            height,
             words,
           });
         }
@@ -1010,6 +1031,31 @@ async function extractPdfPageTextViaOcr(
     }
     return fallbackResult;
   }
+}
+
+function buildLocatedOcrObservationSidecar(
+  pageImages: NonNullable<PdfOcrExtractionResult['pageImages']>,
+  geometryPages: readonly OcrGeometryPage[],
+): LocatedOcrObservationSidecar {
+  const geometryByPage = new Map(
+    geometryPages.map((page) => [page.page_number, page] as const),
+  );
+  const imagesByPage = new Map(
+    pageImages.map((page) => [page.page_number, page] as const),
+  );
+
+  return {
+    pages: Array.from(imagesByPage.values())
+      .sort((left, right) => left.page_number - right.page_number)
+      .map((page) => ({
+        page_number: page.page_number,
+        render_sha256: page.render_sha256,
+        width: page.width,
+        height: page.height,
+        text_detected: page.text_detected,
+        words: geometryByPage.get(page.page_number)?.words ?? [],
+      })),
+  };
 }
 
 async function extractContractTextViaOcr(bytes: ArrayBuffer): Promise<string | null> {
@@ -1255,6 +1301,9 @@ export async function extractDocument(
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
   const contractDebugEnabled = process.env.EIGHTFORGE_DEBUG_CONTRACT === '1';
+  const withoutLocatedOcrObservations = (
+    payload: ExtractionPayload,
+  ): ExtractionPayload => attachLocatedOcrObservations(payload, { pages: [] });
 
   if (isTextLike(fileName, mimeType)) {
     const fullDecoded = decodeTextPreview(fileBytes);
@@ -1297,7 +1346,7 @@ export async function extractDocument(
       pageText,
       documentTypeHint: payload.fields.detected_document_type ?? null,
     });
-    return payload;
+    return withoutLocatedOcrObservations(payload);
   }
 
   if (isPdf(fileName, mimeType)) {
@@ -1346,6 +1395,12 @@ export async function extractDocument(
     let ocrTriggerReason: string | null = null;
     let ocrGeometryPages: OcrGeometryPage[] = [];
     let ocrPageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
+    const withLocatedOcrObservations = (
+      payload: ExtractionPayload,
+    ): ExtractionPayload => attachLocatedOcrObservations(
+      payload,
+      buildLocatedOcrObservationSidecar(ocrPageImages, ocrGeometryPages),
+    );
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1879,7 +1934,7 @@ export async function extractDocument(
             ? 'File received; weak native PDF text triggered recovery OCR.'
             : 'File received; PDF extraction is not yet deeply parsed server-side.';
       }
-      return payload;
+      return withLocatedOcrObservations(payload);
     }
 
     const payload = buildBase(metadata, 'pdf_fallback', null);
@@ -1973,7 +2028,7 @@ export async function extractDocument(
         will_persist_content_layers_v1: Boolean(payload.extraction.content_layers_v1),
       });
     }
-    return payload;
+    return withLocatedOcrObservations(payload);
   }
 
   if (isSpreadsheet(fileName, mimeType)) {
@@ -2133,11 +2188,11 @@ export async function extractDocument(
       : ticketExport
         ? 'Workbook parsed with ticket-export normalization.'
         : 'Workbook parsed into structured sheet evidence.';
-    return payload;
+    return withoutLocatedOcrObservations(payload);
   }
 
   const payload = buildBase(metadata, 'binary_fallback', null);
   payload.file.mime_type = mimeType;
   payload.file.size_bytes = size;
-  return payload;
+  return withoutLocatedOcrObservations(payload);
 }

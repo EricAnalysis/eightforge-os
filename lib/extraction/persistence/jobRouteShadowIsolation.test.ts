@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { attachLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 
 describe('job processing compliance shadow isolation', () => {
   afterEach(() => {
@@ -6,7 +7,7 @@ describe('job processing compliance shadow isolation', () => {
     vi.restoreAllMocks();
   });
 
-  it('does not wait for pending storage identity or shadow publication', async () => {
+  it('does not wait for pending storage identity or Step 1 shadow publication', async () => {
     const documentChain = {
       eq: vi.fn(),
       single: vi.fn(async () => ({
@@ -87,9 +88,18 @@ describe('job processing compliance shadow isolation', () => {
       setDocumentStatus: vi.fn(async () => undefined),
     }));
     vi.doMock('@/lib/server/documentExtraction', () => ({
-      extractDocument: vi.fn(async () => ({
+      extractDocument: vi.fn(async () => attachLocatedOcrObservations({
         fields: {},
         extraction: { mode: 'pdf_text', text_preview: 'contract text' },
+      }, {
+        pages: [{
+          page_number: 1,
+          render_sha256: 'a'.repeat(64),
+          width: 1224,
+          height: 1584,
+          text_detected: false,
+          words: [],
+        }],
       })),
     }));
     vi.doMock('@/lib/server/documentAiEnrichment', () => ({
@@ -130,7 +140,13 @@ describe('job processing compliance shadow isolation', () => {
       success: true,
       jobId: 'job-1',
     });
-    expect(scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
+    expect(scheduleExtractionComplianceShadow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locatedObservations: expect.objectContaining({
+          pages: [expect.objectContaining({ page_number: 1 })],
+        }),
+      }),
+    );
     expect(after).toHaveBeenCalledWith(pendingShadowPublication);
   });
 });

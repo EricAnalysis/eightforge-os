@@ -19,6 +19,7 @@ import {
   captureStorageObjectVersion,
   scheduleExtractionComplianceShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
+import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -98,6 +99,7 @@ export async function POST(
     });
     await setDocumentStatus({ documentId: job.document_id, status: 'processing' });
 
+    const extractionShadowObservedAt = new Date().toISOString();
     const storageVersionBeforeDownload = await captureStorageObjectVersion(
       admin,
       BUCKET,
@@ -141,6 +143,8 @@ export async function POST(
       storageVersionBeforeDownload,
       mediaType: mimeType,
       legacyExtractionPayload: payload as unknown as Record<string, unknown>,
+      locatedObservations: getLocatedOcrObservations(payload),
+      observedAt: extractionShadowObservedAt,
       analysisJobId: jobId,
       analysisMode: job.analysis_mode,
     }));

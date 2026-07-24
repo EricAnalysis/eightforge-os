@@ -50,6 +50,7 @@ INSERT INTO public.documents (
   'step0/source.pdf'
 );
 
+SET ROLE service_role;
 SELECT public.publish_extraction_compliance_shadow(
   '{
     "organization_id":"10000000-0000-0000-0000-000000000001",
@@ -102,6 +103,7 @@ SELECT public.publish_extraction_compliance_shadow(
     "projection_schema_version":"step0-shadow-projection-v1"
   }'::jsonb
 );
+RESET ROLE;
 
 DO $$
 BEGIN
@@ -309,9 +311,39 @@ BEGIN
 END;
 $$;
 RESET ROLE;
+
+DO $$
+BEGIN
+  IF has_table_privilege(
+    'service_role',
+    'public.document_extraction_snapshot_assignments',
+    'INSERT'
+  ) OR has_table_privilege(
+    'service_role',
+    'public.document_extraction_snapshot_assignments',
+    'UPDATE'
+  ) THEN
+    RAISE EXCEPTION 'service_role retains direct assignment write privileges';
+  END IF;
+  IF NOT has_table_privilege(
+    'service_role',
+    'public.document_extraction_snapshot_assignments',
+    'SELECT'
+  ) THEN
+    RAISE EXCEPTION 'service_role lost assignment read privilege';
+  END IF;
+  IF NOT has_function_privilege(
+    'service_role',
+    'public.publish_extraction_compliance_shadow(jsonb)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'service_role lost shadow publisher execute privilege';
+  END IF;
+END;
+$$;
 SQL
 
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "DATABASE APPEND-ONLY / IDEMPOTENCY: PASS"
 echo "DATABASE VERIFIED/CANONICAL ANTI-CAST / SNAPSHOT CLOSURE / TENANT RLS: PASS"
-echo "DATABASE SERVICE-ROLE TRUNCATE REJECTION: PASS"
+echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"

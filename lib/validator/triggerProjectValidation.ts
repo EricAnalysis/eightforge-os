@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { after } from 'next/server';
 import {
   isDocumentFactOverridesTableUnavailableError,
 } from '@/lib/documentFactOverrides';
@@ -462,7 +463,7 @@ export async function runValidationFlow(params: {
   inputsSnapshotHash: string;
   triggerEntity?: ValidationTriggerEntity;
 }): Promise<void> {
-  void reportValidatorFreshnessShadow(params.projectId).catch((error) => {
+  const freshnessAuditTask = reportValidatorFreshnessShadow(params.projectId).catch((error) => {
     console.error('[validatorFreshnessAudit] non-fatal audit failure', {
       mode: 'shadow',
       blocking: false,
@@ -470,6 +471,16 @@ export async function runValidationFlow(params: {
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  try {
+    after(freshnessAuditTask);
+  } catch (error) {
+    console.error('[validatorFreshnessAudit] non-fatal lifecycle registration failure', {
+      mode: 'shadow',
+      blocking: false,
+      projectId: params.projectId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const result = await validateProject(params.projectId);
   await persistValidationRun(
     params.projectId,

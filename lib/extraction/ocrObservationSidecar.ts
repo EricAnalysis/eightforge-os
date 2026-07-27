@@ -1,6 +1,15 @@
 import type { OcrGeometryWord } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import type { GenericContentAnalysis } from '@/lib/extraction/domain/genericContentScheduling';
 
+export interface GenericContentDiagnosticGap {
+  readonly gap_key: string;
+  readonly stage: 'source_ingest';
+  readonly reason: 'decode_failure';
+  readonly retryable: boolean;
+  readonly attempts: number;
+  readonly error_category: string;
+}
+
 export interface LocatedOcrPageObservation {
   readonly page_number: number;
   readonly render_sha256: string;
@@ -13,6 +22,7 @@ export interface LocatedOcrPageObservation {
 export interface LocatedOcrObservationSidecar {
   readonly pages: readonly LocatedOcrPageObservation[];
   readonly content_analysis?: GenericContentAnalysis;
+  readonly content_gaps?: readonly GenericContentDiagnosticGap[];
 }
 
 const LOCATED_OCR_OBSERVATIONS = Symbol.for('eightforge.locatedOcrObservations');

@@ -1100,17 +1100,42 @@ export async function buildGenericPdfShadowSidecar(
 ): Promise<LocatedOcrObservationSidecar | null> {
   const signature = String.fromCharCode(...new Uint8Array(bytes.slice(0, 5)));
   if (mediaTypeSniffed !== 'application/pdf' || signature !== '%PDF-') return null;
+  const sourceSha256 = sha256Hex(bytes);
+  let contentAnalysis: ReturnType<typeof scheduleGenericContentExtraction>;
   try {
     const layout = await loadPdfLayout(cloneArrayBuffer(bytes), {
       maxPages: MAX_EVIDENCE_PAGES,
     });
-    const contentAnalysis = scheduleGenericContentExtraction({
-      source_sha256: sha256Hex(bytes),
+    contentAnalysis = scheduleGenericContentExtraction({
+      source_sha256: sourceSha256,
       byte_length: bytes.byteLength,
       media_type_sniffed: mediaTypeSniffed,
       page_count: layout.page_count,
       regions: genericRegionsFromLayout(layout),
     });
+  } catch (error) {
+    const rawCategory = error instanceof Error && error.name
+      ? error.name
+      : 'UnknownDecodeError';
+    const errorCategory = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawCategory)
+      ? rawCategory
+      : 'UnknownDecodeError';
+    console.error('[generic-ocr-shadow] byte/MIME decode or scheduling failed', {
+      errorCategory,
+    });
+    return {
+      pages: [],
+      content_gaps: [{
+        gap_key: `step2:decode_failure:${sourceSha256}`,
+        stage: 'source_ingest',
+        reason: 'decode_failure',
+        retryable: false,
+        attempts: 1,
+        error_category: errorCategory,
+      }],
+    };
+  }
+  try {
     const ocr = await extractPdfPageTextViaOcr(cloneArrayBuffer(bytes), {
       pageNumbers: [...contentAnalysis.pages_scheduled_for_ocr],
     });
@@ -1122,10 +1147,13 @@ export async function buildGenericPdfShadowSidecar(
       content_analysis: contentAnalysis,
     };
   } catch (error) {
-    console.error('[generic-ocr-shadow] byte/MIME decode or scheduling failed', {
-      error: error instanceof Error ? error.message : String(error),
+    console.error('[generic-ocr-shadow] scheduled OCR failed', {
+      errorCategory: error instanceof Error ? error.name : 'UnknownOcrError',
     });
-    return null;
+    return {
+      pages: [],
+      content_analysis: contentAnalysis,
+    };
   }
 }
 
@@ -1162,6 +1190,7 @@ export function mergeLocatedSidecars(
   return {
     pages: [...byPage.values()].sort((left, right) => left.page_number - right.page_number),
     content_analysis: generic?.content_analysis,
+    content_gaps: generic?.content_gaps,
   };
 }
 

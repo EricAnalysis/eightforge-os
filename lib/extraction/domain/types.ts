@@ -110,8 +110,14 @@ export interface SourceFragmentArtifact {
   readonly recognition_confidence: number | null;
   readonly reading_order: number;
   readonly artifact_data?: Readonly<Record<string, unknown>>;
-  readonly dependency_role?: 'content' | 'corroboration';
   readonly corroboration_kind?: 'independent_engine' | 'source_pixel_classifier';
+}
+
+export type FragmentDependencyRole = 'content' | 'corroboration';
+
+export interface CandidateFragmentDependency {
+  readonly fragment_artifact_id: FragmentArtifactId;
+  readonly dependency_role: FragmentDependencyRole;
 }
 
 export type NormalizedPrimitive =
@@ -181,6 +187,7 @@ export interface FieldCandidate {
   readonly source_sha256: string;
   readonly parser_manifest_hash: string;
   readonly source_fragment_ids: NonEmpty<FragmentArtifactId>;
+  readonly source_fragment_dependencies: NonEmpty<CandidateFragmentDependency>;
   readonly raw_text: string;
   readonly primitive_kind: NormalizedPrimitive['type'];
   readonly proposed_value: NormalizedPrimitive;

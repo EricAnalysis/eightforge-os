@@ -157,6 +157,10 @@ function fixture(overrides?: {
     source_sha256: HASH,
     parser_manifest_hash: MANIFEST_HASH,
     source_fragment_ids: [FRAGMENT_ID],
+    source_fragment_dependencies: [{
+      fragment_artifact_id: FRAGMENT_ID,
+      dependency_role: 'content',
+    }],
     raw_text: '$ 1,250.00',
     primitive_kind: 'decimal',
     proposed_value: { type: 'decimal', value: '1250' },
@@ -288,12 +292,15 @@ describe('verified field dependency integrity', () => {
       id: corroboratorId,
       raw_text: '0',
       parser: { ...primary.parser, name: 'source-pixel-classifier' },
-      dependency_role: 'corroboration',
       corroboration_kind: 'source_pixel_classifier',
     };
     const candidate: FieldCandidate = {
       ...baseCandidate,
       source_fragment_ids: [FRAGMENT_ID, corroboratorId],
+      source_fragment_dependencies: [
+        { fragment_artifact_id: FRAGMENT_ID, dependency_role: 'content' },
+        { fragment_artifact_id: corroboratorId, dependency_role: 'corroboration' },
+      ],
       raw_text: 'O',
       primitive_kind: 'decimal',
       proposed_value: { type: 'decimal', value: '0' },

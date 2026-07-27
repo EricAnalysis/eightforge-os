@@ -26,6 +26,9 @@ import {
   classifySourceGroundedContent,
   type GenericContentAnalysis,
 } from '@/lib/extraction/domain/genericContentScheduling';
+import type {
+  GenericContentDiagnosticGap,
+} from '@/lib/extraction/ocrObservationSidecar';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const ADAPTER_PARSER: ParserIdentity = Object.freeze({
@@ -332,6 +335,10 @@ async function adaptLegacyLocatedObservations(
         id: opaqueIds.fieldCandidate({
           extraction_run_id: input.run.id,
           source_fragment_ids: [fragmentId],
+          source_fragment_dependencies: [{
+            fragment_artifact_id: fragmentId,
+            dependency_role: 'content',
+          }],
           primitive_kind: 'text',
           proposed_value: { type: 'text', value: text },
         }),
@@ -342,6 +349,10 @@ async function adaptLegacyLocatedObservations(
         source_sha256: input.sourceArtifact.source_sha256,
         parser_manifest_hash: input.run.parser_manifest_hash,
         source_fragment_ids: [fragmentId],
+        source_fragment_dependencies: [{
+          fragment_artifact_id: fragmentId,
+          dependency_role: 'content',
+        }],
         raw_text: text,
         primitive_kind: 'text',
         proposed_value: { type: 'text', value: text },
@@ -477,6 +488,7 @@ export interface AdaptLegacyExtractionToStep1ShadowInput {
   readonly locatedPages?: readonly LegacyLocatedPageObservation[];
   readonly unlocatedOutputs?: readonly UnlocatedLegacyOutput[];
   readonly genericContentAnalysis?: GenericContentAnalysis;
+  readonly genericContentGaps?: readonly GenericContentDiagnosticGap[];
   readonly completedAt?: string;
 }
 
@@ -615,7 +627,22 @@ export async function adaptLegacyExtractionToStep1Shadow(
   const schedulingGaps: ProcessingGap[] = (input.genericContentAnalysis?.decisions ?? [])
     .flatMap((decision): ProcessingGap[] => {
       const page = pageGroups.get(decision.page);
-      const ocrProducedText = page?.words.some((word) => hasText(word.text)) ?? false;
+      const ocrProducedText = page?.words.some((word) => {
+        if (!hasText(word.text) || !page.width || !page.height) return false;
+        const box = normalizedBox(
+          word,
+          page.width,
+          page.height,
+          page.rotation_degrees ?? 0,
+        );
+        if (!box) return false;
+        const centerX = (box.x0 + box.x1) / 2;
+        const centerY = (box.y0 + box.y1) / 2;
+        return centerX >= decision.bounding_box.x0
+          && centerX < decision.bounding_box.x1
+          && centerY >= decision.bounding_box.y0
+          && centerY < decision.bounding_box.y1;
+      }) ?? false;
       if (decision.action === 'ocr' && ocrProducedText) return [];
       const reason: ProcessingGap['reason'] = decision.action === 'skip'
         ? 'content_quality_skip'
@@ -648,7 +675,27 @@ export async function adaptLegacyExtractionToStep1Shadow(
         upstream_artifact_ids: [],
       }];
     });
-  const gaps = [...adapted.gaps, ...schedulingGaps];
+  const diagnosticGaps: ProcessingGap[] = (input.genericContentGaps ?? [])
+    .map((gap) => ({
+      id: opaqueIds.processingGap({
+        extraction_run_id: preliminaryRun.id,
+        gap_key: gap.gap_key,
+        reason: gap.reason,
+      }),
+      gap_key: gap.gap_key,
+      organization_id: input.sourceArtifact.organization_id,
+      source_document_id: input.sourceArtifact.source_document_id,
+      extraction_run_id: preliminaryRun.id,
+      page: null,
+      bounding_box: null,
+      stage: gap.stage,
+      reason: gap.reason,
+      retryable: gap.retryable,
+      attempts: gap.attempts,
+      detail: `Generic PDF decoding failed (${gap.error_category}).`,
+      upstream_artifact_ids: [],
+    }));
+  const gaps = [...adapted.gaps, ...schedulingGaps, ...diagnosticGaps];
   const run: Step1ShadowExtractionRun = {
     ...preliminaryRun,
     status: gaps.some((gap) => gap.retryable)
@@ -702,6 +749,9 @@ export async function adaptLegacyExtractionToStep1Shadow(
   });
   const genericContentAnalysis = input.genericContentAnalysis
     ? (() => {
+        // Scheduler classification may use provisional native text to plan work,
+        // but it is never persisted directly. Persisted classification is always
+        // recomputed from verified text and verified observed structure here.
         const classification = classifySourceGroundedContent({
           verified_texts: adapted.verifiedFields.map((field) => field.raw_text),
           structural_kinds: input.genericContentAnalysis?.decisions.map(
@@ -743,6 +793,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       page: output.page ?? null,
     })),
     generic_content_analysis: genericContentAnalysis,
+    generic_content_gaps: input.genericContentGaps ?? [],
   };
   const snapshot: ExtractionSnapshot = {
     id: opaqueIds.extractionSnapshot({

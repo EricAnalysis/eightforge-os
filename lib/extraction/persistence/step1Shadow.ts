@@ -235,6 +235,7 @@ export async function persistExtractionStep1Shadow(
       input.locatedObservations.pages.length,
     ),
     genericContentAnalysis: input.locatedObservations.content_analysis,
+    genericContentGaps: input.locatedObservations.content_gaps,
   });
   const completedAt = graph.run.completed_at;
   const { data, error } = await input.admin.rpc('publish_extraction_step1_shadow', {

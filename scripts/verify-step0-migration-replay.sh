@@ -195,6 +195,10 @@ VALUES (
       'source_fragment_ids', jsonb_build_array(
         '70000000-0000-0000-0000-000000000002'
       ),
+      'source_fragment_dependencies', jsonb_build_array(jsonb_build_object(
+        'fragment_artifact_id', '70000000-0000-0000-0000-000000000002',
+        'dependency_role', 'content'
+      )),
       'raw_text', '123.45', 'primitive_kind', 'decimal',
       'proposed_value', jsonb_build_object('type', 'decimal', 'value', '123.45'),
       'transformations', '[]'::jsonb,
@@ -290,6 +294,13 @@ DECLARE
   raw_span_payload jsonb;
   transformation_payload jsonb;
   invalid_gap_box_payload jsonb;
+  mixed_role_payload jsonb;
+  changed_role_payload jsonb;
+  corroboration_text_payload jsonb;
+  only_corroboration_payload jsonb;
+  unsupported_role_payload jsonb;
+  corroboration_geometry_payload jsonb;
+  mixed_result jsonb;
   new_manifest_payload jsonb;
   new_source_payload jsonb;
   resolved_source jsonb;
@@ -310,6 +321,228 @@ BEGIN
     OR (SELECT count(*) FROM public.extraction_processing_gaps
         WHERE id = '70000000-0000-0000-0000-000000000005') <> 1 THEN
     RAISE EXCEPTION 'Step 1 publisher is not idempotent';
+  END IF;
+
+  mixed_role_payload := replace(
+    valid_payload::text, '70000000-', '7b000000-'
+  )::jsonb;
+  mixed_role_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          mixed_role_payload,
+          '{idempotency_key}', '"step1:replay:mixed-roles"'::jsonb
+        ),
+        '{parser_manifest_hash}', to_jsonb(repeat('a', 64))
+      ),
+      '{content_extraction_fingerprint}', to_jsonb(repeat('b', 64))
+    ),
+    '{artifact_root_hash}', to_jsonb(repeat('c', 64))
+  );
+  mixed_role_payload := jsonb_set(
+    mixed_role_payload,
+    '{fragments}',
+    (mixed_role_payload->'fragments') || jsonb_build_array(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            mixed_role_payload#>'{fragments,0}',
+            '{id}', '"7b000000-0000-0000-0000-000000000006"'::jsonb
+          ),
+          '{raw_text}', '"CORROBORATION"'::jsonb
+        ),
+        '{reading_order}', '2'::jsonb
+      )
+    )
+  );
+  mixed_role_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        mixed_role_payload,
+        '{candidates,0,source_fragment_ids}',
+        jsonb_build_array(
+          '7b000000-0000-0000-0000-000000000002',
+          '7b000000-0000-0000-0000-000000000006'
+        )
+      ),
+      '{candidates,0,source_fragment_dependencies}',
+      jsonb_build_array(
+        jsonb_build_object(
+          'fragment_artifact_id', '7b000000-0000-0000-0000-000000000002',
+          'dependency_role', 'content'
+        ),
+        jsonb_build_object(
+          'fragment_artifact_id', '7b000000-0000-0000-0000-000000000006',
+          'dependency_role', 'corroboration'
+        )
+      )
+    ),
+    '{verified_fields,0,source_fragment_ids}',
+    jsonb_build_array(
+      '7b000000-0000-0000-0000-000000000002',
+      '7b000000-0000-0000-0000-000000000006'
+    )
+  );
+  mixed_role_payload := jsonb_set(
+    mixed_role_payload,
+    '{snapshot_members}',
+    (mixed_role_payload->'snapshot_members') || jsonb_build_array(
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7b000000-0000-0000-0000-000000000006',
+        'dependency_hash', repeat('6', 64),
+        'sequence', 6
+      )
+    )
+  );
+
+  mixed_result := public.publish_extraction_step1_shadow(mixed_role_payload);
+  IF (mixed_result->>'reused')::boolean
+    OR (public.publish_extraction_step1_shadow(mixed_role_payload)->>'reused')::boolean
+      IS DISTINCT FROM true
+    OR (
+      SELECT array_agg(dependency_role ORDER BY sequence)
+      FROM public.extraction_field_candidate_sources
+      WHERE field_candidate_id = '7b000000-0000-0000-0000-000000000003'
+    ) IS DISTINCT FROM ARRAY['content', 'corroboration']::text[] THEN
+    RAISE EXCEPTION 'mixed dependency roles did not publish and replay exactly';
+  END IF;
+
+  changed_role_payload := jsonb_set(
+    mixed_role_payload,
+    '{candidates,0,source_fragment_dependencies,1,dependency_role}',
+    '"content"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(changed_role_payload);
+    RAISE EXCEPTION 'idempotent replay accepted divergent dependency roles';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  corroboration_text_payload := replace(
+    mixed_role_payload::text, '7b000000-', '7c000000-'
+  )::jsonb;
+  corroboration_text_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            corroboration_text_payload,
+            '{idempotency_key}', '"step1:replay:corroboration-in-raw"'::jsonb
+          ),
+          '{parser_manifest_hash}', to_jsonb(repeat('b', 64))
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('d', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('e', 64))
+    ),
+    '{candidates,0,raw_text}', '"123.45CORROBORATION"'::jsonb
+  );
+  corroboration_text_payload := jsonb_set(
+    corroboration_text_payload,
+    '{verified_fields,0,raw_text}', '"123.45CORROBORATION"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(corroboration_text_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'candidate raw text included corroboration text';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  only_corroboration_payload := replace(
+    valid_payload::text, '70000000-', '7d000000-'
+  )::jsonb;
+  only_corroboration_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            only_corroboration_payload,
+            '{idempotency_key}', '"step1:replay:only-corroboration"'::jsonb
+          ),
+          '{parser_manifest_hash}', to_jsonb(repeat('c', 64))
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('1', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('2', 64))
+    ),
+    '{candidates,0,source_fragment_dependencies,0,dependency_role}',
+    '"corroboration"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(only_corroboration_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'candidate with only corroboration fragments succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  unsupported_role_payload := replace(
+    valid_payload::text, '70000000-', '7e000000-'
+  )::jsonb;
+  unsupported_role_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            unsupported_role_payload,
+            '{idempotency_key}', '"step1:replay:unsupported-role"'::jsonb
+          ),
+          '{parser_manifest_hash}', to_jsonb(repeat('d', 64))
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('3', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('4', 64))
+    ),
+    '{candidates,0,source_fragment_dependencies,0,dependency_role}',
+    '"unsupported"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(unsupported_role_payload);
+    RAISE EXCEPTION 'unsupported dependency role succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  corroboration_geometry_payload := replace(
+    mixed_role_payload::text, '7b000000-', '7f000000-'
+  )::jsonb;
+  corroboration_geometry_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            corroboration_geometry_payload,
+            '{idempotency_key}', '"step1:replay:corroboration-geometry"'::jsonb
+          ),
+          '{parser_manifest_hash}', to_jsonb(repeat('e', 64))
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('5', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('6', 64))
+    ),
+    '{fragments,1,bounding_box,x1}', '1.1'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(corroboration_geometry_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'invalid corroboration geometry succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key IN (
+      'step1:replay:corroboration-in-raw',
+      'step1:replay:only-corroboration',
+      'step1:replay:unsupported-role',
+      'step1:replay:corroboration-geometry'
+    )
+  ) THEN
+    RAISE EXCEPTION 'dependency-role rejection left a partial graph';
   END IF;
 
   omitted_member_payload := replace(
@@ -548,8 +781,12 @@ BEGIN
     '71000000-0000-0000-0000-000000000011'
   )::jsonb;
   atomic_payload := jsonb_set(
-    atomic_payload,
-    '{candidates,0,source_fragment_ids,0}',
+    jsonb_set(
+      atomic_payload,
+      '{candidates,0,source_fragment_ids,0}',
+      '"71000000-0000-0000-0000-000000000099"'::jsonb
+    ),
+    '{candidates,0,source_fragment_dependencies,0,fragment_artifact_id}',
     '"71000000-0000-0000-0000-000000000099"'::jsonb
   );
 

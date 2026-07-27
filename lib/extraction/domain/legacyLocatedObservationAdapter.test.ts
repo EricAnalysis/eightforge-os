@@ -411,4 +411,211 @@ describe('shadow-only legacy located-observation adapter', () => {
     expect(first.pages[0]?.id).not.toBe(second.pages[0]?.id);
     expect(first.snapshot.id).not.toBe(second.snapshot.id);
   });
+
+  it('persists one deterministic terminal decode-failure gap', async () => {
+    const { sourceArtifact, run } = fixture();
+    const input = {
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: run.parser_manifest_hash,
+      artifactSchemaVersion: run.artifact_schema_version,
+      idempotencyKey: 'job:decode-failure',
+      completedAt: '2026-07-24T00:00:00.000Z',
+      locatedObservations: [],
+      genericContentGaps: [{
+        gap_key: `step2:decode_failure:${SOURCE_HASH}`,
+        stage: 'source_ingest' as const,
+        reason: 'decode_failure' as const,
+        retryable: false,
+        attempts: 1,
+        error_category: 'InvalidPDFException',
+      }],
+    };
+    const first = await adaptLegacyExtractionToStep1Shadow(input);
+    const replay = await adaptLegacyExtractionToStep1Shadow(input);
+
+    expect(first.gaps).toEqual([expect.objectContaining({
+      id: replay.gaps[0]?.id,
+      gap_key: `step2:decode_failure:${SOURCE_HASH}`,
+      page: null,
+      bounding_box: null,
+      stage: 'source_ingest',
+      reason: 'decode_failure',
+      retryable: false,
+      attempts: 1,
+      detail: 'Generic PDF decoding failed (InvalidPDFException).',
+    })]);
+    expect(first.run.status).toBe('partial_terminal');
+    expect(first.snapshot.status).toBe('partial');
+    expect(first.snapshot.gap_ids).toEqual([first.gaps[0]?.id]);
+    expect(first.members.at(-1)).toMatchObject({
+      member_kind: 'gap',
+      processing_gap_id: first.gaps[0]?.id,
+    });
+  });
+
+  it('records the complete content-quality skip diagnostic without OCR output', async () => {
+    const { sourceArtifact, run } = fixture();
+    const analysis = scheduleGenericContentExtraction({
+      source_sha256: SOURCE_HASH,
+      byte_length: 100,
+      media_type_sniffed: 'application/pdf',
+      page_count: 1,
+      regions: [{
+        region_id: 'page:1:band:1',
+        page: 1,
+        bounding_box: { x0: 0, y0: 0, x1: 1, y1: 0.25 },
+        native_text:
+          'This verified native region contains enough source grounded words to skip OCR safely while retaining a deterministic scheduling diagnostic for audit review.',
+        structural_kind: 'text',
+      }],
+    });
+    const result = await adaptLegacyExtractionToStep1Shadow({
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: run.parser_manifest_hash,
+      artifactSchemaVersion: run.artifact_schema_version,
+      idempotencyKey: 'job:quality-skip',
+      locatedObservations: [],
+      genericContentAnalysis: analysis,
+    });
+
+    expect(result.gaps).toEqual([expect.objectContaining({
+      gap_key: 'step2:content_quality_skip:page:1:band:1',
+      page: 1,
+      bounding_box: expect.objectContaining({
+        x0: 0, y0: 0, x1: 1, y1: 0.25,
+      }),
+      reason: 'content_quality_skip',
+      retryable: false,
+      attempts: 0,
+    })]);
+    expect(result.run.status).toBe('partial_terminal');
+    expect(result.snapshot.status).toBe('partial');
+  });
+
+  it('isolates a failed OCR region while retaining successful located observations', async () => {
+    const { sourceArtifact, run } = fixture();
+    const parser = {
+      stage: 'ocr' as const,
+      name: 'generic-ocr',
+      version: '1',
+      configuration_hash: 'f'.repeat(64),
+    };
+    const analysis = scheduleGenericContentExtraction({
+      source_sha256: SOURCE_HASH,
+      byte_length: 100,
+      media_type_sniffed: 'application/pdf',
+      page_count: 1,
+      regions: [
+        {
+          region_id: 'page:1:band:1',
+          page: 1,
+          bounding_box: { x0: 0, y0: 0, x1: 1, y1: 0.5 },
+          native_text: '',
+          structural_kind: 'unknown',
+        },
+        {
+          region_id: 'page:1:band:2',
+          page: 1,
+          bounding_box: { x0: 0, y0: 0.5, x1: 1, y1: 1 },
+          native_text: '',
+          structural_kind: 'unknown',
+        },
+      ],
+    });
+    const result = await adaptLegacyExtractionToStep1Shadow({
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: run.parser_manifest_hash,
+      artifactSchemaVersion: run.artifact_schema_version,
+      idempotencyKey: 'job:regional-ocr-failure',
+      locatedObservations: [{
+        page: 1,
+        page_width: 100,
+        page_height: 100,
+        render_sha256: 'e'.repeat(64),
+        parser,
+        text: 'Successful upper region',
+        confidence: 90,
+        bbox: { x0: 10, y0: 10, x1: 60, y1: 20 },
+      }],
+      genericContentAnalysis: analysis,
+    });
+
+    expect(result.verifiedFields).toHaveLength(1);
+    expect(result.verifiedFields[0]?.raw_text).toBe('Successful upper region');
+    expect(result.gaps).toEqual([expect.objectContaining({
+      gap_key: 'step2:ocr_region_failure:page:1:band:2',
+      page: 1,
+      bounding_box: expect.objectContaining({
+        x0: 0, y0: 0.5, x1: 1, y1: 1,
+      }),
+      reason: 'ocr_region_failure',
+      retryable: true,
+      attempts: 1,
+    })]);
+    expect(result.run.status).toBe('partial_retryable');
+    expect(result.snapshot.status).toBe('partial');
+  });
+
+  it('ignores provisional scheduler classification when persisting classification identity', async () => {
+    const { sourceArtifact, run } = fixture();
+    const parser = {
+      stage: 'ocr' as const,
+      name: 'generic-ocr',
+      version: '1',
+      configuration_hash: 'f'.repeat(64),
+    };
+    const analysis = scheduleGenericContentExtraction({
+      source_sha256: SOURCE_HASH,
+      byte_length: 100,
+      media_type_sniffed: 'application/pdf',
+      page_count: 1,
+      regions: [{
+        region_id: 'page:1:band:1',
+        page: 1,
+        bounding_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        native_text: 'INVOICE Amount Due',
+        structural_kind: 'table',
+      }],
+    });
+    const common = {
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: run.parser_manifest_hash,
+      artifactSchemaVersion: run.artifact_schema_version,
+      idempotencyKey: 'job:classification-invariant',
+      completedAt: '2026-07-24T00:00:00.000Z',
+      locatedObservations: [{
+        page: 1,
+        page_width: 100,
+        page_height: 100,
+        render_sha256: 'e'.repeat(64),
+        parser,
+        text: 'Contract agreement scope of work',
+        confidence: 90,
+        bbox: { x0: 10, y0: 10, x1: 80, y1: 20 },
+      }],
+    };
+    const first = await adaptLegacyExtractionToStep1Shadow({
+      ...common,
+      genericContentAnalysis: analysis,
+    });
+    const second = await adaptLegacyExtractionToStep1Shadow({
+      ...common,
+      genericContentAnalysis: {
+        ...analysis,
+        classification: {
+          family: 'ticket',
+          matched_signals: ['ticket_language'],
+          policy_version: analysis.classification.policy_version,
+        },
+      },
+    });
+
+    expect(first.snapshot.content_extraction_fingerprint).toBe(
+      second.snapshot.content_extraction_fingerprint,
+    );
+  });
 });

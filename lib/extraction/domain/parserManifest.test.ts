@@ -119,6 +119,7 @@ describe('parser manifest hashing', () => {
     });
 
     expect(step1.verification_policy.name).toBe('step1-span-verification-policy');
+    expect(step1.verification_policy.version).toBe('v2');
     expect(hashParserManifest(step1)).not.toBe(hashParserManifest(step0));
     expect(hashParserManifest(structuredClone(step1))).toBe(hashParserManifest(step1));
   });

@@ -122,6 +122,14 @@ describe('Step 1 shadow persistence', () => {
       ),
       'utf8',
     );
+    const roleMigration = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'supabase/migrations/20260727020000_persist_candidate_fragment_dependency_roles.sql',
+      ),
+      'utf8',
+    );
+    expect(roleMigration).toContain("item->'source_fragment_dependencies'");
     expect(migration).toContain('enforce_shadow_assignment_monotonic');
     expect(migration).toContain("OLD.activation_mode <> 'shadow'");
     expect(migration).toContain('NEW.assigned_at < OLD.assigned_at');
@@ -178,6 +186,14 @@ describe('Step 1 shadow persistence', () => {
     ]) {
       expect(Array.isArray(payload[key]), `${key} must serialize as an array`).toBe(true);
     }
+    expect(payload.candidates).toEqual([
+      expect.objectContaining({
+        source_fragment_dependencies: [{
+          fragment_artifact_id: expect.any(String),
+          dependency_role: 'content',
+        }],
+      }),
+    ]);
     for (const collection of [
       'pages',
       'fragments',
@@ -227,6 +243,43 @@ describe('Step 1 shadow persistence', () => {
         sequence: member.sequence,
       })),
     }));
+  });
+
+  it('serializes decode failure through the existing Step 1 publication RPC', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
+    const mock = client();
+    const result = await persistExtractionStep1Shadow({
+      ...input(mock.admin),
+      locatedObservations: {
+        pages: [],
+        content_gaps: [{
+          gap_key: `step2:decode_failure:${SOURCE_SHA}`,
+          stage: 'source_ingest',
+          reason: 'decode_failure',
+          retryable: false,
+          attempts: 1,
+          error_category: 'InvalidPDFException',
+        }],
+      },
+    });
+    const payload = mock.calls.find(
+      (call) => call.name === 'publish_extraction_step1_shadow',
+    )?.payload;
+
+    expect(result).toMatchObject({ gapCount: 2 });
+    expect(payload).toMatchObject({
+      run_status: 'partial_terminal',
+      snapshot_status: 'partial',
+      gaps: expect.arrayContaining([expect.objectContaining({
+        gap_key: `step2:decode_failure:${SOURCE_SHA}`,
+        page: null,
+        bounding_box: null,
+        stage: 'source_ingest',
+        reason: 'decode_failure',
+        retryable: false,
+        attempts: 1,
+      })]),
+    });
   });
 
   it('builds one convergent graph for concurrent unchanged-source publication', async () => {

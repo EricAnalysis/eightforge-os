@@ -292,11 +292,26 @@ export async function verifyFieldCandidate(
     }
   }
 
-  const contentFragments = resolved.filter(
-    (fragment) => fragment.dependency_role !== 'corroboration',
-  );
+  if (candidate.source_fragment_dependencies.length
+      !== candidate.source_fragment_ids.length
+      || candidate.source_fragment_dependencies.some(
+        (dependency, index) =>
+          dependency.fragment_artifact_id !== candidate.source_fragment_ids[index],
+      )) {
+    return failure(
+      'dependency_missing',
+      'Candidate dependency roles must close over its ordered source fragments.',
+    );
+  }
+  const contentIds = new Set(candidate.source_fragment_dependencies
+    .filter((dependency) => dependency.dependency_role === 'content')
+    .map((dependency) => dependency.fragment_artifact_id));
+  const corroborationIds = new Set(candidate.source_fragment_dependencies
+    .filter((dependency) => dependency.dependency_role === 'corroboration')
+    .map((dependency) => dependency.fragment_artifact_id));
+  const contentFragments = resolved.filter((fragment) => contentIds.has(fragment.id));
   const corroboratingFragments = resolved.filter(
-    (fragment) => fragment.dependency_role === 'corroboration',
+    (fragment) => corroborationIds.has(fragment.id),
   );
   if (contentFragments.length === 0) {
     return failure('raw_text_mismatch', 'A candidate requires at least one content fragment.');

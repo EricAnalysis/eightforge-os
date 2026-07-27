@@ -27,6 +27,15 @@ async function loadExtractDocument() {
   return documentExtractionModule.extractDocument;
 }
 
+async function loadGenericShadowBuilder() {
+  const documentExtractionModule = await import('@/lib/server/documentExtraction');
+  return {
+    buildGenericPdfShadowSidecar:
+      documentExtractionModule.buildGenericPdfShadowSidecar,
+    mergeLocatedSidecars: documentExtractionModule.mergeLocatedSidecars,
+  };
+}
+
 beforeAll(async () => {
   // Warm Vitest's transformed module graph outside the per-test timeout. Each test still
   // resets the module cache so its isolated PDF/OCR doMock factories remain authoritative.
@@ -123,6 +132,48 @@ afterEach(() => {
 });
 
 describe('documentExtraction pdf fallback gate', () => {
+  it('returns a sanitized deterministic decode diagnostic for malformed PDF bytes', async () => {
+    vi.resetModules();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockCommonPdfPipeline(0);
+    const {
+      buildGenericPdfShadowSidecar,
+      mergeLocatedSidecars,
+    } = await loadGenericShadowBuilder();
+    const bytes = new TextEncoder().encode('%PDF-truncated').buffer;
+
+    const result = await buildGenericPdfShadowSidecar(bytes, 'application/pdf');
+
+    expect(result).toEqual({
+      pages: [],
+      content_gaps: [{
+        gap_key: `step2:decode_failure:${sha256Hex(bytes)}`,
+        stage: 'source_ingest',
+        reason: 'decode_failure',
+        retryable: false,
+        attempts: 1,
+        error_category: 'Error',
+      }],
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      '[generic-ocr-shadow] byte/MIME decode or scheduling failed',
+      { errorCategory: 'Error' },
+    );
+    expect(mergeLocatedSidecars(result, {
+      pages: [{
+        page_number: 1,
+        render_sha256: 'a'.repeat(64),
+        width: 100,
+        height: 100,
+        text_detected: true,
+        words: [],
+      }],
+    })).toMatchObject({
+      pages: [{ page_number: 1 }],
+      content_gaps: result?.content_gaps,
+    });
+  });
+
   it('uses pdf_text when meaningful native page text blocks the weak fallback gate', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});

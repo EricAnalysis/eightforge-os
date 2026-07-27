@@ -217,9 +217,10 @@ export function buildLegacyShadowParserManifest(params: {
       }),
     ],
     verification_policy: params.verificationPolicy === 'step1_span_verified'
-      ? component('step1-span-verification-policy', 'v1', {
+      ? component('step1-span-verification-policy', 'v2', {
           implementation_build: implementationBuild,
           verification_basis: 'exact_source_text_and_page_geometry',
+          candidate_dependency_roles: 'content_or_corroboration_edge_v1',
           confidence_policy: 'structured_components_single_engine_cap_0_85',
           unsupported_legacy_shapes: 'explicit_gap',
           shadow_only: true,

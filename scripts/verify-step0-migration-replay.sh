@@ -260,16 +260,36 @@ VALUES (
 );
 
 SET ROLE service_role;
-SELECT public.publish_extraction_step1_shadow(payload)
-FROM step1_replay_payloads WHERE name = 'valid';
-SELECT public.publish_extraction_step1_shadow(payload)
-FROM step1_replay_payloads WHERE name = 'valid';
+SELECT public.publish_extraction_step1_shadow(payload) AS first_step1_result
+FROM step1_replay_payloads WHERE name = 'valid' \gset
+SELECT public.publish_extraction_step1_shadow(payload) AS replayed_step1_result
+FROM step1_replay_payloads WHERE name = 'valid' \gset
+SELECT 1 / CASE WHEN
+  (:'first_step1_result'::jsonb->>'source_artifact_id') = :'step1_source_id'
+  AND (:'first_step1_result'::jsonb->>'extraction_run_id')
+    = '70000000-0000-0000-0000-000000000010'
+  AND (:'first_step1_result'::jsonb->>'extraction_snapshot_id')
+    = '70000000-0000-0000-0000-000000000011'
+  AND (:'first_step1_result'::jsonb->>'reused')::boolean = false
+  AND (:'replayed_step1_result'::jsonb->>'source_artifact_id') = :'step1_source_id'
+  AND (:'replayed_step1_result'::jsonb->>'extraction_run_id')
+    = '70000000-0000-0000-0000-000000000010'
+  AND (:'replayed_step1_result'::jsonb->>'extraction_snapshot_id')
+    = '70000000-0000-0000-0000-000000000011'
+  AND (:'replayed_step1_result'::jsonb->>'reused')::boolean = true
+  THEN 1 ELSE 0 END AS step1_rpc_result_and_reuse_ok;
 RESET ROLE;
 
 DO $$
 DECLARE
   valid_payload jsonb;
   atomic_payload jsonb;
+  omitted_member_payload jsonb;
+  foreign_member_payload jsonb;
+  divergent_field_payload jsonb;
+  raw_span_payload jsonb;
+  transformation_payload jsonb;
+  invalid_gap_box_payload jsonb;
   new_manifest_payload jsonb;
   new_source_payload jsonb;
   resolved_source jsonb;
@@ -291,6 +311,196 @@ BEGIN
         WHERE id = '70000000-0000-0000-0000-000000000005') <> 1 THEN
     RAISE EXCEPTION 'Step 1 publisher is not idempotent';
   END IF;
+
+  omitted_member_payload := replace(
+    valid_payload::text, '70000000-', '75000000-'
+  )::jsonb;
+  omitted_member_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        omitted_member_payload #- '{snapshot_members,2}',
+        '{idempotency_key}', '"step1:replay:omitted-member"'::jsonb
+      ),
+      '{content_extraction_fingerprint}', to_jsonb(repeat('a', 64))
+    ),
+    '{artifact_root_hash}', to_jsonb(repeat('b', 64))
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(omitted_member_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 snapshot omitted an inserted artifact';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key = 'step1:replay:omitted-member'
+  ) THEN
+    RAISE EXCEPTION 'omitted-member Step 1 rejection left partial records';
+  END IF;
+
+  foreign_member_payload := replace(
+    valid_payload::text, '70000000-', '76000000-'
+  )::jsonb;
+  foreign_member_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          foreign_member_payload,
+          '{idempotency_key}', '"step1:replay:foreign-member"'::jsonb
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('c', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('d', 64))
+    ),
+    '{snapshot_members,0,page_artifact_id}',
+    '"70000000-0000-0000-0000-000000000001"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(foreign_member_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 snapshot included an artifact outside its run';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key = 'step1:replay:foreign-member'
+  ) THEN
+    RAISE EXCEPTION 'foreign-member Step 1 rejection left partial records';
+  END IF;
+
+  divergent_field_payload := replace(
+    valid_payload::text, '70000000-', '77000000-'
+  )::jsonb;
+  divergent_field_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          divergent_field_payload,
+          '{idempotency_key}', '"step1:replay:divergent-field"'::jsonb
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('e', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('f', 64))
+    ),
+    '{verified_fields,0,raw_text}', '"different"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(divergent_field_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 verified field diverged from its candidate';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key = 'step1:replay:divergent-field'
+  ) THEN
+    RAISE EXCEPTION 'divergent-field Step 1 rejection left partial records';
+  END IF;
+
+  raw_span_payload := replace(
+    valid_payload::text, '70000000-', '78000000-'
+  )::jsonb;
+  raw_span_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            raw_span_payload,
+            '{idempotency_key}', '"step1:replay:raw-span"'::jsonb
+          ),
+          '{content_extraction_fingerprint}', to_jsonb(repeat('1', 64))
+        ),
+        '{artifact_root_hash}', to_jsonb(repeat('2', 64))
+      ),
+      '{candidates,0,raw_text}', '"different"'::jsonb
+    ),
+    '{verified_fields,0,raw_text}', '"different"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(raw_span_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 candidate raw text diverged from ordered fragments';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  transformation_payload := replace(
+    valid_payload::text, '70000000-', '79000000-'
+  )::jsonb;
+  transformation_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        transformation_payload,
+        '{idempotency_key}', '"step1:replay:transformation-trace"'::jsonb
+      ),
+      '{content_extraction_fingerprint}', to_jsonb(repeat('3', 64))
+    ),
+    '{artifact_root_hash}', to_jsonb(repeat('4', 64))
+  );
+  transformation_payload := jsonb_set(
+    jsonb_set(
+      transformation_payload,
+      '{candidates,0,transformations}',
+      jsonb_build_array(jsonb_build_object(
+        'sequence', 1,
+        'operation', 'join_ordered_fragments',
+        'implementation_version', '1',
+        'input_sha256', repeat('0', 64),
+        'output_sha256',
+          encode(sha256(convert_to('123.45', 'UTF8')), 'hex'),
+        'input_text', '123.45',
+        'output_text', '123.45',
+        'lossless', true,
+        'rationale', 'integration test'
+      ))
+    ),
+    '{verified_fields,0,transformations}',
+    jsonb_build_array(jsonb_build_object(
+      'sequence', 1,
+      'operation', 'join_ordered_fragments',
+      'implementation_version', '1',
+      'input_sha256', repeat('0', 64),
+      'output_sha256', encode(sha256(convert_to('123.45', 'UTF8')), 'hex'),
+      'input_text', '123.45',
+      'output_text', '123.45',
+      'lossless', true,
+      'rationale', 'integration test'
+    ))
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(transformation_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 accepted an inconsistent transformation trace';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+
+  invalid_gap_box_payload := replace(
+    valid_payload::text, '70000000-', '7a000000-'
+  )::jsonb;
+  invalid_gap_box_payload := jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          invalid_gap_box_payload,
+          '{idempotency_key}', '"step1:replay:invalid-gap-box"'::jsonb
+        ),
+        '{content_extraction_fingerprint}', to_jsonb(repeat('5', 64))
+      ),
+      '{artifact_root_hash}', to_jsonb(repeat('6', 64))
+    ),
+    '{gaps,0,bounding_box,x1}', '1.1'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(invalid_gap_box_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'Step 1 accepted an invalid normalized gap box';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
 
   BEGIN
     PERFORM public.publish_extraction_step1_shadow(
@@ -475,6 +685,56 @@ BEGIN
     OR (SELECT count(*) FROM public.document_projection_stamps) <> 1 THEN
     RAISE EXCEPTION 'Step 1 shadow publication changed canonical or projection truth';
   END IF;
+END;
+$$;
+RESET ROLE;
+
+SET request.jwt.claim.role = 'authenticated';
+DO $$
+DECLARE
+  valid_payload jsonb;
+BEGIN
+  SELECT payload INTO valid_payload
+  FROM public.step1_replay_payloads WHERE name = 'valid';
+  BEGIN
+    PERFORM public.resolve_extraction_step1_source(jsonb_build_object(
+      'organization_id', '10000000-0000-0000-0000-000000000001',
+      'source_document_id', '20000000-0000-0000-0000-000000000001',
+      'source_sha256', repeat('6', 64),
+      'storage_object_version', 'step1-object:1',
+      'media_type_sniffed', 'application/pdf',
+      'byte_length', 200
+    ));
+    RAISE EXCEPTION 'non-service role resolved a Step 1 source';
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(valid_payload);
+    RAISE EXCEPTION 'non-service role published a Step 1 snapshot';
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    NULL;
+  END;
+END;
+$$;
+
+SET request.jwt.claim.role = 'service_role';
+SET ROLE service_role;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.resolve_extraction_step1_source(jsonb_build_object(
+      'organization_id', '10000000-0000-0000-0000-000000000002',
+      'source_document_id', '20000000-0000-0000-0000-000000000001',
+      'source_sha256', repeat('6', 64),
+      'storage_object_version', 'step1-object:mismatched-document',
+      'media_type_sniffed', 'application/pdf',
+      'byte_length', 200
+    ));
+    RAISE EXCEPTION 'mismatched organization/document Step 1 source resolved';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
 END;
 $$;
 RESET ROLE;

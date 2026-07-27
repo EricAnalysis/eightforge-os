@@ -9,7 +9,7 @@ import type {
   TableValueKind,
   VerifiedFieldId,
 } from '@/lib/extraction/domain/types';
-import type { VerifiedFieldHandle } from '@/lib/extraction/domain/verifiedField';
+import { VerifiedFieldHandle } from '@/lib/extraction/domain/verifiedField';
 
 export type SemanticColumnRole =
   | 'description'
@@ -113,6 +113,10 @@ export class SemanticColumnMapping {
     );
     if (!column || !input.chain.segment_ids.includes(input.segment.id)) {
       throw new Error('Semantic column evidence must belong to the cited table chain.');
+    }
+    if (![...input.evidence.headerFields, ...input.evidence.cellFields]
+      .every((handle) => handle instanceof VerifiedFieldHandle)) {
+      throw new Error('Semantic column mapping requires verified-field handles.');
     }
 
     const headerIds = input.evidence.headerFields.map((handle) => handle.field.id);

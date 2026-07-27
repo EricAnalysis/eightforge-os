@@ -4,7 +4,10 @@ import {
   type AuthoredRateRowLike,
 } from '@/lib/contracts/authoredRowQuarantine';
 import { verifiedFieldFixture } from '@/lib/extraction/domain/verifiedField.test';
-import { verifyFieldCandidate } from '@/lib/extraction/domain/verifiedField';
+import {
+  VerifiedFieldHandle,
+  verifyFieldCandidate,
+} from '@/lib/extraction/domain/verifiedField';
 import type {
   FragmentArtifactId,
   TableChainArtifact,
@@ -83,20 +86,20 @@ describe('Step 3 authored-row quarantine compatibility', () => {
     });
 
     expect(mapping.cell_verified_field_ids).toEqual([verified.verifiedField.id]);
-    expect(mapping.cell_verified_field_ids).not.toContain('legacy:1');
-    if (false) {
-      createSemanticColumnMapping({
+    for (const authoredRow of authoredRows) {
+      expect(() => VerifiedFieldHandle.fromVerified(authoredRow as never))
+        .toThrow('VerifiedFieldHandle requires a dependency-verified field.');
+      expect(() => createSemanticColumnMapping({
         interpretationSnapshotId: 'interpretation',
         chain,
         segment,
         columnIndex: 0,
         evidence: {
           headerFields: [verifiedHandle],
-          // @ts-expect-error Authored rows cannot satisfy verified-field dependencies.
-          cellFields: [authoredRows[0]],
+          cellFields: [authoredRow as never],
         },
         ruleId: 'observed-header-and-value-kind-v1',
-      });
+      })).toThrow('Semantic column mapping requires verified-field handles.');
     }
   });
 });

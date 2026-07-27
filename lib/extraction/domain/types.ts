@@ -131,6 +131,7 @@ export interface MeasuredScore {
   readonly calculator: ParserIdentity;
   readonly basis_artifact_ids: NonEmpty<FragmentArtifactId>;
   readonly diagnostics: readonly string[];
+  readonly measurements?: Readonly<Record<string, number | boolean | string | null>>;
 }
 
 export interface GridCellArtifact extends SourceFragmentArtifact {
@@ -236,6 +237,7 @@ export interface TableContinuationLink {
     readonly edge_proximity: MeasuredScore;
     readonly typography_similarity: MeasuredScore;
     readonly row_continuation_score: MeasuredScore;
+    readonly page_distance_penalty: MeasuredScore;
   };
   readonly score: MeasuredScore;
   readonly decision: 'linked' | 'ambiguous' | 'rejected';

@@ -538,7 +538,13 @@ export interface AdaptLegacyExtractionToStep1ShadowResult {
     readonly fragment_artifact_id: FragmentArtifactId;
     readonly dependency_fragment_ids: NonEmpty<FragmentArtifactId>;
   }[];
-  readonly continuationLinks: readonly TableContinuationLink[];
+  readonly continuationLinks: readonly (TableContinuationLink & {
+    readonly basis_fragments: readonly {
+      readonly basis_kind: keyof TableContinuationLink['basis'] | 'overall';
+      readonly fragment_artifact_id: FragmentArtifactId;
+      readonly sequence: number;
+    }[];
+  })[];
   readonly tableChains: readonly TableChainArtifact[];
   readonly tableSegments: readonly TableSegmentArtifact[];
   readonly tableSections: readonly TableSectionArtifact[];
@@ -928,9 +934,10 @@ export async function adaptLegacyExtractionToStep1Shadow(
   ];
   const continuationLinks = tableResult.continuation_links.map((link) => ({
     ...link,
-    basis_fragments: Object.entries(link.basis).flatMap(([basisKind, score]) =>
-      score == null ? [] : score.basis_artifact_ids.map((fragmentId, index) => ({
-        basis_kind: basisKind,
+    basis_fragments: Object.entries({ ...link.basis, overall: link.score })
+      .flatMap(([basisKind, score]) =>
+        score == null ? [] : score.basis_artifact_ids.map((fragmentId, index) => ({
+        basis_kind: basisKind as keyof TableContinuationLink['basis'] | 'overall',
         fragment_artifact_id: fragmentId,
         sequence: index + 1,
       }))),
@@ -1025,54 +1032,14 @@ export async function adaptLegacyExtractionToStep1Shadow(
         : `Generic content shadow diagnostic (${gap.error_category}).`,
       upstream_artifact_ids: [],
     }));
-  const continuationGaps = tableResult.continuation_links
-    .filter((link) => link.decision === 'ambiguous')
-    .map((link): ProcessingGap => {
-      const id = opaqueIds.processingGap({
-        extraction_run_id: preliminaryRun.id,
-        continuation_link_id: link.id,
-        reason: 'table_structure_unresolved',
-      });
-      return {
-        id,
-        gap_key: `step3:table_structure_unresolved:${id}`,
-        organization_id: input.sourceArtifact.organization_id,
-        source_document_id: input.sourceArtifact.source_document_id,
-        extraction_run_id: preliminaryRun.id,
-        page: null,
-        bounding_box: null,
-        stage: 'table_reconstruction',
-        reason: 'table_structure_unresolved',
-        retryable: false,
-        attempts: 1,
-        detail: 'Cross-page table continuation remains ambiguous.',
-        upstream_artifact_ids: [link.from_segment_id, link.to_segment_id],
-      };
-    });
   const gaps = [
     ...adapted.gaps,
     ...arbitration.gaps,
     ...tableResult.gaps,
-    ...continuationGaps,
     ...schedulingGaps,
     ...diagnosticGaps,
   ];
-  const chainGapBySegment = new Map<string, string[]>();
-  for (const gap of continuationGaps) {
-    for (const segmentId of gap.upstream_artifact_ids) {
-      chainGapBySegment.set(segmentId, [
-        ...(chainGapBySegment.get(segmentId) ?? []),
-        gap.id,
-      ]);
-    }
-  }
-  const closedTableChains = tableChains.map((chain) => ({
-    ...chain,
-    gap_ids: [...new Set([
-      ...chain.gap_ids,
-      ...chain.segment_ids.flatMap((segmentId) => chainGapBySegment.get(segmentId) ?? []),
-    ])],
-  }));
+  const closedTableChains = tableChains;
   const run: Step1ShadowExtractionRun = {
     ...preliminaryRun,
     status: gaps.some((gap) => gap.retryable)

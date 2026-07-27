@@ -954,17 +954,48 @@ BEGIN
   step3_payload := step3_payload || jsonb_build_object(
     'fragments', (step3_payload->'fragments') || jsonb_build_array(
       jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000025',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'token', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.105, 'x1', 0.35, 'y1', 0.205, 'rotation', 0
+        ),
+        'raw_text', 'USD', 'parser', parser_identity,
+        'recognition_confidence', 0.99, 'reading_order', 1,
+        'artifact_data', '{}'::jsonb
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000026',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'token', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.25, 'x1', 0.25, 'y1', 0.3, 'rotation', 0
+        ),
+        'raw_text', 'Total', 'parser', parser_identity,
+        'recognition_confidence', 0.99, 'reading_order', 3,
+        'artifact_data', '{}'::jsonb
+      ),
+      jsonb_build_object(
         'id', '7d000000-0000-0000-0000-000000000020',
         'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
         'kind', 'cell', 'page', 1,
         'bounding_box', jsonb_build_object(
-          'x0', 0.1, 'y0', 0.2, 'x1', 0.3, 'y1', 0.3, 'rotation', 0
+          'x0', 0.1, 'y0', 0.1, 'x1', 0.35, 'y1', 0.3, 'rotation', 0
         ),
-        'raw_text', '123.45', 'parser', parser_identity,
-        'recognition_confidence', 0.99, 'reading_order', 2,
+        'raw_text', E'123.45 USD\nTotal', 'parser', parser_identity,
+        'recognition_confidence', 0.99, 'reading_order', 4,
         'artifact_data', jsonb_build_object(
           'structure', 'ordinary', 'content_token_ids',
-          jsonb_build_array('7d000000-0000-0000-0000-000000000002')
+          jsonb_build_array(
+            '7d000000-0000-0000-0000-000000000002',
+            '7d000000-0000-0000-0000-000000000025',
+            '7d000000-0000-0000-0000-000000000026'
+          ),
+          'line_break_offsets', jsonb_build_array(10),
+          'reconstruction_policy', jsonb_build_object(
+            'name', 'generic-geometric-table-reconstruction',
+            'version', 'v2', 'row_center_tolerance', 0.018
+          )
         )
       ),
       jsonb_build_object(
@@ -1016,7 +1047,9 @@ BEGIN
       jsonb_build_object(
         'fragment_artifact_id', '7d000000-0000-0000-0000-000000000020',
         'dependency_fragment_ids', jsonb_build_array(
-          '7d000000-0000-0000-0000-000000000002'
+          '7d000000-0000-0000-0000-000000000002',
+          '7d000000-0000-0000-0000-000000000025',
+          '7d000000-0000-0000-0000-000000000026'
         )
       ),
       jsonb_build_object(
@@ -1152,57 +1185,72 @@ BEGIN
       )
     )
   );
+  -- The first two same-line tokens deliberately share x0 while center-y and
+  -- reading order disagree. SQL must match the TypeScript stable ordering.
+  step3_payload := jsonb_set(
+    step3_payload, '{fragments,0,reading_order}', '10'::jsonb
+  );
   step3_payload := step3_payload || jsonb_build_object(
     'snapshot_members', (step3_payload->'snapshot_members') || jsonb_build_array(
       jsonb_build_object(
         'member_kind', 'fragment',
-        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000020',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000025',
         'dependency_hash', repeat('a', 64), 'sequence', 6
       ),
       jsonb_build_object(
         'member_kind', 'fragment',
-        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000021',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000026',
         'dependency_hash', repeat('b', 64), 'sequence', 7
       ),
       jsonb_build_object(
         'member_kind', 'fragment',
-        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000022',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000020',
         'dependency_hash', repeat('c', 64), 'sequence', 8
       ),
       jsonb_build_object(
         'member_kind', 'fragment',
-        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000023',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000021',
         'dependency_hash', repeat('d', 64), 'sequence', 9
       ),
       jsonb_build_object(
         'member_kind', 'fragment',
-        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000024',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000022',
         'dependency_hash', repeat('e', 64), 'sequence', 10
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000023',
+        'dependency_hash', repeat('f', 64), 'sequence', 11
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000024',
+        'dependency_hash', repeat('0', 64), 'sequence', 12
       ),
       jsonb_build_object(
         'member_kind', 'continuation_link',
         'continuation_link_id', '7d000000-0000-0000-0000-000000000030',
-        'dependency_hash', repeat('1', 64), 'sequence', 11
+        'dependency_hash', repeat('1', 64), 'sequence', 13
       ),
       jsonb_build_object(
         'member_kind', 'table_chain',
         'table_chain_id', '7d000000-0000-0000-0000-000000000031',
-        'dependency_hash', repeat('2', 64), 'sequence', 12
+        'dependency_hash', repeat('2', 64), 'sequence', 14
       ),
       jsonb_build_object(
         'member_kind', 'table_chain',
         'table_chain_id', '7d000000-0000-0000-0000-000000000032',
-        'dependency_hash', repeat('3', 64), 'sequence', 13
+        'dependency_hash', repeat('3', 64), 'sequence', 15
       ),
       jsonb_build_object(
         'member_kind', 'table_section',
         'table_section_id', '7d000000-0000-0000-0000-000000000033',
-        'dependency_hash', repeat('4', 64), 'sequence', 14
+        'dependency_hash', repeat('4', 64), 'sequence', 16
       ),
       jsonb_build_object(
         'member_kind', 'arbitration_decision',
         'arbitration_decision_id', '7d000000-0000-0000-0000-000000000034',
-        'dependency_hash', repeat('5', 64), 'sequence', 15
+        'dependency_hash', repeat('5', 64), 'sequence', 17
       )
     )
   );
@@ -1217,6 +1265,160 @@ SELECT public.publish_extraction_step1_shadow(payload)
 FROM public.step1_replay_payloads
 WHERE name = 'step3_valid_nonempty';
 RESET ROLE;
+
+DO $$
+DECLARE
+  valid_payload jsonb;
+  invalid_payload jsonb;
+  prefix text;
+  invalid_idempotency text;
+  mutation text;
+  mutation_index integer := 0;
+BEGIN
+  SELECT payload INTO valid_payload
+  FROM public.step1_replay_payloads
+  WHERE name = 'step3_valid_nonempty';
+
+  -- Identical replay must reuse the complete graph.
+  PERFORM public.publish_extraction_step1_shadow(valid_payload);
+
+  -- Divergence under the same idempotency identity must reject without
+  -- replacing the receipt or changing the already-complete Step 3 graph.
+  invalid_payload := jsonb_set(
+    valid_payload, '{fragments,3,raw_text}', '"divergent replay"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(invalid_payload);
+    RAISE EXCEPTION 'divergent Step 3 cell replay unexpectedly succeeded';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF (
+    SELECT count(*) FROM public.extraction_step3_publication_receipts
+    WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010'
+  ) <> 1 OR (
+    SELECT count(*) FROM public.extraction_fragment_artifacts
+    WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010'
+      AND kind = 'cell'
+      AND raw_text = E'123.45 USD\nTotal'
+  ) <> 1 THEN
+    RAISE EXCEPTION 'divergent Step 3 replay changed the persisted graph or receipt';
+  END IF;
+
+  FOREACH mutation IN ARRAY ARRAY[
+    'altered_raw_text',
+    'altered_token_order',
+    'missing_token',
+    'foreign_run_token',
+    'duplicate_token',
+    'invalid_line_break_offsets'
+  ] LOOP
+    mutation_index := mutation_index + 1;
+    prefix := '9' || mutation_index::text || '000000-';
+    invalid_idempotency := 'step3:cell-reconstruction:' || mutation;
+    invalid_payload := replace(valid_payload::text, '7d000000-', prefix)::jsonb
+      || jsonb_build_object(
+        'parser_manifest', jsonb_build_object(
+          'artifact_schema_version', 'extraction-artifact-v1',
+          'step', 'phase3-step3-cell-reconstruction-' || mutation
+        ),
+        'parser_manifest_hash', repeat(mutation_index::text, 64),
+        'idempotency_key', invalid_idempotency,
+        'content_extraction_fingerprint', repeat((mutation_index + 1)::text, 64),
+        'artifact_root_hash', repeat((mutation_index + 2)::text, 64)
+      );
+    IF mutation = 'altered_raw_text' THEN
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragments,3,raw_text}', '"divergent"'::jsonb
+      );
+    ELSIF mutation = 'altered_token_order' THEN
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragment_dependencies,0,dependency_fragment_ids}',
+        jsonb_build_array(
+          prefix || '0000-0000-0000-000000000025',
+          prefix || '0000-0000-0000-000000000002',
+          prefix || '0000-0000-0000-000000000026'
+        )
+      );
+    ELSIF mutation = 'missing_token' THEN
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragment_dependencies,0,dependency_fragment_ids}',
+        jsonb_build_array(
+          prefix || '0000-0000-0000-000000000002',
+          prefix || '0000-0000-0000-000000000025'
+        )
+      );
+    ELSIF mutation = 'foreign_run_token' THEN
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragment_dependencies,0,dependency_fragment_ids,1}',
+        '"7d000000-0000-0000-0000-000000000025"'::jsonb
+      );
+    ELSIF mutation = 'duplicate_token' THEN
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragment_dependencies,0,dependency_fragment_ids,1}',
+        to_jsonb(prefix || '0000-0000-0000-000000000002')
+      );
+    ELSE
+      invalid_payload := jsonb_set(
+        invalid_payload, '{fragments,3,artifact_data,line_break_offsets}',
+        jsonb_build_array(9)
+      );
+    END IF;
+
+    BEGIN
+      PERFORM public.publish_extraction_step1_shadow(invalid_payload);
+      SET CONSTRAINTS ALL IMMEDIATE;
+      RAISE EXCEPTION 'invalid Step 3 cell reconstruction unexpectedly succeeded: %',
+        mutation;
+    EXCEPTION WHEN SQLSTATE '23514' THEN
+      NULL;
+    END;
+    IF EXISTS (
+      SELECT 1 FROM public.extraction_runs
+      WHERE idempotency_key = invalid_idempotency
+    ) OR EXISTS (
+      SELECT 1 FROM public.extraction_step3_publication_receipts receipt
+      JOIN public.extraction_runs run ON run.id = receipt.extraction_run_id
+      WHERE run.idempotency_key = invalid_idempotency
+    ) THEN
+      RAISE EXCEPTION 'invalid Step 3 cell reconstruction left a partial graph: %',
+        mutation;
+    END IF;
+  END LOOP;
+
+  -- Persistence closure independently rejects a valid-UUID authored/foreign
+  -- stand-in that was never dependency-verified into this snapshot.
+  invalid_payload := replace(valid_payload::text, '7d000000-', '98000000-')::jsonb
+    || jsonb_build_object(
+      'parser_manifest', jsonb_build_object(
+        'artifact_schema_version', 'extraction-artifact-v1',
+        'step', 'phase3-step3-quarantine-closure'
+      ),
+      'parser_manifest_hash', repeat('8', 64),
+      'idempotency_key', 'step3:quarantine:foreign-verified-field',
+      'content_extraction_fingerprint', repeat('9', 64),
+      'artifact_root_hash', repeat('a', 64)
+    );
+  invalid_payload := jsonb_set(
+    invalid_payload,
+    '{semantic_column_mappings,0,cell_verified_field_ids,0}',
+    '"89000000-0000-0000-0000-000000000001"'::jsonb
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(invalid_payload);
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'unverified authored-row stand-in unexpectedly satisfied mapping closure';
+  EXCEPTION
+    WHEN foreign_key_violation OR check_violation THEN NULL;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM public.extraction_runs
+    WHERE idempotency_key = 'step3:quarantine:foreign-verified-field'
+  ) THEN
+    RAISE EXCEPTION 'quarantine persistence rejection left a partial Step 3 graph';
+  END IF;
+END;
+$$;
 
 DO $$
 BEGIN
@@ -1235,6 +1437,15 @@ BEGIN
         WHERE interpretation_snapshot_id =
           '7d000000-0000-0000-0000-000000000040') <> 1 THEN
     RAISE EXCEPTION 'valid nonempty Step 3 graph did not publish completely';
+  END IF;
+  IF (SELECT raw_text FROM public.extraction_fragment_artifacts
+      WHERE id = '7d000000-0000-0000-0000-000000000020')
+      IS DISTINCT FROM E'123.45 USD\nTotal'
+    OR (SELECT artifact_data->'line_break_offsets'
+        FROM public.extraction_fragment_artifacts
+        WHERE id = '7d000000-0000-0000-0000-000000000020')
+      IS DISTINCT FROM '[10]'::jsonb THEN
+    RAISE EXCEPTION 'valid Step 3 cell reconstruction was not preserved';
   END IF;
 END;
 $$;
@@ -1886,5 +2097,6 @@ echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"
 echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
 echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"
 echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"
+echo "DATABASE STEP3 CELL RECONSTRUCTION / QUARANTINE CLOSURE / ATOMICITY: PASS"
 echo "DATABASE STEP3 SEMANTIC DIVERGENCE / ATOMIC ROLLBACK: PASS"
 echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"

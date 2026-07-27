@@ -20,22 +20,41 @@ import type {
   TableValueKind,
 } from '@/lib/extraction/domain/types';
 
-export const GENERIC_TABLE_POLICY_V1 = Object.freeze({
+export const GENERIC_TABLE_POLICY_V2 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
-  version: 'v1',
+  version: 'v2',
   row_center_tolerance: 0.018,
   multiline_vertical_gap_maximum: 0.035,
   column_center_tolerance: 0.04,
   whitespace_gutter_minimum: 0.025,
-  continuation_link_minimum: 0.75,
-  continuation_ambiguity_minimum: 0.55,
+  continuation_search_max_page_distance: 3,
+  continuation_max_candidates_per_segment: 2,
+  continuation_plausibility_minimum: 0.5,
+  continuation_near_tie_tolerance: 0.025,
+  continuation_link_minimum: 0.76,
+  continuation_ambiguity_minimum: 0.6,
+  page_distance_penalty_per_skipped_page: 0.15,
+  continuation_component_weights: {
+    column_bands: 0.25,
+    structural_mode: 0.45,
+    edge_proximity: 0.1,
+    typography: 0.1,
+    page_distance: 0.1,
+  },
+  row_continuation_component_weights: {
+    destination_alignment: 0.25,
+    occupancy_continuity: 0.3,
+    row_height_compatibility: 0.2,
+    indentation_compatibility: 0.15,
+    baseline_compatibility: 0.1,
+  },
 });
 
 export const GENERIC_TABLE_PARSER: ParserIdentity = Object.freeze({
   stage: 'table_reconstruction',
-  name: GENERIC_TABLE_POLICY_V1.name,
-  version: GENERIC_TABLE_POLICY_V1.version,
-  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V1),
+  name: GENERIC_TABLE_POLICY_V2.name,
+  version: GENERIC_TABLE_POLICY_V2.version,
+  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V2),
 });
 
 export interface ObservedCellPlan {
@@ -138,7 +157,7 @@ function orderedLines(fragments: NonEmpty<SourceFragmentArtifact>): {
     const line = lines.find((members) => {
       const first = members[0];
       const existingCenter = (first.bounding_box.y0 + first.bounding_box.y1) / 2;
-      return Math.abs(center - existingCenter) <= GENERIC_TABLE_POLICY_V1.row_center_tolerance;
+      return Math.abs(center - existingCenter) <= GENERIC_TABLE_POLICY_V2.row_center_tolerance;
     });
     if (line) line.push(fragment);
     else lines.push([fragment]);
@@ -150,7 +169,7 @@ function orderedLines(fragments: NonEmpty<SourceFragmentArtifact>): {
   const lineBreakOffsets: number[] = [];
   let offset = 0;
   for (const line of text.split('\n').slice(0, -1)) {
-    offset += line.length;
+    offset += [...line].length;
     lineBreakOffsets.push(offset);
     offset += 1;
   }
@@ -317,7 +336,7 @@ function autoRegions(
       const row = rows.find((members) => {
         const first = members[0];
         return Math.abs(center - (first.bounding_box.y0 + first.bounding_box.y1) / 2)
-          <= GENERIC_TABLE_POLICY_V1.row_center_tolerance;
+          <= GENERIC_TABLE_POLICY_V2.row_center_tolerance;
       });
       if (row) row.push(token);
       else rows.push([token]);
@@ -328,7 +347,7 @@ function autoRegions(
         const next = sorted[index + 1];
         return next
           ? next.bounding_box.x0 - token.bounding_box.x1
-            >= GENERIC_TABLE_POLICY_V1.whitespace_gutter_minimum
+            >= GENERIC_TABLE_POLICY_V2.whitespace_gutter_minimum
           : false;
       });
     });
@@ -482,7 +501,16 @@ export function buildGenericTableArtifacts(
           line_break_offsets: content.lineBreakOffsets,
           structure: cellPlan.structure ?? inferredStructure,
           border_evidence: cellPlan.border_evidence ?? noBorders,
-          artifact_data: { table_value_kind: valueKind(content.text) },
+          artifact_data: {
+            table_value_kind: valueKind(content.text),
+            content_token_ids: content.ordered.map(({ id }) => id),
+            line_break_offsets: content.lineBreakOffsets,
+            reconstruction_policy: {
+              name: GENERIC_TABLE_POLICY_V2.name,
+              version: GENERIC_TABLE_POLICY_V2.version,
+              row_center_tolerance: GENERIC_TABLE_POLICY_V2.row_center_tolerance,
+            },
+          },
         };
         const candidate: FieldCandidate = {
           id: opaqueIds.fieldCandidate({
@@ -665,7 +693,21 @@ export function buildGenericTableArtifacts(
     segmentRows.push(localRows);
   }
 
-  const continuationLinks = buildContinuationLinks(segments);
+  const continuationLinks = buildContinuationLinks(segments, rows, cells);
+  for (const link of continuationLinks.filter(({ decision }) => decision === 'ambiguous')) {
+    const from = segments.find(({ id }) => id === link.from_segment_id);
+    const to = segments.find(({ id }) => id === link.to_segment_id);
+    const competitionReason = link.score.measurements?.competition_reason;
+    gaps.push(gap(
+      input,
+      typeof competitionReason === 'string'
+        ? `Measured cross-page table continuation remains ambiguous: ${competitionReason}.`
+        : 'Measured cross-page table continuation remains ambiguous.',
+      [from, to].filter((segment): segment is TableSegmentArtifact => segment != null),
+      null,
+      null,
+    ));
+  }
   const connected: TableSegmentArtifact[][] = [];
   for (const segment of segments) {
     const previous = connected.find((group) => group.some((member) =>
@@ -777,44 +819,248 @@ function similarity(left: number, right: number): number {
   return Math.max(0, 1 - Math.abs(left - right));
 }
 
+function clamp(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function columnBandSimilarity(
+  from: TableSegmentArtifact,
+  to: TableSegmentArtifact,
+): number {
+  const bands = Math.min(from.column_hypotheses.length, to.column_hypotheses.length);
+  if (bands === 0) return 0;
+  const pairs = from.column_hypotheses.flatMap((left) =>
+    to.column_hypotheses.map((right) => ({
+      left: left.index,
+      right: right.index,
+      score: (similarity(left.x0, right.x0) + similarity(left.x1, right.x1)) / 2,
+    }))).sort((left, right) =>
+    right.score - left.score || left.left - right.left || left.right - right.right);
+  const usedLeft = new Set<number>();
+  const usedRight = new Set<number>();
+  const matched: number[] = [];
+  for (const pair of pairs) {
+    if (usedLeft.has(pair.left) || usedRight.has(pair.right)) continue;
+    usedLeft.add(pair.left);
+    usedRight.add(pair.right);
+    matched.push(pair.score);
+    if (matched.length === bands) break;
+  }
+  const cardinalityCoverage = bands
+    / Math.max(from.column_hypotheses.length, to.column_hypotheses.length);
+  return (matched.reduce((sum, value) => sum + value, 0) / bands)
+    * cardinalityCoverage;
+}
+
+function rowCells(
+  row: LogicalTableRow | undefined,
+  cellsById: ReadonlyMap<string, GridCellArtifact>,
+): readonly GridCellArtifact[] {
+  return row?.cell_ids
+    .map((id) => cellsById.get(id))
+    .filter((cell): cell is GridCellArtifact => cell != null)
+    .sort((left, right) =>
+      left.column_start - right.column_start || left.id.localeCompare(right.id)) ?? [];
+}
+
+function occupiedSourceBands(
+  cells: readonly GridCellArtifact[],
+  source: TableSegmentArtifact,
+): ReadonlySet<number> {
+  return new Set(cells.flatMap((cell) =>
+    source.column_hypotheses
+      .filter((band) =>
+        Math.min(cell.bounding_box.x1, band.x1)
+          - Math.max(cell.bounding_box.x0, band.x0) > 0)
+      .map(({ index }) => index)));
+}
+
+function baselineSpread(cells: readonly GridCellArtifact[]): number {
+  if (cells.length < 2) return 0;
+  const baselines = cells.map((cell) => cell.bounding_box.y1);
+  return Math.max(...baselines) - Math.min(...baselines);
+}
+
+function normalizedHeaders(segment: TableSegmentArtifact): readonly string[] | null {
+  const headers = segment.column_hypotheses.map((column) => column.header.normalized_label);
+  return headers.every((header): header is string => header != null) ? headers : null;
+}
+
+function measureRowContinuation(
+  from: TableSegmentArtifact,
+  to: TableSegmentArtifact,
+  rowsById: ReadonlyMap<string, LogicalTableRow>,
+  cellsById: ReadonlyMap<string, GridCellArtifact>,
+): {
+  readonly score: number;
+  readonly measurements: Readonly<Record<string, number | boolean | string | null>>;
+} {
+  const sourceRows = from.row_ids.map((id) => rowsById.get(id))
+    .filter((row): row is LogicalTableRow => row != null);
+  const destinationRows = to.row_ids.map((id) => rowsById.get(id))
+    .filter((row): row is LogicalTableRow => row != null);
+  const finalRow = sourceRows.at(-1);
+  const firstRow = destinationRows[0];
+  const finalCells = rowCells(finalRow, cellsById);
+  const firstCells = rowCells(firstRow, cellsById);
+  const finalOccupied = occupiedSourceBands(finalCells, from);
+  const firstOccupied = occupiedSourceBands(firstCells, from);
+  const bandCount = Math.max(1, from.column_hypotheses.length);
+  const priorOccupancies = sourceRows.slice(0, -1)
+    .filter((row) => row.row_kind !== 'header')
+    .map((row) => occupiedSourceBands(rowCells(row, cellsById), from).size);
+  const expectedOccupancy = Math.max(
+    finalOccupied.size,
+    priorOccupancies.length > 0 ? Math.max(...priorOccupancies) : bandCount,
+  );
+  const occupancyDeficit = clamp(
+    (expectedOccupancy - finalOccupied.size) / Math.max(1, expectedOccupancy),
+  );
+  const sourceBottomProximity = finalRow
+    ? clamp((finalRow.bounding_box.y1 - 0.75) / 0.25) : 0;
+  const destinationTopProximity = firstRow
+    ? clamp((0.25 - firstRow.bounding_box.y0) / 0.25) : 0;
+  const finalRowIncomplete = occupancyDeficit > 0
+    ? (1 + sourceBottomProximity) / 2 : 0;
+  const destinationAlignment = firstCells.length === 0 ? 0
+    : firstCells.filter((cell) => {
+      const center = (cell.bounding_box.x0 + cell.bounding_box.x1) / 2;
+      return from.column_hypotheses.some((band) =>
+        center >= band.x0 - GENERIC_TABLE_POLICY_V2.column_center_tolerance
+        && center <= band.x1 + GENERIC_TABLE_POLICY_V2.column_center_tolerance);
+    }).length / firstCells.length;
+  const missingBands = Array.from({ length: bandCount }, (_, index) => index)
+    .filter((index) => !finalOccupied.has(index));
+  const filledMissing = missingBands.filter((index) => firstOccupied.has(index)).length;
+  const overlapping = [...firstOccupied].filter((index) => finalOccupied.has(index)).length;
+  const occupancyContinuity = missingBands.length === 0 ? 0
+    : (filledMissing / missingBands.length)
+      * (1 - 0.5 * overlapping / Math.max(1, firstOccupied.size));
+  const finalHeight = finalRow
+    ? finalRow.bounding_box.y1 - finalRow.bounding_box.y0 : 0;
+  const firstHeight = firstRow
+    ? firstRow.bounding_box.y1 - firstRow.bounding_box.y0 : 0;
+  const rowHeightCompatibility = Math.max(finalHeight, firstHeight) === 0 ? 0
+    : clamp(1 - Math.abs(finalHeight - firstHeight) / Math.max(finalHeight, firstHeight));
+  const firstDestinationCell = firstCells[0];
+  const firstDestinationCenter = firstDestinationCell
+    ? (firstDestinationCell.bounding_box.x0 + firstDestinationCell.bounding_box.x1) / 2
+    : null;
+  const destinationBand = firstDestinationCenter == null ? undefined
+    : from.column_hypotheses.find((band) =>
+      firstDestinationCenter >= band.x0 - GENERIC_TABLE_POLICY_V2.column_center_tolerance
+      && firstDestinationCenter <= band.x1 + GENERIC_TABLE_POLICY_V2.column_center_tolerance);
+  const indentationCompatibility = firstDestinationCell && destinationBand
+    ? clamp(1 - Math.abs(firstDestinationCell.bounding_box.x0 - destinationBand.x0)
+      / Math.max(GENERIC_TABLE_POLICY_V2.column_center_tolerance, 0.001))
+    : 0;
+  const baselineCompatibility = clamp(
+    1 - Math.abs(baselineSpread(finalCells) - baselineSpread(firstCells))
+      / Math.max(GENERIC_TABLE_POLICY_V2.row_center_tolerance, 0.001),
+  );
+  const repeatedHeader = firstRow?.row_kind === 'header';
+  const weights = GENERIC_TABLE_POLICY_V2.row_continuation_component_weights;
+  const compatibility = destinationAlignment * weights.destination_alignment
+    + occupancyContinuity * weights.occupancy_continuity
+    + rowHeightCompatibility * weights.row_height_compatibility
+    + indentationCompatibility * weights.indentation_compatibility
+    + baselineCompatibility * weights.baseline_compatibility;
+  const score = repeatedHeader ? 0
+    : finalRowIncomplete * destinationTopProximity * compatibility;
+  return {
+    score,
+    measurements: {
+      final_row_incomplete: finalRowIncomplete,
+      source_bottom_proximity: sourceBottomProximity,
+      destination_top_proximity: destinationTopProximity,
+      destination_column_alignment: destinationAlignment,
+      occupancy_continuity: occupancyContinuity,
+      row_height_compatibility: rowHeightCompatibility,
+      indentation_compatibility: indentationCompatibility,
+      baseline_compatibility: baselineCompatibility,
+      repeated_header_present: repeatedHeader,
+      source_populated_band_count: finalOccupied.size,
+      destination_populated_band_count: firstOccupied.size,
+      expected_source_band_count: expectedOccupancy,
+    },
+  };
+}
+
 function buildContinuationLinks(
   segments: readonly TableSegmentArtifact[],
+  rows: readonly LogicalTableRow[],
+  cells: readonly GridCellArtifact[],
 ): readonly TableContinuationLink[] {
   const ordered = [...segments].sort((left, right) =>
-    left.page - right.page || left.reading_order - right.reading_order);
+    left.page - right.page || left.reading_order - right.reading_order
+      || left.id.localeCompare(right.id));
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const cellsById = new Map(cells.map((cell) => [cell.id, cell]));
   const links: TableContinuationLink[] = [];
-  for (let index = 0; index < ordered.length - 1; index += 1) {
-    const from = ordered[index];
-    const to = ordered[index + 1];
-    if (to.page !== from.page + 1) continue;
+  for (const from of ordered) {
+    const plausible = ordered
+      .filter((to) =>
+        to.page > from.page
+        && to.page - from.page <= GENERIC_TABLE_POLICY_V2
+          .continuation_search_max_page_distance)
+      .map((to) => ({ to, plausibility: columnBandSimilarity(from, to) }))
+      .filter(({ plausibility }) =>
+        plausibility >= GENERIC_TABLE_POLICY_V2.continuation_plausibility_minimum);
+    const nearestPage = plausible.reduce<number | null>(
+      (nearest, { to }) => nearest == null ? to.page : Math.min(nearest, to.page),
+      null,
+    );
+    if (nearestPage == null) continue;
+    const candidates = plausible.filter(({ to }) => to.page === nearestPage)
+      .sort((left, right) =>
+        right.plausibility - left.plausibility
+        || left.to.reading_order - right.to.reading_order
+        || left.to.id.localeCompare(right.to.id))
+      .slice(0, GENERIC_TABLE_POLICY_V2.continuation_max_candidates_per_segment);
+    for (const { to, plausibility: columnScore } of candidates) {
     const basisIds: NonEmpty<TableSegmentArtifact['id']> = [from.id, to.id];
-    const bands = Math.min(from.column_hypotheses.length, to.column_hypotheses.length);
-    const columnScore = bands === 0 ? 0 : Array.from({ length: bands }, (_, band) =>
-      (similarity(from.column_hypotheses[band].x0, to.column_hypotheses[band].x0)
-       + similarity(from.column_hypotheses[band].x1, to.column_hypotheses[band].x1)) / 2)
-      .reduce((sum, value) => sum + value, 0) / bands;
-    const fromHeader = from.raw_text.split('\n')[0]?.trim().toLowerCase() ?? '';
-    const toHeader = to.raw_text.split('\n')[0]?.trim().toLowerCase() ?? '';
-    const headerScore = fromHeader && toHeader && fromHeader === toHeader ? 1 : 0;
+    const fromHeaders = normalizedHeaders(from);
+    const toHeaders = normalizedHeaders(to);
+    const headerScore = fromHeaders && toHeaders
+      ? Number(fromHeaders.length === toHeaders.length
+        && fromHeaders.every((header, index) => header === toHeaders[index]))
+      : null;
     const edgeScore = (from.bounding_box.y1 + (1 - to.bounding_box.y0)) / 2;
-    const fromHeight = (from.bounding_box.y1 - from.bounding_box.y0)
-      / Math.max(1, from.row_ids.length);
-    const toHeight = (to.bounding_box.y1 - to.bounding_box.y0)
-      / Math.max(1, to.row_ids.length);
-    const typographyScore = Math.max(0, 1 - Math.abs(fromHeight - toHeight) * 10);
-    const rowContinuationScore = to.raw_text.length > 0 ? 0.5 : 0;
-    const scoreValue = (
-      columnScore + headerScore + edgeScore + typographyScore + rowContinuationScore
-    ) / 5;
-    const measured = (value: number, diagnostic: string) => ({
+    const fromRowId = from.row_ids.at(-1);
+    const toRowId = to.row_ids[0];
+    const fromRow = fromRowId ? rowsById.get(fromRowId) : undefined;
+    const toRow = toRowId ? rowsById.get(toRowId) : undefined;
+    const fromHeight = fromRow
+      ? fromRow.bounding_box.y1 - fromRow.bounding_box.y0 : 0;
+    const toHeight = toRow ? toRow.bounding_box.y1 - toRow.bounding_box.y0 : 0;
+    const typographyScore = Math.max(fromHeight, toHeight) === 0 ? 0
+      : clamp(1 - Math.abs(fromHeight - toHeight) / Math.max(fromHeight, toHeight));
+    const rowContinuation = measureRowContinuation(from, to, rowsById, cellsById);
+    const skippedPages = to.page - from.page - 1;
+    const pageDistancePenalty = clamp(
+      1 - skippedPages * GENERIC_TABLE_POLICY_V2.page_distance_penalty_per_skipped_page,
+    );
+    const structuralMode = Math.max(headerScore ?? 0, rowContinuation.score);
+    const weights = GENERIC_TABLE_POLICY_V2.continuation_component_weights;
+    const scoreValue = columnScore * weights.column_bands
+      + structuralMode * weights.structural_mode
+      + edgeScore * weights.edge_proximity
+      + typographyScore * weights.typography
+      + pageDistancePenalty * weights.page_distance;
+    const measured = (
+      value: number,
+      diagnostic: string,
+      measurements?: Readonly<Record<string, number | boolean | string | null>>,
+    ) => ({
       value,
       calculator: GENERIC_TABLE_PARSER,
       basis_artifact_ids: basisIds,
       diagnostics: [diagnostic],
+      ...(measurements ? { measurements } : {}),
     });
     const decision: TableContinuationLink['decision'] =
-      scoreValue >= GENERIC_TABLE_POLICY_V1.continuation_link_minimum ? 'linked'
-        : scoreValue >= GENERIC_TABLE_POLICY_V1.continuation_ambiguity_minimum
+      scoreValue >= GENERIC_TABLE_POLICY_V2.continuation_link_minimum ? 'linked'
+        : scoreValue >= GENERIC_TABLE_POLICY_V2.continuation_ambiguity_minimum
           ? 'ambiguous' : 'rejected';
     links.push({
       id: opaqueIds.fragmentArtifact({
@@ -836,17 +1082,113 @@ function buildContinuationLinks(
       to_segment_id: to.id,
       basis: {
         column_band_similarity: measured(columnScore, 'Column-band similarity.'),
-        header_similarity: measured(headerScore, 'Observed-header similarity.'),
+        header_similarity: headerScore == null
+          ? null : measured(headerScore, 'Exact observed-header similarity.'),
         edge_proximity: measured(edgeScore, 'Bottom/top page-edge proximity.'),
-        typography_similarity: measured(typographyScore, 'Observed row-height similarity.'),
+        typography_similarity: measured(
+          typographyScore,
+          'Boundary-row height compatibility.',
+          { source_row_height: fromHeight, destination_row_height: toHeight },
+        ),
         row_continuation_score: measured(
-          rowContinuationScore,
-          'Geometric row-continuation evidence.',
+          rowContinuation.score,
+          'Versioned incomplete-row, alignment, occupancy, height, indentation, baseline, and repeated-header evidence.',
+          rowContinuation.measurements,
+        ),
+        page_distance_penalty: measured(
+          pageDistancePenalty,
+          'Versioned penalty for intervening pages.',
+          { page_distance: to.page - from.page, skipped_page_count: skippedPages },
         ),
       },
-      score: measured(scoreValue, 'Versioned continuation composite.'),
+      score: measured(scoreValue, 'Versioned weighted continuation composite.', {
+        structural_mode_score: structuralMode,
+      }),
       decision,
     });
+    }
   }
-  return links;
+  const segmentById = new Map(ordered.map((segment) => [segment.id, segment]));
+  let normalized = [...links];
+  const resolveCompetingLinks = (
+    key: 'from_segment_id' | 'to_segment_id',
+  ): void => {
+    const keys = [...new Set(normalized.map((link) => link[key]))].sort();
+    for (const id of keys) {
+      const linked = normalized.filter((link) =>
+        link[key] === id && link.decision === 'linked')
+        .sort((left, right) => {
+          const leftTo = segmentById.get(left.to_segment_id);
+          const rightTo = segmentById.get(right.to_segment_id);
+          return right.score.value - left.score.value
+            || (leftTo?.page ?? 0) - (rightTo?.page ?? 0)
+            || (leftTo?.reading_order ?? 0) - (rightTo?.reading_order ?? 0)
+            || left.to_segment_id.localeCompare(right.to_segment_id);
+        });
+      if (linked.length < 2) continue;
+      const unresolvedTie = linked[0].score.value - linked[1].score.value
+        <= GENERIC_TABLE_POLICY_V2.continuation_near_tie_tolerance;
+      const keepId = unresolvedTie ? null : linked[0].id;
+      const competingIds = new Set(linked.map(({ id: linkId }) => linkId));
+      const scoreMargin = linked[0].score.value - linked[1].score.value;
+      const axis = key === 'from_segment_id' ? 'outgoing' : 'incoming';
+      const competingPairs = linked
+        .map((link) => `${link.from_segment_id}->${link.to_segment_id}`)
+        .sort();
+      const retainedPair = keepId == null ? null : linked
+        .find(({ id: linkId }) => linkId === keepId);
+      const competitionReason = unresolvedTie
+        ? `competing ${axis} candidates are within the V2 near-tie tolerance`
+        : `a stronger competing ${axis} candidate was retained`;
+      const competitionBasisIds = nonEmpty(
+        [...new Set(linked.flatMap((link) =>
+          [link.from_segment_id, link.to_segment_id]))].sort(),
+        'Competing continuation evidence requires segments.',
+      );
+      normalized = normalized.map((link) => {
+        if (!competingIds.has(link.id) || link.id === keepId) return link;
+        return {
+          ...link,
+          score: {
+            ...link.score,
+            basis_artifact_ids: competitionBasisIds,
+            diagnostics: [
+              ...link.score.diagnostics,
+              `Competing ${axis} continuation policy applied.`,
+            ],
+            measurements: {
+              ...link.score.measurements,
+              competition_axis: axis,
+              competing_candidate_count: linked.length,
+              competing_candidate_pairs: competingPairs.join(','),
+              competing_best_score: linked[0].score.value,
+              competing_second_score: linked[1].score.value,
+              competing_score_margin: scoreMargin,
+              competition_near_tie_tolerance:
+                GENERIC_TABLE_POLICY_V2.continuation_near_tie_tolerance,
+              competition_resolution: unresolvedTie
+                ? 'all_ambiguous_near_tie' : 'lower_rank_ambiguous',
+              competition_retained_pair: retainedPair == null ? null
+                : `${retainedPair.from_segment_id}->${retainedPair.to_segment_id}`,
+              competition_reason: competitionReason,
+            },
+          },
+          decision: 'ambiguous' as const,
+        };
+      });
+    }
+  };
+  resolveCompetingLinks('from_segment_id');
+  resolveCompetingLinks('to_segment_id');
+  return normalized.map((link) => {
+    const id = opaqueIds.fragmentArtifact({
+      kind: 'table_continuation_link',
+      from_segment_id: link.from_segment_id,
+      to_segment_id: link.to_segment_id,
+      score: link.score.value,
+      decision: link.decision,
+      parser: GENERIC_TABLE_PARSER,
+    });
+    return id === link.id ? link : { ...link, id };
+  });
 }

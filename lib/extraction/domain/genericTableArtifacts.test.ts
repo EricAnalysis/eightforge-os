@@ -112,6 +112,63 @@ function build(
   });
 }
 
+function splitRowScenario(destinationPageNumber: number, options: {
+  readonly destinationY?: number;
+  readonly destinationHeight?: number;
+  readonly destinationX?: number;
+  readonly repeatedHeader?: boolean;
+} = {}) {
+  const fromPage = page(1);
+  const toPage = page(destinationPageNumber);
+  const headerA = token(fromPage, 'Item', 0.05, 0.80, 0.20, 0.82, 1);
+  const headerB = token(fromPage, 'Detail', 0.55, 0.80, 0.70, 0.82, 2);
+  const fullA = token(fromPage, 'Complete', 0.05, 0.85, 0.20, 0.87, 3);
+  const fullB = token(fromPage, 'row', 0.55, 0.85, 0.70, 0.87, 4);
+  const partialA = token(fromPage, 'Continued', 0.05, 0.93, 0.20, 0.95, 5);
+  const destinationY = options.destinationY ?? 0.03;
+  const destinationHeight = options.destinationHeight ?? 0.02;
+  const destinationX = options.destinationX ?? 0.55;
+  const destination = token(
+    toPage,
+    options.repeatedHeader ? 'Detail' : 'text',
+    destinationX,
+    destinationY,
+    destinationX + 0.15,
+    destinationY + destinationHeight,
+    6,
+  );
+  const regions: readonly ObservedTableRegion[] = [
+    {
+      page_artifact_id: fromPage.id,
+      rows: [
+        {
+          row_kind: 'header',
+          cells: [{ token_ids: [headerA.id] }, { token_ids: [headerB.id] }],
+        },
+        {
+          row_kind: 'data',
+          cells: [{ token_ids: [fullA.id] }, { token_ids: [fullB.id] }],
+        },
+        { row_kind: 'data', cells: [{ token_ids: [partialA.id] }] },
+      ],
+      detection_evidence: ['x_alignment'],
+    },
+    {
+      page_artifact_id: toPage.id,
+      rows: [{
+        row_kind: options.repeatedHeader ? 'header' : 'continuation',
+        cells: [{ token_ids: [destination.id] }],
+      }],
+      detection_evidence: ['x_alignment'],
+    },
+  ];
+  return {
+    pages: [fromPage, toPage],
+    fragments: [headerA, headerB, fullA, fullB, partialA, destination],
+    regions,
+  };
+}
+
 describe('generic physical table artifacts', () => {
   it('detects one-row borderless pass-through tables without numeric/cardinality assumptions', () => {
     const p = page(4);
@@ -279,8 +336,255 @@ describe('generic physical table artifacts', () => {
       ],
     );
 
-    expect(result.continuation_links).toMatchObject([{ decision: 'ambiguous' }]);
-    expect(result.chains.every(({ completeness }) => completeness === 'ambiguous')).toBe(true);
+    expect(result.continuation_links).toMatchObject([{ decision: 'rejected' }]);
+    expect(result.chains.every(({ completeness }) => completeness === 'complete')).toBe(true);
+  });
+
+  it('measures genuine row continuation from incomplete occupancy and boundary geometry', () => {
+    const scenario = splitRowScenario(2);
+    const result = build(scenario.pages, scenario.fragments, scenario.regions);
+    const link = result.continuation_links[0];
+
+    expect(link?.decision).toBe('linked');
+    expect(link?.basis.row_continuation_score.value).toBeGreaterThan(0.75);
+    expect(link?.basis.row_continuation_score.measurements).toMatchObject({
+      repeated_header_present: false,
+      source_populated_band_count: 1,
+      destination_populated_band_count: 1,
+      expected_source_band_count: 2,
+    });
+  });
+
+  it('rejects a complete final row followed by an unrelated aligned table', () => {
+    const p1 = page(1);
+    const p2 = page(2);
+    const sourceA = token(p1, 'Alpha', 0.05, 0.92, 0.20, 0.94, 1);
+    const sourceB = token(p1, 'Beta', 0.55, 0.92, 0.70, 0.94, 2);
+    const laterA = token(p2, 'Other', 0.05, 0.03, 0.20, 0.05, 3);
+    const laterB = token(p2, 'Table', 0.55, 0.03, 0.70, 0.05, 4);
+    const result = build([p1, p2], [sourceA, sourceB, laterA, laterB], [
+      {
+        page_artifact_id: p1.id,
+        rows: [{ row_kind: 'data', cells: [
+          { token_ids: [sourceA.id] }, { token_ids: [sourceB.id] },
+        ] }],
+        detection_evidence: ['x_alignment'],
+      },
+      {
+        page_artifact_id: p2.id,
+        rows: [{ row_kind: 'data', cells: [
+          { token_ids: [laterA.id] }, { token_ids: [laterB.id] },
+        ] }],
+        detection_evidence: ['x_alignment'],
+      },
+    ]);
+
+    expect(result.continuation_links).toMatchObject([{ decision: 'rejected' }]);
+    expect(result.continuation_links[0]?.basis.row_continuation_score.value).toBe(0);
+  });
+
+  it('does not link aligned columns with incompatible boundary-row structure', () => {
+    const scenario = splitRowScenario(2, {
+      destinationY: 0.03,
+      destinationHeight: 0.18,
+      destinationX: 0.55,
+    });
+    const result = build(scenario.pages, scenario.fragments, scenario.regions);
+
+    expect(result.continuation_links[0]?.decision).not.toBe('linked');
+    expect(result.continuation_links[0]?.basis.row_continuation_score.measurements)
+      .toMatchObject({ row_height_compatibility: expect.any(Number) });
+  });
+
+  it('finds a continuation across a blank or image-only intervening page with a penalty', () => {
+    for (const interveningContent of ['blank', 'image'] as const) {
+      const scenario = splitRowScenario(3);
+      const middle = page(2);
+      const imageSignal = interveningContent === 'image'
+        ? [{
+            ...token(middle, 'observed-image-region', 0.4, 0.4, 0.55, 0.42, 20),
+            kind: 'layout_signal' as const,
+            artifact_data: { signal: 'image_region' },
+          }] : [];
+      const result = build(
+        [scenario.pages[0], middle, scenario.pages[1]],
+        [...scenario.fragments, ...imageSignal],
+        scenario.regions,
+      );
+
+      expect(result.continuation_links).toHaveLength(1);
+      expect(result.continuation_links[0]?.decision).toBe('linked');
+      expect(result.continuation_links[0]?.basis.page_distance_penalty).toMatchObject({
+        value: 0.85,
+        measurements: { page_distance: 2, skipped_page_count: 1 },
+      });
+    }
+  });
+
+  it('persists non-adjacent ambiguity and leaves no evidence when no later table exists', () => {
+    const scenario = splitRowScenario(3, { destinationHeight: 0.06 });
+    const ambiguous = build(scenario.pages, scenario.fragments, scenario.regions);
+    const onlySource = build(
+      [scenario.pages[0]],
+      scenario.fragments.filter((fragment) => fragment.page === 1),
+      [scenario.regions[0]],
+    );
+
+    expect(ambiguous.continuation_links[0]?.decision).toBe('ambiguous');
+    expect(ambiguous.continuation_links[0]?.basis.page_distance_penalty.measurements)
+      .toMatchObject({ skipped_page_count: 1 });
+    expect(ambiguous.gaps).toMatchObject([{
+      reason: 'table_structure_unresolved',
+      detail: 'Measured cross-page table continuation remains ambiguous.',
+    }]);
+    expect(onlySource.continuation_links).toEqual([]);
+  });
+
+  it('does not fabricate a decision when later geometry is not structurally plausible', () => {
+    const p1 = page(1);
+    const p3 = page(3);
+    const sourceToken = token(p1, 'Left', 0.05, 0.92, 0.15, 0.94, 1);
+    const distantToken = token(p3, 'Right', 0.85, 0.03, 0.95, 0.05, 2);
+    const result = build([p1, p3], [sourceToken, distantToken], [
+      {
+        page_artifact_id: p1.id,
+        rows: [{ cells: [{ token_ids: [sourceToken.id] }] }],
+        detection_evidence: ['typographic_grouping'],
+      },
+      {
+        page_artifact_id: p3.id,
+        rows: [{ cells: [{ token_ids: [distantToken.id] }] }],
+        detection_evidence: ['typographic_grouping'],
+      },
+    ]);
+
+    expect(result.continuation_links).toEqual([]);
+    expect(result.gaps).toEqual([]);
+  });
+
+  it('penalizes a matched subset instead of reusing one band across incompatible columns', () => {
+    const p1 = page(1);
+    const p2 = page(2);
+    const sourceTokens = [
+      token(p1, 'A', 0.05, 0.92, 0.15, 0.94, 1),
+      token(p1, 'B', 0.40, 0.92, 0.50, 0.94, 2),
+      token(p1, 'C', 0.75, 0.92, 0.85, 0.94, 3),
+    ];
+    const subset = token(p2, 'A', 0.05, 0.03, 0.15, 0.05, 4);
+    const result = build([p1, p2], [...sourceTokens, subset], [
+      {
+        page_artifact_id: p1.id,
+        rows: [{ cells: [
+          { token_ids: [sourceTokens[0]!.id] },
+          { token_ids: [sourceTokens[1]!.id] },
+          { token_ids: [sourceTokens[2]!.id] },
+        ] }],
+        detection_evidence: ['x_alignment'],
+      },
+      {
+        page_artifact_id: p2.id,
+        rows: [{ cells: [{ token_ids: [subset.id] }] }],
+        detection_evidence: ['x_alignment'],
+      },
+    ]);
+
+    expect(result.continuation_links).toEqual([]);
+  });
+
+  it('treats a merged cell spanning observed bands as complete, not a split row', () => {
+    const p1 = page(1);
+    const p2 = page(2);
+    const headerA = token(p1, 'A', 0.05, 0.85, 0.15, 0.87, 1);
+    const headerB = token(p1, 'B', 0.55, 0.85, 0.65, 0.87, 2);
+    const merged = token(p1, 'Complete merged row', 0.05, 0.92, 0.65, 0.94, 3);
+    const destination = token(p2, 'Later', 0.05, 0.03, 0.65, 0.05, 4);
+    const result = build([p1, p2], [headerA, headerB, merged, destination], [
+      {
+        page_artifact_id: p1.id,
+        rows: [
+          { row_kind: 'header', cells: [
+            { token_ids: [headerA.id] }, { token_ids: [headerB.id] },
+          ] },
+          { row_kind: 'data', cells: [{
+            token_ids: [merged.id],
+            column_span: 2,
+            structure: 'column_spanning',
+          }] },
+        ],
+        detection_evidence: ['x_alignment'],
+      },
+      {
+        page_artifact_id: p2.id,
+        rows: [{ row_kind: 'continuation', cells: [{ token_ids: [destination.id] }] }],
+        detection_evidence: ['x_alignment'],
+      },
+    ]);
+
+    expect(result.continuation_links[0]?.basis.row_continuation_score).toMatchObject({
+      value: 0,
+      measurements: { final_row_incomplete: 0 },
+    });
+    expect(result.continuation_links[0]?.decision).toBe('rejected');
+  });
+
+  it('never emits branching linked continuations for competing destinations', () => {
+    const scenario = splitRowScenario(2);
+    const destinationPage = scenario.pages[1];
+    const competitor = token(destinationPage, 'alternate', 0.55, 0.03, 0.70, 0.05, 30);
+    const result = build(
+      scenario.pages,
+      [...scenario.fragments, competitor],
+      [
+        ...scenario.regions,
+        {
+          page_artifact_id: destinationPage.id,
+          rows: [{
+            row_kind: 'continuation',
+            cells: [{ token_ids: [competitor.id] }],
+          }],
+          detection_evidence: ['x_alignment'],
+        },
+      ],
+    );
+
+    expect(result.continuation_links.filter(({ decision }) => decision === 'linked'))
+      .toHaveLength(0);
+    expect(result.continuation_links.filter(({ decision }) => decision === 'ambiguous'))
+      .toHaveLength(2);
+    expect(result.continuation_links.map(({ score }) => score.measurements))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          competition_axis: 'outgoing',
+          competing_candidate_count: 2,
+          competition_resolution: 'all_ambiguous_near_tie',
+          competition_near_tie_tolerance: 0.025,
+          competing_score_margin: 0,
+        }),
+      ]));
+    expect(result.continuation_links.every(({ score }) =>
+      score.basis_artifact_ids.length === 3)).toBe(true);
+    expect(result.continuation_links.every(({ score }) =>
+      score.diagnostics.includes('Competing outgoing continuation policy applied.')))
+      .toBe(true);
+    expect(result.gaps.filter(({ reason }) => reason === 'table_structure_unresolved'))
+      .toHaveLength(2);
+    expect(result.gaps.every(({ detail }) =>
+      detail.includes('competing outgoing candidates are within the V2 near-tie tolerance')))
+      .toBe(true);
+  });
+
+  it('keeps non-adjacent continuation identities and ordering stable on replay', () => {
+    const scenario = splitRowScenario(3);
+    const left = build(scenario.pages, scenario.fragments, scenario.regions);
+    const right = build(
+      structuredClone(scenario.pages),
+      structuredClone(scenario.fragments),
+      structuredClone(scenario.regions),
+    );
+
+    expect(right).toEqual(left);
+    expect(left.continuation_links.map(({ id }) => id))
+      .toEqual([...left.continuation_links.map(({ id }) => id)].sort());
   });
 
   it('emits a typed gap for incomplete geometry and handles no-table input cleanly', () => {

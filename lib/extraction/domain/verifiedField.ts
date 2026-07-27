@@ -116,6 +116,9 @@ export class VerifiedFieldHandle {
   }
 
   static fromVerified(field: VerifiedField): VerifiedFieldHandle {
+    if (!(field instanceof VerifiedField)) {
+      throw new Error('VerifiedFieldHandle requires a dependency-verified field.');
+    }
     return new VerifiedFieldHandle(field);
   }
 }

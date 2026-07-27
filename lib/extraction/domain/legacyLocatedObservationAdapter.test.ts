@@ -237,6 +237,71 @@ describe('shadow-only legacy located-observation adapter', () => {
     }]);
   });
 
+  it('serializes overall continuation evidence into normalized dependency closure', async () => {
+    const { sourceArtifact, run } = fixture();
+    const parser = {
+      stage: 'ocr' as const,
+      name: 'generic-ocr',
+      version: '1',
+      configuration_hash: 'f'.repeat(64),
+    };
+    const result = await adaptLegacyExtractionToStep1Shadow({
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: run.parser_manifest_hash,
+      artifactSchemaVersion: run.artifact_schema_version,
+      idempotencyKey: 'job:continuation-overall-closure',
+      locatedObservations: [
+        {
+          page: 1,
+          page_width: 100,
+          page_height: 100,
+          render_sha256: '1'.repeat(64),
+          parser,
+          text: 'Source',
+          confidence: 90,
+          bbox: { x0: 10, y0: 92, x1: 30, y1: 95 },
+        },
+        {
+          page: 1,
+          page_width: 100,
+          page_height: 100,
+          render_sha256: '1'.repeat(64),
+          parser,
+          text: 'Source detail',
+          confidence: 90,
+          bbox: { x0: 60, y0: 92, x1: 80, y1: 95 },
+        },
+        {
+          page: 2,
+          page_width: 100,
+          page_height: 100,
+          render_sha256: '2'.repeat(64),
+          parser,
+          text: 'Destination',
+          confidence: 90,
+          bbox: { x0: 10, y0: 3, x1: 30, y1: 6 },
+        },
+        {
+          page: 2,
+          page_width: 100,
+          page_height: 100,
+          render_sha256: '2'.repeat(64),
+          parser,
+          text: 'Destination detail',
+          confidence: 90,
+          bbox: { x0: 60, y0: 3, x1: 80, y1: 6 },
+        },
+      ],
+    });
+    const link = result.continuationLinks[0];
+    expect(link).toBeDefined();
+    expect(link?.basis_fragments
+      .filter(({ basis_kind }) => basis_kind === 'overall')
+      .map(({ fragment_artifact_id }) => fragment_artifact_id))
+      .toEqual(link?.score.basis_artifact_ids);
+  });
+
   it('retains every rendered OCR page and does not infer blank verification', async () => {
     const { sourceArtifact, run } = fixture();
     const parser = {

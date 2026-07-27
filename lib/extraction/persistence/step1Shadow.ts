@@ -8,6 +8,7 @@ import {
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import { hashParserManifest } from '@/lib/extraction/domain/parserManifest';
 import type { ParserIdentity, SourceArtifact } from '@/lib/extraction/domain/types';
+import type { Step3InterpretationBridge } from '@/lib/extraction/domain/step3InterpretationBridge';
 import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
@@ -28,6 +29,7 @@ export interface Step1ShadowWriteInput {
   readonly analysisJobId: string;
   readonly analysisMode: string;
   readonly observedAt: string;
+  readonly step3InterpretationBridge?: Step3InterpretationBridge;
 }
 
 export interface Step1ShadowWriteResult {
@@ -87,14 +89,17 @@ function flattenLocatedObservations(
   sidecar: LocatedOcrObservationSidecar,
   parser: ParserIdentity,
 ): LegacyLocatedObservation[] {
-  return sidecar.pages.flatMap((page) =>
+  const pages = sidecar.engine_pages && sidecar.engine_pages.length > 0
+    ? sidecar.engine_pages
+    : sidecar.pages;
+  return pages.flatMap((page) =>
     page.words.map((word) => ({
       page: page.page_number,
       page_width: page.width,
       page_height: page.height,
       rotation_degrees: 0 as const,
       render_sha256: page.render_sha256,
-      parser,
+      parser: (page as { readonly parser?: ParserIdentity }).parser ?? parser,
       text: word.text,
       confidence: word.confidence,
       bbox: word.bbox,
@@ -216,6 +221,12 @@ export async function persistExtractionStep1Shadow(
     version: manifest.ocr.version,
     configuration_hash: manifest.ocr.configuration_hash,
   };
+  const rendererParser: ParserIdentity = {
+    stage: 'page_render',
+    name: manifest.renderer.name,
+    version: manifest.renderer.version,
+    configuration_hash: manifest.renderer.configuration_hash,
+  };
   const semanticPublicationKey = hashCanonical({
     source_artifact_id: sourceArtifact.id,
     parser_manifest_hash: parserManifestHash,
@@ -228,7 +239,7 @@ export async function persistExtractionStep1Shadow(
     artifactSchemaVersion: ARTIFACT_SCHEMA_VERSION,
     idempotencyKey: `step1-shadow:${semanticPublicationKey}`,
     completedAt: input.observedAt,
-    locatedPages: locatedPages(input.locatedObservations, ocrParser),
+    locatedPages: locatedPages(input.locatedObservations, rendererParser),
     locatedObservations: flattenLocatedObservations(input.locatedObservations, ocrParser),
     unlocatedOutputs: unlocatedLegacyCategories(
       input.legacyExtractionPayload,
@@ -237,6 +248,19 @@ export async function persistExtractionStep1Shadow(
     genericContentAnalysis: input.locatedObservations.content_analysis,
     genericContentGaps: input.locatedObservations.content_gaps,
   });
+  const interpretation = input.step3InterpretationBridge
+    ? await input.step3InterpretationBridge({
+        extraction_snapshot_id: graph.snapshot.id,
+        chains: graph.tableChains,
+        segments: graph.tableSegments,
+        verified_field_handles: graph.verifiedFieldHandles,
+        published_at: graph.run.completed_at,
+      })
+    : {
+        interpretation_snapshot: null,
+        semantic_column_mappings: [],
+        interpretation_records: [],
+      };
   const completedAt = graph.run.completed_at;
   const { data, error } = await input.admin.rpc('publish_extraction_step1_shadow', {
     payload: {
@@ -263,6 +287,12 @@ export async function persistExtractionStep1Shadow(
       verified_fields: graph.verifiedFields,
       gaps: graph.gaps,
       snapshot_members: graph.members,
+      fragment_dependencies: graph.fragmentDependencies,
+      continuation_links: graph.continuationLinks,
+      table_chains: graph.tableChains,
+      table_sections: graph.tableSections,
+      arbitration_decisions: graph.arbitrationDecisions,
+      ...interpretation,
     },
   });
   if (error) {

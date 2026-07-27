@@ -932,7 +932,10 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
 
 async function extractPdfPageTextViaOcr(
   bytes: ArrayBuffer,
-  opts?: { pageNumbers?: number[] | null },
+  opts?: {
+    pageNumbers?: number[] | null;
+    recognitionPageNumbers?: number[] | null;
+  },
 ): Promise<PdfOcrExtractionResult> {
   const fallbackResult: PdfOcrExtractionResult = {
     pages: null,
@@ -954,6 +957,10 @@ async function extractPdfPageTextViaOcr(
       ?? Array.from({ length: pdfDoc.numPages }, (_, index) => index + 1);
     const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
     if (pagesToRender.length === 0) return fallbackResult;
+    const recognitionPages = new Set(
+      (opts?.recognitionPageNumbers ?? pagesToRender)
+        .filter((pageNum) => pagesToRender.includes(pageNum)),
+    );
 
     const langPath = getLocalTesseractLangPath();
     const worker = await createWorker('eng', undefined, { langPath });
@@ -979,11 +986,13 @@ async function extractPdfPageTextViaOcr(
         };
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
-        const result = await worker.recognize(
-          pngBuffer,
-          {},
-          { text: true, blocks: true },
-        );
+        const result = recognitionPages.has(pageNum)
+          ? await worker.recognize(
+              pngBuffer,
+              {},
+              { text: true, blocks: true },
+            )
+          : null;
         const text = result?.data?.text;
         const confidence = result?.data?.confidence;
         const words = extractOcrGeometryWords(result?.data);
@@ -1019,7 +1028,7 @@ async function extractPdfPageTextViaOcr(
       return {
         pages: out.length > 0 ? out : null,
         geometryPages,
-        pagesAttempted: pagesToRender.length,
+        pagesAttempted: recognitionPages.size,
         confidenceAvg:
           confidences.length > 0
             ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
@@ -1102,16 +1111,17 @@ export async function buildGenericPdfShadowSidecar(
   if (mediaTypeSniffed !== 'application/pdf' || signature !== '%PDF-') return null;
   const sourceSha256 = sha256Hex(bytes);
   let contentAnalysis: ReturnType<typeof scheduleGenericContentExtraction>;
+  let nativeLayout: Awaited<ReturnType<typeof loadPdfLayout>>;
   try {
-    const layout = await loadPdfLayout(cloneArrayBuffer(bytes), {
+    nativeLayout = await loadPdfLayout(cloneArrayBuffer(bytes), {
       maxPages: MAX_EVIDENCE_PAGES,
     });
     contentAnalysis = scheduleGenericContentExtraction({
       source_sha256: sourceSha256,
       byte_length: bytes.byteLength,
       media_type_sniffed: mediaTypeSniffed,
-      page_count: layout.page_count,
-      regions: genericRegionsFromLayout(layout),
+      page_count: nativeLayout.page_count,
+      regions: genericRegionsFromLayout(nativeLayout),
     });
   } catch (error) {
     const rawCategory = error instanceof Error && error.name
@@ -1137,13 +1147,76 @@ export async function buildGenericPdfShadowSidecar(
   }
   try {
     const ocr = await extractPdfPageTextViaOcr(cloneArrayBuffer(bytes), {
-      pageNumbers: [...contentAnalysis.pages_scheduled_for_ocr],
+      pageNumbers: Array.from(
+        { length: contentAnalysis.page_count },
+        (_, index) => index + 1,
+      ),
+      recognitionPageNumbers: [...contentAnalysis.pages_scheduled_for_ocr],
     });
+    const located = buildLocatedOcrObservationSidecar(
+      ocr.pageImages ?? [],
+      ocr.geometryPages,
+    );
+    const imageByPage = new Map(
+      (ocr.pageImages ?? []).map((page) => [page.page_number, page] as const),
+    );
+    const nativeParser = {
+      stage: 'native_text' as const,
+      name: 'pdfjs-native-text',
+      version: '5.5.207',
+      configuration_hash: sha256Hex('pdfjs-native-text:5.5.207:step3-located-tokens-v1'),
+    };
+    const ocrParser = {
+      stage: 'ocr' as const,
+      name: 'tesseract',
+      version: '7.0.0',
+      configuration_hash: sha256Hex('tesseract:7.0.0:eng:psm11:scale2'),
+    };
+    const nativeEnginePages = nativeLayout.pages.flatMap((page) => {
+      const image = imageByPage.get(page.page_number);
+      if (!image || !page.width || !page.height) return [];
+      const scaleX = image.width / page.width;
+      const scaleY = image.height / page.height;
+      const words = page.lines.flatMap((line) => line.tokens).map((token) => {
+        const x0 = token.x * scaleX;
+        const x1 = (token.x + token.width) * scaleX;
+        const y1 = image.height - (token.y * scaleY);
+        const y0 = y1 - (token.height * scaleY);
+        return {
+          text: token.text,
+          confidence: null,
+          bbox: { x0, y0, x1, y1 },
+        };
+      }).filter((word) =>
+        word.text.trim().length > 0
+        && word.bbox.x0 >= 0
+        && word.bbox.y0 >= 0
+        && word.bbox.x1 <= image.width
+        && word.bbox.y1 <= image.height
+        && word.bbox.x0 < word.bbox.x1
+        && word.bbox.y0 < word.bbox.y1
+      );
+      return [{
+        page_number: page.page_number,
+        render_sha256: image.render_sha256,
+        width: image.width,
+        height: image.height,
+        text_detected: words.length > 0,
+        words,
+        engine: 'native' as const,
+        parser: nativeParser,
+      }];
+    });
+    const ocrEnginePages = located.pages
+      .filter((page) => contentAnalysis.pages_scheduled_for_ocr.includes(page.page_number))
+      .map((page) => ({
+        ...page,
+        engine: 'ocr' as const,
+        parser: ocrParser,
+      }));
     return {
-      pages: buildLocatedOcrObservationSidecar(
-        ocr.pageImages ?? [],
-        ocr.geometryPages,
-      ).pages,
+      pages: located.pages,
+      engine_pages: [...nativeEnginePages, ...ocrEnginePages],
       content_analysis: contentAnalysis,
     };
   } catch (error) {
@@ -1153,6 +1226,14 @@ export async function buildGenericPdfShadowSidecar(
     return {
       pages: [],
       content_analysis: contentAnalysis,
+      content_gaps: [{
+        gap_key: `step3:ocr_region_failure:${sourceSha256}`,
+        stage: 'ocr',
+        reason: 'ocr_region_failure',
+        retryable: true,
+        attempts: 1,
+        error_category: error instanceof Error ? error.name : 'UnknownOcrError',
+      }],
     };
   }
 }
@@ -1189,6 +1270,10 @@ export function mergeLocatedSidecars(
   }
   return {
     pages: [...byPage.values()].sort((left, right) => left.page_number - right.page_number),
+    engine_pages: [
+      ...(generic?.engine_pages ?? []),
+      ...(legacy.engine_pages ?? []),
+    ],
     content_analysis: generic?.content_analysis,
     content_gaps: generic?.content_gaps,
   };

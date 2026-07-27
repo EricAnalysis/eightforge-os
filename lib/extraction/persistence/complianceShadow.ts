@@ -8,6 +8,7 @@ import {
   STEP0_INTERPRETER_MANIFEST_HASH,
 } from '@/lib/complianceFoundation/shadowVersions';
 import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
+import type { Step3InterpretationBridge } from '@/lib/extraction/domain/step3InterpretationBridge';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -33,6 +34,7 @@ export type ShadowWriteInput = {
   readonly analysisJobId: string;
   readonly analysisMode: string;
   readonly observedAt?: string;
+  readonly step3InterpretationBridge?: Step3InterpretationBridge;
 };
 
 type ScheduledShadowWriteInput = Omit<ShadowWriteInput, 'storageObjectVersion'> & {
@@ -246,11 +248,25 @@ export function scheduleExtractionComplianceShadow(
       observedAt: input.observedAt,
     };
     const mediaTypeSniffed = sniffExtractionMediaType(input.sourceBytes, input.mediaType);
-    const genericContentSidecar = await settleWithin(
+    const scheduledGenericContentSidecar = await settleWithin(
       buildGenericPdfShadowSidecar(input.sourceBytes, mediaTypeSniffed),
       SHADOW_PUBLICATION_TIMEOUT_MS,
       'generic_content_scheduling',
     );
+    const genericContentSidecar = scheduledGenericContentSidecar
+      ?? (mediaTypeSniffed === 'application/pdf'
+        ? {
+            pages: [],
+            content_gaps: [{
+              gap_key: `step3:timeout:${sha256Hex(input.sourceBytes)}`,
+              stage: 'table_reconstruction' as const,
+              reason: 'timeout' as const,
+              retryable: true,
+              attempts: 1,
+              error_category: 'generic_content_scheduling_timeout',
+            }],
+          }
+        : null);
     const locatedObservations = mergeLocatedSidecars(
       genericContentSidecar,
       input.locatedObservations ?? { pages: [] },
@@ -259,6 +275,7 @@ export function scheduleExtractionComplianceShadow(
       await settleWithin(publishExtractionStep1ShadowNonBlocking({
           ...commonInput,
           locatedObservations,
+          step3InterpretationBridge: input.step3InterpretationBridge,
           observedAt: input.observedAt ?? new Date().toISOString(),
         }), SHADOW_PUBLICATION_TIMEOUT_MS, 'publication');
     } else {

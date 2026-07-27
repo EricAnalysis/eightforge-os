@@ -33,6 +33,8 @@ export interface PdfLayoutLine {
 
 export interface PdfLayoutPage {
   page_number: number;
+  width?: number;
+  height?: number;
   lines: PdfLayoutLine[];
   source?: 'pdfjs' | 'ocr_fallback' | 'mixed';
 }
@@ -180,6 +182,7 @@ export async function loadPdfLayout(
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
       const page = await pdfDocument.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
       const textContent = await page.getTextContent();
       let strippedControlCount = 0;
       let sanitizedTokenCount = 0;
@@ -250,6 +253,8 @@ export async function loadPdfLayout(
 
       pages.push({
         page_number: pageNumber,
+        width: viewport.width,
+        height: viewport.height,
         lines,
       });
     }

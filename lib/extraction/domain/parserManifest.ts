@@ -1,4 +1,6 @@
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { GENERIC_TABLE_POLICY_V1 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { REGION_ARBITRATION_POLICY_V1 } from '@/lib/extraction/domain/regionArbitration';
 
 export interface VersionedComponent {
   readonly name: string;
@@ -162,16 +164,31 @@ export function buildLegacyShadowParserManifest(params: {
       implementation_build: implementationBuild,
       current_behavior_preserved: true,
     }),
-    region_arbitration: component('legacy-whole-page-arbitration', 'v1', {
-      implementation_build: implementationBuild,
-      policy: 'native_page_wins_when_any_native_line_exists',
-      current_behavior_preserved: true,
-    }),
-    table_parser: component('legacy-pdf-table-parser', 'v1', {
-      implementation_build: implementationBuild,
-      output_schema: 'PdfTable/PdfTableRow/PdfTableCell-v1',
-      current_behavior_preserved: true,
-    }),
+    region_arbitration: params.verificationPolicy === 'step1_span_verified'
+      ? component('region-arbitration', 'v1', {
+          implementation_build: implementationBuild,
+          ...REGION_ARBITRATION_POLICY_V1,
+          comparison_scope: 'same_page_overlap_only',
+          shadow_only: true,
+        })
+      : component('legacy-whole-page-arbitration', 'v1', {
+          implementation_build: implementationBuild,
+          policy: 'native_page_wins_when_any_native_line_exists',
+          current_behavior_preserved: true,
+        }),
+    table_parser: params.verificationPolicy === 'step1_span_verified'
+      ? component('generic-geometric-table-reconstruction', 'v1', {
+          implementation_build: implementationBuild,
+          ...GENERIC_TABLE_POLICY_V1,
+          identity_inputs: ['source_geometry', 'source_text', 'parser_manifest'],
+          forbidden_inputs: ['filename', 'document_type', 'project_id', 'vendor', 'expected_count'],
+          shadow_only: true,
+        })
+      : component('legacy-pdf-table-parser', 'v1', {
+          implementation_build: implementationBuild,
+          output_schema: 'PdfTable/PdfTableRow/PdfTableCell-v1',
+          current_behavior_preserved: true,
+        }),
     vision: params.visionEnabled
       ? component('legacy-vision-rate-table-supplement', 'v1', {
           implementation_build: implementationBuild,

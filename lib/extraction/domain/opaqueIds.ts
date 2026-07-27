@@ -55,4 +55,8 @@ export const opaqueIds = Object.freeze({
     opaqueUuid('canonical_fact', identity),
   processingGap: (identity: unknown): string =>
     opaqueUuid('processing_gap', identity),
+  interpretationSnapshot: (identity: unknown): string =>
+    opaqueUuid('interpretation_snapshot', identity),
+  semanticColumnMapping: (identity: unknown): string =>
+    opaqueUuid('semantic_column_mapping', identity),
 });

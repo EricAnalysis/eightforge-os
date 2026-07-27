@@ -113,6 +113,198 @@ export interface SourceFragmentArtifact {
   readonly corroboration_kind?: 'independent_engine' | 'source_pixel_classifier';
 }
 
+export type TableValueKind =
+  | 'free_text'
+  | 'identifier'
+  | 'integer'
+  | 'decimal'
+  | 'currency'
+  | 'date_like'
+  | 'unit_token'
+  | 'boolean_like'
+  | 'unknown';
+
+export type BorderSignal = 'ruling' | 'whitespace' | 'alignment' | 'none';
+
+export interface MeasuredScore {
+  readonly value: number;
+  readonly calculator: ParserIdentity;
+  readonly basis_artifact_ids: NonEmpty<FragmentArtifactId>;
+  readonly diagnostics: readonly string[];
+}
+
+export interface GridCellArtifact extends SourceFragmentArtifact {
+  readonly kind: 'cell';
+  readonly content_token_ids: readonly FragmentArtifactId[];
+  readonly structural_evidence_ids: NonEmpty<FragmentArtifactId>;
+  readonly table_segment_id: FragmentArtifactId;
+  readonly row_start: number;
+  readonly row_span: number;
+  readonly column_start: number;
+  readonly column_span: number;
+  readonly line_break_offsets: readonly number[];
+  readonly structure:
+    | 'ordinary'
+    | 'merged'
+    | 'row_spanning'
+    | 'column_spanning'
+    | 'continuation'
+    | 'empty_observed';
+  readonly border_evidence: {
+    readonly top: BorderSignal;
+    readonly right: BorderSignal;
+    readonly bottom: BorderSignal;
+    readonly left: BorderSignal;
+  };
+}
+
+export type HeaderObservation =
+  | {
+      readonly observed_text: string;
+      readonly normalized_label: string;
+      readonly fragment_ids: NonEmpty<FragmentArtifactId>;
+      readonly transformations: readonly TransformationStep[];
+    }
+  | {
+      readonly observed_text: null;
+      readonly normalized_label: null;
+      readonly fragment_ids: readonly [];
+      readonly transformations: readonly [];
+    };
+
+export interface LogicalTableRow extends SourceFragmentArtifact {
+  readonly kind: 'region';
+  readonly region_role: 'table_row';
+  readonly child_fragment_ids: NonEmpty<FragmentArtifactId>;
+  readonly cell_ids: readonly FragmentArtifactId[];
+  readonly row_kind:
+    | 'header'
+    | 'data'
+    | 'section_header'
+    | 'continuation'
+    | 'footer'
+    | 'unknown';
+  readonly continued_from_row_id: FragmentArtifactId | null;
+  readonly fragment_ids: NonEmpty<FragmentArtifactId>;
+}
+
+export interface ColumnStructureHypothesis {
+  readonly index: number;
+  readonly x0: number;
+  readonly x1: number;
+  readonly header: HeaderObservation;
+  readonly value_kind_hypotheses: NonEmpty<{
+    readonly kind: TableValueKind;
+    readonly measurement: MeasuredScore;
+  }>;
+}
+
+export interface TableSegmentArtifact extends SourceFragmentArtifact {
+  readonly kind: 'region';
+  readonly region_role: 'table';
+  readonly child_fragment_ids: NonEmpty<FragmentArtifactId>;
+  readonly column_hypotheses: readonly ColumnStructureHypothesis[];
+  readonly row_ids: NonEmpty<FragmentArtifactId>;
+  readonly repeated_header_row_ids: readonly FragmentArtifactId[];
+  readonly parent_segment_id: FragmentArtifactId | null;
+  readonly detection_evidence: NonEmpty<{
+    readonly kind:
+      | 'ruling_lines'
+      | 'x_alignment'
+      | 'whitespace_gutters'
+      | 'repeated_headers'
+      | 'typographic_grouping';
+    readonly basis_artifact_ids: NonEmpty<FragmentArtifactId>;
+    readonly calculator: ParserIdentity;
+  }>;
+}
+
+export interface TableContinuationLink {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly extraction_run_id: ExtractionRunId;
+  readonly source_artifact_id: SourceArtifactId;
+  readonly source_document_id: string;
+  readonly source_sha256: string;
+  readonly parser_manifest_hash: string;
+  readonly parser: ParserIdentity;
+  readonly from_segment_id: FragmentArtifactId;
+  readonly to_segment_id: FragmentArtifactId;
+  readonly basis: {
+    readonly column_band_similarity: MeasuredScore;
+    readonly header_similarity: MeasuredScore | null;
+    readonly edge_proximity: MeasuredScore;
+    readonly typography_similarity: MeasuredScore;
+    readonly row_continuation_score: MeasuredScore;
+  };
+  readonly score: MeasuredScore;
+  readonly decision: 'linked' | 'ambiguous' | 'rejected';
+}
+
+export interface TableChainArtifact {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly extraction_run_id: ExtractionRunId;
+  readonly source_artifact_id: SourceArtifactId;
+  readonly source_document_id: string;
+  readonly source_sha256: string;
+  readonly parser_manifest_hash: string;
+  readonly parser: ParserIdentity;
+  readonly segment_ids: NonEmpty<FragmentArtifactId>;
+  readonly continuation_links: readonly TableContinuationLink[];
+  readonly section_ids: readonly string[];
+  readonly completeness: 'complete' | 'partial' | 'ambiguous';
+  readonly gap_ids: readonly string[];
+}
+
+export interface TableSectionArtifact {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly extraction_run_id: ExtractionRunId;
+  readonly source_artifact_id: SourceArtifactId;
+  readonly source_document_id: string;
+  readonly source_sha256: string;
+  readonly parser_manifest_hash: string;
+  readonly parser: ParserIdentity;
+  readonly table_chain_id: string;
+  readonly header_row_id: FragmentArtifactId | null;
+  readonly member_row_ids: NonEmpty<FragmentArtifactId>;
+  readonly child_table_chain_ids: readonly string[];
+}
+
+export interface RegionCandidate extends SourceFragmentArtifact {
+  readonly kind: 'region';
+  readonly region_role: 'unknown' | 'text_block' | 'table' | 'image_text';
+  readonly child_fragment_ids: NonEmpty<FragmentArtifactId>;
+  readonly ordered_token_ids: NonEmpty<FragmentArtifactId>;
+  readonly engine_reported_confidence: number | null;
+  readonly quality_signals: {
+    readonly glyph_validity: MeasuredScore;
+    readonly geometry_coverage: MeasuredScore;
+    readonly reading_order_consistency: MeasuredScore;
+    readonly image_text_coverage: MeasuredScore | null;
+  };
+}
+
+export interface ArbitrationDecision {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly extraction_run_id: ExtractionRunId;
+  readonly source_artifact_id: SourceArtifactId;
+  readonly source_document_id: string;
+  readonly source_sha256: string;
+  readonly parser_manifest_hash: string;
+  readonly page_artifact_id: PageArtifactId;
+  readonly parser: ParserIdentity;
+  readonly physical_region_id: FragmentArtifactId;
+  readonly candidate_ids: NonEmpty<FragmentArtifactId>;
+  readonly accepted_candidate_ids: readonly FragmentArtifactId[];
+  readonly rejected_candidate_ids: readonly FragmentArtifactId[];
+  readonly agreement: MeasuredScore | null;
+  readonly decision: 'consensus' | 'single_source' | 'conflict' | 'unresolved';
+  readonly diagnostics: readonly string[];
+}
+
 export type FragmentDependencyRole = 'content' | 'corroboration';
 
 export interface CandidateFragmentDependency {
@@ -222,7 +414,9 @@ export interface ProcessingGap {
     | 'no_source_span'
     | 'content_quality_skip'
     | 'decode_failure'
-    | 'ocr_region_failure';
+    | 'ocr_region_failure'
+    | 'table_structure_unresolved'
+    | 'arbitration_unresolved';
   readonly retryable: boolean;
   readonly attempts: number;
   readonly detail: string;

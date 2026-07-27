@@ -26,9 +26,29 @@ import {
   classifySourceGroundedContent,
   type GenericContentAnalysis,
 } from '@/lib/extraction/domain/genericContentScheduling';
+import {
+  buildGenericTableArtifacts,
+  type GenericTableArtifactsResult,
+} from '@/lib/extraction/domain/genericTableArtifacts';
+import {
+  arbitrateRegion,
+  REGION_ARBITRATOR,
+  REGION_ARBITRATION_POLICY_V1,
+} from '@/lib/extraction/domain/regionArbitration';
 import type {
   GenericContentDiagnosticGap,
 } from '@/lib/extraction/ocrObservationSidecar';
+import type {
+  ArbitrationDecision,
+  FragmentArtifactId,
+  MeasuredScore,
+  NonEmpty,
+  RegionCandidate,
+  TableChainArtifact,
+  TableContinuationLink,
+  TableSectionArtifact,
+  TableSegmentArtifact,
+} from '@/lib/extraction/domain/types';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const ADAPTER_PARSER: ParserIdentity = Object.freeze({
@@ -48,6 +68,7 @@ export interface LegacyOcrWordObservation {
     readonly x1: number;
     readonly y1: number;
   } | null;
+  readonly parser?: ParserIdentity;
 }
 
 export interface LegacyOcrPageObservation {
@@ -311,7 +332,7 @@ async function adaptLegacyLocatedObservations(
         reading_order: index + 1,
         bounding_box: box,
         raw_text_sha256: sha256Hex(text),
-        parser: pageInput.parser,
+        parser: word.parser ?? pageInput.parser,
       });
       const fragment: SourceFragmentArtifact = {
         id: fragmentId,
@@ -326,7 +347,7 @@ async function adaptLegacyLocatedObservations(
         page: pageInput.page,
         bounding_box: box,
         raw_text: text,
-        parser: pageInput.parser,
+        parser: word.parser ?? pageInput.parser,
         recognition_confidence: recognitionScore(word.confidence),
         reading_order: index + 1,
         artifact_data: {},
@@ -468,12 +489,25 @@ export interface Step1ShadowExtractionRun extends ExtractionRun {
 }
 
 export interface Step1ShadowSnapshotMember {
-  readonly member_kind: 'page' | 'fragment' | 'candidate' | 'verified_field' | 'gap';
+  readonly member_kind:
+    | 'page'
+    | 'fragment'
+    | 'candidate'
+    | 'verified_field'
+    | 'gap'
+    | 'continuation_link'
+    | 'table_chain'
+    | 'table_section'
+    | 'arbitration_decision';
   readonly page_artifact_id?: PageArtifact['id'];
   readonly fragment_artifact_id?: SourceFragmentArtifact['id'];
   readonly field_candidate_id?: FieldCandidate['id'];
   readonly verified_field_id?: VerifiedField['id'];
   readonly processing_gap_id?: string;
+  readonly continuation_link_id?: string;
+  readonly table_chain_id?: string;
+  readonly table_section_id?: string;
+  readonly arbitration_decision_id?: string;
   readonly dependency_hash: string;
   readonly sequence: number;
 }
@@ -498,10 +532,189 @@ export interface AdaptLegacyExtractionToStep1ShadowResult {
   readonly fragments: readonly SourceFragmentArtifact[];
   readonly candidates: readonly FieldCandidate[];
   readonly verifiedFields: readonly VerifiedField[];
+  readonly verifiedFieldHandles: readonly VerifiedFieldHandle[];
   readonly gaps: readonly ProcessingGap[];
+  readonly fragmentDependencies: readonly {
+    readonly fragment_artifact_id: FragmentArtifactId;
+    readonly dependency_fragment_ids: NonEmpty<FragmentArtifactId>;
+  }[];
+  readonly continuationLinks: readonly TableContinuationLink[];
+  readonly tableChains: readonly TableChainArtifact[];
+  readonly tableSegments: readonly TableSegmentArtifact[];
+  readonly tableSections: readonly TableSectionArtifact[];
+  readonly arbitrationDecisions: readonly (ArbitrationDecision & {
+    readonly processing_gap_id?: string | null;
+  })[];
   readonly snapshot: ExtractionSnapshot;
   readonly members: readonly Step1ShadowSnapshotMember[];
   readonly skippedRecordCount: number;
+}
+
+function nonEmptyIds(
+  ids: readonly FragmentArtifactId[],
+  detail: string,
+): NonEmpty<FragmentArtifactId> {
+  const first = ids[0];
+  if (!first) throw new Error(detail);
+  return [first, ...ids.slice(1)];
+}
+
+function unionFragmentBox(fragments: NonEmpty<SourceFragmentArtifact>): BoundingBox {
+  return {
+    coordinate_space: 'page_normalized',
+    origin: 'top_left',
+    x0: Math.min(...fragments.map((fragment) => fragment.bounding_box.x0)),
+    y0: Math.min(...fragments.map((fragment) => fragment.bounding_box.y0)),
+    x1: Math.max(...fragments.map((fragment) => fragment.bounding_box.x1)),
+    y1: Math.max(...fragments.map((fragment) => fragment.bounding_box.y1)),
+    rotation: fragments[0].bounding_box.rotation,
+  };
+}
+
+function regionMeasurement(
+  value: number,
+  ids: NonEmpty<FragmentArtifactId>,
+  diagnostics: readonly string[],
+): MeasuredScore {
+  return {
+    value,
+    calculator: REGION_ARBITRATOR,
+    basis_artifact_ids: ids,
+    diagnostics,
+  };
+}
+
+function buildArbitratedRegions(input: {
+  readonly sourceArtifact: SourceArtifact;
+  readonly run: Step1ShadowExtractionRun;
+  readonly tokens: readonly SourceFragmentArtifact[];
+}): {
+  readonly regions: readonly RegionCandidate[];
+  readonly decisions: readonly (ArbitrationDecision & {
+    readonly processing_gap_id?: string | null;
+  })[];
+  readonly acceptedTokens: readonly SourceFragmentArtifact[];
+  readonly gaps: readonly ProcessingGap[];
+} {
+  const regions: RegionCandidate[] = [];
+  const decisions: Array<ArbitrationDecision & { processing_gap_id?: string | null }> = [];
+  const gaps: ProcessingGap[] = [];
+  const acceptedTokenIds = new Set<FragmentArtifactId>();
+  const byPage = new Map<number, SourceFragmentArtifact[]>();
+  for (const token of input.tokens.filter((fragment) => fragment.kind === 'token')) {
+    byPage.set(token.page, [...(byPage.get(token.page) ?? []), token]);
+  }
+  for (const pageTokens of byPage.values()) {
+    const bands: SourceFragmentArtifact[][] = [];
+    for (const token of [...pageTokens].sort((left, right) =>
+      left.bounding_box.y0 - right.bounding_box.y0
+      || left.bounding_box.x0 - right.bounding_box.x0
+      || left.id.localeCompare(right.id))) {
+      const center = (token.bounding_box.y0 + token.bounding_box.y1) / 2;
+      const band = bands.find((candidate) => {
+        const first = candidate[0];
+        return Math.abs(center - ((first.bounding_box.y0 + first.bounding_box.y1) / 2))
+          <= REGION_ARBITRATION_POLICY_V1.physical_region_y_tolerance;
+      });
+      if (band) band.push(token);
+      else bands.push([token]);
+    }
+    for (const [bandIndex, band] of bands.entries()) {
+      const byEngine = new Map<string, SourceFragmentArtifact[]>();
+      for (const token of band) {
+        const key = hashCanonical(token.parser);
+        byEngine.set(key, [...(byEngine.get(key) ?? []), token]);
+      }
+      const candidates = [...byEngine.values()].map((engineTokens) => {
+        const ordered = engineTokens.sort((left, right) =>
+          left.bounding_box.x0 - right.bounding_box.x0 || left.id.localeCompare(right.id));
+        const firstToken = ordered[0];
+        if (!firstToken) throw new Error('Region engine group requires source tokens.');
+        const nonEmptyTokens: NonEmpty<SourceFragmentArtifact> = [
+          firstToken,
+          ...ordered.slice(1),
+        ];
+        const ids = nonEmptyIds(
+          ordered.map((token) => token.id),
+          'Region candidate requires source tokens.',
+        );
+        const rawText = ordered.map((token) => token.raw_text).join(' ');
+        const glyphCharacters = [...rawText];
+        const glyphValidity = glyphCharacters.length === 0 ? 0
+          : glyphCharacters.filter((character) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(character)).length
+            / glyphCharacters.length;
+        const recognition = ordered
+          .map((token) => token.recognition_confidence)
+          .filter((score): score is number => score != null);
+        const regionId = opaqueIds.fragmentArtifact({
+          kind: 'region_candidate',
+          page_artifact_id: firstToken.page_artifact_id,
+          band_index: bandIndex,
+          parser: firstToken.parser,
+          ordered_token_ids: ids,
+        });
+        return {
+          id: regionId,
+          organization_id: input.sourceArtifact.organization_id,
+          kind: 'region' as const,
+          extraction_run_id: input.run.id,
+          source_artifact_id: input.sourceArtifact.id,
+          page_artifact_id: firstToken.page_artifact_id,
+          source_document_id: input.sourceArtifact.source_document_id,
+          source_sha256: input.sourceArtifact.source_sha256,
+          parser_manifest_hash: input.run.parser_manifest_hash,
+          page: firstToken.page,
+          bounding_box: unionFragmentBox(nonEmptyTokens),
+          raw_text: rawText,
+          parser: firstToken.parser,
+          recognition_confidence: recognition.length === ordered.length
+            ? recognition.reduce((sum, score) => sum + score, 0) / recognition.length
+            : null,
+          reading_order: bandIndex + 1,
+          artifact_data: { region_candidate: true },
+          region_role: 'unknown' as const,
+          child_fragment_ids: ids,
+          ordered_token_ids: ids,
+          engine_reported_confidence: recognition.length === ordered.length
+            ? recognition.reduce((sum, score) => sum + score, 0) / recognition.length
+            : null,
+          quality_signals: {
+            glyph_validity: regionMeasurement(glyphValidity, ids, ['observed glyph validity']),
+            geometry_coverage: regionMeasurement(1, ids, ['all tokens have exact normalized boxes']),
+            reading_order_consistency: regionMeasurement(1, ids, ['deterministic geometric order']),
+            image_text_coverage: null,
+          },
+        } satisfies RegionCandidate;
+      });
+      if (candidates.length === 0) continue;
+      const firstCandidate = candidates[0];
+      if (!firstCandidate) continue;
+      const nonEmptyCandidates: NonEmpty<RegionCandidate> = [
+        firstCandidate,
+        ...candidates.slice(1),
+      ];
+      regions.push(...candidates);
+      const result = arbitrateRegion({
+        candidates: nonEmptyCandidates,
+        tokens: band,
+      });
+      if (result.gap) gaps.push(result.gap);
+      decisions.push({
+        ...result.decision,
+        processing_gap_id: result.gap?.id ?? null,
+      });
+      const selectedCandidateId = result.decision.accepted_candidate_ids
+        .slice().sort()[0];
+      const selected = candidates.find((candidate) => candidate.id === selectedCandidateId);
+      for (const tokenId of selected?.ordered_token_ids ?? []) acceptedTokenIds.add(tokenId);
+    }
+  }
+  return {
+    regions,
+    decisions,
+    acceptedTokens: input.tokens.filter((token) => acceptedTokenIds.has(token.id)),
+    gaps,
+  };
 }
 
 /**
@@ -552,14 +765,12 @@ export async function adaptLegacyExtractionToStep1Shadow(
       height: observation.page_height,
       rotation: observation.rotation_degrees ?? 0,
       render_sha256: observation.render_sha256,
-      parser: observation.parser,
     };
     if (existing && hashCanonical({
       width: existing.width,
       height: existing.height,
       rotation: existing.rotation_degrees ?? 0,
       render_sha256: existing.render_sha256,
-      parser: existing.parser,
     }) !== hashCanonical(pageIdentity)) {
       conflictingOutputs.push({ text: observation.text, page: observation.page });
       continue;
@@ -568,6 +779,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       text: observation.text,
       confidence: observation.confidence,
       bbox: observation.bbox,
+      parser: observation.parser,
     };
     if (existing) {
       pageGroups.set(observation.page, {
@@ -624,6 +836,122 @@ export async function adaptLegacyExtractionToStep1Shadow(
     ],
     invalidLocatedOutputs: conflictingOutputs,
   });
+  const arbitration = buildArbitratedRegions({
+    sourceArtifact: input.sourceArtifact,
+    run: preliminaryRun,
+    tokens: adapted.fragments,
+  });
+  const tableResult: GenericTableArtifactsResult = buildGenericTableArtifacts({
+    source_artifact: input.sourceArtifact,
+    run: preliminaryRun,
+    pages: adapted.pages,
+    fragments: arbitration.acceptedTokens,
+  });
+  const tableFragments: SourceFragmentArtifact[] = [
+    ...tableResult.cells,
+    ...tableResult.rows,
+    ...tableResult.segments,
+  ];
+  const fragments = [
+    ...adapted.fragments,
+    ...arbitration.regions,
+    ...tableFragments,
+  ];
+  const candidates = [...adapted.candidates, ...tableResult.candidates];
+  const pageById = new Map(adapted.pages.map((page) => [page.id, page]));
+  const fragmentById = new Map(fragments.map((fragment) => [fragment.id, fragment]));
+  const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const tableVerifiedFields: VerifiedField[] = [];
+  const tableVerifiedHandles: VerifiedFieldHandle[] = [];
+  const tableRepository: VerificationRepository = {
+    async getCandidate(id) {
+      return candidateById.get(id) ?? null;
+    },
+    async getFragments(ids) {
+      return ids.flatMap((id) => {
+        const fragment = fragmentById.get(id as FragmentArtifactId);
+        return fragment ? [fragment] : [];
+      });
+    },
+    async getPages(ids) {
+      return ids.flatMap((id) => {
+        const page = pageById.get(id as PageArtifact['id']);
+        return page ? [page] : [];
+      });
+    },
+    async getRun(id) {
+      return id === preliminaryRun.id ? preliminaryRun : null;
+    },
+    async getSourceArtifact(id) {
+      return id === input.sourceArtifact.id ? input.sourceArtifact : null;
+    },
+    async getCorroborationPolicy() {
+      return null;
+    },
+  };
+  for (const candidate of tableResult.candidates) {
+    const verification = await verifyFieldCandidate(candidate.id, tableRepository);
+    if (!verification.ok) {
+      throw new Error(`table cell candidate failed verification: ${verification.code}`);
+    }
+    tableVerifiedFields.push(verification.verifiedField);
+    tableVerifiedHandles.push(verification.handle);
+  }
+  const verifiedFields = [...adapted.verifiedFields, ...tableVerifiedFields];
+  const verifiedFieldHandles = [
+    ...adapted.verifiedFieldHandles,
+    ...tableVerifiedHandles,
+  ];
+  const fragmentDependencies = [
+    ...arbitration.regions.map((region) => ({
+      fragment_artifact_id: region.id,
+      dependency_fragment_ids: region.ordered_token_ids,
+    })),
+    ...tableResult.cells.map((cell) => ({
+      fragment_artifact_id: cell.id,
+      dependency_fragment_ids: nonEmptyIds(
+        cell.content_token_ids,
+        'Table cell requires content dependencies.',
+      ),
+    })),
+    ...tableResult.rows.map((row) => ({
+      fragment_artifact_id: row.id,
+      dependency_fragment_ids: nonEmptyIds(
+        row.cell_ids,
+        'Table row requires cell dependencies.',
+      ),
+    })),
+    ...tableResult.segments.map((segment) => ({
+      fragment_artifact_id: segment.id,
+      dependency_fragment_ids: segment.child_fragment_ids,
+    })),
+  ];
+  const continuationLinks = tableResult.continuation_links.map((link) => ({
+    ...link,
+    basis_fragments: Object.entries(link.basis).flatMap(([basisKind, score]) =>
+      score == null ? [] : score.basis_artifact_ids.map((fragmentId, index) => ({
+        basis_kind: basisKind,
+        fragment_artifact_id: fragmentId,
+        sequence: index + 1,
+      }))),
+  }));
+  const tableChains = tableResult.chains.map((chain) => ({
+    ...chain,
+    continuation_link_ids: chain.continuation_links.map((link) => link.id),
+  }));
+  const tableSections = tableResult.sections.map((section, index) => ({
+    ...section,
+    sequence: index + 1,
+  }));
+  const arbitrationDecisions = arbitration.decisions.map((decision) => ({
+    ...decision,
+    candidates: decision.candidate_ids.map((candidateId, index) => ({
+      candidate_fragment_id: candidateId,
+      disposition: decision.accepted_candidate_ids.includes(candidateId)
+        ? 'accepted' : 'rejected',
+      sequence: index + 1,
+    })),
+  }));
   const schedulingGaps: ProcessingGap[] = (input.genericContentAnalysis?.decisions ?? [])
     .flatMap((decision): ProcessingGap[] => {
       const page = pageGroups.get(decision.page);
@@ -692,10 +1020,59 @@ export async function adaptLegacyExtractionToStep1Shadow(
       reason: gap.reason,
       retryable: gap.retryable,
       attempts: gap.attempts,
-      detail: `Generic PDF decoding failed (${gap.error_category}).`,
+      detail: gap.reason === 'decode_failure'
+        ? `Generic PDF decoding failed (${gap.error_category}).`
+        : `Generic content shadow diagnostic (${gap.error_category}).`,
       upstream_artifact_ids: [],
     }));
-  const gaps = [...adapted.gaps, ...schedulingGaps, ...diagnosticGaps];
+  const continuationGaps = tableResult.continuation_links
+    .filter((link) => link.decision === 'ambiguous')
+    .map((link): ProcessingGap => {
+      const id = opaqueIds.processingGap({
+        extraction_run_id: preliminaryRun.id,
+        continuation_link_id: link.id,
+        reason: 'table_structure_unresolved',
+      });
+      return {
+        id,
+        gap_key: `step3:table_structure_unresolved:${id}`,
+        organization_id: input.sourceArtifact.organization_id,
+        source_document_id: input.sourceArtifact.source_document_id,
+        extraction_run_id: preliminaryRun.id,
+        page: null,
+        bounding_box: null,
+        stage: 'table_reconstruction',
+        reason: 'table_structure_unresolved',
+        retryable: false,
+        attempts: 1,
+        detail: 'Cross-page table continuation remains ambiguous.',
+        upstream_artifact_ids: [link.from_segment_id, link.to_segment_id],
+      };
+    });
+  const gaps = [
+    ...adapted.gaps,
+    ...arbitration.gaps,
+    ...tableResult.gaps,
+    ...continuationGaps,
+    ...schedulingGaps,
+    ...diagnosticGaps,
+  ];
+  const chainGapBySegment = new Map<string, string[]>();
+  for (const gap of continuationGaps) {
+    for (const segmentId of gap.upstream_artifact_ids) {
+      chainGapBySegment.set(segmentId, [
+        ...(chainGapBySegment.get(segmentId) ?? []),
+        gap.id,
+      ]);
+    }
+  }
+  const closedTableChains = tableChains.map((chain) => ({
+    ...chain,
+    gap_ids: [...new Set([
+      ...chain.gap_ids,
+      ...chain.segment_ids.flatMap((segmentId) => chainGapBySegment.get(segmentId) ?? []),
+    ])],
+  }));
   const run: Step1ShadowExtractionRun = {
     ...preliminaryRun,
     status: gaps.some((gap) => gap.retryable)
@@ -713,17 +1090,17 @@ export async function adaptLegacyExtractionToStep1Shadow(
       page_artifact_id: artifact.id,
       artifact,
     })),
-    ...adapted.fragments.map((artifact) => ({
+    ...fragments.map((artifact) => ({
       member_kind: 'fragment' as const,
       fragment_artifact_id: artifact.id,
       artifact,
     })),
-    ...adapted.candidates.map((artifact) => ({
+    ...candidates.map((artifact) => ({
       member_kind: 'candidate' as const,
       field_candidate_id: artifact.id,
       artifact,
     })),
-    ...adapted.verifiedFields.map((artifact) => ({
+    ...verifiedFields.map((artifact) => ({
       member_kind: 'verified_field' as const,
       verified_field_id: artifact.id,
       artifact,
@@ -731,6 +1108,26 @@ export async function adaptLegacyExtractionToStep1Shadow(
     ...gaps.map((artifact) => ({
       member_kind: 'gap' as const,
       processing_gap_id: artifact.id,
+      artifact,
+    })),
+    ...continuationLinks.map((artifact) => ({
+      member_kind: 'continuation_link' as const,
+      continuation_link_id: artifact.id,
+      artifact,
+    })),
+    ...closedTableChains.map((artifact) => ({
+      member_kind: 'table_chain' as const,
+      table_chain_id: artifact.id,
+      artifact,
+    })),
+    ...tableSections.map((artifact) => ({
+      member_kind: 'table_section' as const,
+      table_section_id: artifact.id,
+      artifact,
+    })),
+    ...arbitrationDecisions.map((artifact) => ({
+      member_kind: 'arbitration_decision' as const,
+      arbitration_decision_id: artifact.id,
       artifact,
     })),
   ];
@@ -753,7 +1150,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
         // but it is never persisted directly. Persisted classification is always
         // recomputed from verified text and verified observed structure here.
         const classification = classifySourceGroundedContent({
-          verified_texts: adapted.verifiedFields.map((field) => field.raw_text),
+          verified_texts: verifiedFields.map((field) => field.raw_text),
           structural_kinds: input.genericContentAnalysis?.decisions.map(
             (decision) => decision.structural_kind,
           ) ?? [],
@@ -824,10 +1221,17 @@ export async function adaptLegacyExtractionToStep1Shadow(
   return {
     run,
     pages: adapted.pages,
-    fragments: adapted.fragments,
-    candidates: adapted.candidates,
-    verifiedFields: adapted.verifiedFields,
+    fragments,
+    candidates,
+    verifiedFields,
+    verifiedFieldHandles,
     gaps,
+    fragmentDependencies,
+    continuationLinks,
+    tableChains: closedTableChains,
+    tableSegments: tableResult.segments,
+    tableSections,
+    arbitrationDecisions,
     snapshot,
     members,
     skippedRecordCount: gaps.length,

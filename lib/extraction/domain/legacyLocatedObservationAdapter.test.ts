@@ -89,9 +89,8 @@ describe('shadow-only legacy located-observation adapter', () => {
       }],
     });
 
-    expect(result).toMatchObject({
-      pages: [{ page: 2, status: 'processed' }],
-      fragments: [{
+    expect(result.pages).toMatchObject([{ page: 2, status: 'processed' }]);
+    expect(result.fragments.filter((fragment) => fragment.kind === 'token')).toMatchObject([{
         raw_text: '  Total  ',
         recognition_confidence: 0.92,
         bounding_box: {
@@ -101,8 +100,9 @@ describe('shadow-only legacy located-observation adapter', () => {
           x1: 0.25,
           y1: 0.225,
         },
-      }],
-      candidates: [{
+      }]);
+    expect(result.candidates.filter((candidate) => candidate.raw_text === '  Total  '))
+      .toMatchObject([{
         proposed_value: { type: 'text', value: '  Total  ' },
         transformations: [],
         confidence: {
@@ -114,18 +114,20 @@ describe('shadow-only legacy located-observation adapter', () => {
           overall: 0.85,
           uncertainties: ['single_engine_only'],
         },
-      }],
-      gaps: [],
-      skippedRecordCount: 0,
-    });
+      }]);
+    expect(result.gaps).toEqual([]);
+    expect(result.skippedRecordCount).toBe(0);
     expect(result.run.status).toBe('complete');
     expect(result.snapshot.status).toBe('complete');
-    expect(result.members.map((member) => member.member_kind)).toEqual([
-      'page',
-      'fragment',
-      'candidate',
-      'verified_field',
-    ]);
+    const memberKinds = result.members.map((member) => member.member_kind);
+    expect(memberKinds.filter((kind) => kind !== 'fragment'
+      && kind !== 'arbitration_decision')).toEqual([
+        'page',
+        'candidate',
+        'verified_field',
+      ]);
+    expect(memberKinds.filter((kind) => kind === 'fragment')).toHaveLength(2);
+    expect(memberKinds).toContain('arbitration_decision');
     expect(result.verifiedFields).toHaveLength(1);
     expect(result.verifiedFields[0]?.source_fragment_ids).toEqual([
       result.fragments[0]?.id,
@@ -333,7 +335,8 @@ describe('shadow-only legacy located-observation adapter', () => {
     });
 
     expect(first.run.id).toBe(second.run.id);
-    expect(first.fragments.map((fragment) => fragment.raw_text)).toEqual(['First', 'Second']);
+    expect(first.fragments.filter((fragment) => fragment.kind === 'token')
+      .map((fragment) => fragment.raw_text)).toEqual(['First', 'Second']);
     expect(first.pages.map((page) => page.id)).toEqual(second.pages.map((page) => page.id));
     expect(first.fragments.map((fragment) => fragment.id)).toEqual(
       second.fragments.map((fragment) => fragment.id),

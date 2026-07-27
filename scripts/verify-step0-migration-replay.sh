@@ -926,6 +926,319 @@ END;
 $$;
 RESET ROLE;
 
+DO $$
+DECLARE
+  base_payload jsonb;
+  step3_payload jsonb;
+  parser_identity jsonb := jsonb_build_object(
+    'stage', 'layout', 'name', 'step3-replay',
+    'version', '1', 'configuration_hash', repeat('3', 64)
+  );
+  source_id text;
+BEGIN
+  SELECT payload INTO base_payload
+  FROM public.step1_replay_payloads WHERE name = 'valid';
+  source_id := base_payload->>'source_artifact_id';
+  step3_payload := replace(
+    base_payload::text, '70000000-', '7d000000-'
+  )::jsonb || jsonb_build_object(
+    'parser_manifest', jsonb_build_object(
+      'artifact_schema_version', 'extraction-artifact-v1',
+      'step', 'phase3-step3-nonempty-replay'
+    ),
+    'parser_manifest_hash', repeat('3', 63) || 'a',
+    'idempotency_key', 'step3:replay:valid-nonempty',
+    'content_extraction_fingerprint', repeat('4', 64),
+    'artifact_root_hash', repeat('5', 64)
+  );
+  step3_payload := step3_payload || jsonb_build_object(
+    'fragments', (step3_payload->'fragments') || jsonb_build_array(
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000020',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'cell', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.2, 'x1', 0.3, 'y1', 0.3, 'rotation', 0
+        ),
+        'raw_text', '123.45', 'parser', parser_identity,
+        'recognition_confidence', 0.99, 'reading_order', 2,
+        'artifact_data', jsonb_build_object(
+          'structure', 'ordinary', 'content_token_ids',
+          jsonb_build_array('7d000000-0000-0000-0000-000000000002')
+        )
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000021',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'region', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.2, 'x1', 0.3, 'y1', 0.3, 'rotation', 0
+        ),
+        'raw_text', '123.45', 'parser', parser_identity,
+        'recognition_confidence', null, 'reading_order', 3,
+        'artifact_data', jsonb_build_object('region_role', 'table_row')
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000022',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'region', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.2, 'x1', 0.4, 'y1', 0.4, 'rotation', 0
+        ),
+        'raw_text', '123.45', 'parser', parser_identity,
+        'recognition_confidence', null, 'reading_order', 4,
+        'artifact_data', jsonb_build_object('region_role', 'table')
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000023',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'region', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.45, 'x1', 0.4, 'y1', 0.65, 'rotation', 0
+        ),
+        'raw_text', '123.45', 'parser', parser_identity,
+        'recognition_confidence', null, 'reading_order', 5,
+        'artifact_data', jsonb_build_object('region_role', 'table')
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000024',
+        'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+        'kind', 'region', 'page', 1,
+        'bounding_box', jsonb_build_object(
+          'x0', 0.1, 'y0', 0.1, 'x1', 0.2, 'y1', 0.2, 'rotation', 0
+        ),
+        'raw_text', '123.45', 'parser', parser_identity,
+        'recognition_confidence', 0.99, 'reading_order', 6,
+        'artifact_data', jsonb_build_object('region_role', 'candidate')
+      )
+    ),
+    'fragment_dependencies', jsonb_build_array(
+      jsonb_build_object(
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000020',
+        'dependency_fragment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000002'
+        )
+      ),
+      jsonb_build_object(
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000021',
+        'dependency_fragment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000020'
+        )
+      ),
+      jsonb_build_object(
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000022',
+        'dependency_fragment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000021'
+        )
+      ),
+      jsonb_build_object(
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000023',
+        'dependency_fragment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000021'
+        )
+      ),
+      jsonb_build_object(
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000024',
+        'dependency_fragment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000002'
+        )
+      )
+    ),
+    'continuation_links', jsonb_build_array(jsonb_build_object(
+      'id', '7d000000-0000-0000-0000-000000000030',
+      'parser', parser_identity,
+      'from_segment_id', '7d000000-0000-0000-0000-000000000022',
+      'to_segment_id', '7d000000-0000-0000-0000-000000000023',
+      'basis', jsonb_build_object('version', 'continuation-v1'),
+      'score', jsonb_build_object('value', 0.9),
+      'decision', 'linked',
+      'basis_fragments', jsonb_build_array(
+        jsonb_build_object(
+          'basis_kind', 'column_band_similarity',
+          'fragment_artifact_id', '7d000000-0000-0000-0000-000000000022',
+          'sequence', 1
+        ),
+        jsonb_build_object(
+          'basis_kind', 'edge_proximity',
+          'fragment_artifact_id', '7d000000-0000-0000-0000-000000000023',
+          'sequence', 1
+        )
+      )
+    )),
+    'table_chains', jsonb_build_array(
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000031',
+        'parser', parser_identity, 'completeness', 'partial',
+        'segment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000022',
+          '7d000000-0000-0000-0000-000000000023'
+        ),
+        'continuation_link_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000030'
+        ),
+        'gap_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000005'
+        )
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000032',
+        'parser', parser_identity, 'completeness', 'complete',
+        'segment_ids', jsonb_build_array(
+          '7d000000-0000-0000-0000-000000000023'
+        ),
+        'continuation_link_ids', '[]'::jsonb, 'gap_ids', '[]'::jsonb
+      )
+    ),
+    'table_sections', jsonb_build_array(jsonb_build_object(
+      'id', '7d000000-0000-0000-0000-000000000033',
+      'parser', parser_identity,
+      'table_chain_id', '7d000000-0000-0000-0000-000000000031',
+      'header_row_id', '7d000000-0000-0000-0000-000000000021',
+      'sequence', 1,
+      'member_row_ids', jsonb_build_array(
+        '7d000000-0000-0000-0000-000000000021'
+      ),
+      'child_table_chain_ids', jsonb_build_array(
+        '7d000000-0000-0000-0000-000000000032'
+      )
+    )),
+    'arbitration_decisions', jsonb_build_array(jsonb_build_object(
+      'id', '7d000000-0000-0000-0000-000000000034',
+      'parser', parser_identity,
+      'page_artifact_id', '7d000000-0000-0000-0000-000000000001',
+      'physical_region_id', '7d000000-0000-0000-0000-000000000024',
+      'processing_gap_id', null,
+      'agreement', null, 'decision', 'single_source',
+      'diagnostics', '[]'::jsonb,
+      'candidates', jsonb_build_array(jsonb_build_object(
+        'candidate_fragment_id', '7d000000-0000-0000-0000-000000000024',
+        'disposition', 'accepted', 'sequence', 1
+      ))
+    )),
+    'interpretation_snapshot', jsonb_build_object(
+      'id', '7d000000-0000-0000-0000-000000000040',
+      'interpreter_manifest_hash', repeat('6', 64),
+      'entity_resolver_version', 'not-applicable-step3',
+      'effective_truth_set_hash', repeat('7', 64),
+      'status', 'partial', 'output_root_hash', repeat('8', 64),
+      'published_at', '2026-07-27T00:00:01Z'
+    ),
+    'semantic_column_mappings', jsonb_build_array(jsonb_build_object(
+      'id', '7d000000-0000-0000-0000-000000000041',
+      'table_chain_id', '7d000000-0000-0000-0000-000000000031',
+      'column_index', 0, 'domain_role', 'quantity',
+      'assessment', jsonb_build_object('rule', 'quantity-v1'),
+      'status', 'resolved',
+      'interpretation_rule_id', 'semantic-column-role',
+      'interpretation_rule_version', '1',
+      'header_verified_field_ids', '[]'::jsonb,
+      'cell_verified_field_ids', jsonb_build_array(
+        '7d000000-0000-0000-0000-000000000004'
+      )
+    )),
+    'interpretation_records', jsonb_build_array(
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000042',
+        'record_type', 'semantic_column_mapping',
+        'semantic_column_mapping_id', '7d000000-0000-0000-0000-000000000041',
+        'record_data', '{}'::jsonb, 'sequence', 1
+      ),
+      jsonb_build_object(
+        'id', '7d000000-0000-0000-0000-000000000043',
+        'record_type', 'gap',
+        'processing_gap_id', '7d000000-0000-0000-0000-000000000005',
+        'record_data', jsonb_build_object('reason', 'table_structure_unresolved'),
+        'sequence', 2
+      )
+    )
+  );
+  step3_payload := step3_payload || jsonb_build_object(
+    'snapshot_members', (step3_payload->'snapshot_members') || jsonb_build_array(
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000020',
+        'dependency_hash', repeat('a', 64), 'sequence', 6
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000021',
+        'dependency_hash', repeat('b', 64), 'sequence', 7
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000022',
+        'dependency_hash', repeat('c', 64), 'sequence', 8
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000023',
+        'dependency_hash', repeat('d', 64), 'sequence', 9
+      ),
+      jsonb_build_object(
+        'member_kind', 'fragment',
+        'fragment_artifact_id', '7d000000-0000-0000-0000-000000000024',
+        'dependency_hash', repeat('e', 64), 'sequence', 10
+      ),
+      jsonb_build_object(
+        'member_kind', 'continuation_link',
+        'continuation_link_id', '7d000000-0000-0000-0000-000000000030',
+        'dependency_hash', repeat('1', 64), 'sequence', 11
+      ),
+      jsonb_build_object(
+        'member_kind', 'table_chain',
+        'table_chain_id', '7d000000-0000-0000-0000-000000000031',
+        'dependency_hash', repeat('2', 64), 'sequence', 12
+      ),
+      jsonb_build_object(
+        'member_kind', 'table_chain',
+        'table_chain_id', '7d000000-0000-0000-0000-000000000032',
+        'dependency_hash', repeat('3', 64), 'sequence', 13
+      ),
+      jsonb_build_object(
+        'member_kind', 'table_section',
+        'table_section_id', '7d000000-0000-0000-0000-000000000033',
+        'dependency_hash', repeat('4', 64), 'sequence', 14
+      ),
+      jsonb_build_object(
+        'member_kind', 'arbitration_decision',
+        'arbitration_decision_id', '7d000000-0000-0000-0000-000000000034',
+        'dependency_hash', repeat('5', 64), 'sequence', 15
+      )
+    )
+  );
+  INSERT INTO public.step1_replay_payloads(name, payload)
+  VALUES ('step3_valid_nonempty', step3_payload);
+END;
+$$;
+
+SET request.jwt.claim.role = 'service_role';
+SET ROLE service_role;
+SELECT public.publish_extraction_step1_shadow(payload)
+FROM public.step1_replay_payloads
+WHERE name = 'step3_valid_nonempty';
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.extraction_table_continuation_links
+      WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010') <> 1
+    OR (SELECT count(*) FROM public.extraction_table_chains
+        WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010') <> 2
+    OR (SELECT count(*) FROM public.extraction_table_sections
+        WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010') <> 1
+    OR (SELECT count(*) FROM public.extraction_arbitration_decisions
+        WHERE extraction_run_id = '7d000000-0000-0000-0000-000000000010') <> 1
+    OR (SELECT count(*) FROM public.semantic_column_mappings
+        WHERE interpretation_snapshot_id =
+          '7d000000-0000-0000-0000-000000000040') <> 1
+    OR (SELECT count(*) FROM public.semantic_column_mapping_fields
+        WHERE interpretation_snapshot_id =
+          '7d000000-0000-0000-0000-000000000040') <> 1 THEN
+    RAISE EXCEPTION 'valid nonempty Step 3 graph did not publish completely';
+  END IF;
+END;
+$$;
+
 SET request.jwt.claim.role = 'authenticated';
 DO $$
 DECLARE
@@ -1160,12 +1473,19 @@ INSERT INTO public.extraction_source_artifacts (
   'other-object:1', 'application/pdf', 1
 );
 INSERT INTO auth.users (id, email)
-VALUES ('60000000-0000-0000-0000-000000000001', 'step0@example.test');
+VALUES
+  ('60000000-0000-0000-0000-000000000001', 'step0@example.test'),
+  ('60000000-0000-0000-0000-000000000002', 'step0-other@example.test');
 INSERT INTO public.user_profiles (id, organization_id)
-VALUES (
-  '60000000-0000-0000-0000-000000000001',
-  '10000000-0000-0000-0000-000000000001'
-);
+VALUES
+  (
+    '60000000-0000-0000-0000-000000000001',
+    '10000000-0000-0000-0000-000000000001'
+  ),
+  (
+    '60000000-0000-0000-0000-000000000002',
+    '10000000-0000-0000-0000-000000000002'
+  );
 SET request.jwt.claim.sub = '60000000-0000-0000-0000-000000000001';
 SET ROLE authenticated;
 SELECT auth.uid() AS rls_test_user, public.get_current_user_org_id() AS rls_test_org;
@@ -1177,7 +1497,91 @@ SELECT 1 / CASE WHEN count(*) >= 1
   AND min(organization_id::text) = '10000000-0000-0000-0000-000000000001'
   THEN 1 ELSE 0 END AS tenant_rls_ok
 FROM public.extraction_source_artifacts;
+DO $$
+DECLARE table_name text; visible_count integer;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'extraction_table_continuation_links',
+    'extraction_table_continuation_link_basis_fragments',
+    'extraction_table_chains', 'extraction_table_chain_segments',
+    'extraction_table_chain_links', 'extraction_table_chain_gaps',
+    'extraction_table_sections', 'extraction_table_section_rows',
+    'extraction_table_section_child_chains',
+    'extraction_arbitration_decisions',
+    'extraction_arbitration_decision_candidates',
+    'semantic_column_mappings', 'semantic_column_mapping_fields',
+    'extraction_step3_publication_receipts'
+  ] LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I', table_name)
+      INTO visible_count;
+    IF visible_count = 0 THEN
+      RAISE EXCEPTION 'own-organization RLS hid all Step 3 rows from %', table_name;
+    END IF;
+  END LOOP;
+END;
+$$;
 RESET ROLE;
+SET request.jwt.claim.sub = '60000000-0000-0000-0000-000000000002';
+SET ROLE authenticated;
+DO $$
+DECLARE table_name text; visible_count integer;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'extraction_table_continuation_links',
+    'extraction_table_continuation_link_basis_fragments',
+    'extraction_table_chains', 'extraction_table_chain_segments',
+    'extraction_table_chain_links', 'extraction_table_chain_gaps',
+    'extraction_table_sections', 'extraction_table_section_rows',
+    'extraction_table_section_child_chains',
+    'extraction_arbitration_decisions',
+    'extraction_arbitration_decision_candidates',
+    'semantic_column_mappings', 'semantic_column_mapping_fields',
+    'extraction_step3_publication_receipts'
+  ] LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I', table_name)
+      INTO visible_count;
+    IF visible_count <> 0 THEN
+      RAISE EXCEPTION 'cross-organization RLS exposed Step 3 rows from %', table_name;
+    END IF;
+  END LOOP;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+DECLARE table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'extraction_table_continuation_links',
+    'extraction_table_continuation_link_basis_fragments',
+    'extraction_table_chains', 'extraction_table_chain_segments',
+    'extraction_table_chain_links', 'extraction_table_chain_gaps',
+    'extraction_table_sections', 'extraction_table_section_rows',
+    'extraction_table_section_child_chains',
+    'extraction_arbitration_decisions',
+    'extraction_arbitration_decision_candidates',
+    'semantic_column_mappings', 'semantic_column_mapping_fields',
+    'extraction_step3_publication_receipts'
+  ] LOOP
+    BEGIN
+      EXECUTE format(
+        'UPDATE public.%I SET organization_id = organization_id WHERE true',
+        table_name
+      );
+      RAISE EXCEPTION 'append-only UPDATE unexpectedly succeeded on %', table_name;
+    EXCEPTION WHEN SQLSTATE '55000' THEN
+      NULL;
+    END;
+    BEGIN
+      EXECUTE format('DELETE FROM public.%I WHERE true', table_name);
+      RAISE EXCEPTION 'append-only DELETE unexpectedly succeeded on %', table_name;
+    EXCEPTION WHEN SQLSTATE '55000' THEN
+      NULL;
+    END;
+  END LOOP;
+END;
+$$;
+
 SET ROLE service_role;
 DO $$
 BEGIN
@@ -1246,7 +1650,21 @@ BEGIN
     'extraction_gap_sources',
     'extraction_snapshots',
     'extraction_snapshot_members',
-    'document_extraction_snapshot_assignments'
+    'document_extraction_snapshot_assignments',
+    'extraction_table_continuation_links',
+    'extraction_table_continuation_link_basis_fragments',
+    'extraction_table_chains',
+    'extraction_table_chain_segments',
+    'extraction_table_chain_links',
+    'extraction_table_chain_gaps',
+    'extraction_table_sections',
+    'extraction_table_section_rows',
+    'extraction_table_section_child_chains',
+    'extraction_arbitration_decisions',
+    'extraction_arbitration_decision_candidates',
+    'semantic_column_mappings',
+    'semantic_column_mapping_fields',
+    'extraction_step3_publication_receipts'
   ] LOOP
     IF has_table_privilege(
       'service_role',
@@ -1258,6 +1676,163 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+DO $$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'extraction_table_continuation_links',
+    'extraction_table_continuation_link_basis_fragments',
+    'extraction_table_chains',
+    'extraction_table_chain_segments',
+    'extraction_table_chain_links',
+    'extraction_table_chain_gaps',
+    'extraction_table_sections',
+    'extraction_table_section_rows',
+    'extraction_table_section_child_chains',
+    'extraction_arbitration_decisions',
+    'extraction_arbitration_decision_candidates',
+    'semantic_column_mappings',
+    'semantic_column_mapping_fields',
+    'extraction_step3_publication_receipts'
+  ] LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_class relation
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = table_name
+        AND relation.relrowsecurity
+    ) THEN
+      RAISE EXCEPTION 'Step 3 table % is missing RLS', table_name;
+    END IF;
+    IF has_table_privilege(
+      'service_role', format('public.%I', table_name),
+      'INSERT,UPDATE,DELETE,TRUNCATE'
+    ) THEN
+      RAISE EXCEPTION 'service_role retains direct Step 3 write privilege on %',
+        table_name;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger trigger_row
+      JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = table_name
+        AND trigger_row.tgname = left(
+          'trg_' || table_name || '_append_only',
+          63
+        )
+        AND NOT trigger_row.tgisinternal
+    ) THEN
+      RAISE EXCEPTION 'Step 3 table % is missing append-only enforcement',
+        table_name;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'document_interpretation_records_mapping_fkey'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'extraction_snapshot_members_chain_fkey'
+  ) THEN
+    RAISE EXCEPTION 'Step 3 interpretation/snapshot closure constraints are missing';
+  END IF;
+
+  IF position(
+    'semantic_column_mapping'
+    IN pg_get_constraintdef((
+      SELECT oid FROM pg_constraint
+      WHERE conname = 'document_interpretation_records_type_check'
+    ))
+  ) = 0 THEN
+    RAISE EXCEPTION 'semantic column mapping record type was not installed';
+  END IF;
+END;
+$$;
+
+SET request.jwt.claim.role = 'service_role';
+DO $$
+DECLARE
+  valid_payload jsonb;
+  divergent_payload jsonb;
+BEGIN
+  SELECT payload INTO valid_payload
+  FROM public.step1_replay_payloads
+  WHERE name = 'valid';
+  divergent_payload := jsonb_set(
+    valid_payload,
+    '{table_chains}',
+    jsonb_build_array(jsonb_build_object(
+      'id', '7f000000-0000-0000-0000-000000000001',
+      'completeness', 'complete'
+    ))
+  );
+  BEGIN
+    PERFORM public.publish_extraction_step1_shadow(divergent_payload);
+    RAISE EXCEPTION 'divergent Step 3 table content unexpectedly reused an idempotency key';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    NULL;
+  END;
+  IF EXISTS (
+    SELECT 1
+    FROM public.extraction_table_chains
+    WHERE id = '7f000000-0000-0000-0000-000000000001'
+  ) THEN
+    RAISE EXCEPTION 'divergent Step 3 publication left a partial table chain';
+  END IF;
+END;
+$$;
+DO $$
+DECLARE
+  base_payload jsonb;
+  identical_payload jsonb;
+  divergent_a jsonb;
+  divergent_b jsonb;
+BEGIN
+  SELECT payload INTO base_payload
+  FROM public.step1_replay_payloads
+  WHERE name = 'step3_valid_nonempty';
+
+  identical_payload := replace(
+    base_payload::text, '7d000000-', '7e000000-'
+  )::jsonb || jsonb_build_object(
+    'parser_manifest', jsonb_build_object(
+      'artifact_schema_version', 'extraction-artifact-v1',
+      'step', 'phase3-step3-concurrent-identical'
+    ),
+    'parser_manifest_hash', repeat('a', 63) || '1',
+    'idempotency_key', 'step3:concurrent:identical',
+    'content_extraction_fingerprint', repeat('b', 64),
+    'artifact_root_hash', repeat('c', 64)
+  );
+  divergent_a := replace(
+    base_payload::text, '7d000000-', '7f000000-'
+  )::jsonb || jsonb_build_object(
+    'parser_manifest', jsonb_build_object(
+      'artifact_schema_version', 'extraction-artifact-v1',
+      'step', 'phase3-step3-concurrent-divergent'
+    ),
+    'parser_manifest_hash', repeat('d', 63) || '2',
+    'idempotency_key', 'step3:concurrent:divergent',
+    'content_extraction_fingerprint', repeat('e', 64),
+    'artifact_root_hash', repeat('f', 64)
+  );
+  divergent_b := jsonb_set(
+    divergent_a,
+    '{table_chains,0,completeness}',
+    '"ambiguous"'::jsonb
+  );
+  INSERT INTO public.step1_replay_payloads(name, payload) VALUES
+    ('step3_concurrent_identical', identical_payload),
+    ('step3_divergent_a', divergent_a),
+    ('step3_divergent_b', divergent_b);
+END;
+$$;
 SQL
 
 concurrent_step1_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'valid\';'
@@ -1267,6 +1842,41 @@ step1_pid_one=$!
 step1_pid_two=$!
 wait "${step1_pid_one}"
 wait "${step1_pid_two}"
+concurrent_step3_identical_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'step3_concurrent_identical\';'
+"${psql[@]}" --command "${concurrent_step3_identical_sql}" >/dev/null &
+step3_identical_pid_one=$!
+"${psql[@]}" --command "${concurrent_step3_identical_sql}" >/dev/null &
+step3_identical_pid_two=$!
+wait "${step3_identical_pid_one}"
+wait "${step3_identical_pid_two}"
+set +e
+concurrent_step3_a_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'step3_divergent_a\';'
+concurrent_step3_b_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'step3_divergent_b\';'
+"${psql[@]}" --command "${concurrent_step3_a_sql}" >/dev/null 2>&1 &
+step3_pid_one=$!
+"${psql[@]}" --command "${concurrent_step3_b_sql}" >/dev/null 2>&1 &
+step3_pid_two=$!
+wait "${step3_pid_one}"
+step3_status_one=$?
+wait "${step3_pid_two}"
+step3_status_two=$?
+set -e
+if [[ "${step3_status_one}" -eq "${step3_status_two}" ]]; then
+  echo "DATABASE STEP3 CONCURRENT DIVERGENCE: FAILED (expected one winner and one safe rejection)"
+  exit 1
+fi
+"${psql[@]}" --command "DO \$\$ BEGIN
+  IF (SELECT count(*) FROM public.extraction_runs
+      WHERE idempotency_key = 'step3:concurrent:divergent') <> 1
+    OR (SELECT count(*) FROM public.extraction_step3_publication_receipts
+        WHERE extraction_run_id =
+          '7f000000-0000-0000-0000-000000000010') <> 1
+    OR (SELECT count(*) FROM public.extraction_table_chains
+        WHERE extraction_run_id =
+          '7f000000-0000-0000-0000-000000000010') <> 2 THEN
+    RAISE EXCEPTION 'concurrent divergent Step 3 publication did not converge atomically';
+  END IF;
+END \$\$;" >/dev/null
 "${psql[@]}" --command "DROP TABLE public.step1_replay_payloads" >/dev/null
 
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
@@ -1275,3 +1885,6 @@ echo "DATABASE VERIFIED/CANONICAL ANTI-CAST / SNAPSHOT CLOSURE / TENANT RLS: PAS
 echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"
 echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
 echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"
+echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"
+echo "DATABASE STEP3 SEMANTIC DIVERGENCE / ATOMIC ROLLBACK: PASS"
+echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"

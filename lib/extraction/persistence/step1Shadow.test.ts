@@ -218,6 +218,10 @@ describe('Step 1 shadow persistence', () => {
       candidate: payload.candidates as Record<string, unknown>[],
       verified_field: payload.verified_fields as Record<string, unknown>[],
       gap: payload.gaps as Record<string, unknown>[],
+      continuation_link: payload.continuation_links as Record<string, unknown>[],
+      table_chain: payload.table_chains as Record<string, unknown>[],
+      table_section: payload.table_sections as Record<string, unknown>[],
+      arbitration_decision: payload.arbitration_decisions as Record<string, unknown>[],
     };
     const members = payload.snapshot_members as Array<Record<string, unknown>>;
     for (const member of members) {
@@ -228,6 +232,10 @@ describe('Step 1 shadow persistence', () => {
         candidate: 'field_candidate_id',
         verified_field: 'verified_field_id',
         gap: 'processing_gap_id',
+        continuation_link: 'continuation_link_id',
+        table_chain: 'table_chain_id',
+        table_section: 'table_section_id',
+        arbitration_decision: 'arbitration_decision_id',
       }[kind];
       const artifact = artifactCollections[kind].find(
         (item) => item.id === member[idKey],

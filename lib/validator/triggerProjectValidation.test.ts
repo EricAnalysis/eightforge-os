@@ -125,6 +125,42 @@ describe('validation trigger input fingerprint', () => {
     assert.notEqual(after, before);
   });
 
+  it('changes when authored-value correction provenance changes without a value change', () => {
+    const snapshot = (authoredValueCorrection: boolean) =>
+      buildValidationInputsSnapshotHash({
+        ticketCount: 10,
+        factCount: 5,
+        precedenceFingerprint: 'precedence-1',
+        validationPhase: 'billing_review',
+        documentSnapshots: [
+          {
+            id: 'contract-doc',
+            processed_at: '2026-05-27T17:08:00.000Z',
+            intelligence_trace: {
+              contract_analysis: {
+                pricing_model: {
+                  rate_schedule_present: { value: true },
+                },
+                rate_schedule_rows: [
+                  {
+                    row_id: 'exhibit_a_table:row-1a',
+                    description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+                    unit: 'Cubic Yard',
+                    rate: 13.5,
+                    page: 8,
+                    source_kind: 'exhibit_a_table',
+                    authoredValueCorrection,
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+
+    assert.notEqual(snapshot(true), snapshot(false));
+  });
+
   it('does not skip unchanged inputs when a manual operator trigger is forced', () => {
     assert.equal(
       shouldSkipUnchangedValidationInputs({

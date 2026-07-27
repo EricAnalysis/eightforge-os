@@ -1020,6 +1020,7 @@ function enrichRateScheduleRowsForPersistence(
 
   return rows.map((row) => {
     const assembled = assembleContractPricingRows([row])[0] ?? null;
+    const authoredValueCorrection = assembled?.authoredValueCorrection === true;
     const resolution = resolveCanonicalRateCategory({
       sourceCategory: assembled?.category ?? row.category ?? row.source_category ?? row.material_type,
       sourceDescriptors: [
@@ -1032,7 +1033,11 @@ function enrichRateScheduleRowsForPersistence(
       existingConfidence: row.category_confidence,
     });
     const category = assembled?.category ?? allowedCategoryForCanonicalTaxonomyKey(resolution.canonical_category);
-    if (!category) return row;
+    if (!category) {
+      return authoredValueCorrection
+        ? { ...row, authoredValueCorrection: true }
+        : row;
+    }
 
     const canonicalCategory =
       canonicalTaxonomyKeyForAllowedCategory(category)
@@ -1044,6 +1049,7 @@ function enrichRateScheduleRowsForPersistence(
       source_category: row.source_category ?? category,
       canonical_category: canonicalCategory,
       category_confidence: row.category_confidence ?? resolution.category_confidence ?? (canonicalCategory ? 0.88 : null),
+      ...(authoredValueCorrection ? { authoredValueCorrection: true } : {}),
     };
   });
 }

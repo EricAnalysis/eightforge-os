@@ -5,6 +5,7 @@ import {
   assembleContractPricingRows,
   canonicalTaxonomyKeyForAllowedCategory,
 } from '@/lib/contracts/contractPricingAssembly';
+import { authoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import {
   inferGoverningDocumentFamily,
   resolveDocumentTruthCategoryIds,
@@ -79,6 +80,10 @@ import { evaluateInvoiceTransactionReconciliation } from '@/lib/validator/rulePa
 import { runIdentityConsistencyRules } from '@/lib/validator/rulePacks/identityConsistency';
 import { runRequiredSourcesRules } from '@/lib/validator/rulePacks/requiredSources';
 import { runTicketIntegrityRules } from '@/lib/validator/rulePacks/ticketIntegrity';
+import {
+  PACK_AUTHORED_RATE_ROW_QUARANTINE,
+  runAuthoredRateRowQuarantineRules,
+} from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
 import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
@@ -1465,6 +1470,12 @@ function normalizeRateScheduleItem(
     unit_type: unitType,
     service_item: serviceItem,
   });
+  const authoredValueCorrection = row.authoredValueCorrection === true;
+  const authoredQuarantine = authoredRateRowQuarantine({
+    ...row,
+    row_id: readRowString(row, ['row_id', 'id']) ?? recordId,
+    authoredValueCorrection,
+  });
 
   if (
     rateCode == null &&
@@ -1491,6 +1502,9 @@ function normalizeRateScheduleItem(
     source_kind: readRowString(row, ['source_kind']),
     source_quality: readRowString(row, ['source_quality']),
     confidence: readRowString(row, ['confidence', 'state']),
+    authoredValueCorrection,
+    authored_unverified: authoredQuarantine?.authoredUnverified ?? false,
+    authored_quarantine: authoredQuarantine,
     raw_value: value,
     ...keys,
   };
@@ -1536,6 +1550,7 @@ export function buildRateScheduleItems(params: {
     source_anchor_ids: row.sourceAnchor ? [row.sourceAnchor] : [],
     confidence: row.confidence,
     source_quality: row.sourceQuality,
+    authoredValueCorrection: row.authoredValueCorrection,
     rate_raw: row.rawText,
     raw_text: row.rawText,
   }));
@@ -2508,6 +2523,9 @@ export async function validateProject(projectId: string): Promise<ValidatorResul
     invoiceTransactionReconciliation,
   });
   let exposure: ProjectExposureSummary | null = null;
+
+  findings.push(...runAuthoredRateRowQuarantineRules(input));
+  rulesApplied.push(PACK_AUTHORED_RATE_ROW_QUARANTINE);
 
   try {
     const requiredSourceFindings = runRequiredSourcesRules(input);

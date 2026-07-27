@@ -3,6 +3,7 @@ import type {
   ResolvedDocumentPrecedenceFamily,
 } from '@/lib/documentPrecedence';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { AuthoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type {
   TransactionDataInvoiceGroup,
@@ -148,6 +149,9 @@ export type RateScheduleItem = {
   source_kind?: string | null;
   source_quality?: string | null;
   confidence?: string | null;
+  authoredValueCorrection?: boolean;
+  authored_unverified?: boolean;
+  authored_quarantine?: AuthoredRateRowQuarantine | null;
   raw_value: unknown;
   /** Derived: canonical pricing key for reconciliation (see billingKeys). */
   billing_rate_key?: string | null;

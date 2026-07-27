@@ -153,6 +153,7 @@ function contractTraceFingerprint(document: ProjectDocumentInputSnapshot): unkno
         rate: numberFromRecord(row, ['rate_amount', 'rate']),
         page: numberFromRecord(row, ['page', 'source_page']),
         confidence: stringFromRecord(row, ['confidence']),
+        authoredValueCorrection: row.authoredValueCorrection === true,
       }))
       .sort((left, right) =>
         `${left.page ?? ''}:${left.row_id ?? ''}:${left.rate ?? ''}`.localeCompare(

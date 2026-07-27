@@ -71,6 +71,7 @@ export type ContractPricingAssemblyRow = {
   confidence: ContractPricingAssemblyConfidence;
   sourceKind?: ContractPricingSourceKind;
   sourceQuality?: ContractPricingSourceQuality;
+  authoredValueCorrection: boolean;
   rawText?: string;
   geometryRefs?: GeometryCellRef[];
   mergeDiagnostics?: ContractPricingRowMergeDiagnostic[];
@@ -2189,6 +2190,7 @@ export function assembleContractPricingRows(
         confidence,
         sourceKind,
         sourceQuality,
+        authoredValueCorrection: correction != null || row.authoredValueCorrection === true,
         rawText: rawText || undefined,
         geometryRefs: normalizeGeometryRefs(row.geometry_refs),
       };

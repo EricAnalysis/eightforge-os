@@ -230,6 +230,7 @@ export interface ContractRateScheduleRow {
   // variants). Never used to auto-correct or suppress a rate -- only to gate
   // a needs_review flag when independently low.
   rate_ocr_confidence?: number | null;
+  authoredValueCorrection?: boolean;
   recovery_reason?: string;
   category_requires_review?: boolean;
   category_resolution_status?: 'resolved' | 'requires_review' | string;

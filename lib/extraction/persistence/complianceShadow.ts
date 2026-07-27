@@ -11,6 +11,10 @@ import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservati
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
+import {
+  buildGenericPdfShadowSidecar,
+  mergeLocatedSidecars,
+} from '@/lib/server/documentExtraction';
 
 const ARTIFACT_SCHEMA_VERSION = 'extraction-artifact-v1';
 const PROJECTION_SCHEMA_VERSION = 'step0-shadow-projection-v1';
@@ -241,10 +245,20 @@ export function scheduleExtractionComplianceShadow(
       analysisMode: input.analysisMode,
       observedAt: input.observedAt,
     };
-    if (input.locatedObservations) {
+    const mediaTypeSniffed = sniffExtractionMediaType(input.sourceBytes, input.mediaType);
+    const genericContentSidecar = await settleWithin(
+      buildGenericPdfShadowSidecar(input.sourceBytes, mediaTypeSniffed),
+      SHADOW_PUBLICATION_TIMEOUT_MS,
+      'generic_content_scheduling',
+    );
+    const locatedObservations = mergeLocatedSidecars(
+      genericContentSidecar,
+      input.locatedObservations ?? { pages: [] },
+    );
+    if (genericContentSidecar || input.locatedObservations) {
       await settleWithin(publishExtractionStep1ShadowNonBlocking({
           ...commonInput,
-          locatedObservations: input.locatedObservations,
+          locatedObservations,
           observedAt: input.observedAt ?? new Date().toISOString(),
         }), SHADOW_PUBLICATION_TIMEOUT_MS, 'publication');
     } else {

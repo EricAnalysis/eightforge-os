@@ -22,6 +22,10 @@ import {
   type VerifiedField,
   type VerifiedFieldHandle,
 } from '@/lib/extraction/domain/verifiedField';
+import {
+  classifySourceGroundedContent,
+  type GenericContentAnalysis,
+} from '@/lib/extraction/domain/genericContentScheduling';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const ADAPTER_PARSER: ParserIdentity = Object.freeze({
@@ -472,6 +476,7 @@ export interface AdaptLegacyExtractionToStep1ShadowInput {
   readonly locatedObservations: readonly LegacyLocatedObservation[];
   readonly locatedPages?: readonly LegacyLocatedPageObservation[];
   readonly unlocatedOutputs?: readonly UnlocatedLegacyOutput[];
+  readonly genericContentAnalysis?: GenericContentAnalysis;
   readonly completedAt?: string;
 }
 
@@ -607,9 +612,48 @@ export async function adaptLegacyExtractionToStep1Shadow(
     ],
     invalidLocatedOutputs: conflictingOutputs,
   });
+  const schedulingGaps: ProcessingGap[] = (input.genericContentAnalysis?.decisions ?? [])
+    .flatMap((decision): ProcessingGap[] => {
+      const page = pageGroups.get(decision.page);
+      const ocrProducedText = page?.words.some((word) => hasText(word.text)) ?? false;
+      if (decision.action === 'ocr' && ocrProducedText) return [];
+      const reason: ProcessingGap['reason'] = decision.action === 'skip'
+        ? 'content_quality_skip'
+        : 'ocr_region_failure';
+      const id = opaqueIds.processingGap({
+        extraction_run_id: preliminaryRun.id,
+        region_id: decision.region_id,
+        reason,
+      });
+      return [{
+        id,
+        gap_key: `step2:${reason}:${decision.region_id}`,
+        organization_id: input.sourceArtifact.organization_id,
+        source_document_id: input.sourceArtifact.source_document_id,
+        extraction_run_id: preliminaryRun.id,
+        page: decision.page,
+        bounding_box: {
+          coordinate_space: 'page_normalized',
+          origin: 'top_left',
+          ...decision.bounding_box,
+          rotation: 0,
+        },
+        stage: 'ocr',
+        reason,
+        retryable: reason === 'ocr_region_failure',
+        attempts: reason === 'ocr_region_failure' ? 1 : 0,
+        detail: reason === 'content_quality_skip'
+          ? `OCR skipped because ${decision.region_id} has adequate native text quality.`
+          : `OCR was scheduled for ${decision.region_id} but produced no located text.`,
+        upstream_artifact_ids: [],
+      }];
+    });
+  const gaps = [...adapted.gaps, ...schedulingGaps];
   const run: Step1ShadowExtractionRun = {
     ...preliminaryRun,
-    status: adapted.gaps.length > 0 ? 'partial_terminal' : 'complete',
+    status: gaps.some((gap) => gap.retryable)
+      ? 'partial_retryable'
+      : gaps.length > 0 ? 'partial_terminal' : 'complete',
   };
 
   const memberTargets: Array<
@@ -637,7 +681,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       verified_field_id: artifact.id,
       artifact,
     })),
-    ...adapted.gaps.map((artifact) => ({
+    ...gaps.map((artifact) => ({
       member_kind: 'gap' as const,
       processing_gap_id: artifact.id,
       artifact,
@@ -656,6 +700,32 @@ export async function adaptLegacyExtractionToStep1Shadow(
       sequence: member.sequence,
     })),
   });
+  const genericContentAnalysis = input.genericContentAnalysis
+    ? (() => {
+        const classification = classifySourceGroundedContent({
+          verified_texts: adapted.verifiedFields.map((field) => field.raw_text),
+          structural_kinds: input.genericContentAnalysis?.decisions.map(
+            (decision) => decision.structural_kind,
+          ) ?? [],
+        });
+        const analysis = {
+          policy: input.genericContentAnalysis.policy,
+          media_type_sniffed: input.genericContentAnalysis.media_type_sniffed,
+          page_count: input.genericContentAnalysis.page_count,
+          decisions: input.genericContentAnalysis.decisions,
+          pages_scheduled_for_ocr:
+            input.genericContentAnalysis.pages_scheduled_for_ocr,
+        };
+        return {
+          ...analysis,
+          classification,
+          content_extraction_fingerprint: hashCanonical({
+            ...analysis,
+            classification,
+          }),
+        };
+      })()
+    : null;
   const semanticObservationContent = {
     located_observations: orderedObservations.map((observation) => ({
       page: observation.page,
@@ -672,6 +742,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       category: output.category,
       page: output.page ?? null,
     })),
+    generic_content_analysis: genericContentAnalysis,
   };
   const snapshot: ExtractionSnapshot = {
     id: opaqueIds.extractionSnapshot({
@@ -687,7 +758,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
     parser_manifest_hash: input.parserManifestHash,
     artifact_schema_version: input.artifactSchemaVersion,
     producing_run_id: run.id,
-    status: adapted.gaps.length > 0 ? 'partial' : 'complete',
+    status: gaps.length > 0 ? 'partial' : 'complete',
     content_extraction_fingerprint: hashCanonical({
       source_sha256: input.sourceArtifact.source_sha256,
       parser_manifest_hash: input.parserManifestHash,
@@ -695,7 +766,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       semantic_observation_content: semanticObservationContent,
     }),
     artifact_root_hash: artifactRootHash,
-    gap_ids: adapted.gaps.map((gap) => gap.id),
+    gap_ids: gaps.map((gap) => gap.id),
     published_at: completedAt,
   };
 
@@ -705,9 +776,9 @@ export async function adaptLegacyExtractionToStep1Shadow(
     fragments: adapted.fragments,
     candidates: adapted.candidates,
     verifiedFields: adapted.verifiedFields,
-    gaps: adapted.gaps,
+    gaps,
     snapshot,
     members,
-    skippedRecordCount: adapted.gaps.length,
+    skippedRecordCount: gaps.length,
   };
 }

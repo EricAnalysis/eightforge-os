@@ -9,6 +9,7 @@ import type {
   ExtractionRun,
   SourceArtifact,
 } from '@/lib/extraction/domain/types';
+import { scheduleGenericContentExtraction } from '@/lib/extraction/domain/genericContentScheduling';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -369,6 +370,19 @@ describe('shadow-only legacy located-observation adapter', () => {
       artifactSchemaVersion: firstFixture.run.artifact_schema_version,
       idempotencyKey: 'job:same-content',
       completedAt: '2026-07-24T00:00:00.000Z',
+      genericContentAnalysis: scheduleGenericContentExtraction({
+        source_sha256: SOURCE_HASH,
+        byte_length: 100,
+        media_type_sniffed: 'application/pdf',
+        page_count: 1,
+        regions: [{
+          region_id: 'page:1:band:1',
+          page: 1,
+          bounding_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+          native_text: '',
+          structural_kind: 'unknown',
+        }],
+      }),
       locatedObservations: [{
         page: 1,
         page_width: 100,

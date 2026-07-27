@@ -21,9 +21,12 @@ describe('parser manifest hashing', () => {
     expect(hashParserManifest(structuredClone(base))).toBe(baseHash);
 
     const componentKeys = [
+      'content_decoder',
       'renderer',
       'native_pdf_extractor',
       'ocr',
+      'ocr_eligibility',
+      'ocr_scheduler',
       'partition',
       'layout',
       'region_arbitration',
@@ -31,6 +34,7 @@ describe('parser manifest hashing', () => {
       'vision',
       'typed_ai',
       'verification_policy',
+      'content_classifier',
     ] as const;
     for (const key of componentKeys) {
       const component = base[key];

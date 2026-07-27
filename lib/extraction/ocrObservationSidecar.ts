@@ -1,4 +1,5 @@
 import type { OcrGeometryWord } from '@/lib/extraction/pdf/ocrGeometryLayout';
+import type { GenericContentAnalysis } from '@/lib/extraction/domain/genericContentScheduling';
 
 export interface LocatedOcrPageObservation {
   readonly page_number: number;
@@ -11,6 +12,7 @@ export interface LocatedOcrPageObservation {
 
 export interface LocatedOcrObservationSidecar {
   readonly pages: readonly LocatedOcrPageObservation[];
+  readonly content_analysis?: GenericContentAnalysis;
 }
 
 const LOCATED_OCR_OBSERVATIONS = Symbol.for('eightforge.locatedOcrObservations');

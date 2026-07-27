@@ -212,7 +212,10 @@ export interface ProcessingGap {
     | 'unprocessed_region'
     | 'engine_conflict'
     | 'missing_geometry'
-    | 'no_source_span';
+    | 'no_source_span'
+    | 'content_quality_skip'
+    | 'decode_failure'
+    | 'ocr_region_failure';
   readonly retryable: boolean;
   readonly attempts: number;
   readonly detail: string;

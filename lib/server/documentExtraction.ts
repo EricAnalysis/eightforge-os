@@ -55,11 +55,15 @@ import {
   countUnsafeTextControls,
   stripUnsafeTextControls,
 } from '@/lib/extraction/textSanitization';
-import { sha256Hex } from '@/lib/extraction/domain/hash';
+import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
   attachLocatedOcrObservations,
   type LocatedOcrObservationSidecar,
 } from '@/lib/extraction/ocrObservationSidecar';
+import {
+  scheduleGenericContentExtraction,
+  type GenericRegion,
+} from '@/lib/extraction/domain/genericContentScheduling';
 
 const TEXT_EXTENSIONS = new Set([
   'txt',
@@ -1055,6 +1059,109 @@ function buildLocatedOcrObservationSidecar(
         text_detected: page.text_detected,
         words: geometryByPage.get(page.page_number)?.words ?? [],
       })),
+  };
+}
+
+function genericRegionsFromLayout(
+  layout: Awaited<ReturnType<typeof loadPdfLayout>>,
+): GenericRegion[] {
+  const bandCount = 4;
+  return layout.pages.flatMap((page) => {
+    const maxY = Math.max(1, ...page.lines.map((line) => line.y));
+    return Array.from({ length: bandCount }, (_, band) => {
+      const lines = page.lines.filter((line) => {
+        const normalizedFromTop = Math.max(0, Math.min(0.999999, 1 - (line.y / maxY)));
+        return Math.floor(normalizedFromTop * bandCount) === band;
+      });
+      const structuralKind: GenericRegion['structural_kind'] =
+        lines.some((line) => line.kind === 'table_candidate') ? 'table'
+          : lines.some((line) => line.kind === 'form_candidate') ? 'form'
+            : lines.length > 0 ? 'text'
+              : 'unknown';
+      return {
+        region_id: `page:${page.page_number}:band:${band + 1}`,
+        page: page.page_number,
+        bounding_box: {
+          x0: 0,
+          y0: band / bandCount,
+          x1: 1,
+          y1: (band + 1) / bandCount,
+        },
+        native_text: lines.map((line) => line.text).join('\n'),
+        structural_kind: structuralKind,
+      };
+    });
+  });
+}
+
+export async function buildGenericPdfShadowSidecar(
+  bytes: ArrayBuffer,
+  mediaTypeSniffed: string,
+): Promise<LocatedOcrObservationSidecar | null> {
+  const signature = String.fromCharCode(...new Uint8Array(bytes.slice(0, 5)));
+  if (mediaTypeSniffed !== 'application/pdf' || signature !== '%PDF-') return null;
+  try {
+    const layout = await loadPdfLayout(cloneArrayBuffer(bytes), {
+      maxPages: MAX_EVIDENCE_PAGES,
+    });
+    const contentAnalysis = scheduleGenericContentExtraction({
+      source_sha256: sha256Hex(bytes),
+      byte_length: bytes.byteLength,
+      media_type_sniffed: mediaTypeSniffed,
+      page_count: layout.page_count,
+      regions: genericRegionsFromLayout(layout),
+    });
+    const ocr = await extractPdfPageTextViaOcr(cloneArrayBuffer(bytes), {
+      pageNumbers: [...contentAnalysis.pages_scheduled_for_ocr],
+    });
+    return {
+      pages: buildLocatedOcrObservationSidecar(
+        ocr.pageImages ?? [],
+        ocr.geometryPages,
+      ).pages,
+      content_analysis: contentAnalysis,
+    };
+  } catch (error) {
+    console.error('[generic-ocr-shadow] byte/MIME decode or scheduling failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+export function mergeLocatedSidecars(
+  generic: LocatedOcrObservationSidecar | null,
+  legacy: LocatedOcrObservationSidecar,
+): LocatedOcrObservationSidecar {
+  const byPage = new Map<number, LocatedOcrObservationSidecar['pages'][number]>();
+  for (const page of generic?.pages ?? []) byPage.set(page.page_number, page);
+  for (const page of legacy.pages) {
+    const existing = byPage.get(page.page_number);
+    if (!existing) {
+      byPage.set(page.page_number, page);
+      continue;
+    }
+    const words = [...existing.words];
+    const seen = new Set(words.map((word) => hashCanonical({
+      text: word.text,
+      bbox: word.bbox,
+    })));
+    for (const word of page.words) {
+      const key = hashCanonical({ text: word.text, bbox: word.bbox });
+      if (!seen.has(key)) {
+        words.push(word);
+        seen.add(key);
+      }
+    }
+    byPage.set(page.page_number, {
+      ...existing,
+      text_detected: existing.text_detected || page.text_detected,
+      words,
+    });
+  }
+  return {
+    pages: [...byPage.values()].sort((left, right) => left.page_number - right.page_number),
+    content_analysis: generic?.content_analysis,
   };
 }
 

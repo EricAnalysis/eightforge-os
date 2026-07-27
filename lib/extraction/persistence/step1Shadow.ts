@@ -234,6 +234,7 @@ export async function persistExtractionStep1Shadow(
       input.legacyExtractionPayload,
       input.locatedObservations.pages.length,
     ),
+    genericContentAnalysis: input.locatedObservations.content_analysis,
   });
   const completedAt = graph.run.completed_at;
   const { data, error } = await input.admin.rpc('publish_extraction_step1_shadow', {

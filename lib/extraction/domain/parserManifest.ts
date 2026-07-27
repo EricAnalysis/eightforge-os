@@ -8,9 +8,12 @@ export interface VersionedComponent {
 
 export interface ParserManifest {
   readonly artifact_schema_version: string;
+  readonly content_decoder: VersionedComponent;
   readonly renderer: VersionedComponent;
   readonly native_pdf_extractor: VersionedComponent;
   readonly ocr: VersionedComponent;
+  readonly ocr_eligibility: VersionedComponent;
+  readonly ocr_scheduler: VersionedComponent;
   readonly partition: VersionedComponent | null;
   readonly layout: VersionedComponent;
   readonly region_arbitration: VersionedComponent;
@@ -19,6 +22,7 @@ export interface ParserManifest {
   readonly typed_ai: VersionedComponent | null;
   readonly primitive_normalizers: readonly VersionedComponent[];
   readonly verification_policy: VersionedComponent;
+  readonly content_classifier: VersionedComponent;
 }
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -37,9 +41,12 @@ export function hashParserManifest(manifest: ParserManifest): string {
     throw new Error('Parser manifest requires artifact_schema_version.');
   }
   const components: Array<[string, VersionedComponent | null]> = [
+    ['content_decoder', manifest.content_decoder],
     ['renderer', manifest.renderer],
     ['native_pdf_extractor', manifest.native_pdf_extractor],
     ['ocr', manifest.ocr],
+    ['ocr_eligibility', manifest.ocr_eligibility],
+    ['ocr_scheduler', manifest.ocr_scheduler],
     ['partition', manifest.partition],
     ['layout', manifest.layout],
     ['region_arbitration', manifest.region_arbitration],
@@ -47,6 +54,7 @@ export function hashParserManifest(manifest: ParserManifest): string {
     ['vision', manifest.vision],
     ['typed_ai', manifest.typed_ai],
     ['verification_policy', manifest.verification_policy],
+    ['content_classifier', manifest.content_classifier],
   ];
   for (const [label, component] of components) {
     if (component) assertComponent(component, label);
@@ -96,6 +104,12 @@ export function buildLegacyShadowParserManifest(params: {
   }
   return {
     artifact_schema_version: 'extraction-artifact-v1',
+    content_decoder: component('byte-mime-pdf-decoder', 'v1', {
+      implementation_build: implementationBuild,
+      media_type_basis: 'byte_sniffed',
+      metadata_inputs: [],
+      shadow_only: true,
+    }),
     renderer: component('pdfjs-renderer', '5.5.207', {
       implementation_build: implementationBuild,
       scale: 2,
@@ -114,6 +128,21 @@ export function buildLegacyShadowParserManifest(params: {
       psm: 11,
       render_scale: 2,
       legacy_routing_preserved: true,
+    }),
+    ocr_eligibility: component('native-region-quality', 'v1', {
+      implementation_build: implementationBuild,
+      native_text_min_characters: 80,
+      native_text_min_words: 12,
+      metadata_inputs: [],
+      shadow_only: true,
+    }),
+    ocr_scheduler: component('all-page-region-scheduler', 'v1', {
+      implementation_build: implementationBuild,
+      page_enumeration: 'decoded_source_all_pages',
+      scheduling_grain: 'content_region',
+      skip_reason: 'adequate_native_text',
+      fixed_page_targets: [],
+      shadow_only: true,
     }),
     partition: params.unstructuredEnabled
       ? component('unstructured-hi-res', 'legacy-api', {
@@ -200,5 +229,12 @@ export function buildLegacyShadowParserManifest(params: {
           publish_verified_fields: false,
           reason: 'legacy payload lacks complete page geometry',
         }),
+    content_classifier: component('source-grounded-family-classifier', 'v1', {
+      implementation_build: implementationBuild,
+      stage: 'post_extraction',
+      inputs: ['verified_text', 'observed_structure'],
+      metadata_inputs: [],
+      shadow_only: true,
+    }),
   };
 }

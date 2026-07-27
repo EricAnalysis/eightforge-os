@@ -33,6 +33,7 @@ import {
   scheduleExtractionComplianceShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
+import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -341,6 +342,7 @@ export async function processDocument(params: {
       mediaType: mimeType,
       legacyExtractionPayload: payload as unknown as Record<string, unknown>,
       locatedObservations: getLocatedOcrObservations(payload),
+      step3InterpretationBridge: buildStep3SemanticInterpretation,
       observedAt: extractionShadowObservedAt,
       analysisJobId: job.id,
       analysisMode: params.analysisMode,

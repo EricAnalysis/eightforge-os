@@ -1642,20 +1642,31 @@ Permanent repository guards:
 
 ## 12. Validation and parity harness
 
-> **Blocking operator dependency:** Phase 6 parity cannot be established until the exact original MDOT, TDOT, and Williamson source PDFs are supplied. They are not in the repository. No implementation may invent this comparison or treat historical hardcoded rows as truth.
+> **Blocking evidence dependency:** Phase 6 parity cannot be established until the exact
+> MDOT, TDOT, and Williamson source binaries are available outside the repository and
+> their identity is fixed by reproducible SHA-256, byte-length, and page-count checks. No
+> implementation may invent this comparison or treat historical hardcoded rows as truth.
 
 Phase 3's compliance foundation, generic parser, synthetic/adversarial fixtures, and
 shadow infrastructure may proceed without those PDFs. Production cutover/removal
-acceptance for F-01, F-02, F-03, and F-04 is blocked until the corresponding exact PDF
-is supplied, authorized, and passes the harness.
+acceptance for F-01, F-02, F-03, and F-04 is blocked until the corresponding source
+binary is machine-verified, Phase 1 parity/metamorphic work passes, every material
+difference is resolved, and the Phase 2 cutover decision is recorded.
 
 ### 12.1 Required artifacts
 
-For each of the three documents:
+For each document, Phase 0 is an objective engineering evidence gate. It requires:
 
-1. exact original binary PDF, containing every audited table;
-2. operator-recorded SHA-256, byte length, source/chain-of-custody description;
-3. mapping to the historical document for reporting only—never parser input;
+1. the exact source binary used for evaluation, stored outside Git and containing every
+   audited table;
+2. a machine-generated identity record containing SHA-256, byte length, page count, MIME
+   readability/encryption status, and the deterministic command or script that verifies
+   them;
+3. a machine-verified historical metadata-coherence mapping for reporting only—never
+   parser or routing input—covering historical document ID, filename, MIME type, byte
+   length, contract identity metadata, available historical extraction metadata, and the
+   supplied source identity record. This establishes metadata coherence, not
+   database-stored source-hash identity;
 4. read-only timestamped exports of:
    - raw historical extraction;
    - `intelligence_trace.contract_analysis`;
@@ -1663,19 +1674,71 @@ For each of the three documents:
    - recorded parser/version metadata;
    - active human reviews/overrides;
    - manual rate links;
-5. available engine reproducibility manifest: renderer, OCR language/model assets, vision/AI models, prompts, schemas, and configurations;
-6. operator-approved redaction, storage, retention, and secure CI access decision;
-7. any credentials/keys needed to open encrypted PDFs, stored through approved secret
-   handling rather than in fixtures;
-8. an independent operator-reviewed annotation/diff ledger created from rendered source
-   pages, with field-level page/bbox/raw text, reviewer, timestamp, and ledger version.
+   Each export records its project/environment, query scope, timestamp, availability or
+   exact error, byte length, and SHA-256 in a reproducible manifest.
+5. an available engine reproducibility manifest covering renderer, OCR language/model
+   assets, vision/AI models, prompts, schemas, and configurations; if the historical
+   environment cannot be reconstructed, a well-formed gap record states the explicit
+   reproducibility status, lists every missing pinned component identified from currently
+   accessible evidence, cites the evidence used, and declares that scope limitation;
+6. a versioned annotation/diff ledger generated only from the verified source, containing
+   field identifier, page, bbox, exact raw text and hash, interpreted role, row identity,
+   ledger version, and generation method;
+7. a deterministic ledger verifier that:
+   - validates field-identifier format and uniqueness, allowed semantic roles, structural
+     role position, row-identity consistency, ledger version, generation method, and
+     CSV/JSON semantic agreement;
+   - rediscovers required source tables from the verified PDF and proves exact audited-page,
+     table, populated-row, and populated-cell coverage without using an expected semantic
+     output row count;
+   - checks every recorded page, bbox, raw text, raw-text hash, and prohibited-input
+     declaration;
+8. a non-circular constituent package manifest and gate-verification result. The
+   constituent manifest is generated first, hashes immutable package inputs/evidence,
+   and excludes itself and the derived gate result. The gate result is generated second,
+   records the constituent-manifest hash and verifier version, and proves export hashes,
+   source identity, PDF/credential exclusions, and pass/fail status.
 
 The annotation ledger is evaluation evidence stored outside production parser inputs.
 Production modules cannot import it.
 
-If historical engine versions are unavailable, the old run is labeled non-reproducible. Sensitive PDFs must not be committed without explicit approval.
+The gate passes only when every required check above is independently reproducible and
+passes. A missing historical engine component is not cured by guessing: it produces a
+machine-readable `non_reproducible` gap. Source PDFs and decryption credentials must not
+be committed; credentials required for an encrypted source must be supplied through the
+existing secret mechanism.
+
+Phase 0 pass/fail is determined exclusively by the reproducible engineering checks listed
+above.
 
 Historical outputs are diagnostic comparison baselines, not expected truth.
+
+#### Phase 0 / Phase 1 authorization boundary
+
+A Phase 0 pass authorizes Step 4 Phase 1 only:
+
+- parity-harness construction;
+- metamorphic testing;
+- shadow-only execution;
+- evidence and report generation.
+
+It does not authorize removal of `TDOT_APPENDIX_B_SPECS`, production reader cutover,
+fresh-snapshot-only validation activation, or removal of legacy extraction behavior.
+
+Phase 2 cutover additionally requires:
+
+1. resolution of every material parity difference;
+2. an evidence-backed explanation identifying whether the legacy interpretation, generic
+   interpretation, or ledger interpretation is correct;
+3. semantic-role and row-identity review for any disputed ledger observation;
+4. zero unresolved material discrepancies;
+5. an explicit cutover decision recorded in the parity report or a dedicated cutover
+   artifact.
+
+Any human involvement is limited to material semantic disputes that cannot be resolved
+from source evidence and deterministic checks. Manual custody, signature, approval, and
+broad governance fields are not Phase 0 inputs; narrowly scoped semantic-dispute records
+are permitted for Phase 2 resolution.
 
 ### 12.2 Parity protocol
 
@@ -1698,7 +1761,9 @@ Historical outputs are diagnostic comparison baselines, not expected truth.
    - `changed_source_grounded`;
    - `missing_or_uncertain`;
    - `duplicate_split_merge`;
-8. require operator explanation for every material difference.
+8. require an evidence-backed resolution for every material difference, including which
+   interpretation is correct and any narrowly scoped semantic-role/row-identity review
+   required for a disputed ledger observation.
 
 Golden parity is not required where the legacy value lacks source support.
 

@@ -7,7 +7,11 @@ import {
 } from '@/lib/extraction/domain/legacyLocatedObservationAdapter';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import { hashParserManifest } from '@/lib/extraction/domain/parserManifest';
-import type { ParserIdentity, SourceArtifact } from '@/lib/extraction/domain/types';
+import type {
+  GridCellArtifact,
+  ParserIdentity,
+  SourceArtifact,
+} from '@/lib/extraction/domain/types';
 import type { Step3InterpretationBridge } from '@/lib/extraction/domain/step3InterpretationBridge';
 import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
@@ -253,6 +257,9 @@ export async function persistExtractionStep1Shadow(
         extraction_snapshot_id: graph.snapshot.id,
         chains: graph.tableChains,
         segments: graph.tableSegments,
+        cells: graph.fragments.filter(
+          (fragment): fragment is GridCellArtifact => fragment.kind === 'cell',
+        ),
         verified_field_handles: graph.verifiedFieldHandles,
         published_at: graph.run.completed_at,
       })

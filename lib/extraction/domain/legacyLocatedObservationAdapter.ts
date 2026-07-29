@@ -33,7 +33,7 @@ import {
 import {
   arbitrateRegion,
   REGION_ARBITRATOR,
-  REGION_ARBITRATION_POLICY_V1,
+  REGION_ARBITRATION_POLICY_V2,
 } from '@/lib/extraction/domain/regionArbitration';
 import type {
   GenericContentDiagnosticGap,
@@ -616,11 +616,22 @@ function buildArbitratedRegions(input: {
       left.bounding_box.y0 - right.bounding_box.y0
       || left.bounding_box.x0 - right.bounding_box.x0
       || left.id.localeCompare(right.id))) {
-      const center = (token.bounding_box.y0 + token.bounding_box.y1) / 2;
       const band = bands.find((candidate) => {
-        const first = candidate[0];
-        return Math.abs(center - ((first.bounding_box.y0 + first.bounding_box.y1) / 2))
-          <= REGION_ARBITRATION_POLICY_V1.physical_region_y_tolerance;
+        return candidate.some((member) => {
+          const overlap = Math.max(
+            0,
+            Math.min(token.bounding_box.y1, member.bounding_box.y1)
+              - Math.max(token.bounding_box.y0, member.bounding_box.y0),
+          );
+          const minimumHeight = Math.min(
+            token.bounding_box.y1 - token.bounding_box.y0,
+            member.bounding_box.y1 - member.bounding_box.y0,
+          );
+          return minimumHeight > 0
+            && overlap / minimumHeight
+              >= REGION_ARBITRATION_POLICY_V2
+                .physical_region_minimum_vertical_overlap_ratio;
+        });
       });
       if (band) band.push(token);
       else bands.push([token]);

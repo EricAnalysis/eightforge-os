@@ -135,6 +135,24 @@ describe('TDOT Phase 1 shadow parity harness', () => {
     expect(records[0]?.generic_fields).toHaveLength(2);
   });
 
+  it('reports exact, whitespace-normalized, and punctuation-normalized reconstruction separately', () => {
+    const records = buildParityRecords({
+      ledger,
+      legacyRows: [],
+      genericFields: [field('Loading  and Hauling', 0.18, 0.48)],
+    });
+
+    expect(records[0]).toMatchObject({
+      classification: 'missing_or_uncertain',
+      resolution: 'unresolved',
+      reconstruction_comparison: {
+        exact_equal: false,
+        whitespace_normalized_equal: true,
+        punctuation_normalized_equal: true,
+      },
+    });
+  });
+
   it('keeps authored TDOT history diagnostic and unsupported', () => {
     const records = buildParityRecords({
       ledger: { ...ledger, observations: [] },
@@ -225,6 +243,18 @@ describe('TDOT Phase 1 shadow parity harness', () => {
     const imports = source.split('\n').filter((line) => line.startsWith('import '));
     expect(imports.join('\n')).not.toMatch(
       /lib\/contracts|complianceShadow|persistExtractionStep1Shadow|validator|reader/i,
+    );
+  });
+
+  it('keeps the remediated generic modules free of TDOT routing fingerprints', async () => {
+    const productionSources = await Promise.all([
+      'lib/extraction/domain/genericTableArtifacts.ts',
+      'lib/extraction/domain/regionArbitration.ts',
+      'lib/interpretation/semanticColumnMapping.ts',
+      'lib/interpretation/step3ShadowBridge.ts',
+    ].map((file) => readFile(path.join(process.cwd(), file), 'utf8')));
+    expect(productionSources.join('\n')).not.toMatch(
+      /TDOT_APPENDIX_B_SPECS|tdot_appendix_b_stitched_table|89633|7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a|page\s*===?\s*(43|44|46)/i,
     );
   });
 });

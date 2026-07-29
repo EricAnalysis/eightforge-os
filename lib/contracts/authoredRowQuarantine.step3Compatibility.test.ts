@@ -82,7 +82,7 @@ describe('Step 3 authored-row quarantine compatibility', () => {
         headerFields: [verifiedHandle],
         cellFields: [verifiedHandle],
       },
-      ruleId: 'observed-header-and-value-kind-v1',
+      ruleId: 'observed-column-evidence-v2',
     });
 
     expect(mapping.cell_verified_field_ids).toEqual([verified.verifiedField.id]);
@@ -98,7 +98,7 @@ describe('Step 3 authored-row quarantine compatibility', () => {
           headerFields: [verifiedHandle],
           cellFields: [authoredRow as never],
         },
-        ruleId: 'observed-header-and-value-kind-v1',
+        ruleId: 'observed-column-evidence-v2',
       })).toThrow('Semantic column mapping requires verified-field handles.');
     }
   });

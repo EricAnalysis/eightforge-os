@@ -1,4 +1,5 @@
 import type {
+  GridCellArtifact,
   TableChainArtifact,
   TableSegmentArtifact,
 } from '@/lib/extraction/domain/types';
@@ -13,6 +14,7 @@ export interface Step3InterpretationBridgeInput {
   readonly extraction_snapshot_id: string;
   readonly chains: readonly TableChainArtifact[];
   readonly segments: readonly TableSegmentArtifact[];
+  readonly cells: readonly GridCellArtifact[];
   readonly verified_field_handles: readonly VerifiedFieldHandle[];
   readonly published_at: string;
 }

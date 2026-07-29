@@ -7,6 +7,7 @@ import type {
 import type { VerifiedFieldHandle } from '@/lib/extraction/domain/verifiedField';
 import {
   SEMANTIC_COLUMN_INTERPRETER_MANIFEST,
+  SEMANTIC_COLUMN_RULES,
   createSemanticColumnMapping,
 } from '@/lib/interpretation/semanticColumnMapping';
 
@@ -47,9 +48,30 @@ export const buildStep3SemanticInterpretation: Step3InterpretationBridge =
           const segment = input.segments.find((candidate) => candidate.id === segmentId);
           if (!segment) return [];
           return segment.column_hypotheses.flatMap((column) => {
-            const headerFields = uniqueHandles(
-              column.header.fragment_ids.flatMap((id) => byFragment.get(id) ?? []),
-            );
+            const peerHeaderFields = chain.segment_ids.flatMap((peerSegmentId) => {
+              const peerSegment = input.segments.find(
+                (candidate) => candidate.id === peerSegmentId,
+              );
+              if (!peerSegment) return [];
+              const center = (column.x0 + column.x1) / 2;
+              const peerColumn = peerSegment.column_hypotheses
+                .map((candidate) => ({
+                  candidate,
+                  distance: Math.abs(
+                    center - ((candidate.x0 + candidate.x1) / 2),
+                  ),
+                }))
+                .filter(({ distance }) =>
+                  distance <= SEMANTIC_COLUMN_RULES['observed-column-evidence-v2']
+                    .crossPageColumnCenterTolerance)
+                .sort((left, right) =>
+                  left.distance - right.distance
+                  || left.candidate.index - right.candidate.index)[0]?.candidate;
+              return peerColumn?.header.fragment_ids.flatMap(
+                (id) => byFragment.get(id) ?? [],
+              ) ?? [];
+            });
+            const headerFields = uniqueHandles(peerHeaderFields);
             const cellFields = uniqueHandles(
               column.value_kind_hypotheses.flatMap((hypothesis) =>
                 hypothesis.measurement.basis_artifact_ids.flatMap(
@@ -58,6 +80,11 @@ export const buildStep3SemanticInterpretation: Step3InterpretationBridge =
             );
             const firstCell = cellFields[0];
             if (!firstCell) return [];
+            const evidenceFieldIds = new Set(
+              [...headerFields, ...cellFields].flatMap(
+                (handle) => handle.field.source_fragment_ids,
+              ),
+            );
             return [createSemanticColumnMapping({
               interpretationSnapshotId,
               chain,
@@ -66,8 +93,10 @@ export const buildStep3SemanticInterpretation: Step3InterpretationBridge =
               evidence: {
                 headerFields,
                 cellFields: [firstCell, ...cellFields.slice(1)],
+                sourceCells: input.cells.filter((cell) =>
+                  evidenceFieldIds.has(cell.id)),
               },
-              ruleId: 'observed-header-and-value-kind-v1',
+              ruleId: 'observed-column-evidence-v2',
             })];
           });
         }));

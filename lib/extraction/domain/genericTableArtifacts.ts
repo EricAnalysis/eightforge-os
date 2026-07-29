@@ -20,13 +20,30 @@ import type {
   TableValueKind,
 } from '@/lib/extraction/domain/types';
 
-export const GENERIC_TABLE_POLICY_V2 = Object.freeze({
+export const GENERIC_TABLE_POLICY_V3 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
-  version: 'v2',
+  version: 'v3',
   row_center_tolerance: 0.018,
-  multiline_vertical_gap_maximum: 0.035,
   column_center_tolerance: 0.04,
-  whitespace_gutter_minimum: 0.025,
+  fragment_coalescing: {
+    version: 'same-line-structural-gutter-v1',
+    maximum_inline_gap: 0.025,
+    currency_pair_maximum_inline_gap: 0.05,
+    minimum_vertical_overlap_ratio: 0.5,
+  },
+  column_inference: {
+    version: 'modal-row-x0-median-unique-assignment-v2',
+    anchor_tolerance: 0.04,
+  },
+  logical_row_assembly: {
+    version: 'preceding-primary-contained-band-v2',
+    maximum_continuation_center_distance: 0.035,
+  },
+  header_detection: {
+    version: 'first-row-structural-contrast-v1',
+    minimum_columns: 2,
+    minimum_kind_contrasts: 1,
+  },
   continuation_search_max_page_distance: 3,
   continuation_max_candidates_per_segment: 2,
   continuation_plausibility_minimum: 0.5,
@@ -52,17 +69,27 @@ export const GENERIC_TABLE_POLICY_V2 = Object.freeze({
 
 export const GENERIC_TABLE_PARSER: ParserIdentity = Object.freeze({
   stage: 'table_reconstruction',
-  name: GENERIC_TABLE_POLICY_V2.name,
-  version: GENERIC_TABLE_POLICY_V2.version,
-  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V2),
+  name: GENERIC_TABLE_POLICY_V3.name,
+  version: GENERIC_TABLE_POLICY_V3.version,
+  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V3),
 });
 
 export interface ObservedCellPlan {
   readonly token_ids: NonEmpty<SourceFragmentArtifact['id']>;
+  readonly column_index?: number;
   readonly structure?: GridCellArtifact['structure'];
   readonly row_span?: number;
   readonly column_span?: number;
   readonly border_evidence?: GridCellArtifact['border_evidence'];
+  readonly coalescing_evidence?: {
+    readonly reason:
+      | 'same_line_without_structural_gutter'
+      | 'currency_marker_numeric_pair'
+      | 'same_inferred_column'
+      | 'sparse_line_nearest_column';
+    readonly confidence: number;
+    readonly maximum_observed_inline_gap: number;
+  };
 }
 
 export interface ObservedRowPlan {
@@ -153,11 +180,10 @@ function orderedLines(fragments: NonEmpty<SourceFragmentArtifact>): {
   }), 'Ordered cell content requires at least one source fragment.');
   const lines: SourceFragmentArtifact[][] = [];
   for (const fragment of ordered) {
-    const center = (fragment.bounding_box.y0 + fragment.bounding_box.y1) / 2;
     const line = lines.find((members) => {
-      const first = members[0];
-      const existingCenter = (first.bounding_box.y0 + first.bounding_box.y1) / 2;
-      return Math.abs(center - existingCenter) <= GENERIC_TABLE_POLICY_V2.row_center_tolerance;
+      return members.some((member) =>
+        verticalOverlapRatio(fragment, member)
+          >= GENERIC_TABLE_POLICY_V3.fragment_coalescing.minimum_vertical_overlap_ratio);
     });
     if (line) line.push(fragment);
     else lines.push([fragment]);
@@ -322,6 +348,327 @@ function gap(
   };
 }
 
+function groupInlineCellFragments(
+  fragments: NonEmpty<SourceFragmentArtifact>,
+): NonEmpty<NonEmpty<SourceFragmentArtifact>> {
+  const sorted = nonEmpty(
+    [...fragments].sort((left, right) =>
+      left.bounding_box.x0 - right.bounding_box.x0
+      || left.reading_order - right.reading_order
+      || left.id.localeCompare(right.id)),
+    'Inline cell grouping requires source fragments.',
+  );
+  const groups: SourceFragmentArtifact[][] = [];
+  for (const fragment of sorted) {
+    const current = groups.at(-1);
+    const previous = current?.at(-1);
+    const inlineGap = previous
+      ? fragment.bounding_box.x0 - previous.bounding_box.x1
+      : Number.POSITIVE_INFINITY;
+    const previousText = previous?.raw_text.trim() ?? '';
+    const currentText = fragment.raw_text.trim();
+    const observedCurrencyPair = /^[\$€£¥]$/.test(previousText)
+      && /^[+-]?(?:\d+(?:,\d{3})*|\d*)\.\d+$/.test(currentText)
+      && inlineGap
+        <= GENERIC_TABLE_POLICY_V3.fragment_coalescing.currency_pair_maximum_inline_gap;
+    if (
+      current
+      && (
+        inlineGap < GENERIC_TABLE_POLICY_V3.fragment_coalescing.maximum_inline_gap
+        || observedCurrencyPair
+      )
+    ) {
+      current.push(fragment);
+    } else {
+      groups.push([fragment]);
+    }
+  }
+  return nonEmpty(
+    groups.map((group) =>
+      nonEmpty(group, 'Inline cell group requires source fragments.')),
+    'Inline cell grouping requires at least one cell.',
+  );
+}
+
+function modalKind(
+  rows: readonly NonEmpty<NonEmpty<SourceFragmentArtifact>>[],
+  columnIndex: number,
+): TableValueKind | null {
+  const counts = new Map<TableValueKind, number>();
+  for (const row of rows) {
+    const cell = row[columnIndex];
+    if (!cell) continue;
+    const kind = valueKind(orderedLines(cell).text);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0]
+    ?? null;
+}
+
+function firstRowHasStructuralHeaderContrast(
+  rows: readonly NonEmpty<NonEmpty<SourceFragmentArtifact>>[],
+): boolean {
+  const first = rows[0];
+  if (
+    !first
+    || rows.length < 2
+    || first.length < GENERIC_TABLE_POLICY_V3.header_detection.minimum_columns
+  ) {
+    return false;
+  }
+  const firstKinds = first.map((cell) => valueKind(orderedLines(cell).text));
+  const firstIsNonNumeric = firstKinds.every((kind) =>
+    !['integer', 'decimal', 'currency', 'date_like', 'boolean_like'].includes(kind));
+  if (!firstIsNonNumeric) return false;
+  const laterRows = rows.slice(1);
+  const contrasts = firstKinds.filter((kind, columnIndex) => {
+    const laterKind = modalKind(laterRows, columnIndex);
+    return laterKind != null && laterKind !== kind;
+  }).length;
+  return contrasts >= GENERIC_TABLE_POLICY_V3.header_detection.minimum_kind_contrasts;
+}
+
+function verticalOverlapRatio(
+  left: SourceFragmentArtifact,
+  right: SourceFragmentArtifact,
+): number {
+  const overlap = Math.max(
+    0,
+    Math.min(left.bounding_box.y1, right.bounding_box.y1)
+      - Math.max(left.bounding_box.y0, right.bounding_box.y0),
+  );
+  const minimumHeight = Math.min(
+    left.bounding_box.y1 - left.bounding_box.y0,
+    right.bounding_box.y1 - right.bounding_box.y0,
+  );
+  return minimumHeight <= 0 ? 0 : overlap / minimumHeight;
+}
+
+function rowCenter(row: NonEmpty<SourceFragmentArtifact>): number {
+  return row.reduce(
+    (sum, token) => sum + (token.bounding_box.y0 + token.bounding_box.y1) / 2,
+    0,
+  ) / row.length;
+}
+
+function cellBandAt(
+  cells: readonly (readonly SourceFragmentArtifact[])[],
+  columnIndex: number,
+): { readonly x0: number; readonly x1: number } {
+  const extents = cells.map((cell) => ({
+    x0: Math.min(...cell.map(({ bounding_box }) => bounding_box.x0)),
+    x1: Math.max(...cell.map(({ bounding_box }) => bounding_box.x1)),
+  }));
+  const current = extents[columnIndex]!;
+  const previous = extents[columnIndex - 1];
+  const next = extents[columnIndex + 1];
+  return {
+    x0: previous ? (previous.x1 + current.x0) / 2 : current.x0,
+    x1: next ? (current.x1 + next.x0) / 2 : current.x1,
+  };
+}
+
+function attachSparseContinuationRows(
+  physicalRows: readonly NonEmpty<SourceFragmentArtifact>[],
+  groupedRows: readonly NonEmpty<NonEmpty<SourceFragmentArtifact>>[],
+): readonly NonEmpty<NonEmpty<SourceFragmentArtifact>>[] {
+  const primaryIndexes = groupedRows.flatMap((row, index) =>
+    row.length > 1 ? [index] : []);
+  const primary = new Map<number, SourceFragmentArtifact[][]>(
+    primaryIndexes.map((index) => [index, groupedRows[index]!.map((cell) => [...cell])]),
+  );
+  for (const [rowIndex, sparse] of groupedRows.entries()) {
+    if (sparse.length !== 1 || primary.has(rowIndex)) continue;
+    if (
+      rowIndex < (primaryIndexes[0] ?? Number.POSITIVE_INFINITY)
+      || rowIndex > (primaryIndexes.at(-1) ?? Number.NEGATIVE_INFINITY)
+    ) {
+      continue;
+    }
+    const fragments = sparse[0];
+    const centerX = (
+      Math.min(...fragments.map(({ bounding_box }) => bounding_box.x0))
+      + Math.max(...fragments.map(({ bounding_box }) => bounding_box.x1))
+    ) / 2;
+    const sparseX0 = Math.min(
+      ...fragments.map(({ bounding_box }) => bounding_box.x0),
+    );
+    const sparseX1 = Math.max(
+      ...fragments.map(({ bounding_box }) => bounding_box.x1),
+    );
+    const candidates = primaryIndexes
+      .filter((primaryIndex) => primaryIndex < rowIndex)
+      .flatMap((primaryIndex) => {
+      const primaryRow = primary.get(primaryIndex);
+      const primaryFragments = physicalRows[primaryIndex];
+      const sparseFragments = physicalRows[rowIndex];
+      if (!primaryRow || !primaryFragments || !sparseFragments) return [];
+      const verticalDistance = Math.abs(
+        rowCenter(sparseFragments) - rowCenter(primaryFragments),
+      );
+      if (
+        verticalDistance
+          > GENERIC_TABLE_POLICY_V3.logical_row_assembly
+            .maximum_continuation_center_distance
+      ) {
+        return [];
+      }
+      const columnIndex = primaryRow.findIndex((_, index) => {
+        const band = cellBandAt(primaryRow, index);
+        return centerX >= band.x0 - GENERIC_TABLE_POLICY_V3.column_center_tolerance
+          && centerX <= band.x1 + GENERIC_TABLE_POLICY_V3.column_center_tolerance
+          && sparseX0 >= band.x0 - GENERIC_TABLE_POLICY_V3.column_center_tolerance
+          && sparseX1 <= band.x1 + GENERIC_TABLE_POLICY_V3.column_center_tolerance;
+      });
+      return columnIndex < 0 ? [] : [{ primaryIndex, columnIndex, verticalDistance }];
+    }).sort((left, right) =>
+      left.verticalDistance - right.verticalDistance
+      || right.primaryIndex - left.primaryIndex
+      || left.columnIndex - right.columnIndex);
+    const selected = candidates[0];
+    if (!selected) continue;
+    primary.get(selected.primaryIndex)?.[selected.columnIndex]?.push(...fragments);
+  }
+  return primaryIndexes.map((index) =>
+    nonEmpty(
+      primary.get(index)!.map((cell) =>
+        nonEmpty(cell, 'Attached logical cell requires source fragments.')),
+      'Attached logical row requires cells.',
+    ));
+}
+
+function assignStableColumnIndexes(
+  rows: readonly NonEmpty<NonEmpty<SourceFragmentArtifact>>[],
+): readonly NonEmpty<{
+  readonly fragments: NonEmpty<SourceFragmentArtifact>;
+  readonly columnIndex: number;
+}>[] {
+  const locallyMergedRows = rows;
+  const rowLengthCounts = new Map<number, number>();
+  for (const row of locallyMergedRows) {
+    rowLengthCounts.set(row.length, (rowLengthCounts.get(row.length) ?? 0) + 1);
+  }
+  const modalColumnCount = [...rowLengthCounts.entries()]
+    .sort((left, right) => right[1] - left[1] || right[0] - left[0])[0]?.[0] ?? 1;
+  const referenceRows = locallyMergedRows.filter((row) => row.length === modalColumnCount);
+  const anchors = Array.from({ length: modalColumnCount }, (_, columnIndex) => {
+    const positions = referenceRows
+      .map((row) => row[columnIndex])
+      .filter((cell): cell is NonEmpty<SourceFragmentArtifact> => cell != null)
+      .map((cell) => Math.min(...cell.map(({ bounding_box }) => bounding_box.x0)))
+      .sort((left, right) => left - right);
+    return positions[Math.floor(positions.length / 2)] ?? 0;
+  });
+  return locallyMergedRows.map((row) => {
+    const assignedColumns = new Set<number>();
+    const assignedCells: {
+      readonly columnIndex: number;
+      readonly fragments: NonEmpty<SourceFragmentArtifact>;
+    }[] = [];
+    for (const cell of row) {
+      const x0 = Math.min(...cell.map(({ bounding_box }) => bounding_box.x0));
+      const availableAnchors = anchors.map((anchor, index) => ({
+          index,
+          distance: Math.abs(anchor - x0),
+        }))
+        .filter(({ index }) => !assignedColumns.has(index))
+        .sort((left, right) =>
+          left.distance - right.distance || left.index - right.index);
+      const columnIndex = availableAnchors[0]?.index
+        ?? anchors.length + assignedCells.length;
+      assignedColumns.add(columnIndex);
+      assignedCells.push({ columnIndex, fragments: cell });
+    }
+    return nonEmpty(
+      assignedCells.sort((left, right) => left.columnIndex - right.columnIndex),
+      'Stable column assignment requires cells.',
+    );
+  });
+}
+
+function measureCoalescingEvidence(
+  fragments: NonEmpty<SourceFragmentArtifact>,
+): NonNullable<ObservedCellPlan['coalescing_evidence']> {
+  const ordered = [...fragments].sort((left, right) =>
+    left.bounding_box.y0 - right.bounding_box.y0
+      || left.bounding_box.x0 - right.bounding_box.x0);
+  const lineGroups: SourceFragmentArtifact[][] = [];
+  for (const fragment of ordered) {
+    const line = lineGroups.find((members) => members.some((member) =>
+      verticalOverlapRatio(fragment, member)
+        >= GENERIC_TABLE_POLICY_V3.fragment_coalescing.minimum_vertical_overlap_ratio));
+    if (line) line.push(fragment);
+    else lineGroups.push([fragment]);
+  }
+  const inlineGaps = lineGroups.flatMap((line) => {
+    const orderedLine = [...line].sort(
+      (left, right) => left.bounding_box.x0 - right.bounding_box.x0,
+    );
+    return orderedLine.slice(1).map((fragment, index) =>
+      Math.max(
+        0,
+        fragment.bounding_box.x0 - orderedLine[index]!.bounding_box.x1,
+      ));
+  });
+  const maximumObservedInlineGap = Math.max(0, ...inlineGaps);
+  const hasCurrencyMarker = fragments.some((fragment) =>
+    /^[\$€£¥]$/u.test(fragment.raw_text.trim()));
+  const hasNumericValue = fragments.some((fragment) =>
+    /^[-+]?\d[\d,.]*$/u.test(fragment.raw_text.trim()));
+
+  if (hasCurrencyMarker && hasNumericValue) {
+    return {
+      reason: 'currency_marker_numeric_pair',
+      confidence: Number(Math.max(
+        0,
+        1 - maximumObservedInlineGap
+          / GENERIC_TABLE_POLICY_V3.fragment_coalescing
+            .currency_pair_maximum_inline_gap,
+      ).toFixed(6)),
+      maximum_observed_inline_gap: maximumObservedInlineGap,
+    };
+  }
+  if (lineGroups.length > 1) {
+    const centers = lineGroups.map((line) =>
+      line.reduce(
+        (sum, fragment) =>
+          sum + (fragment.bounding_box.y0 + fragment.bounding_box.y1) / 2,
+        0,
+      ) / line.length);
+    const maximumLineDistance = Math.max(
+      0,
+      ...centers.slice(1).map((center, index) => center - centers[index]!),
+    );
+    return {
+      reason: 'sparse_line_nearest_column',
+      confidence: Number(Math.max(
+        0,
+        1 - maximumLineDistance
+          / GENERIC_TABLE_POLICY_V3.logical_row_assembly
+            .maximum_continuation_center_distance,
+      ).toFixed(6)),
+      maximum_observed_inline_gap: maximumObservedInlineGap,
+    };
+  }
+  if (fragments.length > 1) {
+    return {
+      reason: 'same_line_without_structural_gutter',
+      confidence: Number(Math.max(
+        0,
+        1 - maximumObservedInlineGap
+          / GENERIC_TABLE_POLICY_V3.fragment_coalescing.maximum_inline_gap,
+      ).toFixed(6)),
+      maximum_observed_inline_gap: maximumObservedInlineGap,
+    };
+  }
+  return {
+    reason: 'same_inferred_column',
+    confidence: 1,
+    maximum_observed_inline_gap: 0,
+  };
+}
+
 function autoRegions(
   pages: readonly PageArtifact[],
   fragments: readonly SourceFragmentArtifact[],
@@ -332,40 +679,31 @@ function autoRegions(
     const rows: SourceFragmentArtifact[][] = [];
     for (const token of [...tokens].sort((a, b) =>
       a.bounding_box.y0 - b.bounding_box.y0 || a.bounding_box.x0 - b.bounding_box.x0)) {
-      const center = (token.bounding_box.y0 + token.bounding_box.y1) / 2;
       const row = rows.find((members) => {
-        const first = members[0];
-        return Math.abs(center - (first.bounding_box.y0 + first.bounding_box.y1) / 2)
-          <= GENERIC_TABLE_POLICY_V2.row_center_tolerance;
+        return members.some((member) =>
+          verticalOverlapRatio(token, member)
+            >= GENERIC_TABLE_POLICY_V3.fragment_coalescing.minimum_vertical_overlap_ratio);
       });
       if (row) row.push(token);
       else rows.push([token]);
     }
-    const qualifying = rows.filter((row) => {
-      const sorted = [...row].sort((a, b) => a.bounding_box.x0 - b.bounding_box.x0);
-      return sorted.length > 1 && sorted.some((token, index) => {
-        const next = sorted[index + 1];
-        return next
-          ? next.bounding_box.x0 - token.bounding_box.x1
-            >= GENERIC_TABLE_POLICY_V2.whitespace_gutter_minimum
-          : false;
-      });
-    });
+    const physicalRows = rows.map((row) =>
+      nonEmpty(row, 'Detected row requires source fragments.'));
+    const groupedRows = physicalRows.map(groupInlineCellFragments);
+    const qualifying = attachSparseContinuationRows(physicalRows, groupedRows);
     if (qualifying.length === 0) return [];
-    const firstKinds = qualifying[0]?.map((token) => valueKind(token.raw_text)) ?? [];
-    const laterKinds = qualifying.slice(1)
-      .flatMap((row) => row.map((token) => valueKind(token.raw_text)));
-    const firstIsObservedHeader = qualifying.length > 1
-      && firstKinds.every((kind) =>
-        ['free_text', 'identifier', 'unit_token', 'unknown'].includes(kind))
-      && laterKinds.some((kind) =>
-        ['integer', 'decimal', 'currency', 'date_like', 'boolean_like'].includes(kind));
+    const firstIsObservedHeader = firstRowHasStructuralHeaderContrast(qualifying);
+    const indexedRows = assignStableColumnIndexes(qualifying);
     return [{
       page_artifact_id: page.id,
-      rows: nonEmpty(qualifying.map((row, rowIndex) => ({
-        cells: nonEmpty([...row]
-          .sort((a, b) => a.bounding_box.x0 - b.bounding_box.x0)
-          .map((token) => ({ token_ids: [token.id] as NonEmpty<typeof token.id> })),
+      rows: nonEmpty(indexedRows.map((row, rowIndex) => ({
+        cells: nonEmpty(row
+          .map((cell) => ({
+            token_ids: cell.fragments.map(({ id }) => id) as unknown as
+              NonEmpty<SourceFragmentArtifact['id']>,
+            column_index: cell.columnIndex,
+            coalescing_evidence: measureCoalescingEvidence(cell.fragments),
+          })),
         'Detected table row requires at least one cell.'),
         row_kind: rowIndex === 0 && firstIsObservedHeader ? 'header' : 'unknown',
       })), 'Detected table requires at least one row.'),
@@ -441,7 +779,8 @@ export function buildGenericTableArtifacts(
     const localCells: GridCellArtifact[] = [];
     for (const [rowIndex, rowPlan] of region.rows.entries()) {
       const rowCells: GridCellArtifact[] = [];
-      for (const [columnIndex, cellPlan] of rowPlan.cells.entries()) {
+      for (const [ordinalColumnIndex, cellPlan] of rowPlan.cells.entries()) {
+        const columnIndex = cellPlan.column_index ?? ordinalColumnIndex;
         const tokenFragments = cellPlan.token_ids.map((id) =>
           fragmentById.get(id)) as Array<SourceFragmentArtifact | undefined>;
         if (tokenFragments.some((fragment) => !fragment)) continue;
@@ -505,10 +844,20 @@ export function buildGenericTableArtifacts(
             table_value_kind: valueKind(content.text),
             content_token_ids: content.ordered.map(({ id }) => id),
             line_break_offsets: content.lineBreakOffsets,
+            fragment_coalescing: {
+              applied: content.ordered.length > 1,
+              policy: GENERIC_TABLE_POLICY_V3.fragment_coalescing,
+              reason: cellPlan.coalescing_evidence?.reason
+                ?? 'explicit_observed_cell_plan',
+              confidence: cellPlan.coalescing_evidence?.confidence ?? 1,
+              maximum_observed_inline_gap:
+                cellPlan.coalescing_evidence?.maximum_observed_inline_gap ?? null,
+              basis_fragment_ids: content.ordered.map(({ id }) => id),
+            },
             reconstruction_policy: {
-              name: GENERIC_TABLE_POLICY_V2.name,
-              version: GENERIC_TABLE_POLICY_V2.version,
-              row_center_tolerance: GENERIC_TABLE_POLICY_V2.row_center_tolerance,
+              name: GENERIC_TABLE_POLICY_V3.name,
+              version: GENERIC_TABLE_POLICY_V3.version,
+              row_center_tolerance: GENERIC_TABLE_POLICY_V3.row_center_tolerance,
             },
           },
         };
@@ -629,13 +978,11 @@ export function buildGenericTableArtifacts(
         const valueCells = columnCells.filter((cell) => !headerCellIds.has(cell.id));
         const measuredCells = valueCells.length > 0 ? valueCells : columnCells;
         const observedKinds = measuredCells.map(({ raw_text }) => valueKind(raw_text));
-        const kind = observedKinds.every((candidate) => candidate === observedKinds[0])
-          ? observedKinds[0] ?? 'unknown'
-          : 'unknown';
-        const basis = nonEmpty(
-          measuredCells.map(({ id }) => id),
-          'Column hypothesis requires cells.',
-        );
+        const kindCounts = new Map<TableValueKind, GridCellArtifact[]>();
+        for (const cell of measuredCells) {
+          const kind = valueKind(cell.raw_text);
+          kindCounts.set(kind, [...(kindCounts.get(kind) ?? []), cell]);
+        }
         const headerCell = localRows
           .filter(({ row_kind }) => row_kind === 'header')
           .flatMap((row) => row.cell_ids)
@@ -659,15 +1006,26 @@ export function buildGenericTableArtifacts(
             fragment_ids: [],
             transformations: [],
           },
-          value_kind_hypotheses: [{
-            kind,
-            measurement: {
-              value: 1,
-              calculator: GENERIC_TABLE_PARSER,
-              basis_artifact_ids: basis,
-              diagnostics: ['Primitive value-kind hypothesis from observed cell text.'],
-            },
-          }],
+          value_kind_hypotheses: nonEmpty(
+            [...kindCounts.entries()]
+              .sort((left, right) =>
+                right[1].length - left[1].length || left[0].localeCompare(right[0]))
+              .map(([kind, kindCells]) => ({
+                kind,
+                measurement: {
+                  value: kindCells.length / observedKinds.length,
+                  calculator: GENERIC_TABLE_PARSER,
+                  basis_artifact_ids: nonEmpty(
+                    kindCells.map(({ id }) => id),
+                    'Column kind hypothesis requires cells.',
+                  ),
+                  diagnostics: [
+                    'Observed frequency of primitive value kind across column cells.',
+                  ],
+                },
+              })),
+            'Column hypothesis requires a measured value kind.',
+          ),
         };
       }),
       row_ids: nonEmpty(
@@ -926,8 +1284,8 @@ function measureRowContinuation(
     : firstCells.filter((cell) => {
       const center = (cell.bounding_box.x0 + cell.bounding_box.x1) / 2;
       return from.column_hypotheses.some((band) =>
-        center >= band.x0 - GENERIC_TABLE_POLICY_V2.column_center_tolerance
-        && center <= band.x1 + GENERIC_TABLE_POLICY_V2.column_center_tolerance);
+        center >= band.x0 - GENERIC_TABLE_POLICY_V3.column_center_tolerance
+        && center <= band.x1 + GENERIC_TABLE_POLICY_V3.column_center_tolerance);
     }).length / firstCells.length;
   const missingBands = Array.from({ length: bandCount }, (_, index) => index)
     .filter((index) => !finalOccupied.has(index));
@@ -948,18 +1306,18 @@ function measureRowContinuation(
     : null;
   const destinationBand = firstDestinationCenter == null ? undefined
     : from.column_hypotheses.find((band) =>
-      firstDestinationCenter >= band.x0 - GENERIC_TABLE_POLICY_V2.column_center_tolerance
-      && firstDestinationCenter <= band.x1 + GENERIC_TABLE_POLICY_V2.column_center_tolerance);
+      firstDestinationCenter >= band.x0 - GENERIC_TABLE_POLICY_V3.column_center_tolerance
+      && firstDestinationCenter <= band.x1 + GENERIC_TABLE_POLICY_V3.column_center_tolerance);
   const indentationCompatibility = firstDestinationCell && destinationBand
     ? clamp(1 - Math.abs(firstDestinationCell.bounding_box.x0 - destinationBand.x0)
-      / Math.max(GENERIC_TABLE_POLICY_V2.column_center_tolerance, 0.001))
+      / Math.max(GENERIC_TABLE_POLICY_V3.column_center_tolerance, 0.001))
     : 0;
   const baselineCompatibility = clamp(
     1 - Math.abs(baselineSpread(finalCells) - baselineSpread(firstCells))
-      / Math.max(GENERIC_TABLE_POLICY_V2.row_center_tolerance, 0.001),
+      / Math.max(GENERIC_TABLE_POLICY_V3.row_center_tolerance, 0.001),
   );
   const repeatedHeader = firstRow?.row_kind === 'header';
-  const weights = GENERIC_TABLE_POLICY_V2.row_continuation_component_weights;
+  const weights = GENERIC_TABLE_POLICY_V3.row_continuation_component_weights;
   const compatibility = destinationAlignment * weights.destination_alignment
     + occupancyContinuity * weights.occupancy_continuity
     + rowHeightCompatibility * weights.row_height_compatibility
@@ -1001,11 +1359,11 @@ function buildContinuationLinks(
     const plausible = ordered
       .filter((to) =>
         to.page > from.page
-        && to.page - from.page <= GENERIC_TABLE_POLICY_V2
+        && to.page - from.page <= GENERIC_TABLE_POLICY_V3
           .continuation_search_max_page_distance)
       .map((to) => ({ to, plausibility: columnBandSimilarity(from, to) }))
       .filter(({ plausibility }) =>
-        plausibility >= GENERIC_TABLE_POLICY_V2.continuation_plausibility_minimum);
+        plausibility >= GENERIC_TABLE_POLICY_V3.continuation_plausibility_minimum);
     const nearestPage = plausible.reduce<number | null>(
       (nearest, { to }) => nearest == null ? to.page : Math.min(nearest, to.page),
       null,
@@ -1016,7 +1374,7 @@ function buildContinuationLinks(
         right.plausibility - left.plausibility
         || left.to.reading_order - right.to.reading_order
         || left.to.id.localeCompare(right.to.id))
-      .slice(0, GENERIC_TABLE_POLICY_V2.continuation_max_candidates_per_segment);
+      .slice(0, GENERIC_TABLE_POLICY_V3.continuation_max_candidates_per_segment);
     for (const { to, plausibility: columnScore } of candidates) {
     const basisIds: NonEmpty<TableSegmentArtifact['id']> = [from.id, to.id];
     const fromHeaders = normalizedHeaders(from);
@@ -1038,10 +1396,10 @@ function buildContinuationLinks(
     const rowContinuation = measureRowContinuation(from, to, rowsById, cellsById);
     const skippedPages = to.page - from.page - 1;
     const pageDistancePenalty = clamp(
-      1 - skippedPages * GENERIC_TABLE_POLICY_V2.page_distance_penalty_per_skipped_page,
+      1 - skippedPages * GENERIC_TABLE_POLICY_V3.page_distance_penalty_per_skipped_page,
     );
     const structuralMode = Math.max(headerScore ?? 0, rowContinuation.score);
-    const weights = GENERIC_TABLE_POLICY_V2.continuation_component_weights;
+    const weights = GENERIC_TABLE_POLICY_V3.continuation_component_weights;
     const scoreValue = columnScore * weights.column_bands
       + structuralMode * weights.structural_mode
       + edgeScore * weights.edge_proximity
@@ -1059,8 +1417,8 @@ function buildContinuationLinks(
       ...(measurements ? { measurements } : {}),
     });
     const decision: TableContinuationLink['decision'] =
-      scoreValue >= GENERIC_TABLE_POLICY_V2.continuation_link_minimum ? 'linked'
-        : scoreValue >= GENERIC_TABLE_POLICY_V2.continuation_ambiguity_minimum
+      scoreValue >= GENERIC_TABLE_POLICY_V3.continuation_link_minimum ? 'linked'
+        : scoreValue >= GENERIC_TABLE_POLICY_V3.continuation_ambiguity_minimum
           ? 'ambiguous' : 'rejected';
     links.push({
       id: opaqueIds.fragmentArtifact({
@@ -1127,7 +1485,7 @@ function buildContinuationLinks(
         });
       if (linked.length < 2) continue;
       const unresolvedTie = linked[0].score.value - linked[1].score.value
-        <= GENERIC_TABLE_POLICY_V2.continuation_near_tie_tolerance;
+        <= GENERIC_TABLE_POLICY_V3.continuation_near_tie_tolerance;
       const keepId = unresolvedTie ? null : linked[0].id;
       const competingIds = new Set(linked.map(({ id: linkId }) => linkId));
       const scoreMargin = linked[0].score.value - linked[1].score.value;
@@ -1165,7 +1523,7 @@ function buildContinuationLinks(
               competing_second_score: linked[1].score.value,
               competing_score_margin: scoreMargin,
               competition_near_tie_tolerance:
-                GENERIC_TABLE_POLICY_V2.continuation_near_tie_tolerance,
+                GENERIC_TABLE_POLICY_V3.continuation_near_tie_tolerance,
               competition_resolution: unresolvedTie
                 ? 'all_ambiguous_near_tie' : 'lower_rank_ambiguous',
               competition_retained_pair: retainedPair == null ? null

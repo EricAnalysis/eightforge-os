@@ -24,7 +24,7 @@ import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservati
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
 import { buildGenericPdfShadowSidecar } from '@/lib/server/documentExtraction';
 
-export const TDOT_PHASE1_HARNESS_VERSION = '1.0.0';
+export const TDOT_PHASE1_HARNESS_VERSION = '1.7.0';
 export const TDOT_PHASE1_EXPECTED_SOURCE_SHA256 =
   '7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a';
 export const TDOT_PHASE1_FIXED_TIME = '2026-07-28T00:00:00.000Z';
@@ -121,6 +121,12 @@ export interface ParityRecord {
   readonly generic_fields: readonly GenericComparedField[];
   readonly legacy_row: LegacyTdotRow | null;
   readonly comparison_basis: readonly string[];
+  readonly reconstruction_comparison: {
+    readonly reconstructed_raw_text: string;
+    readonly exact_equal: boolean;
+    readonly whitespace_normalized_equal: boolean;
+    readonly punctuation_normalized_equal: boolean;
+  } | null;
 }
 
 export function classifyParityDifference(input: {
@@ -457,6 +463,9 @@ export async function runGenericShadowFromPdf(input: {
     extraction_snapshot_id: graph.snapshot.id,
     chains: graph.tableChains,
     segments: graph.tableSegments,
+    cells: graph.fragments.filter(
+      (fragment): fragment is GridCellArtifact => fragment.kind === 'cell',
+    ),
     verified_field_handles: graph.verifiedFieldHandles,
     published_at: TDOT_PHASE1_FIXED_TIME,
   });
@@ -495,6 +504,13 @@ function normalizedText(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim();
 }
 
+function punctuationNormalizedText(value: string): string {
+  return normalizedText(value)
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function reconstruction(fields: readonly GenericComparedField[]): string {
   const bands: GenericComparedField[][] = [];
   for (const field of [...fields].sort((left, right) =>
@@ -518,31 +534,47 @@ function reconstruction(fields: readonly GenericComparedField[]): string {
 
 function roleForLedger(role: string): string | null {
   if (role === 'cost') return 'rate';
-  if (role === 'row_label') return 'identifier';
-  if (role === 'origin_destination') return null;
+  if (role === 'row_label') return 'row_label';
+  if (role === 'origin_destination') return 'origin_destination';
   return role;
 }
 
 function classifyLedgerObservation(
   observation: TdotLedgerObservation,
   fields: readonly GenericComparedField[],
-): Pick<ParityRecord, 'classification' | 'resolution' | 'material' | 'explanation'> {
+): Pick<
+  ParityRecord,
+  'classification' | 'resolution' | 'material' | 'explanation'
+  | 'reconstruction_comparison'
+> {
   if (fields.length === 0) {
     return {
       classification: 'missing_or_uncertain',
       resolution: 'unresolved',
       material: true,
       explanation: 'No verified generic table-cell dependency falls inside the source ledger cell.',
+      reconstruction_comparison: null,
     };
   }
   const reconstructed = reconstruction(fields);
-  const rawMatches = normalizedText(reconstructed) === normalizedText(observation.exact_raw_text);
-  if (!rawMatches) {
+  const reconstructionComparison = {
+    reconstructed_raw_text: reconstructed,
+    exact_equal: reconstructed === observation.exact_raw_text,
+    whitespace_normalized_equal:
+      normalizedText(reconstructed) === normalizedText(observation.exact_raw_text),
+    punctuation_normalized_equal:
+      punctuationNormalizedText(reconstructed)
+        === punctuationNormalizedText(observation.exact_raw_text),
+  };
+  if (!reconstructionComparison.exact_equal) {
     return {
       classification: fields.length > 1 ? 'duplicate_split_merge' : 'missing_or_uncertain',
       resolution: 'unresolved',
       material: true,
-      explanation: 'Generic verified fragments do not reconstruct the exact ledger cell raw text.',
+      explanation: `Generic verified fragments do not reconstruct exact ledger raw text `
+        + `(whitespace_normalized_equal=${reconstructionComparison.whitespace_normalized_equal}, `
+        + `punctuation_normalized_equal=${reconstructionComparison.punctuation_normalized_equal}).`,
+      reconstruction_comparison: reconstructionComparison,
     };
   }
   if (fields.length !== 1) {
@@ -551,6 +583,7 @@ function classifyLedgerObservation(
       resolution: 'unresolved',
       material: true,
       explanation: 'Source text is covered, but the generic graph split one logical ledger cell into multiple verified cells.',
+      reconstruction_comparison: reconstructionComparison,
     };
   }
   const expectedRole = roleForLedger(observation.interpreted_field_or_role);
@@ -565,6 +598,7 @@ function classifyLedgerObservation(
       resolution: 'requires_semantic_review',
       material: true,
       explanation: `Raw source matches, but semantic role is ${field.semantic_status}:${field.semantic_role ?? 'none'} for ledger role ${observation.interpreted_field_or_role}.`,
+      reconstruction_comparison: reconstructionComparison,
     };
   }
   return {
@@ -578,6 +612,7 @@ function classifyLedgerObservation(
     resolution: 'resolved',
     material: true,
     explanation: 'The generic field is source-grounded and semantically resolved; no independently supported historical field exists for a legacy match.',
+    reconstruction_comparison: reconstructionComparison,
   };
 }
 
@@ -661,6 +696,7 @@ export function buildParityRecords(input: {
       'historical_row_id',
       'historical_source_anchor_ids_diagnostic_only',
     ],
+    reconstruction_comparison: null,
   }));
   return [...genericRecords, ...legacyRecords];
 }
@@ -1032,9 +1068,18 @@ export async function writePhase1Reports(input: {
   readonly manifestPath: string;
 }> {
   await mkdir(input.outputDirectory, { recursive: true });
-  const jsonPath = path.join(input.outputDirectory, 'tdot-phase1-parity-report.v1.0.0.json');
-  const markdownPath = path.join(input.outputDirectory, 'tdot-phase1-parity-report.v1.0.0.md');
-  const manifestPath = path.join(input.outputDirectory, 'tdot-phase1-report-manifest.v1.0.0.json');
+  const jsonPath = path.join(
+    input.outputDirectory,
+    `tdot-phase1-parity-report.v${TDOT_PHASE1_HARNESS_VERSION}.json`,
+  );
+  const markdownPath = path.join(
+    input.outputDirectory,
+    `tdot-phase1-parity-report.v${TDOT_PHASE1_HARNESS_VERSION}.md`,
+  );
+  const manifestPath = path.join(
+    input.outputDirectory,
+    `tdot-phase1-report-manifest.v${TDOT_PHASE1_HARNESS_VERSION}.json`,
+  );
   const json = `${JSON.stringify(input.report, null, 2)}\n`;
   const markdown = renderPhase1Markdown(input.report);
   await writeFile(jsonPath, json, 'utf8');

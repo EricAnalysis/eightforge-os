@@ -11,10 +11,10 @@ import type {
   SourceFragmentArtifact,
 } from '@/lib/extraction/domain/types';
 
-export const REGION_ARBITRATION_POLICY_V1 = Object.freeze({
+export const REGION_ARBITRATION_POLICY_V2 = Object.freeze({
   name: 'region-arbitration',
-  version: 'v1',
-  physical_region_y_tolerance: 0.03,
+  version: 'v2',
+  physical_region_minimum_vertical_overlap_ratio: 0.5,
   comparison_iou_minimum: 0.5,
   comparison_containment_minimum: 0.8,
   winner_quality_margin_minimum: 0.15,
@@ -24,9 +24,9 @@ export const REGION_ARBITRATION_POLICY_V1 = Object.freeze({
 
 export const REGION_ARBITRATOR: ParserIdentity = Object.freeze({
   stage: 'region_arbitration',
-  name: REGION_ARBITRATION_POLICY_V1.name,
-  version: REGION_ARBITRATION_POLICY_V1.version,
-  configuration_hash: hashCanonical(REGION_ARBITRATION_POLICY_V1),
+  name: REGION_ARBITRATION_POLICY_V2.name,
+  version: REGION_ARBITRATION_POLICY_V2.version,
+  configuration_hash: hashCanonical(REGION_ARBITRATION_POLICY_V2),
 });
 
 export interface ArbitrateRegionInput {
@@ -290,9 +290,9 @@ export function arbitrateRegion(input: ArbitrateRegionInput): ArbitrateRegionRes
   const comparable = candidates.every((candidate, index) =>
     candidates.slice(index + 1).every((other) => {
       const measuredOverlap = overlap(candidate.bounding_box, other.bounding_box);
-      return measuredOverlap.iou >= REGION_ARBITRATION_POLICY_V1.comparison_iou_minimum
+      return measuredOverlap.iou >= REGION_ARBITRATION_POLICY_V2.comparison_iou_minimum
         || measuredOverlap.containment
-          >= REGION_ARBITRATION_POLICY_V1.comparison_containment_minimum;
+          >= REGION_ARBITRATION_POLICY_V2.comparison_containment_minimum;
     }));
   if (!comparable) {
     const detail = 'Same-page candidates do not cross the manifest-versioned overlap threshold.';
@@ -325,10 +325,10 @@ export function arbitrateRegion(input: ArbitrateRegionInput): ArbitrateRegionRes
   const margin = winner.quality - conflicts[0].quality;
   const highQualityConflict = conflicts.some(
     ({ quality }) =>
-      quality >= REGION_ARBITRATION_POLICY_V1.high_quality_conflict_minimum,
+      quality >= REGION_ARBITRATION_POLICY_V2.high_quality_conflict_minimum,
   );
   if (
-    margin >= REGION_ARBITRATION_POLICY_V1.winner_quality_margin_minimum
+    margin >= REGION_ARBITRATION_POLICY_V2.winner_quality_margin_minimum
     && !highQualityConflict
   ) {
     return {

@@ -189,6 +189,83 @@ describe('generic physical table artifacts', () => {
     expect(result.chains[0]?.completeness).toBe('complete');
   });
 
+  it('coalesces same-line cell fragments but preserves a measured structural gutter', () => {
+    const p = page(5);
+    const fragments = [
+      token(p, 'Description', 0.05, 0.20, 0.18, 0.22, 1),
+      token(p, 'Unit', 0.55, 0.20, 0.61, 0.22, 2),
+      token(p, 'Traffic', 0.05, 0.25, 0.12, 0.27, 3),
+      token(p, 'control', 0.13, 0.25, 0.20, 0.27, 4),
+      token(p, 'EA', 0.55, 0.25, 0.58, 0.27, 5),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.cells.map(({ raw_text }) => raw_text)).toEqual([
+      'Description',
+      'Unit',
+      'Traffic control',
+      'EA',
+    ]);
+    expect(result.cells[2]?.artifact_data?.fragment_coalescing).toMatchObject({
+      applied: true,
+      reason: 'same_line_without_structural_gutter',
+      basis_fragment_ids: [fragments[2]?.id, fragments[3]?.id],
+    });
+  });
+
+  it('uses vertical overlap for baselines and attaches a sparse wrapped line to its nearest row', () => {
+    const p = page(6);
+    const fragments = [
+      token(p, 'Description', 0.05, 0.20, 0.18, 0.21, 1),
+      token(p, 'Unit', 0.55, 0.20, 0.61, 0.21, 2),
+      token(p, 'Long', 0.05, 0.23, 0.12, 0.24, 3),
+      token(p, 'EA', 0.55, 0.23, 0.58, 0.24, 4),
+      token(p, 'description', 0.05, 0.245, 0.20, 0.255, 5),
+      token(p, 'Other', 0.05, 0.28, 0.14, 0.29, 6),
+      token(p, 'LS', 0.55, 0.28, 0.58, 0.29, 7),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.rows).toHaveLength(3);
+    expect(result.cells.map(({ raw_text }) => raw_text)).toContain('Long\ndescription');
+    expect(result.cells.map(({ raw_text }) => raw_text)).toContain('Other');
+  });
+
+  it('coalesces a currency marker with its numeric token without merging adjacent columns', () => {
+    const p = page(7);
+    const fragments = [
+      token(p, 'Work', 0.05, 0.20, 0.12, 0.22, 1),
+      token(p, 'EA', 0.40, 0.20, 0.44, 0.22, 2),
+      token(p, '$', 0.70, 0.20, 0.71, 0.22, 3),
+      token(p, '125.00', 0.75, 0.20, 0.82, 0.22, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text)).toEqual([
+      'Work',
+      'EA',
+      '$ 125.00',
+    ]);
+  });
+
+  it('keeps non-overlapping nearby baselines as distinct logical rows', () => {
+    const p = page(8);
+    const fragments = [
+      token(p, 'First', 0.05, 0.20, 0.12, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Second', 0.05, 0.216, 0.14, 0.226, 3),
+      token(p, 'LS', 0.55, 0.216, 0.58, 0.226, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map(({ raw_text }) => raw_text)).toEqual([
+      'First\tEA',
+      'Second\tLS',
+    ]);
+  });
+
   it('retains bordered merged spans and multiline text once without copying neighbors', () => {
     const p = page(2);
     const description = token(p, 'Long', 0.05, 0.20, 0.18, 0.22, 1);

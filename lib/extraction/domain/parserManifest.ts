@@ -1,6 +1,6 @@
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import { GENERIC_TABLE_POLICY_V2 } from '@/lib/extraction/domain/genericTableArtifacts';
-import { REGION_ARBITRATION_POLICY_V1 } from '@/lib/extraction/domain/regionArbitration';
+import { GENERIC_TABLE_POLICY_V3 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { REGION_ARBITRATION_POLICY_V2 } from '@/lib/extraction/domain/regionArbitration';
 
 export interface VersionedComponent {
   readonly name: string;
@@ -167,7 +167,7 @@ export function buildLegacyShadowParserManifest(params: {
     region_arbitration: params.verificationPolicy === 'step1_span_verified'
       ? component('region-arbitration', 'v1', {
           implementation_build: implementationBuild,
-          ...REGION_ARBITRATION_POLICY_V1,
+          ...REGION_ARBITRATION_POLICY_V2,
           comparison_scope: 'same_page_overlap_only',
           shadow_only: true,
         })
@@ -177,9 +177,9 @@ export function buildLegacyShadowParserManifest(params: {
           current_behavior_preserved: true,
         }),
     table_parser: params.verificationPolicy === 'step1_span_verified'
-      ? component('generic-geometric-table-reconstruction', GENERIC_TABLE_POLICY_V2.version, {
+      ? component('generic-geometric-table-reconstruction', GENERIC_TABLE_POLICY_V3.version, {
           implementation_build: implementationBuild,
-          ...GENERIC_TABLE_POLICY_V2,
+          ...GENERIC_TABLE_POLICY_V3,
           identity_inputs: ['source_geometry', 'source_text', 'parser_manifest'],
           forbidden_inputs: ['filename', 'document_type', 'project_id', 'vendor', 'expected_count'],
           shadow_only: true,

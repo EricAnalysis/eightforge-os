@@ -3,7 +3,7 @@ import {
   arbitrateRegion,
   buildRegionCandidate,
   REGION_ARBITRATOR,
-  REGION_ARBITRATION_POLICY_V1,
+  REGION_ARBITRATION_POLICY_V2,
 } from '@/lib/extraction/domain/regionArbitration';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import type {
@@ -98,7 +98,7 @@ function candidate(
 
 describe('manifest-versioned region arbitration', () => {
   it('uses the documented calibratable thresholds', () => {
-    expect(REGION_ARBITRATION_POLICY_V1).toMatchObject({
+    expect(REGION_ARBITRATION_POLICY_V2).toMatchObject({
       comparison_iou_minimum: 0.5,
       comparison_containment_minimum: 0.8,
       winner_quality_margin_minimum: 0.15,

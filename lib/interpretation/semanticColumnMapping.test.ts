@@ -3,6 +3,7 @@ import type {
   FragmentArtifactId,
   TableChainArtifact,
   TableSegmentArtifact,
+  TableValueKind,
 } from '@/lib/extraction/domain/types';
 import {
   SEMANTIC_COLUMN_RULES,
@@ -31,7 +32,10 @@ async function verifiedText(value: string) {
 const SEGMENT_ID = 'segment-1' as FragmentArtifactId;
 const BASIS_ID = 'fragment-1' as FragmentArtifactId;
 
-function segment(header = 'Rate'): TableSegmentArtifact {
+function segment(
+  header = 'Rate',
+  kind: TableValueKind = 'currency',
+): TableSegmentArtifact {
   return {
     id: SEGMENT_ID,
     column_hypotheses: [{
@@ -45,7 +49,7 @@ function segment(header = 'Rate'): TableSegmentArtifact {
         transformations: [],
       },
       value_kind_hypotheses: [{
-        kind: 'currency',
+        kind,
         measurement: {
           value: 1,
           calculator: {
@@ -79,7 +83,7 @@ describe('semantic column mapping', () => {
       segment: segment(),
       columnIndex: 0,
       evidence: { headerFields: [header], cellFields: [cell] },
-      ruleId: 'observed-header-and-value-kind-v1',
+      ruleId: 'observed-column-evidence-v2',
     });
     expect(mapping).toMatchObject({
       domain_role: 'rate',
@@ -102,7 +106,7 @@ describe('semantic column mapping', () => {
         headerFields: [firstHeader, secondHeader],
         cellFields: [cell],
       },
-      ruleId: 'observed-header-and-value-kind-v1',
+      ruleId: 'observed-column-evidence-v2',
     });
     expect(mapping.status).toBe('ambiguous');
     expect(mapping.domain_role).toBe('other');
@@ -122,7 +126,7 @@ describe('semantic column mapping', () => {
         headerFields: [header],
         cellFields: [firstCell, conflictingCell],
       },
-      ruleId: 'observed-header-and-value-kind-v1',
+      ruleId: 'observed-column-evidence-v2',
     });
     expect(mapping.status).toBe('ambiguous');
     expect(mapping.assessment.header_role.diagnostics)
@@ -142,7 +146,7 @@ describe('semantic column mapping', () => {
         segment: segment(),
         columnIndex: 0,
         evidence: { headerFields: [header], cellFields: [cell] },
-        ruleId: 'observed-header-and-value-kind-v1',
+        ruleId: 'observed-column-evidence-v2',
         // @ts-expect-error Mappings label columns; they have no value input.
         value: { type: 'decimal', value: '999999' },
       });
@@ -153,7 +157,7 @@ describe('semantic column mapping', () => {
       segment: segment(),
       columnIndex: 0,
       evidence: { headerFields: [header], cellFields: [cell] },
-      ruleId: 'observed-header-and-value-kind-v1',
+      ruleId: 'observed-column-evidence-v2',
     });
     expect('value' in mapping).toBe(false);
     expect(cell.field.normalized_value).toBe(before);
@@ -165,11 +169,93 @@ describe('semantic column mapping', () => {
   it('changes interpreter identity when column-role rules change', () => {
     const changed = {
       ...SEMANTIC_COLUMN_RULES,
-      'observed-header-and-value-kind-v1': {
-        ...SEMANTIC_COLUMN_RULES['observed-header-and-value-kind-v1'],
-        version: '2',
+      'observed-column-evidence-v2': {
+        ...SEMANTIC_COLUMN_RULES['observed-column-evidence-v2'],
+        version: '3',
       },
     };
     expect(hashCanonical(changed)).not.toBe(hashCanonical(SEMANTIC_COLUMN_RULES));
+  });
+
+  it('combines wrapped multi-row header phrases before role scoring', async () => {
+    const firstHeader = await verifiedText('Unit');
+    const secondHeader = await verifiedText('of Measure');
+    const cell = await verifiedText('EA');
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Unit of Measure', 'unit_token'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [firstHeader, secondHeader],
+        cellFields: [cell],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping).toMatchObject({
+      status: 'resolved',
+      domain_role: 'unit',
+    });
+    expect(mapping.assessment.candidate_roles[0]).toMatchObject({
+      role: 'unit',
+      score: 1,
+    });
+  });
+
+  it('distinguishes a combined origin/destination header from its atomic roles', async () => {
+    const header = await verifiedText('Origin / Destination');
+    const cell = await verifiedText('Transfer station');
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Origin / Destination', 'free_text'),
+      columnIndex: 0,
+      evidence: { headerFields: [header], cellFields: [cell] },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping).toMatchObject({
+      status: 'resolved',
+      domain_role: 'origin_destination',
+    });
+  });
+
+  it('uses leftmost numeric body evidence for row labels', async () => {
+    const first = await verifiedText('1');
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('', 'integer'),
+      columnIndex: 0,
+      evidence: { headerFields: [], cellFields: [first] },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping).toMatchObject({
+      status: 'resolved',
+      domain_role: 'row_label',
+    });
+  });
+
+  it('preserves ambiguity when header and repeated body evidence are insufficient', async () => {
+    const cell = await verifiedText('Misc');
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('', 'free_text'),
+      columnIndex: 0,
+      evidence: { headerFields: [], cellFields: [cell] },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping.status).toBe('ambiguous');
+    expect(mapping.domain_role).toBe('other');
+    expect(mapping.assessment.selected_role).toBeNull();
+    expect(mapping.assessment.source_evidence[0]).toMatchObject({
+      verified_field_id: cell.field.id,
+      raw_text: 'Misc',
+      source_fragment_ids: cell.field.source_fragment_ids,
+    });
   });
 });

@@ -122,7 +122,7 @@ describe('parser manifest hashing', () => {
     expect(step1.verification_policy.version).toBe('v2');
     expect(step1.region_arbitration.name).toBe('region-arbitration');
     expect(step1.table_parser.name).toBe('generic-geometric-table-reconstruction');
-    expect(step1.table_parser.version).toBe('v2');
+    expect(step1.table_parser.version).toBe('v3');
     expect(hashParserManifest(step1)).not.toBe(hashParserManifest(step0));
     expect(hashParserManifest(structuredClone(step1))).toBe(hashParserManifest(step1));
   });

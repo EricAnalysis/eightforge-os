@@ -1,6 +1,7 @@
 import type {
   GridCellArtifact,
   TableChainArtifact,
+  TableContinuationLink,
   TableSegmentArtifact,
 } from '@/lib/extraction/domain/types';
 import type { VerifiedFieldHandle } from '@/lib/extraction/domain/verifiedField';
@@ -13,6 +14,7 @@ import type { VerifiedFieldHandle } from '@/lib/extraction/domain/verifiedField'
 export interface Step3InterpretationBridgeInput {
   readonly extraction_snapshot_id: string;
   readonly chains: readonly TableChainArtifact[];
+  readonly continuation_links?: readonly TableContinuationLink[];
   readonly segments: readonly TableSegmentArtifact[];
   readonly cells: readonly GridCellArtifact[];
   readonly verified_field_handles: readonly VerifiedFieldHandle[];

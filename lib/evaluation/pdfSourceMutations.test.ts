@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createCrossPageDuplicateArtifactFromPdf,
   deleteSupportingSpanFromPdf,
+  insertInlineSourceRowInPdf,
   removeSourceRowFromPdf,
   replaceSourceTextInPdf,
 } from '@/lib/evaluation/pdfSourceMutations';
@@ -181,6 +182,85 @@ describe('source-level PDF mutations', () => {
     expect(pages[0]).not.toContain('ROW-1 DESCRIPTION');
     expect(pages[0]).not.toContain('$ 12.50');
     expect(pages[0]).toContain('UNAFFECTED ROW');
+  });
+
+  it('blocks a measured-safe row when the native clone leaks hidden spans', async () => {
+    await expect(insertInlineSourceRowInPdf({
+      mutation_type: 'duplicate_row',
+      source_bytes: sourceBytes,
+      target_page: 1,
+      source_row_id: 'row-1',
+      cells: [
+        {
+          raw_text: 'ROW-1 DESCRIPTION',
+          bounding_box: box(0.09, 0.12, 0.36, 0.17),
+          source_fragment_ids: ['description-token'],
+          token_boxes: [box(0.09, 0.12, 0.36, 0.17)],
+        },
+        {
+          raw_text: '$ 12.50',
+          bounding_box: box(0.59, 0.12, 0.72, 0.17),
+          source_fragment_ids: ['rate-token'],
+          token_boxes: [box(0.59, 0.12, 0.72, 0.17)],
+        },
+      ],
+      envelope: {
+        version: 'measured-row-clearance-v1',
+        page_media_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        page_crop_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        table_bottom: 0.25,
+        movable_row_band: { x0: 0, y0: 0.1, x1: 1, y1: 0.17 },
+        next_non_table_content: null,
+        footer_bounds: null,
+        row_height: 0.07,
+        required_displacement: 0.07,
+        overlap_margin: 0.005,
+        available_clearance: 0.75,
+        clipping_risk: false,
+        overlap_risk: false,
+        disposition: 'executable',
+        blocked_reason: null,
+      },
+    })).rejects.toThrow(
+      'clipped Form XObjects retain hidden full-page text operators',
+    );
+  });
+
+  it('blocks inline insertion when measured clearance is insufficient', async () => {
+    await expect(insertInlineSourceRowInPdf({
+      mutation_type: 'insert_row',
+      source_bytes: sourceBytes,
+      target_page: 1,
+      source_row_id: 'row-1',
+      cells: [{
+        raw_text: 'ROW-1 DESCRIPTION',
+        bounding_box: box(0.09, 0.12, 0.36, 0.17),
+        source_fragment_ids: ['description-token'],
+        token_boxes: [box(0.09, 0.12, 0.36, 0.17)],
+      }, {
+        raw_text: '$ 12.50',
+        bounding_box: box(0.59, 0.12, 0.72, 0.17),
+        source_fragment_ids: ['rate-token'],
+        token_boxes: [box(0.59, 0.12, 0.72, 0.17)],
+      }],
+      envelope: {
+        version: 'measured-row-clearance-v1',
+        page_media_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        page_crop_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+        table_bottom: 0.95,
+        movable_row_band: { x0: 0, y0: 0.9, x1: 1, y1: 0.95 },
+        next_non_table_content: null,
+        footer_bounds: null,
+        row_height: 0.05,
+        required_displacement: 0.05,
+        overlap_margin: 0.005,
+        available_clearance: 0.05,
+        clipping_risk: true,
+        overlap_risk: true,
+        disposition: 'blocked',
+        blocked_reason: 'footer overlap',
+      },
+    })).rejects.toThrow('footer overlap');
   });
 
   it('rejects a mutation without source dependency geometry', async () => {

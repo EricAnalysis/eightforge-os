@@ -31,6 +31,10 @@ export interface SemanticRoleCandidate {
   readonly role: Exclude<SemanticColumnRole, 'other'>;
   readonly score: number;
   readonly evidence: readonly string[];
+  readonly score_components: readonly {
+    readonly evidence: string;
+    readonly contribution: number;
+  }[];
   readonly verified_field_ids: readonly VerifiedFieldId[];
   readonly dependency_hashes: readonly string[];
 }
@@ -60,6 +64,35 @@ export interface InterpretationAssessment {
     readonly page: number;
     readonly bounding_box: TableSegmentArtifact['bounding_box'];
   };
+  readonly decision_evidence: {
+    readonly observed_headers: readonly {
+      readonly raw_text: string;
+      readonly normalized_text: string;
+      readonly verified_field_id: VerifiedFieldId;
+      readonly source_fragment_ids: readonly string[];
+    }[];
+    readonly observed_body_value_kinds: readonly {
+      readonly kind: TableValueKind;
+      readonly support: number;
+      readonly basis_artifact_ids: readonly FragmentArtifactId[];
+    }[];
+    readonly neighboring_columns: readonly {
+      readonly relationship: 'previous' | 'next';
+      readonly column_index: number;
+      readonly relative_position: number;
+      readonly value_kinds: readonly TableValueKind[];
+    }[];
+    readonly exact_header_roles: readonly Exclude<SemanticColumnRole, 'other'>[];
+    readonly conflicting_cell_values: boolean;
+    readonly runner_up_role: Exclude<SemanticColumnRole, 'other'> | null;
+    readonly ambiguity_reason:
+      | 'conflicting_cell_values'
+      | 'multiple_exact_header_roles'
+      | 'no_candidate'
+      | 'below_minimum_score'
+      | 'below_minimum_margin'
+      | null;
+  };
   readonly uncertainties: readonly (
     | 'ambiguous_column_role'
     | 'arithmetic_mismatch'
@@ -68,7 +101,7 @@ export interface InterpretationAssessment {
 
 export const SEMANTIC_COLUMN_RULES = {
   'observed-column-evidence-v2': {
-    version: '2',
+    version: '4',
     minimumScore: 0.7,
     minimumMargin: 0.2,
     crossPageColumnCenterTolerance: 0.04,
@@ -152,6 +185,8 @@ export class SemanticColumnMapping {
     Object.freeze(this.assessment.uncertainties);
     for (const candidate of this.assessment.candidate_roles) {
       Object.freeze(candidate.evidence);
+      for (const component of candidate.score_components) Object.freeze(component);
+      Object.freeze(candidate.score_components);
       Object.freeze(candidate.verified_field_ids);
       Object.freeze(candidate.dependency_hashes);
       Object.freeze(candidate);
@@ -164,6 +199,23 @@ export class SemanticColumnMapping {
     Object.freeze(this.assessment.candidate_roles);
     Object.freeze(this.assessment.source_evidence);
     Object.freeze(this.assessment.resolution_policy);
+    for (const header of this.assessment.decision_evidence.observed_headers) {
+      Object.freeze(header.source_fragment_ids);
+      Object.freeze(header);
+    }
+    for (const kind of this.assessment.decision_evidence.observed_body_value_kinds) {
+      Object.freeze(kind.basis_artifact_ids);
+      Object.freeze(kind);
+    }
+    for (const neighbor of this.assessment.decision_evidence.neighboring_columns) {
+      Object.freeze(neighbor.value_kinds);
+      Object.freeze(neighbor);
+    }
+    Object.freeze(this.assessment.decision_evidence.observed_headers);
+    Object.freeze(this.assessment.decision_evidence.observed_body_value_kinds);
+    Object.freeze(this.assessment.decision_evidence.neighboring_columns);
+    Object.freeze(this.assessment.decision_evidence.exact_header_roles);
+    Object.freeze(this.assessment.decision_evidence);
     Object.freeze(this.assessment.source_region);
     Object.freeze(this.assessment);
     Object.freeze(this.rule);
@@ -225,6 +277,13 @@ export class SemanticColumnMapping {
       && top != null
       && observedTopScore >= rule.minimumScore
       && observedMargin >= rule.minimumMargin;
+    const ambiguityReason: InterpretationAssessment['decision_evidence']['ambiguity_reason'] =
+      resolved ? null
+        : conflictingCellValues ? 'conflicting_cell_values'
+          : exactHeaderRoleCount > 1 ? 'multiple_exact_header_roles'
+            : top == null ? 'no_candidate'
+              : observedTopScore < rule.minimumScore ? 'below_minimum_score'
+                : 'below_minimum_margin';
     const headerBasis = input.evidence.headerFields
       .flatMap((handle) => handle.field.source_fragment_ids)
       .map((id) => id as FragmentArtifactId);
@@ -289,6 +348,39 @@ export class SemanticColumnMapping {
         page: input.segment.page,
         bounding_box: input.segment.bounding_box,
       },
+      decision_evidence: {
+        observed_headers: input.evidence.headerFields.map((handle) => ({
+          raw_text: handle.field.raw_text,
+          normalized_text: normalizeHeader(handle.field.raw_text),
+          verified_field_id: handle.field.id,
+          source_fragment_ids: [...handle.field.source_fragment_ids],
+        })),
+        observed_body_value_kinds: column.value_kind_hypotheses.map((hypothesis) => ({
+          kind: hypothesis.kind,
+          support: hypothesis.measurement.value,
+          basis_artifact_ids: [...hypothesis.measurement.basis_artifact_ids],
+        })),
+        neighboring_columns: input.segment.column_hypotheses
+          .filter((candidate) => candidate.index !== input.columnIndex)
+          .map((candidate) => ({
+            candidate,
+            distance: candidate.index - input.columnIndex,
+          }))
+          .filter(({ distance }) => Math.abs(distance) === 1)
+          .map(({ candidate, distance }) => ({
+            relationship: distance < 0 ? 'previous' as const : 'next' as const,
+            column_index: candidate.index,
+            relative_position: distance,
+            value_kinds: candidate.value_kind_hypotheses.map(({ kind }) => kind),
+          })),
+        exact_header_roles: candidates
+          .filter((candidate) => candidate.evidence.some((item) =>
+            item.startsWith('header_exact_alias:')))
+          .map(({ role }) => role),
+        conflicting_cell_values: conflictingCellValues,
+        runner_up_role: runnerUp?.role ?? null,
+        ambiguity_reason: ambiguityReason,
+      },
       uncertainties: resolved ? [] : ['ambiguous_column_role'],
     };
     const domainRole = resolved && top ? top.role : 'other';
@@ -342,12 +434,17 @@ function scoreColumnRoles(input: {
   const scores = new Map<SupportedRole, {
     score: number;
     evidence: string[];
-  }>(roles.map((role) => [role, { score: 0, evidence: [] }]));
+    components: { evidence: string; contribution: number }[];
+  }>(roles.map((role) => [role, { score: 0, evidence: [], components: [] }]));
   const add = (role: SupportedRole, amount: number, evidence: string) => {
     const current = scores.get(role);
     if (!current || current.evidence.includes(evidence)) return;
     current.score += amount;
     current.evidence.push(evidence);
+    current.components.push({
+      evidence,
+      contribution: Number(amount.toFixed(6)),
+    });
   };
   const observedHeaderValues = input.headerFields
     .map((handle) => handle.field.raw_text)
@@ -441,6 +538,7 @@ function scoreColumnRoles(input: {
       role,
       score: Math.min(1, Number(value.score.toFixed(6))),
       evidence: value.evidence,
+      score_components: value.components,
       verified_field_ids: verifiedFieldIds,
       dependency_hashes: dependencyHashes,
     }))

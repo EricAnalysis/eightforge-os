@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 
 export const PDF_SOURCE_MUTATION_EXECUTOR = Object.freeze({
   name: 'phase1-source-pdf-mutation',
-  version: '3',
+  version: '4',
   implementation: 'pymupdf-native-operator-edit',
   script: 'scripts/phase3-step4/mutateSourcePdf.py',
 });
@@ -26,6 +26,24 @@ export interface SourceRowCell {
   readonly bounding_box: BoundingBox;
   readonly source_fragment_ids: readonly string[];
   readonly token_boxes: readonly BoundingBox[];
+}
+
+export interface RowClearanceEnvelope {
+  readonly version: 'measured-row-clearance-v1';
+  readonly page_media_box: Readonly<Record<'x0' | 'y0' | 'x1' | 'y1', number>>;
+  readonly page_crop_box: Readonly<Record<'x0' | 'y0' | 'x1' | 'y1', number>>;
+  readonly table_bottom: number;
+  readonly movable_row_band: Readonly<Record<'x0' | 'y0' | 'x1' | 'y1', number>>;
+  readonly next_non_table_content: Readonly<Record<'x0' | 'y0' | 'x1' | 'y1', number>> | null;
+  readonly footer_bounds: Readonly<Record<'x0' | 'y0' | 'x1' | 'y1', number>> | null;
+  readonly row_height: number;
+  readonly required_displacement: number;
+  readonly overlap_margin: number;
+  readonly available_clearance: number;
+  readonly clipping_risk: boolean;
+  readonly overlap_risk: boolean;
+  readonly disposition: 'executable' | 'blocked';
+  readonly blocked_reason: string | null;
 }
 
 interface PythonMutationResult {
@@ -52,6 +70,7 @@ export interface PdfSourceMutationArtifact {
   readonly mutation_type:
     | 'delete_supporting_span'
     | 'duplicate_row'
+    | 'insert_row'
     | 'cross_page_duplicate_artifact'
     | 'replace_text'
     | 'remove_row';
@@ -283,6 +302,39 @@ export async function createCrossPageDuplicateArtifactFromPdf(input: {
       source_span_selection: 'content_token_geometry',
     },
   });
+}
+
+export async function insertInlineSourceRowInPdf(input: {
+  readonly mutation_type: 'duplicate_row' | 'insert_row';
+  readonly source_bytes: Uint8Array;
+  readonly target_page: number;
+  readonly source_row_id: string;
+  readonly cells: readonly SourceRowCell[];
+  readonly envelope: RowClearanceEnvelope;
+}): Promise<PdfSourceMutationArtifact> {
+  if (input.envelope.disposition !== 'executable') {
+    throw new Error(
+      `Inline row mutation blocked by measured envelope: ${
+        input.envelope.blocked_reason ?? 'unspecified'
+      }`,
+    );
+  }
+  if (input.cells.length < 2) {
+    throw new Error('Inline row mutation requires at least two source cells');
+  }
+  const cells = input.cells.map((cell) => ({
+    raw_text: cell.raw_text,
+    bounding_box: normalizedBox(cell.bounding_box),
+    source_fragment_ids: cell.source_fragment_ids,
+    token_boxes: cell.token_boxes.map(normalizedBox),
+  }));
+  if (cells.some(({ token_boxes }) => token_boxes.length === 0)) {
+    throw new Error('Inline row mutation requires content-token geometry');
+  }
+  throw new Error(
+    'selective native row-band cloning is unavailable: clipped Form XObjects '
+    + 'retain hidden full-page text operators and duplicate unrelated extraction spans',
+  );
 }
 
 export async function replaceSourceTextInPdf(input: {

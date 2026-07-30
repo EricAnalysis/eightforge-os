@@ -171,7 +171,7 @@ describe('semantic column mapping', () => {
       ...SEMANTIC_COLUMN_RULES,
       'observed-column-evidence-v2': {
         ...SEMANTIC_COLUMN_RULES['observed-column-evidence-v2'],
-        version: '3',
+        version: '5',
       },
     };
     expect(hashCanonical(changed)).not.toBe(hashCanonical(SEMANTIC_COLUMN_RULES));
@@ -257,5 +257,118 @@ describe('semantic column mapping', () => {
       raw_text: 'Misc',
       source_fragment_ids: cell.field.source_fragment_ids,
     });
+  });
+
+  it('keeps rate and extension distinct from explicit generic headers', async () => {
+    const rate = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Unit Cost', 'currency'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Unit Cost')],
+        cellFields: [await verifiedText('$12.50')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+    const extension = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Extended Cost', 'currency'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Extended Cost')],
+        cellFields: [await verifiedText('$250.00')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(rate.domain_role).toBe('rate');
+    expect(extension.domain_role).toBe('extension');
+  });
+
+  it('does not confuse unit, description, and origin/destination text columns', async () => {
+    const unit = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Unit', 'unit_token'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Unit')],
+        cellFields: [await verifiedText('EA')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+    const description = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Description', 'free_text'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Description')],
+        cellFields: [await verifiedText('General site cleanup')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+    const route = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Origin / Destination', 'free_text'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Origin / Destination')],
+        cellFields: [await verifiedText('Staging area to disposal facility')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(unit.domain_role).toBe('unit');
+    expect(description.domain_role).toBe('description');
+    expect(route.domain_role).toBe('origin_destination');
+  });
+
+  it('retains structured score components and body-kind evidence', async () => {
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('Rate', 'currency'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [await verifiedText('Rate')],
+        cellFields: [await verifiedText('$12.50')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping.assessment.candidate_roles[0]?.score_components)
+      .toContainEqual({
+        evidence: 'header_exact_alias:rate',
+        contribution: 0.75,
+      });
+    expect(mapping.assessment.decision_evidence).toMatchObject({
+      conflicting_cell_values: false,
+      runner_up_role: expect.any(String),
+      ambiguity_reason: null,
+    });
+    expect(mapping.assessment.decision_evidence.observed_body_value_kinds)
+      .toContainEqual(expect.objectContaining({ kind: 'currency', support: 1 }));
+  });
+
+  it('does not resolve a missing-header free-text column from body shape alone', async () => {
+    const mapping = createSemanticColumnMapping({
+      interpretationSnapshotId: 'interpretation-1',
+      chain: chain(),
+      segment: segment('', 'free_text'),
+      columnIndex: 0,
+      evidence: {
+        headerFields: [],
+        cellFields: [await verifiedText('Long descriptive work activity')],
+      },
+      ruleId: 'observed-column-evidence-v2',
+    });
+
+    expect(mapping.status).toBe('ambiguous');
+    expect(mapping.assessment.decision_evidence.ambiguity_reason)
+      .toBe('below_minimum_score');
   });
 });

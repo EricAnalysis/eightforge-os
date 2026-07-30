@@ -22,7 +22,7 @@ import type {
 
 export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
-  version: 'v6',
+  version: 'v7',
   row_center_tolerance: 0.018,
   column_center_tolerance: 0.04,
   geometry_calibration: {
@@ -44,7 +44,7 @@ export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
     minimum_vertical_overlap_ratio: 0.5,
   },
   column_inference: {
-    version: 'modal-row-monotone-global-assignment-v4',
+    version: 'modal-row-monotone-global-assignment-overflow-recovery-v5',
     anchor_tolerance: 0.04,
     unassigned_cost: 0.78,
     maximum_assignment_cost: 0.72,
@@ -86,6 +86,10 @@ export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
     baseline_compatibility: 0.1,
   },
 });
+
+// Compatibility export for callers migrating from the accepted Cycle 5 symbol.
+// Both names reference the same explicitly versioned v7 policy object.
+export const GENERIC_TABLE_POLICY_V7 = GENERIC_TABLE_POLICY_V6;
 
 export const GENERIC_TABLE_PARSER: ParserIdentity = Object.freeze({
   stage: 'table_reconstruction',
@@ -1714,20 +1718,69 @@ function autoRegions(
         bands,
         calibration,
       );
-      const cells: IndexedRowCell[] = [];
+      const recoveredColumns = new Map<number, number>();
+      for (const selected of assignment.assignments.filter(
+        ({ columnIndex }) => columnIndex == null,
+      )) {
+        const feasibleColumns = assignment.candidateMatrix[selected.cellIndex]!
+          .filter(({ feasible }) => feasible)
+          .map(({ column_index }) => column_index);
+        const onlyColumn = feasibleColumns.length === 1 ? feasibleColumns[0] : null;
+        if (onlyColumn == null) continue;
+        const anchor = assignment.assignments.find(
+          ({ columnIndex }) => columnIndex === onlyColumn,
+        );
+        if (!anchor) continue;
+        const lower = Math.min(selected.cellIndex, anchor.cellIndex);
+        const upper = Math.max(selected.cellIndex, anchor.cellIndex);
+        const interveningAssignedElsewhere = assignment.assignments
+          .slice(lower + 1, upper)
+          .some(({ columnIndex }) =>
+            columnIndex != null && columnIndex !== onlyColumn);
+        if (interveningAssignedElsewhere) continue;
+        const combined = nonEmpty(
+          [
+            ...apparentCells[anchor.cellIndex]!,
+            ...apparentCells[selected.cellIndex]!,
+          ].sort(compareSourceFragmentsBySourceOrder),
+          'Overflow recovery requires source fragments.',
+        );
+        const coalescing = measureCoalescingEvidence(combined);
+        if (coalescing.confidence <= 0) continue;
+        recoveredColumns.set(selected.cellIndex, onlyColumn);
+      }
+      const groupedCells = new Map<number, SourceFragmentArtifact[]>();
+      for (const selected of assignment.assignments) {
+        const columnIndex = selected.columnIndex
+          ?? recoveredColumns.get(selected.cellIndex)
+          ?? null;
+        if (columnIndex == null) continue;
+        groupedCells.set(columnIndex, [
+          ...(groupedCells.get(columnIndex) ?? []),
+          ...apparentCells[selected.cellIndex]!,
+        ]);
+      }
+      const cells: IndexedRowCell[] = [...groupedCells.entries()]
+        .sort((left, right) => left[0] - right[0])
+        .map(([columnIndex, fragments]) => ({
+          columnIndex,
+          fragments: nonEmpty(
+            [...fragments].sort(compareSourceFragmentsBySourceOrder),
+            'Assigned table cell requires source fragments.',
+          ),
+        }));
       const assignmentDiagnostics: RowAnchorAssignmentDiagnostic[
         'selected_assignments'
       ][number][] = [];
       for (const selected of assignment.assignments) {
         const apparentCell = apparentCells[selected.cellIndex]!;
-        if (selected.columnIndex != null) {
-          cells.push({
-            columnIndex: selected.columnIndex,
-            fragments: apparentCell,
-          });
+        const effectiveColumn = selected.columnIndex
+          ?? recoveredColumns.get(selected.cellIndex)
+          ?? null;
+        if (effectiveColumn != null) {
           assignmentDiagnostics.push({
             apparent_cell_index: selected.cellIndex,
-            column_index: selected.columnIndex,
+            column_index: effectiveColumn,
             selected_cost: selected.selectedCost,
             alternative_cost: selected.alternativeCost,
             margin: selected.margin,

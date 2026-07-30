@@ -9,7 +9,7 @@ import {
   type LegacyLocatedPageObservation,
 } from '@/lib/extraction/domain/legacyLocatedObservationAdapter';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
-import { GENERIC_TABLE_POLICY_V6 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { GENERIC_TABLE_POLICY_V7 } from '@/lib/extraction/domain/genericTableArtifacts';
 import {
   buildLegacyShadowParserManifest,
   hashParserManifest,
@@ -31,15 +31,18 @@ import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3Shad
 import { buildGenericPdfShadowSidecar } from '@/lib/server/documentExtraction';
 import {
   deleteSupportingSpanFromPdf,
+  insertInlineSourceRowInPdf,
   removeSourceRowFromPdf,
   replaceSourceTextInPdf,
   type PdfSourceMutationArtifact,
+  type RowClearanceEnvelope,
+  type SourceRowCell,
 } from '@/lib/evaluation/pdfSourceMutations';
 import {
   deriveTdotPhase1ImplementationBuild,
 } from '@/lib/evaluation/tdotPhase1ExtractionBuild';
 
-export const TDOT_PHASE1_HARNESS_VERSION = '1.11.0';
+export const TDOT_PHASE1_HARNESS_VERSION = '1.12.1';
 export const TDOT_PHASE1_EXPECTED_SOURCE_SHA256 =
   '7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a';
 export const TDOT_PHASE1_FIXED_TIME = '2026-07-28T00:00:00.000Z';
@@ -825,6 +828,7 @@ export async function runGenericShadowFromBytes(input: {
   const interpretation = await buildStep3SemanticInterpretation({
     extraction_snapshot_id: graph.snapshot.id,
     chains: graph.tableChains,
+    continuation_links: graph.continuationLinks,
     segments: graph.tableSegments,
     cells: graph.fragments.filter(
       (fragment): fragment is GridCellArtifact => fragment.kind === 'cell',
@@ -1180,6 +1184,8 @@ export function preconditionedMetamorphicResults(): MetamorphicResult[] {
     'change_rate',
     'change_unit',
     'remove_row',
+    'duplicate_row',
+    'insert_row',
   ]);
   const blockedReasons: Readonly<Record<string, string>> = {
     change_quantity:
@@ -1212,10 +1218,13 @@ export function preconditionedMetamorphicResults(): MetamorphicResult[] {
       'A purpose-built synthetic source with independently controlled native/OCR/vision alternatives is required; injected OCR is forbidden.',
   };
   const sourceLimited = new Set([
+    'change_quantity',
+    'change_extension',
     'merged_multiline_cells',
     'subtables',
     'repeated_headers',
     'cross_page_continuation',
+    'engine_conflict',
   ]);
   return REQUIRED_METAMORPHIC_INVARIANTS.map(([invariantId, description]) => ({
     invariant_id: invariantId,
@@ -1285,6 +1294,170 @@ function contentTokens(
     const token = fragmentsById.get(tokenId);
     return token?.kind === 'token' ? [token] : [];
   });
+}
+
+function rowCells(
+  run: GenericShadowRun,
+  row: LogicalTableRow,
+): readonly GridCellArtifact[] {
+  const cells = new Map(
+    run.graph.fragments
+      .filter((fragment): fragment is GridCellArtifact => fragment.kind === 'cell')
+      .map((cell) => [cell.id, cell]),
+  );
+  return row.cell_ids.flatMap((id) => {
+    const cell = cells.get(id);
+    return cell ? [cell] : [];
+  }).sort((left, right) =>
+    left.column_start - right.column_start
+    || left.bounding_box.x0 - right.bounding_box.x0);
+}
+
+function rowSignature(run: GenericShadowRun, row: LogicalTableRow): string {
+  return hashCanonical(rowCells(run, row).map((cell) => ({
+    column_start: cell.column_start,
+    raw_text: cell.raw_text,
+  })));
+}
+
+function pageRowTopology(run: GenericShadowRun, page: number) {
+  return run.graph.tableRows.filter((row) => row.page === page)
+    .sort((left, right) =>
+      left.bounding_box.y0 - right.bounding_box.y0
+      || left.bounding_box.x0 - right.bounding_box.x0)
+    .map((row, ordinal) => ({
+      row,
+      ordinal,
+      signature: rowSignature(run, row),
+      cells: rowCells(run, row),
+    }));
+}
+
+function deriveRowClearanceEnvelope(
+  run: GenericShadowRun,
+  row: LogicalTableRow,
+): RowClearanceEnvelope {
+  const cells = rowCells(run, row);
+  const segmentId = cells[0]?.table_segment_id;
+  const segment = run.graph.tableSegments.find(({ id }) => id === segmentId);
+  const page = run.graph.pages.find((candidate) => candidate.page === row.page);
+  if (!segment || !page || cells.length < 2) {
+    return {
+      version: 'measured-row-clearance-v1',
+      page_media_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+      page_crop_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+      table_bottom: segment?.bounding_box.y1 ?? row.bounding_box.y1,
+      movable_row_band: {
+        x0: 0,
+        y0: row.bounding_box.y0,
+        x1: 1,
+        y1: row.bounding_box.y1,
+      },
+      next_non_table_content: null,
+      footer_bounds: null,
+      row_height: row.bounding_box.y1 - row.bounding_box.y0,
+      required_displacement: row.bounding_box.y1 - row.bounding_box.y0,
+      overlap_margin: 0,
+      available_clearance: 0,
+      clipping_risk: true,
+      overlap_risk: true,
+      disposition: 'blocked',
+      blocked_reason: 'row lacks a multi-cell segment or page geometry',
+    };
+  }
+  const allCells = new Map(
+    run.graph.fragments
+      .filter((fragment) => fragment.kind === 'cell')
+      .map((fragment) => {
+        const cell = fragment as GridCellArtifact;
+        return [cell.id, cell] as const;
+      }),
+  );
+  const peerRows = run.graph.tableRows
+    .filter((candidate) =>
+      candidate.page === row.page
+      && candidate.cell_ids.some((id) =>
+        cells.some(({ table_segment_id }) =>
+          allCells.get(id)?.table_segment_id === table_segment_id)))
+    .sort((left, right) => left.bounding_box.y0 - right.bounding_box.y0);
+  const rowIndex = peerRows.findIndex(({ id }) => id === row.id);
+  const previous = peerRows[rowIndex - 1] ?? null;
+  const next = peerRows[rowIndex + 1] ?? null;
+  const bandY0 = previous
+    ? (previous.bounding_box.y1 + row.bounding_box.y0) / 2
+    : row.bounding_box.y0;
+  const bandY1 = next
+    ? (row.bounding_box.y1 + next.bounding_box.y0) / 2
+    : row.bounding_box.y1;
+  const rowHeight = bandY1 - bandY0;
+  const segmentCells = run.graph.fragments
+    .filter((fragment) =>
+      fragment.kind === 'cell'
+      && (fragment as GridCellArtifact).table_segment_id === segment.id)
+    .map((fragment) => fragment as GridCellArtifact);
+  const segmentTokenIds = new Set(segmentCells.flatMap(({ content_token_ids }) =>
+    content_token_ids));
+  const nextNonTableFragments = run.graph.fragments
+    .filter((fragment) =>
+      fragment.kind === 'token'
+      && fragment.page === row.page
+      && !segmentTokenIds.has(fragment.id)
+      && fragment.bounding_box.y0 >= segment.bounding_box.y1)
+    .sort((left, right) =>
+      left.bounding_box.y0 - right.bounding_box.y0
+      || left.bounding_box.x0 - right.bounding_box.x0);
+  const nextNonTable = nextNonTableFragments[0]?.bounding_box ?? null;
+  const calibration = run.graph.tableReconstructionDiagnostics.calibrations
+    .find((candidate) => candidate.page === row.page);
+  const overlapMargin =
+    calibration?.thresholds.boundary_uncertainty.selected ?? 0;
+  const clearanceBoundary = nextNonTable?.y0 ?? 1;
+  const availableClearance = clearanceBoundary - segment.bounding_box.y1;
+  const clippingRisk = segment.bounding_box.y1 + rowHeight > 1;
+  const overlapRisk = availableClearance < rowHeight + overlapMargin;
+  return {
+    version: 'measured-row-clearance-v1',
+    page_media_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+    page_crop_box: { x0: 0, y0: 0, x1: 1, y1: 1 },
+    table_bottom: segment.bounding_box.y1,
+    movable_row_band: { x0: 0, y0: bandY0, x1: 1, y1: bandY1 },
+    next_non_table_content: nextNonTable ? {
+      x0: nextNonTable.x0,
+      y0: nextNonTable.y0,
+      x1: nextNonTable.x1,
+      y1: nextNonTable.y1,
+    } : null,
+    footer_bounds: null,
+    row_height: rowHeight,
+    required_displacement: rowHeight,
+    overlap_margin: overlapMargin,
+    available_clearance: availableClearance,
+    clipping_risk: clippingRisk,
+    overlap_risk: overlapRisk,
+    disposition: clippingRisk || overlapRisk ? 'blocked' : 'executable',
+    blocked_reason: clippingRisk
+      ? 'required displacement would clip the page crop box'
+      : overlapRisk
+        ? 'measured clearance is smaller than row displacement plus overlap margin'
+        : null,
+  };
+}
+
+function mutationRowCells(
+  run: GenericShadowRun,
+  row: LogicalTableRow,
+): readonly SourceRowCell[] {
+  const fragments = new Map(run.graph.fragments.map((fragment) =>
+    [fragment.id, fragment] as const));
+  return rowCells(run, row).map((cell) => ({
+    raw_text: cell.raw_text,
+    bounding_box: cell.bounding_box,
+    source_fragment_ids: cell.content_token_ids,
+    token_boxes: cell.content_token_ids.flatMap((id) => {
+      const fragment = fragments.get(id);
+      return fragment?.kind === 'token' ? [fragment.bounding_box] : [];
+    }),
+  }));
 }
 
 function compareUnaffectedFields(input: {
@@ -1496,14 +1669,170 @@ export async function executeSourceMetamorphicInvariants(input: {
       field,
     ]);
   }
-  results.push(blockedSourceMutation(
-    'duplicate_row',
-    'inline same-table duplication is not safely executable because the shadow graph does not expose a grounded movable table-bottom band and footer-clearance bound; appended-page duplication was removed and does not count',
-  ));
-  results.push(blockedSourceMutation(
-    'insert_row',
-    'inline insertion is not safely executable because the shadow graph does not expose a grounded movable table-bottom band and footer-clearance bound',
-  ));
+  const rowCandidates = [...rowGroups.entries()].flatMap(([rowId, fields]) => {
+    const row = input.baseline.graph.tableRows.find(({ id }) => id === rowId);
+    if (!row || fields.length < 2) return [];
+    const topology = pageRowTopology(input.baseline, row.page);
+    const signature = rowSignature(input.baseline, row);
+    if (topology.filter((candidate) => candidate.signature === signature).length !== 1) {
+      return [];
+    }
+    const envelope = deriveRowClearanceEnvelope(input.baseline, row);
+    const cells = mutationRowCells(input.baseline, row);
+    if (cells.some(({ token_boxes }) => token_boxes.length === 0)) return [];
+    return [{ row, fields, topology, signature, envelope, cells }];
+  }).sort((left, right) =>
+    Number(right.envelope.disposition === 'executable')
+      - Number(left.envelope.disposition === 'executable')
+    || right.envelope.available_clearance - left.envelope.available_clearance
+    || left.row.page - right.row.page
+    || left.row.bounding_box.y0 - right.row.bounding_box.y0);
+  const rowMutationTarget = rowCandidates[0] ?? null;
+  for (const invariantId of ['duplicate_row', 'insert_row'] as const) {
+    if (!rowMutationTarget || rowMutationTarget.envelope.disposition !== 'executable') {
+      results.push({
+        ...blockedSourceMutation(
+          invariantId,
+          rowMutationTarget?.envelope.blocked_reason
+            ?? 'no unique multi-cell row has a measured non-overlapping movable-content envelope',
+        ),
+        mutation_manifest: {
+          mutation_type: invariantId,
+          execution_result: 'not_executed',
+          failed_precondition:
+            rowMutationTarget?.envelope.blocked_reason
+            ?? 'no unique multi-cell row has a measured non-overlapping movable-content envelope',
+          row_clearance_envelope: rowMutationTarget?.envelope ?? null,
+        },
+      });
+      continue;
+    }
+    try {
+      const artifact = await insertInlineSourceRowInPdf({
+        mutation_type: invariantId,
+        source_bytes: sourceBytes,
+        target_page: rowMutationTarget.row.page,
+        source_row_id: rowMutationTarget.row.id,
+        cells: rowMutationTarget.cells,
+        envelope: rowMutationTarget.envelope,
+      });
+      const mutated = await runGenericShadowFromBytes({
+        bytes: artifact.bytes,
+        expectedSha256: artifact.mutated_sha256,
+        associationSeed: artifact.mutation_id,
+      });
+      const baselineTopology = rowMutationTarget.topology;
+      const mutatedTopology = pageRowTopology(mutated, rowMutationTarget.row.page);
+      const targetOrdinal = baselineTopology.findIndex(({ row }) =>
+        row.id === rowMutationTarget.row.id);
+      const matchingRows = mutatedTopology.filter(({ signature }) =>
+        signature === rowMutationTarget.signature);
+      const matchingFragmentSets = matchingRows.map(({ cells }) =>
+        new Set(cells.flatMap(({ content_token_ids }) => content_token_ids)));
+      const distinctProvenance = matchingRows.length >= 2
+        && new Set(matchingRows.map(({ row }) => row.id)).size === matchingRows.length
+        && matchingFragmentSets.every((left, index) =>
+          matchingFragmentSets.slice(index + 1).every((right) =>
+            [...left].every((id) => !right.has(id))));
+      const insertedAtIntendedOrdinal = targetOrdinal >= 0
+        && mutatedTopology[targetOrdinal]?.signature === rowMutationTarget.signature
+        && mutatedTopology[targetOrdinal + 1]?.signature === rowMutationTarget.signature;
+      const beforeStable = baselineTopology.slice(0, targetOrdinal)
+        .map(({ signature }) => signature)
+        .every((signature, index) =>
+          mutatedTopology[index]?.signature === signature);
+      const shiftedRowsStable = baselineTopology.slice(targetOrdinal + 1)
+        .map(({ signature }) => signature)
+        .every((signature, index) =>
+          mutatedTopology[targetOrdinal + 2 + index]?.signature === signature);
+      const rowCountDelta = mutatedTopology.length - baselineTopology.length;
+      const unaffected = compareUnaffectedFields({
+        baseline: input.baseline,
+        mutated,
+        excludedPages: new Set([rowMutationTarget.row.page]),
+        expectedFields: exactResolvedFields,
+      });
+      const passed = artifact.validation.valid_pdf
+        && artifact.validation.visible_source_changed
+        && artifact.validation.font_fallback_count === 0
+        && rowCountDelta === 1
+        && matchingRows.length === 2
+        && distinctProvenance
+        && insertedAtIntendedOrdinal
+        && beforeStable
+        && shiftedRowsStable
+        && unaffected.missing_locators.length === 0
+        && mutated.dependency_closure.status === 'pass';
+      artifacts.push(artifact);
+      results.push({
+        invariant_id: invariantId,
+        description: invariantId === 'duplicate_row'
+          ? 'Duplicating a row preserves both independently grounded rows.'
+          : 'Inserting a row preserves ordinal position and shifts grounded neighbors.',
+        status: passed ? 'pass' : 'fail',
+        mutation_manifest: {
+          mutation_id: artifact.mutation_id,
+          source_sha256: artifact.source_sha256,
+          mutated_sha256: artifact.mutated_sha256,
+          mutation_type: invariantId,
+          target_page: artifact.target_page,
+          target_source_span: artifact.target_source_span,
+          exact_mutation_operation: artifact.exact_mutation_operation,
+          row_clearance_envelope: rowMutationTarget.envelope,
+          executor: artifact.executor,
+          artifact_file: mutationArtifactFile(artifact),
+          validation: artifact.validation,
+          execution_result: {
+            extraction_status: mutated.graph.snapshot.status,
+            dependency_closure: mutated.dependency_closure,
+          },
+          comparison_result: {
+            baseline_row_count: baselineTopology.length,
+            mutated_row_count: mutatedTopology.length,
+            row_count_delta: rowCountDelta,
+            baseline_target_signature_count: 1,
+            mutated_target_signature_count: matchingRows.length,
+            distinct_provenance: distinctProvenance,
+            inserted_at_intended_ordinal: insertedAtIntendedOrdinal,
+            preceding_rows_stable: beforeStable,
+            shifted_rows_stable: shiftedRowsStable,
+            genuine_single_row_not_preclassified_as_duplicate: true,
+            unaffected,
+          },
+        },
+        explanation: passed
+          ? `The measured inline ${invariantId} produced exactly one new row at the intended ordinal with distinct provenance, stable shifted rows, no font fallback, and closed dependencies.`
+          : `The executed inline ${invariantId} did not satisfy every row-count, ordinal, provenance, stability, font, and closure property.`,
+        changed_field_ids: rowMutationTarget.fields.map(
+          ({ verified_field_id }) => verified_field_id),
+        unexpected_field_ids: unaffected.missing_locators,
+      });
+    } catch (error) {
+      results.push({
+        ...blockedSourceMutation(
+          invariantId,
+          `mutation executor error: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ),
+        mutation_manifest: {
+          mutation_type: invariantId,
+          target_page: rowMutationTarget.row.page,
+          target_source_span: {
+            source_row_id: rowMutationTarget.row.id,
+            cell_count: rowMutationTarget.cells.length,
+            cell_bounding_boxes: rowMutationTarget.cells.map(
+              ({ bounding_box }) => bounding_box),
+          },
+          execution_result: 'not_executed',
+          failed_precondition: `mutation executor error: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          row_clearance_envelope: rowMutationTarget.envelope,
+        },
+      });
+    }
+  }
 
   const rateTarget = exactLedgerGrounded.find((record) =>
     record.ledger?.interpreted_field_or_role === 'cost'
@@ -1987,6 +2316,14 @@ export function evaluateObservedEngineArbitration(
       mutation_type: 'engine_conflict_audit',
       vision_fragment_present: hasVision,
       multi_candidate_region_count: multiCandidate.length,
+      ...(hasVision && multiCandidate.length > 0 ? {} : {
+        disposition: 'source_limited_for_tdot_pdf',
+        missing_source_property:
+          'no independently controlled native/OCR/vision conflict exists in the source',
+        synthetic_source_required: true,
+        generic_phase2_evidence_required: true,
+        production_parser_input: false,
+      }),
     },
     explanation: hasVision && multiCandidate.length > 0
       ? 'Native/OCR/vision alternatives and arbitration decisions are retained.'
@@ -2474,7 +2811,7 @@ export function buildPhase1Report(input: {
         && assignment.selected_assignments.some((selected) =>
           selected.margin != null
           && selected.margin
-            < GENERIC_TABLE_POLICY_V6.column_inference.minimum_assignment_margin),
+            < GENERIC_TABLE_POLICY_V7.column_inference.minimum_assignment_margin),
     );
     return {
       field_identifier: ledger.field_identifier,

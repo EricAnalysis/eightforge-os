@@ -622,6 +622,32 @@ describe('generic physical table artifacts', () => {
       }));
   });
 
+  it('recovers an exclusive same-column continuation before emitting overflow', () => {
+    const p = page(16);
+    const fragments = [
+      token(p, 'H1', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'H2', 0.30, 0.20, 0.35, 0.21, 2),
+      token(p, 'H3', 0.55, 0.20, 0.60, 0.21, 3),
+      token(p, 'A', 0.05, 0.24, 0.10, 0.25, 4),
+      token(p, 'B', 0.30, 0.24, 0.35, 0.25, 5),
+      token(p, 'First line', 0.55, 0.24, 0.64, 0.25, 6),
+      token(p, 'continuation', 0.55, 0.251, 0.65, 0.261, 7),
+      token(p, 'C', 0.05, 0.29, 0.10, 0.30, 8),
+      token(p, 'D', 0.30, 0.29, 0.35, 0.30, 9),
+      token(p, 'E', 0.55, 0.29, 0.60, 0.30, 10),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('First line\ncontinuation');
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .not.toContainEqual(expect.objectContaining({
+        fragment_ids: [fragments[6]?.id],
+      }));
+    expect(result.gaps.some(({ upstream_artifact_ids }) =>
+      upstream_artifact_ids.includes(fragments[6]!.id))).toBe(false);
+  });
+
   it('retains bordered merged spans and multiline text once without copying neighbors', () => {
     const p = page(2);
     const description = token(p, 'Long', 0.05, 0.20, 0.18, 0.22, 1);

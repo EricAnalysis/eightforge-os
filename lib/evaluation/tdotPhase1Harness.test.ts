@@ -411,12 +411,12 @@ describe('TDOT Phase 1 shadow parity harness', () => {
       expect.objectContaining({
         invariant_id: 'duplicate_row',
         status: 'blocked',
-        explanation: expect.stringContaining('appended-page duplication was removed'),
+        explanation: expect.stringContaining('measured non-overlapping movable-content envelope'),
       }),
       expect.objectContaining({
         invariant_id: 'insert_row',
         status: 'blocked',
-        explanation: expect.stringContaining('movable table-bottom band'),
+        explanation: expect.stringContaining('measured non-overlapping movable-content envelope'),
       }),
       expect.objectContaining({
         invariant_id: 'change_rate',
@@ -450,7 +450,7 @@ describe('TDOT Phase 1 shadow parity harness', () => {
   });
 
   it('keeps the report version explicit without using it as extraction identity', () => {
-    expect(TDOT_PHASE1_HARNESS_VERSION).toBe('1.11.0');
+    expect(TDOT_PHASE1_HARNESS_VERSION).toBe('1.12.1');
   });
 
   it('has no contract assembler, persistence writer, reader, or validator import', async () => {

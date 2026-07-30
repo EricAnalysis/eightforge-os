@@ -313,6 +313,36 @@ describe('generic physical table artifacts', () => {
     expect(result.cells.every(({ raw_text }) => raw_text !== '$ -')).toBe(true);
   });
 
+  it('recovers a same-baseline currency dash pair with exclusive same-band evidence without broadening the gap threshold', () => {
+    const p = page(18);
+    const fragments = [
+      token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Amount', 0.55, 0.20, 0.72, 0.21, 2),
+      token(p, 'A', 0.05, 0.24, 0.10, 0.25, 3),
+      token(p, '$', 0.55, 0.24, 0.56, 0.25, 4),
+      token(p, '-', 0.62, 0.24, 0.63, 0.25, 5),
+      token(p, 'B', 0.05, 0.28, 0.10, 0.29, 6),
+      token(p, '10.00', 0.62, 0.28, 0.68, 0.29, 7),
+    ];
+    const result = build([p], fragments);
+    const recovered = result.cells.find(({ raw_text }) => raw_text === '$ -');
+
+    expect(recovered).toBeDefined();
+    expect(recovered?.artifact_data?.fragment_coalescing).toMatchObject({
+      applied: true,
+      reason: 'currency_marker_dash_pair',
+      maximum_observed_inline_gap: expect.any(Number),
+    });
+    const coalescing = recovered?.artifact_data?.fragment_coalescing as
+      | { readonly maximum_observed_inline_gap: number }
+      | undefined;
+    expect(coalescing?.maximum_observed_inline_gap).toBeGreaterThan(0.05);
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ fragment_ids: [fragments[4]!.id] }),
+      ]));
+  });
+
   it('keeps non-overlapping nearby baselines as distinct logical rows', () => {
     const p = page(8);
     const fragments = [
@@ -769,6 +799,151 @@ describe('generic physical table artifacts', () => {
     expect(result.continuation_links).toMatchObject([{ decision: 'linked' }]);
     expect(result.chains).toHaveLength(1);
     expect(result.segments[0]?.column_hypotheses[0]?.header.observed_text).toBe('Item');
+  });
+
+  it('associates a retained source header with an adjacent headerless continuation using multiple boundary signals', () => {
+    const sourcePage = page(11);
+    const continuationPage = page(12);
+    const source = [
+      token(sourcePage, 'Label', 0.10, 0.76, 0.30, 0.78, 1),
+      token(sourcePage, 'Unit', 0.55, 0.76, 0.70, 0.78, 2),
+      token(sourcePage, 'Alpha', 0.10, 0.82, 0.30, 0.84, 3),
+      token(sourcePage, 'Each', 0.55, 0.82, 0.70, 0.84, 4),
+      token(sourcePage, 'Beta', 0.10, 0.92, 0.30, 0.94, 5),
+      token(sourcePage, 'Ton', 0.55, 0.92, 0.70, 0.94, 6),
+    ];
+    const destination = [
+      token(continuationPage, 'Envelope', 0.02, 0.02, 0.18, 0.04, 7),
+      token(continuationPage, 'Identifier', 0.20, 0.02, 0.38, 0.04, 8),
+      token(continuationPage, 'Gamma', 0.10, 0.08, 0.30, 0.10, 9),
+      token(continuationPage, 'Yard', 0.55, 0.08, 0.70, 0.10, 10),
+    ];
+    const result = build(
+      [sourcePage, continuationPage],
+      [...source, ...destination],
+      [
+        {
+          page_artifact_id: sourcePage.id,
+          rows: [
+            {
+              row_kind: 'header',
+              cells: [
+                { token_ids: [source[0]!.id] },
+                { token_ids: [source[1]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [source[2]!.id] },
+                { token_ids: [source[3]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [source[4]!.id] },
+                { token_ids: [source[5]!.id] },
+              ],
+            },
+          ],
+          detection_evidence: ['x_alignment'],
+        },
+        {
+          page_artifact_id: continuationPage.id,
+          rows: [
+            {
+              row_kind: 'header',
+              cells: [
+                { token_ids: [destination[0]!.id] },
+                { token_ids: [destination[1]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [destination[2]!.id] },
+                { token_ids: [destination[3]!.id] },
+              ],
+            },
+          ],
+          detection_evidence: ['x_alignment'],
+        },
+      ],
+    );
+
+    expect(result.continuation_links).toMatchObject([{ decision: 'linked' }]);
+    expect(result.continuation_links[0]?.basis.row_continuation_score.measurements)
+      .toMatchObject({
+        header_association_policy_version:
+          'adjacent-boundary-header-association-v1',
+        header_association_multiple_structural_signals: true,
+      });
+    expect(result.chains).toHaveLength(1);
+  });
+
+  it('does not associate prose above a table when source boundary evidence is incomplete', () => {
+    const sourcePage = page(13);
+    const destinationPage = page(14);
+    const fragments = [
+      token(sourcePage, 'Label', 0.10, 0.30, 0.30, 0.32, 1),
+      token(sourcePage, 'Unit', 0.55, 0.30, 0.70, 0.32, 2),
+      token(sourcePage, 'Complete', 0.10, 0.48, 0.30, 0.50, 3),
+      token(sourcePage, 'Each', 0.55, 0.48, 0.70, 0.50, 4),
+      token(destinationPage, 'Ordinary prose', 0.02, 0.02, 0.20, 0.04, 5),
+      token(destinationPage, 'Reference', 0.25, 0.02, 0.38, 0.04, 6),
+      token(destinationPage, 'Unrelated', 0.10, 0.08, 0.30, 0.10, 7),
+      token(destinationPage, 'Ton', 0.55, 0.08, 0.70, 0.10, 8),
+    ];
+    const result = build([sourcePage, destinationPage], fragments, [
+      {
+        page_artifact_id: sourcePage.id,
+        rows: [
+          {
+            row_kind: 'header',
+            cells: [
+              { token_ids: [fragments[0]!.id] },
+              { token_ids: [fragments[1]!.id] },
+            ],
+          },
+          {
+            row_kind: 'data',
+            cells: [
+              { token_ids: [fragments[2]!.id] },
+              { token_ids: [fragments[3]!.id] },
+            ],
+          },
+        ],
+        detection_evidence: ['x_alignment'],
+      },
+      {
+        page_artifact_id: destinationPage.id,
+        rows: [
+          {
+            row_kind: 'header',
+            cells: [
+              { token_ids: [fragments[4]!.id] },
+              { token_ids: [fragments[5]!.id] },
+            ],
+          },
+          {
+            row_kind: 'data',
+            cells: [
+              { token_ids: [fragments[6]!.id] },
+              { token_ids: [fragments[7]!.id] },
+            ],
+          },
+        ],
+        detection_evidence: ['x_alignment'],
+      },
+    ]);
+    const measurement =
+      result.continuation_links[0]?.basis.row_continuation_score.measurements;
+
+    expect(measurement).toMatchObject({
+      header_association_multiple_structural_signals: false,
+    });
+    expect(result.continuation_links[0]?.decision).not.toBe('linked');
   });
 
   it('retains cross-page continuation ambiguity instead of forcing a chain link', () => {

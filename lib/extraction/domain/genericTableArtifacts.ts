@@ -22,7 +22,7 @@ import type {
 
 export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
-  version: 'v7',
+  version: 'v8',
   row_center_tolerance: 0.018,
   column_center_tolerance: 0.04,
   geometry_calibration: {
@@ -38,7 +38,7 @@ export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
     boundary_uncertainty_bounds: { minimum: 0.001, maximum: 0.006 },
   },
   fragment_coalescing: {
-    version: 'coarse-band-constrained-v2',
+    version: 'coarse-band-constrained-v3',
     maximum_inline_gap: 0.025,
     currency_pair_maximum_inline_gap: 0.05,
     minimum_vertical_overlap_ratio: 0.5,
@@ -251,8 +251,31 @@ export interface RowAnchorAssignmentDiagnostic {
   }[];
 }
 
+export interface PhysicalRowScopeExclusionDiagnostic {
+  readonly page_artifact_id: PageArtifact['id'];
+  readonly page: number;
+  readonly physical_row_index: number;
+  readonly fragment_ids: NonEmpty<SourceFragmentArtifact['id']>;
+  readonly fragment_evidence: readonly {
+    readonly fragment_id: SourceFragmentArtifact['id'];
+    readonly raw_text: string;
+    readonly bounding_box: BoundingBox;
+    readonly reading_order: number;
+  }[];
+  readonly nearest_primary_rows: readonly {
+    readonly physical_row_index: number;
+    readonly center_distance: number;
+  }[];
+  readonly continuation_center_distance_limit: number;
+  readonly candidate_column_indexes: readonly number[];
+  readonly exclusion_reason: 'outside_continuation_scope';
+  readonly policy_version: string;
+}
+
 export interface GenericTableReconstructionDiagnostics {
   readonly calibrations: readonly PageGeometryCalibration[];
+  readonly physical_row_scope_exclusions:
+    readonly PhysicalRowScopeExclusionDiagnostic[];
   readonly sparse_row_dispositions: readonly SparseRowDisposition[];
   readonly column_overflows: readonly ColumnOverflowDiagnostic[];
   readonly row_anchor_assignments: readonly RowAnchorAssignmentDiagnostic[];
@@ -1587,14 +1610,24 @@ function measureCoalescingEvidence(
     /^(?:-|\u2013|\u2014)$/u.test(fragment.raw_text.trim()));
 
   if (hasCurrencyMarkerUnicode && hasDashValue) {
+    const pair = fragments.filter((fragment) =>
+      /^(?:\$|\u20ac|\u00a3|\u00a5|-|\u2013|\u2014)$/u.test(
+        fragment.raw_text.trim(),
+      ));
+    const maximumHeight = Math.max(
+      0.001,
+      ...pair.map((fragment) =>
+        fragment.bounding_box.y1 - fragment.bounding_box.y0),
+    );
+    const baselineDistance = pair.length === 2
+      ? Math.abs(pair[0]!.bounding_box.y1 - pair[1]!.bounding_box.y1)
+      : maximumHeight;
+    const sameBaselineConfidence = pair.length === 2
+      ? Math.max(0, 1 - baselineDistance / maximumHeight)
+      : 0;
     return {
       reason: 'currency_marker_dash_pair',
-      confidence: Number(Math.max(
-        0,
-        1 - maximumObservedInlineGap
-          / GENERIC_TABLE_POLICY_V6.fragment_coalescing
-            .currency_pair_maximum_inline_gap,
-      ).toFixed(6)),
+      confidence: Number(sameBaselineConfidence.toFixed(6)),
       maximum_observed_inline_gap: maximumObservedInlineGap,
     };
   }
@@ -1660,6 +1693,7 @@ function autoRegions(
   const regions: ObservedTableRegion[] = [];
   const gaps: ProcessingGap[] = [];
   const calibrations: PageGeometryCalibration[] = [];
+  const physicalRowScopeExclusions: PhysicalRowScopeExclusionDiagnostic[] = [];
   const sparseDispositions: SparseRowDisposition[] = [];
   const overflowDiagnostics: ColumnOverflowDiagnostic[] = [];
   const rowAnchorAssignments: RowAnchorAssignmentDiagnostic[] = [];
@@ -1703,6 +1737,52 @@ function autoRegions(
       provisionalRows[physicalRowIndex]!);
     const bands = inferCoarseColumnBands(scopedProvisionalRows);
     if (bands.length < 2) continue;
+    const scopedIndexes = new Set(
+      scopedPhysicalRows.map(({ physicalRowIndex }) => physicalRowIndex),
+    );
+    for (const [physicalRowIndex, row] of physicalRows.entries()) {
+      if (scopedIndexes.has(physicalRowIndex)) continue;
+      const nearestPrimaryRows = primaryIndexes.map((primaryRowIndex) => ({
+        physical_row_index: primaryRowIndex,
+        center_distance: Math.abs(
+          rowCenter(row) - rowCenter(physicalRows[primaryRowIndex]!),
+        ),
+      })).sort((left, right) =>
+        left.center_distance - right.center_distance
+        || left.physical_row_index - right.physical_row_index);
+      const candidateColumnIndexes = [
+        ...new Set(row.flatMap((fragment) => {
+          const center =
+            (fragment.bounding_box.x0 + fragment.bounding_box.x1) / 2;
+          return bands.flatMap((candidateBand, columnIndex) =>
+            center >= candidateBand.x0
+              - calibration.thresholds.column_center_tolerance.selected
+            && center <= candidateBand.x1
+              + calibration.thresholds.column_center_tolerance.selected
+              ? [columnIndex] : []);
+        })),
+      ].sort((left, right) => left - right);
+      physicalRowScopeExclusions.push({
+        page_artifact_id: page.id,
+        page: page.page,
+        physical_row_index: physicalRowIndex,
+        fragment_ids: nonEmpty(
+          row.map(({ id }) => id),
+          'Physical-row scope exclusion requires source fragments.',
+        ),
+        fragment_evidence: row.map((fragment) => ({
+          fragment_id: fragment.id,
+          raw_text: fragment.raw_text,
+          bounding_box: fragment.bounding_box,
+          reading_order: fragment.reading_order,
+        })),
+        nearest_primary_rows: nearestPrimaryRows,
+        continuation_center_distance_limit: continuationLimit,
+        candidate_column_indexes: candidateColumnIndexes,
+        exclusion_reason: 'outside_continuation_scope',
+        policy_version: GENERIC_TABLE_POLICY_V6.logical_row_assembly.version,
+      });
+    }
     calibrations.push(calibration);
     for (const { row } of scopedPhysicalRows) {
       for (const fragment of row) tableCandidateFragmentIds.add(fragment.id);
@@ -1888,6 +1968,7 @@ function autoRegions(
     gaps,
     diagnostics: {
       calibrations,
+      physical_row_scope_exclusions: physicalRowScopeExclusions,
       sparse_row_dispositions: sparseDispositions,
       column_overflows: overflowDiagnostics,
       row_anchor_assignments: rowAnchorAssignments,
@@ -1920,6 +2001,7 @@ export function buildGenericTableArtifacts(
         gaps: [] as readonly ProcessingGap[],
         diagnostics: {
           calibrations: [],
+          physical_row_scope_exclusions: [],
           sparse_row_dispositions: [],
           column_overflows: [],
           row_anchor_assignments: [],
@@ -2548,6 +2630,85 @@ function measureRowContinuation(
   };
 }
 
+function measureHeaderAssociationContinuation(
+  from: TableSegmentArtifact,
+  to: TableSegmentArtifact,
+  rowsById: ReadonlyMap<string, LogicalTableRow>,
+  cellsById: ReadonlyMap<string, GridCellArtifact>,
+): {
+  readonly score: number;
+  readonly measurements: Readonly<Record<string, number | boolean | string | null>>;
+} {
+  const sourceRows = from.row_ids.map((id) => rowsById.get(id))
+    .filter((row): row is LogicalTableRow => row != null);
+  const destinationRows = to.row_ids.map((id) => rowsById.get(id))
+    .filter((row): row is LogicalTableRow => row != null);
+  const sourceHeaderCount = from.column_hypotheses.filter(
+    ({ header }) => header.observed_text != null,
+  ).length;
+  const sourceHeaderCoverage = sourceHeaderCount
+    / Math.max(1, from.column_hypotheses.length);
+  const finalSourceRow = sourceRows.at(-1);
+  const firstDestinationBodyRow = destinationRows.find(
+    ({ row_kind }) => row_kind !== 'header',
+  );
+  const destinationCells = rowCells(firstDestinationBodyRow, cellsById);
+  const alignedSourceBands = new Set(destinationCells.flatMap((cell) => {
+    const center = (cell.bounding_box.x0 + cell.bounding_box.x1) / 2;
+    const band = from.column_hypotheses.find((candidate) =>
+      center >= candidate.x0 - GENERIC_TABLE_POLICY_V6.column_center_tolerance
+      && center <= candidate.x1 + GENERIC_TABLE_POLICY_V6.column_center_tolerance);
+    return band ? [band.index] : [];
+  }));
+  const destinationAlignment = destinationCells.length === 0 ? 0
+    : alignedSourceBands.size / destinationCells.length;
+  const columnCoverage = alignedSourceBands.size
+    / Math.max(1, from.column_hypotheses.length);
+  const adjacentPage = to.page === from.page + 1;
+  const sourceBoundaryProximity = finalSourceRow
+    ? clamp((finalSourceRow.bounding_box.y1 - 0.75) / 0.25) : 0;
+  const destinationBoundaryProximity = firstDestinationBodyRow
+    ? clamp((0.25 - firstDestinationBodyRow.bounding_box.y0) / 0.25) : 0;
+  const multipleSourceRows = sourceRows.filter(
+    ({ row_kind }) => row_kind !== 'header',
+  ).length >= 2;
+  const multipleStructuralSignals =
+    adjacentPage
+    && multipleSourceRows
+    && sourceHeaderCount >= 2
+    && sourceHeaderCoverage >= 0.5
+    && destinationAlignment >= 0.75
+    && columnCoverage >= 0.75
+    && sourceBoundaryProximity >= 0.5
+    && destinationBoundaryProximity >= 0.5;
+  const score = multipleStructuralSignals
+    ? (
+        sourceHeaderCoverage
+        + destinationAlignment
+        + columnCoverage
+        + sourceBoundaryProximity
+        + destinationBoundaryProximity
+      ) / 5
+    : 0;
+  return {
+    score,
+    measurements: {
+      header_association_policy_version: 'adjacent-boundary-header-association-v1',
+      header_association_adjacent_page: adjacentPage,
+      header_association_source_header_count: sourceHeaderCount,
+      header_association_source_header_coverage: sourceHeaderCoverage,
+      header_association_destination_alignment: destinationAlignment,
+      header_association_column_coverage: columnCoverage,
+      header_association_source_boundary_proximity: sourceBoundaryProximity,
+      header_association_destination_boundary_proximity:
+        destinationBoundaryProximity,
+      header_association_multiple_source_rows: multipleSourceRows,
+      header_association_multiple_structural_signals:
+        multipleStructuralSignals,
+    },
+  };
+}
+
 function buildContinuationLinks(
   segments: readonly TableSegmentArtifact[],
   rows: readonly LogicalTableRow[],
@@ -2596,11 +2757,21 @@ function buildContinuationLinks(
     const typographyScore = Math.max(fromHeight, toHeight) === 0 ? 0
       : clamp(1 - Math.abs(fromHeight - toHeight) / Math.max(fromHeight, toHeight));
     const rowContinuation = measureRowContinuation(from, to, rowsById, cellsById);
+    const headerAssociation = measureHeaderAssociationContinuation(
+      from,
+      to,
+      rowsById,
+      cellsById,
+    );
     const skippedPages = to.page - from.page - 1;
     const pageDistancePenalty = clamp(
       1 - skippedPages * GENERIC_TABLE_POLICY_V6.page_distance_penalty_per_skipped_page,
     );
-    const structuralMode = Math.max(headerScore ?? 0, rowContinuation.score);
+    const structuralMode = Math.max(
+      headerScore ?? 0,
+      rowContinuation.score,
+      headerAssociation.score,
+    );
     const weights = GENERIC_TABLE_POLICY_V6.continuation_component_weights;
     const scoreValue = columnScore * weights.column_bands
       + structuralMode * weights.structural_mode
@@ -2651,9 +2822,12 @@ function buildContinuationLinks(
           { source_row_height: fromHeight, destination_row_height: toHeight },
         ),
         row_continuation_score: measured(
-          rowContinuation.score,
-          'Versioned incomplete-row, alignment, occupancy, height, indentation, baseline, and repeated-header evidence.',
-          rowContinuation.measurements,
+          Math.max(rowContinuation.score, headerAssociation.score),
+          'Versioned incomplete-row or source-header association evidence using alignment, occupancy, boundary proximity, height, indentation, and baseline.',
+          {
+            ...rowContinuation.measurements,
+            ...headerAssociation.measurements,
+          },
         ),
         page_distance_penalty: measured(
           pageDistancePenalty,

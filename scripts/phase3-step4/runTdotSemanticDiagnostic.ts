@@ -5,6 +5,7 @@ import {
   buildParityRecords,
   loadPhase1Inputs,
   runGenericShadowFromPdf,
+  TDOT_PHASE1_HARNESS_VERSION,
 } from '@/lib/evaluation/tdotPhase1Harness';
 import { buildSemanticResolutionDiagnostic } from '@/lib/evaluation/semanticResolutionDiagnostics';
 
@@ -57,7 +58,7 @@ async function main(): Promise<void> {
   await mkdir(outputDirectory, { recursive: true });
   const outputPath = path.join(
     outputDirectory,
-    `semantic-resolution-diagnostic.phase1-v1.12.1-${checkpoint}.json`,
+    `semantic-resolution-diagnostic.phase1-v${TDOT_PHASE1_HARNESS_VERSION}-${checkpoint}.json`,
   );
   await writeFile(outputPath, `${JSON.stringify(diagnostic, null, 2)}\n`, 'utf8');
   process.stdout.write(`${JSON.stringify({

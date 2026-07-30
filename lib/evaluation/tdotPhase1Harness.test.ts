@@ -450,7 +450,7 @@ describe('TDOT Phase 1 shadow parity harness', () => {
   });
 
   it('keeps the report version explicit without using it as extraction identity', () => {
-    expect(TDOT_PHASE1_HARNESS_VERSION).toBe('1.12.1');
+    expect(TDOT_PHASE1_HARNESS_VERSION).toBe('1.13.0');
   });
 
   it('has no contract assembler, persistence writer, reader, or validator import', async () => {

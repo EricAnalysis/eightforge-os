@@ -42,7 +42,7 @@ import {
   deriveTdotPhase1ImplementationBuild,
 } from '@/lib/evaluation/tdotPhase1ExtractionBuild';
 
-export const TDOT_PHASE1_HARNESS_VERSION = '1.12.1';
+export const TDOT_PHASE1_HARNESS_VERSION = '1.13.0';
 export const TDOT_PHASE1_EXPECTED_SOURCE_SHA256 =
   '7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a';
 export const TDOT_PHASE1_FIXED_TIME = '2026-07-28T00:00:00.000Z';

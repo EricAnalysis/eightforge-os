@@ -32,6 +32,8 @@ import {
 } from '@/lib/extraction/domain/genericTableArtifacts';
 import {
   arbitrateRegion,
+  compareRegionCandidatesForCompatibilityStream,
+  compareRegionTokensBySourceOrder,
   REGION_ARBITRATOR,
   REGION_ARBITRATION_POLICY_V2,
 } from '@/lib/extraction/domain/regionArbitration';
@@ -46,6 +48,7 @@ import type {
   RegionCandidate,
   TableChainArtifact,
   TableContinuationLink,
+  LogicalTableRow,
   TableSectionArtifact,
   TableSegmentArtifact,
 } from '@/lib/extraction/domain/types';
@@ -546,8 +549,11 @@ export interface AdaptLegacyExtractionToStep1ShadowResult {
     }[];
   })[];
   readonly tableChains: readonly TableChainArtifact[];
+  readonly tableRows: readonly LogicalTableRow[];
   readonly tableSegments: readonly TableSegmentArtifact[];
   readonly tableSections: readonly TableSectionArtifact[];
+  readonly tableReconstructionDiagnostics:
+    GenericTableArtifactsResult['reconstruction_diagnostics'];
   readonly arbitrationDecisions: readonly (ArbitrationDecision & {
     readonly processing_gap_id?: string | null;
   })[];
@@ -615,7 +621,9 @@ function buildArbitratedRegions(input: {
     for (const token of [...pageTokens].sort((left, right) =>
       left.bounding_box.y0 - right.bounding_box.y0
       || left.bounding_box.x0 - right.bounding_box.x0
-      || left.id.localeCompare(right.id))) {
+      || left.bounding_box.y1 - right.bounding_box.y1
+      || left.bounding_box.x1 - right.bounding_box.x1
+      || compareRegionTokensBySourceOrder(left, right))) {
       const band = bands.find((candidate) => {
         return candidate.some((member) => {
           const overlap = Math.max(
@@ -644,7 +652,11 @@ function buildArbitratedRegions(input: {
       }
       const candidates = [...byEngine.values()].map((engineTokens) => {
         const ordered = engineTokens.sort((left, right) =>
-          left.bounding_box.x0 - right.bounding_box.x0 || left.id.localeCompare(right.id));
+          left.bounding_box.x0 - right.bounding_box.x0
+          || left.bounding_box.x1 - right.bounding_box.x1
+          || left.bounding_box.y0 - right.bounding_box.y0
+          || left.bounding_box.y1 - right.bounding_box.y1
+          || compareRegionTokensBySourceOrder(left, right));
         const firstToken = ordered[0];
         if (!firstToken) throw new Error('Region engine group requires source tokens.');
         const nonEmptyTokens: NonEmpty<SourceFragmentArtifact> = [
@@ -720,9 +732,12 @@ function buildArbitratedRegions(input: {
         ...result.decision,
         processing_gap_id: result.gap?.id ?? null,
       });
-      const selectedCandidateId = result.decision.accepted_candidate_ids
-        .slice().sort()[0];
-      const selected = candidates.find((candidate) => candidate.id === selectedCandidateId);
+      const acceptedCandidateIds = new Set(
+        result.decision.accepted_candidate_ids,
+      );
+      const selected = candidates
+        .filter((candidate) => acceptedCandidateIds.has(candidate.id))
+        .sort(compareRegionCandidatesForCompatibilityStream)[0];
       for (const tokenId of selected?.ordered_token_ids ?? []) acceptedTokenIds.add(tokenId);
     }
   }
@@ -1207,8 +1222,10 @@ export async function adaptLegacyExtractionToStep1Shadow(
     fragmentDependencies,
     continuationLinks,
     tableChains: closedTableChains,
+    tableRows: tableResult.rows,
     tableSegments: tableResult.segments,
     tableSections,
+    tableReconstructionDiagnostics: tableResult.reconstruction_diagnostics,
     arbitrationDecisions,
     snapshot,
     members,

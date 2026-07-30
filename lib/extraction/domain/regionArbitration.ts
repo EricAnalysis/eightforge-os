@@ -20,6 +20,8 @@ export const REGION_ARBITRATION_POLICY_V2 = Object.freeze({
   winner_quality_margin_minimum: 0.15,
   high_quality_conflict_minimum: 0.75,
   normalization: 'unicode-nfkc-collapse-whitespace',
+  compatibility_stream_selection:
+    'observed_engine_confidence_then_quality_then_source_evidence',
 });
 
 export const REGION_ARBITRATOR: ParserIdentity = Object.freeze({
@@ -83,6 +85,56 @@ function normalizedText(text: string): string {
   return text.normalize('NFKC').trim().replace(/\s+/g, ' ');
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function compareRegionTokensBySourceOrder(
+  left: SourceFragmentArtifact,
+  right: SourceFragmentArtifact,
+): number {
+  return left.page - right.page
+    || left.reading_order - right.reading_order
+    || left.bounding_box.y0 - right.bounding_box.y0
+    || left.bounding_box.x0 - right.bounding_box.x0
+    || left.bounding_box.y1 - right.bounding_box.y1
+    || left.bounding_box.x1 - right.bounding_box.x1
+    || compareText(left.raw_text, right.raw_text)
+    || compareText(left.parser.stage, right.parser.stage)
+    || compareText(left.parser.name, right.parser.name)
+    || compareText(left.parser.version, right.parser.version);
+}
+
+export function compareRegionCandidatesBySourceEvidence(
+  left: RegionCandidate,
+  right: RegionCandidate,
+): number {
+  return left.page - right.page
+    || left.bounding_box.y0 - right.bounding_box.y0
+    || left.bounding_box.x0 - right.bounding_box.x0
+    || left.bounding_box.y1 - right.bounding_box.y1
+    || left.bounding_box.x1 - right.bounding_box.x1
+    || left.reading_order - right.reading_order
+    || compareText(normalizedText(left.raw_text), normalizedText(right.raw_text))
+    || compareText(left.parser.stage, right.parser.stage)
+    || compareText(left.parser.name, right.parser.name)
+    || compareText(left.parser.version, right.parser.version);
+}
+
+export function compareRegionCandidatesForCompatibilityStream(
+  left: RegionCandidate,
+  right: RegionCandidate,
+): number {
+  const leftRecognition = left.engine_reported_confidence
+    ?? left.recognition_confidence;
+  const rightRecognition = right.engine_reported_confidence
+    ?? right.recognition_confidence;
+  return Number(rightRecognition != null) - Number(leftRecognition != null)
+    || (rightRecognition ?? -1) - (leftRecognition ?? -1)
+    || score(right) - score(left)
+    || compareRegionCandidatesBySourceEvidence(left, right);
+}
+
 function isValidBox(box: BoundingBox): boolean {
   return box.coordinate_space === 'page_normalized'
     && box.origin === 'top_left'
@@ -93,10 +145,7 @@ function isValidBox(box: BoundingBox): boolean {
 
 export function buildRegionCandidate(input: BuildRegionCandidateInput): RegionCandidate {
   const ordered = nonEmpty([...input.tokens].sort((left, right) =>
-    left.reading_order - right.reading_order
-    || left.bounding_box.y0 - right.bounding_box.y0
-    || left.bounding_box.x0 - right.bounding_box.x0
-    || left.id.localeCompare(right.id)));
+    compareRegionTokensBySourceOrder(left, right)));
   const first = ordered[0];
   if (ordered.some((token) =>
     token.kind !== 'token'
@@ -127,7 +176,10 @@ export function buildRegionCandidate(input: BuildRegionCandidateInput): RegionCa
   const orderedByGeometry = [...ordered].sort((left, right) =>
     left.bounding_box.y0 - right.bounding_box.y0
     || left.bounding_box.x0 - right.bounding_box.x0
-    || left.id.localeCompare(right.id));
+    || left.bounding_box.y1 - right.bounding_box.y1
+    || left.bounding_box.x1 - right.bounding_box.x1
+    || left.reading_order - right.reading_order
+    || compareRegionTokensBySourceOrder(left, right));
   const positionById = new Map(orderedByGeometry.map(({ id }, index) => [id, index]));
   let concordant = 0;
   for (let index = 1; index < ordered.length; index += 1) {
@@ -259,8 +311,9 @@ function assertClosedIdentity(candidates: NonEmpty<RegionCandidate>): void {
 }
 
 export function arbitrateRegion(input: ArbitrateRegionInput): ArbitrateRegionResult {
-  const candidates = [...input.candidates].sort((left, right) =>
-    left.id.localeCompare(right.id)) as unknown as NonEmpty<RegionCandidate>;
+  const candidates = [...input.candidates].sort(
+    compareRegionCandidatesBySourceEvidence,
+  ) as unknown as NonEmpty<RegionCandidate>;
   assertClosedIdentity(candidates);
   const first = candidates[0];
   const tokenById = new Map(input.tokens.map((token) => [token.id, token]));
@@ -319,7 +372,10 @@ export function arbitrateRegion(input: ArbitrateRegionInput): ArbitrateRegionRes
   const ranked = candidates
     .map((candidate) => ({ candidate, quality: score(candidate) }))
     .sort((left, right) => right.quality - left.quality
-      || left.candidate.id.localeCompare(right.candidate.id));
+      || compareRegionCandidatesBySourceEvidence(
+        left.candidate,
+        right.candidate,
+      ));
   const winner = ranked[0];
   const conflicts = ranked.slice(1);
   const margin = winner.quality - conflicts[0].quality;

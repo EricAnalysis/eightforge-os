@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildGenericTableArtifacts,
+  compareSourceFragmentsBySourceOrder,
   GENERIC_TABLE_PARSER,
   type ObservedTableRegion,
 } from '@/lib/extraction/domain/genericTableArtifacts';
@@ -111,6 +112,29 @@ function build(
     sections,
   });
 }
+
+describe('identity-independent source ordering', () => {
+  it('is antisymmetric and transitive without consulting opaque IDs', () => {
+    const targetPage = page(1);
+    const first = token(targetPage, 'A', 0.1, 0.1, 0.2, 0.12, 1);
+    const second = token(targetPage, 'B', 0.2, 0.1, 0.3, 0.12, 2);
+    const third = token(targetPage, 'C', 0.3, 0.1, 0.4, 0.12, 3);
+    expect(compareSourceFragmentsBySourceOrder(first, second)).toBeLessThan(0);
+    expect(compareSourceFragmentsBySourceOrder(second, first)).toBeGreaterThan(0);
+    expect(compareSourceFragmentsBySourceOrder(second, third)).toBeLessThan(0);
+    expect(compareSourceFragmentsBySourceOrder(first, third)).toBeLessThan(0);
+  });
+
+  it('treats an opaque-ID-only difference as an ordering tie', () => {
+    const original = token(page(1), 'same', 0.1, 0.1, 0.2, 0.12, 1);
+    const rekeyed: SourceFragmentArtifact = {
+      ...original,
+      id: opaqueIds.fragmentArtifact({ manifest_only_rekey: true }),
+    };
+    expect(compareSourceFragmentsBySourceOrder(original, rekeyed)).toBe(0);
+    expect(compareSourceFragmentsBySourceOrder(rekeyed, original)).toBe(0);
+  });
+});
 
 function splitRowScenario(destinationPageNumber: number, options: {
   readonly destinationY?: number;
@@ -249,6 +273,46 @@ describe('generic physical table artifacts', () => {
     ]);
   });
 
+  it.each(['-', '\u2013', '\u2014'])(
+    'coalesces a currency marker with %s only inside one measured band',
+    (dash) => {
+      const p = page(16);
+      const fragments = [
+        token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+        token(p, 'Amount', 0.55, 0.20, 0.62, 0.21, 2),
+        token(p, 'A', 0.05, 0.24, 0.10, 0.25, 3),
+        token(p, '$', 0.55, 0.24, 0.56, 0.25, 4),
+        token(p, dash, 0.59, 0.24, 0.60, 0.25, 5),
+      ];
+      const result = build([p], fragments);
+      const value = result.cells.find(({ raw_text }) =>
+        raw_text.includes('$'));
+
+      expect(value?.raw_text).toBe(`$ ${dash}`);
+      expect(value?.content_token_ids).toEqual([
+        fragments[3]?.id,
+        fragments[4]?.id,
+      ]);
+      expect(value?.artifact_data?.fragment_coalescing).toMatchObject({
+        applied: true,
+        reason: 'currency_marker_dash_pair',
+      });
+    },
+  );
+
+  it('does not coalesce currency and dash tokens separated by a column boundary', () => {
+    const p = page(17);
+    const fragments = [
+      token(p, 'Left', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Right', 0.55, 0.20, 0.62, 0.21, 2),
+      token(p, '$', 0.40, 0.24, 0.41, 0.25, 3),
+      token(p, '-', 0.55, 0.24, 0.56, 0.25, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.every(({ raw_text }) => raw_text !== '$ -')).toBe(true);
+  });
+
   it('keeps non-overlapping nearby baselines as distinct logical rows', () => {
     const p = page(8);
     const fragments = [
@@ -264,6 +328,298 @@ describe('generic physical table artifacts', () => {
       'First\tEA',
       'Second\tLS',
     ]);
+  });
+
+  it('attaches a sparse first line forward when following-row geometry dominates', () => {
+    const p = page(9);
+    const fragments = [
+      token(p, 'Previous', 0.05, 0.20, 0.15, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Next description', 0.05, 0.23, 0.19, 0.24, 3),
+      token(p, 'continued', 0.05, 0.245, 0.13, 0.255, 4),
+      token(p, 'LS', 0.55, 0.245, 0.58, 0.255, 5),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Next description\ncontinued');
+    expect(result.reconstruction_diagnostics.sparse_row_dispositions)
+      .toContainEqual(expect.objectContaining({
+        outcome: 'attached',
+        selected_primary_row_index: 2,
+        selected_column_index: 0,
+        candidate_rows: expect.arrayContaining([
+          expect.objectContaining({ direction: 'forward' }),
+          expect.objectContaining({ direction: 'backward' }),
+        ]),
+      }));
+  });
+
+  it('uses the anchored row start as the ordinal boundary when adjacent distances are close', () => {
+    const p = page(22);
+    const fragments = [
+      token(p, 'Prior row', 0.05, 0.20, 0.16, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Continuation detail', 0.05, 0.224, 0.22, 0.234, 3),
+      token(p, 'Following row', 0.05, 0.25, 0.18, 0.26, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'attached',
+      selected_primary_row_index: 0,
+      selected_column_index: 0,
+      selection_basis:
+        'backward_row_start_boundary_within_uncertainty',
+    });
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Prior row\nContinuation detail');
+  });
+
+  it('keeps immutable row-anchor geometry after opening a missing wrapped cell', () => {
+    const p = page(21);
+    const fragments = [
+      token(p, 'Previous', 0.05, 0.20, 0.16, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, '$ 1', 0.75, 0.20, 0.79, 0.21, 3),
+      token(p, 'Repeated route', 0.05, 0.23, 0.20, 0.24, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+      token(p, '$ 2', 0.75, 0.25, 0.79, 0.26, 6),
+      token(p, 'continued', 0.05, 0.27, 0.14, 0.28, 7),
+      token(p, 'Next', 0.05, 0.30, 0.12, 0.31, 8),
+      token(p, 'CY', 0.55, 0.30, 0.58, 0.31, 9),
+      token(p, '$ 3', 0.75, 0.30, 0.79, 0.31, 10),
+    ];
+    const result = build([p], fragments);
+    const dispositions =
+      result.reconstruction_diagnostics.sparse_row_dispositions;
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Repeated route\ncontinued');
+    expect(dispositions).toHaveLength(2);
+    expect(dispositions.every((item) =>
+      item.outcome === 'attached'
+      && item.selected_primary_row_index === 2
+      && item.selected_column_index === 0))
+      .toBe(true);
+    expect(dispositions[0]?.candidate_rows[0]?.measurements)
+      .toMatchObject({ target_cell_opened_from_sparse: false });
+    expect(dispositions[1]?.candidate_rows[0]?.measurements)
+      .toMatchObject({ target_cell_opened_from_sparse: true });
+  });
+
+  it('uses positional sequence evidence when adjacent wrapped text is identical', () => {
+    const p = page(20);
+    const fragments = [
+      token(p, 'Repeated route text', 0.05, 0.20, 0.24, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Repeated route text', 0.05, 0.214, 0.24, 0.224, 3),
+      token(p, 'Repeated route text', 0.05, 0.25, 0.24, 0.26, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'attached',
+      selected_primary_row_index: 0,
+      selected_column_index: 0,
+    });
+    expect(disposition?.candidate_rows[0]?.measurements)
+      .toMatchObject({
+        row_order_consistency: 1,
+        vertical_progression: expect.any(Number),
+        target_cell_existed: true,
+      });
+  });
+
+  it('preserves tied repeated-text candidates as an explicit gap', () => {
+    const p = page(10);
+    const fragments = [
+      token(p, 'Repeated', 0.05, 0.20, 0.12, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Repeated', 0.05, 0.22, 0.14, 0.23, 3),
+      token(p, 'Repeated', 0.05, 0.24, 0.12, 0.25, 4),
+      token(p, 'LS', 0.55, 0.24, 0.58, 0.25, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'unresolved_gap',
+      rejection_reason: 'candidate_scores_tied',
+      selected_primary_row_index: null,
+    });
+    expect(disposition?.candidate_rows.map(({ direction }) => direction).sort())
+      .toEqual(['backward', 'forward']);
+    expect(result.gaps.some(({ id }) =>
+      id === disposition?.processing_gap_id)).toBe(true);
+  });
+
+  it('constrains final coalescing to inferred bands and keeps row label separate', () => {
+    const p = page(11);
+    const fragments = [
+      token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Description', 0.19, 0.20, 0.30, 0.21, 2),
+      token(p, '1', 0.05, 0.24, 0.06, 0.25, 3),
+      token(p, 'Close description', 0.085, 0.24, 0.22, 0.25, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text)).toEqual([
+      'Item',
+      'Description',
+      '1',
+      'Close description',
+    ]);
+    expect(result.cells[2]?.column_start).not.toBe(
+      result.cells[3]?.column_start,
+    );
+  });
+
+  it('lets row-global evidence resolve a measured-boundary candidate', () => {
+    const p = page(12);
+    const fragments = [
+      token(p, 'A', 0.08, 0.20, 0.12, 0.21, 1),
+      token(p, 'B', 0.48, 0.20, 0.52, 0.21, 2),
+      token(p, 'C', 0.08, 0.24, 0.12, 0.25, 3),
+      token(p, 'D', 0.48, 0.24, 0.52, 0.25, 4),
+      token(p, 'Boundary', 0.275, 0.22, 0.285, 0.23, 5),
+    ];
+    const result = build([p], fragments);
+
+    const diagnostic =
+      result.reconstruction_diagnostics.row_anchor_assignments.find(
+        ({ physical_row_index }) => physical_row_index === 1,
+      );
+    expect(diagnostic?.candidate_matrix[0]).toHaveLength(2);
+    expect(diagnostic?.selected_assignments[0]).toMatchObject({
+      column_index: expect.any(Number),
+      processing_gap_id: null,
+    });
+    expect(result.reconstruction_diagnostics.undisposed_fragment_ids)
+      .not.toContain(fragments[4]?.id);
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .toHaveLength(0);
+  });
+
+  it('uses observed gap distributions only with sufficient calibration evidence', () => {
+    const p = page(13);
+    const fragments = Array.from({ length: 4 }, (_, rowIndex) => {
+      const y = 0.20 + rowIndex * 0.04;
+      return [
+        token(p, `Left${rowIndex}`, 0.05, y, 0.10, y + 0.01, rowIndex * 4 + 1),
+        token(p, 'part', 0.105, y, 0.15, y + 0.01, rowIndex * 4 + 2),
+        token(p, `Right${rowIndex}`, 0.55, y, 0.60, y + 0.01, rowIndex * 4 + 3),
+        token(p, 'part', 0.605, y, 0.65, y + 0.01, rowIndex * 4 + 4),
+      ];
+    }).flat();
+    const result = build([p], fragments);
+    const calibration = result.reconstruction_diagnostics.calibrations[0];
+
+    expect(calibration?.horizontal_gaps.sample_count).toBeGreaterThanOrEqual(8);
+    expect(calibration?.thresholds.maximum_inline_gap).toMatchObject({
+      mode: 'adaptive',
+      fallback_reason: null,
+    });
+    expect(calibration?.thresholds.maximum_inline_gap.confidence)
+      .toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('falls back to bounded defaults when calibration evidence is insufficient', () => {
+    const p = page(14);
+    const fragments = [
+      token(p, 'Left', 0.05, 0.20, 0.12, 0.21, 1),
+      token(p, 'Right', 0.55, 0.20, 0.62, 0.21, 2),
+    ];
+    const result = build([p], fragments);
+    const calibration = result.reconstruction_diagnostics.calibrations[0];
+
+    expect(calibration?.thresholds.maximum_inline_gap).toMatchObject({
+      mode: 'fallback',
+      selected: 0.025,
+      previous_default: 0.025,
+    });
+    expect(calibration?.thresholds.maximum_inline_gap.fallback_reason)
+      .toBeTruthy();
+  });
+
+  it('selects different relative thresholds for measurably different layouts', () => {
+    const makeLayout = (pageNumber: number, inlineGap: number) => {
+      const p = page(pageNumber);
+      const fragments = Array.from({ length: 5 }, (_, rowIndex) => {
+        const y = 0.20 + rowIndex * 0.04;
+        return [
+          token(p, `L${rowIndex}`, 0.05, y, 0.10, y + 0.01, rowIndex * 4 + 1),
+          token(
+            p,
+            'part',
+            0.10 + inlineGap,
+            y,
+            0.15 + inlineGap,
+            y + 0.01,
+            rowIndex * 4 + 2,
+          ),
+          token(p, `R${rowIndex}`, 0.55, y, 0.60, y + 0.01, rowIndex * 4 + 3),
+          token(
+            p,
+            'part',
+            0.60 + inlineGap,
+            y,
+            0.65 + inlineGap,
+            y + 0.01,
+            rowIndex * 4 + 4,
+          ),
+        ];
+      }).flat();
+      return build([p], fragments).reconstruction_diagnostics.calibrations[0]!;
+    };
+    const dense = makeLayout(18, 0.005);
+    const sparse = makeLayout(19, 0.018);
+
+    expect(dense.thresholds.maximum_inline_gap.selected)
+      .not.toBe(sparse.thresholds.maximum_inline_gap.selected);
+    expect(dense.thresholds.maximum_inline_gap.applied_bound).toBe('none');
+    expect(sparse.thresholds.maximum_inline_gap.applied_bound).toBe('none');
+  });
+
+  it('does not invent overflow columns and disposes every candidate fragment', () => {
+    const p = page(15);
+    const fragments = [
+      token(p, 'A', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'B', 0.50, 0.20, 0.55, 0.21, 2),
+      token(p, 'C', 0.05, 0.24, 0.10, 0.25, 3),
+      token(p, 'D', 0.50, 0.24, 0.55, 0.25, 4),
+      token(p, 'E', 0.05, 0.28, 0.10, 0.29, 5),
+      token(p, 'F', 0.50, 0.28, 0.55, 0.29, 6),
+      token(p, 'overflow', 0.80, 0.28, 0.88, 0.29, 7),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .toContainEqual(expect.objectContaining({
+        fragment_ids: [fragments[6]?.id],
+        rejection_reason: 'anchor_already_occupied',
+      }));
+    expect(Math.max(...result.cells.map(({ column_start }) => column_start))).toBe(1);
+    expect(result.reconstruction_diagnostics.undisposed_fragment_ids).toEqual([]);
+    expect(result.reconstruction_diagnostics.disposed_fragment_count)
+      .toBe(result.reconstruction_diagnostics.table_candidate_fragment_count);
+    expect(result.reconstruction_diagnostics.row_anchor_assignments)
+      .toContainEqual(expect.objectContaining({
+        selected_assignments: expect.arrayContaining([
+          expect.objectContaining({
+            structural_signal: 'structural_excess_cells',
+            column_index: null,
+            processing_gap_id: expect.any(String),
+          }),
+        ]),
+      }));
   });
 
   it('retains bordered merged spans and multiline text once without copying neighbors', () => {

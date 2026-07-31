@@ -9,7 +9,7 @@ import {
   type LegacyLocatedPageObservation,
 } from '@/lib/extraction/domain/legacyLocatedObservationAdapter';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
-import { GENERIC_TABLE_POLICY_V7 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { GENERIC_TABLE_POLICY_V8 } from '@/lib/extraction/domain/genericTableArtifacts';
 import {
   buildLegacyShadowParserManifest,
   hashParserManifest,
@@ -32,6 +32,7 @@ import { buildGenericPdfShadowSidecar } from '@/lib/server/documentExtraction';
 import {
   deleteSupportingSpanFromPdf,
   insertInlineSourceRowInPdf,
+  moveSourcePageInPdf,
   removeSourceRowFromPdf,
   replaceSourceTextInPdf,
   type PdfSourceMutationArtifact,
@@ -42,7 +43,7 @@ import {
   deriveTdotPhase1ImplementationBuild,
 } from '@/lib/evaluation/tdotPhase1ExtractionBuild';
 
-export const TDOT_PHASE1_HARNESS_VERSION = '1.13.0';
+export const TDOT_PHASE1_HARNESS_VERSION = '1.14.0';
 export const TDOT_PHASE1_EXPECTED_SOURCE_SHA256 =
   '7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a';
 export const TDOT_PHASE1_FIXED_TIME = '2026-07-28T00:00:00.000Z';
@@ -1680,15 +1681,24 @@ export async function executeSourceMetamorphicInvariants(input: {
     const envelope = deriveRowClearanceEnvelope(input.baseline, row);
     const cells = mutationRowCells(input.baseline, row);
     if (cells.some(({ token_boxes }) => token_boxes.length === 0)) return [];
-    return [{ row, fields, topology, signature, envelope, cells }];
+    return [{
+      row,
+      fields,
+      topology,
+      signature,
+      envelope,
+      cells,
+      isTail: topology.at(-1)?.row.id === row.id,
+    }];
   }).sort((left, right) =>
-    Number(right.envelope.disposition === 'executable')
+    Number(right.isTail) - Number(left.isTail)
+    || Number(right.envelope.disposition === 'executable')
       - Number(left.envelope.disposition === 'executable')
     || right.envelope.available_clearance - left.envelope.available_clearance
     || left.row.page - right.row.page
     || left.row.bounding_box.y0 - right.row.bounding_box.y0);
   const rowMutationTarget = rowCandidates[0] ?? null;
-  for (const invariantId of ['duplicate_row', 'insert_row'] as const) {
+  for (const invariantId of ['duplicate_row'] as const) {
     if (!rowMutationTarget || rowMutationTarget.envelope.disposition !== 'executable') {
       results.push({
         ...blockedSourceMutation(
@@ -1831,6 +1841,119 @@ export async function executeSourceMetamorphicInvariants(input: {
           row_clearance_envelope: rowMutationTarget.envelope,
         },
       });
+    }
+  }
+  results.push(blockedSourceMutation(
+    'insert_row',
+    'a distinct inserted-row signature cannot be constructed without a compound '
+      + 'text mutation whose independent source-grounding is unproven',
+  ));
+
+  const descriptionTarget = exactResolved.find((record) =>
+    record.ledger?.interpreted_field_or_role === 'description'
+    && record.generic_fields[0]?.raw_text.includes('\n'));
+  if (!descriptionTarget?.generic_fields[0]) {
+    results.push(blockedSourceMutation(
+      'change_description',
+      'no exact resolved multiline description with native token closure exists',
+    ));
+  } else {
+    const targetField = descriptionTarget.generic_fields[0];
+    const token = contentTokens(input.baseline, targetField).find(
+      ({ raw_text }) => /[A-Za-z].*[A-Za-z]/u.test(raw_text),
+    );
+    const letters = [...(token?.raw_text ?? '')]
+      .map((character, index) => ({ character, index }))
+      .filter(({ character }) => /[A-Za-z]/u.test(character));
+    const selected = letters.at(-1);
+    const alternate = letters.find(({ character }) =>
+      character !== selected?.character
+      && (character === character.toUpperCase())
+        === (selected?.character === selected?.character.toUpperCase()));
+    if (!token || !selected || !alternate) {
+      results.push(blockedSourceMutation(
+        'change_description',
+        'multiline description lacks a source-font-safe same-length token edit',
+      ));
+    } else {
+      const replacementToken =
+        `${token.raw_text.slice(0, selected.index)}${alternate.character}`
+        + token.raw_text.slice(selected.index + 1);
+      const replacementRawText = targetField.raw_text.replace(
+        token.raw_text,
+        replacementToken,
+      );
+      try {
+        const artifact = await replaceSourceTextInPdf({
+          source_bytes: sourceBytes,
+          target_page: targetField.source_page,
+          target_boxes: [token.bounding_box],
+          target_verified_field_id: targetField.verified_field_id,
+          expected_text: token.raw_text,
+          replacement_text: replacementToken,
+          source_match_mode: 'unique_substring_in_single_span',
+        });
+        const mutated = await runGenericShadowFromBytes({
+          bytes: artifact.bytes,
+          expectedSha256: artifact.mutated_sha256,
+          associationSeed: artifact.mutation_id,
+        });
+        const replacement = mutated.fields.find((field) =>
+          field.source_page === targetField.source_page
+          && field.raw_text === replacementRawText
+          && fieldCenterInBox(field, targetField.source_bbox));
+        const unaffected = compareUnaffectedFields({
+          baseline: input.baseline,
+          mutated,
+          excludedPages: new Set<number>(),
+          expectedFields: exactResolvedFields.filter(({ verified_field_id }) =>
+            verified_field_id !== targetField.verified_field_id),
+        });
+        const originalLineCount = targetField.raw_text.split('\n').length;
+        const mutatedLineCount = replacement?.raw_text.split('\n').length ?? 0;
+        const passed = artifact.validation.valid_pdf
+          && artifact.validation.visible_source_changed
+          && artifact.validation.font_fallback_count === 0
+          && replacement != null
+          && originalLineCount > 1
+          && mutatedLineCount === originalLineCount
+          && unaffected.missing_locators.length === 0
+          && mutated.dependency_closure.status === 'pass';
+        artifacts.push(artifact);
+        results.push({
+          invariant_id: 'change_description',
+          description:
+            'Changing one multiline description changes only that field and descendants.',
+          status: passed ? 'pass' : 'fail',
+          mutation_manifest: {
+            mutation_id: artifact.mutation_id,
+            source_sha256: artifact.source_sha256,
+            mutated_sha256: artifact.mutated_sha256,
+            mutation_type: 'change_description',
+            target_page: artifact.target_page,
+            target_source_span: artifact.target_source_span,
+            exact_mutation_operation: artifact.exact_mutation_operation,
+            original_raw_text: targetField.raw_text,
+            replacement_raw_text: replacementRawText,
+            original_line_count: originalLineCount,
+            mutated_line_count: mutatedLineCount,
+            executor: artifact.executor,
+            validation: artifact.validation,
+            dependency_closure: mutated.dependency_closure,
+            unaffected_comparison_population: unaffected,
+          },
+          explanation: passed
+            ? 'A same-length native-span edit changed one line inside a multiline description while preserving its line count, unrelated exact fields, source fonts, and dependency closure.'
+            : 'The measured multiline edit did not preserve description structure, unrelated fields, fonts, or closure.',
+          changed_field_ids: replacement ? [replacement.verified_field_id] : [],
+          unexpected_field_ids: unaffected.missing_locators,
+        });
+      } catch (error) {
+        results.push(blockedSourceMutation(
+          'change_description',
+          `mutation executor error: ${error instanceof Error ? error.message : String(error)}`,
+        ));
+      }
     }
   }
 
@@ -2171,6 +2294,102 @@ export async function executeSourceMetamorphicInvariants(input: {
     } catch (error) {
       results.push(blockedSourceMutation(
         'remove_row',
+        `mutation executor error: ${error instanceof Error ? error.message : String(error)}`,
+      ));
+    }
+  }
+
+  const segmentPages = new Set(
+    (input.baseline.graph.tableSegments ?? []).map(({ page }) => page),
+  );
+  const moveTargetPage = [...segmentPages]
+    .filter((page) => page > 1 && !segmentPages.has(page - 1))
+    .sort((left, right) => right - left)[0] ?? null;
+  if (moveTargetPage == null) {
+    results.push(blockedSourceMutation(
+      'move_table_page',
+      'no table-bearing page has a measured adjacent non-table destination',
+    ));
+  } else {
+    const destinationPage = moveTargetPage - 1;
+    try {
+      const artifact = await moveSourcePageInPdf({
+        source_bytes: sourceBytes,
+        target_page: moveTargetPage,
+        destination_page: destinationPage,
+      });
+      const mutated = await runGenericShadowFromBytes({
+        bytes: artifact.bytes,
+        expectedSha256: artifact.mutated_sha256,
+        associationSeed: artifact.mutation_id,
+      });
+      const semanticKey = (field: GenericComparedField) => hashCanonical({
+        raw_text: field.raw_text,
+        normalized_value: field.normalized_value,
+        semantic_role: field.semantic_role,
+        semantic_status: field.semantic_status,
+      });
+      const baselineValues = input.baseline.fields.map(semanticKey).sort();
+      const mutatedValues = mutated.fields.map(semanticKey).sort();
+      const targetFields = input.baseline.fields.filter(
+        ({ source_page }) => source_page === moveTargetPage,
+      );
+      const movedFields = targetFields.filter((target) =>
+        mutated.fields.some((field) =>
+          field.source_page === destinationPage
+          && semanticKey(field) === semanticKey(target)
+          && hashCanonical(field.source_bbox) === hashCanonical(target.source_bbox)));
+      const pageContentPreserved =
+        artifact.validation.relocated_target_render_sha256
+          === artifact.validation.source_target_render_sha256
+        && artifact.validation.relocated_target_text_sha256
+          === artifact.validation.source_target_text_sha256;
+      const passed = artifact.validation.valid_pdf
+        && artifact.validation.source_page_count
+          === artifact.validation.mutated_page_count
+        && artifact.validation.font_fallback_count === 0
+        && pageContentPreserved
+        && hashCanonical(baselineValues) === hashCanonical(mutatedValues)
+        && targetFields.length > 0
+        && movedFields.length === targetFields.length
+        && mutated.dependency_closure.status === 'pass';
+      artifacts.push(artifact);
+      results.push({
+        invariant_id: 'move_table_page',
+        description:
+          'Moving a table-bearing page preserves values and changes provenance.',
+        status: passed ? 'pass' : 'fail',
+        mutation_manifest: {
+          mutation_id: artifact.mutation_id,
+          source_sha256: artifact.source_sha256,
+          mutated_sha256: artifact.mutated_sha256,
+          mutation_type: artifact.mutation_type,
+          target_page: moveTargetPage,
+          destination_page: destinationPage,
+          exact_mutation_operation: artifact.exact_mutation_operation,
+          executor: artifact.executor,
+          validation: artifact.validation,
+          comparison_result: {
+            source_field_count: input.baseline.fields.length,
+            mutated_field_count: mutated.fields.length,
+            target_field_count: targetFields.length,
+            moved_field_count: movedFields.length,
+            logical_value_multiset_preserved:
+              hashCanonical(baselineValues) === hashCanonical(mutatedValues),
+            page_content_preserved: pageContentPreserved,
+          },
+          dependency_closure: mutated.dependency_closure,
+        },
+        explanation: passed
+          ? 'The page tree moved one complete table-bearing page to an adjacent non-table ordinal; native render/text content and the logical value multiset were preserved, field provenance moved, and closure passed.'
+          : 'The page relocation did not preserve every content, logical-value, provenance, or closure property.',
+        changed_field_ids: movedFields.map(({ verified_field_id }) =>
+          verified_field_id),
+        unexpected_field_ids: [],
+      });
+    } catch (error) {
+      results.push(blockedSourceMutation(
+        'move_table_page',
         `mutation executor error: ${error instanceof Error ? error.message : String(error)}`,
       ));
     }
@@ -2811,7 +3030,7 @@ export function buildPhase1Report(input: {
         && assignment.selected_assignments.some((selected) =>
           selected.margin != null
           && selected.margin
-            < GENERIC_TABLE_POLICY_V7.column_inference.minimum_assignment_margin),
+            < GENERIC_TABLE_POLICY_V8.column_inference.minimum_assignment_margin),
     );
     return {
       field_identifier: ledger.field_identifier,

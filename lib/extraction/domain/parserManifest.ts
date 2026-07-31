@@ -1,5 +1,5 @@
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import { GENERIC_TABLE_POLICY_V7 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { GENERIC_TABLE_POLICY_V8 } from '@/lib/extraction/domain/genericTableArtifacts';
 import { REGION_ARBITRATION_POLICY_V2 } from '@/lib/extraction/domain/regionArbitration';
 
 export interface VersionedComponent {
@@ -177,9 +177,9 @@ export function buildLegacyShadowParserManifest(params: {
           current_behavior_preserved: true,
         }),
     table_parser: params.verificationPolicy === 'step1_span_verified'
-      ? component('generic-geometric-table-reconstruction', GENERIC_TABLE_POLICY_V7.version, {
+      ? component('generic-geometric-table-reconstruction', GENERIC_TABLE_POLICY_V8.version, {
           implementation_build: implementationBuild,
-          ...GENERIC_TABLE_POLICY_V7,
+          ...GENERIC_TABLE_POLICY_V8,
           identity_inputs: ['source_geometry', 'source_text', 'parser_manifest'],
           forbidden_inputs: ['filename', 'document_type', 'project_id', 'vendor', 'expected_count'],
           shadow_only: true,

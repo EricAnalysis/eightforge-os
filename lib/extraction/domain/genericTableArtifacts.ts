@@ -20,7 +20,7 @@ import type {
   TableValueKind,
 } from '@/lib/extraction/domain/types';
 
-export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
+export const GENERIC_TABLE_POLICY_V8 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
   version: 'v8',
   row_center_tolerance: 0.018,
@@ -87,15 +87,11 @@ export const GENERIC_TABLE_POLICY_V6 = Object.freeze({
   },
 });
 
-// Compatibility export for callers migrating from the accepted Cycle 5 symbol.
-// Both names reference the same explicitly versioned v7 policy object.
-export const GENERIC_TABLE_POLICY_V7 = GENERIC_TABLE_POLICY_V6;
-
 export const GENERIC_TABLE_PARSER: ParserIdentity = Object.freeze({
   stage: 'table_reconstruction',
-  name: GENERIC_TABLE_POLICY_V6.name,
-  version: GENERIC_TABLE_POLICY_V6.version,
-  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V6),
+  name: GENERIC_TABLE_POLICY_V8.name,
+  version: GENERIC_TABLE_POLICY_V8.version,
+  configuration_hash: hashCanonical(GENERIC_TABLE_POLICY_V8),
 });
 
 export interface DistributionSummary {
@@ -463,7 +459,7 @@ function orderedLines(fragments: NonEmpty<SourceFragmentArtifact>): {
     const line = lines.find((members) => {
       return members.some((member) =>
         verticalOverlapRatio(fragment, member)
-          >= GENERIC_TABLE_POLICY_V6.fragment_coalescing.minimum_vertical_overlap_ratio);
+          >= GENERIC_TABLE_POLICY_V8.fragment_coalescing.minimum_vertical_overlap_ratio);
     });
     if (line) line.push(fragment);
     else lines.push([fragment]);
@@ -661,7 +657,7 @@ function splitGapClusters(values: readonly number[]): {
 } {
   if (
     values.length
-      < GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_horizontal_samples
+      < GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_horizontal_samples
   ) {
     return { lower: [], upper: [], threshold: null, confidence: 0 };
   }
@@ -684,12 +680,12 @@ function splitGapClusters(values: readonly number[]): {
     upperMean = upper.reduce((sum, value) => sum + value, 0) / upper.length;
   }
   const minimumClusterSamples =
-    GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_cluster_samples;
+    GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_cluster_samples;
   const ratio = lowerMean > 0 ? upperMean / lowerMean : Number.POSITIVE_INFINITY;
   if (
     lower.length < minimumClusterSamples
     || upper.length < minimumClusterSamples
-    || ratio < GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_cluster_ratio
+    || ratio < GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_cluster_ratio
   ) {
     return { lower, upper, threshold: null, confidence: 0 };
   }
@@ -705,7 +701,7 @@ function splitGapClusters(values: readonly number[]): {
     confidence: Number(Math.min(
       1,
       (ratio - 1)
-        / GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_cluster_ratio,
+        / GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_cluster_ratio,
     ).toFixed(6)),
   };
 }
@@ -721,7 +717,7 @@ function thresholdDiagnostic(input: {
 }): GeometryThresholdDiagnostic {
   const adaptive = input.derived != null
     && input.confidence
-      >= GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_adaptive_confidence;
+      >= GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_adaptive_confidence;
   const rawDerived = adaptive ? input.derived! : null;
   const selected = rawDerived == null
     ? bounded(input.previousDefault, input.minimum, input.maximum)
@@ -749,7 +745,7 @@ function thresholdDiagnostic(input: {
 function groupInlineCellFragments(
   fragments: NonEmpty<SourceFragmentArtifact>,
   maximumInlineGap =
-    GENERIC_TABLE_POLICY_V6.fragment_coalescing.maximum_inline_gap,
+    GENERIC_TABLE_POLICY_V8.fragment_coalescing.maximum_inline_gap,
 ): NonEmpty<NonEmpty<SourceFragmentArtifact>> {
   const sorted = nonEmpty(
     [...fragments].sort((left, right) =>
@@ -770,12 +766,12 @@ function groupInlineCellFragments(
     const observedCurrencyPair = /^[\$â‚¬Â£Â¥]$/.test(previousText)
       && /^[+-]?(?:\d+(?:,\d{3})*|\d*)\.\d+$/.test(currentText)
       && inlineGap
-        <= GENERIC_TABLE_POLICY_V6.fragment_coalescing.currency_pair_maximum_inline_gap;
+        <= GENERIC_TABLE_POLICY_V8.fragment_coalescing.currency_pair_maximum_inline_gap;
     const observedCurrencyDashPair =
       /^(?:\$|\u20ac|\u00a3|\u00a5)$/u.test(previousText)
       && /^(?:-|\u2013|\u2014)$/u.test(currentText)
       && inlineGap
-        <= GENERIC_TABLE_POLICY_V6.fragment_coalescing.currency_pair_maximum_inline_gap;
+        <= GENERIC_TABLE_POLICY_V8.fragment_coalescing.currency_pair_maximum_inline_gap;
     if (
       current
       && (
@@ -819,7 +815,7 @@ function firstRowHasStructuralHeaderContrast(
   if (
     !first
     || rows.length < 2
-    || first.length < GENERIC_TABLE_POLICY_V6.header_detection.minimum_columns
+    || first.length < GENERIC_TABLE_POLICY_V8.header_detection.minimum_columns
   ) {
     return false;
   }
@@ -832,7 +828,7 @@ function firstRowHasStructuralHeaderContrast(
     const laterKind = modalKind(laterRows, columnIndex);
     return laterKind != null && laterKind !== kind;
   }).length;
-  return contrasts >= GENERIC_TABLE_POLICY_V6.header_detection.minimum_kind_contrasts;
+  return contrasts >= GENERIC_TABLE_POLICY_V8.header_detection.minimum_kind_contrasts;
 }
 
 function verticalOverlapRatio(
@@ -887,18 +883,18 @@ function calibratePageGeometry(
   });
   const horizontalClusters = splitGapClusters(horizontalGaps);
   const verticalClusters = rowSpacings.length
-    >= GENERIC_TABLE_POLICY_V6.geometry_calibration.minimum_vertical_samples
+    >= GENERIC_TABLE_POLICY_V8.geometry_calibration.minimum_vertical_samples
     ? splitGapClusters(rowSpacings)
     : { lower: [], upper: [], threshold: null, confidence: 0 };
   const horizontalSummary = summarize(horizontalGaps);
   const rowSpacingSummary = summarize(rowSpacings);
   const baselineSummary = summarize(baselineVariations);
-  const calibration = GENERIC_TABLE_POLICY_V6.geometry_calibration;
+  const calibration = GENERIC_TABLE_POLICY_V8.geometry_calibration;
   const maximumInlineGap = thresholdDiagnostic({
     derived: horizontalClusters.threshold == null
       ? null
       : (quantile(horizontalGaps, 0.25) ?? 0) * 1.35,
-    previousDefault: GENERIC_TABLE_POLICY_V6.fragment_coalescing.maximum_inline_gap,
+    previousDefault: GENERIC_TABLE_POLICY_V8.fragment_coalescing.maximum_inline_gap,
     measurements: horizontalSummary,
     minimum: calibration.inline_gap_bounds.minimum,
     maximum: calibration.inline_gap_bounds.maximum,
@@ -910,7 +906,7 @@ function calibratePageGeometry(
       ? null
       : (quantile(rowSpacings, 0.25) ?? 0) * 1.25,
     previousDefault:
-      GENERIC_TABLE_POLICY_V6.logical_row_assembly.maximum_continuation_center_distance,
+      GENERIC_TABLE_POLICY_V8.logical_row_assembly.maximum_continuation_center_distance,
     measurements: rowSpacingSummary,
     minimum: calibration.continuation_distance_bounds.minimum,
     maximum: calibration.continuation_distance_bounds.maximum,
@@ -921,7 +917,7 @@ function calibratePageGeometry(
     derived: horizontalClusters.threshold != null && horizontalClusters.lower.length
       ? (quantile(horizontalGaps, 0.25) ?? 0) * 1.75
       : null,
-    previousDefault: GENERIC_TABLE_POLICY_V6.column_center_tolerance,
+    previousDefault: GENERIC_TABLE_POLICY_V8.column_center_tolerance,
     measurements: horizontalSummary,
     minimum: calibration.column_tolerance_bounds.minimum,
     maximum: calibration.column_tolerance_bounds.maximum,
@@ -949,10 +945,10 @@ function calibratePageGeometry(
     : null;
   const rowCenterTolerance = thresholdDiagnostic({
     derived: derivedRowCenterTolerance,
-    previousDefault: GENERIC_TABLE_POLICY_V6.row_center_tolerance,
+    previousDefault: GENERIC_TABLE_POLICY_V8.row_center_tolerance,
     measurements: baselineSummary,
     minimum: 0.004,
-    maximum: GENERIC_TABLE_POLICY_V6.row_center_tolerance,
+    maximum: GENERIC_TABLE_POLICY_V8.row_center_tolerance,
     confidence: derivedRowCenterTolerance == null ? 0 : 0.75,
     insufficientReason: 'insufficient_supported_baseline_variation_measurements',
   });
@@ -1117,11 +1113,11 @@ function assignApparentCells(
       }
       if (
         i < orderedCells.length
-        && current + GENERIC_TABLE_POLICY_V6.column_inference.unassigned_cost
+        && current + GENERIC_TABLE_POLICY_V8.column_inference.unassigned_cost
           < costs[i + 1]![j]!
       ) {
         costs[i + 1]![j] =
-          current + GENERIC_TABLE_POLICY_V6.column_inference.unassigned_cost;
+          current + GENERIC_TABLE_POLICY_V8.column_inference.unassigned_cost;
         previous.set(`${i + 1}:${j}`, { i, j, action: 'skip_cell' });
       }
       const candidate = candidateMatrix[i]?.[j];
@@ -1130,7 +1126,7 @@ function assignApparentCells(
         && j < bands.length
         && candidate?.feasible
         && candidate.cost
-          <= GENERIC_TABLE_POLICY_V6.column_inference.maximum_assignment_cost
+          <= GENERIC_TABLE_POLICY_V8.column_inference.maximum_assignment_cost
         && current + candidate.cost < costs[i + 1]![j + 1]!
       ) {
         costs[i + 1]![j + 1] = current + candidate.cost;
@@ -1157,14 +1153,14 @@ function assignApparentCells(
         .sort((left, right) =>
           left.cost - right.cost || left.column_index - right.column_index);
       const selectedCost = columnIndex == null
-        ? GENERIC_TABLE_POLICY_V6.column_inference.unassigned_cost
+        ? GENERIC_TABLE_POLICY_V8.column_inference.unassigned_cost
         : candidateMatrix[cellIndex]![columnIndex]!.cost;
       const alternative = candidates.find(({ column_index }) =>
         column_index !== columnIndex)?.cost ?? null;
       const margin = alternative == null
         ? null : Number((alternative - selectedCost).toFixed(6));
       const sufficientlyDistinct = margin == null
-        || margin >= GENERIC_TABLE_POLICY_V6.column_inference.minimum_assignment_margin;
+        || margin >= GENERIC_TABLE_POLICY_V8.column_inference.minimum_assignment_margin;
       return {
         cellIndex,
         columnIndex: sufficientlyDistinct ? columnIndex : null,
@@ -1373,7 +1369,7 @@ function attachSparseContinuationRows(input: {
       if (
         distanceDifference <= boundaryUncertainty
         && shapeDifference
-          >= GENERIC_TABLE_POLICY_V6.logical_row_assembly
+          >= GENERIC_TABLE_POLICY_V8.logical_row_assembly
             .minimum_continuation_shape_margin
       ) {
         return right.measurements.text_continuation_shape
@@ -1386,9 +1382,9 @@ function attachSparseContinuationRows(input: {
       if (
         distanceDifference <= boundaryUncertainty
         && distanceDifference
-          > GENERIC_TABLE_POLICY_V6.logical_row_assembly.distance_tie_tolerance
+          > GENERIC_TABLE_POLICY_V8.logical_row_assembly.distance_tie_tolerance
         && shapeDifference
-          < GENERIC_TABLE_POLICY_V6.logical_row_assembly
+          < GENERIC_TABLE_POLICY_V8.logical_row_assembly
             .minimum_continuation_shape_margin
         && left.direction !== right.direction
       ) {
@@ -1415,7 +1411,7 @@ function attachSparseContinuationRows(input: {
       && Math.abs(
         selected.measurements.vertical_distance
           - runnerUp.measurements.vertical_distance,
-      ) <= GENERIC_TABLE_POLICY_V6.logical_row_assembly.distance_tie_tolerance;
+      ) <= GENERIC_TABLE_POLICY_V8.logical_row_assembly.distance_tie_tolerance;
     const shapeSelected = selected != null && runnerUp != null
       && Math.abs(
         selected.measurements.vertical_distance
@@ -1423,7 +1419,7 @@ function attachSparseContinuationRows(input: {
       ) <= boundaryUncertainty
       && selected.measurements.text_continuation_shape
         - runnerUp.measurements.text_continuation_shape
-          >= GENERIC_TABLE_POLICY_V6.logical_row_assembly
+          >= GENERIC_TABLE_POLICY_V8.logical_row_assembly
             .minimum_continuation_shape_margin;
     const backwardBoundarySelected = selected != null && runnerUp != null
       && selected.direction === 'backward'
@@ -1435,11 +1431,11 @@ function attachSparseContinuationRows(input: {
       && Math.abs(
         selected.measurements.vertical_distance
           - runnerUp.measurements.vertical_distance,
-      ) > GENERIC_TABLE_POLICY_V6.logical_row_assembly.distance_tie_tolerance
+      ) > GENERIC_TABLE_POLICY_V8.logical_row_assembly.distance_tie_tolerance
       && Math.abs(
         selected.measurements.text_continuation_shape
           - runnerUp.measurements.text_continuation_shape,
-      ) < GENERIC_TABLE_POLICY_V6.logical_row_assembly
+      ) < GENERIC_TABLE_POLICY_V8.logical_row_assembly
         .minimum_continuation_shape_margin;
     const selectionBasis = selected == null
       ? null
@@ -1450,15 +1446,15 @@ function attachSparseContinuationRows(input: {
         : 'vertical_distance' as const;
     const accepted = selected != null
       && selected.score
-        >= GENERIC_TABLE_POLICY_V6.logical_row_assembly.minimum_attachment_score
+        >= GENERIC_TABLE_POLICY_V8.logical_row_assembly.minimum_attachment_score
       && (
         runnerUp == null
         || shapeSelected
         || backwardBoundarySelected
         || distanceMargin
-          >= GENERIC_TABLE_POLICY_V6.logical_row_assembly.minimum_distance_margin
+          >= GENERIC_TABLE_POLICY_V8.logical_row_assembly.minimum_distance_margin
         || scoreMargin
-          >= GENERIC_TABLE_POLICY_V6.logical_row_assembly.minimum_score_margin
+          >= GENERIC_TABLE_POLICY_V8.logical_row_assembly.minimum_score_margin
       )
       && !tied;
     const dispositionEvidence = {
@@ -1522,7 +1518,7 @@ function attachSparseContinuationRows(input: {
         selected_column_index: selected.column_index,
         confidence: selected.score,
         ...dispositionEvidence,
-        policy_version: GENERIC_TABLE_POLICY_V6.logical_row_assembly.version,
+        policy_version: GENERIC_TABLE_POLICY_V8.logical_row_assembly.version,
         rejection_reason: null,
         processing_gap_id: null,
       });
@@ -1532,7 +1528,7 @@ function attachSparseContinuationRows(input: {
       ? 'no_compatible_primary_row'
       : tied ? 'candidate_scores_tied'
         : selected!.score
-            < GENERIC_TABLE_POLICY_V6.logical_row_assembly.minimum_attachment_score
+            < GENERIC_TABLE_POLICY_V8.logical_row_assembly.minimum_attachment_score
           ? 'attachment_score_below_minimum'
           : 'attachment_evidence_margin_below_minimum';
     const unresolvedGap = gap(
@@ -1559,7 +1555,7 @@ function attachSparseContinuationRows(input: {
       selected_column_index: null,
       confidence: selected?.score ?? null,
       ...dispositionEvidence,
-      policy_version: GENERIC_TABLE_POLICY_V6.logical_row_assembly.version,
+      policy_version: GENERIC_TABLE_POLICY_V8.logical_row_assembly.version,
       rejection_reason: rejectionReason,
       processing_gap_id: unresolvedGap.id,
     });
@@ -1585,7 +1581,7 @@ function measureCoalescingEvidence(
   for (const fragment of ordered) {
     const line = lineGroups.find((members) => members.some((member) =>
       verticalOverlapRatio(fragment, member)
-        >= GENERIC_TABLE_POLICY_V6.fragment_coalescing.minimum_vertical_overlap_ratio));
+        >= GENERIC_TABLE_POLICY_V8.fragment_coalescing.minimum_vertical_overlap_ratio));
     if (line) line.push(fragment);
     else lineGroups.push([fragment]);
   }
@@ -1637,7 +1633,7 @@ function measureCoalescingEvidence(
       confidence: Number(Math.max(
         0,
         1 - maximumObservedInlineGap
-          / GENERIC_TABLE_POLICY_V6.fragment_coalescing
+          / GENERIC_TABLE_POLICY_V8.fragment_coalescing
             .currency_pair_maximum_inline_gap,
       ).toFixed(6)),
       maximum_observed_inline_gap: maximumObservedInlineGap,
@@ -1659,7 +1655,7 @@ function measureCoalescingEvidence(
       confidence: Number(Math.max(
         0,
         1 - maximumLineDistance
-          / GENERIC_TABLE_POLICY_V6.logical_row_assembly
+          / GENERIC_TABLE_POLICY_V8.logical_row_assembly
             .maximum_continuation_center_distance,
       ).toFixed(6)),
       maximum_observed_inline_gap: maximumObservedInlineGap,
@@ -1671,7 +1667,7 @@ function measureCoalescingEvidence(
       confidence: Number(Math.max(
         0,
         1 - maximumObservedInlineGap
-          / GENERIC_TABLE_POLICY_V6.fragment_coalescing.maximum_inline_gap,
+          / GENERIC_TABLE_POLICY_V8.fragment_coalescing.maximum_inline_gap,
       ).toFixed(6)),
       maximum_observed_inline_gap: maximumObservedInlineGap,
     };
@@ -1707,7 +1703,7 @@ function autoRegions(
       const row = rows.find((members) => {
         return members.some((member) =>
           verticalOverlapRatio(token, member)
-            >= GENERIC_TABLE_POLICY_V6.fragment_coalescing.minimum_vertical_overlap_ratio);
+            >= GENERIC_TABLE_POLICY_V8.fragment_coalescing.minimum_vertical_overlap_ratio);
       });
       if (row) row.push(token);
       else rows.push([token]);
@@ -1780,7 +1776,7 @@ function autoRegions(
         continuation_center_distance_limit: continuationLimit,
         candidate_column_indexes: candidateColumnIndexes,
         exclusion_reason: 'outside_continuation_scope',
-        policy_version: GENERIC_TABLE_POLICY_V6.logical_row_assembly.version,
+        policy_version: GENERIC_TABLE_POLICY_V8.logical_row_assembly.version,
       });
     }
     calibrations.push(calibration);
@@ -1912,7 +1908,7 @@ function autoRegions(
         page_artifact_id: page.id,
         page: page.page,
         physical_row_index: physicalRowIndex,
-        policy_version: GENERIC_TABLE_POLICY_V6.column_inference.version,
+        policy_version: GENERIC_TABLE_POLICY_V8.column_inference.version,
         apparent_cell_fragment_ids: apparentCells.map((cell) =>
           cell.map(({ id }) => id)),
         candidate_matrix: assignment.candidateMatrix,
@@ -2132,7 +2128,7 @@ export function buildGenericTableArtifacts(
             line_break_offsets: content.lineBreakOffsets,
             fragment_coalescing: {
               applied: content.ordered.length > 1,
-              policy: GENERIC_TABLE_POLICY_V6.fragment_coalescing,
+              policy: GENERIC_TABLE_POLICY_V8.fragment_coalescing,
               reason: cellPlan.coalescing_evidence?.reason
                 ?? 'explicit_observed_cell_plan',
               confidence: cellPlan.coalescing_evidence?.confidence ?? 1,
@@ -2141,9 +2137,9 @@ export function buildGenericTableArtifacts(
               basis_fragment_ids: content.ordered.map(({ id }) => id),
             },
             reconstruction_policy: {
-              name: GENERIC_TABLE_POLICY_V6.name,
-              version: GENERIC_TABLE_POLICY_V6.version,
-              row_center_tolerance: GENERIC_TABLE_POLICY_V6.row_center_tolerance,
+              name: GENERIC_TABLE_POLICY_V8.name,
+              version: GENERIC_TABLE_POLICY_V8.version,
+              row_center_tolerance: GENERIC_TABLE_POLICY_V8.row_center_tolerance,
             },
           },
         };
@@ -2570,8 +2566,8 @@ function measureRowContinuation(
     : firstCells.filter((cell) => {
       const center = (cell.bounding_box.x0 + cell.bounding_box.x1) / 2;
       return from.column_hypotheses.some((band) =>
-        center >= band.x0 - GENERIC_TABLE_POLICY_V6.column_center_tolerance
-        && center <= band.x1 + GENERIC_TABLE_POLICY_V6.column_center_tolerance);
+        center >= band.x0 - GENERIC_TABLE_POLICY_V8.column_center_tolerance
+        && center <= band.x1 + GENERIC_TABLE_POLICY_V8.column_center_tolerance);
     }).length / firstCells.length;
   const missingBands = Array.from({ length: bandCount }, (_, index) => index)
     .filter((index) => !finalOccupied.has(index));
@@ -2592,18 +2588,18 @@ function measureRowContinuation(
     : null;
   const destinationBand = firstDestinationCenter == null ? undefined
     : from.column_hypotheses.find((band) =>
-      firstDestinationCenter >= band.x0 - GENERIC_TABLE_POLICY_V6.column_center_tolerance
-      && firstDestinationCenter <= band.x1 + GENERIC_TABLE_POLICY_V6.column_center_tolerance);
+      firstDestinationCenter >= band.x0 - GENERIC_TABLE_POLICY_V8.column_center_tolerance
+      && firstDestinationCenter <= band.x1 + GENERIC_TABLE_POLICY_V8.column_center_tolerance);
   const indentationCompatibility = firstDestinationCell && destinationBand
     ? clamp(1 - Math.abs(firstDestinationCell.bounding_box.x0 - destinationBand.x0)
-      / Math.max(GENERIC_TABLE_POLICY_V6.column_center_tolerance, 0.001))
+      / Math.max(GENERIC_TABLE_POLICY_V8.column_center_tolerance, 0.001))
     : 0;
   const baselineCompatibility = clamp(
     1 - Math.abs(baselineSpread(finalCells) - baselineSpread(firstCells))
-      / Math.max(GENERIC_TABLE_POLICY_V6.row_center_tolerance, 0.001),
+      / Math.max(GENERIC_TABLE_POLICY_V8.row_center_tolerance, 0.001),
   );
   const repeatedHeader = firstRow?.row_kind === 'header';
-  const weights = GENERIC_TABLE_POLICY_V6.row_continuation_component_weights;
+  const weights = GENERIC_TABLE_POLICY_V8.row_continuation_component_weights;
   const compatibility = destinationAlignment * weights.destination_alignment
     + occupancyContinuity * weights.occupancy_continuity
     + rowHeightCompatibility * weights.row_height_compatibility
@@ -2656,8 +2652,8 @@ function measureHeaderAssociationContinuation(
   const alignedSourceBands = new Set(destinationCells.flatMap((cell) => {
     const center = (cell.bounding_box.x0 + cell.bounding_box.x1) / 2;
     const band = from.column_hypotheses.find((candidate) =>
-      center >= candidate.x0 - GENERIC_TABLE_POLICY_V6.column_center_tolerance
-      && center <= candidate.x1 + GENERIC_TABLE_POLICY_V6.column_center_tolerance);
+      center >= candidate.x0 - GENERIC_TABLE_POLICY_V8.column_center_tolerance
+      && center <= candidate.x1 + GENERIC_TABLE_POLICY_V8.column_center_tolerance);
     return band ? [band.index] : [];
   }));
   const destinationAlignment = destinationCells.length === 0 ? 0
@@ -2722,11 +2718,11 @@ function buildContinuationLinks(
     const plausible = ordered
       .filter((to) =>
         to.page > from.page
-        && to.page - from.page <= GENERIC_TABLE_POLICY_V6
+        && to.page - from.page <= GENERIC_TABLE_POLICY_V8
           .continuation_search_max_page_distance)
       .map((to) => ({ to, plausibility: columnBandSimilarity(from, to) }))
       .filter(({ plausibility }) =>
-        plausibility >= GENERIC_TABLE_POLICY_V6.continuation_plausibility_minimum);
+        plausibility >= GENERIC_TABLE_POLICY_V8.continuation_plausibility_minimum);
     const nearestPage = plausible.reduce<number | null>(
       (nearest, { to }) => nearest == null ? to.page : Math.min(nearest, to.page),
       null,
@@ -2737,7 +2733,7 @@ function buildContinuationLinks(
         right.plausibility - left.plausibility
         || left.to.reading_order - right.to.reading_order
         || compareSegmentsBySourceStructure(left.to, right.to))
-      .slice(0, GENERIC_TABLE_POLICY_V6.continuation_max_candidates_per_segment);
+      .slice(0, GENERIC_TABLE_POLICY_V8.continuation_max_candidates_per_segment);
     for (const { to, plausibility: columnScore } of candidates) {
     const basisIds: NonEmpty<TableSegmentArtifact['id']> = [from.id, to.id];
     const fromHeaders = normalizedHeaders(from);
@@ -2765,14 +2761,14 @@ function buildContinuationLinks(
     );
     const skippedPages = to.page - from.page - 1;
     const pageDistancePenalty = clamp(
-      1 - skippedPages * GENERIC_TABLE_POLICY_V6.page_distance_penalty_per_skipped_page,
+      1 - skippedPages * GENERIC_TABLE_POLICY_V8.page_distance_penalty_per_skipped_page,
     );
     const structuralMode = Math.max(
       headerScore ?? 0,
       rowContinuation.score,
       headerAssociation.score,
     );
-    const weights = GENERIC_TABLE_POLICY_V6.continuation_component_weights;
+    const weights = GENERIC_TABLE_POLICY_V8.continuation_component_weights;
     const scoreValue = columnScore * weights.column_bands
       + structuralMode * weights.structural_mode
       + edgeScore * weights.edge_proximity
@@ -2790,8 +2786,8 @@ function buildContinuationLinks(
       ...(measurements ? { measurements } : {}),
     });
     const decision: TableContinuationLink['decision'] =
-      scoreValue >= GENERIC_TABLE_POLICY_V6.continuation_link_minimum ? 'linked'
-        : scoreValue >= GENERIC_TABLE_POLICY_V6.continuation_ambiguity_minimum
+      scoreValue >= GENERIC_TABLE_POLICY_V8.continuation_link_minimum ? 'linked'
+        : scoreValue >= GENERIC_TABLE_POLICY_V8.continuation_ambiguity_minimum
           ? 'ambiguous' : 'rejected';
     links.push({
       id: opaqueIds.fragmentArtifact({
@@ -2872,7 +2868,7 @@ function buildContinuationLinks(
         });
       if (linked.length < 2) continue;
       const unresolvedTie = linked[0].score.value - linked[1].score.value
-        <= GENERIC_TABLE_POLICY_V6.continuation_near_tie_tolerance;
+        <= GENERIC_TABLE_POLICY_V8.continuation_near_tie_tolerance;
       const keepId = unresolvedTie ? null : linked[0].id;
       const competingIds = new Set(linked.map(({ id: linkId }) => linkId));
       const scoreMargin = linked[0].score.value - linked[1].score.value;
@@ -2934,7 +2930,7 @@ function buildContinuationLinks(
               competing_second_score: linked[1].score.value,
               competing_score_margin: scoreMargin,
               competition_near_tie_tolerance:
-                GENERIC_TABLE_POLICY_V6.continuation_near_tie_tolerance,
+                GENERIC_TABLE_POLICY_V8.continuation_near_tie_tolerance,
               competition_resolution: unresolvedTie
                 ? 'all_ambiguous_near_tie' : 'lower_rank_ambiguous',
               competition_retained_pair: retainedPair == null ? null

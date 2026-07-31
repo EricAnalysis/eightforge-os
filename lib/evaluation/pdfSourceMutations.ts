@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 
 export const PDF_SOURCE_MUTATION_EXECUTOR = Object.freeze({
   name: 'phase1-source-pdf-mutation',
-  version: '4',
+  version: '5',
   implementation: 'pymupdf-native-operator-edit',
   script: 'scripts/phase3-step4/mutateSourcePdf.py',
 });
@@ -63,6 +63,9 @@ interface PythonMutationResult {
   readonly target_text_before: string;
   readonly target_text_after: string;
   readonly font_fallback_count: number;
+  readonly relocated_target_render_sha256?: string;
+  readonly relocated_target_text_sha256?: string;
+  readonly destination_page?: number;
 }
 
 export interface PdfSourceMutationArtifact {
@@ -73,7 +76,8 @@ export interface PdfSourceMutationArtifact {
     | 'insert_row'
     | 'cross_page_duplicate_artifact'
     | 'replace_text'
-    | 'remove_row';
+    | 'remove_row'
+    | 'move_page';
   readonly source_sha256: string;
   readonly mutated_sha256: string;
   readonly target_page: number;
@@ -95,6 +99,9 @@ export interface PdfSourceMutationArtifact {
     readonly visible_source_changed: boolean;
     readonly selected_span_count: number;
     readonly font_fallback_count: number;
+    readonly relocated_target_render_sha256?: string;
+    readonly relocated_target_text_sha256?: string;
+    readonly destination_page?: number;
   };
   readonly retained_source_spans: readonly Readonly<Record<string, unknown>>[];
   readonly bytes: Uint8Array;
@@ -231,6 +238,11 @@ async function artifact(input: {
       visible_source_changed: execution.result.visible_source_changed,
       selected_span_count: execution.result.selected_span_count,
       font_fallback_count: execution.result.font_fallback_count,
+      relocated_target_render_sha256:
+        execution.result.relocated_target_render_sha256,
+      relocated_target_text_sha256:
+        execution.result.relocated_target_text_sha256,
+      destination_page: execution.result.destination_page,
     },
     retained_source_spans: execution.result.selected_spans,
     bytes: execution.bytes,
@@ -331,10 +343,63 @@ export async function insertInlineSourceRowInPdf(input: {
   if (cells.some(({ token_boxes }) => token_boxes.length === 0)) {
     throw new Error('Inline row mutation requires content-token geometry');
   }
-  throw new Error(
-    'selective native row-band cloning is unavailable: clipped Form XObjects '
-    + 'retain hidden full-page text operators and duplicate unrelated extraction spans',
-  );
+  if (input.mutation_type === 'insert_row') {
+    throw new Error(
+      'distinct inserted-row content cannot be constructed without a compound '
+      + 'text mutation whose independent source-grounding is unproven',
+    );
+  }
+  return artifact({
+    mutation_type: 'duplicate_row',
+    source_bytes: input.source_bytes,
+    target_page: input.target_page,
+    target_source_span: {
+      source_row_id: input.source_row_id,
+      cells,
+    },
+    request: {
+      cells,
+      displacement: input.envelope.required_displacement,
+    },
+    exact_mutation_operation: {
+      operation: 'pymupdf_reemit_selected_native_spans_inline',
+      source_span_selection: 'content_token_geometry',
+      displacement: input.envelope.required_displacement,
+      font_fallback: 'forbidden',
+      whole_page_form_cloning: false,
+    },
+  });
+}
+
+export async function moveSourcePageInPdf(input: {
+  readonly source_bytes: Uint8Array;
+  readonly target_page: number;
+  readonly destination_page: number;
+}): Promise<PdfSourceMutationArtifact> {
+  if (
+    input.target_page < 1
+    || input.destination_page < 1
+    || input.target_page === input.destination_page
+  ) {
+    throw new Error('Page relocation requires distinct positive page ordinals');
+  }
+  return artifact({
+    mutation_type: 'move_page',
+    source_bytes: input.source_bytes,
+    target_page: input.target_page,
+    target_source_span: {
+      source_page: input.target_page,
+      destination_page: input.destination_page,
+    },
+    request: { destination_page: input.destination_page },
+    exact_mutation_operation: {
+      operation: 'pymupdf_page_tree_reorder',
+      source_page: input.target_page,
+      destination_page: input.destination_page,
+      preserve_page_content_streams: true,
+      font_fallback: 'forbidden',
+    },
+  });
 }
 
 export async function replaceSourceTextInPdf(input: {

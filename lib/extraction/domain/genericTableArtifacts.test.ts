@@ -3,8 +3,10 @@ import {
   buildGenericTableArtifacts,
   compareSourceFragmentsBySourceOrder,
   GENERIC_TABLE_PARSER,
+  GENERIC_TABLE_POLICY_V8,
   type ObservedTableRegion,
 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import type {
   ExtractionRun,
@@ -35,6 +37,18 @@ const run: ExtractionRun = {
   artifact_schema_version: 'extraction-artifact-v1',
   status: 'complete',
 };
+
+describe('generic table policy identity', () => {
+  it('renames the v8 symbol without changing the accepted policy hash', () => {
+    expect(GENERIC_TABLE_POLICY_V8.version).toBe('v8');
+    expect(hashCanonical(GENERIC_TABLE_POLICY_V8)).toBe(
+      '6883ebb042bf5ece9b20e002d5bb31bf3a8bba872f7b7f155b833b20fa98f13e',
+    );
+    expect(GENERIC_TABLE_PARSER.configuration_hash).toBe(
+      hashCanonical(GENERIC_TABLE_POLICY_V8),
+    );
+  });
+});
 
 function page(pageNumber: number): PageArtifact {
   return {

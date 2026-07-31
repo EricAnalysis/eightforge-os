@@ -68,7 +68,15 @@ def source_fonts(document: fitz.Document, page: fitz.Page) -> dict[str, bytes]:
             extracted = document.extract_font(xref)
             content = extracted[3]
         except Exception:
-            continue
+            content = b""
+        if not content:
+            try:
+                content = fitz.Font(str(font[3])).buffer
+            except Exception:
+                try:
+                    content = fitz.Font(str(font[4])).buffer
+                except Exception:
+                    content = b""
         if not content:
             continue
         for name in names:
@@ -222,6 +230,72 @@ def main() -> None:
                 overlay=True,
             )
         mutated_target_page_number = document.page_count
+    elif request["mutation_type"] == "duplicate_row":
+        token_rectangles = [
+            normalized_rect(target_page, box)
+            for cell in request["cells"]
+            for box in cell["token_boxes"]
+        ]
+        source_span_inventory = span_records(target_page)
+        selected = [
+            span for span in source_span_inventory
+            if intersects(fitz.Rect(span["bbox"]), token_rectangles)
+        ]
+        if not selected:
+            raise RuntimeError("source_span_not_found")
+        for span in selected:
+            span_rect = fitz.Rect(span["bbox"])
+            if not any(candidate.contains(span_rect) for candidate in token_rectangles):
+                raise RuntimeError("selected_native_span_crosses_target_token_geometry")
+        displacement = float(request["displacement"]) * target_page.rect.height
+        destination_rects = [
+            fitz.Rect(
+                float(span["bbox"][0]),
+                float(span["bbox"][1]) + displacement,
+                float(span["bbox"][2]),
+                float(span["bbox"][3]) + displacement,
+            )
+            for span in selected
+        ]
+        if any(rect.y1 > target_page.rect.height for rect in destination_rects):
+            raise RuntimeError("inline_duplicate_exceeds_page_bounds")
+        unselected = [
+            span for span in source_span_inventory if span not in selected
+        ]
+        if any(
+            not (destination & fitz.Rect(span["bbox"])).is_empty
+            for destination in destination_rects
+            for span in unselected
+        ):
+            raise RuntimeError("inline_duplicate_overlaps_unrelated_visible_span")
+        fonts = source_fonts(document, target_page)
+        font_aliases: dict[str, str] = {}
+        for span in selected:
+            font_name = str(span["font"])
+            font_bytes = fonts.get(font_name) or fonts.get(font_name.split("+")[-1])
+            if not font_bytes:
+                raise RuntimeError(f"source_font_bytes_unavailable:{font_name}")
+            alias = font_aliases.get(font_name)
+            if alias is None:
+                alias = f"inlinefont{len(font_aliases)}"
+                target_page.insert_font(fontname=alias, fontbuffer=font_bytes)
+                font_aliases[font_name] = alias
+            origin = span["origin"]
+            target_page.insert_text(
+                fitz.Point(float(origin[0]), float(origin[1]) + displacement),
+                str(span["text"]),
+                fontsize=max(1, float(span["size"])),
+                fontname=alias,
+                color=rgb_from_int(int(span["color"])),
+                overlay=True,
+            )
+        mutated_target_page_number = target_page_number
+    elif request["mutation_type"] == "move_page":
+        destination_page = int(request["destination_page"])
+        if destination_page < 1 or destination_page > source_page_count:
+            raise RuntimeError("destination_page_out_of_bounds")
+        document.move_page(target_page_number - 1, destination_page - 1)
+        mutated_target_page_number = target_page_number
     else:
         raise RuntimeError(f"unsupported_mutation_type:{request['mutation_type']}")
 
@@ -235,6 +309,11 @@ def main() -> None:
     document.close()
     mutated = fitz.open(output_path)
     mutated_target = mutated[mutated_target_page_number - 1]
+    relocated_target = (
+        mutated[int(request["destination_page"]) - 1]
+        if request["mutation_type"] == "move_page"
+        else None
+    )
     result = {
         "capability": {
             "pymupdf_version": fitz.VersionBind,
@@ -253,6 +332,11 @@ def main() -> None:
         "target_text_after": mutated_target.get_text("text"),
         "font_fallback_count": font_fallback_count,
         "replacement_text": request.get("replacement_text"),
+        "relocated_target_render_sha256":
+            render_sha(relocated_target) if relocated_target else None,
+        "relocated_target_text_sha256":
+            text_sha(relocated_target) if relocated_target else None,
+        "destination_page": request.get("destination_page"),
     }
     mutated.close()
     result_path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")

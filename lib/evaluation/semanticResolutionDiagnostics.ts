@@ -1049,7 +1049,7 @@ export function buildSemanticResolutionDiagnostic(input: {
         scope_classification === 'target_segment');
   }).length;
   return {
-    checkpoint_version: `phase1-v1.13.0-${checkpoint}`,
+    checkpoint_version: `phase1-v1.14.0-${checkpoint}`,
     checkpoint_kind: checkpoint === 'part-a'
       ? 'source_header_existence_diagnosis_only'
       : checkpoint.startsWith('part-b')

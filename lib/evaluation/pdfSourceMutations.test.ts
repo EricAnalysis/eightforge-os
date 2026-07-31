@@ -10,6 +10,7 @@ import {
   createCrossPageDuplicateArtifactFromPdf,
   deleteSupportingSpanFromPdf,
   insertInlineSourceRowInPdf,
+  moveSourcePageInPdf,
   removeSourceRowFromPdf,
   replaceSourceTextInPdf,
 } from '@/lib/evaluation/pdfSourceMutations';
@@ -60,7 +61,9 @@ beforeAll(async () => {
       'p=d.new_page(width=600,height=800)',
       'p.insert_text((60,120),"ROW-1 DESCRIPTION",fontsize=12)',
       'p.insert_text((360,120),"$ 12.50",fontsize=12)',
-      'p.insert_text((60,180),"UNAFFECTED ROW",fontsize=12)',
+      'p.insert_text((60,240),"UNAFFECTED ROW",fontsize=12)',
+      'q=d.new_page(width=600,height=800)',
+      'q.insert_text((60,120),"SECOND PAGE",fontsize=12)',
       'd.set_metadata({})',
       'd.save(sys.argv[1],garbage=4,clean=True,deflate=True,no_new_id=True)',
     ].join(';'),
@@ -121,10 +124,10 @@ describe('source-level PDF mutations', () => {
     expect(first.mutated_sha256).toBe(replay.mutated_sha256);
     expect(first.mutation_type).toBe('cross_page_duplicate_artifact');
     expect(first.mutation_type).not.toBe('duplicate_row');
-    expect(first.validation.mutated_page_count).toBe(2);
-    expect(pages[1]).toContain('ROW-1 DESCRIPTION');
-    expect(pages[1]).toContain('$ 12.50');
-    expect(pages[1]).not.toContain('UNAFFECTED ROW');
+    expect(first.validation.mutated_page_count).toBe(3);
+    expect(pages[2]).toContain('ROW-1 DESCRIPTION');
+    expect(pages[2]).toContain('$ 12.50');
+    expect(pages[2]).not.toContain('UNAFFECTED ROW');
   });
 
   it('replaces one exact native span without changing unrelated text', async () => {
@@ -184,8 +187,8 @@ describe('source-level PDF mutations', () => {
     expect(pages[0]).toContain('UNAFFECTED ROW');
   });
 
-  it('blocks a measured-safe row when the native clone leaks hidden spans', async () => {
-    await expect(insertInlineSourceRowInPdf({
+  it('duplicates only selected native spans inline with no font fallback', async () => {
+    const mutation = await insertInlineSourceRowInPdf({
       mutation_type: 'duplicate_row',
       source_bytes: sourceBytes,
       target_page: 1,
@@ -221,9 +224,35 @@ describe('source-level PDF mutations', () => {
         disposition: 'executable',
         blocked_reason: null,
       },
-    })).rejects.toThrow(
-      'clipped Form XObjects retain hidden full-page text operators',
+    });
+    const pages = await extractedText(mutation.bytes);
+
+    expect(mutation.mutation_type).toBe('duplicate_row');
+    expect(mutation.validation.visible_source_changed).toBe(true);
+    expect(mutation.validation.font_fallback_count).toBe(0);
+    expect(pages[0]!.match(/ROW-1 DESCRIPTION/g)).toHaveLength(2);
+    expect(pages[0]!.match(/\$ 12\.50/g)).toHaveLength(2);
+    expect(pages[0]!.match(/UNAFFECTED ROW/g)).toHaveLength(1);
+  });
+
+  it('moves a page through the page tree without changing its content', async () => {
+    const mutation = await moveSourcePageInPdf({
+      source_bytes: sourceBytes,
+      target_page: 2,
+      destination_page: 1,
+    });
+    const pages = await extractedText(mutation.bytes);
+
+    expect(mutation.validation.source_page_count).toBe(2);
+    expect(mutation.validation.mutated_page_count).toBe(2);
+    expect(mutation.validation.relocated_target_render_sha256).toBe(
+      mutation.validation.source_target_render_sha256,
     );
+    expect(mutation.validation.relocated_target_text_sha256).toBe(
+      mutation.validation.source_target_text_sha256,
+    );
+    expect(pages[0]).toContain('SECOND PAGE');
+    expect(pages[1]).toContain('UNAFFECTED ROW');
   });
 
   it('blocks inline insertion when measured clearance is insufficient', async () => {

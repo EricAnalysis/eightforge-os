@@ -3,6 +3,22 @@
 **Date:** 2026-08-01  
 **Scope:** additive, in-memory canonical invoice/transaction/reconciliation/validation/project registry; no production reader wiring, UI change, Validator change, extraction change, assembler change, migration, commit, or push.
 
+> **Superseded decision**
+>
+> The original `BLOCKED BY CURRENT SOURCE MODEL` decision in this report reflected
+> the repository state before commit `57566c3`.
+>
+> Commit `57566c3` corrected the authored-description sequencing defect and restored
+> source-backed route and distance-band interpretation for the affected Golden rows.
+>
+> The controlling follow-up review is:
+>
+> `docs/audits/canonical-project-truth-code-review-2026-08-01.md`
+>
+> Current status: `READY FOR A CONTAINED INTERPRETATION SLICE`.
+>
+> The original analysis below is retained as a historical record.
+
 ## 1. Git state
 
 The repository started on `main`, ahead of `origin/main` by four commits, with substantial pre-existing modified and untracked extraction/evaluation/audit work. Those changes were preserved. This slice is intentionally uncommitted. No push was performed.

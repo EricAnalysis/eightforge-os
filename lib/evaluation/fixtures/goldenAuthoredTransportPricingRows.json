@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "canonical_pricing_dimension_artifact:v1",
+  "generatorVersion": "extractDocument>runDocumentPipeline>assembleContractPricingRows:v1",
+  "sourcePdfSha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+  "rows": [
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t26:r2:v1",
+      "category": "Vegetative Collect, Remove & Haul",
+      "description": "from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles",
+      "route": "ROW to DMS",
+      "distanceBand": "0 to 15 Miles",
+      "pricingDimensions": { "routeKind": "row_to_dms", "routeRawSpan": "ROW to DMS", "distanceBand": { "minMiles": 0, "maxMiles": 15, "openEnded": false, "exactMiles": null, "rawExpression": "0 to 15 Miles" }, "distanceRawSpan": "0 to 15 Miles", "confidence": null, "parseState": "explicit", "unresolvedReason": null },
+      "pricingDimensionSources": { "route": "authored_correction", "distance": "authored_correction" },
+      "unit": "Cubic Yard", "rate": 6.9, "page": 8,
+      "sourceAnchor": "pdf:table:p8:t26:r2", "confidence": "low",
+      "sourceKind": "exhibit_a_table", "sourceQuality": "clean",
+      "authoredValueCorrection": true,
+      "rawText": "Vegetative Collect; Remove, & Haul -16 Miles from R OW a rors DMS uble Yard | $6.90 Vegetative Collect; Remove, & Haul -16 Miles from R OW a rors DMS uble Yard | $6.90",
+      "evidenceRefs": ["pdf:table:p8:t26:r2:cell:0", "pdf:table:p8:t26:r2:cell:1", "pdf:table:p8:t26:r2:cell:2"]
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t31:r1",
+      "category": "Final Disposal", "description": "DMS to Final Disposal 0 to 15 Miles",
+      "route": "DMS to Final Disposal", "distanceBand": "0 to 15 Miles",
+      "pricingDimensions": { "routeKind": "dms_to_final_disposal", "routeRawSpan": "DMS to Final Disposal", "distanceBand": { "minMiles": 0, "maxMiles": 15, "openEnded": false, "exactMiles": null, "rawExpression": "0 to 15 Miles" }, "distanceRawSpan": "0 to 15 Miles", "confidence": null, "parseState": "explicit", "unresolvedReason": null },
+      "pricingDimensionSources": { "route": "authored_correction", "distance": "authored_correction" },
+      "unit": "Cubic Yard", "rate": 3.25, "page": 8,
+      "sourceAnchor": "pdf:table:p8:t31:r1", "confidence": "low",
+      "sourceKind": "exhibit_a_table", "sourceQuality": "clean",
+      "authoredValueCorrection": true,
+      "rawText": "$8.25 Final Disposal 0 15 Miles from DMS to Final | Cubic Yard $8.25",
+      "evidenceRefs": ["pdf:table:p8:t31:r1:cell:0", "pdf:table:p8:t31:r1:cell:1", "pdf:table:p8:t31:r1:cell:2", "pdf:table:p8:t31:r1:cell:3"]
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t32:r1",
+      "category": "Final Disposal", "description": "DMS to Final Disposal 60+ Miles",
+      "route": "DMS to Final Disposal", "distanceBand": "60+ Miles",
+      "pricingDimensions": { "routeKind": "dms_to_final_disposal", "routeRawSpan": "DMS to Final Disposal", "distanceBand": { "minMiles": 60, "maxMiles": null, "openEnded": true, "exactMiles": null, "rawExpression": "60+ Miles" }, "distanceRawSpan": "60+ Miles", "confidence": null, "parseState": "explicit", "unresolvedReason": null },
+      "pricingDimensionSources": { "route": "authored_correction", "distance": "authored_correction" },
+      "unit": "Cubic Yard", "rate": 5.4, "page": 8,
+      "sourceAnchor": "pdf:table:p8:t32:r1", "confidence": "low",
+      "sourceKind": "exhibit_a_table", "sourceQuality": "clean",
+      "authoredValueCorrection": true,
+      "rawText": "Cubic Yard 1 $5.40 | Final Disposal es from Ms to Final Cubic Yard 1 $5.40",
+      "evidenceRefs": ["pdf:table:p8:t32:r1:cell:0", "pdf:table:p8:t32:r1:cell:1", "pdf:table:p8:t32:r1:cell:2"]
+    }
+  ]
+}

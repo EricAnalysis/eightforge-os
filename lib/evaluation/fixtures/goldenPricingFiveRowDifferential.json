@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "canonical_pricing_five_row_differential:v1",
+  "sourcePdfSha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+  "aggregateBefore": { "rateScheduleRows": 105, "assemblerOutputs": 90, "resolved": 56, "needsReview": 34, "excluded": 0, "mergedOrDeduped": 15, "silentlyLost": 0, "approvalEligible": 56 },
+  "aggregateAfterRevision": { "rateScheduleRows": 105, "assemblerOutputs": 90, "resolved": 56, "needsReview": 34, "excluded": 0, "mergedOrDeduped": 15, "silentlyLost": 0, "approvalEligible": 56 },
+  "rows": [
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t26:r2:v1",
+      "changeClass": "intended",
+      "before": { "description": "from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles", "route": null, "distanceBand": null, "displayGroup": "needs_review", "approvalEligible": false },
+      "after": { "description": "from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles", "route": "ROW to DMS", "distanceBand": "0 to 15 Miles", "authoredValueCorrection": true, "displayGroup": "needs_review", "approvalEligible": false, "blockers": ["authored_value_correction"] }
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t31:r1",
+      "changeClass": "intended",
+      "before": { "description": "DMS to Final Disposal 0 to 15 Miles", "route": null, "distanceBand": null, "displayGroup": "needs_review", "approvalEligible": false },
+      "after": { "description": "DMS to Final Disposal 0 to 15 Miles", "route": "DMS to Final Disposal", "distanceBand": "0 to 15 Miles", "authoredValueCorrection": true, "displayGroup": "needs_review", "approvalEligible": false, "blockers": ["authored_value_correction"] }
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t32:r1",
+      "changeClass": "intended",
+      "before": { "description": "DMS to Final Disposal 60+ Miles", "route": null, "distanceBand": null, "displayGroup": "needs_review", "approvalEligible": false },
+      "after": { "description": "DMS to Final Disposal 60+ Miles", "route": "DMS to Final Disposal", "distanceBand": "60+ Miles", "authoredValueCorrection": true, "displayGroup": "needs_review", "approvalEligible": false, "blockers": ["authored_value_correction"] }
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t27:r2",
+      "changeClass": "review_behavior_restored",
+      "before": { "description": "Raw row needs review", "sourceQuality": "partial", "displayGroup": "needs_review", "approvalEligible": false },
+      "after": { "description": "Raw row needs review", "route": "ROW to DMS", "distanceBand": "60+ Miles", "authoredValueCorrection": false, "displayGroup": "needs_review", "approvalEligible": false, "blockers": ["description_unresolved"] }
+    },
+    {
+      "id": "exhibit_a_table:pdf:table:p8:t30:r6",
+      "changeClass": "review_behavior_restored",
+      "before": { "description": "Raw row needs review", "sourceQuality": "partial", "displayGroup": "needs_review", "approvalEligible": false },
+      "after": { "description": "Raw row needs review", "route": "ROW to DMS", "distanceBand": "60+ Miles", "authoredValueCorrection": false, "displayGroup": "needs_review", "approvalEligible": false, "blockers": ["description_unresolved"] }
+    }
+  ]
+}

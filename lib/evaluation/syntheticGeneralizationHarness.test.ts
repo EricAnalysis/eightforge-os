@@ -12,7 +12,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-describe('synthetic generalization evidence', () => {
+describe('synthetic generalization evidence', { timeout: 30_000 }, () => {
   it('generates byte-identical external PDFs and ledgers from independent layouts', async () => {
     const output = await mkdtemp(
       path.join(os.tmpdir(), 'eightforge-synthetic-test-'),

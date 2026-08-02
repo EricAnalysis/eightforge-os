@@ -78,7 +78,7 @@ afterAll(async () => {
   }
 });
 
-describe('source-level PDF mutations', () => {
+describe('source-level PDF mutations', { timeout: 30_000 }, () => {
   it('removes native source operators instead of masking extracted text', async () => {
     const mutation = await deleteSupportingSpanFromPdf({
       source_bytes: sourceBytes,

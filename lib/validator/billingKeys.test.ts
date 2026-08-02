@@ -7,6 +7,7 @@ import {
   deriveBillingKeysForTransactionRecord,
   deriveBillingRateKey,
   deriveDescriptionMatchKey,
+  diagnoseOperationalDimensionCompatibility,
   deriveInvoiceRateKey,
   matchTransactionRowsForInvoiceGroup,
   normalizeInvoiceNumber,
@@ -23,6 +24,55 @@ import {
 } from '@/lib/validator/billingKeys';
 
 describe('billingKeys', () => {
+  it('preserves the pre-slice operational route and range detector on 39 reviewed strings', () => {
+    const reviewed = [
+      ['ROW to DMS', 'row_to_dms', null],
+      ['ROW → DMS', 'row_to_dms', null],
+      ['ROW-DMS', 'row_to_dms', null],
+      ['ROW t6 DMS', 'row_to_dms', null],
+      ['ROW t0 DMS', 'row_to_dms', null],
+      ['ROW 10 DMS', 'row_to_dms', null],
+      ['ROW staging DMS', 'row_to_dms', null],
+      ['DMS to ROW', 'row_to_dms', null],
+      ['ROW and DMS', 'row_to_dms', null],
+      ['DMS ROW', 'row_to_dms', null],
+      ['ROWtoDMS', null, null],
+      ['DMS to FDS', null, null],
+      ['ROW to Final Disposal', null, null],
+      ['rower at DMS', null, null],
+      ['ROW at DMSX', null, null],
+      ['0 to 15', null, { start: 0, end: 15 }],
+      ['0-15', null, { start: 0, end: 15 }],
+      ['16 to 30', null, { start: 16, end: 30 }],
+      ['31-60', null, { start: 31, end: 60 }],
+      ['60-81', null, { start: 60, end: 81 }],
+      ['81-60', null, { start: 60, end: 81 }],
+      ['0-16', null, { start: 0, end: 16 }],
+      ['5-10', null, { start: 5, end: 10 }],
+      ['5–10', null, { start: 5, end: 10 }],
+      ['5—10', null, { start: 5, end: 10 }],
+      ['10-5', null, { start: 5, end: 10 }],
+      ['123-456', null, { start: 123, end: 456 }],
+      ['invoice 2026-08', null, { start: 8, end: 2026 }],
+      ['item 2-4', null, { start: 2, end: 4 }],
+      ['0-15 and 16-30', null, { start: 0, end: 15 }],
+      ['16-30 and 0-15', null, { start: 16, end: 30 }],
+      ['up to 15', null, null],
+      ['over 60', null, null],
+      ['60+', null, null],
+      ['Any', null, null],
+      ['exactly 15', null, null],
+      ['15 miles', null, null],
+      ['0 through 15', null, null],
+      ['Vegetative Collect; Remove, & Haul -16 Miles from R OW a rors DMS', null, null],
+    ] as const;
+
+    assert.equal(reviewed.length, 39);
+    for (const [value, route, distanceBand] of reviewed) {
+      assert.deepEqual(diagnoseOperationalDimensionCompatibility(value), { route, distanceBand }, value);
+    }
+  });
+
   it('normalizes rate codes so 1A variants match', () => {
     assert.equal(normalizeRateCode('1A'), '1A');
     assert.equal(normalizeRateCode('1a'), '1A');

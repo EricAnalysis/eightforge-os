@@ -2,6 +2,13 @@ import type { ContractRateScheduleRow } from '@/lib/contracts/types';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
+import {
+  parseAuthoredPricingDimensions,
+  pricingDistanceDisplayLabel,
+  pricingRouteDisplayLabel,
+  toLegacyContractPricingDimensions,
+  type ParsedPricingDimensions,
+} from '@/lib/contracts/pricingDimensions';
 
 export type ContractPricingAssemblyConfidence = 'high' | 'medium' | 'low' | 'needs_review';
 export type ContractPricingSourceKind =
@@ -61,6 +68,12 @@ export type ContractPricingAssemblyRow = {
   description: string;
   route: string | null;
   distanceBand: string | null;
+  /** Source-neutral typed interpretation; legacy display fields remain above. */
+  pricingDimensions?: ParsedPricingDimensions;
+  pricingDimensionSources?: {
+    readonly route: 'structured' | 'source_text' | 'authored_correction' | 'unresolved';
+    readonly distance: 'structured' | 'source_text' | 'authored_correction' | 'unresolved';
+  };
   unit: string | null;
   rate: number | null;
   quantity?: number | null;
@@ -455,32 +468,19 @@ function refineCategoryByContext(
 }
 
 function detectRoute(rawText: string): string | null {
-  const normalized = normalizeOcrText(rawText).replace(/[|,()]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (/\brow\s*(?:to|-|->|-->)\s*dms\b/i.test(normalized)) return 'ROW to DMS';
-  if (/\bdms\s*(?:to|-|->|-->)\s*fds\b/i.test(normalized)) return 'DMS to FDS';
-  if (/\bdms\s*(?:to|-|->|-->)\s*final\s+disposal\b/i.test(normalized)) {
-    return 'DMS to Final Disposal';
-  }
-  if (/\brow\s*(?:to|-|->|-->)\s*final\s+disposal\b/i.test(normalized)) return 'ROW to Final Disposal';
-  if (/\bany\s+distance\b/i.test(normalized)) return 'Any Distance';
-  return null;
+  const parsed = parseAuthoredPricingDimensions(normalizeOcrText(rawText));
+  const route = pricingRouteDisplayLabel(parsed.routeKind, parsed.routeRawSpan);
+  // Compatibility only: the old assembler exposed Any Distance in both
+  // display fields. The shared canonical model correctly treats it as distance.
+  return route ?? (/\bany\s+distance\b/i.test(rawText) ? 'Any Distance' : null);
 }
 
 function detectDistance(rawText: string): { value: string | null; ocrAmbiguous: boolean } {
-  const normalized = normalizeOcrText(rawText);
-  if (/\bany\s+distance\b/i.test(normalized)) return { value: 'Any Distance', ocrAmbiguous: false };
-  if (/\b60\s*(?:\+|plus)(?:\s*miles?)?/i.test(normalized)) return { value: '60+ Miles', ocrAmbiguous: false };
-
-  const matches = [...normalized.matchAll(/\b(0|16|31|60)\s*(?:-|to)\s*(15|16|30|60)\b(?:\s*miles?)?/gi)];
-  const match = matches.at(-1);
-  if (!match) return { value: null, ocrAmbiguous: false };
-
-  const start = match[1];
-  const end = match[2];
-  if (start === '0' && end === '16') {
-    return { value: '0 to 15 Miles', ocrAmbiguous: true };
-  }
-  return { value: `${start} to ${end} Miles`, ocrAmbiguous: false };
+  const parsed = parseAuthoredPricingDimensions(normalizeOcrText(rawText));
+  return {
+    value: pricingDistanceDisplayLabel(parsed.distanceBand),
+    ocrAmbiguous: parsed.parseState === 'ambiguous',
+  };
 }
 
 function detectScope(rawText: string): string | null {
@@ -2018,17 +2018,33 @@ export function assembleContractPricingRows(
       const focusedText = focusTextAroundRate(classificationText, rate);
       const category = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
       const routeSourceText = sourceKind === 'exhibit_a_text_recovery' ? sourceDescription : focusedText;
+      const initialDimensions = parseAuthoredPricingDimensions(routeSourceText);
       const rawRoute = detectRoute(routeSourceText);
       const rawDistance = detectDistance(routeSourceText);
       const explicitOriginDestination = clean(row.origin_destination);
+      const structuredRouteDimensions = sourceKind === 'tdot_appendix_b_stitched_table' && explicitOriginDestination
+        ? parseAuthoredPricingDimensions(explicitOriginDestination)
+        : null;
       let route = sourceKind === 'tdot_appendix_b_stitched_table'
         ? explicitOriginDestination
         : categoryAllowsRouteDistance(category)
           ? rawRoute
           : null;
-      const distance = categoryAllowsRouteDistance(category)
+      let distance = categoryAllowsRouteDistance(category)
         ? rawDistance
         : { value: null, ocrAmbiguous: false };
+      let pricingDimensions = categoryAllowsRouteDistance(category)
+        ? initialDimensions
+        : parseAuthoredPricingDimensions(null);
+      let pricingDimensionSources: NonNullable<ContractPricingAssemblyRow['pricingDimensionSources']> = {
+        route: structuredRouteDimensions?.routeKind && structuredRouteDimensions.routeKind !== 'unresolved'
+          ? 'structured'
+          : pricingDimensions.routeKind !== 'unresolved' ? 'source_text' : 'unresolved',
+        distance: pricingDimensions.distanceBand ? 'source_text' : 'unresolved',
+      };
+      if (structuredRouteDimensions?.routeKind && structuredRouteDimensions.routeKind !== 'unresolved') {
+        pricingDimensions = { ...pricingDimensions, routeKind: structuredRouteDimensions.routeKind, routeRawSpan: structuredRouteDimensions.routeRawSpan };
+      }
       let unit = normalizeContractPricingUnit(clean(row.unit) ?? clean(row.unit_type), combinedText);
       if (sourceKind === 'tdot_appendix_b_stitched_table') {
         unit = clean(row.unit) ?? clean(row.unit_type);
@@ -2046,6 +2062,37 @@ export function assembleContractPricingRows(
       if (correction?.rate != null) rate = correction.rate;
       if (correction?.unit) unit = correction.unit;
       if (correction?.route) route = correction.route;
+      if (correction?.description && clean(correction.description) !== sourceDescription && categoryAllowsRouteDistance(category)) {
+        const correctedDimensions = parseAuthoredPricingDimensions(correction.description);
+        const correctedLegacy = toLegacyContractPricingDimensions(correctedDimensions);
+        if (pricingDimensionSources.route !== 'structured') {
+          route = correctedLegacy.route;
+          pricingDimensions = {
+            ...pricingDimensions,
+            routeKind: correctedDimensions.routeKind,
+            routeRawSpan: correctedDimensions.routeRawSpan,
+          };
+          pricingDimensionSources = {
+            ...pricingDimensionSources,
+            route: correctedDimensions.routeKind === 'unresolved' ? 'unresolved' : 'authored_correction',
+          };
+        }
+        distance = {
+          value: correctedLegacy.distanceBand,
+          ocrAmbiguous: correctedLegacy.ocrAmbiguous || rawDistance.ocrAmbiguous,
+        };
+        pricingDimensions = {
+          ...pricingDimensions,
+          distanceBand: correctedDimensions.distanceBand,
+          distanceRawSpan: correctedDimensions.distanceRawSpan,
+          parseState: correctedDimensions.parseState,
+          unresolvedReason: correctedDimensions.unresolvedReason,
+        };
+        pricingDimensionSources = {
+          ...pricingDimensionSources,
+          distance: correctedDimensions.distanceBand ? 'authored_correction' : 'unresolved',
+        };
+      }
       const sourceAnchor = (row.source_anchor_ids ?? []).find((anchor: string) => anchor.trim().length > 0) ?? null;
       const rawSourceQuality = scoreContractPricingRowSourceQuality({
         description: sourceDescription,
@@ -2180,6 +2227,8 @@ export function assembleContractPricingRows(
         description,
         route,
         distanceBand: distance.value,
+        pricingDimensions,
+        pricingDimensionSources,
         unit,
         rate,
         quantity: row.quantity ?? null,

@@ -17,7 +17,7 @@ const realFixtureEnabled = process.env.RUN_GOLDEN_REAL_FIXTURE_TESTS === '1';
 describe.skipIf(!realFixtureEnabled || !corpusAvailability.available)(
   'Golden canonical full-chain real-source parity (explicit opt-in)',
   () => {
-  it('executes both invoice PDFs and the transaction workbook into the shadow registry with pinned unresolved row drift', async () => {
+  it('executes both invoice PDFs and the authoritative transaction workbook with exact persisted parity', async () => {
     const result = await executeGoldenFullChainSources();
     console.log('[golden-full-chain]', JSON.stringify({
       invoices: result.invoices.map(({ canonical }) => ({ number: value(canonical.invoice.invoiceNumber), total: value(canonical.invoice.billedTotal), lines: canonical.lines.length })),
@@ -45,28 +45,36 @@ describe.skipIf(!realFixtureEnabled || !corpusAvailability.available)(
     assert.equal(result.registry.invoices.length, 2);
     assert.equal(result.registry.invoiceLines.length, 10);
 
-    // Audit section 5: this is a pinned unresolved local-pipeline baseline,
-    // not accepted persisted transaction-row truth.
-    const transactionRowDivergence = {
+    const transactionRowParity = {
       actualRealPipelineCount: result.records.length,
       persistedReferenceCount: 5_063,
       delta: result.records.length - 5_063,
-      status: 'unresolved_drift',
+      status: result.transactionSourceIdentity.status,
     } as const;
     assert.deepEqual(
-      transactionRowDivergence,
+      transactionRowParity,
       {
-        actualRealPipelineCount: 5_055,
+        actualRealPipelineCount: 5_063,
         persistedReferenceCount: 5_063,
-        delta: -8,
-        status: 'unresolved_drift',
+        delta: 0,
+        status: 'exact_source_parity',
       },
-      'Golden transaction-row drift changed; investigate the source/runtime difference instead of silently re-baselining it',
+      'Golden authoritative transaction source must remain in exact persisted parity',
     );
-    assert.equal(result.registry.transactions.length, transactionRowDivergence.actualRealPipelineCount);
+    assert.equal(result.registry.transactions.length, transactionRowParity.actualRealPipelineCount);
     const rollups = result.transactionData?.rollups as Record<string, unknown>;
+    assert.equal(Number(rollups.total_transaction_quantity), 216_610);
     assert.equal(Number(rollups.total_extended_cost), 815_559.35);
+    assert.equal(Number(rollups.total_tickets), 2_388);
+    assert.equal(Number(rollups.uninvoiced_line_count), 283);
     assert.equal(Number(rollups.total_cyd), 74_617);
+    const transactionLedger = result.lossLedger.filter((entry) => entry.boundary === 'transaction_normalization');
+    assert.equal(transactionLedger.length, 289);
+    assert.equal(transactionLedger.filter((entry) => entry.reason === 'missing_invoice_link').length, 283);
+    assert.equal(transactionLedger.filter((entry) => entry.reason === 'invalid_quantity').length, 6);
+    assert.equal(transactionLedger.filter((entry) => entry.reason === 'invalid_extended_cost').length, 0);
+    assert.ok(transactionLedger.every((entry) => result.records.some((record) => record.id === entry.sourceIdentity)));
+    assert.ok(transactionLedger.every((entry) => entry.evidenceSurvivesElsewhere && !entry.silent));
 
     const line1A = result.registry.invoiceLines.find((line) => value(line.rateCode ?? { value: null }) === '1A');
     assert.ok(line1A);

@@ -7,6 +7,11 @@ import { adaptInvoiceExtraction } from '@/lib/canonical/invoice/invoiceAdapter';
 import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';
 import { adaptNormalizedTransaction } from '@/lib/canonical/transaction/transactionAdapter';
 import { runPricingBoundaries } from '@/lib/evaluation/canonicalPricingBoundaryHarness';
+import {
+  GOLDEN_TRANSACTION_FIXTURE_MANIFEST,
+  requireAuthoritativeGoldenTransactionHash,
+  requireAuthoritativeGoldenTransactionSource,
+} from '@/lib/evaluation/goldenTransactionFixtureManifest';
 import type { NormalizedTransactionDataRecord } from '@/lib/extraction/xlsx/normalizeTransactionData';
 import { buildCanonicalInvoiceRowsFromTypedFields } from '@/lib/invoices/invoiceParser';
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
@@ -17,7 +22,14 @@ export const GOLDEN_SOURCE_SPECS = {
   contract: { documentId: '18550bfc-c057-4aae-bfa3-db896e36edb0', fileName: 'Williamson Co TN Fern 0126_Williamson Co TN Aftermath Fern 0126_Contract and Price Sheet_1.pdf', sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f', documentType: 'contract' },
   invoice002: { documentId: '53d74340-4d00-4d55-a937-4d0eca9c1573', fileName: 'Aftermath-Williamson Co invoice - ROW and LH .xlsx - 2026-002_01INV_InvoiceCover.pdf', sha256: 'af399fea21ba2bca5c0381de2289a564e924e252553403c311c0486fa0723282', documentType: 'invoice' },
   invoice003: { documentId: 'aa3b36ac-05cd-45f4-849b-e6e40f37be28', fileName: 'Aftermath-Williamson Co invoice - thru 3.4.26.xlsx - 2026-003_01INV_InvoiceCover.pdf', sha256: 'a530233b65956a5d267320bea2b43c248442e4ab98d762fba8b725549ab255c0', documentType: 'invoice' },
-  workbook: { documentId: '04e23a28-61a0-4abc-91ac-8c6f2db31ecf', fileName: 'ticket_query_20260404_191302.xlsx', sha256: '241b1c4d9712d40eee844db2ccf5b4c9e436c293bf094d1f5ca72a1c6690d2df', documentType: 'transaction_data' },
+  workbook: {
+    documentId: '04e23a28-61a0-4abc-91ac-8c6f2db31ecf',
+    fileName: GOLDEN_TRANSACTION_FIXTURE_MANIFEST.authoritative.filename,
+    sha256: GOLDEN_TRANSACTION_FIXTURE_MANIFEST.authoritative.sha256,
+    documentType: 'transaction_data',
+    sourceRole: GOLDEN_TRANSACTION_FIXTURE_MANIFEST.authoritative.logical_role,
+    expectedRowCount: GOLDEN_TRANSACTION_FIXTURE_MANIFEST.authoritative.data_row_count,
+  },
 } as const;
 
 type GoldenSourceSpec = typeof GOLDEN_SOURCE_SPECS[keyof typeof GOLDEN_SOURCE_SPECS];
@@ -86,7 +98,8 @@ function fileBytes(
   const path = availability.artifactPaths[sourceKey];
   const bytes = readFileSync(path);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  if (sha256 !== spec.sha256) throw new Error(`Golden source hash mismatch for ${spec.fileName}: ${sha256}`);
+  if (sourceKey === 'workbook') requireAuthoritativeGoldenTransactionHash(sha256);
+  else if (sha256 !== spec.sha256) throw new Error(`Golden source hash mismatch for ${spec.fileName}: ${sha256}`);
   return { bytes, sha256, path };
 }
 
@@ -140,6 +153,10 @@ export async function executeGoldenFullChainSources() {
   const spreadsheet = asRecord(workbook.payload.extraction.content_layers_v1)?.spreadsheet;
   const transactionData = asRecord(asRecord(spreadsheet)?.normalized_transaction_data);
   const records = (transactionData?.records ?? []) as NormalizedTransactionDataRecord[];
+  const transactionSourceIdentity = requireAuthoritativeGoldenTransactionSource(
+    workbook.sha256,
+    records.length,
+  );
   const canonicalTransactions = records.map((record) => adaptNormalizedTransaction(record, { documentId: GOLDEN_SOURCE_SPECS.workbook.documentId, sourceWorkbook: GOLDEN_SOURCE_SPECS.workbook.fileName }));
   const lossLedger = [...invoiceAssemblyLosses(invoice002.pipeline.extracted), ...invoiceAssemblyLosses(invoice003.pipeline.extracted), ...transactionLosses(records)];
   const registry = buildCanonicalProjectTruth({
@@ -149,5 +166,5 @@ export async function executeGoldenFullChainSources() {
     derived: { pricingMatches: [], contractInvoiceReconciliations: [], invoiceTransactionReconciliations: [], projectReconciliation: null, validationImpacts: [], exposureReadinessReferences: [] },
     sourceSnapshotId: `real-local:${contract.sha256}:${invoice002.sha256}:${invoice003.sha256}:${workbook.sha256}`,
   });
-  return { sources: { contract, invoice002, invoice003, workbook }, pricing, invoices, transactionData, records, canonicalTransactions, lossLedger, registry };
+  return { sources: { contract, invoice002, invoice003, workbook }, pricing, invoices, transactionData, records, canonicalTransactions, lossLedger, registry, transactionSourceIdentity };
 }

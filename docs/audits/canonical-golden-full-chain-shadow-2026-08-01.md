@@ -6,7 +6,18 @@
 
 The real local contract, both invoice PDFs, and the transaction workbook now execute through the current production-core functions and feed an in-memory canonical shadow registry. The business totals and the ROW-to-DMS 0–15 amount chain are exact. Production readers, Validator behavior, persistence, migrations, Project Facts, UI, and the dirty Phase 3 extraction work remain untouched.
 
-The requested corrections are implemented: the 5,055-versus-5,063 result is explicitly pinned as `unresolved_drift`, the former hand-authored `$302,868.60` chain is not used as real-fixture proof, and the current persisted latest run remains zero findings with both invoices `MATCH`. The slice is still not ready for code review because the exact default `npx vitest run` gate fails in pre-existing unrelated Phase 3 evaluation tests at the five-second timeout. Those files were deliberately not modified by this correction.
+The original 2026-08-01 run correctly pinned a 5,055-versus-5,063 mismatch for the bytes it received. The follow-up source investigation proved those counts came from different workbook byte streams, and the 2026-08-02 fixture restoration replaced the consumed corpus file with the authoritative original export. The real pipeline now emits 5,063 rows from that source with delta 0 against persisted truth. No transaction-pipeline fix or persisted re-baseline was required. The former 5,055 measurements remain below as historical evidence for the edited derivative.
+
+## Resolution addendum — 2026-08-02
+
+- Authoritative original: SHA-256 `86cb49a07295aac80e8595a821ac595153ab1e0e3a8e7536dc7b0889c96f516e`, 5,063 data rows, 84 columns.
+- Preserved edited derivative: SHA-256 `241b1c4d9712d40eee844db2ccf5b4c9e436c293bf094d1f5ca72a1c6690d2df`, 5,055 data rows, 85 columns, classified `non_authoritative_source`.
+- Cause: the edited derivative deleted eight rows and inserted `Project Specific Detail`; the pipeline emits the complete population for either input.
+- Impact: the eight-row derivative delta is `$0.00`, has no invoice linkage, and changes no finding, exposure amount, or approval outcome.
+- Current authoritative status: `exact_source_parity` — 5,063 actual, 5,063 persisted, delta 0.
+- Detailed restoration evidence: `docs/audits/golden-transaction-fixture-restoration-2026-08-01.md`.
+
+Unless explicitly identified as current in this addendum, the measurements below describe the original 2026-08-01 execution against the edited derivative and are intentionally retained as historical evidence.
 
 ## 1. Git state
 
@@ -78,9 +89,9 @@ Safe production-core seam:
 
 Captured boundaries include the full extraction payload, PDF text/tables/forms/evidence/gaps, typed invoice fields, the current normalized invoice row/lines from `buildCanonicalInvoiceRowsFromTypedFields`, compact pipeline line output, canonical invoice, and canonical lines. The current parser does not expose a complete general-purpose rejection ledger; a line containing no code, description, total, quantity, or price is silently filtered. That unobservable boundary is reported, not reconstructed.
 
-## 5. Real transaction pipeline execution
+## 5. Historical real transaction pipeline execution against edited derivative
 
-The workbook executed through:
+The then-current edited workbook executed through:
 
 `parseWorkbook → detectSheets → normalizeTransactionData → runDocumentPipeline`
 
@@ -109,19 +120,19 @@ status: unresolved_drift
 
 Any count change fails with an instruction to reinvestigate the source/runtime difference instead of silently re-baselining it.
 
-## 6. Canonical registry construction
+## 6. Historical canonical registry construction
 
 The evaluation harness adapts actual outputs into:
 
 - one real 90-row canonical pricing schedule;
 - two canonical invoices;
 - ten canonical invoice lines;
-- 5,055 canonical row-grain transactions;
+- 5,055 canonical row-grain transactions from the edited derivative; the corrected authoritative run contains 5,063;
 - one deterministic `CanonicalProjectTruth` registry.
 
 Construction remains `shadow_only`, `persisted: false`, source-hash labelled, and sorted by stable top-level identities. The harness is under `lib/evaluation/**` and is imported by no production reader.
 
-Derived pricing matches, reconciliation objects, validation impacts, and exposure references are intentionally not hand-authored into the registry. They remain empty until the persisted/runtime divergence is resolved and a typed adapter can consume the authoritative current Validator result without creating another truth path.
+Derived pricing matches, reconciliation objects, validation impacts, and exposure references are intentionally not hand-authored into the registry. Source parity is now resolved, but a typed adapter must still consume the authoritative current Validator result before those sections can be populated without creating another truth path.
 
 Generic focused composition tests separately populate `pricingMatches`, `validationImpacts`, both reconciliation collections, `projectReconciliation`, and exposure references. They verify deterministic collection ordering, intact object ids and field paths, derived-only nesting, no finding or input mutation, and stable serialization. These generic fixtures do not claim real Golden execution.
 
@@ -226,7 +237,7 @@ The real 1A line is the important split: the pricing candidate exists and is rev
 - Invoice operational assembly: observable rejected rows are captured when emitted.
 - Invoice parser: general rejected/suppressed candidates are not exposed; the all-empty line filter is a documented silent boundary.
 - Transactions: 275 retained rows carry `missing_invoice_link`; all have zero cost and preserved sheet/row/raw evidence. They remain canonical review records rather than being silently removed.
-- Persisted-vs-local: eight additional persisted uninvoiced/zero-cost rows are not present in current local execution. Exact source identities require a focused dataset diff.
+- Historical edited-derivative comparison: eight authoritative uninvoiced/zero-cost rows are absent from the edited copy. The focused dataset diff identified all eight; this is source-variant evidence, not pipeline loss.
 
 ## 18. Duplicate truth paths
 
@@ -269,7 +280,7 @@ The real 1A line is the important split: the pricing candidate exists and is rev
 
 ## 21. Known limitations
 
-- The local corpus and persisted dataset are not row-identical.
+- Historical note resolved: the edited derivative and persisted dataset are not row-identical; the restored authoritative corpus and persisted dataset are exact at 5,063 rows.
 - The canonical derived registry sections are not populated from display summaries or hand-authored objects.
 - Current invoice parsing does not expose a comprehensive rejection ledger or per-line bbox closure.
 - Live schema is behind repository migrations for interpretation/snapshot ledgers.

@@ -316,6 +316,103 @@ describe('canonical matching, reconciliation, impact, and registry', () => {
     assert.equal(registry.construction.persisted, false);
     assert.equal(registry.derived.invoiceTransactionReconciliations[0]?.facts.quantityVariance, 0);
   });
+
+  it('preserves populated generic derived composition with deterministic stable serialization', () => {
+    const adapted = adaptInvoiceExtraction(invoiceSource, {
+      projectId: 'project-composition', documentId: 'invoice-composition', invoiceId: 'invoice-composition',
+    });
+    const canonicalPricing = resolveCanonicalPricingRow(adaptAssembledPricingRow(pricingRow(), 0, {}));
+    const matchA = representCanonicalPricingMatch({
+      matchId: 'match-a', invoiceLine: adapted.lines[0]!, candidatePricingRows: [canonicalPricing],
+      selectedPricingRow: canonicalPricing, transactions: [], status: 'matched',
+      matching: {
+        keysUsed: ['generic-key'], normalizedDescriptionKey: 'GENERIC DESCRIPTION',
+        descriptionSimilarity: null, rateCodeMatch: true, categoryMatch: true, unitMatch: true,
+        originDestinationMatch: null, distanceBandMatch: null, materialMatch: null,
+      },
+      expectedRate: 5, variance: 0, affectedAmount: 50, evidence: adapted.lines[0]!.evidence,
+      unresolvedReasons: [], approvalImpact: null, sourceMatcher: 'generic_matcher', sourceMatchStatus: 'MATCH',
+    });
+    const matchB = { ...matchA, matchId: 'match-b', sourceMatchStatus: 'REVIEW' };
+    const currentFinding = finding();
+    const findingBefore = structuredClone(currentFinding);
+    const impactA = mapValidationFindingToCanonicalFacts({
+      finding: currentFinding,
+      evidence: [evidence()],
+      affectedFacts: [{ objectId: adapted.lines[0]!.lineId, fieldPath: 'billedRate' }],
+    });
+    const impactB = {
+      ...impactA,
+      impactId: 'finding-impact:finding-2',
+      findingId: 'finding-2',
+      affectedFacts: [{ objectId: canonicalPricing.rowId, fieldPath: 'rate' }],
+    };
+    const contractInvoiceA = {
+      reconciliationId: 'contract-invoice-a', invoiceId: adapted.invoice.invoiceId,
+      invoiceLineIds: [adapted.lines[0]!.lineId], pricingMatchIds: [matchA.matchId],
+      facts: { billedAmount: 50, contractSupportedAmount: 50, amountVariance: 0, governingPricingStatus: 'matched', supportCompleteness: 1 },
+      conclusion: { state: 'reconciled' as const, reasons: [] }, evidence: adapted.lines[0]!.evidence, sourceStatus: 'MATCH',
+    };
+    const contractInvoiceB = { ...contractInvoiceA, reconciliationId: 'contract-invoice-b', pricingMatchIds: [matchB.matchId] };
+    const invoiceTransactionA = {
+      reconciliationId: 'invoice-transaction-a', invoiceId: adapted.invoice.invoiceId,
+      invoiceLineIds: [adapted.lines[0]!.lineId], transactionIds: [],
+      facts: { invoiceBilledQuantity: 10, transactionSupportedQuantity: 10, quantityVariance: 0,
+        invoiceBilledAmount: 50, transactionExtendedCost: 50, amountVariance: 0, supportCompleteness: 1 },
+      conclusion: { state: 'reconciled' as const, reasons: [] }, evidence: adapted.lines[0]!.evidence, sourceStatus: 'MATCH',
+    };
+    const invoiceTransactionB = { ...invoiceTransactionA, reconciliationId: 'invoice-transaction-b', sourceStatus: 'REVIEW' };
+    const exposureA = { referenceId: 'exposure-a', sourceKind: 'exposure_summary' as const, amount: 50, state: 'supported', evidence: adapted.lines[0]!.evidence };
+    const exposureB = { ...exposureA, referenceId: 'exposure-b', state: 'review' };
+    const projectReconciliation = {
+      reconciliationId: 'project-reconciliation', projectId: 'project-composition',
+      contractInvoiceReconciliationIds: [contractInvoiceA.reconciliationId, contractInvoiceB.reconciliationId],
+      invoiceTransactionReconciliationIds: [invoiceTransactionA.reconciliationId, invoiceTransactionB.reconciliationId],
+      facts: { totalBilledAmount: 50, totalContractSupportedAmount: 50, totalTransactionSupportedAmount: 50,
+        totalAtRiskAmount: 0, matchedBillingGroups: 1, unmatchedBillingGroups: 0, rateMismatches: 0,
+        quantityMismatches: 0, orphanInvoiceLines: 0, orphanTransactions: 0 },
+      conclusion: { state: 'reconciled' as const, reasons: [] }, evidence: adapted.lines[0]!.evidence, sourceStatus: 'MATCH',
+    };
+    const derivedInput = {
+      pricingMatches: [matchB, matchA],
+      contractInvoiceReconciliations: [contractInvoiceB, contractInvoiceA],
+      invoiceTransactionReconciliations: [invoiceTransactionB, invoiceTransactionA],
+      projectReconciliation,
+      validationImpacts: [impactB, impactA],
+      exposureReadinessReferences: [exposureB, exposureA],
+    };
+    const derivedBefore = structuredClone(derivedInput);
+    const build = (reverse: boolean) => buildCanonicalProjectTruth({
+      projectId: 'project-composition', governingDocuments: [], contractTermReferences: [], contractPricing: [],
+      invoices: [adapted.invoice], invoiceLines: adapted.lines, transactions: [],
+      derived: reverse ? {
+        ...derivedInput,
+        pricingMatches: [...derivedInput.pricingMatches].reverse(),
+        contractInvoiceReconciliations: [...derivedInput.contractInvoiceReconciliations].reverse(),
+        invoiceTransactionReconciliations: [...derivedInput.invoiceTransactionReconciliations].reverse(),
+        validationImpacts: [...derivedInput.validationImpacts].reverse(),
+        exposureReadinessReferences: [...derivedInput.exposureReadinessReferences].reverse(),
+      } : derivedInput,
+      sourceSnapshotId: 'generic-composition-snapshot',
+    });
+
+    const registry = build(false);
+    assert.deepEqual(registry.derived.pricingMatches.map((entry) => entry.matchId), ['match-a', 'match-b']);
+    assert.deepEqual(registry.derived.validationImpacts.map((entry) => entry.impactId), ['finding-impact:finding-1', 'finding-impact:finding-2']);
+    assert.deepEqual(registry.derived.contractInvoiceReconciliations.map((entry) => entry.reconciliationId), ['contract-invoice-a', 'contract-invoice-b']);
+    assert.deepEqual(registry.derived.invoiceTransactionReconciliations.map((entry) => entry.reconciliationId), ['invoice-transaction-a', 'invoice-transaction-b']);
+    assert.deepEqual(registry.derived.exposureReadinessReferences.map((entry) => entry.referenceId), ['exposure-a', 'exposure-b']);
+    assert.equal(registry.derived.projectReconciliation?.reconciliationId, 'project-reconciliation');
+    assert.equal(registry.derived.pricingMatches[0]?.invoiceLineId, adapted.lines[0]!.lineId);
+    assert.equal(registry.derived.pricingMatches[0]?.selectedPricingRowId, canonicalPricing.rowId);
+    assert.deepEqual(registry.derived.validationImpacts[0]?.affectedFacts, [{ objectId: adapted.lines[0]!.lineId, fieldPath: 'billedRate' }]);
+    assert.equal('pricingMatches' in registry, false);
+    assert.equal('validationImpacts' in registry, false);
+    assert.deepEqual(currentFinding, findingBefore);
+    assert.deepEqual(derivedInput, derivedBefore);
+    assert.equal(JSON.stringify(registry), JSON.stringify(build(true)));
+    assert.deepEqual(registry.construction, { mode: 'shadow_only', persisted: false, sourceSnapshotId: 'generic-composition-snapshot' });
+  });
 });
 
 function productionCanonicalFiles(root: string): string[] {

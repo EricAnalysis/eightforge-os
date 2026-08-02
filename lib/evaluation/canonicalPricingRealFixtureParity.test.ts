@@ -16,6 +16,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'vitest';
 
 import { extractDocument } from '@/lib/server/documentExtraction';
@@ -33,14 +34,18 @@ import {
 import goldenTransportArtifact from '@/lib/evaluation/fixtures/goldenAuthoredTransportPricingRows.json';
 import goldenFiveRowDifferential from '@/lib/evaluation/fixtures/goldenPricingFiveRowDifferential.json';
 
-const CORPUS_ROOT =
-  'C:/Users/ADMS Thompson/Desktop/EightForgeDocTrainning/Training Projects';
+const GOLDEN_CORPUS_ROOT = process.env.GOLDEN_CORPUS_ROOT?.trim()
+  ? resolve(process.env.GOLDEN_CORPUS_ROOT)
+  : null;
+const TRAINING_CORPUS_ROOT = GOLDEN_CORPUS_ROOT ? dirname(GOLDEN_CORPUS_ROOT) : null;
 
 const FIXTURES = {
   golden: {
     id: 'golden',
     label: 'Golden Project (Williamson County)',
-    path: `${CORPUS_ROOT}/Golden Project-Williamson/Williamson Co TN Fern 0126_Williamson Co TN Aftermath Fern 0126_Contract and Price Sheet_1.pdf`,
+    path: GOLDEN_CORPUS_ROOT
+      ? join(GOLDEN_CORPUS_ROOT, 'Williamson Co TN Fern 0126_Williamson Co TN Aftermath Fern 0126_Contract and Price Sheet_1.pdf')
+      : null,
     documentType: 'contract',
     scheduleKind: 'unit_rate' as const,
     sourceFamily: 'contract' as const,
@@ -57,7 +62,9 @@ const FIXTURES = {
   tdot: {
     id: 'tdot',
     label: 'TDOT SWC 820 contract #89633',
-    path: `${CORPUS_ROOT}/TDOT/SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf`,
+    path: TRAINING_CORPUS_ROOT
+      ? join(TRAINING_CORPUS_ROOT, 'TDOT', 'SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf')
+      : null,
     documentType: 'contract',
     scheduleKind: 'unit_rate' as const,
     sourceFamily: 'contract' as const,
@@ -65,7 +72,9 @@ const FIXTURES = {
   mdot: {
     id: 'mdot',
     label: 'MDOT executed contractor agreement',
-    path: `${CORPUS_ROOT}/MDOT/310225302000_Executed_Contractor.pdf`,
+    path: TRAINING_CORPUS_ROOT
+      ? join(TRAINING_CORPUS_ROOT, 'MDOT', '310225302000_Executed_Contractor.pdf')
+      : null,
     documentType: 'contract',
     scheduleKind: 'unit_rate' as const,
     sourceFamily: 'contract' as const,
@@ -84,6 +93,7 @@ function contentLayerTables(
 }
 
 async function runFixture(spec: FixtureSpec): Promise<PricingBoundaryReport> {
+  if (!spec.path) throw new Error(`Fixture path is unavailable for ${spec.id}; configure GOLDEN_CORPUS_ROOT`);
   const bytes = readFileSync(spec.path);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
 
@@ -198,11 +208,11 @@ async function runFixture(spec: FixtureSpec): Promise<PricingBoundaryReport> {
 }
 
 function describeFixture(spec: FixtureSpec): void {
-  const available = existsSync(spec.path);
+  const available = spec.path != null && existsSync(spec.path);
 
   describe(`${spec.label}`, () => {
     if (!available) {
-      it.skip(`SKIPPED — fixture not present at ${spec.path}`, () => {
+      it.skip(`SKIPPED — fixture unavailable (${spec.path ?? 'GOLDEN_CORPUS_ROOT not configured'})`, () => {
         /* intentionally skipped; absence is reported, never treated as a pass */
       });
       return;

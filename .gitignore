@@ -58,3 +58,7 @@ supabase/.temp/
 # Claude/Codex agent skills submodule
 .agents/skills/
 response*.json
+
+# Python caches
+__pycache__/
+*.py[cod]

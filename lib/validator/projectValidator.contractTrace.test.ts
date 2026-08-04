@@ -7,6 +7,7 @@ import {
   extractCanonicalContractFacts,
 } from '@/lib/validator/projectValidator';
 import { evaluateCrossDocumentRateVerification } from '@/lib/validator/rulePacks/crossDocumentRateVerification';
+import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type {
   ProjectTotals,
@@ -170,6 +171,9 @@ describe('project validator contract trace convergence', () => {
       factsByDocumentId,
       rateDocumentIds: ['goodlettsville-price-sheet', 'governing-contract'],
       contractValidationContext: contractContext,
+      assembledContractPricingRows: assembleContractPricingRows(
+        contractContext.analysis.rate_schedule_rows,
+      ),
     });
     const familyDocumentIds: ValidatorDocumentIdsByFamily = {
       contract: ['governing-contract'],
@@ -220,6 +224,8 @@ describe('project validator contract trace convergence', () => {
       },
       validationPhase: 'billing_review',
       documents: [],
+      assembledContractPricingRows: [],
+      sourceArtifactSnapshot: [],
       documentRelationships: [{
         id: 'rel-price-sheet',
         project_id: 'project-goodlettsville',

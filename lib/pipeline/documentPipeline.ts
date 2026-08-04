@@ -3,7 +3,13 @@ import { auditNode } from '@/lib/pipeline/nodes/auditNode';
 import { decisionNode } from '@/lib/pipeline/nodes/decisionNode';
 import { extractNode } from '@/lib/pipeline/nodes/extractNode';
 import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
-import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import {
+  analyzeContractIntelligence,
+  buildContractPricingSelectedCategoryOverrides,
+  buildContractIntelligenceRateScheduleRows,
+  type AnalyzeContractIntelligenceInput,
+} from '@/lib/contracts/analyzeContractIntelligence';
+import { assembleContractPricingRowsWithCandidates } from '@/lib/contracts/contractPricingAssembly';
 import { applyContractorIdentityResolutionToNormalizedDocument } from '@/lib/contracts/contractorIdentity';
 import { mergeConfirmedFacts } from '@/lib/server/mergeConfirmedFacts';
 import type {
@@ -134,16 +140,48 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
     analysisFactMap !== primaryDocument.fact_map
       ? { ...primaryDocument, fact_map: analysisFactMap }
       : primaryDocument;
+  const contractAnalysisInput: AnalyzeContractIntelligenceInput = {
+    primaryDocument: primaryDocumentForAnalysis,
+    relatedDocuments,
+    operatorRateSchedulePageHints: input.rateSchedulePageHints,
+  };
+  const contractAnalysis = primaryDocumentForAnalysis.family === 'contract'
+    ? (() => {
+        const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows(
+          contractAnalysisInput,
+        );
+        const sourceScope = {
+          documentId: primaryDocumentForAnalysis.document_id,
+          sourceVersionIdentity: null,
+        } as const;
+        const assembly = assembleContractPricingRowsWithCandidates(
+          structuralRateScheduleRows,
+          sourceScope,
+          {
+            selectedCategoryBySourceRow: buildContractPricingSelectedCategoryOverrides(
+              structuralRateScheduleRows,
+              sourceScope,
+              'authoritative_rate_schedule',
+            ),
+          },
+        );
+        return analyzeContractIntelligence({
+          ...contractAnalysisInput,
+          pricingAssembly: {
+            sourceScope,
+            candidateInputRole: 'authoritative_rate_schedule',
+            structuralRateScheduleRows,
+            candidatesBySourceRow: assembly.candidatesBySourceRow,
+          },
+        });
+      })()
+    : null;
 
   const analyzed = {
     ...normalized,
     primaryDocument,
     relatedDocuments,
-    contractAnalysis: analyzeContractIntelligence({
-      primaryDocument: primaryDocumentForAnalysis,
-      relatedDocuments,
-      operatorRateSchedulePageHints: input.rateSchedulePageHints,
-    }),
+    contractAnalysis,
   };
   const decided = decisionNode(analyzed);
   const actioned = actionNode(decided);

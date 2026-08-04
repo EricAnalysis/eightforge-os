@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
   report: vi.fn(),
-  validate: vi.fn(),
+  runValidation: vi.fn(),
   persist: vi.fn(),
+  schedulePublication: vi.fn(),
 }));
 
 vi.mock('next/server', () => ({
@@ -14,10 +15,13 @@ vi.mock('@/lib/validator/validatorFreshnessAudit', () => ({
   reportValidatorFreshnessShadow: mocks.report,
 }));
 vi.mock('@/lib/validator/projectValidator', () => ({
-  validateProject: mocks.validate,
+  runProjectValidation: mocks.runValidation,
 }));
 vi.mock('@/lib/validator/persistValidationRun', () => ({
   persistValidationRun: mocks.persist,
+}));
+vi.mock('@/lib/canonical/publication/publishProjectTruthShadow', () => ({
+  scheduleCanonicalProjectTruthShadowPublication: mocks.schedulePublication,
 }));
 
 import { runValidationFlow } from '@/lib/validator/triggerProjectValidation';
@@ -26,8 +30,15 @@ describe('validator freshness shadow wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.after.mockImplementation(() => undefined);
-    mocks.validate.mockResolvedValue({ status: 'VALIDATED', findings: [] });
-    mocks.persist.mockResolvedValue(undefined);
+    mocks.runValidation.mockResolvedValue({
+      result: { status: 'VALIDATED', findings: [] },
+      input: { project: { id: 'project-1' } },
+    });
+    mocks.persist.mockResolvedValue({
+      runId: 'run-1',
+      effectiveResult: { status: 'VALIDATED', findings: [] },
+      persistedFindings: [],
+    });
   });
 
   it('registers the shadow report with the server lifecycle without changing the live flow', async () => {
@@ -39,7 +50,7 @@ describe('validator freshness shadow wiring', () => {
     });
     expect(mocks.report).toHaveBeenCalledWith('project-1');
     expect(mocks.after).toHaveBeenCalledWith(expect.any(Promise));
-    expect(mocks.validate).toHaveBeenCalledWith('project-1');
+    expect(mocks.runValidation).toHaveBeenCalledWith('project-1');
     expect(mocks.persist).toHaveBeenCalledWith(
       'project-1',
       { status: 'VALIDATED', findings: [] },
@@ -48,6 +59,15 @@ describe('validator freshness shadow wiring', () => {
       'snapshot-hash',
       undefined,
     );
+    expect(mocks.schedulePublication).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      runId: 'run-1',
+      triggerSource: 'manual',
+      inputsSnapshotHash: 'snapshot-hash',
+      validatorInput: { project: { id: 'project-1' } },
+      effectiveResult: { status: 'VALIDATED', findings: [] },
+      persistedFindings: [],
+    });
   });
 
   it('does not wait for a shadow audit that remains pending', async () => {
@@ -59,10 +79,13 @@ describe('validator freshness shadow wiring', () => {
     });
     expect(mocks.report).toHaveBeenCalledTimes(1);
     expect(mocks.after).toHaveBeenCalledWith(expect.any(Promise));
-    expect(mocks.validate).toHaveBeenCalledTimes(1);
+    expect(mocks.runValidation).toHaveBeenCalledTimes(1);
     expect(mocks.persist).toHaveBeenCalledTimes(1);
-    expect(mocks.validate.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.runValidation.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.persist.mock.invocationCallOrder[0],
+    );
+    expect(mocks.persist.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.schedulePublication.mock.invocationCallOrder[0],
     );
   });
 
@@ -76,7 +99,7 @@ describe('validator freshness shadow wiring', () => {
     });
     const registeredAudit = mocks.after.mock.calls[0]?.[0] as Promise<void>;
     await expect(registeredAudit).resolves.toBeUndefined();
-    expect(mocks.validate).toHaveBeenCalledTimes(1);
+    expect(mocks.runValidation).toHaveBeenCalledTimes(1);
     expect(mocks.persist).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       '[validatorFreshnessAudit] non-fatal audit failure',
@@ -98,7 +121,7 @@ describe('validator freshness shadow wiring', () => {
       inputsSnapshotHash: 'snapshot-hash',
     });
 
-    expect(mocks.validate).toHaveBeenCalledTimes(1);
+    expect(mocks.runValidation).toHaveBeenCalledTimes(1);
     expect(mocks.persist).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       '[validatorFreshnessAudit] non-fatal lifecycle registration failure',
@@ -109,5 +132,18 @@ describe('validator freshness shadow wiring', () => {
       }),
     );
     consoleError.mockRestore();
+  });
+
+  it('does not schedule publication unless authoritative persistence succeeds', async () => {
+    mocks.report.mockResolvedValue(undefined);
+    mocks.persist.mockRejectedValue(new Error('authoritative persistence failed'));
+
+    await expect(runValidationFlow({
+      projectId: 'project-1',
+      source: 'manual',
+      inputsSnapshotHash: 'snapshot-hash',
+    })).rejects.toThrow('authoritative persistence failed');
+
+    expect(mocks.schedulePublication).not.toHaveBeenCalled();
   });
 });

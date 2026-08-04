@@ -33,6 +33,10 @@ const LEGACY_LAYER_EXCEPTIONS = new Set([
   'lib/extraction/xlsx/normalizeTransactionData.ts -> @/lib/validator/billingKeys',
 ]);
 
+const CANONICAL_PRODUCTION_EDGES = new Set([
+  'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/publication/publishProjectTruthShadow',
+]);
+
 function walk(directory: string): string[] {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
   return readdirSync(directory).flatMap((entry) => {
@@ -166,6 +170,116 @@ function canonicalProjectReaderCutovers(
     .sort();
 }
 
+function canonicalProductionEdges(): string[] {
+  return allEdges()
+    .filter((edge) => (
+      !edge.source.startsWith('lib/canonical/')
+      && !edge.source.startsWith('lib/evaluation/')
+      && isWithin(resolveImportTarget(edge), 'lib/canonical')
+    ))
+    .map((edge) => `${edge.source} -> ${edge.specifier}`)
+    .sort();
+}
+
+function publicationImportViolations(workspaceRoot = ROOT): string[] {
+  const publicationRoot = path.join(workspaceRoot, 'lib/canonical/publication');
+  return walk(publicationRoot)
+    .flatMap((file) => importsInFile(file, workspaceRoot))
+    .filter((edge) => {
+      const target = resolveImportTarget(edge);
+      return target === 'lib/projectFacts'
+        || isWithin(target, 'lib/evaluation')
+        || isWithin(target, 'lib/execution')
+        || isWithin(target, 'lib/decisions')
+        || target.startsWith('lib/server/approval')
+        || target.startsWith('lib/server/decision')
+        || target === 'lib/server/executionQueue'
+        || target === 'lib/validator/persistValidationRun'
+        || target === 'lib/validator/approvalGate'
+        || isWithin(target, 'components')
+        || isWithin(target, 'app');
+    })
+    .map((edge) => `${edge.source} -> ${edge.specifier}`)
+    .sort();
+}
+
+function publicationTypeReverseDependencies(): string[] {
+  return allEdges()
+    .filter((edge) => !edge.source.startsWith('lib/canonical/publication/'))
+    .filter((edge) => (
+      resolveImportTarget(edge) === 'lib/canonical/publication/projectTruthPublication'
+    ))
+    .map((edge) => `${edge.source} -> ${edge.specifier}`)
+    .sort();
+}
+
+function publicationRuntimeAuthorityViolations(workspaceRoot = ROOT): string[] {
+  const publicationRoot = path.join(workspaceRoot, 'lib/canonical/publication');
+  return walk(publicationRoot).flatMap((file) => {
+    const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+    const text = readFileSync(file, 'utf8');
+    const violations: string[] = [];
+    if (/\.from\s*\(\s*['"](?:documents|extraction_source_artifacts)['"]\s*\)/.test(text)) {
+      violations.push(`${source} -> forbidden mutable source read`);
+    }
+    if (/\b(?:createBucket|create_bucket)\b/.test(text)) {
+      violations.push(`${source} -> forbidden bucket provisioning`);
+    }
+    if (/\b(?:assembleContractPricingRows|assembleContractPricingRowsWithCandidates)\b/.test(text)) {
+      violations.push(`${source} -> forbidden pricing reassembly`);
+    }
+    if (/\b(?:ContractPricingAssemblyResult|ContractPricingSourceRowIdentity|candidatesBySourceRow)\b/.test(text)) {
+      violations.push(`${source} -> forbidden pricing candidate dependency`);
+    }
+    return violations;
+  }).sort();
+}
+
+function pricingAssemblyLeakageViolations(workspaceRoot = ROOT): string[] {
+  const allowedDualViewCallers = new Set([
+    'lib/pipeline/documentPipeline.ts',
+    'lib/validator/projectValidator.ts',
+  ]);
+  const allowedCandidateConsumers = new Set([
+    'lib/contracts/analyzeContractIntelligence.ts',
+    'lib/contracts/contractPricingAssembly.ts',
+    'lib/pipeline/documentPipeline.ts',
+    'lib/validator/projectValidator.ts',
+  ]);
+
+  return productionReaderFiles(workspaceRoot)
+    .flatMap((file) => {
+      const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+      const text = readFileSync(file, 'utf8');
+      const violations: string[] = [];
+      const isValidationCallGraphSource = source.startsWith('lib/validator/')
+        || source === 'lib/contracts/analyzeContractIntelligence.ts'
+        || source.startsWith('lib/canonical/publication/');
+      if (
+        source !== 'lib/contracts/contractPricingAssembly.ts'
+        && isValidationCallGraphSource
+        && /\bassembleContractPricingRows\s*\(/.test(text)
+      ) {
+        violations.push(`${source} -> compatibility assembler invocation`);
+      }
+      if (
+        !allowedDualViewCallers.has(source)
+        && source !== 'lib/contracts/contractPricingAssembly.ts'
+        && /\bassembleContractPricingRowsWithCandidates\s*\(/.test(text)
+      ) {
+        violations.push(`${source} -> unauthorized dual-view assembler invocation`);
+      }
+      if (
+        !allowedCandidateConsumers.has(source)
+        && /\b(?:ContractPricingAssemblyResult|ContractPricingSourceRowIdentity|candidatesBySourceRow)\b/.test(text)
+      ) {
+        violations.push(`${source} -> pricing candidate leakage`);
+      }
+      return violations;
+    })
+    .sort();
+}
+
 function isLayerViolation(edge: ImportEdge): boolean {
   const target = resolveImportTarget(edge);
   if (edge.source.startsWith('lib/extraction/')) {
@@ -241,6 +355,61 @@ describe('production architecture import boundaries', () => {
   it('has no production reader cutover to the shadow Project Truth registry', () => {
     expect(canonicalProjectReaderCutovers(ROOT)).toEqual([]);
   }, 30_000);
+
+  it('freezes the only production import into the canonical tree', () => {
+    const actual = canonicalProductionEdges();
+    const unexpected = actual.filter((edge) => !CANONICAL_PRODUCTION_EDGES.has(edge));
+    const missingFrozenEdge = [...CANONICAL_PRODUCTION_EDGES].filter(
+      (edge) => !actual.includes(edge),
+    );
+    expect({ unexpected, missingFrozenEdge }).toEqual({
+      unexpected: [],
+      missingFrozenEdge: [],
+    });
+  }, 30_000);
+
+  it('keeps the publication layer isolated from production authorities and UI', () => {
+    expect(publicationImportViolations()).toEqual([]);
+  });
+
+  it('prevents publication types from becoming a reverse dependency', () => {
+    expect(publicationTypeReverseDependencies()).toEqual([]);
+  });
+
+  it('prevents publication from reading mutable source identity or provisioning infrastructure', () => {
+    expect(publicationRuntimeAuthorityViolations()).toEqual([]);
+  });
+
+  it('limits dual-view pricing assembly and candidate data to authorized internal consumers', () => {
+    expect(pricingAssemblyLeakageViolations()).toEqual([]);
+
+    const analyzer = readFileSync(
+      path.join(ROOT, 'lib/contracts/analyzeContractIntelligence.ts'),
+      'utf8',
+    );
+    expect(analyzer).not.toMatch(/\bassembleContractPricingRows(?:WithCandidates)?\b/);
+  });
+
+  it('locks the A12 persisted-rate-row compatibility boundary in the architecture contract', () => {
+    const plan = readFileSync(
+      path.join(ROOT, 'docs/audits/canonical-production-shadow-publisher-plan-2026-08-02.md'),
+      'utf8',
+    );
+    const normalized = plan.replace(/\s+/g, ' ');
+
+    expect(plan).toContain('| A12 |');
+    for (const alias of ['`category`', '`source_category`', '`material_type`', '`canonical_category`']) {
+      expect(normalized).toContain(alias);
+    }
+    expect(normalized).toContain('| Selected rows exist | Any | Disabled |');
+    expect(normalized).toContain('| No selected rows | All four aliases absent or blank | Allowed |');
+    expect(normalized).toContain('| No selected rows | Any alias nonblank and valid | Disabled |');
+    expect(normalized).toContain('| No selected rows | Any alias nonblank but invalid or unresolvable | Disabled |');
+    expect(normalized).toMatch(/non-string, non-null alias value/);
+    expect(normalized).toMatch(/missing contract rate, `BLOCKED`, and at-risk exposure/);
+    expect(normalized).toMatch(/Selection rescue and persisted compatibility fallback are separate controls/);
+    expect(normalized).toMatch(/compatibility path is not a second canonical pricing authority/);
+  });
 });
 
 describe('shadow Project Truth reader-cutover guard', () => {
@@ -299,5 +468,19 @@ describe('shadow Project Truth reader-cutover guard', () => {
     source(root, 'lib/evaluation/proof.ts', "import { buildCanonicalProjectTruth } from '../canonical/project/projectTruthBuilder';");
     source(root, 'app/reader.test.ts', "import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';");
     expect(canonicalProjectReaderCutovers(root)).toEqual([]);
+  });
+
+  it('catches forbidden publication authority references', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/canonical/publication/sourceRead.ts', "admin.from('documents'); admin.from('extraction_source_artifacts');");
+    source(root, 'lib/canonical/publication/provision.ts', 'storage.createBucket();');
+    source(root, 'lib/canonical/publication/reassemble.ts', 'assembleContractPricingRows([]);');
+    source(root, 'lib/canonical/publication/candidates.ts', 'const retained = input.candidatesBySourceRow;');
+    expect(publicationRuntimeAuthorityViolations(root)).toEqual([
+      'lib/canonical/publication/candidates.ts -> forbidden pricing candidate dependency',
+      'lib/canonical/publication/provision.ts -> forbidden bucket provisioning',
+      'lib/canonical/publication/reassemble.ts -> forbidden pricing reassembly',
+      'lib/canonical/publication/sourceRead.ts -> forbidden mutable source read',
+    ]);
   });
 });

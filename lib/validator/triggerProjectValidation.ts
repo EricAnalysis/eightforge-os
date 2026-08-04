@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
+import { scheduleCanonicalProjectTruthShadowPublication } from '@/lib/canonical/publication/publishProjectTruthShadow';
 import {
   isDocumentFactOverridesTableUnavailableError,
 } from '@/lib/documentFactOverrides';
@@ -13,7 +14,7 @@ import {
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { persistValidationRun } from '@/lib/validator/persistValidationRun';
-import { validateProject } from '@/lib/validator/projectValidator';
+import { runProjectValidation } from '@/lib/validator/projectValidator';
 import type { ValidationTriggerSource } from '@/types/validator';
 import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
 import { reportValidatorFreshnessShadow } from '@/lib/validator/validatorFreshnessAudit';
@@ -482,8 +483,8 @@ export async function runValidationFlow(params: {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const result = await validateProject(params.projectId);
-  await persistValidationRun(
+  const { result, input } = await runProjectValidation(params.projectId);
+  const persisted = await persistValidationRun(
     params.projectId,
     result,
     params.source,
@@ -491,6 +492,15 @@ export async function runValidationFlow(params: {
     params.inputsSnapshotHash,
     params.triggerEntity,
   );
+  scheduleCanonicalProjectTruthShadowPublication({
+    projectId: params.projectId,
+    runId: persisted.runId,
+    triggerSource: params.source,
+    inputsSnapshotHash: params.inputsSnapshotHash,
+    validatorInput: input,
+    effectiveResult: persisted.effectiveResult,
+    persistedFindings: persisted.persistedFindings,
+  });
 }
 
 async function logValidationRunRequested(params: {

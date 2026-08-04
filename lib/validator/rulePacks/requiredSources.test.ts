@@ -71,6 +71,8 @@ function buildInput(
     project,
     validationPhase: overrides.validationPhase ?? 'contract_setup',
     documents: [],
+    assembledContractPricingRows: [],
+    sourceArtifactSnapshot: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,

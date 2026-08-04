@@ -102,6 +102,8 @@ function financialInput(invoiceLines: InvoiceLineRow[]): ProjectValidatorInput {
     project: { id: 'project-1', organization_id: 'org-1', name: 'Golden Project', code: 'GOLDEN' },
     validationPhase: 'billing_review',
     documents: [],
+    assembledContractPricingRows: [],
+    sourceArtifactSnapshot: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds: families,

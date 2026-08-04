@@ -5,11 +5,16 @@ import { describe, expect, it } from 'vitest';
 
 import {
   REQUIRED_METAMORPHIC_INVARIANTS,
+  TDOT_PHASE1_HARNESS_VERSION,
   blockedMetamorphicResults,
   buildParityRecords,
   classifyParityDifference,
   evaluateHistoricalFingerprintInert,
+  executeSourceMetamorphicInvariants,
+  loadPhase1Inputs,
+  manifestInvariantSemanticProjection,
   mergeMetamorphicResults,
+  preconditionedMetamorphicResults,
   runGenericShadowFromPdf,
   type GenericComparedField,
   type GenericShadowRun,
@@ -37,9 +42,11 @@ function field(
   x0: number,
   x1: number,
   semanticStatus: GenericComparedField['semantic_status'] = 'resolved',
+  semanticRole = 'description',
 ): GenericComparedField {
+  const verifiedFieldId = `verified-${x0}`;
   return {
-    verified_field_id: `verified-${x0}`,
+    verified_field_id: verifiedFieldId,
     candidate_id: `candidate-${x0}`,
     dependency_hash: `${x0}`.padStart(64, '0'),
     source_page: 46,
@@ -60,8 +67,63 @@ function field(
     table_cell_id: `cell-${x0}`,
     table_row_id: 'row-1',
     table_segment_id: 'segment-1',
-    semantic_role: 'description',
+    semantic_role: semanticRole,
     semantic_status: semanticStatus,
+    semantic_mapping_evidence: semanticStatus === 'unmapped' ? null : {
+      mapping_id: `mapping-${x0}`,
+      selected_role: semanticStatus === 'resolved'
+        ? semanticRole as 'description' : null,
+      assessment: {
+        version: 'interpretation-confidence-v2',
+        verified_field_ids: [verifiedFieldId],
+        header_role: {
+          state: 'observed',
+          score: 1,
+          basis_artifact_ids: ['fragment'],
+          diagnostics: [],
+        },
+        arithmetic_consistency: {
+          state: 'not_applicable',
+          score: null,
+          basis_artifact_ids: [],
+          diagnostics: [],
+        },
+        candidate_roles: [{
+          role: semanticRole as 'description',
+          score: 0.9,
+          evidence: ['test_evidence'],
+          verified_field_ids: [verifiedFieldId],
+          dependency_hashes: ['hash'],
+        }],
+        selected_role: semanticStatus === 'resolved'
+          ? semanticRole as 'description' : null,
+        resolution_policy: {
+          minimum_score: 0.7,
+          minimum_margin: 0.2,
+          observed_top_score: 0.9,
+          observed_margin: 0.3,
+        },
+        source_evidence: [],
+        source_region: {
+          page: 46,
+          bounding_box: {
+            coordinate_space: 'page_normalized',
+            origin: 'top_left',
+            x0,
+            y0: 0.13,
+            x1,
+            y1: 0.17,
+            rotation: 0,
+          },
+        },
+        uncertainties: semanticStatus === 'resolved'
+          ? [] : ['ambiguous_column_role'],
+      } as unknown as GenericComparedField['semantic_mapping_evidence'] extends infer T
+        ? T extends { assessment: infer A } ? A : never
+        : never,
+      interpretation_rule_id: 'observed-column-evidence-v2',
+      interpretation_rule_version: '2',
+    },
     parser_manifest_hash: 'd'.repeat(64),
     interpretation_manifest_hash: 'e'.repeat(64),
   };
@@ -153,6 +215,67 @@ describe('TDOT Phase 1 shadow parity harness', () => {
     });
   });
 
+  it('preserves rate versus extension in the typed cost-role contract', () => {
+    const costLedger: TdotLedger = {
+      ...ledger,
+      observations: [{
+        ...observation,
+        field_identifier: 'tdot:p46:r1:cost',
+        exact_raw_text: '$125.00',
+        interpreted_field_or_role: 'cost',
+      }],
+    };
+    const rateRecord = buildParityRecords({
+      ledger: costLedger,
+      legacyRows: [],
+      genericFields: [field('$125.00', 0.18, 0.48, 'resolved', 'rate')],
+    })[0];
+    const extensionRecord = buildParityRecords({
+      ledger: costLedger,
+      legacyRows: [],
+      genericFields: [field('$125.00', 0.18, 0.48, 'resolved', 'extension')],
+    })[0];
+
+    expect(rateRecord?.semantic_role_comparison).toMatchObject({
+      contract_kind: 'evidence_supported_alternatives',
+      acceptable_roles: ['rate', 'extension'],
+      observed_role: 'rate',
+      evidence_supported: true,
+    });
+    expect(extensionRecord?.semantic_role_comparison).toMatchObject({
+      contract_kind: 'evidence_supported_alternatives',
+      acceptable_roles: ['rate', 'extension'],
+      observed_role: 'extension',
+      evidence_supported: true,
+    });
+  });
+
+  it('keeps an unresolved cost-family role in semantic review', () => {
+    const costLedger: TdotLedger = {
+      ...ledger,
+      observations: [{
+        ...observation,
+        field_identifier: 'tdot:p46:r1:cost',
+        exact_raw_text: '$125.00',
+        interpreted_field_or_role: 'cost',
+      }],
+    };
+    const record = buildParityRecords({
+      ledger: costLedger,
+      legacyRows: [],
+      genericFields: [field('$125.00', 0.18, 0.48, 'ambiguous', 'rate')],
+    })[0];
+
+    expect(record).toMatchObject({
+      resolution: 'requires_semantic_review',
+      semantic_role_comparison: {
+        observed_role: 'rate',
+        observed_status: 'ambiguous',
+        evidence_supported: false,
+      },
+    });
+  });
+
   it('keeps authored TDOT history diagnostic and unsupported', () => {
     const records = buildParityRecords({
       ledger: { ...ledger, observations: [] },
@@ -222,6 +345,107 @@ describe('TDOT Phase 1 shadow parity harness', () => {
     );
   });
 
+  it('uses invariant-specific preconditions instead of a global parity gate', () => {
+    const results = preconditionedMetamorphicResults();
+    expect(results.find(({ invariant_id }) =>
+      invariant_id === 'delete_supporting_span')?.explanation)
+      .toContain('invariant-specific');
+    expect(results.find(({ invariant_id }) =>
+      invariant_id === 'change_rate')?.explanation)
+      .toContain('invariant-specific');
+    expect(results.find(({ invariant_id }) =>
+      invariant_id === 'change_quantity')?.explanation)
+      .toContain('no quantity-role observation');
+    expect(results.every(({ explanation }) =>
+      !explanation.includes('baseline parity unresolved'))).toBe(true);
+  });
+
+  it('classifies absent TDOT structures as source-limited without making them globally not applicable', () => {
+    const results = preconditionedMetamorphicResults();
+    for (const invariantId of [
+      'merged_multiline_cells',
+      'subtables',
+      'repeated_headers',
+      'cross_page_continuation',
+    ]) {
+      const result = results.find(({ invariant_id }) =>
+        invariant_id === invariantId);
+      expect(result).toMatchObject({
+        status: 'blocked',
+        mutation_manifest: {
+          disposition: 'source_limited_for_tdot_pdf',
+          synthetic_source_required: true,
+          generic_phase2_evidence_required: true,
+          production_parser_input: false,
+        },
+      });
+      expect(result?.explanation).toContain('purpose-built synthetic source');
+    }
+  });
+
+  it('blocks only source mutations whose target support is unavailable', async () => {
+    const execution = await executeSourceMetamorphicInvariants({
+      pdfPath: path.join(
+        process.cwd(),
+        'lib/evaluation/tdotPhase1Harness.test.ts',
+      ),
+      baseline: {
+        graph: { fragments: [] },
+        fields: [],
+      } as unknown as GenericShadowRun,
+      parityRecords: [{
+        id: 'unrelated-unresolved-record',
+        material: true,
+        resolution: 'unresolved',
+        ledger: null,
+        legacy_row: null,
+        generic_fields: [],
+      } as unknown as ReturnType<typeof buildParityRecords>[number]],
+    });
+    expect(execution.results).toEqual([
+      expect.objectContaining({
+        invariant_id: 'delete_supporting_span',
+        status: 'blocked',
+        explanation: expect.stringContaining('no exact, resolved'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'duplicate_row',
+        status: 'blocked',
+        explanation: expect.stringContaining('measured non-overlapping movable-content envelope'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'insert_row',
+        status: 'blocked',
+        explanation: expect.stringContaining('distinct inserted-row signature'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'change_description',
+        status: 'blocked',
+        explanation: expect.stringContaining('no exact resolved multiline description'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'change_rate',
+        status: 'blocked',
+        explanation: expect.stringContaining('no exact source-grounded ledger cost'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'change_unit',
+        status: 'blocked',
+        explanation: expect.stringContaining('no exact single-native-span unit target'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'remove_row',
+        status: 'blocked',
+        explanation: expect.stringContaining('no exact source-grounded row'),
+      }),
+      expect.objectContaining({
+        invariant_id: 'move_table_page',
+        status: 'blocked',
+        explanation: expect.stringContaining('no table-bearing page'),
+      }),
+    ]);
+  });
+
   it('proves the generic output contract has no legacy-fingerprint input', () => {
     const baseline = {
       graph: { snapshot: { content_extraction_fingerprint: 'f'.repeat(64) } },
@@ -233,6 +457,10 @@ describe('TDOT Phase 1 shadow parity harness', () => {
       historicalFingerprintBefore: 'legacy-tdot-fingerprint-before',
       historicalFingerprintAfter: 'legacy-tdot-fingerprint-after',
     }).status).toBe('pass');
+  });
+
+  it('keeps the report version explicit without using it as extraction identity', () => {
+    expect(TDOT_PHASE1_HARNESS_VERSION).toBe('1.14.0');
   });
 
   it('has no contract assembler, persistence writer, reader, or validator import', async () => {
@@ -261,6 +489,7 @@ describe('TDOT Phase 1 shadow parity harness', () => {
 
 const integrationEnvironment = {
   pdfPath: process.env.TDOT_PHASE1_SOURCE_PDF,
+  phase0Package: process.env.TDOT_PHASE1_PHASE0_PACKAGE,
 };
 
 describe.skipIf(!integrationEnvironment.pdfPath)('TDOT Phase 1 verified-source integration', () => {
@@ -277,4 +506,57 @@ describe.skipIf(!integrationEnvironment.pdfPath)('TDOT Phase 1 verified-source i
     expect(run.graph.tableSegments.length).toBeGreaterThan(0);
     expect(run.fields.length).toBeGreaterThan(0);
   }, 120_000);
+
+  it('keeps real-pipeline semantics invariant when only manifest identity changes', async () => {
+    const baseline = await runGenericShadowFromPdf({
+      pdfPath: integrationEnvironment.pdfPath!,
+      implementationBuild: 'manifest-invariance-build-a',
+    });
+    const reidentified = await runGenericShadowFromPdf({
+      pdfPath: integrationEnvironment.pdfPath!,
+      implementationBuild: 'manifest-invariance-build-b',
+    });
+    expect(baseline.graph.snapshot.parser_manifest_hash).not.toBe(
+      reidentified.graph.snapshot.parser_manifest_hash,
+    );
+    expect(baseline.graph.fragments.map(({ id }) => id)).not.toEqual(
+      reidentified.graph.fragments.map(({ id }) => id),
+    );
+    expect(manifestInvariantSemanticProjection(reidentified)).toEqual(
+      manifestInvariantSemanticProjection(baseline),
+    );
+    if (integrationEnvironment.phase0Package) {
+      const { ledger, legacyRows } = await loadPhase1Inputs({
+        ledgerPath: path.join(
+          integrationEnvironment.phase0Package,
+          'annotation',
+          'tdot-appendix-b-ledger.v1.0.0-draft.json',
+        ),
+        historicalContractAnalysisPath: path.join(
+          integrationEnvironment.phase0Package,
+          'exports',
+          '2026-07-28T154510Z',
+          'intelligence_trace.contract_analysis.json',
+        ),
+      });
+      const parityProjection = (run: GenericShadowRun) =>
+        buildParityRecords({
+          ledger,
+          legacyRows,
+          genericFields: run.fields,
+        }).filter(({ ledger: observation }) => observation != null)
+          .map((record) => ({
+            field_identifier: record.ledger!.field_identifier,
+            classification: record.classification,
+            resolution: record.resolution,
+            exact: record.reconstruction_comparison?.exact_equal ?? false,
+            generic_field_count: record.generic_fields.length,
+          }));
+      expect(parityProjection(reidentified)).toEqual(
+        parityProjection(baseline),
+      );
+    }
+    expect(baseline.dependency_closure.status).toBe('pass');
+    expect(reidentified.dependency_closure.status).toBe('pass');
+  }, 360_000);
 });

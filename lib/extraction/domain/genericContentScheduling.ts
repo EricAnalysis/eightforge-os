@@ -122,7 +122,10 @@ export function scheduleGenericContentExtraction(
     .sort((left, right) => left.page - right.page
       || left.bounding_box.y0 - right.bounding_box.y0
       || left.bounding_box.x0 - right.bounding_box.x0
-      || left.region_id.localeCompare(right.region_id))
+      || left.bounding_box.y1 - right.bounding_box.y1
+      || left.bounding_box.x1 - right.bounding_box.x1
+      || left.structural_kind.localeCompare(right.structural_kind)
+      || left.native_text.localeCompare(right.native_text))
     .map((region): GenericRegionDecision => {
       const nativeText = region.native_text.trim();
       const nativeCharacterCount = nativeText.length;

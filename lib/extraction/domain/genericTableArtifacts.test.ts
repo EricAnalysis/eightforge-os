@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildGenericTableArtifacts,
+  compareSourceFragmentsBySourceOrder,
   GENERIC_TABLE_PARSER,
+  GENERIC_TABLE_POLICY_V8,
   type ObservedTableRegion,
 } from '@/lib/extraction/domain/genericTableArtifacts';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import type {
   ExtractionRun,
@@ -34,6 +37,18 @@ const run: ExtractionRun = {
   artifact_schema_version: 'extraction-artifact-v1',
   status: 'complete',
 };
+
+describe('generic table policy identity', () => {
+  it('renames the v8 symbol without changing the accepted policy hash', () => {
+    expect(GENERIC_TABLE_POLICY_V8.version).toBe('v8');
+    expect(hashCanonical(GENERIC_TABLE_POLICY_V8)).toBe(
+      '6883ebb042bf5ece9b20e002d5bb31bf3a8bba872f7b7f155b833b20fa98f13e',
+    );
+    expect(GENERIC_TABLE_PARSER.configuration_hash).toBe(
+      hashCanonical(GENERIC_TABLE_POLICY_V8),
+    );
+  });
+});
 
 function page(pageNumber: number): PageArtifact {
   return {
@@ -111,6 +126,29 @@ function build(
     sections,
   });
 }
+
+describe('identity-independent source ordering', () => {
+  it('is antisymmetric and transitive without consulting opaque IDs', () => {
+    const targetPage = page(1);
+    const first = token(targetPage, 'A', 0.1, 0.1, 0.2, 0.12, 1);
+    const second = token(targetPage, 'B', 0.2, 0.1, 0.3, 0.12, 2);
+    const third = token(targetPage, 'C', 0.3, 0.1, 0.4, 0.12, 3);
+    expect(compareSourceFragmentsBySourceOrder(first, second)).toBeLessThan(0);
+    expect(compareSourceFragmentsBySourceOrder(second, first)).toBeGreaterThan(0);
+    expect(compareSourceFragmentsBySourceOrder(second, third)).toBeLessThan(0);
+    expect(compareSourceFragmentsBySourceOrder(first, third)).toBeLessThan(0);
+  });
+
+  it('treats an opaque-ID-only difference as an ordering tie', () => {
+    const original = token(page(1), 'same', 0.1, 0.1, 0.2, 0.12, 1);
+    const rekeyed: SourceFragmentArtifact = {
+      ...original,
+      id: opaqueIds.fragmentArtifact({ manifest_only_rekey: true }),
+    };
+    expect(compareSourceFragmentsBySourceOrder(original, rekeyed)).toBe(0);
+    expect(compareSourceFragmentsBySourceOrder(rekeyed, original)).toBe(0);
+  });
+});
 
 function splitRowScenario(destinationPageNumber: number, options: {
   readonly destinationY?: number;
@@ -249,6 +287,76 @@ describe('generic physical table artifacts', () => {
     ]);
   });
 
+  it.each(['-', '\u2013', '\u2014'])(
+    'coalesces a currency marker with %s only inside one measured band',
+    (dash) => {
+      const p = page(16);
+      const fragments = [
+        token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+        token(p, 'Amount', 0.55, 0.20, 0.62, 0.21, 2),
+        token(p, 'A', 0.05, 0.24, 0.10, 0.25, 3),
+        token(p, '$', 0.55, 0.24, 0.56, 0.25, 4),
+        token(p, dash, 0.59, 0.24, 0.60, 0.25, 5),
+      ];
+      const result = build([p], fragments);
+      const value = result.cells.find(({ raw_text }) =>
+        raw_text.includes('$'));
+
+      expect(value?.raw_text).toBe(`$ ${dash}`);
+      expect(value?.content_token_ids).toEqual([
+        fragments[3]?.id,
+        fragments[4]?.id,
+      ]);
+      expect(value?.artifact_data?.fragment_coalescing).toMatchObject({
+        applied: true,
+        reason: 'currency_marker_dash_pair',
+      });
+    },
+  );
+
+  it('does not coalesce currency and dash tokens separated by a column boundary', () => {
+    const p = page(17);
+    const fragments = [
+      token(p, 'Left', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Right', 0.55, 0.20, 0.62, 0.21, 2),
+      token(p, '$', 0.40, 0.24, 0.41, 0.25, 3),
+      token(p, '-', 0.55, 0.24, 0.56, 0.25, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.every(({ raw_text }) => raw_text !== '$ -')).toBe(true);
+  });
+
+  it('recovers a same-baseline currency dash pair with exclusive same-band evidence without broadening the gap threshold', () => {
+    const p = page(18);
+    const fragments = [
+      token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Amount', 0.55, 0.20, 0.72, 0.21, 2),
+      token(p, 'A', 0.05, 0.24, 0.10, 0.25, 3),
+      token(p, '$', 0.55, 0.24, 0.56, 0.25, 4),
+      token(p, '-', 0.62, 0.24, 0.63, 0.25, 5),
+      token(p, 'B', 0.05, 0.28, 0.10, 0.29, 6),
+      token(p, '10.00', 0.62, 0.28, 0.68, 0.29, 7),
+    ];
+    const result = build([p], fragments);
+    const recovered = result.cells.find(({ raw_text }) => raw_text === '$ -');
+
+    expect(recovered).toBeDefined();
+    expect(recovered?.artifact_data?.fragment_coalescing).toMatchObject({
+      applied: true,
+      reason: 'currency_marker_dash_pair',
+      maximum_observed_inline_gap: expect.any(Number),
+    });
+    const coalescing = recovered?.artifact_data?.fragment_coalescing as
+      | { readonly maximum_observed_inline_gap: number }
+      | undefined;
+    expect(coalescing?.maximum_observed_inline_gap).toBeGreaterThan(0.05);
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ fragment_ids: [fragments[4]!.id] }),
+      ]));
+  });
+
   it('keeps non-overlapping nearby baselines as distinct logical rows', () => {
     const p = page(8);
     const fragments = [
@@ -264,6 +372,324 @@ describe('generic physical table artifacts', () => {
       'First\tEA',
       'Second\tLS',
     ]);
+  });
+
+  it('attaches a sparse first line forward when following-row geometry dominates', () => {
+    const p = page(9);
+    const fragments = [
+      token(p, 'Previous', 0.05, 0.20, 0.15, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Next description', 0.05, 0.23, 0.19, 0.24, 3),
+      token(p, 'continued', 0.05, 0.245, 0.13, 0.255, 4),
+      token(p, 'LS', 0.55, 0.245, 0.58, 0.255, 5),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Next description\ncontinued');
+    expect(result.reconstruction_diagnostics.sparse_row_dispositions)
+      .toContainEqual(expect.objectContaining({
+        outcome: 'attached',
+        selected_primary_row_index: 2,
+        selected_column_index: 0,
+        candidate_rows: expect.arrayContaining([
+          expect.objectContaining({ direction: 'forward' }),
+          expect.objectContaining({ direction: 'backward' }),
+        ]),
+      }));
+  });
+
+  it('uses the anchored row start as the ordinal boundary when adjacent distances are close', () => {
+    const p = page(22);
+    const fragments = [
+      token(p, 'Prior row', 0.05, 0.20, 0.16, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Continuation detail', 0.05, 0.224, 0.22, 0.234, 3),
+      token(p, 'Following row', 0.05, 0.25, 0.18, 0.26, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'attached',
+      selected_primary_row_index: 0,
+      selected_column_index: 0,
+      selection_basis:
+        'backward_row_start_boundary_within_uncertainty',
+    });
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Prior row\nContinuation detail');
+  });
+
+  it('keeps immutable row-anchor geometry after opening a missing wrapped cell', () => {
+    const p = page(21);
+    const fragments = [
+      token(p, 'Previous', 0.05, 0.20, 0.16, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, '$ 1', 0.75, 0.20, 0.79, 0.21, 3),
+      token(p, 'Repeated route', 0.05, 0.23, 0.20, 0.24, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+      token(p, '$ 2', 0.75, 0.25, 0.79, 0.26, 6),
+      token(p, 'continued', 0.05, 0.27, 0.14, 0.28, 7),
+      token(p, 'Next', 0.05, 0.30, 0.12, 0.31, 8),
+      token(p, 'CY', 0.55, 0.30, 0.58, 0.31, 9),
+      token(p, '$ 3', 0.75, 0.30, 0.79, 0.31, 10),
+    ];
+    const result = build([p], fragments);
+    const dispositions =
+      result.reconstruction_diagnostics.sparse_row_dispositions;
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('Repeated route\ncontinued');
+    expect(dispositions).toHaveLength(2);
+    expect(dispositions.every((item) =>
+      item.outcome === 'attached'
+      && item.selected_primary_row_index === 2
+      && item.selected_column_index === 0))
+      .toBe(true);
+    expect(dispositions[0]?.candidate_rows[0]?.measurements)
+      .toMatchObject({ target_cell_opened_from_sparse: false });
+    expect(dispositions[1]?.candidate_rows[0]?.measurements)
+      .toMatchObject({ target_cell_opened_from_sparse: true });
+  });
+
+  it('uses positional sequence evidence when adjacent wrapped text is identical', () => {
+    const p = page(20);
+    const fragments = [
+      token(p, 'Repeated route text', 0.05, 0.20, 0.24, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Repeated route text', 0.05, 0.214, 0.24, 0.224, 3),
+      token(p, 'Repeated route text', 0.05, 0.25, 0.24, 0.26, 4),
+      token(p, 'LS', 0.55, 0.25, 0.58, 0.26, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'attached',
+      selected_primary_row_index: 0,
+      selected_column_index: 0,
+    });
+    expect(disposition?.candidate_rows[0]?.measurements)
+      .toMatchObject({
+        row_order_consistency: 1,
+        vertical_progression: expect.any(Number),
+        target_cell_existed: true,
+      });
+  });
+
+  it('preserves tied repeated-text candidates as an explicit gap', () => {
+    const p = page(10);
+    const fragments = [
+      token(p, 'Repeated', 0.05, 0.20, 0.12, 0.21, 1),
+      token(p, 'EA', 0.55, 0.20, 0.58, 0.21, 2),
+      token(p, 'Repeated', 0.05, 0.22, 0.14, 0.23, 3),
+      token(p, 'Repeated', 0.05, 0.24, 0.12, 0.25, 4),
+      token(p, 'LS', 0.55, 0.24, 0.58, 0.25, 5),
+    ];
+    const result = build([p], fragments);
+    const disposition =
+      result.reconstruction_diagnostics.sparse_row_dispositions[0];
+
+    expect(disposition).toMatchObject({
+      outcome: 'unresolved_gap',
+      rejection_reason: 'candidate_scores_tied',
+      selected_primary_row_index: null,
+    });
+    expect(disposition?.candidate_rows.map(({ direction }) => direction).sort())
+      .toEqual(['backward', 'forward']);
+    expect(result.gaps.some(({ id }) =>
+      id === disposition?.processing_gap_id)).toBe(true);
+  });
+
+  it('constrains final coalescing to inferred bands and keeps row label separate', () => {
+    const p = page(11);
+    const fragments = [
+      token(p, 'Item', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'Description', 0.19, 0.20, 0.30, 0.21, 2),
+      token(p, '1', 0.05, 0.24, 0.06, 0.25, 3),
+      token(p, 'Close description', 0.085, 0.24, 0.22, 0.25, 4),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text)).toEqual([
+      'Item',
+      'Description',
+      '1',
+      'Close description',
+    ]);
+    expect(result.cells[2]?.column_start).not.toBe(
+      result.cells[3]?.column_start,
+    );
+  });
+
+  it('lets row-global evidence resolve a measured-boundary candidate', () => {
+    const p = page(12);
+    const fragments = [
+      token(p, 'A', 0.08, 0.20, 0.12, 0.21, 1),
+      token(p, 'B', 0.48, 0.20, 0.52, 0.21, 2),
+      token(p, 'C', 0.08, 0.24, 0.12, 0.25, 3),
+      token(p, 'D', 0.48, 0.24, 0.52, 0.25, 4),
+      token(p, 'Boundary', 0.275, 0.22, 0.285, 0.23, 5),
+    ];
+    const result = build([p], fragments);
+
+    const diagnostic =
+      result.reconstruction_diagnostics.row_anchor_assignments.find(
+        ({ physical_row_index }) => physical_row_index === 1,
+      );
+    expect(diagnostic?.candidate_matrix[0]).toHaveLength(2);
+    expect(diagnostic?.selected_assignments[0]).toMatchObject({
+      column_index: expect.any(Number),
+      processing_gap_id: null,
+    });
+    expect(result.reconstruction_diagnostics.undisposed_fragment_ids)
+      .not.toContain(fragments[4]?.id);
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .toHaveLength(0);
+  });
+
+  it('uses observed gap distributions only with sufficient calibration evidence', () => {
+    const p = page(13);
+    const fragments = Array.from({ length: 4 }, (_, rowIndex) => {
+      const y = 0.20 + rowIndex * 0.04;
+      return [
+        token(p, `Left${rowIndex}`, 0.05, y, 0.10, y + 0.01, rowIndex * 4 + 1),
+        token(p, 'part', 0.105, y, 0.15, y + 0.01, rowIndex * 4 + 2),
+        token(p, `Right${rowIndex}`, 0.55, y, 0.60, y + 0.01, rowIndex * 4 + 3),
+        token(p, 'part', 0.605, y, 0.65, y + 0.01, rowIndex * 4 + 4),
+      ];
+    }).flat();
+    const result = build([p], fragments);
+    const calibration = result.reconstruction_diagnostics.calibrations[0];
+
+    expect(calibration?.horizontal_gaps.sample_count).toBeGreaterThanOrEqual(8);
+    expect(calibration?.thresholds.maximum_inline_gap).toMatchObject({
+      mode: 'adaptive',
+      fallback_reason: null,
+    });
+    expect(calibration?.thresholds.maximum_inline_gap.confidence)
+      .toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('falls back to bounded defaults when calibration evidence is insufficient', () => {
+    const p = page(14);
+    const fragments = [
+      token(p, 'Left', 0.05, 0.20, 0.12, 0.21, 1),
+      token(p, 'Right', 0.55, 0.20, 0.62, 0.21, 2),
+    ];
+    const result = build([p], fragments);
+    const calibration = result.reconstruction_diagnostics.calibrations[0];
+
+    expect(calibration?.thresholds.maximum_inline_gap).toMatchObject({
+      mode: 'fallback',
+      selected: 0.025,
+      previous_default: 0.025,
+    });
+    expect(calibration?.thresholds.maximum_inline_gap.fallback_reason)
+      .toBeTruthy();
+  });
+
+  it('selects different relative thresholds for measurably different layouts', () => {
+    const makeLayout = (pageNumber: number, inlineGap: number) => {
+      const p = page(pageNumber);
+      const fragments = Array.from({ length: 5 }, (_, rowIndex) => {
+        const y = 0.20 + rowIndex * 0.04;
+        return [
+          token(p, `L${rowIndex}`, 0.05, y, 0.10, y + 0.01, rowIndex * 4 + 1),
+          token(
+            p,
+            'part',
+            0.10 + inlineGap,
+            y,
+            0.15 + inlineGap,
+            y + 0.01,
+            rowIndex * 4 + 2,
+          ),
+          token(p, `R${rowIndex}`, 0.55, y, 0.60, y + 0.01, rowIndex * 4 + 3),
+          token(
+            p,
+            'part',
+            0.60 + inlineGap,
+            y,
+            0.65 + inlineGap,
+            y + 0.01,
+            rowIndex * 4 + 4,
+          ),
+        ];
+      }).flat();
+      return build([p], fragments).reconstruction_diagnostics.calibrations[0]!;
+    };
+    const dense = makeLayout(18, 0.005);
+    const sparse = makeLayout(19, 0.018);
+
+    expect(dense.thresholds.maximum_inline_gap.selected)
+      .not.toBe(sparse.thresholds.maximum_inline_gap.selected);
+    expect(dense.thresholds.maximum_inline_gap.applied_bound).toBe('none');
+    expect(sparse.thresholds.maximum_inline_gap.applied_bound).toBe('none');
+  });
+
+  it('does not invent overflow columns and disposes every candidate fragment', () => {
+    const p = page(15);
+    const fragments = [
+      token(p, 'A', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'B', 0.50, 0.20, 0.55, 0.21, 2),
+      token(p, 'C', 0.05, 0.24, 0.10, 0.25, 3),
+      token(p, 'D', 0.50, 0.24, 0.55, 0.25, 4),
+      token(p, 'E', 0.05, 0.28, 0.10, 0.29, 5),
+      token(p, 'F', 0.50, 0.28, 0.55, 0.29, 6),
+      token(p, 'overflow', 0.80, 0.28, 0.88, 0.29, 7),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .toContainEqual(expect.objectContaining({
+        fragment_ids: [fragments[6]?.id],
+        rejection_reason: 'anchor_already_occupied',
+      }));
+    expect(Math.max(...result.cells.map(({ column_start }) => column_start))).toBe(1);
+    expect(result.reconstruction_diagnostics.undisposed_fragment_ids).toEqual([]);
+    expect(result.reconstruction_diagnostics.disposed_fragment_count)
+      .toBe(result.reconstruction_diagnostics.table_candidate_fragment_count);
+    expect(result.reconstruction_diagnostics.row_anchor_assignments)
+      .toContainEqual(expect.objectContaining({
+        selected_assignments: expect.arrayContaining([
+          expect.objectContaining({
+            structural_signal: 'structural_excess_cells',
+            column_index: null,
+            processing_gap_id: expect.any(String),
+          }),
+        ]),
+      }));
+  });
+
+  it('recovers an exclusive same-column continuation before emitting overflow', () => {
+    const p = page(16);
+    const fragments = [
+      token(p, 'H1', 0.05, 0.20, 0.10, 0.21, 1),
+      token(p, 'H2', 0.30, 0.20, 0.35, 0.21, 2),
+      token(p, 'H3', 0.55, 0.20, 0.60, 0.21, 3),
+      token(p, 'A', 0.05, 0.24, 0.10, 0.25, 4),
+      token(p, 'B', 0.30, 0.24, 0.35, 0.25, 5),
+      token(p, 'First line', 0.55, 0.24, 0.64, 0.25, 6),
+      token(p, 'continuation', 0.55, 0.251, 0.65, 0.261, 7),
+      token(p, 'C', 0.05, 0.29, 0.10, 0.30, 8),
+      token(p, 'D', 0.30, 0.29, 0.35, 0.30, 9),
+      token(p, 'E', 0.55, 0.29, 0.60, 0.30, 10),
+    ];
+    const result = build([p], fragments);
+
+    expect(result.cells.map(({ raw_text }) => raw_text))
+      .toContain('First line\ncontinuation');
+    expect(result.reconstruction_diagnostics.column_overflows)
+      .not.toContainEqual(expect.objectContaining({
+        fragment_ids: [fragments[6]?.id],
+      }));
+    expect(result.gaps.some(({ upstream_artifact_ids }) =>
+      upstream_artifact_ids.includes(fragments[6]!.id))).toBe(false);
   });
 
   it('retains bordered merged spans and multiline text once without copying neighbors', () => {
@@ -387,6 +813,151 @@ describe('generic physical table artifacts', () => {
     expect(result.continuation_links).toMatchObject([{ decision: 'linked' }]);
     expect(result.chains).toHaveLength(1);
     expect(result.segments[0]?.column_hypotheses[0]?.header.observed_text).toBe('Item');
+  });
+
+  it('associates a retained source header with an adjacent headerless continuation using multiple boundary signals', () => {
+    const sourcePage = page(11);
+    const continuationPage = page(12);
+    const source = [
+      token(sourcePage, 'Label', 0.10, 0.76, 0.30, 0.78, 1),
+      token(sourcePage, 'Unit', 0.55, 0.76, 0.70, 0.78, 2),
+      token(sourcePage, 'Alpha', 0.10, 0.82, 0.30, 0.84, 3),
+      token(sourcePage, 'Each', 0.55, 0.82, 0.70, 0.84, 4),
+      token(sourcePage, 'Beta', 0.10, 0.92, 0.30, 0.94, 5),
+      token(sourcePage, 'Ton', 0.55, 0.92, 0.70, 0.94, 6),
+    ];
+    const destination = [
+      token(continuationPage, 'Envelope', 0.02, 0.02, 0.18, 0.04, 7),
+      token(continuationPage, 'Identifier', 0.20, 0.02, 0.38, 0.04, 8),
+      token(continuationPage, 'Gamma', 0.10, 0.08, 0.30, 0.10, 9),
+      token(continuationPage, 'Yard', 0.55, 0.08, 0.70, 0.10, 10),
+    ];
+    const result = build(
+      [sourcePage, continuationPage],
+      [...source, ...destination],
+      [
+        {
+          page_artifact_id: sourcePage.id,
+          rows: [
+            {
+              row_kind: 'header',
+              cells: [
+                { token_ids: [source[0]!.id] },
+                { token_ids: [source[1]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [source[2]!.id] },
+                { token_ids: [source[3]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [source[4]!.id] },
+                { token_ids: [source[5]!.id] },
+              ],
+            },
+          ],
+          detection_evidence: ['x_alignment'],
+        },
+        {
+          page_artifact_id: continuationPage.id,
+          rows: [
+            {
+              row_kind: 'header',
+              cells: [
+                { token_ids: [destination[0]!.id] },
+                { token_ids: [destination[1]!.id] },
+              ],
+            },
+            {
+              row_kind: 'data',
+              cells: [
+                { token_ids: [destination[2]!.id] },
+                { token_ids: [destination[3]!.id] },
+              ],
+            },
+          ],
+          detection_evidence: ['x_alignment'],
+        },
+      ],
+    );
+
+    expect(result.continuation_links).toMatchObject([{ decision: 'linked' }]);
+    expect(result.continuation_links[0]?.basis.row_continuation_score.measurements)
+      .toMatchObject({
+        header_association_policy_version:
+          'adjacent-boundary-header-association-v1',
+        header_association_multiple_structural_signals: true,
+      });
+    expect(result.chains).toHaveLength(1);
+  });
+
+  it('does not associate prose above a table when source boundary evidence is incomplete', () => {
+    const sourcePage = page(13);
+    const destinationPage = page(14);
+    const fragments = [
+      token(sourcePage, 'Label', 0.10, 0.30, 0.30, 0.32, 1),
+      token(sourcePage, 'Unit', 0.55, 0.30, 0.70, 0.32, 2),
+      token(sourcePage, 'Complete', 0.10, 0.48, 0.30, 0.50, 3),
+      token(sourcePage, 'Each', 0.55, 0.48, 0.70, 0.50, 4),
+      token(destinationPage, 'Ordinary prose', 0.02, 0.02, 0.20, 0.04, 5),
+      token(destinationPage, 'Reference', 0.25, 0.02, 0.38, 0.04, 6),
+      token(destinationPage, 'Unrelated', 0.10, 0.08, 0.30, 0.10, 7),
+      token(destinationPage, 'Ton', 0.55, 0.08, 0.70, 0.10, 8),
+    ];
+    const result = build([sourcePage, destinationPage], fragments, [
+      {
+        page_artifact_id: sourcePage.id,
+        rows: [
+          {
+            row_kind: 'header',
+            cells: [
+              { token_ids: [fragments[0]!.id] },
+              { token_ids: [fragments[1]!.id] },
+            ],
+          },
+          {
+            row_kind: 'data',
+            cells: [
+              { token_ids: [fragments[2]!.id] },
+              { token_ids: [fragments[3]!.id] },
+            ],
+          },
+        ],
+        detection_evidence: ['x_alignment'],
+      },
+      {
+        page_artifact_id: destinationPage.id,
+        rows: [
+          {
+            row_kind: 'header',
+            cells: [
+              { token_ids: [fragments[4]!.id] },
+              { token_ids: [fragments[5]!.id] },
+            ],
+          },
+          {
+            row_kind: 'data',
+            cells: [
+              { token_ids: [fragments[6]!.id] },
+              { token_ids: [fragments[7]!.id] },
+            ],
+          },
+        ],
+        detection_evidence: ['x_alignment'],
+      },
+    ]);
+    const measurement =
+      result.continuation_links[0]?.basis.row_continuation_score.measurements;
+
+    expect(measurement).toMatchObject({
+      header_association_multiple_structural_signals: false,
+    });
+    expect(result.continuation_links[0]?.decision).not.toBe('linked');
   });
 
   it('retains cross-page continuation ambiguity instead of forcing a chain link', () => {

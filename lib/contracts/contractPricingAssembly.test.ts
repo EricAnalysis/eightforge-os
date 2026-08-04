@@ -2123,8 +2123,58 @@ describe('assembleContractPricingRows', () => {
 
     assert.equal(assembled?.description, 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles');
     assert.equal(assembled?.rate, 6.9);
+    assert.equal(assembled?.route, 'ROW to DMS');
+    assert.equal(assembled?.distanceBand, '0 to 15 Miles');
+    assert.equal(assembled?.pricingDimensions?.routeKind, 'row_to_dms');
+    assert.equal(assembled?.pricingDimensions?.distanceBand?.minMiles, 0);
+    assert.equal(assembled?.pricingDimensions?.distanceBand?.maxMiles, 15);
+    assert.equal(assembled?.pricingDimensionSources?.route, 'authored_correction');
+    assert.equal(assembled?.pricingDimensionSources?.distance, 'authored_correction');
     assert.equal(assembled?.confidence, 'low');
     assert.equal(assembled?.rawText, rawText);
+  });
+
+  it('reinterprets all Golden authored-correction transport descriptions', () => {
+    const assembled = assembleContractPricingRows([
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p8:t31:r1:v1',
+        source_kind: 'exhibit_a_table', category: 'Final Disposal',
+        source_category: 'Final Disposal', material_type: 'Final Disposal', page: 8,
+        description: 'Final Disposal 0-15 Miles damaged', rate_raw: 'Final Disposal 0-15 Miles $8.25',
+        rate: 8.25, rate_amount: 8.25,
+      }),
+      row({
+        row_id: 'exhibit_a_table:pdf:table:p8:t32:r1:v1',
+        source_kind: 'exhibit_a_table', category: 'Final Disposal',
+        source_category: 'Final Disposal', material_type: 'Final Disposal', page: 8,
+        description: 'Final Disposal damaged 60 plus', rate_raw: 'Final Disposal damaged 60 plus $5.40',
+        rate: 5.4, rate_amount: 5.4,
+      }),
+    ]);
+
+    assert.deepEqual(assembled.map(({ description, rate, route, distanceBand }) => ({ description, rate, route, distanceBand })), [
+      { description: 'DMS to Final Disposal 0 to 15 Miles', rate: 3.25, route: 'DMS to Final Disposal', distanceBand: '0 to 15 Miles' },
+      { description: 'DMS to Final Disposal 60+ Miles', rate: 5.4, route: 'DMS to Final Disposal', distanceBand: '60+ Miles' },
+    ]);
+    assert.ok(assembled.every((item) => item.authoredValueCorrection));
+  });
+
+  it('does not expand Exhibit A origin_destination into structured-dimension precedence', () => {
+    const [assembled] = assembleContractPricingRows([row({
+      row_id: 'structured-dimensions-win', source_kind: 'exhibit_a_table',
+      description: 'Unincorporated Neighborhoods -16 Miles from R OW a rors DMS',
+      rate_raw: 'Unincorporated Neighborhoods -16 Miles from R OW a rors DMS $6.90',
+      raw_cells: ['Unincorporated Neighborhoods', '-16 Miles from R OW a rors DMS'],
+      origin_destination: 'DMS to FDS',
+    })]);
+
+    assert.equal(assembled?.description, 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles');
+    assert.equal(assembled?.route, 'ROW to DMS');
+    assert.equal(assembled?.distanceBand, '0 to 15 Miles');
+    assert.equal(assembled?.pricingDimensions?.routeKind, 'row_to_dms');
+    assert.equal(assembled?.pricingDimensions?.distanceBand?.minMiles, 0);
+    assert.equal(assembled?.pricingDimensionSources?.route, 'authored_correction');
+    assert.equal(assembled?.pricingDimensionSources?.distance, 'authored_correction');
   });
 
   it('corrects source-backed OCR rate misreads and keeps corrected rows derived', () => {

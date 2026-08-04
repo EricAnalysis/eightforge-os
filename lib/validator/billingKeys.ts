@@ -569,6 +569,17 @@ function detectDistanceBand(value: string | null | undefined): { start: number; 
   return { start: Math.min(start, end), end: Math.max(start, end) };
 }
 
+/** Evaluation seam for proving the legacy operational matcher remains byte-for-byte equivalent. */
+export function diagnoseOperationalDimensionCompatibility(value: string): {
+  route: string | null;
+  distanceBand: { start: number; end: number } | null;
+} {
+  return {
+    route: detectRoute(value),
+    distanceBand: detectDistanceBand(value),
+  };
+}
+
 function distanceBandsOverlap(
   left: { start: number; end: number } | null,
   right: { start: number; end: number } | null,

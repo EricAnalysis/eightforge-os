@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import ts from 'typescript';
 
 const ROOT = process.cwd();
 const PRODUCTION_ROOTS = ['app', 'components', 'lib', 'types'];
@@ -32,7 +34,7 @@ const LEGACY_LAYER_EXCEPTIONS = new Set([
 ]);
 
 function walk(directory: string): string[] {
-  if (!statSync(directory).isDirectory()) return [];
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
   return readdirSync(directory).flatMap((entry) => {
     const absolute = path.join(directory, entry);
     const stat = statSync(absolute);
@@ -45,17 +47,68 @@ function walk(directory: string): string[] {
   });
 }
 
-function importsInFile(absolutePath: string): ImportEdge[] {
-  const source = path.relative(ROOT, absolutePath).replaceAll('\\', '/');
+function moduleSpecifiers(text: string, fileName: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const specifiers: string[] = [];
+  const record = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier
+      && ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && node.moduleReference.expression
+      && ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      specifiers.push(node.moduleReference.expression.text);
+    } else if (
+      ts.isCallExpression(node)
+      && node.arguments.length === 1
+      && ts.isStringLiteralLike(node.arguments[0]!)
+      && (
+        node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+      )
+    ) {
+      specifiers.push(node.arguments[0]!.text);
+    }
+    ts.forEachChild(node, record);
+  };
+  record(sourceFile);
+  return specifiers;
+}
+
+function importsInFile(absolutePath: string, workspaceRoot = ROOT): ImportEdge[] {
+  const source = path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
   const text = readFileSync(absolutePath, 'utf8');
-  return [...text.matchAll(IMPORT_PATTERN)].map((match) => ({
+  return moduleSpecifiers(text, absolutePath).map((specifier) => ({
     source,
-    specifier: match[1],
+    specifier,
   }));
 }
 
+function importsInFileFast(absolutePath: string, workspaceRoot = ROOT): ImportEdge[] {
+  const source = path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
+  const text = readFileSync(absolutePath, 'utf8');
+  return [...text.matchAll(IMPORT_PATTERN)].map((match) => ({ source, specifier: match[1]! }));
+}
+
+let productionEdges: ImportEdge[] | null = null;
+
 function allEdges(): ImportEdge[] {
-  return PRODUCTION_ROOTS.flatMap((root) => walk(path.join(ROOT, root))).flatMap(importsInFile);
+  productionEdges ??= PRODUCTION_ROOTS
+    .flatMap((root) => walk(path.join(ROOT, root)))
+    .flatMap((file) => importsInFileFast(file));
+  return productionEdges;
 }
 
 function specifierSegments(specifier: string): string[] {
@@ -78,6 +131,39 @@ function resolveImportTarget(edge: ImportEdge): string {
 
 function isWithin(target: string, root: string): boolean {
   return target === root || target.startsWith(`${root}/`);
+}
+
+function productionReaderFiles(workspaceRoot: string, roots = ['app', 'components', 'lib']): string[] {
+  const excludedRoots = new Set(['lib/canonical', 'lib/evaluation']);
+  const visit = (directory: string): string[] => {
+    if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
+    const relativeDirectory = path.relative(workspaceRoot, directory).replaceAll('\\', '/');
+    if (excludedRoots.has(relativeDirectory)) return [];
+    return readdirSync(directory).flatMap((entry) => {
+      const absolute = path.join(directory, entry);
+      const stat = statSync(absolute);
+      if (stat.isDirectory()) return visit(absolute);
+      if (!SOURCE_EXTENSION.test(entry) || TEST_FILE.test(entry)) return [];
+      return [absolute];
+    });
+  };
+  return roots.flatMap((root) => visit(path.join(workspaceRoot, root)));
+}
+
+function canonicalProjectReaderCutovers(
+  workspaceRoot: string,
+  roots = ['app', 'components', 'lib'],
+): string[] {
+  return productionReaderFiles(workspaceRoot, roots)
+    .flatMap((file) => {
+      const text = readFileSync(file, 'utf8');
+      return /canonical[\\/]project[\\/]/.test(text)
+        ? importsInFile(file, workspaceRoot)
+        : [];
+    })
+    .filter((edge) => isWithin(resolveImportTarget(edge), 'lib/canonical/project'))
+    .map((edge) => `${edge.source} -> ${edge.specifier}`)
+    .sort();
 }
 
 function isLayerViolation(edge: ImportEdge): boolean {
@@ -111,7 +197,7 @@ describe('production architecture import boundaries', () => {
       ))
       .map((edge) => `${edge.source} -> ${edge.specifier}`);
     expect(violations).toEqual([]);
-  });
+  }, 30_000);
 
   it('enforces Extraction -> Interpretation -> Validation with frozen legacy exceptions', () => {
     const violations = allEdges()
@@ -150,5 +236,68 @@ describe('production architecture import boundaries', () => {
         specifier: '..\\..\\validator',
       },
     ].map(isLayerViolation)).toEqual([true, true, true, true, true]);
+  });
+
+  it('has no production reader cutover to the shadow Project Truth registry', () => {
+    expect(canonicalProjectReaderCutovers(ROOT)).toEqual([]);
+  }, 30_000);
+});
+
+describe('shadow Project Truth reader-cutover guard', () => {
+  const temporaryRoots: string[] = [];
+  const fixtureRoot = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'eightforge-reader-guard-'));
+    temporaryRoots.push(root);
+    return root;
+  };
+  const source = (root: string, relativePath: string, contents: string): void => {
+    const absolute = path.join(root, relativePath);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, contents);
+  };
+
+  afterEach(() => {
+    for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('catches alias imports', () => {
+    const root = fixtureRoot();
+    source(root, 'app/reader.ts', "import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';");
+    expect(canonicalProjectReaderCutovers(root)).toEqual([
+      "app/reader.ts -> @/lib/canonical/project/projectTruthBuilder",
+    ]);
+  });
+
+  it('catches relative, static require, and dynamic import forms', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/consumers/relative.ts', "import type { CanonicalProjectTruth } from '../canonical/project/projectTruth';");
+    source(root, 'components/required.ts', "const truth = require('../lib/canonical/project/projectTruth');");
+    source(root, 'app/dynamic.ts', "const truth = import('../lib/canonical/project/projectTruthBuilder');");
+    expect(canonicalProjectReaderCutovers(root)).toEqual([
+      "app/dynamic.ts -> ../lib/canonical/project/projectTruthBuilder",
+      "components/required.ts -> ../lib/canonical/project/projectTruth",
+      "lib/consumers/relative.ts -> ../canonical/project/projectTruth",
+    ]);
+  });
+
+  it('inspects nested directories named canonical outside lib/canonical', () => {
+    const root = fixtureRoot();
+    source(root, 'components/feature/canonical/reader.ts', "export { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';");
+    expect(canonicalProjectReaderCutovers(root)).toEqual([
+      "components/feature/canonical/reader.ts -> @/lib/canonical/project/projectTruthBuilder",
+    ]);
+  });
+
+  it('does not throw when an optional scan root is missing', () => {
+    const root = fixtureRoot();
+    expect(canonicalProjectReaderCutovers(root, ['missing-root'])).toEqual([]);
+  });
+
+  it('permits canonical, evaluation, and test-only imports', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/canonical/internal.ts', "import type { CanonicalProjectTruth } from './project/projectTruth';");
+    source(root, 'lib/evaluation/proof.ts', "import { buildCanonicalProjectTruth } from '../canonical/project/projectTruthBuilder';");
+    source(root, 'app/reader.test.ts', "import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';");
+    expect(canonicalProjectReaderCutovers(root)).toEqual([]);
   });
 });

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   arbitrateRegion,
   buildRegionCandidate,
+  compareRegionCandidatesBySourceEvidence,
+  compareRegionCandidatesForCompatibilityStream,
+  compareRegionTokensBySourceOrder,
   REGION_ARBITRATOR,
   REGION_ARBITRATION_POLICY_V2,
 } from '@/lib/extraction/domain/regionArbitration';
@@ -95,6 +98,63 @@ function candidate(
     },
   };
 }
+
+describe('identity-independent region ordering', () => {
+  it('does not order source-equivalent tokens by opaque ID', () => {
+    const original = token('same');
+    const rekeyed: SourceFragmentArtifact = {
+      ...original,
+      id: opaqueIds.fragmentArtifact({ manifest_only_rekey: 'token' }),
+    };
+    expect(compareRegionTokensBySourceOrder(original, rekeyed)).toBe(0);
+    expect(compareRegionTokensBySourceOrder(rekeyed, original)).toBe(0);
+  });
+
+  it('does not order source-equivalent candidates by opaque ID', () => {
+    const sourceToken = token('same');
+    const sourceParser = parser('native_text', 'native');
+    const first = candidate('first', sourceToken, 'same', 0.9, sourceParser);
+    const second = {
+      ...first,
+      id: opaqueIds.fragmentArtifact({ manifest_only_rekey: 'candidate' }),
+    };
+    expect(compareRegionCandidatesBySourceEvidence(first, second)).toBe(0);
+    expect(compareRegionCandidatesBySourceEvidence(second, first)).toBe(0);
+  });
+
+  it('selects the compatibility stream from measured evidence, not candidate ID', () => {
+    const sourceToken = token('same');
+    const native = candidate(
+      'z-native',
+      sourceToken,
+      'same',
+      1,
+      parser('native_text', 'native'),
+    );
+    const observed = candidate(
+      'a-ocr',
+      sourceToken,
+      'same',
+      0.95,
+      parser('ocr', 'ocr'),
+    );
+    const withoutObservedConfidence = {
+      ...native,
+      engine_reported_confidence: null,
+      recognition_confidence: null,
+    };
+    expect(
+      [withoutObservedConfidence, observed]
+        .sort(compareRegionCandidatesForCompatibilityStream)[0]?.parser.stage,
+    ).toBe('ocr');
+    expect(
+      [{ ...withoutObservedConfidence, id: observed.id }, {
+        ...observed,
+        id: withoutObservedConfidence.id,
+      }].sort(compareRegionCandidatesForCompatibilityStream)[0]?.parser.stage,
+    ).toBe('ocr');
+  });
+});
 
 describe('manifest-versioned region arbitration', () => {
   it('uses the documented calibratable thresholds', () => {

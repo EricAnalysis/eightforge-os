@@ -2,16 +2,20 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  blockedMetamorphicResults,
   buildParityRecords,
   buildPhase1Report,
+  executeSourceMetamorphicInvariants,
   evaluateAssociationInvariance,
   evaluateHistoricalFingerprintInert,
   evaluateObservedEngineArbitration,
   loadPhase1Inputs,
   mergeMetamorphicResults,
+  preconditionedMetamorphicResults,
   runGenericShadowFromPdf,
+  summarizePhase1Report,
   writePhase1Reports,
+  writeSourceMutationArtifacts,
+  type TdotPhase1Report,
 } from '@/lib/evaluation/tdotPhase1Harness';
 
 function required(name: string): string {
@@ -24,6 +28,8 @@ async function main(): Promise<void> {
   const pdfPath = required('TDOT_PHASE1_SOURCE_PDF');
   const packageDirectory = required('TDOT_PHASE1_PHASE0_PACKAGE');
   const outputDirectory = required('TDOT_PHASE1_OUTPUT_DIRECTORY');
+  const baselineReportPath = process.env.TDOT_PHASE1_BASELINE_REPORT?.trim();
+  const partAReportPath = process.env.TDOT_PHASE1_PART_A_REPORT?.trim();
   const gateVerification = JSON.parse(
     await readFile(
       path.join(packageDirectory, 'gate-verification.v2.0.1.json'),
@@ -50,26 +56,35 @@ async function main(): Promise<void> {
       'intelligence_trace.contract_analysis.json',
     ),
   });
+  const baselineReport = baselineReportPath
+    ? JSON.parse(
+        await readFile(path.resolve(baselineReportPath), 'utf8'),
+      ) as TdotPhase1Report
+    : null;
+  const partAReport = partAReportPath
+    ? JSON.parse(
+        await readFile(path.resolve(partAReportPath), 'utf8'),
+      ) as TdotPhase1Report
+    : null;
   const run = await runGenericShadowFromPdf({ pdfPath });
   const parityRecords = buildParityRecords({
     ledger,
     legacyRows,
     genericFields: run.fields,
   });
-  const unresolvedBase = parityRecords.filter(
-    (record) => record.material && record.resolution !== 'resolved',
-  );
-  const blockedResults = blockedMetamorphicResults(
-    unresolvedBase.length > 0
-      ? `Blocked by ${unresolvedBase.length} unresolved base semantic/source-structure parity differences; source mutations cannot establish descendant isolation until the baseline fields are independently resolved.`
-      : 'Mutation executor has not supplied a result.',
-  );
+  const preconditionedResults = preconditionedMetamorphicResults();
+  const sourceMutations = await executeSourceMetamorphicInvariants({
+    pdfPath,
+    baseline: run,
+    parityRecords,
+  });
   const reassociated = await runGenericShadowFromPdf({
     pdfPath,
     sourceDocumentId: '00000000-0000-5000-8000-000000000042',
     associationSeed: 'renamed-file-and-document-association',
   });
-  const metamorphicResults = mergeMetamorphicResults(blockedResults, [
+  const metamorphicResults = mergeMetamorphicResults(preconditionedResults, [
+    ...sourceMutations.results,
     evaluateAssociationInvariance({ baseline: run, reassociated }),
     evaluateHistoricalFingerprintInert({
       baseline: run,
@@ -86,10 +101,23 @@ async function main(): Promise<void> {
     run,
     parityRecords,
     metamorphicResults,
+    baselineCycle: baselineReport
+      ? {
+          report_version: baselineReport.report_version,
+          metrics: summarizePhase1Report(baselineReport),
+        }
+      : null,
+    baselineReport,
+    partAReport,
   });
   const output = await writePhase1Reports({ outputDirectory, report });
+  const mutationArtifacts = await writeSourceMutationArtifacts({
+    outputDirectory,
+    artifacts: sourceMutations.artifacts,
+  });
   process.stdout.write(`${JSON.stringify({
     output,
+    mutation_artifacts: mutationArtifacts,
     source_sha256: report.source.sha256,
     dependency_closure: report.generic_run.dependency_closure.status,
     classification_counts: report.parity.classification_counts,

@@ -183,6 +183,8 @@ function buildInput(params?: {
     project,
     validationPhase: 'billing_review',
     documents: [],
+    assembledContractPricingRows: [],
+    sourceArtifactSnapshot: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,

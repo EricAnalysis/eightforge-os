@@ -43,8 +43,16 @@ const CONTRACT_ISSUE_TYPE_BY_SUPPRESSED_ISSUE_ID: Record<string, string> = {
   'missing_required_clause:activation_trigger': 'missing_required_clause',
 };
 
-type PersistableValidationFinding = ValidationFinding & {
+export type PersistedValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
+};
+
+type PersistableValidationFinding = PersistedValidationFinding;
+
+export type PersistValidationRunResult = {
+  readonly runId: string;
+  readonly effectiveResult: ValidatorResult;
+  readonly persistedFindings: readonly PersistedValidationFinding[];
 };
 
 type ExistingOpenFindingRow = ValidationFinding & { id: string };
@@ -1103,7 +1111,7 @@ export async function persistValidationRun(
   triggeredByUserId?: string,
   inputsSnapshotHash?: string | null,
   triggerEntity?: ValidationTriggerEntity,
-): Promise<{ runId: string }> {
+): Promise<PersistValidationRunResult> {
   const findings = suppressOverlappingMissingContractRateFindings(
     (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
   );
@@ -1357,7 +1365,11 @@ export async function persistValidationRun(
       }
     });
       // Never throw — action execution is a side effect, not part of validation correctness
-    return { runId };
+    return {
+      runId,
+      effectiveResult,
+      persistedFindings: effectivePersistedFindings,
+    };
   } catch (error) {
     if (runId) {
       await markRunFailed(runId);

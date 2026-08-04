@@ -287,6 +287,8 @@ function buildInput(params: {
     project,
     validationPhase: 'contract_setup',
     documents: [],
+    assembledContractPricingRows: [],
+    sourceArtifactSnapshot: [],
     documentRelationships: [],
     precedenceFamilies: [],
     familyDocumentIds,

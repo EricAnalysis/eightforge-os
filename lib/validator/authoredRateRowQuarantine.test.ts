@@ -76,6 +76,7 @@ describe('authored rate-row validator quarantine', () => {
       ]),
       rateDocumentIds: ['contract-doc'],
       contractValidationContext: null,
+      assembledContractPricingRows: [],
     });
 
     assert.deepEqual(
@@ -113,6 +114,7 @@ describe('authored rate-row validator quarantine', () => {
       ]),
       rateDocumentIds: ['contract-doc'],
       contractValidationContext: null,
+      assembledContractPricingRows: [],
     });
     const findings = runAuthoredRateRowQuarantineRules({
       project: { id: 'project-1' },

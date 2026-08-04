@@ -3,6 +3,7 @@ import type {
   ResolvedDocumentPrecedenceFamily,
 } from '@/lib/documentPrecedence';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
+import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { AuthoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type {
@@ -65,12 +66,28 @@ export type ValidatorDocumentRow = {
   title: string | null;
   name: string;
   document_type: string | null;
+  document_role?: string | null;
   document_subtype?: string | null;
+  storage_path?: string | null;
   created_at: string;
   processing_status?: string | null;
   operational_status?: string | null;
   processed_at?: string | null;
   intelligence_trace?: DocumentExecutionTrace | Record<string, unknown> | null;
+};
+
+export type ValidatorSourceArtifactSnapshotEntry = {
+  readonly documentId: string;
+  readonly documentType: string | null;
+  readonly documentRole: string | null;
+  readonly storagePath: string | null;
+  readonly sourceArtifactId: string | null;
+  readonly sourceSha256: string | null;
+  readonly storageObjectVersion: string | null;
+  readonly mediaTypeSniffed: string | null;
+  readonly byteLength: number | null;
+  readonly artifactCreatedAt: string | null;
+  readonly exactSourceIdentity: string | null;
 };
 
 export type ValidatorExtractionFactRow = {
@@ -304,6 +321,8 @@ export type ProjectValidatorInput = {
   project: ValidatorProjectRow;
   validationPhase: ProjectValidationPhase;
   documents: ValidatorDocumentRow[];
+  assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
+  sourceArtifactSnapshot: readonly ValidatorSourceArtifactSnapshotEntry[];
   documentRelationships: DocumentRelationshipRecord[];
   precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
   familyDocumentIds: ValidatorDocumentIdsByFamily;

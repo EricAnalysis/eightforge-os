@@ -1,9 +1,18 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
-import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
+import {
+  analyzeContractIntelligence,
+  buildContractPricingSelectedCategoryOverrides,
+  buildContractIntelligenceRateScheduleRows,
+  type AnalyzeContractIntelligenceInput,
+} from '@/lib/contracts/analyzeContractIntelligence';
 import { loadContractUploadGuidanceForDocument } from '@/lib/contracts/contractUploadGuidance';
 import {
-  assembleContractPricingRows,
+  assembleContractPricingRowsWithCandidates,
   canonicalTaxonomyKeyForAllowedCategory,
+  type ContractPricingAssemblyResult,
+  type ContractPricingAssemblyRow,
+  type ContractPricingAssemblySourceScope,
+  type ContractPricingSourceRowIdentity,
 } from '@/lib/contracts/contractPricingAssembly';
 import { authoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import {
@@ -64,6 +73,7 @@ import {
   type ValidatorFindingResult,
   type ValidatorLegacyExtractionRow,
   type ValidatorProjectRow,
+  type ValidatorSourceArtifactSnapshotEntry,
 } from '@/lib/validator/shared';
 import {
   deriveBillingKeysForInvoiceLine,
@@ -116,7 +126,9 @@ const PACK_TICKET_INTEGRITY = 'ticket_integrity';
 const PROJECT_SELECT =
   'id, organization_id, name, code, validation_status, validation_summary_json, validation_phase';
 export const VALIDATOR_DOCUMENT_SELECT =
-  'id, project_id, organization_id, title, name, document_type, created_at, processing_status, operational_status, processed_at, intelligence_trace';
+  'id, project_id, organization_id, title, name, document_type, document_role, storage_path, created_at, processing_status, operational_status, processed_at, intelligence_trace';
+const SOURCE_ARTIFACT_SELECT =
+  'id, source_document_id, source_sha256, storage_object_version, media_type_sniffed, byte_length, created_at';
 const EXTRACTION_FACT_SELECT =
   'document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, confidence';
 const LEGACY_EXTRACTION_SELECT = 'document_id, created_at, data';
@@ -841,6 +853,89 @@ async function loadProjectDocuments(
   return (data ?? []) as ValidatorDocumentRow[];
 }
 
+type ValidatorSourceArtifactRow = {
+  id: string;
+  source_document_id: string;
+  source_sha256: string | null;
+  storage_object_version: string | null;
+  media_type_sniffed: string | null;
+  byte_length: number | null;
+  created_at: string;
+};
+
+function exactSourceIdentity(artifact: ValidatorSourceArtifactRow | null): string | null {
+  if (
+    !artifact?.id
+    || !artifact.source_sha256
+    || !artifact.storage_object_version
+  ) {
+    return null;
+  }
+
+  return [artifact.id, artifact.source_sha256, artifact.storage_object_version].join(':');
+}
+
+export function buildSourceArtifactSnapshot(params: {
+  documents: readonly ValidatorDocumentRow[];
+  sourceArtifacts: readonly ValidatorSourceArtifactRow[];
+}): readonly ValidatorSourceArtifactSnapshotEntry[] {
+  const artifactsByDocumentId = new Map<string, ValidatorSourceArtifactRow[]>();
+  for (const artifact of params.sourceArtifacts) {
+    const existing = artifactsByDocumentId.get(artifact.source_document_id) ?? [];
+    existing.push({ ...artifact });
+    artifactsByDocumentId.set(artifact.source_document_id, existing);
+  }
+
+  return Object.freeze(params.documents.map((document) => {
+    const artifact = (artifactsByDocumentId.get(document.id) ?? [])
+      .sort((left, right) => (
+        right.created_at.localeCompare(left.created_at)
+        || right.id.localeCompare(left.id)
+      ))[0] ?? null;
+
+    return Object.freeze({
+      documentId: document.id,
+      documentType: document.document_type,
+      documentRole: document.document_role ?? null,
+      storagePath: document.storage_path ?? null,
+      sourceArtifactId: artifact?.id ?? null,
+      sourceSha256: artifact?.source_sha256 ?? null,
+      storageObjectVersion: artifact?.storage_object_version ?? null,
+      mediaTypeSniffed: artifact?.media_type_sniffed ?? null,
+      byteLength: artifact?.byte_length ?? null,
+      artifactCreatedAt: artifact?.created_at ?? null,
+      exactSourceIdentity: exactSourceIdentity(artifact),
+    });
+  }));
+}
+
+export function retainAssembledContractPricingRows(
+  rows: readonly ContractPricingAssemblyRow[],
+): readonly ContractPricingAssemblyRow[] {
+  return Object.freeze(rows.map((row) => Object.freeze({ ...row })));
+}
+
+async function loadSourceArtifactSnapshot(params: {
+  project: ValidatorProjectRow;
+  documents: readonly ValidatorDocumentRow[];
+}): Promise<readonly ValidatorSourceArtifactSnapshotEntry[]> {
+  if (params.documents.length === 0) return Object.freeze([]);
+
+  const admin = getSupabaseAdmin();
+  if (!admin) throw new Error('Server validation client is not configured.');
+
+  const { data, error } = await admin
+    .from('extraction_source_artifacts')
+    .select(SOURCE_ARTIFACT_SELECT)
+    .eq('organization_id', params.project.organization_id)
+    .in('source_document_id', params.documents.map((document) => document.id));
+
+  return buildSourceArtifactSnapshot({
+    documents: params.documents,
+    sourceArtifacts: error ? [] : (data ?? []) as ValidatorSourceArtifactRow[],
+  });
+}
+
 async function loadExtractionFactRows(
   documentIds: readonly string[],
 ): Promise<ValidatorExtractionFactRow[]> {
@@ -1514,6 +1609,7 @@ export function buildRateScheduleItems(params: {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   rateDocumentIds: readonly string[];
   contractValidationContext: ValidatorContractAnalysisContext | null;
+  assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
 }): RateScheduleItem[] {
   const items: RateScheduleItem[] = [];
   const seen = new Set<string>();
@@ -1534,8 +1630,7 @@ export function buildRateScheduleItems(params: {
     items.push(item);
   };
 
-  const persistedRateRows = params.contractValidationContext?.analysis.rate_schedule_rows ?? [];
-  const assembledRateRows = assembleContractPricingRows(persistedRateRows).map((row) => ({
+  const assembledRateRows = params.assembledContractPricingRows.map((row) => ({
     row_id: row.id,
     source_kind: row.sourceKind,
     category: row.category,
@@ -1554,7 +1649,28 @@ export function buildRateScheduleItems(params: {
     rate_raw: row.rawText,
     raw_text: row.rawText,
   }));
-  const validatorRateRows = assembledRateRows.length > 0 ? assembledRateRows : persistedRateRows;
+  const categorylessPersistedCompatibilityRows = assembledRateRows.length > 0
+    ? []
+    : (params.contractValidationContext?.analysis.rate_schedule_rows ?? [])
+      .filter((row) => {
+        const record = row as unknown as Record<string, unknown>;
+        return [
+          record.category,
+          record.source_category,
+          record.material_type,
+          record.canonical_category,
+        ].every((value) => (
+          value == null
+          || (typeof value === 'string' && value.trim().length === 0)
+        ));
+      });
+  const validatorRateRows = [
+    ...assembledRateRows,
+    // Pre-A11 validation normalized categoryless legacy trace rows even when
+    // operator assembly dropped them. Retain that narrow compatibility path;
+    // persisted rows carrying a non-allowed category must not bypass selection.
+    ...categorylessPersistedCompatibilityRows,
+  ];
   for (const [index, row] of validatorRateRows.entries()) {
     pushItem(
       normalizeRateScheduleItem(
@@ -1709,13 +1825,28 @@ function buildContractRelationshipContext(
   };
 }
 
-export function buildContractValidationContext(params: {
+type PreparedContractValidationContext = {
+  readonly sourceScope: ContractPricingAssemblySourceScope;
+  readonly authoritativeRateScheduleRows: readonly ContractRateScheduleRow[];
+  readonly candidateOnlyRateScheduleRows: readonly ContractRateScheduleRow[];
+  readonly selectedCategoryBySourceRow?: ReadonlyMap<ContractPricingSourceRowIdentity, string>;
+  readonly finalize: (
+    assembly: ContractPricingAssemblyResult,
+  ) => ValidatorContractAnalysisContext | null;
+};
+
+type ContractValidationContextParams = {
   projectValidationSummary?: unknown;
   documents: readonly ValidatorDocumentRow[];
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
-}): ValidatorContractAnalysisContext | null {
+  sourceArtifactSnapshot?: readonly ValidatorSourceArtifactSnapshotEntry[];
+};
+
+function prepareContractValidationContext(
+  params: ContractValidationContextParams,
+): PreparedContractValidationContext {
   const isConfirmedByOperator = (
     facts: ValidatorFactRecord[],
     ...keys: string[]
@@ -1732,6 +1863,13 @@ export function buildContractValidationContext(params: {
     params.truthCategoryDocumentIds,
   );
   const contractDocumentId = params.truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const sourceSnapshot = params.sourceArtifactSnapshot?.find(
+    (entry) => entry.documentId === contractDocumentId,
+  ) ?? null;
+  const sourceScope: ContractPricingAssemblySourceScope = {
+    documentId: contractDocumentId ?? 'contract-summary',
+    sourceVersionIdentity: sourceSnapshot?.exactSourceIdentity ?? null,
+  };
   if (contractDocumentId) {
     const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
     if (document) {
@@ -1750,8 +1888,13 @@ export function buildContractValidationContext(params: {
       if (!hasHumanOverrides) {
         if (persistedContext) {
           return {
-            ...persistedContext,
-            relationship_context: relationshipContext,
+            sourceScope,
+            authoritativeRateScheduleRows: persistedContext.analysis.rate_schedule_rows ?? [],
+            candidateOnlyRateScheduleRows: [],
+            finalize: () => ({
+              ...persistedContext,
+              relationship_context: relationshipContext,
+            }),
           };
         }
       }
@@ -1776,30 +1919,62 @@ export function buildContractValidationContext(params: {
         legacyRow: params.legacyRowsByDocumentId.get(contractDocumentId) ?? null,
       });
       if (syntheticDocument) {
-        const analysis = analyzeContractIntelligence({
+        const analysisInput: AnalyzeContractIntelligenceInput = {
           primaryDocument: syntheticDocument,
           relatedDocuments: [],
           confirmedGoverningScheduleResolved,
           confirmedDisposalTreatmentResolved,
-        });
-        if (analysis) {
-          const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
-          const syntheticRateScheduleRows = analysis.rate_schedule_rows;
-          const preferPersistedRateSchedule =
-            persistedRateScheduleRows != null
-            && persistedRateScheduleRows.length > (syntheticRateScheduleRows?.length ?? 0);
+        };
+        const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows(
+          analysisInput,
+        );
+        const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
+        const preferPersistedRateSchedule =
+          persistedRateScheduleRows != null
+          && persistedRateScheduleRows.length > structuralRateScheduleRows.length;
+        const authoritativeRateScheduleRows = preferPersistedRateSchedule
+          ? persistedRateScheduleRows
+          : structuralRateScheduleRows;
+        const candidateInputRole = preferPersistedRateSchedule
+          ? 'structural_candidate' as const
+          : 'authoritative_rate_schedule' as const;
 
-          return {
-            document_id: contractDocumentId,
-            analysis: preferPersistedRateSchedule
-              ? { ...analysis, rate_schedule_rows: persistedRateScheduleRows }
-              : analysis,
-            evidence_by_id: new Map(
-              syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
+        return {
+          sourceScope,
+          authoritativeRateScheduleRows,
+          candidateOnlyRateScheduleRows: preferPersistedRateSchedule
+            ? structuralRateScheduleRows
+            : [],
+          selectedCategoryBySourceRow: preferPersistedRateSchedule
+            ? undefined
+            : buildContractPricingSelectedCategoryOverrides(
+              authoritativeRateScheduleRows,
+              sourceScope,
+              'authoritative_rate_schedule',
             ),
-            relationship_context: relationshipContext,
-          };
-        }
+          finalize: (assembly) => {
+            const analysis = analyzeContractIntelligence({
+              ...analysisInput,
+              pricingAssembly: {
+                sourceScope,
+                candidateInputRole,
+                structuralRateScheduleRows,
+                candidatesBySourceRow: assembly.candidatesBySourceRow,
+              },
+            });
+            if (!analysis) return null;
+            return {
+              document_id: contractDocumentId,
+              analysis: preferPersistedRateSchedule
+                ? { ...analysis, rate_schedule_rows: persistedRateScheduleRows }
+                : analysis,
+              evidence_by_id: new Map(
+                syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
+              ),
+              relationship_context: relationshipContext,
+            };
+          },
+        };
       }
     }
   }
@@ -1809,12 +1984,48 @@ export function buildContractValidationContext(params: {
   );
   if (persistedProjectContext) {
     return {
-      ...persistedProjectContext,
-      relationship_context: relationshipContext,
+      sourceScope,
+      authoritativeRateScheduleRows: persistedProjectContext.analysis.rate_schedule_rows ?? [],
+      candidateOnlyRateScheduleRows: [],
+      finalize: () => ({
+        ...persistedProjectContext,
+        relationship_context: relationshipContext,
+      }),
     };
   }
 
-  return null;
+  return {
+    sourceScope,
+    authoritativeRateScheduleRows: [],
+    candidateOnlyRateScheduleRows: [],
+    finalize: () => null,
+  };
+}
+
+function executePreparedContractPricingAssembly(
+  prepared: PreparedContractValidationContext,
+): {
+  readonly contractValidationContext: ValidatorContractAnalysisContext | null;
+  readonly assembly: ContractPricingAssemblyResult;
+} {
+  const assembly = assembleContractPricingRowsWithCandidates(
+    prepared.authoritativeRateScheduleRows,
+    prepared.sourceScope,
+    { selectedCategoryBySourceRow: prepared.selectedCategoryBySourceRow },
+    prepared.candidateOnlyRateScheduleRows,
+  );
+  return {
+    contractValidationContext: prepared.finalize(assembly),
+    assembly,
+  };
+}
+
+export function buildContractValidationContext(
+  params: ContractValidationContextParams,
+): ValidatorContractAnalysisContext | null {
+  return executePreparedContractPricingAssembly(
+    prepareContractValidationContext(params),
+  ).contractValidationContext;
 }
 
 function buildFactLookups(params: {
@@ -1823,6 +2034,7 @@ function buildFactLookups(params: {
   familyDocumentIds: ValidatorDocumentIdsByFamily;
   governingDocumentIds: ValidatorDocumentIdsByFamily;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
+  assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
 }): ValidatorFactLookups {
   const contractIdentityDocumentIds = uniqueDocumentIds([
     ...params.truthCategoryDocumentIds.contract_identity,
@@ -1899,6 +2111,7 @@ function buildFactLookups(params: {
     factsByDocumentId: params.factsByDocumentId,
     rateDocumentIds: rateFactDocumentIds,
     contractValidationContext: params.contractValidationContext,
+    assembledContractPricingRows: params.assembledContractPricingRows,
   });
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
@@ -2293,6 +2506,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     mobileTickets,
     loadTickets,
     transactionData,
+    sourceArtifactSnapshot,
   ] =
     await Promise.all([
       loadExtractionFactRows(documentIds),
@@ -2306,6 +2520,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
         projectId,
         documentIds,
       }),
+      loadSourceArtifactSnapshot({ project, documents }),
     ]);
 
   let precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [];
@@ -2368,19 +2583,28 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
   });
   const effectiveInvoices = effectiveInvoiceTruth.invoices;
   const effectiveInvoiceLines = effectiveInvoiceTruth.invoiceLines;
-  const contractValidationContext = buildContractValidationContext({
+  const preparedContractValidationContext = prepareContractValidationContext({
     projectValidationSummary: project.validation_summary_json,
     documents,
     factsByDocumentId,
     legacyRowsByDocumentId,
     truthCategoryDocumentIds,
+    sourceArtifactSnapshot,
   });
+  const contractPricingExecution = executePreparedContractPricingAssembly(
+    preparedContractValidationContext,
+  );
+  const contractValidationContext = contractPricingExecution.contractValidationContext;
+  const assembledContractPricingRows = retainAssembledContractPricingRows(
+    contractPricingExecution.assembly.selectedRows,
+  );
   const baseFactLookups = buildFactLookups({
     factsByDocumentId,
     contractValidationContext,
     familyDocumentIds,
     governingDocumentIds,
     truthCategoryDocumentIds,
+    assembledContractPricingRows,
   });
   const contractDocumentIdForGuidance =
     contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
@@ -2426,6 +2650,8 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     project,
     validationPhase,
     documents,
+    assembledContractPricingRows,
+    sourceArtifactSnapshot,
     documentRelationships,
     precedenceFamilies,
     familyDocumentIds,
@@ -2510,7 +2736,9 @@ function finalizeResult(
   };
 }
 
-export async function validateProject(projectId: string): Promise<ValidatorResult> {
+export async function runProjectValidation(
+  projectId: string,
+): Promise<{ result: ValidatorResult; input: ProjectValidatorInput }> {
   const input = await loadValidatorInput(projectId);
   const findings: ValidatorFindingResult[] = [];
   const rulesApplied: string[] = [];
@@ -2539,17 +2767,20 @@ export async function validateProject(projectId: string): Promise<ValidatorResul
       exposure = exposureResult.summary;
       // Required source gaps gate the heavier downstream packs, so stop here
       // and return the blocked result without running financial or ticket checks.
-      return finalizeResult(findings, rulesApplied, {
-        contractInvoiceReconciliation,
-        invoiceTransactionReconciliation,
-        crossDocumentRateVerification,
-        reconciliation,
-        exposure,
-        overviewFinancials: deriveWorkspaceOverviewFinancials(input, exposure),
-        contractDocumentId: input.factLookups.contractDocumentId,
-        contractValidationContext: input.contractValidationContext,
-        validationPhase: input.validationPhase,
-      });
+      return {
+        input,
+        result: finalizeResult(findings, rulesApplied, {
+          contractInvoiceReconciliation,
+          invoiceTransactionReconciliation,
+          crossDocumentRateVerification,
+          reconciliation,
+          exposure,
+          overviewFinancials: deriveWorkspaceOverviewFinancials(input, exposure),
+          contractDocumentId: input.factLookups.contractDocumentId,
+          contractValidationContext: input.contractValidationContext,
+          validationPhase: input.validationPhase,
+        }),
+      };
     }
   } catch {
     rulesApplied.push(`${PACK_REQUIRED_SOURCES}:failed`);
@@ -2620,15 +2851,22 @@ export async function validateProject(projectId: string): Promise<ValidatorResul
   findings.push(...exposureResult.findings);
   exposure = exposureResult.summary;
 
-  return finalizeResult(findings, rulesApplied, {
-    contractInvoiceReconciliation,
-    invoiceTransactionReconciliation,
-    crossDocumentRateVerification,
-    reconciliation,
-    exposure,
-    overviewFinancials: deriveWorkspaceOverviewFinancials(input, exposure),
-    contractDocumentId: input.factLookups.contractDocumentId,
-    contractValidationContext: input.contractValidationContext,
-    validationPhase: input.validationPhase,
-  });
+  return {
+    input,
+    result: finalizeResult(findings, rulesApplied, {
+      contractInvoiceReconciliation,
+      invoiceTransactionReconciliation,
+      crossDocumentRateVerification,
+      reconciliation,
+      exposure,
+      overviewFinancials: deriveWorkspaceOverviewFinancials(input, exposure),
+      contractDocumentId: input.factLookups.contractDocumentId,
+      contractValidationContext: input.contractValidationContext,
+      validationPhase: input.validationPhase,
+    }),
+  };
+}
+
+export async function validateProject(projectId: string): Promise<ValidatorResult> {
+  return (await runProjectValidation(projectId)).result;
 }

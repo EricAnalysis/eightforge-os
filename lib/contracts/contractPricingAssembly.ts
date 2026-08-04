@@ -93,7 +93,64 @@ export type ContractPricingAssemblyRow = {
 export type ContractPricingAssemblySourceOptions = {
   canonicalRows?: readonly unknown[] | null;
   typedRows?: readonly unknown[] | null;
+  /**
+   * Effective category fallbacks used only while constructing the coordinated
+   * selected-row candidate. Candidate visibility still follows the source row's
+   * native singleton behavior.
+   */
+  selectedCategoryBySourceRow?: ReadonlyMap<ContractPricingSourceRowIdentity, string>;
 };
+
+declare const contractPricingSourceRowIdentityBrand: unique symbol;
+
+export type ContractPricingSourceRowIdentity = string & {
+  readonly [contractPricingSourceRowIdentityBrand]: true;
+};
+
+export type ContractPricingAssemblySourceScope = {
+  readonly documentId: string;
+  readonly sourceVersionIdentity: string | null;
+};
+
+export type ContractPricingAssemblyInputRole =
+  | 'typed_source'
+  | 'canonical_source'
+  | 'authoritative_rate_schedule'
+  | 'structural_candidate';
+
+export type ContractPricingRateScheduleInputRole = Extract<
+  ContractPricingAssemblyInputRole,
+  'authoritative_rate_schedule' | 'structural_candidate'
+>;
+
+export type ContractPricingAssemblyResult = Readonly<{
+  selectedRows: readonly ContractPricingAssemblyRow[];
+  candidatesBySourceRow: ReadonlyMap<
+    ContractPricingSourceRowIdentity,
+    readonly ContractPricingAssemblyRow[]
+  >;
+}>;
+
+export type ContractPricingCandidateLookupResult =
+  | Readonly<{
+      state: 'candidates';
+      candidates: readonly ContractPricingAssemblyRow[];
+    }>
+  | Readonly<{
+      state: 'no_visible_candidate';
+    }>
+  | Readonly<{
+      state: 'identity_miss';
+    }>;
+
+export class ContractPricingSourceIdentityCollisionError extends Error {
+  readonly code = 'contract_pricing_source_identity_collision';
+
+  constructor(readonly sourceRowIdentity: ContractPricingSourceRowIdentity) {
+    super(`Contract pricing source identity collision: ${sourceRowIdentity}`);
+    this.name = 'ContractPricingSourceIdentityCollisionError';
+  }
+}
 
 function clean(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0
@@ -1278,6 +1335,64 @@ function rowSourceKind(row: ContractRateScheduleRow): ContractPricingSourceKind 
   return 'rate_schedule';
 }
 
+export function contractPricingSourceRowIdentity(
+  row: ContractRateScheduleRow,
+  index: number,
+  scope: ContractPricingAssemblySourceScope,
+  inputRole: ContractPricingAssemblyInputRole = 'authoritative_rate_schedule',
+): ContractPricingSourceRowIdentity {
+  const rowId = clean(row.row_id);
+  const sourceAnchors = (row.source_anchor_ids ?? [])
+    .map(clean)
+    .filter((value): value is string => Boolean(value));
+  const stableRowIdentity = rowId
+    ? ['row_id', rowId]
+    : sourceAnchors.length > 0
+      ? ['source_anchors', sourceAnchors, row.page ?? null]
+      : [
+          'coordinated_ordinal',
+          index,
+          row.page ?? null,
+          (row.geometry_refs ?? []).map((ref) => [
+            ref.geometry.table_id ?? null,
+            ref.geometry.row_index ?? null,
+            ref.geometry.cell_index ?? null,
+            ref.geometry.anchor_id ?? null,
+          ]),
+        ];
+  return JSON.stringify([
+    scope.documentId,
+    scope.sourceVersionIdentity,
+    rowSourceKind(row),
+    inputRole,
+    stableRowIdentity,
+  ]) as ContractPricingSourceRowIdentity;
+}
+
+export function lookupContractPricingCandidates(
+  candidatesBySourceRow: ReadonlyMap<
+    ContractPricingSourceRowIdentity,
+    readonly ContractPricingAssemblyRow[]
+  >,
+  params: Readonly<{
+    row: ContractRateScheduleRow;
+    sourceIndex: number;
+    sourceScope: ContractPricingAssemblySourceScope;
+    inputRole: ContractPricingRateScheduleInputRole;
+  }>,
+): ContractPricingCandidateLookupResult {
+  const identity = contractPricingSourceRowIdentity(
+    params.row,
+    params.sourceIndex,
+    params.sourceScope,
+    params.inputRole,
+  );
+  const candidates = candidatesBySourceRow.get(identity);
+  if (!candidates) return Object.freeze({ state: 'identity_miss' });
+  if (candidates.length === 0) return Object.freeze({ state: 'no_visible_candidate' });
+  return Object.freeze({ state: 'candidates', candidates });
+}
+
 export function scoreContractPricingRowSourceQuality(params: {
   description?: string | null;
   category?: string | null;
@@ -1640,9 +1755,12 @@ function hasUsefulPricingClue(row: ContractPricingAssemblyRow): boolean {
   );
 }
 
-function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
+function shouldKeepOperatorRow(
+  row: ContractPricingAssemblyRow,
+  category: string | null = row.category,
+): boolean {
   if (row.sourceQuality === 'junk') return false;
-  if (!row.category && row.confidence !== 'needs_review') return false;
+  if (!category && row.confidence !== 'needs_review') return false;
   if (
     /\bpickup\s+truck\b/i.test(`${row.description} ${row.rawText ?? ''}`) &&
     row.rate !== 25 &&
@@ -1655,10 +1773,24 @@ function shouldKeepOperatorRow(row: ContractPricingAssemblyRow): boolean {
   }
   if (!row.unit || row.page == null) return false;
   if (row.rate == null && !isPassThroughAssemblyRow(row)) return false;
-  if (!pageAllowsCategory(row.page, row.category) && !isPassThroughAssemblyRow(row)) return false;
+  if (!pageAllowsCategory(row.page, category) && !isPassThroughAssemblyRow(row)) return false;
   if (descriptionStillLooksNoisy(row.description)) return false;
   if (row.unit === 'Mile' && (row.route || row.distanceBand)) return hasUsefulPricingClue(row);
   return true;
+}
+
+function isLegacySingletonVisibleCandidate(
+  row: ContractPricingAssemblyRow,
+  nativeCategory: string | null = row.category,
+): boolean {
+  if (
+    row.sourceKind === 'tdot_appendix_b_stitched_table'
+    || row.sourceKind === 'mdot_section_905_bid_schedule'
+  ) {
+    return true;
+  }
+  if (!shouldKeepOperatorRow(row, nativeCategory)) return false;
+  return Boolean(nativeCategory) || row.sourceKind === 'canonical';
 }
 
 function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractPricingAssemblyRow[] {
@@ -1993,19 +2125,136 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
     .filter((row): row is ContractRateScheduleRow => row != null);
 }
 
-export function assembleContractPricingRows(
-  rows: readonly ContractRateScheduleRow[] | null | undefined,
-  sources: ContractPricingAssemblySourceOptions = {},
-): ContractPricingAssemblyRow[] {
-  const inputRows = [
-    ...typedRowsToRateRows(sources.typedRows),
-    ...canonicalRowsToRateRows(sources.canonicalRows),
-    ...(Array.isArray(rows) ? rows : []),
-  ];
-  if (inputRows.length === 0) return [];
+class ImmutableReadonlyMap<K, V> implements ReadonlyMap<K, V> {
+  readonly #values: Map<K, V>;
 
-  const assembledRows = inputRows
-    .map((row, index): ContractPricingAssemblyRow | null => {
+  constructor(entries: Iterable<readonly [K, V]>) {
+    this.#values = new Map(entries);
+    Object.freeze(this);
+  }
+
+  get size(): number {
+    return this.#values.size;
+  }
+
+  get(key: K): V | undefined {
+    return this.#values.get(key);
+  }
+
+  has(key: K): boolean {
+    return this.#values.has(key);
+  }
+
+  entries(): MapIterator<[K, V]> {
+    return this.#values.entries();
+  }
+
+  keys(): MapIterator<K> {
+    return this.#values.keys();
+  }
+
+  values(): MapIterator<V> {
+    return this.#values.values();
+  }
+
+  [Symbol.iterator](): MapIterator<[K, V]> {
+    return this.#values[Symbol.iterator]();
+  }
+
+  forEach(
+    callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void,
+    thisArg?: unknown,
+  ): void {
+    for (const [key, value] of this.#values) {
+      callbackfn.call(thisArg, value, key, this);
+    }
+  }
+}
+
+function freezeContractPricingAssemblyRow(
+  row: ContractPricingAssemblyRow,
+): ContractPricingAssemblyRow {
+  if (row.pricingDimensions) Object.freeze(row.pricingDimensions);
+  if (row.pricingDimensionSources) Object.freeze(row.pricingDimensionSources);
+  if (row.geometryRefs) {
+    for (const ref of row.geometryRefs) {
+      if (ref.geometry.diagnostics) Object.freeze(ref.geometry.diagnostics);
+      Object.freeze(ref.geometry);
+      Object.freeze(ref);
+    }
+    Object.freeze(row.geometryRefs);
+  }
+  if (row.mergeDiagnostics) {
+    for (const diagnostic of row.mergeDiagnostics) Object.freeze(diagnostic);
+    Object.freeze(row.mergeDiagnostics);
+  }
+  return Object.freeze(row);
+}
+
+export function assembleContractPricingRowsWithCandidates(
+  rows: readonly ContractRateScheduleRow[] | null | undefined,
+  scope: ContractPricingAssemblySourceScope,
+  sources: ContractPricingAssemblySourceOptions = {},
+  candidateOnlyRows: readonly ContractRateScheduleRow[] | null | undefined = [],
+): ContractPricingAssemblyResult {
+  const inputRows = [
+    ...typedRowsToRateRows(sources.typedRows).map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      candidateOnly: false,
+      inputRole: 'typed_source' as const,
+    })),
+    ...canonicalRowsToRateRows(sources.canonicalRows).map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      candidateOnly: false,
+      inputRole: 'canonical_source' as const,
+    })),
+    ...(Array.isArray(rows) ? rows : []).map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      candidateOnly: false,
+      inputRole: 'authoritative_rate_schedule' as const,
+    })),
+    ...(Array.isArray(candidateOnlyRows) ? candidateOnlyRows : []).map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      candidateOnly: true,
+      inputRole: 'structural_candidate' as const,
+    })),
+  ];
+  if (inputRows.length === 0) {
+    return Object.freeze({
+      selectedRows: Object.freeze([]),
+      candidatesBySourceRow: new ImmutableReadonlyMap<
+        ContractPricingSourceRowIdentity,
+        readonly ContractPricingAssemblyRow[]
+      >([]),
+    });
+  }
+
+  const sourceIdentities = new Set<ContractPricingSourceRowIdentity>();
+  const inputRowsWithIdentity = inputRows.map((entry) => {
+    const sourceRowIdentity = contractPricingSourceRowIdentity(
+      entry.row,
+      entry.sourceIndex,
+      scope,
+      entry.inputRole,
+    );
+    if (sourceIdentities.has(sourceRowIdentity)) {
+      throw new ContractPricingSourceIdentityCollisionError(sourceRowIdentity);
+    }
+    sourceIdentities.add(sourceRowIdentity);
+    return { ...entry, sourceRowIdentity };
+  });
+
+  const assembledEntries = inputRowsWithIdentity
+    .map(({ row, sourceRowIdentity, candidateOnly }, index): {
+      sourceRowIdentity: ContractPricingSourceRowIdentity;
+      candidateOnly: boolean;
+      nativeCategory: string | null;
+      candidate: ContractPricingAssemblyRow;
+    } | null => {
       const id = clean(row.row_id) ?? `contract_pricing_row:${index + 1}`;
       const rawText = clean([row.rate_raw, row.raw_text].map(clean).filter(Boolean).join(' ')) ?? clean(row.description) ?? '';
       const sourceDescription = clean(row.description) ?? rawText;
@@ -2016,7 +2265,8 @@ export function assembleContractPricingRows(
         ? null
         : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
       const focusedText = focusTextAroundRate(classificationText, rate);
-      const category = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
+      const nativeCategory = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
+      const category = nativeCategory ?? sources.selectedCategoryBySourceRow?.get(sourceRowIdentity) ?? null;
       const routeSourceText = sourceKind === 'exhibit_a_text_recovery' ? sourceDescription : focusedText;
       const initialDimensions = parseAuthoredPricingDimensions(routeSourceText);
       const rawRoute = detectRoute(routeSourceText);
@@ -2222,29 +2472,90 @@ export function assembleContractPricingRows(
       }
 
       return {
-        id,
-        category,
-        description,
-        route,
-        distanceBand: distance.value,
-        pricingDimensions,
-        pricingDimensionSources,
-        unit,
-        rate,
-        quantity: row.quantity ?? null,
-        quantityText: clean(row.quantity_text),
-        totalAmount: row.total_amount ?? null,
-        page: typeof row.page === 'number' && Number.isFinite(row.page) ? row.page : null,
-        sourceAnchor,
-        confidence,
-        sourceKind,
-        sourceQuality,
-        authoredValueCorrection: correction != null || row.authoredValueCorrection === true,
-        rawText: rawText || undefined,
-        geometryRefs: normalizeGeometryRefs(row.geometry_refs),
+        sourceRowIdentity,
+        candidateOnly,
+        nativeCategory,
+        candidate: {
+          id,
+          category,
+          description,
+          route,
+          distanceBand: distance.value,
+          pricingDimensions,
+          pricingDimensionSources,
+          unit,
+          rate,
+          quantity: row.quantity ?? null,
+          quantityText: clean(row.quantity_text),
+          totalAmount: row.total_amount ?? null,
+          page: typeof row.page === 'number' && Number.isFinite(row.page) ? row.page : null,
+          sourceAnchor,
+          confidence,
+          sourceKind,
+          sourceQuality,
+          authoredValueCorrection: correction != null || row.authoredValueCorrection === true,
+          rawText: rawText || undefined,
+          geometryRefs: normalizeGeometryRefs(row.geometry_refs),
+        },
       };
     })
-    .filter((row): row is ContractPricingAssemblyRow => row != null);
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null);
 
-  return selectOperatorFacingRows(assembledRows);
+  const selectedRows = selectOperatorFacingRows(
+    assembledEntries
+      .filter((entry) => !entry.candidateOnly)
+      .map((entry) => entry.candidate),
+  );
+  const candidateBuckets = new Map<ContractPricingSourceRowIdentity, ContractPricingAssemblyRow[]>(
+    [...sourceIdentities].map((identity) => [identity, []]),
+  );
+  for (const entry of assembledEntries) {
+    freezeContractPricingAssemblyRow(entry.candidate);
+    if (!isLegacySingletonVisibleCandidate(entry.candidate, entry.nativeCategory)) continue;
+    const existing = candidateBuckets.get(entry.sourceRowIdentity);
+    if (!existing) throw new ContractPricingSourceIdentityCollisionError(entry.sourceRowIdentity);
+    if (existing.length > 0) throw new ContractPricingSourceIdentityCollisionError(entry.sourceRowIdentity);
+    existing.push(entry.candidate);
+  }
+  for (const row of selectedRows) freezeContractPricingAssemblyRow(row);
+
+  return Object.freeze({
+    selectedRows: Object.freeze([...selectedRows]),
+    candidatesBySourceRow: new ImmutableReadonlyMap(
+      [...candidateBuckets].map(([identity, candidates]) => [
+        identity,
+        Object.freeze([...candidates]),
+      ] as const),
+    ),
+  });
+}
+
+export function assembleContractPricingRows(
+  rows: readonly ContractRateScheduleRow[] | null | undefined,
+  sources: ContractPricingAssemblySourceOptions = {},
+): ContractPricingAssemblyRow[] {
+  // Compatibility boundary: the legacy wrapper historically returned mutable
+  // rows. The dual-view result is immutable, so return deep mutable copies of
+  // every nested structure exposed by ContractPricingAssemblyRow.
+  return assembleContractPricingRowsWithCandidates(
+      rows,
+      { documentId: 'compatibility-wrapper', sourceVersionIdentity: null },
+      sources,
+    ).selectedRows.map((row) => ({
+      ...row,
+      ...(row.pricingDimensions ? { pricingDimensions: { ...row.pricingDimensions } } : {}),
+      ...(row.pricingDimensionSources ? { pricingDimensionSources: { ...row.pricingDimensionSources } } : {}),
+      ...(row.geometryRefs ? {
+        geometryRefs: row.geometryRefs.map((ref) => ({
+          ...ref,
+          geometry: {
+            ...ref.geometry,
+            ...(ref.geometry.diagnostics ? { diagnostics: [...ref.geometry.diagnostics] } : {}),
+          },
+        })),
+      } : {}),
+      ...(row.mergeDiagnostics ? {
+        mergeDiagnostics: row.mergeDiagnostics.map((diagnostic) => ({ ...diagnostic })),
+      } : {}),
+    }));
 }

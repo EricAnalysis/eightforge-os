@@ -2,6 +2,7 @@ import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
 } from '@/lib/documentPrecedence';
+import type { ProjectTruthAuthorityResolution } from '@/lib/canonical/authority/resolveProjectTruthAuthority';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { AuthoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
@@ -343,6 +344,14 @@ export type ProjectValidatorInput = {
   contractValidationContext: ValidatorContractAnalysisContext | null;
   transactionData?: ValidatorProjectTransactionData;
   reconciliationContext?: ValidatorReconciliationContext | null;
+  /**
+   * The single authority decision for this execution, resolved once at
+   * validator-input construction. Rule packs must not read it to branch on
+   * authority: their inputs are already normalized. It exists so persistence
+   * and publication can identify which authority produced the result and which
+   * exact canonical registry backed it.
+   */
+  projectTruthAuthority?: ProjectTruthAuthorityResolution;
 };
 
 export type FindingEvidenceInput = {

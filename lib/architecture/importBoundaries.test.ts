@@ -35,6 +35,14 @@ const LEGACY_LAYER_EXCEPTIONS = new Set([
 
 const CANONICAL_PRODUCTION_EDGES = new Set([
   'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/publication/publishProjectTruthShadow',
+  // ── Authority cutover (amendment A13) ──
+  // Validation may now depend on the canonical tree for AUTHORITY, not merely
+  // for publication. These edges are the deliberate consequence of promoting
+  // the canonical registry to selectable runtime truth; the seal stays narrow
+  // so no further validator -> canonical edge can appear unreviewed.
+  'lib/validator/projectValidator.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
+  'lib/validator/projectValidator.ts -> @/lib/canonical/publication/projectTruthPublicationIdentity',
+  'lib/validator/shared.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
 ]);
 
 function walk(directory: string): string[] {

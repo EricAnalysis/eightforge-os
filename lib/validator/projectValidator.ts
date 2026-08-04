@@ -94,6 +94,8 @@ import {
   PACK_AUTHORED_RATE_ROW_QUARANTINE,
   runAuthoredRateRowQuarantineRules,
 } from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
+import { resolveProjectTruthAuthority } from '@/lib/canonical/authority/resolveProjectTruthAuthority';
+import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
@@ -907,6 +909,29 @@ export function buildSourceArtifactSnapshot(params: {
       exactSourceIdentity: exactSourceIdentity(artifact),
     });
   }));
+}
+
+/**
+ * Deterministic digest of the exact frozen sources backing one execution.
+ *
+ * Identifies which source artifacts the run observed, so a persisted result can
+ * be tied to the precise bytes it was derived from. Sorted by document id so
+ * load order can never change the digest.
+ */
+export function buildSourceArtifactSnapshotDigest(
+  snapshot: readonly ValidatorSourceArtifactSnapshotEntry[],
+): string | null {
+  if (snapshot.length === 0) return null;
+  return hashCanonicalJson(
+    [...snapshot]
+      .map((entry) => ({
+        documentId: entry.documentId,
+        exactSourceIdentity: entry.exactSourceIdentity,
+        sourceSha256: entry.sourceSha256,
+        storageObjectVersion: entry.storageObjectVersion,
+      }))
+      .sort((left, right) => left.documentId.localeCompare(right.documentId, 'en-US')),
+  );
 }
 
 export function retainAssembledContractPricingRows(
@@ -2606,6 +2631,29 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     truthCategoryDocumentIds,
     assembledContractPricingRows,
   });
+  // ── The single authority decision for this execution ──────────────────────
+  // Resolved exactly once, before any rule pack runs. In canonical mode the
+  // frozen canonical registry section replaces legacy rate schedule items; in
+  // legacy mode the legacy items pass through untouched. Downstream packs and
+  // the manual-link/rate-map builders below consume whichever authority won,
+  // without knowing which it was.
+  const projectTruthAuthority = resolveProjectTruthAuthority({
+    projectId: project.id,
+    assembledContractPricingRows,
+    pricingContext: {
+      // Schedule identity is not exposed on the validator contract context.
+      // Left null rather than inferred; the registry digest still pins the
+      // exact resolved rows.
+      documentId: contractValidationContext?.document_id ?? null,
+      scheduleId: null,
+      scheduleName: null,
+    },
+    governingDocumentFamily: null,
+    legacyRateScheduleItems: baseFactLookups.rateScheduleItems,
+    sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
+  });
+  const authoritativeRateScheduleItems = [...projectTruthAuthority.rateScheduleItems];
+
   const contractDocumentIdForGuidance =
     contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
   const contractUploadGuidance = contractDocumentIdForGuidance
@@ -2615,6 +2663,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     : null;
   const factLookups = {
     ...baseFactLookups,
+    rateScheduleItems: authoritativeRateScheduleItems,
     contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
   };
   const manualRateLinkOverrides = await loadManualRateLinkOverrides({
@@ -2671,6 +2720,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     factLookups,
     contractValidationContext,
     transactionData: validatorTransactionData,
+    projectTruthAuthority,
   } satisfies ProjectValidatorInput;
   const reconciliationContext = buildValidatorReconciliationContext(baseInput);
 

@@ -42,6 +42,10 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
   // so no further validator -> canonical edge can appear unreviewed.
   'lib/validator/projectValidator.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
   'lib/validator/projectValidator.ts -> @/lib/canonical/authority/canonicalExecutionContext',
+  // Transaction authority reroute: the validator projects canonical transactions
+  // into the existing row interface at the seam. Rule packs read that projection
+  // off their input and import nothing from lib/canonical themselves.
+  'lib/validator/projectValidator.ts -> @/lib/canonical/authority/canonicalValidatorProjection',
   'lib/validator/projectValidator.ts -> @/lib/canonical/publication/projectTruthPublicationIdentity',
   'lib/validator/shared.ts -> @/lib/canonical/authority/canonicalExecutionContext',
   // Authority metadata is persisted with every run and threaded from the
@@ -248,6 +252,60 @@ function publicationRuntimeAuthorityViolations(workspaceRoot = ROOT): string[] {
   }).sort();
 }
 
+/**
+ * Rule packs must never rediscover which authority produced their input.
+ *
+ * A pack that read the authority mode, the environment variable, or reached
+ * into `lib/canonical` would reintroduce per-pack truth decisions — the exact
+ * failure the single-projection seam exists to prevent. Packs receive already
+ * normalized inputs and stay unaware of the authority behind them.
+ */
+function rulePackAuthorityViolations(workspaceRoot = ROOT): string[] {
+  const packRoot = path.join(workspaceRoot, 'lib/validator/rulePacks');
+  if (!existsSync(packRoot)) return [];
+  return walk(packRoot)
+    .filter((file) => !file.endsWith('.test.ts'))
+    .flatMap((file) => {
+      const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+      const text = readFileSync(file, 'utf8');
+      const violations: string[] = [];
+      if (/EIGHTFORGE_PROJECT_TRUTH_AUTHORITY|readProjectTruthAuthorityMode|resolveProjectTruthAuthorityMode/.test(text)) {
+        violations.push(`${source} -> rule pack reads authority configuration`);
+      }
+      if (/process\.env/.test(text)) {
+        violations.push(`${source} -> rule pack parses the environment`);
+      }
+      for (const edge of importsInFile(file, workspaceRoot)) {
+        if (isWithin(resolveImportTarget(edge), 'lib/canonical')) {
+          violations.push(`${source} -> rule pack imports ${edge.specifier}`);
+        }
+      }
+      return violations;
+    })
+    .sort();
+}
+
+/**
+ * There is exactly one canonical-to-validator projection module.
+ *
+ * A second projection would let canonical truth reach the validator by two
+ * mappings that could drift apart, which is the per-pack divergence the A13
+ * cutover forbids.
+ */
+function canonicalProjectionModules(workspaceRoot = ROOT): string[] {
+  const authorityRoot = path.join(workspaceRoot, 'lib/canonical/authority');
+  if (!existsSync(authorityRoot)) return [];
+  return walk(authorityRoot)
+    .filter((file) => !file.endsWith('.test.ts'))
+    .filter((file) => {
+      const text = readFileSync(file, 'utf8');
+      // A projection module is one that constructs validator-facing rows.
+      return /export function projectCanonical\w*(?:RateScheduleItems|TransactionRows)\s*\(/.test(text);
+    })
+    .map((file) => path.relative(workspaceRoot, file).replaceAll('\\', '/'))
+    .sort();
+}
+
 function pricingAssemblyLeakageViolations(workspaceRoot = ROOT): string[] {
   const allowedDualViewCallers = new Set([
     'lib/pipeline/documentPipeline.ts',
@@ -379,6 +437,15 @@ describe('production architecture import boundaries', () => {
       unexpected: [],
       missingFrozenEdge: [],
     });
+  }, 30_000);
+
+  it('keeps rule packs unaware of which authority produced their input', () => {
+    expect(rulePackAuthorityViolations()).toEqual([]);
+  }, 30_000);
+
+  it('keeps exactly one canonical-to-validator projection module', () => {
+    expect(canonicalProjectionModules())
+      .toEqual(['lib/canonical/authority/canonicalValidatorProjection.ts']);
   }, 30_000);
 
   it('keeps the publication layer isolated from production authorities and UI', () => {

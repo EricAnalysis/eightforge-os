@@ -1311,15 +1311,20 @@ Implemented and verified:
 - persisted authority metadata with no migration;
 - deterministic canonical registry and source-snapshot digests.
 
-**Not yet canonical.** The following registry sections are assembled empty and their
-validator inputs still come from legacy loaders. This is deliberate and honest — an empty
-canonical section states "not yet canonical", whereas a legacy back-fill would mix
+**Not yet canonical as of A13.** The following registry sections were assembled empty and
+their validator inputs still came from legacy loaders. This was deliberate and honest — an
+empty canonical section states "not yet canonical", whereas a legacy back-fill would mix
 authorities inside one run:
 
 - `invoices` / `invoiceLines` — requires the invoice adapter in the single assembly;
 - `transactions` — transaction quantity and amount, requires the transaction adapter;
 - `governingDocuments` — document relationship truth;
 - `contractTermReferences` — source-backed term identity.
+
+**Superseded by A14 (§21).** `transactions`, `invoices`, `invoiceLines`, and the
+governing-document relationships are now canonical, and per-domain coverage records which
+truth domains a given run actually governed. `contractTermReferences` remains deferred; see
+§21.12.
 
 **Structurally deferred.** The `derived` sections (`pricingMatches`,
 `contractInvoiceReconciliations`, `invoiceTransactionReconciliations`,
@@ -1401,3 +1406,282 @@ Notes for operators:
   to escalate.
 - Rolling back to `legacy` does not rewrite already-persisted runs. Each stored run
   identifies the authority that produced it via `projectTruthAuthorityMode`.
+
+---
+
+## 21. A14 â€” Canonical transaction and document-relationship authority
+
+A13 made the canonical registry selectable runtime authority for **pricing**. A14 completes
+the cutover for the remaining transaction and document truth domains, and adds the coverage
+model that makes "canonical authority governed this run" a checkable claim rather than an
+assumption.
+
+A14 makes no schema or migration change and does not redesign extraction. Phase 3 remains
+upstream structural-evidence preservation, unchanged and unconsumed by the authority layer:
+
+```text
+PDF observations
+â†’ preserved structural evidence      (Phase 3 â€” upstream, unchanged by A13/A14)
+â†’ normalized canonical facts
+â†’ canonical Project Truth registry
+â†’ validation authority               (A13 pricing, A14 transactions/invoices/relationships)
+```
+
+### 21.1 Canonical invoice identity
+
+The canonical invoice id is a deterministic composite of **project, source artifact, source
+document, and invoice number**, assembled from the effective invoice rows validator-input
+construction already loaded. No document is re-read, no OCR re-run, no table reconstructed.
+
+Two obvious shortcuts are rejected:
+
+- **The persisted row id is not the identity.** It is generated at insertion, so using it
+  would make canonical identity depend on database insertion. It is retained as
+  `sourceRecordId` â€” evidence and scoping input, never the id basis.
+- **The invoice number alone is not sufficient.** Two documents can each claim `INV-1001`.
+
+The composite excludes every value-bearing field â€” total, billed amount, quantity â€” so a
+corrected amount never renames an invoice and a value disagreement can never masquerade as
+two different invoices.
+
+`identityConfidence` reports how precisely identity could be scoped:
+
+| Value | Meaning |
+|---|---|
+| `document_scoped` | project + artifact + document + invoice number. Independent of any generated id. |
+| `source_scoped` | the composite could not separate two observations, so source-observation identity was added. |
+| `unresolved` | deterministic uniqueness could not be established; input ordinal was the only discriminator left. Surfaced, never silently accepted. |
+
+**Missing invoice number.** Represented explicitly (`invoiceNumberPresent: false`, envelope
+state `absent_from_source`), never blanked. Two unnumbered invoices in one document do not
+collapse: identity degrades to `source_scoped`, and where even that is unavailable, to
+`unresolved`.
+
+**Duplicate invoice number.** Two distinct source documents claiming one number produce two
+canonical invoices plus a deterministic `CanonicalInvoiceIdentityConflict`. Both observations
+survive, neither is chosen, and the invoices domain is blocked.
+
+### 21.2 Canonical invoice-line identity
+
+Line identity is built from source **location** â€” canonical invoice id, source document,
+page, sheet, row, observation id â€” and never from description, quantity, rate, or amount.
+Two rendered rows carrying identical business values are two rows; collapsing them would
+violate the repository grain rules and understate billed quantity.
+
+A line with no location and no observation id is **preserved, never merged**, and reported
+through a deterministic `CanonicalInvoiceLineIdentityIssue` with `identityConfidence:
+unresolved`. A line that cannot be attached to any invoice is reported as orphaned rather
+than adopted by an arbitrary parent.
+
+### 21.3 Canonical transaction identity, quantity, amount, and grain
+
+Unchanged from the transaction increment and restated here as the A14 contract:
+
+- Ticket identity is scoped by source document, so one ticket number in two documents is two
+  tickets. A row without a ticket number is never merged on a null identity.
+- Identity is never derived from quantity or amount.
+- `distinctIdentityCount` is the correct denominator for ticket-grain counts;
+  `rows.length` may exceed it when one ticket appears on repeated physical rows.
+
+**Quantity authority.** Transaction quantity is ticket-grain. Repeated physical rows sharing
+one identity are never summed.
+
+**Amount authority.** Extended cost follows the same rule.
+
+**Grain-conflict behavior.** Where repeated rows disagree on a ticket-grain value, the
+assembly emits a deterministic `CanonicalTransactionGrainConflict` and refuses to pick a
+winner. Both observations survive verbatim, no reconciled third value is fabricated, the
+`TRANSACTION_TICKET_GRAIN_CONFLICT` finding is operator-visible with both observations as
+separate evidence entries, and the transactions domain is blocked.
+
+### 21.4 Contract and invoice relationships
+
+Relationships are projected from the precedence snapshot and the canonical assemblies;
+`lib/documentPrecedence.ts` remains the sole producer of precedence. States reuse the
+repository vocabulary:
+
+| State | Meaning |
+|---|---|
+| `observed` | the source states the relationship directly |
+| `derived` | deterministically computed from other canonical truth |
+| `operator_asserted` | a human decided it; outranks `derived` |
+| `unresolved` | no candidate could be established |
+| `conflicting` | two or more candidates compete |
+
+Zero candidates is `unresolved`; two or more is `conflicting`. **Neither picks a winner, and
+legacy resolution cannot overwrite either state.** An operator assertion is the only
+legitimate way a conflict settles, and the candidates it overrode stay on the record so the
+decision remains auditable.
+
+Kinds: `invoice_belongs_to_project`, `invoice_belongs_to_contract_family`,
+`invoice_references_governing_contract`, `invoice_line_belongs_to_invoice`,
+`transaction_belongs_to_invoice_line`, `pricing_exhibit_belongs_to_contract_family`,
+`pricing_exhibit_governs_rate_truth`, `transaction_references_governing_pricing_row`,
+`source_artifact_belongs_to_document_family`, `document_precedence`.
+
+**Required vs reported.** Only the relationships that actually govern truth are required:
+`invoice_belongs_to_project`, `invoice_references_governing_contract`,
+`pricing_exhibit_governs_rate_truth`, and invoice-line attachability. Family membership is
+taxonomy and is reported without blocking; rate-key-to-pricing-row matching is left to the
+rate rule packs that exist to report it. A **conflicting** relationship blocks its domain
+whether or not it is required â€” an unsettled conflict is never a pass.
+
+**Relationship grain is bounded by identity class, not row count.** A 5,000-row workbook adds
+relationships per invoice, per billing rate key, and per document â€” not per row. Row-level
+identity already lives on the invoice, line, and transaction assemblies, so per-row
+relationship records would inflate the registry and its digest without adding truth.
+
+### 21.5 Canonical provenance
+
+Every canonical invoice, line, transaction, and relationship carries a `CanonicalProvenance`:
+source artifact id, source document id, page, sheet, row, bounding box, raw span, observation
+id, adapter identity, source-family identity, derivation type, and operator assertion id.
+
+`CanonicalEvidenceRef` is reused as the structural record; provenance adds only the four
+dimensions it lacks. **No second evidence subsystem exists** â€” provenance projects into the
+shape the existing finding-evidence model already accepts, so canonical findings use
+`makeFinding` unchanged.
+
+**Geometry is never fabricated.** A missing bounding box stays null. Missing geometry is
+acceptable as long as document, page, or observation identity stays honest, which
+`provenanceIsLocatable` reports rather than assumes. Repeated runs produce identical evidence
+identity, so a persisted finding keeps its id instead of looking new each run.
+
+### 21.6 Domain coverage and blocked states
+
+| State | Meaning |
+|---|---|
+| `authoritative` | canonical truth governs this domain for this run |
+| `blocked` | canonical truth could not be established; the reason is preserved for triage |
+| `not_applicable` | the project has no source for this domain, so there is nothing to govern |
+
+There is deliberately **no `legacy` coverage state**. A legacy-loaded domain inside a
+canonical run is a block, not a success with a footnote.
+
+**Canonical success rule.** A canonical run is either authoritative for every required domain
+(`pricing`, `invoices`, `invoiceLines`, `transactions`, `relationships`, `provenance`) or it
+reports `blocked` with `canonicalAssemblyBlockReason: incomplete_domain_authority` and
+per-domain reasons. Domain-specific block reasons include
+`duplicate_invoice_number_across_source_documents`, `unresolved_invoice_identity`,
+`invoice_lines_without_resolvable_invoice`, `ticket_grain_conflict`,
+`conflicting_governing_relationship`, `unresolved_required_relationship`, and
+`canonical_record_without_source_document`.
+
+On a domain block the validator projection is **retained**. It is the evidence of the block;
+dropping it would leave an operator a bare status with no way to see which domain failed. It
+is still not authoritative â€” `isCanonicalAuthorityEstablished` requires `assembled`.
+
+### 21.7 No mixed authority
+
+A13 left one hole: a `blocked` or `failed` canonical context emptied the rate rows but kept
+**legacy** transaction rows, so a blocked run silently mixed authorities. A14 closes it â€”
+transaction truth empties on the same seam as pricing. A canonical run therefore either
+governs with canonical truth or reports a block; it never partially rescues from legacy.
+
+Rule-pack neutrality is unchanged and now enforced statically: a rule pack may not read the
+authority mode, parse the environment, or import `lib/canonical`, and exactly one
+canonical-to-validator projection module may exist.
+
+### 21.8 Exposure and clearance inheritance
+
+Authority is inherited through the canonical validator inputs. **No business algorithm moved
+into `lib/canonical`**: `evaluateProjectExposure`, the reconciliation builders, the rule
+packs, and `evaluateApprovalGate` are the shipping implementations, called unchanged. Only
+the rows they read change authority.
+
+Consequently, in canonical mode: exposure consumes canonical amounts; quantity-dependent
+findings consume canonical quantities; reconciliation consumes canonical identities; evidence
+references use canonical provenance; and an unresolved grain conflict, invoice identity, or
+governing relationship prevents clearance rather than passing on ambiguous truth.
+
+### 21.9 Publication remains audit-only
+
+Publication is still controlled separately, still reuses the frozen registry by reference,
+and still never re-enters validation. The A14 gate asserts registry **object identity** â€”
+not merely digest equality â€” across an injected publication failure, so a silent reassembly
+would fail the gate. Findings, exposure, clearance, coverage, and both digests are unchanged
+by a publication failure.
+
+### 21.10 Acceptance gate â€” run and passing
+
+`lib/canonical/authority/canonicalFullChainAuthorityGate.test.ts`, 34 cases, against
+`lib/evaluation/fixtures/goldenAuthoredTransportPricingRows.json` â€” real Golden-derived
+pricing pinned to `sourcePdfSha256` `922161a5â€¦` of the Williamson corpus PDF and checked into
+the repository, so the gate is reproducible on any checkout and does **not** require
+`GOLDEN_CORPUS_ROOT`.
+
+| Case | Evidence |
+|---|---|
+| Golden transaction authority | Every required domain authoritative; Golden rate, unit, and description preserved exactly; quantities and amounts verbatim; one identity per invoice, line, and ticket; no legacy row admitted; legacy mode unchanged |
+| Cross-document contract + exhibit | Invoice placed in the correct contract family; governing contract and governing pricing exhibit resolved separately; every rate row attributed to the exhibit; a supplied legacy resolution cannot override canonical relationship truth; distinct digest per governing document |
+| Ticket-grain conflict | One ticket identity, both observations preserved, observed values exactly `[400, 560]` with no average/max/sum, transactions domain blocked, deterministic conflict identity |
+| Missing invoice identity | Two unnumbered invoices stay distinct; invoices domain blocked as `unresolved_invoice_identity`; duplicate number across documents blocked with both observations preserved |
+| Relationship conflict | Relationship stays `conflicting` with no winner; both candidates preserved in finding evidence; `invoices` and `relationships` domains blocked |
+| Publication failure | Real `publishProjectTruthShadow` with an injected adaptation failure; findings, exposure, coverage, and both digests unchanged; registry object identity preserved |
+| Determinism | Identical identities, coverage, digests, and persisted metadata across repeated runs and reversed input ordering |
+| Full-chain single assembly | Spy counts: one pricing pass, one invoice pass per invoice, one transaction pass per row, zero publisher calls, zero storage readback; context, projection, coverage, and registry all frozen |
+
+Supporting suites: `canonicalInvoiceAuthority.test.ts` (18),
+`canonicalRelationshipAuthority.test.ts` (13), `canonicalDomainCoverage.test.ts` (15),
+`canonicalTruthIntegrity.test.ts` (9), `canonicalAuthorityExposureClearance.test.ts` (7).
+
+### 21.11 Persisted metadata
+
+Additive fields inside the existing structured summary object under
+`project_truth_authority`. No migration. Preserved from A13: authority mode, registry
+version, registry digest, source snapshot digest, assembly status, assembly block reason, and
+the separately attached publication status.
+
+Added by A14: `canonicalAuthorityCoverage`, `blockedTruthDomains`, `canonicalInvoiceCount`,
+`canonicalInvoiceLineCount`, `canonicalTransactionCount`, `canonicalTransactionConflictCount`,
+`unresolvedInvoiceIdentityCount`, `unresolvedRelationshipCount`.
+
+Counts are **null, not zero**, in legacy mode: zero would assert that canonical authority ran
+and governed nothing, which is a different claim from canonical authority never having run.
+The merge is additive under one reserved key, so every other summary field survives, and a
+run without authority metadata writes the summary through unchanged.
+
+### 21.12 Remaining deferred domains
+
+- `contractTermReferences` â€” source-backed contract term identity is still assembled empty.
+  An empty canonical section states "not yet canonical"; a legacy back-fill would mix
+  authorities inside one run.
+- The `derived` sections (`pricingMatches`, `contractInvoiceReconciliations`,
+  `invoiceTransactionReconciliations`, `projectReconciliation`, `validationImpacts`,
+  `exposureReadinessReferences`) remain **structurally deferred**. They are computed *from*
+  the validation result and cannot be authoritative *inputs* to the computations that produce
+  them without circularity. Making the canonical layer own exposure, reconciliation, and
+  clearance derivation would relocate the validation engine, which is a larger change than
+  A14 and is not authorized here.
+- Operator relationship assertions are supported by the assembly but have no persisted
+  source yet; the input is accepted and honored, and nothing fabricates one.
+
+### 21.13 Updated legacy deletion ledger
+
+Retained deliberately as the rollback path. Each entry is removable only after canonical
+authority is stable **and** its canonical domain reports `authoritative` in real runs.
+
+| # | Legacy path | Location | Removal precondition |
+|---|---|---|---|
+| L1 | Legacy rate-schedule item construction from fact rows | `projectValidator.ts` â€” `buildRateScheduleItems`, `normalizeRateScheduleItem` | Canonical pricing authority is the only mode |
+| L2 | Legacy branch in the authority seam | `projectValidator.ts` â€” `authoritativeRateScheduleItems` legacy arm | `legacy` mode retired |
+| L3 | Publisher self-assembly of pricing | `projectTruthShadowAdapter.ts` â€” `adaptAssembledPricingRows` arm when no authoritative registry is supplied | `legacy` mode retired |
+| L4 | Legacy invoice synthesis | `projectValidator.ts` â€” `synthesizeInvoicesFromLegacyExtractions`, `applyEffectiveInvoiceFacts` | **Narrowed by A14** â€” canonical `invoices`/`invoiceLines` are now assembled from these rows, so the loaders are the canonical INPUT and are removable only when a canonical invoice loader replaces them |
+| L5 | Legacy transaction rollups as validator truth | `projectValidator.ts` â€” `validatorTransactionData` legacy arm | **Narrowed by A14** â€” the blocked-context legacy rescue is removed; the remaining legacy arm is reachable only in `legacy` mode |
+| L6 | Legacy governing-document derivation | `projectValidator.ts` â€” `buildDocumentIdsByFamily`, precedence snapshot fan-out | **Narrowed by A14** â€” canonical relationships now project this map rather than competing with it; removable when a canonical precedence source exists |
+| L7 | Dual `construction.mode` on the registry | `projectTruth.ts` â€” `'shadow_only'` variant | Shadow-only assembly no longer produced anywhere |
+
+Removing any entry while `legacy` is still a supported mode would eliminate the rollback and
+must be rejected in review.
+
+### 21.14 Operator procedure
+
+Unchanged from Â§20.5. Canonical authority is enabled with
+`EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical` and rolled back with `=legacy`; publication is
+controlled separately and independently.
+
+Additional note for A14: a canonical run reporting `canonicalAssemblyStatus: blocked` with
+`canonicalAssemblyBlockReason: incomplete_domain_authority` is reporting a real source gap in
+a specific truth domain. Read `blockedTruthDomains` and the per-domain reason in
+`canonicalAuthorityCoverage` rather than re-running.
+

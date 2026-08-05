@@ -98,6 +98,10 @@ import {
   PACK_TRANSACTION_GRAIN_CONFLICT,
   runTransactionGrainConflictRules,
 } from '@/lib/validator/rulePacks/transactionGrainConflict';
+import {
+  PACK_CANONICAL_TRUTH_INTEGRITY,
+  runCanonicalTruthIntegrityRules,
+} from '@/lib/validator/rulePacks/canonicalTruthIntegrity';
 import { resolveProjectTruthAuthority } from '@/lib/canonical/authority/resolveProjectTruthAuthority';
 import { projectCanonicalTransactionRows } from '@/lib/canonical/authority/canonicalValidatorProjection';
 import {
@@ -941,6 +945,44 @@ export function buildSourceArtifactSnapshotDigest(
       }))
       .sort((left, right) => left.documentId.localeCompare(right.documentId, 'en-US')),
   );
+}
+
+/**
+ * Source-artifact identity per document, read from the frozen snapshot.
+ *
+ * Canonical invoice identity is scoped by source artifact, so this map is the
+ * artifact half of that scope. It is READ from the snapshot the execution
+ * already loaded; no artifact is looked up or re-read.
+ */
+export function buildSourceArtifactIdByDocumentId(
+  snapshot: readonly ValidatorSourceArtifactSnapshotEntry[],
+): ReadonlyMap<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const entry of snapshot) {
+    // `exactSourceIdentity` is the strongest artifact identity when present;
+    // the artifact id is the fallback. Neither is invented when both are absent.
+    map.set(entry.documentId, entry.exactSourceIdentity ?? entry.sourceArtifactId ?? null);
+  }
+  return map;
+}
+
+/**
+ * Document-family label per document, projected from the precedence snapshot.
+ *
+ * The family label is carried verbatim; canonical code does not reinterpret it.
+ * A document appearing in more than one family keeps the first family in stable
+ * key order rather than an arbitrary one.
+ */
+export function buildDocumentFamilyByDocumentId(
+  familyDocumentIds: ValidatorDocumentIdsByFamily,
+): ReadonlyMap<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const family of Object.keys(familyDocumentIds).sort((l, r) => l.localeCompare(r, 'en-US'))) {
+    for (const documentId of familyDocumentIds[family as keyof ValidatorDocumentIdsByFamily] ?? []) {
+      if (!map.has(documentId)) map.set(documentId, family);
+    }
+  }
+  return map;
 }
 
 export function retainAssembledContractPricingRows(
@@ -2664,7 +2706,14 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     // construction; canonical mode adapts them and never re-reads sources.
     transactionRows: transactionData?.rows ?? [],
     transactionDatasets: transactionData?.datasets ?? [],
+    // Effective invoice truth, already scoped and override-applied above.
+    invoiceRows: effectiveInvoices,
+    invoiceLineRows: effectiveInvoiceLines,
+    sourceArtifactIdByDocumentId: buildSourceArtifactIdByDocumentId(sourceArtifactSnapshot),
+    documentFamilyByDocumentId: buildDocumentFamilyByDocumentId(familyDocumentIds),
     governingDocumentIds,
+    familyDocumentIds,
+    documentRelationships,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
   });
   // Canonical truth governs only when it actually established. A blocked or
@@ -2709,7 +2758,13 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
       projectTruthAuthority.validatorProjection!.transactions.rows,
       project.id,
     )
-    : null;
+    // A blocked or failed canonical context must NOT hand back legacy rows.
+    // Mirroring the rate-schedule seam, transaction truth becomes empty so the
+    // block surfaces as an honest outcome instead of a legacy rescue that
+    // would mix authorities inside one run.
+    : isCanonicalAuthorityUnavailable(projectTruthAuthority)
+      ? []
+      : null;
   const effectiveTransactionData = canonicalTransactionRows != null
     ? { datasets: transactionData?.datasets ?? [], rows: canonicalTransactionRows }
     : transactionData;
@@ -2847,6 +2902,13 @@ export async function runProjectValidation(
   // Contributes nothing in legacy mode.
   findings.push(...runTransactionGrainConflictRules(input));
   rulesApplied.push(PACK_TRANSACTION_GRAIN_CONFLICT);
+
+  // Canonical identity and governing-relationship integrity runs alongside the
+  // grain-conflict pack, before the gating packs, so an unresolved invoice
+  // identity or a conflicting governing contract blocks rather than letting a
+  // downstream total consume ambiguous truth. Contributes nothing in legacy mode.
+  findings.push(...runCanonicalTruthIntegrityRules(input));
+  rulesApplied.push(PACK_CANONICAL_TRUTH_INTEGRITY);
 
   try {
     const requiredSourceFindings = runRequiredSourcesRules(input);

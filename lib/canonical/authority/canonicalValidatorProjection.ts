@@ -21,6 +21,19 @@ import { deriveBillingKeysForRateScheduleItem } from '@/lib/validator/billingKey
 import type { CanonicalTransaction } from '@/lib/canonical/transaction/transaction';
 import type { RateScheduleItem, ValidatorTransactionDataRow } from '@/lib/validator/shared';
 
+import type { CanonicalTruthDomain } from './canonicalDomainCoverage';
+import type {
+  CanonicalInvoiceIdentity,
+  CanonicalInvoiceIdentityConflict,
+  CanonicalInvoiceLineIdentity,
+  CanonicalInvoiceLineIdentityIssue,
+} from './canonicalInvoiceAuthority';
+import type { CanonicalRelationship } from './canonicalRelationshipAuthority';
+import {
+  projectProvenanceEvidence,
+  type CanonicalFindingEvidence,
+} from './canonicalProvenance';
+
 /**
  * Reads a canonical envelope as an authoritative value.
  *
@@ -201,4 +214,167 @@ export function projectCanonicalTransactionRows(
     raw_row_json: transaction.rawRowEvidence as Record<string, unknown>,
     created_at: '',
   }));
+}
+
+/**
+ * A deterministic, evidence-carrying canonical integrity signal.
+ *
+ * Signals are produced here, once, during the single assembly. The rule pack
+ * that renders them makes no authority decision of its own — it maps a signal
+ * to a finding. That keeps the "does this block clearance?" decision in the
+ * authority layer while leaving exposure, reconciliation, and clearance
+ * algorithms exactly where they already live.
+ */
+export type CanonicalIntegritySignal = {
+  /** Stable across runs, so a persisted finding keeps its identity. */
+  readonly signalKey: string;
+  readonly kind:
+    | 'invoice_identity_conflict'
+    | 'invoice_line_identity_unresolved'
+    | 'relationship_unresolved'
+    | 'relationship_conflicting';
+  readonly affectedDomain: CanonicalTruthDomain;
+  /** True when the signal must prevent clearance of the affected domain. */
+  readonly blocking: boolean;
+  readonly subjectType: string;
+  readonly subjectId: string;
+  readonly field: string | null;
+  readonly expected: string;
+  readonly actual: string;
+  readonly detail: string;
+  readonly evidence: readonly CanonicalFindingEvidence[];
+};
+
+function compareText(left: string, right: string): number {
+  return left.localeCompare(right, 'en-US');
+}
+
+/**
+ * Projects canonical identity and relationship state into integrity signals.
+ *
+ * Every signal carries canonical provenance for each competing observation, so
+ * a duplicate invoice number names both source documents and a conflicting
+ * governing relationship names every candidate. Nothing is summarized away.
+ */
+export function projectCanonicalIntegritySignals(input: {
+  readonly invoiceIdentities: readonly CanonicalInvoiceIdentity[];
+  readonly invoiceIdentityConflicts: readonly CanonicalInvoiceIdentityConflict[];
+  readonly invoiceLineIdentities: readonly CanonicalInvoiceLineIdentity[];
+  readonly invoiceLineIdentityIssues: readonly CanonicalInvoiceLineIdentityIssue[];
+  readonly relationships: readonly CanonicalRelationship[];
+}): readonly CanonicalIntegritySignal[] {
+  const signals: CanonicalIntegritySignal[] = [];
+  const identityById = new Map(
+    input.invoiceIdentities.map((identity) => [identity.canonicalInvoiceId, identity]),
+  );
+
+  for (const conflict of input.invoiceIdentityConflicts) {
+    signals.push({
+      signalKey: `canonical_invoice_identity:${conflict.conflictKey}`,
+      kind: 'invoice_identity_conflict',
+      affectedDomain: 'invoices',
+      // Two documents claiming one invoice number makes every invoice-scoped
+      // total ambiguous, so it must not clear.
+      blocking: true,
+      subjectType: 'invoice',
+      subjectId: conflict.conflictKey,
+      field: 'invoice_number',
+      expected: 'one source document per invoice number',
+      actual: `${String(conflict.sourceDocumentIds.length)} source documents claim ${conflict.invoiceNumber}`,
+      detail: conflict.detail,
+      // One evidence entry per competing source, so each stays traceable.
+      evidence: conflict.canonicalInvoiceIds.map((invoiceId) => {
+        const identity = identityById.get(invoiceId);
+        return projectProvenanceEvidence({
+          evidenceType: 'canonical_invoice_identity_conflict',
+          recordId: invoiceId,
+          fieldName: 'invoice_number',
+          fieldValue: conflict.invoiceNumber,
+          provenance: identity!.provenance,
+          note: `Competing observation of invoice number ${conflict.invoiceNumber}.`,
+        });
+      }),
+    });
+  }
+
+  const lineIdentityById = new Map(
+    input.invoiceLineIdentities.map((identity) => [identity.canonicalLineId, identity]),
+  );
+  for (const issue of input.invoiceLineIdentityIssues) {
+    signals.push({
+      signalKey: `canonical_invoice_line_identity:${issue.issueKey}`,
+      kind: 'invoice_line_identity_unresolved',
+      affectedDomain: 'invoiceLines',
+      // Unresolved line identity is reported, not blocking: the lines were
+      // preserved distinctly, so no total is wrong — only unattributable.
+      blocking: false,
+      subjectType: 'invoice_line',
+      subjectId: issue.issueKey,
+      field: 'line_id',
+      expected: 'deterministic source-backed line identity',
+      actual: `${String(issue.canonicalLineIds.length)} line(s) with ${issue.reason}`,
+      detail: issue.detail,
+      evidence: issue.canonicalLineIds.map((lineId) => projectProvenanceEvidence({
+        evidenceType: 'canonical_invoice_line_identity_unresolved',
+        recordId: lineId,
+        fieldName: 'line_id',
+        fieldValue: lineId,
+        provenance: lineIdentityById.get(lineId)!.provenance,
+        note: `Line identity ${issue.reason}; the line was preserved, never merged.`,
+      })),
+    });
+  }
+
+  for (const relationship of input.relationships) {
+    if (relationship.state === 'unresolved' && relationship.required) {
+      signals.push({
+        signalKey: `canonical_relationship:${relationship.relationshipId}:unresolved`,
+        kind: 'relationship_unresolved',
+        affectedDomain: relationship.affectedDomain,
+        blocking: true,
+        subjectType: 'document_relationship',
+        subjectId: relationship.relationshipId,
+        field: relationship.kind,
+        expected: 'one established governing relationship',
+        actual: 'no candidate could be established',
+        detail: relationship.detail,
+        evidence: [projectProvenanceEvidence({
+          evidenceType: 'canonical_relationship_unresolved',
+          recordId: relationship.relationshipId,
+          fieldName: relationship.kind,
+          fieldValue: relationship.from.id,
+          provenance: relationship.provenance,
+          note: 'Canonical authority left this relationship unresolved rather than selecting a governing source.',
+        })],
+      });
+      continue;
+    }
+    if (relationship.state !== 'conflicting') continue;
+    signals.push({
+      signalKey: `canonical_relationship:${relationship.relationshipId}:conflicting`,
+      kind: 'relationship_conflicting',
+      affectedDomain: relationship.affectedDomain,
+      // A conflicting governing candidate prevents clearance whether or not the
+      // relationship is required: an unsettled conflict is never a pass.
+      blocking: true,
+      subjectType: 'document_relationship',
+      subjectId: relationship.relationshipId,
+      field: relationship.kind,
+      expected: 'one governing candidate',
+      actual: `${String(relationship.candidateIds.length)} competing candidates: ${relationship.candidateIds.join(', ')}`,
+      detail: relationship.detail,
+      // Every candidate is preserved as its own evidence entry; none is dropped
+      // and none is promoted to a winner.
+      evidence: relationship.candidateIds.map((candidateId) => projectProvenanceEvidence({
+        evidenceType: 'canonical_relationship_conflict',
+        recordId: `${relationship.relationshipId}:candidate:${candidateId}`,
+        fieldName: relationship.kind,
+        fieldValue: candidateId,
+        provenance: relationship.provenance,
+        note: `Competing ${relationship.kind} candidate for ${relationship.from.id}.`,
+      })),
+    });
+  }
+
+  return signals.sort((left, right) => compareText(left.signalKey, right.signalKey));
 }

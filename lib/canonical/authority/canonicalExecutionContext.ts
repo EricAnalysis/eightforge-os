@@ -12,10 +12,25 @@
  * authority state and silently diverge from what was persisted.
  */
 
+import type { CanonicalInvoice } from '@/lib/canonical/invoice/invoice';
+import type { CanonicalInvoiceLine } from '@/lib/canonical/invoice/invoiceLine';
 import type { CanonicalProjectTruth } from '@/lib/canonical/project/projectTruth';
 import type { CanonicalTransaction } from '@/lib/canonical/transaction/transaction';
 import type { RateScheduleItem } from '@/lib/validator/shared';
 
+import type {
+  CanonicalAuthorityCoverage,
+  CanonicalTruthDomain,
+} from './canonicalDomainCoverage';
+import { blockedTruthDomains } from './canonicalDomainCoverage';
+import type {
+  CanonicalInvoiceIdentity,
+  CanonicalInvoiceIdentityConflict,
+  CanonicalInvoiceLineIdentity,
+  CanonicalInvoiceLineIdentityIssue,
+} from './canonicalInvoiceAuthority';
+import type { CanonicalRelationship } from './canonicalRelationshipAuthority';
+import type { CanonicalIntegritySignal } from './canonicalValidatorProjection';
 import type { CanonicalTransactionGrainConflict } from './canonicalTransactionAuthority';
 import type {
   CanonicalAuthorityBlock,
@@ -63,6 +78,40 @@ export type CanonicalValidatorProjection = {
     readonly distinctIdentityCount: number;
     readonly grainConflicts: readonly CanonicalTransactionGrainConflict[];
   };
+  /**
+   * Canonical invoice truth: deterministic identity scoped by project, source
+   * artifact, source document, and invoice number. `identityConflicts` is
+   * non-empty when distinct source documents claim one invoice number — both
+   * observations survive and neither is chosen.
+   */
+  readonly invoices: {
+    readonly rows: readonly CanonicalInvoice[];
+    readonly identities: readonly CanonicalInvoiceIdentity[];
+    readonly distinctIdentityCount: number;
+    readonly identityConflicts: readonly CanonicalInvoiceIdentityConflict[];
+    readonly unresolvedIdentityCount: number;
+  };
+  readonly invoiceLines: {
+    readonly rows: readonly CanonicalInvoiceLine[];
+    readonly identities: readonly CanonicalInvoiceLineIdentity[];
+    readonly identityIssues: readonly CanonicalInvoiceLineIdentityIssue[];
+    readonly unresolvedIdentityCount: number;
+    readonly orphanedCount: number;
+  };
+  readonly relationships: {
+    readonly all: readonly CanonicalRelationship[];
+    readonly unresolvedRequired: readonly CanonicalRelationship[];
+    readonly conflicting: readonly CanonicalRelationship[];
+    readonly blockedDomains: readonly CanonicalTruthDomain[];
+  };
+  /**
+   * Deterministic, evidence-carrying signals for the canonical integrity rule
+   * pack. Pre-projected here so the blocking decision stays in the authority
+   * layer and the pack remains a thin, authority-neutral renderer.
+   */
+  readonly integritySignals: readonly CanonicalIntegritySignal[];
+  /** Which truth domains this run actually governs. */
+  readonly coverage: CanonicalAuthorityCoverage;
 };
 
 export type CanonicalProjectTruthExecutionContext = {
@@ -160,6 +209,20 @@ export type ProjectTruthAuthorityMetadata = {
   readonly sourceArtifactSnapshotDigest: string | null;
   readonly canonicalAssemblyStatus: CanonicalExecutionAssemblyStatus;
   readonly canonicalAssemblyBlockReason: CanonicalAuthorityBlockReason | null;
+  /**
+   * Per-domain coverage and its counts. Additive fields inside the existing
+   * structured summary object, so the cutover still needs no migration. A
+   * stored run now identifies not just WHICH authority produced it but which
+   * truth domains that authority actually governed.
+   */
+  readonly canonicalAuthorityCoverage: CanonicalAuthorityCoverage | null;
+  readonly blockedTruthDomains: readonly CanonicalTruthDomain[];
+  readonly canonicalInvoiceCount: number | null;
+  readonly canonicalInvoiceLineCount: number | null;
+  readonly canonicalTransactionCount: number | null;
+  readonly canonicalTransactionConflictCount: number | null;
+  readonly unresolvedInvoiceIdentityCount: number | null;
+  readonly unresolvedRelationshipCount: number | null;
 };
 
 export const CANONICAL_REGISTRY_VERSION = 'canonical-project-truth-v1';
@@ -167,6 +230,7 @@ export const CANONICAL_REGISTRY_VERSION = 'canonical-project-truth-v1';
 export function buildProjectTruthAuthorityMetadata(
   context: CanonicalProjectTruthExecutionContext,
 ): ProjectTruthAuthorityMetadata {
+  const projection = context.validatorProjection;
   return {
     projectTruthAuthorityMode: context.authorityMode,
     canonicalRegistryVersion: context.registry != null ? CANONICAL_REGISTRY_VERSION : null,
@@ -174,5 +238,18 @@ export function buildProjectTruthAuthorityMetadata(
     sourceArtifactSnapshotDigest: context.sourceArtifactSnapshotDigest,
     canonicalAssemblyStatus: context.assemblyStatus,
     canonicalAssemblyBlockReason: context.blockReason,
+    // Counts are null — not zero — in legacy mode. Zero would assert "canonical
+    // authority governed and found nothing", which is a different claim from
+    // "canonical authority never ran".
+    canonicalAuthorityCoverage: projection?.coverage ?? null,
+    blockedTruthDomains: projection != null ? blockedTruthDomains(projection.coverage) : [],
+    canonicalInvoiceCount: projection?.invoices.distinctIdentityCount ?? null,
+    canonicalInvoiceLineCount: projection?.invoiceLines.rows.length ?? null,
+    canonicalTransactionCount: projection?.transactions.distinctIdentityCount ?? null,
+    canonicalTransactionConflictCount: projection?.transactions.grainConflicts.length ?? null,
+    unresolvedInvoiceIdentityCount: projection?.invoices.unresolvedIdentityCount ?? null,
+    unresolvedRelationshipCount: projection != null
+      ? projection.relationships.unresolvedRequired.length + projection.relationships.conflicting.length
+      : null,
   };
 }

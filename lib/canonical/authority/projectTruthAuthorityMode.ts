@@ -71,6 +71,13 @@ export type CanonicalAssemblyStatus =
 export type CanonicalAuthorityBlockReason =
   | 'missing_governing_pricing'
   | 'missing_source_snapshot'
+  /**
+   * A required truth domain was not canonically governed. Canonical mode may
+   * not report success while any required domain is still legacy-loaded,
+   * unresolved, or conflicting — see `canonicalDomainCoverage.ts`. The
+   * per-domain reasons ride on the coverage record, not on this single code.
+   */
+  | 'incomplete_domain_authority'
   | 'assembly_failed';
 
 export type CanonicalAuthorityBlock = {

@@ -234,6 +234,17 @@ describe('buildProjectTruthAuthorityMetadata', () => {
       sourceArtifactSnapshotDigest: 'snapshot-digest-abc',
       canonicalAssemblyStatus: 'not_requested',
       canonicalAssemblyBlockReason: null,
+      // Coverage and counts are null in legacy mode, never zero. Zero would
+      // assert canonical authority ran and governed nothing, which is a
+      // different claim from canonical authority never having run.
+      canonicalAuthorityCoverage: null,
+      blockedTruthDomains: [],
+      canonicalInvoiceCount: null,
+      canonicalInvoiceLineCount: null,
+      canonicalTransactionCount: null,
+      canonicalTransactionConflictCount: null,
+      unresolvedInvoiceIdentityCount: null,
+      unresolvedRelationshipCount: null,
     });
   });
 

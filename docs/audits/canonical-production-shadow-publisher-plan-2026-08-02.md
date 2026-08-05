@@ -36,7 +36,9 @@ section, marked `(amended)`.
 | A11 | **A1 full-call-graph clarification and coordinated dual-view assembly.** A1 applies transitively across each complete validation execution, including contract intelligence, synthetic and human overrides, rule packs, and shadow publication. One assembly execution accepts explicitly role-scoped authoritative and structural-candidate groups. It constructs each source candidate once from the structural representation. The deterministic analyzer category fallback applies to selected-row category only when synthetic/human-review validation selects structural rows as authoritative input and native assembly categorization is absent; it is disabled for every persisted-authoritative path. Native candidate visibility is preserved. The same invocation performs filtering, deduplication, winner selection, and ordering. Candidate identities include document, immutable source version, source kind, input role, and stable row identity; duplicate identities fail visibly, and lookup distinguishes a known row with no visible candidate from an identity miss. `ProjectValidatorInput.assembledContractPricingRows` retains selected rows; contract intelligence consumes candidates; the publisher consumes selected retained rows only. Candidate rows are internal and non-authoritative. The legacy wrapper returns isolated mutable deep copies. `analyzeContractIntelligence` does not invoke an assembler. `documentPipeline` may invoke the dual-view API once for its independent execution. | §4 row 4, §5.1, §12, §14, §15, §18, §19 | **authorized** |
 | A12 | **Intentional persisted-rate-row compatibility narrowing.** Before A11, whenever canonical pricing assembly selected no governing rows, every persisted rate row could enter `normalizeRateScheduleItem` as a compatibility governing-rate candidate regardless of category state. That fallback is now allowed only when all four supported aliases — `category`, `source_category`, `material_type`, and `canonical_category` — are absent, `null`, `undefined`, empty, or whitespace-only. Any nonblank alias disables compatibility fallback, including a valid alias and an invalid, unsupported, or unresolvable alias; any non-string, non-null alias value also disables it. Such a row cannot become a governing rate-schedule item merely through the legacy persisted fallback. Affected validation runs may change from matched or contract-supported to missing contract rate, `BLOCKED`, and at-risk exposure. This intentional governing-pricing boundary prevents malformed or unresolved persisted category data from silently bypassing canonical pricing assembly. It is independent from A11 structural-wins selection rescue. The publisher remains shadow-only; A12 governs authoritative validator-input behavior adjacent to the publisher slice. | §5.1, §15 | **authorized, implemented** |
 
-Amendments A1, A2, A11, and A12 change the **production** contract; A3–A10 change
+| A13 | **Canonical Project Truth becomes selectable runtime authority.** `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical` promotes the frozen in-memory canonical registry from non-authoritative shadow output to the governing truth for one validation execution. The authoritative object is the registry, never a published artifact; storage is never read back into validation. Authority and publication are independent controls. Canonical mode prohibits silent fallback to legacy truth: an unestablished canonical authority is an honest `blocked`/`failed` state. One execution has one frozen source snapshot and one canonical registry, reused by validator inputs, findings, exposure, clearance, persistence metadata, and publication. Default remains `legacy`, which is the emergency rollback. Full statement, scope limits, and operator procedure in §20. | §0, §4, §5.1, §14, §15 | **authorized, partially implemented (see §20.3)** |
+
+Amendments A1, A2, A11, A12, and A13 change the **production** contract; A3–A10 change
 only publisher-internal behavior. A1/A2 exist for the same reason: the publisher must not
 become a second authority for pricing or for source identity, and must not re-read
 mutable production state after the snapshot it is publishing was defined.
@@ -1222,3 +1224,163 @@ Two qualifications, neither an architecture defect:
    full-chain publication gate (`RUN_GOLDEN_REAL_FIXTURE_TESTS` / `GOLDEN_CORPUS_ROOT`)
    must be executed before `allowlist` is enabled anywhere. Neither blocks merge with the
    flag `off`.
+
+---
+
+## 20. A13 — Canonical Project Truth authority cutover
+
+A13 is the point at which the canonical registry stops being a diagnostic artifact and
+becomes selectable runtime authority. A1–A12 kept the publisher from becoming a second
+authority. A13 inverts the remaining relationship: the canonical registry becomes the
+authority, and publication becomes evidence derived from it.
+
+The canonical layer sits **downstream** of the Phase 3 document-intelligence track. Phase 3
+preserves uncertain document structure and evidence before semantic interpretation; the
+canonical pivot consumes that preserved evidence and does not reinterpret it:
+
+```text
+PDF observations
+→ preserved structural evidence      (Phase 3 — upstream, unchanged by A13)
+→ normalized canonical facts
+→ canonical Project Truth registry
+→ validation authority               (A13)
+```
+
+A13 does not redesign extraction and makes no schema or migration change.
+
+### 20.1 The contract
+
+1. **Canonical authority is selected explicitly.** `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical`
+   is the only way to enable it. The default is `legacy`. Unrecognized values resolve to
+   `legacy`, so a typo cannot enable canonical authority.
+2. **The authoritative object is the frozen in-memory registry.** `CanonicalProjectTruth`
+   with `construction.mode: 'authoritative'` and `construction.persisted: false`. No
+   published artifact and no storage object is ever the authority.
+3. **Published artifacts remain audit evidence only.** Publication does not gate findings,
+   exposure, or clearance, and is not a reader dependency. A publication failure never
+   invalidates an otherwise successful canonical validation.
+4. **Storage is never read back during validation.** The publisher's only post-validation
+   read remains the persisted run row (A2). A13 adds no read path.
+5. **Authority and publication are independent controls.**
+   `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY` governs authority;
+   `EIGHTFORGE_CANONICAL_SHADOW_PUBLISH` governs publication. Canonical authority operates
+   correctly with publication `off`; this combination is explicitly supported and tested.
+6. **Canonical mode prohibits silent fallback.** When canonical authority cannot establish
+   required governing truth it returns an honest terminal state that preserves the reason
+   and the implicated source gaps. It never substitutes legacy pricing or inferred facts.
+   `blocked` denotes an absent source; `failed` denotes an assembly fault. The distinction
+   is load-bearing so an infrastructure error is never reported as a source gap.
+7. **One execution has one frozen source snapshot and one canonical registry.** The
+   registry is assembled once, at the validator-input boundary, before any rule pack runs.
+   The same deeply frozen object is threaded to validator inputs, rule-pack execution,
+   findings, exposure, approval/clearance, persistence metadata, and optional publication.
+   Prohibited: a second canonical assembly, publisher reassembly, storage readback,
+   per-rule-pack reconstruction, an alternate pricing assembly in canonical mode, and mixed
+   legacy/canonical authority inside one run.
+8. **Results identify their authority.** Every run persists `projectTruthAuthorityMode`,
+   `canonicalRegistryVersion`, `canonicalRegistryDigest`, `sourceArtifactSnapshotDigest`,
+   `canonicalAssemblyStatus`, and `canonicalAssemblyBlockReason`. These are recorded once
+   per run and therefore identify the authority behind that run's findings, exposure, and
+   clearance. They are stored inside the existing `projects.validation_summary_json`
+   structured field, so A13 requires no migration. `publicationStatus` is operational
+   metadata only and is attached by the publication path.
+9. **Legacy mode remains the emergency rollback.** The legacy implementation is retained
+   and is not deleted by A13. Rollback is `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=legacy`.
+10. **Remaining duplicate legacy paths are temporary.** They are scheduled for removal
+    after canonical stability, and enumerated in §20.4.
+
+### 20.2 Rule-pack neutrality
+
+Rule packs never read the authority environment variable and never branch on authority
+mode. They receive normalized inputs through the existing `RateScheduleItem` interface,
+derived from the registry in exactly one projection module. This satisfies A13 without a
+rule-pack rewrite. A pack that inspected authority mode would reintroduce per-pack truth
+decisions and must be rejected in review.
+
+### 20.3 Implementation status (honest scope)
+
+Implemented and verified:
+
+- authority mode, central resolver, default `legacy`, fail-closed parsing;
+- one frozen execution context per run, deeply frozen, threaded downstream;
+- canonical **pricing** authority, including categories and units carried on the projected
+  rate rows;
+- no-fallback `blocked`/`failed` behavior with preserved source gaps;
+- single-assembly invariant, including the publisher inversion (publication reuses the
+  frozen pricing rows by reference and never re-runs the pricing adapter);
+- persisted authority metadata with no migration;
+- deterministic canonical registry and source-snapshot digests.
+
+**Not yet canonical.** The following registry sections are assembled empty and their
+validator inputs still come from legacy loaders. This is deliberate and honest — an empty
+canonical section states "not yet canonical", whereas a legacy back-fill would mix
+authorities inside one run:
+
+- `invoices` / `invoiceLines` — requires the invoice adapter in the single assembly;
+- `transactions` — transaction quantity and amount, requires the transaction adapter;
+- `governingDocuments` — document relationship truth;
+- `contractTermReferences` — source-backed term identity.
+
+**Structurally deferred.** The `derived` sections (`pricingMatches`,
+`contractInvoiceReconciliations`, `invoiceTransactionReconciliations`,
+`projectReconciliation`, `validationImpacts`, `exposureReadinessReferences`) are computed
+**from** the validation result. They cannot be authoritative *inputs* to the computations
+that produce them without circularity. Making the canonical layer own exposure,
+reconciliation, and clearance derivation would relocate the validation engine, which is a
+larger change than A13 and is not authorized here. They are completed once from the result
+and published as evidence.
+
+**Not yet run.** The four-case acceptance gate (Golden; cross-document pricing; missing or
+malformed governing pricing; simulated publication failure) and the repeated-run
+determinism comparison against a real fixture.
+
+### 20.4 Legacy deletion ledger
+
+Retained deliberately as the rollback path. Each entry is removable only after canonical
+authority is stable **and** the corresponding canonical section in §20.3 is implemented.
+
+| # | Legacy path | Location | Removal precondition |
+|---|---|---|---|
+| L1 | Legacy rate-schedule item construction from fact rows | `projectValidator.ts` — `buildRateScheduleItems`, `normalizeRateScheduleItem` | Canonical pricing authority is the only mode; A12 compatibility narrowing folded into canonical resolution |
+| L2 | Legacy branch in the authority seam | `projectValidator.ts` — `authoritativeRateScheduleItems` legacy arm | `legacy` mode retired |
+| L3 | Publisher self-assembly of pricing | `projectTruthShadowAdapter.ts` — `adaptAssembledPricingRows` arm when no authoritative registry is supplied | `legacy` mode retired; publication only ever runs after canonical authority |
+| L4 | Legacy invoice synthesis | `projectValidator.ts` — `synthesizeInvoicesFromLegacyExtractions`, `applyEffectiveInvoiceFacts` | Canonical `invoices` / `invoiceLines` implemented (§20.3) |
+| L5 | Legacy transaction rollups as validator truth | `projectValidator.ts` — `validatorTransactionData`; `reconciliation.ts` — `buildValidatorTransactionRollups` | Canonical `transactions` implemented (§20.3) |
+| L6 | Legacy governing-document derivation | `projectValidator.ts` — `buildDocumentIdsByFamily`, precedence snapshot fan-out | Canonical `governingDocuments` implemented (§20.3) |
+| L7 | Dual `construction.mode` on the registry | `projectTruth.ts` — `'shadow_only'` variant | Shadow-only assembly no longer produced anywhere |
+
+Removing any entry while `legacy` is still a supported mode would eliminate the rollback
+and must be rejected in review.
+
+### 20.5 Operator procedure
+
+Enable canonical authority:
+
+```bash
+EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical
+```
+
+Roll back to legacy authority:
+
+```bash
+EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=legacy
+```
+
+Publication is controlled separately and independently, using its existing approved
+configuration:
+
+```bash
+EIGHTFORGE_CANONICAL_SHADOW_PUBLISH=<existing approved value>
+```
+
+Notes for operators:
+
+- Unsetting `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY` is equivalent to `legacy`.
+- Canonical authority does **not** require publication to be enabled. `authority=canonical`
+  with `publication=off` is a supported configuration.
+- A canonical run that reports `canonicalAssemblyStatus: blocked` is reporting a real
+  source gap, not a transient fault. Read `canonicalAssemblyBlockReason` and the recorded
+  source gaps rather than re-running. `failed` indicates an assembly fault and is the state
+  to escalate.
+- Rolling back to `legacy` does not rewrite already-persisted runs. Each stored run
+  identifies the authority that produced it via `projectTruthAuthorityMode`.

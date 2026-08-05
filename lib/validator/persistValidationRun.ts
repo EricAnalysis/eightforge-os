@@ -955,18 +955,33 @@ async function createValidationFindingGeneratedActivityEvent(params: {
   }
 }
 
+/**
+ * Merges authority metadata into the persisted validation summary.
+ *
+ * Authority metadata rides in the existing structured summary field, so the
+ * cutover needs no migration. The merge is additive under one reserved key:
+ * every other summary field the validator produced survives untouched, and a
+ * run without authority metadata writes the summary through unchanged rather
+ * than stamping an empty authority record over it.
+ */
+export function buildPersistedValidationSummary(
+  summary: ValidatorResult['summary'],
+  authorityMetadata?: ProjectTruthAuthorityMetadata | null,
+): ValidatorResult['summary'] & Record<string, unknown> {
+  return authorityMetadata
+    ? { ...summary, project_truth_authority: authorityMetadata }
+    : summary;
+}
+
 async function updateProjectValidationState(
   projectId: string,
   result: ValidatorResult,
   authorityMetadata?: ProjectTruthAuthorityMetadata | null,
 ): Promise<void> {
   const admin = requireAdminClient();
-  // Authority metadata rides in the existing structured summary field, so the
-  // cutover needs no migration. It identifies which authority produced this
-  // result and which exact registry and frozen sources backed it.
-  const summary = authorityMetadata
-    ? { ...result.summary, project_truth_authority: authorityMetadata }
-    : result.summary;
+  // It identifies which authority produced this result, which exact registry
+  // and frozen sources backed it, and which truth domains it actually governed.
+  const summary = buildPersistedValidationSummary(result.summary, authorityMetadata);
   const { error } = await admin
     .from('projects')
     .update({

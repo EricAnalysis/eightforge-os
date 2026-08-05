@@ -501,10 +501,15 @@ export function assembleCanonicalRelationships(
         : `${String(governingPricingDocuments.length)} pricing exhibit candidates compete; canonical authority preserves both rather than selecting one.`,
   }), assertions));
 
+  // Rate truth is governed at schedule level, and each row may name its own
+  // governing document. Both are collected: if a row cites a different exhibit
+  // than its schedule, that disagreement is a real conflict, not a detail to
+  // smooth over.
   const pricingSourceDocuments = [...new Set(
-    input.contractPricing.flatMap((schedule) => schedule.rows.map(
-      (row) => row.governingDocument?.documentId ?? schedule.governingDocument?.documentId ?? null,
-    )).filter((value): value is string => value != null),
+    input.contractPricing.flatMap((schedule) => [
+      schedule.governingDocument?.documentId ?? null,
+      ...schedule.rows.map((row) => row.governingDocument?.documentId ?? null),
+    ]).filter((value): value is string => value != null),
   )].sort(compare);
   const rateTruthResolution = resolveSingleTarget({
     candidates: pricingSourceDocuments,

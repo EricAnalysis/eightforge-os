@@ -58,6 +58,9 @@ describe('validator freshness shadow wiring', () => {
       undefined,
       'snapshot-hash',
       undefined,
+      // Authority metadata: null here because this harness stubs validation and
+      // returns no execution context.
+      null,
     );
     expect(mocks.schedulePublication).toHaveBeenCalledWith({
       projectId: 'project-1',

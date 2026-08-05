@@ -41,8 +41,13 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
   // the canonical registry to selectable runtime truth; the seal stays narrow
   // so no further validator -> canonical edge can appear unreviewed.
   'lib/validator/projectValidator.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
+  'lib/validator/projectValidator.ts -> @/lib/canonical/authority/canonicalExecutionContext',
   'lib/validator/projectValidator.ts -> @/lib/canonical/publication/projectTruthPublicationIdentity',
-  'lib/validator/shared.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
+  'lib/validator/shared.ts -> @/lib/canonical/authority/canonicalExecutionContext',
+  // Authority metadata is persisted with every run and threaded from the
+  // execution context rather than recomputed downstream.
+  'lib/validator/persistValidationRun.ts -> @/lib/canonical/authority/canonicalExecutionContext',
+  'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/authority/canonicalExecutionContext',
 ]);
 
 function walk(directory: string): string[] {

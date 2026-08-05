@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { RateScheduleItem } from '@/lib/validator/shared';
 
+import {
+  buildProjectTruthAuthorityMetadata,
+  isCanonicalAuthorityEstablished,
+  isCanonicalAuthorityUnavailable,
+} from './canonicalExecutionContext';
 import { resolveProjectTruthAuthority } from './resolveProjectTruthAuthority';
 import { PROJECT_TRUTH_AUTHORITY_ENV_VAR } from './projectTruthAuthorityMode';
 
@@ -53,112 +58,110 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe('resolveProjectTruthAuthority — mode selection', () => {
-  it('defaults to legacy authority and returns legacy items unchanged', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({ env: {} }));
+  it('defaults to legacy authority and never assembles canonical truth', () => {
+    const context = resolveProjectTruthAuthority(baseInput({ env: {} }));
 
-    expect(resolution.mode).toBe('legacy');
-    expect(resolution.canonicalAssemblyStatus).toBe('not_attempted');
-    expect(resolution.canonicalPricing).toBeNull();
-    expect(resolution.canonicalRegistryDigest).toBeNull();
-    expect(resolution.rateScheduleItems).toHaveLength(1);
-    expect(resolution.rateScheduleItems[0]?.record_id).toBe('legacy-1');
-    expect(resolution.block).toBeNull();
+    expect(context.authorityMode).toBe('legacy');
+    expect(context.assemblyStatus).toBe('not_requested');
+    expect(context.registry).toBeNull();
+    expect(context.registryDigest).toBeNull();
+    expect(context.validatorProjection).toBeNull();
+    expect(context.blockReason).toBeNull();
+    expect(isCanonicalAuthorityEstablished(context)).toBe(false);
+    expect(isCanonicalAuthorityUnavailable(context)).toBe(false);
   });
 
   it('does not attempt canonical assembly in explicit legacy mode', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({ env: LEGACY_ENV }));
+    const context = resolveProjectTruthAuthority(baseInput({ env: LEGACY_ENV }));
 
-    expect(resolution.mode).toBe('legacy');
-    expect(resolution.canonicalAssemblyStatus).toBe('not_attempted');
+    expect(context.authorityMode).toBe('legacy');
+    expect(context.assemblyStatus).toBe('not_requested');
   });
 
-  it('selects canonical authority and replaces legacy items entirely', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput());
+  it('establishes canonical authority and excludes every legacy row', () => {
+    const context = resolveProjectTruthAuthority(baseInput());
 
-    expect(resolution.mode).toBe('canonical');
-    expect(resolution.canonicalAssemblyStatus).toBe('assembled');
-    expect(resolution.canonicalPricing).not.toBeNull();
-    expect(resolution.block).toBeNull();
-    // No legacy row survives into canonical inputs.
-    expect(resolution.rateScheduleItems.some((item) => item.record_id === 'legacy-1')).toBe(false);
-    expect(resolution.rateScheduleItems.some((item) => item.description === 'LEGACY ONLY ROW')).toBe(false);
-    expect(resolution.rateScheduleItems.length).toBeGreaterThan(0);
+    expect(context.authorityMode).toBe('canonical');
+    expect(context.assemblyStatus).toBe('assembled');
+    expect(isCanonicalAuthorityEstablished(context)).toBe(true);
+    expect(context.registry).not.toBeNull();
+    expect(context.blockReason).toBeNull();
+
+    const items = context.validatorProjection?.rateScheduleItems ?? [];
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.some((item) => item.record_id === 'legacy-1')).toBe(false);
+    expect(items.some((item) => item.description === 'LEGACY ONLY ROW')).toBe(false);
+  });
+
+  it('marks the registry authoritative and never persisted', () => {
+    const context = resolveProjectTruthAuthority(baseInput());
+
+    expect(context.registry?.construction.mode).toBe('authoritative');
+    // The authoritative object is the in-memory registry; storage is evidence.
+    expect(context.registry?.construction.persisted).toBe(false);
+  });
+
+  it('leaves derived sections empty because they are outputs, not inputs', () => {
+    const context = resolveProjectTruthAuthority(baseInput());
+
+    expect(context.registry?.derived.exposureReadinessReferences).toEqual([]);
+    expect(context.registry?.derived.validationImpacts).toEqual([]);
+    expect(context.registry?.derived.projectReconciliation).toBeNull();
   });
 
   it('operates with publication disabled, proving authority is independent of publication', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({
+    const context = resolveProjectTruthAuthority(baseInput({
       env: { ...CANONICAL_ENV, EIGHTFORGE_CANONICAL_SHADOW_PUBLISH: 'off' },
     }));
 
-    expect(resolution.mode).toBe('canonical');
-    expect(resolution.canonicalAssemblyStatus).toBe('assembled');
-    expect(resolution.rateScheduleItems.length).toBeGreaterThan(0);
+    expect(context.assemblyStatus).toBe('assembled');
+    expect(context.validatorProjection?.rateScheduleItems.length).toBeGreaterThan(0);
   });
 });
 
 describe('resolveProjectTruthAuthority — no silent fallback', () => {
   it('blocks instead of rescuing from legacy when no pricing rows exist', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({
+    const context = resolveProjectTruthAuthority(baseInput({
       assembledContractPricingRows: [],
     }));
 
-    expect(resolution.mode).toBe('canonical');
-    expect(resolution.canonicalAssemblyStatus).toBe('blocked');
-    expect(resolution.block?.reason).toBe('missing_governing_pricing');
-    expect(resolution.rateScheduleItems).toHaveLength(0);
-    // The legacy item was available and deliberately not used.
-    expect(resolution.rateScheduleItems.some((item) => item.record_id === 'legacy-1')).toBe(false);
+    expect(context.authorityMode).toBe('canonical');
+    expect(context.assemblyStatus).toBe('blocked');
+    expect(context.blockReason).toBe('missing_governing_pricing');
+    expect(isCanonicalAuthorityEstablished(context)).toBe(false);
+    expect(isCanonicalAuthorityUnavailable(context)).toBe(true);
+    // A legacy item was available and deliberately not used.
+    expect(context.validatorProjection).toBeNull();
   });
 
   it('preserves the source gap reason for operator triage', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({
+    const context = resolveProjectTruthAuthority(baseInput({
       assembledContractPricingRows: [],
     }));
 
-    expect(resolution.block?.detail).toContain('No assembled contract pricing rows');
-    expect(resolution.block?.sourceGaps).toEqual(['doc-1']);
+    expect(context.block?.detail).toContain('No assembled contract pricing rows');
+    expect(context.block?.sourceGaps).toEqual(['doc-1']);
   });
 
-  it('blocks when rows exist but resolve to nothing value-bearing', () => {
-    const valueless = assemblyRow({
-      id: 'row-empty',
-      category: null,
-      description: '',
-      unit: null,
-      rate: null,
-    });
-    const resolution = resolveProjectTruthAuthority(baseInput({
-      assembledContractPricingRows: [valueless],
-    }));
-
-    if (resolution.canonicalAssemblyStatus === 'blocked') {
-      expect(resolution.block?.reason).toBe('missing_governing_pricing');
-      expect(resolution.rateScheduleItems).toHaveLength(0);
-    } else {
-      // If canonical resolution still finds a projectable dimension, it must at
-      // least never have borrowed the legacy row.
-      expect(resolution.rateScheduleItems.some((item) => item.record_id === 'legacy-1')).toBe(false);
-    }
-  });
-
-  it('reports blocked rather than throwing when assembly fails', async () => {
+  it('distinguishes an assembly fault (failed) from a source gap (blocked)', async () => {
     const pricingAdapter = await import('@/lib/canonical/contract/pricingAdapter');
     const spy = vi.spyOn(pricingAdapter, 'adaptAssembledPricingRows').mockImplementation(() => {
       throw new Error('synthetic adapter failure');
     });
     try {
-      const resolution = resolveProjectTruthAuthority(baseInput());
-      expect(resolution.canonicalAssemblyStatus).toBe('blocked');
-      expect(resolution.block?.reason).toBe('assembly_failed');
-      expect(resolution.block?.detail).toContain('synthetic adapter failure');
-      expect(resolution.rateScheduleItems).toHaveLength(0);
+      const context = resolveProjectTruthAuthority(baseInput());
+      expect(context.assemblyStatus).toBe('failed');
+      expect(context.blockReason).toBe('assembly_failed');
+      expect(context.block?.detail).toContain('synthetic adapter failure');
+      expect(context.validatorProjection).toBeNull();
+      expect(isCanonicalAuthorityUnavailable(context)).toBe(true);
     } finally {
       spy.mockRestore();
     }
   });
 });
 
-describe('resolveProjectTruthAuthority — single assembly and determinism', () => {
+describe('resolveProjectTruthAuthority — single assembly, freezing, determinism', () => {
   it('assembles canonical pricing exactly once per resolution', async () => {
     const pricingAdapter = await import('@/lib/canonical/contract/pricingAdapter');
     const spy = vi.spyOn(pricingAdapter, 'adaptAssembledPricingRows');
@@ -181,14 +184,23 @@ describe('resolveProjectTruthAuthority — single assembly and determinism', () 
     }
   });
 
+  it('returns a deeply frozen context so shared authority state cannot mutate', () => {
+    const context = resolveProjectTruthAuthority(baseInput());
+
+    expect(Object.isFrozen(context)).toBe(true);
+    expect(Object.isFrozen(context.registry)).toBe(true);
+    expect(Object.isFrozen(context.validatorProjection)).toBe(true);
+    expect(Object.isFrozen(context.validatorProjection?.rateScheduleItems)).toBe(true);
+  });
+
   it('produces an identical registry digest across repeated runs', () => {
     const first = resolveProjectTruthAuthority(baseInput());
     const second = resolveProjectTruthAuthority(baseInput());
 
-    expect(first.canonicalRegistryDigest).not.toBeNull();
-    expect(first.canonicalRegistryDigest).toBe(second.canonicalRegistryDigest);
+    expect(first.registryDigest).not.toBeNull();
+    expect(first.registryDigest).toBe(second.registryDigest);
     expect(first.sourceArtifactSnapshotDigest).toBe(second.sourceArtifactSnapshotDigest);
-    expect(JSON.stringify(first.rateScheduleItems)).toBe(JSON.stringify(second.rateScheduleItems));
+    expect(JSON.stringify(first.validatorProjection)).toBe(JSON.stringify(second.validatorProjection));
   });
 
   it('changes the registry digest when governing pricing changes', () => {
@@ -197,33 +209,52 @@ describe('resolveProjectTruthAuthority — single assembly and determinism', () 
       assembledContractPricingRows: [assemblyRow({ rate: 44.44 })],
     }));
 
-    expect(first.canonicalRegistryDigest).not.toBe(second.canonicalRegistryDigest);
+    expect(first.registryDigest).not.toBe(second.registryDigest);
   });
 
   it('carries the source artifact snapshot digest through unchanged', () => {
-    const resolution = resolveProjectTruthAuthority(baseInput({
+    const context = resolveProjectTruthAuthority(baseInput({
       sourceArtifactSnapshotDigest: 'explicit-digest',
     }));
 
-    expect(resolution.sourceArtifactSnapshotDigest).toBe('explicit-digest');
+    expect(context.sourceArtifactSnapshotDigest).toBe('explicit-digest');
+  });
+});
+
+describe('buildProjectTruthAuthorityMetadata', () => {
+  it('records legacy authority with no registry identity', () => {
+    const metadata = buildProjectTruthAuthorityMetadata(
+      resolveProjectTruthAuthority(baseInput({ env: LEGACY_ENV })),
+    );
+
+    expect(metadata).toEqual({
+      projectTruthAuthorityMode: 'legacy',
+      canonicalRegistryVersion: null,
+      canonicalRegistryDigest: null,
+      sourceArtifactSnapshotDigest: 'snapshot-digest-abc',
+      canonicalAssemblyStatus: 'not_requested',
+      canonicalAssemblyBlockReason: null,
+    });
   });
 
-  it('orders projected items deterministically regardless of input order', () => {
-    const rows = [
-      assemblyRow({ id: 'row-c', description: 'Charlie' }),
-      assemblyRow({ id: 'row-a', description: 'Alpha' }),
-      assemblyRow({ id: 'row-b', description: 'Bravo' }),
-    ];
-    const forward = resolveProjectTruthAuthority(baseInput({ assembledContractPricingRows: rows }));
-    const reversed = resolveProjectTruthAuthority(baseInput({
-      assembledContractPricingRows: [...rows].reverse(),
-    }));
+  it('identifies which authority produced the result and which registry backed it', () => {
+    const context = resolveProjectTruthAuthority(baseInput());
+    const metadata = buildProjectTruthAuthorityMetadata(context);
 
-    // Ordinal follows input position by design, so descriptions differ in order
-    // but each run is internally stable and fully deterministic.
-    expect(forward.rateScheduleItems.map((item) => item.record_id))
-      .toEqual(forward.rateScheduleItems.map((item) => item.record_id));
-    expect(reversed.canonicalAssemblyStatus).toBe('assembled');
-    expect(forward.rateScheduleItems).toHaveLength(reversed.rateScheduleItems.length);
+    expect(metadata.projectTruthAuthorityMode).toBe('canonical');
+    expect(metadata.canonicalAssemblyStatus).toBe('assembled');
+    expect(metadata.canonicalRegistryVersion).toBe('canonical-project-truth-v1');
+    expect(metadata.canonicalRegistryDigest).toBe(context.registryDigest);
+    expect(metadata.canonicalAssemblyBlockReason).toBeNull();
+  });
+
+  it('preserves the block reason on a blocked canonical run', () => {
+    const metadata = buildProjectTruthAuthorityMetadata(
+      resolveProjectTruthAuthority(baseInput({ assembledContractPricingRows: [] })),
+    );
+
+    expect(metadata.projectTruthAuthorityMode).toBe('canonical');
+    expect(metadata.canonicalAssemblyStatus).toBe('blocked');
+    expect(metadata.canonicalAssemblyBlockReason).toBe('missing_governing_pricing');
   });
 });

@@ -45,7 +45,16 @@ export type CanonicalProjectTruth = {
     readonly exposureReadinessReferences: readonly CanonicalExposureReference[];
   };
   readonly construction: {
-    readonly mode: 'shadow_only';
+    /**
+     * `shadow_only` — assembled as non-authoritative diagnostic output.
+     * `authoritative` — assembled as the governing truth for one validation
+     * execution under canonical authority mode.
+     *
+     * `persisted` stays `false` in both modes: the authoritative object is the
+     * frozen in-memory registry. Published artifacts are audit evidence and are
+     * never read back into validation.
+     */
+    readonly mode: 'shadow_only' | 'authoritative';
     readonly persisted: false;
     readonly sourceSnapshotId: string | null;
   };

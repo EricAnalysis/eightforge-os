@@ -95,6 +95,10 @@ import {
   runAuthoredRateRowQuarantineRules,
 } from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
 import { resolveProjectTruthAuthority } from '@/lib/canonical/authority/resolveProjectTruthAuthority';
+import {
+  isCanonicalAuthorityEstablished,
+  isCanonicalAuthorityUnavailable,
+} from '@/lib/canonical/authority/canonicalExecutionContext';
 import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type {
   DocumentRelationshipRecord,
@@ -2652,7 +2656,14 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     legacyRateScheduleItems: baseFactLookups.rateScheduleItems,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
   });
-  const authoritativeRateScheduleItems = [...projectTruthAuthority.rateScheduleItems];
+  // Canonical truth governs only when it actually established. A blocked or
+  // failed canonical context must NOT quietly hand back legacy items: the block
+  // is surfaced as an honest validation outcome instead.
+  const authoritativeRateScheduleItems = isCanonicalAuthorityEstablished(projectTruthAuthority)
+    ? [...projectTruthAuthority.validatorProjection!.rateScheduleItems]
+    : isCanonicalAuthorityUnavailable(projectTruthAuthority)
+      ? []
+      : [...baseFactLookups.rateScheduleItems];
 
   const contractDocumentIdForGuidance =
     contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;

@@ -2,13 +2,13 @@
  * The single authority decision for one validation execution.
  *
  * This is the only place the authority mode is resolved and the only place the
- * authoritative canonical pricing registry section is assembled. Rule packs
- * never call this and never read the environment: they receive normalized
- * inputs and stay unaware of which authority produced them.
+ * authoritative canonical registry is assembled. Rule packs never call this and
+ * never read the environment: they receive normalized inputs and stay unaware of
+ * which authority produced them.
  *
  * Invariants enforced here:
  *  - exactly one canonical assembly per execution (the caller threads the
- *    returned frozen object; nothing downstream reassembles);
+ *    returned frozen context; nothing downstream reassembles);
  *  - no silent fallback — a canonical assembly that cannot establish governing
  *    pricing returns `blocked` with the source gap preserved, never legacy
  *    values;
@@ -21,13 +21,17 @@ import {
   resolveCanonicalPricingRow,
 } from '@/lib/canonical/contract/pricingResolution';
 import type { CanonicalContractPricingSchedule } from '@/lib/canonical/contract/pricing';
+import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';
 import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { RateScheduleItem } from '@/lib/validator/shared';
 
 import {
-  type CanonicalAssemblyStatus,
-  type CanonicalAuthorityBlock,
+  type CanonicalProjectTruthExecutionContext,
+  freezeExecutionContext,
+  legacyExecutionContext,
+} from './canonicalExecutionContext';
+import {
   type ProjectTruthAuthorityMode,
   isCanonicalProjectTruthAuthority,
   readProjectTruthAuthorityMode,
@@ -51,32 +55,16 @@ export type ProjectTruthAuthorityInput = {
   /** Legacy items, used only as the authoritative value in legacy mode. */
   readonly legacyRateScheduleItems: readonly RateScheduleItem[];
   readonly sourceArtifactSnapshotDigest: string | null;
+  readonly sourceSnapshotId?: string | null;
   /** Injected for tests and harnesses so `process.env` is never mutated. */
   readonly env?: Readonly<Record<string, string | undefined>>;
-};
-
-export type ProjectTruthAuthorityResolution = {
-  readonly mode: ProjectTruthAuthorityMode;
-  readonly canonicalAssemblyStatus: CanonicalAssemblyStatus;
-  /**
-   * The frozen canonical pricing section for this execution. Present only when
-   * canonical authority assembled successfully. Callers must thread this exact
-   * object onward — persistence and publication reuse it rather than rebuilding.
-   */
-  readonly canonicalPricing: readonly CanonicalContractPricingSchedule[] | null;
-  /** Digest identifying the exact canonical registry section. */
-  readonly canonicalRegistryDigest: string | null;
-  readonly sourceArtifactSnapshotDigest: string | null;
-  /** Normalized rate schedule items for rule packs, whatever the authority. */
-  readonly rateScheduleItems: readonly RateScheduleItem[];
-  readonly block: CanonicalAuthorityBlock | null;
 };
 
 /**
  * Assembles the canonical pricing section once from already-assembled rows.
  *
  * Reuses the same adapter and resolution functions the publisher uses, so the
- * mapping is not duplicated and canonical mode cannot drift from published
+ * mapping is not duplicated and canonical authority cannot drift from published
  * evidence.
  */
 function assembleCanonicalPricing(
@@ -111,57 +99,91 @@ function assembleCanonicalPricing(
   ];
 }
 
+/**
+ * Builds the authoritative registry for this execution.
+ *
+ * Sections whose canonical adapters are not yet wired into the single assembly
+ * are left empty rather than back-filled from legacy truth: an empty canonical
+ * section is an honest "not yet canonical", while a legacy back-fill would mix
+ * authorities inside one run.
+ */
+function assembleAuthoritativeRegistry(
+  input: ProjectTruthAuthorityInput,
+  contractPricing: readonly CanonicalContractPricingSchedule[],
+) {
+  return buildCanonicalProjectTruth({
+    projectId: input.projectId,
+    governingDocuments: [],
+    contractTermReferences: [],
+    contractPricing,
+    invoices: [],
+    invoiceLines: [],
+    transactions: [],
+    derived: {
+      // Derived sections are outputs of validation, not inputs to it. They are
+      // completed once from the result after rule packs run; assembling them
+      // here would be circular.
+      pricingMatches: [],
+      contractInvoiceReconciliations: [],
+      invoiceTransactionReconciliations: [],
+      projectReconciliation: null,
+      validationImpacts: [],
+      exposureReadinessReferences: [],
+    },
+    sourceSnapshotId: input.sourceSnapshotId ?? null,
+    mode: 'authoritative',
+  });
+}
+
 export function resolveProjectTruthAuthority(
   input: ProjectTruthAuthorityInput,
-): ProjectTruthAuthorityResolution {
-  const mode = readProjectTruthAuthorityMode(input.env ?? process.env);
+): CanonicalProjectTruthExecutionContext {
+  const mode: ProjectTruthAuthorityMode = readProjectTruthAuthorityMode(input.env ?? process.env);
 
   if (!isCanonicalProjectTruthAuthority(mode)) {
-    return {
-      mode,
-      canonicalAssemblyStatus: 'not_attempted',
-      canonicalPricing: null,
-      canonicalRegistryDigest: null,
+    return legacyExecutionContext({
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
-      rateScheduleItems: input.legacyRateScheduleItems,
-      block: null,
-    };
+    });
   }
 
-  let canonicalPricing: readonly CanonicalContractPricingSchedule[];
+  let contractPricing: readonly CanonicalContractPricingSchedule[];
   try {
-    canonicalPricing = assembleCanonicalPricing(input);
+    contractPricing = assembleCanonicalPricing(input);
   } catch (error) {
-    // An assembly failure is an honest blocked state. Legacy pricing is not
-    // substituted: the only rollback is the environment variable.
-    return {
-      mode,
-      canonicalAssemblyStatus: 'blocked',
-      canonicalPricing: null,
-      canonicalRegistryDigest: null,
+    // An assembly fault is `failed`, not `blocked`: it is an infrastructure
+    // problem, not a source gap. Legacy pricing is not substituted either way.
+    return freezeExecutionContext({
+      authorityMode: mode,
+      assemblyStatus: 'failed',
+      registry: null,
+      registryDigest: null,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
-      rateScheduleItems: [],
+      validatorProjection: null,
+      blockReason: 'assembly_failed',
       block: {
         reason: 'assembly_failed',
         detail: error instanceof Error ? error.message : 'Canonical pricing assembly failed',
         sourceGaps: input.pricingContext?.documentId ? [input.pricingContext.documentId] : [],
       },
-    };
+    });
   }
 
-  const rateScheduleItems = projectCanonicalRateScheduleItems(canonicalPricing);
+  const registry = assembleAuthoritativeRegistry(input, contractPricing);
+  const registryDigest = hashCanonicalJson(registry);
+  const rateScheduleItems = projectCanonicalRateScheduleItems(contractPricing);
 
   // Governing pricing is required truth. When the assembly yields nothing
   // projectable, canonical mode reports the gap instead of rescuing from legacy
   // items, which would silently mix authorities inside one run.
   if (rateScheduleItems.length === 0) {
-    return {
-      mode,
-      canonicalAssemblyStatus: 'blocked',
-      canonicalPricing,
-      canonicalRegistryDigest: hashCanonicalJson(canonicalPricing),
+    return freezeExecutionContext({
+      authorityMode: mode,
+      assemblyStatus: 'blocked',
+      registry,
+      registryDigest,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
-      rateScheduleItems: [],
+      validatorProjection: null,
+      blockReason: 'missing_governing_pricing',
       block: {
         reason: 'missing_governing_pricing',
         detail:
@@ -170,16 +192,17 @@ export function resolveProjectTruthAuthority(
             : 'Canonical resolution produced no value-bearing governing pricing rows',
         sourceGaps: input.pricingContext?.documentId ? [input.pricingContext.documentId] : [],
       },
-    };
+    });
   }
 
-  return {
-    mode,
-    canonicalAssemblyStatus: 'assembled',
-    canonicalPricing,
-    canonicalRegistryDigest: hashCanonicalJson(canonicalPricing),
+  return freezeExecutionContext({
+    authorityMode: mode,
+    assemblyStatus: 'assembled',
+    registry,
+    registryDigest,
     sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
-    rateScheduleItems,
+    validatorProjection: { rateScheduleItems },
+    blockReason: null,
     block: null,
-  };
+  });
 }

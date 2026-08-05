@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
+import { buildProjectTruthAuthorityMetadata } from '@/lib/canonical/authority/canonicalExecutionContext';
 import { scheduleCanonicalProjectTruthShadowPublication } from '@/lib/canonical/publication/publishProjectTruthShadow';
 import {
   isDocumentFactOverridesTableUnavailableError,
@@ -484,6 +485,12 @@ export async function runValidationFlow(params: {
     });
   }
   const { result, input } = await runProjectValidation(params.projectId);
+  // The execution context assembled during validation carries the authority
+  // identity. It is threaded here rather than recomputed, so the persisted
+  // metadata describes the exact registry that governed this run.
+  const authorityMetadata = input.projectTruthAuthority
+    ? buildProjectTruthAuthorityMetadata(input.projectTruthAuthority)
+    : null;
   const persisted = await persistValidationRun(
     params.projectId,
     result,
@@ -491,6 +498,7 @@ export async function runValidationFlow(params: {
     params.userId,
     params.inputsSnapshotHash,
     params.triggerEntity,
+    authorityMetadata,
   );
   scheduleCanonicalProjectTruthShadowPublication({
     projectId: params.projectId,

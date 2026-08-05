@@ -2,6 +2,12 @@ import type { CanonicalProjectTruth } from '@/lib/canonical/project/projectTruth
 
 export type CanonicalProjectTruthInput = Omit<CanonicalProjectTruth, 'construction'> & {
   readonly sourceSnapshotId?: string | null;
+  /**
+   * Defaults to `shadow_only`. Callers promoting the registry to governing
+   * truth for one execution must opt in explicitly, so a diagnostic assembly
+   * can never be mistaken for an authoritative one.
+   */
+  readonly mode?: CanonicalProjectTruth['construction']['mode'];
 };
 
 function byId<T>(getId: (value: T) => string): (left: T, right: T) => number {
@@ -30,7 +36,7 @@ export function buildCanonicalProjectTruth(input: CanonicalProjectTruthInput): C
         .sort(byId((value) => value.referenceId)),
     },
     construction: {
-      mode: 'shadow_only',
+      mode: input.mode ?? 'shadow_only',
       persisted: false,
       sourceSnapshotId: input.sourceSnapshotId ?? null,
     },

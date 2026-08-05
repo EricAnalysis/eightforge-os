@@ -36,7 +36,7 @@ section, marked `(amended)`.
 | A11 | **A1 full-call-graph clarification and coordinated dual-view assembly.** A1 applies transitively across each complete validation execution, including contract intelligence, synthetic and human overrides, rule packs, and shadow publication. One assembly execution accepts explicitly role-scoped authoritative and structural-candidate groups. It constructs each source candidate once from the structural representation. The deterministic analyzer category fallback applies to selected-row category only when synthetic/human-review validation selects structural rows as authoritative input and native assembly categorization is absent; it is disabled for every persisted-authoritative path. Native candidate visibility is preserved. The same invocation performs filtering, deduplication, winner selection, and ordering. Candidate identities include document, immutable source version, source kind, input role, and stable row identity; duplicate identities fail visibly, and lookup distinguishes a known row with no visible candidate from an identity miss. `ProjectValidatorInput.assembledContractPricingRows` retains selected rows; contract intelligence consumes candidates; the publisher consumes selected retained rows only. Candidate rows are internal and non-authoritative. The legacy wrapper returns isolated mutable deep copies. `analyzeContractIntelligence` does not invoke an assembler. `documentPipeline` may invoke the dual-view API once for its independent execution. | §4 row 4, §5.1, §12, §14, §15, §18, §19 | **authorized** |
 | A12 | **Intentional persisted-rate-row compatibility narrowing.** Before A11, whenever canonical pricing assembly selected no governing rows, every persisted rate row could enter `normalizeRateScheduleItem` as a compatibility governing-rate candidate regardless of category state. That fallback is now allowed only when all four supported aliases — `category`, `source_category`, `material_type`, and `canonical_category` — are absent, `null`, `undefined`, empty, or whitespace-only. Any nonblank alias disables compatibility fallback, including a valid alias and an invalid, unsupported, or unresolvable alias; any non-string, non-null alias value also disables it. Such a row cannot become a governing rate-schedule item merely through the legacy persisted fallback. Affected validation runs may change from matched or contract-supported to missing contract rate, `BLOCKED`, and at-risk exposure. This intentional governing-pricing boundary prevents malformed or unresolved persisted category data from silently bypassing canonical pricing assembly. It is independent from A11 structural-wins selection rescue. The publisher remains shadow-only; A12 governs authoritative validator-input behavior adjacent to the publisher slice. | §5.1, §15 | **authorized, implemented** |
 
-| A13 | **Canonical Project Truth becomes selectable runtime authority.** `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical` promotes the frozen in-memory canonical registry from non-authoritative shadow output to the governing truth for one validation execution. The authoritative object is the registry, never a published artifact; storage is never read back into validation. Authority and publication are independent controls. Canonical mode prohibits silent fallback to legacy truth: an unestablished canonical authority is an honest `blocked`/`failed` state. One execution has one frozen source snapshot and one canonical registry, reused by validator inputs, findings, exposure, clearance, persistence metadata, and publication. Default remains `legacy`, which is the emergency rollback. Full statement, scope limits, and operator procedure in §20. | §0, §4, §5.1, §14, §15 | **authorized, partially implemented (see §20.3)** |
+| A13 | **Canonical Project Truth becomes selectable runtime authority.** `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical` promotes the frozen in-memory canonical registry from non-authoritative shadow output to the governing truth for one validation execution. The authoritative object is the registry, never a published artifact; storage is never read back into validation. Authority and publication are independent controls. Canonical mode prohibits silent fallback to legacy truth: an unestablished canonical authority is an honest `blocked`/`failed` state. One execution has one frozen source snapshot and one canonical registry, reused by validator inputs, findings, exposure, clearance, persistence metadata, and publication. Default remains `legacy`, which is the emergency rollback. Full statement, scope limits, and operator procedure in §20. | §0, §4, §5.1, §14, §15 | **authorized, implemented; acceptance gate passing (see §20.3)** |
 
 Amendments A1, A2, A11, A12, and A13 change the **production** contract; A3–A10 change
 only publisher-internal behavior. A1/A2 exist for the same reason: the publisher must not
@@ -1330,9 +1330,26 @@ reconciliation, and clearance derivation would relocate the validation engine, w
 larger change than A13 and is not authorized here. They are completed once from the result
 and published as evidence.
 
-**Not yet run.** The four-case acceptance gate (Golden; cross-document pricing; missing or
-malformed governing pricing; simulated publication failure) and the repeated-run
-determinism comparison against a real fixture.
+**Acceptance gate — run and passing.** `lib/canonical/authority/authorityCutoverAcceptanceGate.test.ts`
+covers all four required cases plus determinism, 22 cases passing. It runs against
+`lib/evaluation/fixtures/goldenAuthoredTransportPricingRows.json` — real Golden-derived
+contract pricing pinned to `sourcePdfSha256` `922161a5…` of the Williamson corpus PDF and
+checked into the repository — so the gate is reproducible on any checkout and does **not**
+require `GOLDEN_CORPUS_ROOT`.
+
+| Case | Evidence |
+|---|---|
+| Golden | Every governing row survives the canonical projection; rate, unit, and description preserved exactly; the A12/F-04 authored-correction quarantine survives, so canonical mode cannot approve rows legacy mode quarantined |
+| Cross-document pricing | Every rate row attributed to the governing document; pricing adapter invoked exactly once, so no validator-local rediscovery competes; distinct registry digest per governing document |
+| Missing / malformed pricing | Returns `blocked` with the source gap preserved; refuses an available legacy rescue row; never fabricates a rate from malformed input |
+| Publication failure | Real `publishProjectTruthShadow` driven with injected failures at the `adaptation` and `source_run` stages; failures are classified (`errorCategory: source_unavailable`, `blocking: false`) rather than propagated; findings, exposure, and clearance unchanged; persisted authority stays canonical; frozen registry uncorrupted |
+| Determinism | Repeated runs yield identical registry digests, source-snapshot digests, normalized facts, and persisted metadata; a canonical run never admits a legacy row |
+
+The pre-existing opt-in full-chain parity test (`RUN_GOLDEN_REAL_FIXTURE_TESTS` /
+`GOLDEN_CORPUS_ROOT`) remains skipped by default and is unaffected. Note that the Golden
+corpus workbook was hand-edited on 2026-06-08, which is the known source of the 5,055 vs
+5,063 transaction-row drift; the acceptance gate deliberately does not depend on that
+workbook.
 
 ### 20.4 Legacy deletion ledger
 

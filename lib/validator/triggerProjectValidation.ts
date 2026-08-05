@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
 import { buildProjectTruthAuthorityMetadata } from '@/lib/canonical/authority/canonicalExecutionContext';
+import { readCanonicalAuthorityComparisonEnabled } from '@/lib/canonical/comparison/authorityComparisonFlag';
+import { persistAuthorityComparison } from '@/lib/canonical/comparison/authorityComparisonPersistence';
+import { runProjectTruthAuthorityComparison } from '@/lib/canonical/comparison/runProjectTruthAuthorityComparison';
 import { scheduleCanonicalProjectTruthShadowPublication } from '@/lib/canonical/publication/publishProjectTruthShadow';
 import {
   isDocumentFactOverridesTableUnavailableError,
@@ -15,7 +18,10 @@ import {
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { persistValidationRun } from '@/lib/validator/persistValidationRun';
-import { runProjectValidation } from '@/lib/validator/projectValidator';
+import {
+  runProjectValidation,
+  type ValidatorSourceSnapshot,
+} from '@/lib/validator/projectValidator';
 import type { ValidationTriggerSource } from '@/types/validator';
 import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
 import { reportValidatorFreshnessShadow } from '@/lib/validator/validatorFreshnessAudit';
@@ -484,7 +490,7 @@ export async function runValidationFlow(params: {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const { result, input } = await runProjectValidation(params.projectId);
+  const { result, input, sourceSnapshot } = await runProjectValidation(params.projectId);
   // The execution context assembled during validation carries the authority
   // identity. It is threaded here rather than recomputed, so the persisted
   // metadata describes the exact registry that governed this run.
@@ -509,6 +515,59 @@ export async function runValidationFlow(params: {
     effectiveResult: persisted.effectiveResult,
     persistedFindings: persisted.persistedFindings,
   });
+  // ── Non-serving authority comparison (amendment A15) ──────────────────────
+  // Runs LAST, after the serving result is already persisted and publication is
+  // already scheduled, and reuses the snapshot this execution already loaded so
+  // the comparison adds no database read. `result` and `persisted` are not passed
+  // in and are not touched: the comparison re-derives both authorities from the
+  // frozen snapshot so it cannot influence — or be mistaken for — the serving
+  // result. Disabled by default; failure is swallowed by design.
+  await runNonServingAuthorityComparison({
+    projectId: params.projectId,
+    sourceSnapshot,
+  });
+}
+
+/**
+ * Executes and records the shadow comparison, absorbing every failure.
+ *
+ * This function may not throw. A comparison is advisory, so a comparator fault
+ * must never fail a validation run that has already produced and persisted a
+ * serving result. That is why the comparison is invoked here rather than inside
+ * `runProjectValidation`: by this point the serving path is complete and there is
+ * nothing left for a comparison failure to corrupt.
+ */
+async function runNonServingAuthorityComparison(params: {
+  projectId: string;
+  sourceSnapshot: ValidatorSourceSnapshot;
+}): Promise<void> {
+  try {
+    if (!readCanonicalAuthorityComparisonEnabled(params.projectId)) return;
+    const outcome = await runProjectTruthAuthorityComparison(params.projectId, {
+      sourceSnapshot: params.sourceSnapshot,
+    });
+    const persistence = await persistAuthorityComparison({ outcome });
+    if (persistence.status === 'failed') {
+      console.error('[authorityComparison] non-fatal comparison persistence failure', {
+        blocking: false,
+        projectId: params.projectId,
+        comparisonStatus: outcome.comparisonStatus,
+        reason: persistence.reason,
+      });
+      return;
+    }
+    console.info('[authorityComparison] recorded non-serving comparison', {
+      projectId: params.projectId,
+      comparisonStatus: outcome.comparisonStatus,
+      persistence: persistence.status,
+    });
+  } catch (error) {
+    console.error('[authorityComparison] non-fatal comparison failure', {
+      blocking: false,
+      projectId: params.projectId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function logValidationRunRequested(params: {

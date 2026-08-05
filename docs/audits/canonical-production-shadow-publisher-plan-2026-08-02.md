@@ -37,8 +37,10 @@ section, marked `(amended)`.
 | A12 | **Intentional persisted-rate-row compatibility narrowing.** Before A11, whenever canonical pricing assembly selected no governing rows, every persisted rate row could enter `normalizeRateScheduleItem` as a compatibility governing-rate candidate regardless of category state. That fallback is now allowed only when all four supported aliases — `category`, `source_category`, `material_type`, and `canonical_category` — are absent, `null`, `undefined`, empty, or whitespace-only. Any nonblank alias disables compatibility fallback, including a valid alias and an invalid, unsupported, or unresolvable alias; any non-string, non-null alias value also disables it. Such a row cannot become a governing rate-schedule item merely through the legacy persisted fallback. Affected validation runs may change from matched or contract-supported to missing contract rate, `BLOCKED`, and at-risk exposure. This intentional governing-pricing boundary prevents malformed or unresolved persisted category data from silently bypassing canonical pricing assembly. It is independent from A11 structural-wins selection rescue. The publisher remains shadow-only; A12 governs authoritative validator-input behavior adjacent to the publisher slice. | §5.1, §15 | **authorized, implemented** |
 
 | A13 | **Canonical Project Truth becomes selectable runtime authority.** `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=canonical` promotes the frozen in-memory canonical registry from non-authoritative shadow output to the governing truth for one validation execution. The authoritative object is the registry, never a published artifact; storage is never read back into validation. Authority and publication are independent controls. Canonical mode prohibits silent fallback to legacy truth: an unestablished canonical authority is an honest `blocked`/`failed` state. One execution has one frozen source snapshot and one canonical registry, reused by validator inputs, findings, exposure, clearance, persistence metadata, and publication. Default remains `legacy`, which is the emergency rollback. Full statement, scope limits, and operator procedure in §20. | §0, §4, §5.1, §14, §15 | **authorized, implemented; acceptance gate passing (see §20.3)** |
+| A14 | **Canonical transaction, invoice, and document-relationship authority.** Canonical authority extends from pricing to transactions, invoices, invoice lines, and document-family/governing relationships, with a per-domain coverage model that makes "canonical governed this run" a checkable claim. A run may not report complete authority while any required domain is blocked. Ticket-grain conflicts are preserved as deterministic diagnostics, never arbitrated. Full statement in §21. | §0, §4, §5.1, §21 | **authorized, implemented; acceptance gate passing (see §21)** |
+| A15 | **Non-serving legacy versus canonical authority comparison.** Both authority modes run over ONE frozen validation input; their outputs are normalized, deltas are classified conservatively, and an operator-reviewable report is emitted. The comparison is advisory: the canonical result is non-serving and no comparison outcome can become a serving validation result. Comparison is a third independent control (`EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE`), defaults to `off`, is cohort-scoped by explicit project allowlist, and its failure is non-blocking to the serving run. Automated classifications are candidates only; promotion requires operator disposition of every material delta, never parity alone. Comparison artifacts are audit evidence and are never read as validation authority. Recommended production configuration: `authority=legacy`, `comparison=on`. Full statement in §22. | §0, §22 | **authorized, implemented; acceptance gate passing (see §22)** |
 
-Amendments A1, A2, A11, A12, and A13 change the **production** contract; A3–A10 change
+Amendments A1, A2, A11, A12, A13, A14, and A15 change the **production** contract; A3–A10 change
 only publisher-internal behavior. A1/A2 exist for the same reason: the publisher must not
 become a second authority for pricing or for source identity, and must not re-read
 mutable production state after the snapshot it is publishing was defined.
@@ -1685,3 +1687,321 @@ Additional note for A14: a canonical run reporting `canonicalAssemblyStatus: blo
 a specific truth domain. Read `blockedTruthDomains` and the per-domain reason in
 `canonicalAuthorityCoverage` rather than re-running.
 
+
+## 22. A15 â€” Non-serving legacy versus canonical authority comparison
+
+A13 and A14 made the canonical registry *selectable* runtime authority. A15 answers the
+question that must be settled before it becomes the *default* one: on real project data, where
+do legacy and canonical actually disagree, and is each disagreement canonical correcting legacy
+or canonical regressing?
+
+A15 adds no schema change, no migration, and no extraction change. Phase 3 remains upstream
+structural-evidence preservation, unchanged and unconsumed:
+
+```text
+PDF observations
+â†’ preserved structural evidence      (Phase 3 â€” upstream, unchanged by A13/A14/A15)
+â†’ normalized canonical facts
+â†’ canonical Project Truth registry
+â†’ validation authority               (A13 pricing, A14 transactions/invoices/relationships)
+â†’ non-serving authority comparison   (A15 â€” advisory, audit-only)
+```
+
+### 22.1 Purpose, and what the comparison is not
+
+The comparison runs both authority modes over one frozen validation input, normalizes both
+outputs, classifies every material delta, and emits an operator-reviewable report.
+
+It is **advisory**. It does not change which result production users receive. The canonical
+result produced by a comparison is **non-serving**: it is normalized into summaries and evidence
+references and then discarded. `runProjectTruthAuthorityComparison` returns a
+`ProjectTruthAuthorityComparison` and never a servable validation payload â€” no such type is
+imported or named in the orchestrator, and an architecture boundary test fails the build if one
+reappears. A caller that wanted to serve a comparison would have nothing to serve.
+
+### 22.2 One frozen input snapshot feeds both runs
+
+`loadValidatorSourceSnapshot` performs every read and every authority-independent derivation for
+one execution, exactly once. `buildValidatorInputFromSourceSnapshot(snapshot, { authorityMode })`
+is pure and synchronous: given the same snapshot and mode it always produces the same input.
+
+Consequences, all of them load-bearing:
+
+- both runs read the same loaded source data and the same project state;
+- neither run can reload documents, reread publication storage, or rerun OCR or extraction;
+- the canonical run cannot observe anything the legacy run did.
+
+Mutation isolation is **verified, not trusted**. `inputSnapshotDigest` is computed before either
+run and recomputed after each. A change means a run mutated shared source data, and the
+comparison reports `comparison_failed` with `input_mutation_leak` rather than publishing deltas
+caused by its own contamination.
+
+The digest is an identity of meaning, not of representation: object key order never matters,
+array order never matters where it is not semantically meaningful (every collection is reduced to
+canonical member strings and sorted), and `Map` values are expanded to sorted entry pairs â€”
+without which `JSON.stringify` would render a populated fact lookup as `{}` and the digest would
+be blind to every fact in the project. Wall-clock time and per-run identifiers are absent from
+the snapshot by construction.
+
+### 22.3 Serving authority remains independently configured
+
+Three controls, three purposes, no coupling:
+
+| Control | Governs | Default |
+|---|---|---|
+| `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY` | which authority **serves** | `legacy` |
+| `EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE` (+ `_PROJECTS`) | whether a **comparison** runs | `off` |
+| `EIGHTFORGE_CANONICAL_SHADOW_PUBLICATION` (+ `_PROJECTS`) | whether an artifact is **published** | `off` |
+
+All four authority/comparison combinations are legal and tested:
+
+```text
+authority=legacy,    comparison=off   â€” pre-A15 behavior, unchanged
+authority=legacy,    comparison=on    â€” the recommended production shadow phase
+authority=canonical, comparison=off   â€” canonical serving, no observation
+authority=canonical, comparison=on    â€” canonical serving, legacy observed for rollback evidence
+```
+
+The comparison direction never flips: `legacy` is always the legacy side and `canonical` always
+the canonical side, regardless of which one serves. Enabling comparison does not enable canonical
+serving authority, and enabling canonical serving authority does not enable comparison.
+
+**Recommended initial production configuration: `authority=legacy`, `comparison=on`.**
+
+### 22.4 Disabled by default, and cohort-scoped
+
+Comparison is off unless deliberately enabled, and fails closed: an unrecognized value, or
+`allowlist`/`on` with no project ids, resolves to `off`. A typo must never silently start running
+two validations per project, and "on with no cohort" is a misconfiguration rather than a request
+to compare every production project.
+
+The cohort is an explicit operator decision supplied by project id. No production project id is
+hardcoded anywhere in the repository. Repository acceptance uses seven owned fixture profiles
+covering the required cohort shapes â€” Golden, cross-document, clean, source gap, ticket-grain
+duplicate rows, ticket-grain conflict, and exact parity â€” with the Golden profile driven by the
+real in-repo `goldenAuthoredTransportPricingRows.json` pinned to the Williamson corpus PDF.
+
+### 22.5 Comparison failure is non-blocking
+
+The comparison runs from `runValidationFlow` **last**, after the serving result is persisted and
+publication is already scheduled. It receives the snapshot that execution already loaded, so it
+adds no database read, and it receives neither the serving result nor the persisted run â€” it
+re-derives both authorities from the frozen snapshot so one authority's output cannot contaminate
+the other or be mistaken for it.
+
+Every failure mode is absorbed: a comparator fault, a normalization fault, and a persistence
+fault all leave the serving result, project state, publication, and notifications untouched. A
+comparison that cannot be stored is a lost audit record; a comparison that failed a validation run
+would be a production incident. The former is always preferable.
+
+Comparison cannot run recursively (an explicit in-flight guard, in addition to the structural fact
+that the comparator calls only pure validator functions) and cannot trigger a second publication
+(it never reaches the publisher at all).
+
+### 22.6 Output normalization contract
+
+There is exactly **one** normalization module, asserted by an architecture test. A second one â€”
+even a small test-local helper â€” would let two comparisons of the same run disagree, which is what
+makes a shadow phase worthless.
+
+The normalizer reshapes the output of the shared builders; it never becomes a second truth path.
+Exposure comes from the exposure builder, clearance from `evaluateApprovalGate`, findings from the
+rule packs. Nothing is recomputed.
+
+| Domain | Normalized to |
+|---|---|
+| Identity | invoice, invoice-line, and transaction identities from source-backed tuples; duplicate identities derived from the identity multiset rather than trusted from an authority's own report; unresolved identities named explicitly |
+| Quantity | ticket-grain totals at project, invoice, ticket, category, and unit grain, plus `rowCount`, `distinctTicketCount`, `rowGrainQuantityTotal`, and `conflictedIdentityCount` |
+| Amount | project, invoice, category, and governing-pricing-row grain; invoice billed amounts taken from the exposure builder, never re-derived |
+| Pricing | governing document, category, description, unit, rate, source artifact, source page, provenance reference |
+| Findings | deterministic key of code + affected identity + field; severity, status, blocked reason, evidence sources |
+| Exposure | total, contract-supported, transaction-supported, fully reconciled, unreconciled, at-risk, requires-verification, unresolved, blocked, and a readiness state |
+| Clearance | approval outcome, validation status, blocking and review counts, unresolved truth domains, approval gate reasons |
+| Provenance | source artifact, source document, page, geometry presence, adapter identity, governing relationship evidence |
+
+Four normalization decisions are worth stating because each removes a whole class of false alarm:
+
+- **Ticket grain is deduplicated by ticket identity, and the same rule is applied to BOTH
+  authorities.** Repeated rows that agree contribute their single value once; repeated rows that
+  *disagree* contribute nothing and are counted as conflicts. Summing them would be the
+  double-count the grain rules forbid; picking a winner would discard a real source disagreement.
+  Because the rule is symmetric, `rowGrainQuantityTotal` is retained as the diagnostic that makes
+  a physical row double-count visible â€” without it, an authority that double-counted would look
+  identical to one that did not.
+- **Pricing identity excludes internal record ids.** The legacy and canonical adapters assign
+  different record ids to the same source row, so including one would report every pricing row as
+  changed. Identity is the source-backed tuple an operator can verify against an exhibit.
+- **Finding evidence is reduced to `type:document`.** The record-id segment is an internal adapter
+  id; comparing it would report evidence loss on every finding that merely passed through a
+  different adapter, burying real evidence loss.
+- **Amounts round to 2 decimals and quantities to 6, on both sides, before comparison.** A
+  surviving difference is real at that precision; a difference below it is equivalent decimal
+  representation. `-0` is normalized to `0`.
+
+Geometry presence is recorded; geometry coordinates are not compared. Attributability â€” can this
+record name its source document â€” is the provenance requirement. Geometry is not.
+
+### 22.7 Delta classification contract
+
+Delta ids are deterministic: a digest of `(domain, entityKey, field)`, never a counter, never a
+position, never a timestamp. Ordering is content-derived. Repeated comparisons of the same input
+produce identical ids in an identical order, which is what lets an operator disposition recorded
+yesterday still refer to the same delta today.
+
+Classification is conservative and every judgement-bearing outcome is a **candidate**:
+
+| Classification | Assigned when |
+|---|---|
+| `equivalent_normalization` | different internal ids for the same source identity; ordering, formatting, or decimal representation only |
+| `canonical_correction_candidate` | evidence supports canonical: a preserved ticket-grain conflict legacy summed, the governing exhibit selected over a non-governing document, a distinct source row legacy collapsed, a condition legacy resolved silently |
+| `regression_candidate` | canonical drops a source-backed record, changes a quantity or amount with no conflict and no block, loses governing provenance, clears what legacy blocked, or introduces a duplicate identity |
+| `source_gap` | required truth is absent â€” missing pricing, missing identity, missing relationship, absent provenance |
+| `authority_policy_difference` | canonical deliberately refused: no fallback, unresolved relationship blocked, conflict preserved, a value legacy chose that canonical declines |
+| `expected_non_semantic_difference` | structural by construction, e.g. legacy always reporting `assemblyStatus: not_requested` |
+| `unclassified` | the rules cannot justify a category from the evidence in front of them |
+
+`unclassified` must stay reachable. Forcing every delta into a category would manufacture
+confidence. There is deliberately **no** `canonical_correction` or `canonical_regression`
+classification: those words belong only to operator dispositions.
+
+A consequence of a canonical *refusal* is classified `authority_policy_difference`, not
+`regression_candidate` â€” refusing to guess is designed behavior, and misclassifying it would train
+operators to dismiss real regressions. The single exception is clearance loosening, below.
+
+### 22.8 Blocking materiality rules
+
+A delta is `blocking` when:
+
+- clearance changes from blocked to clear, or validation from `BLOCKED` to not-blocked, without
+  proven evidence. **This is blocking even when canonical also refused**, because a refusal that
+  ends in a clearer gate is self-contradictory;
+- exposed, at-risk, or unreconciled dollars **decrease** â€” an unexplained reduction in stated
+  financial risk. An increase is conservative and merely informational;
+- exposure readiness improves from not-ready to ready;
+- canonical loses a source-backed invoice, invoice line, or transaction, or loses source-backed
+  quantity or amount;
+- governing pricing changes â€” rate or governing document â€” without relationship evidence. A
+  governing rate is a financial control point;
+- canonical loses governing source provenance, or produces more unattributed records;
+- canonical introduces a duplicate identity;
+- the two runs report source snapshot digests that do not correspond to the shared input, meaning
+  no delta in the comparison is trustworthy;
+- deterministic comparison fails.
+
+**An empty blocking-delta count does not authorize promotion.** There is no field on a comparison
+by which it can approve anything.
+
+### 22.9 Operator disposition model
+
+The report is Markdown, not JSON. Every blocking and review-required delta arrives with a
+plain-language explanation, both authorities' values, the affected entity, its source evidence
+(governing document, artifact, page where the source carries one), the automated classification,
+the reason for that classification, and a disposition field. Informational deltas are counted but
+not itemized: burying six blocking deltas under two hundred structural ones is how a review gets
+skipped.
+
+Operators record one of:
+
+```text
+canonical_correction | canonical_regression | expected_policy_difference
+source_gap           | needs_more_evidence  | accepted_equivalent
+```
+
+Recording a disposition is **audit metadata**. It does not rewrite canonical truth, does not alter
+a validation result, does not change a delta or its classification, and does not change which
+authority serves. Dispositions are excluded from the comparison content digest, so annotating a
+comparison does not change the identity of the comparison being annotated.
+
+### 22.10 Comparison artifacts are audit evidence only
+
+Artifacts are written to the existing private `canonical-shadow-artifacts` bucket under their own
+top-level prefix:
+
+```text
+authority-comparison/project/{projectId}/input/{inputSnapshotDigest}/{contentDigest}.json
+```
+
+Deliberately **not** through `writeShadowArtifactParts`. Reusing the publisher's writer would put
+comparison objects inside its `project/{id}/run/{runId}/` idempotency scope, where a second
+publication id under one run fails closed â€” a comparison could then break, or be mistaken for, a
+canonical publication. Separate prefixes make "comparison triggers duplicate publication"
+structurally impossible rather than merely avoided. No migration is required.
+
+Paths are content-addressed, so re-running an unchanged comparison lands on the identical path and
+is suppressed as a duplicate. Failed comparisons are persisted too: recording only successes would
+make a silently broken comparator look like a project with no divergences.
+
+**Comparison storage is never an authority reader.** Nothing in the validation call graph imports
+the comparison persistence module, and the architecture boundary test asserts it. The reader exists
+for operator tooling only; no authority result may depend on reading storage back, the same rule
+that governs canonical publication.
+
+### 22.11 Architecture boundaries added
+
+- comparison may call authority orchestration and the pure validator entry points;
+- the authority layer, the publication layer, the canonical project layer, the rule packs, and
+  extraction may not reference the comparison layer at all â€” not by import and not by identifier;
+- `lib/validator/triggerProjectValidation.ts` is the single authorized production consumer, via
+  exactly three frozen edges;
+- comparison may not import UI, extraction, or serving persistence;
+- the comparison orchestrator may not name a servable validation result type or reach a serving
+  side effect;
+- exactly one comparison normalization module and exactly one comparison orchestration entry point
+  exist.
+
+Existing seals were not loosened. Two narrow additions to the frozen canonical-production edge
+list cover the authority-mode vocabulary reaching the validator and the three orchestrator edges.
+
+### 22.12 Controlled rollout sequence
+
+```text
+repository fixtures
+â†’ selected project cohort
+â†’ repeated production comparisons
+â†’ operator delta review
+â†’ zero unexplained blocking deltas
+â†’ controlled canonical serving enablement
+â†’ rollback observation
+â†’ later default change
+```
+
+Promotion requires operator acceptance of every material delta, not automated parity alone.
+Legacy rollback remains available at every stage: `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=legacy`.
+
+Operator harness:
+
+```bash
+node scripts/run-authority-comparison.mjs <projectId> [<projectId> ...]
+```
+
+Read-only with respect to validation. `--no-persist` suppresses even the audit artifact.
+
+### 22.13 Updated deletion and promotion ledger
+
+A15 adds no legacy path and removes none. It **raises the removal precondition** for every entry
+in the Â§21.13 ledger: no legacy path may be deleted until the cohort has produced repeated
+comparisons with zero unexplained blocking deltas and an operator has dispositioned every material
+delta. Removing an entry while `legacy` is still a supported mode would eliminate the rollback and
+must be rejected in review.
+
+| # | A15 addition | Removal precondition |
+|---|---|---|
+| C1 | Comparison layer (`lib/canonical/comparison/`) | Removable once canonical is the only mode and the shadow phase is closed; removing it never affects a serving result |
+| C2 | Comparison audit artifacts under `authority-comparison/` | Retained as the evidence trail for the promotion decision |
+
+### 22.14 Operator procedure
+
+Serving authority and publication procedures are unchanged from Â§20.5 and Â§21.14.
+
+To run the shadow phase:
+
+1. Keep `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY=legacy`.
+2. Set `EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE=allowlist` and
+   `EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE_PROJECTS` to the cohort project ids.
+3. Read the report for each project. Disposition every blocking and review-required delta.
+4. A comparison reporting `canonical_blocked` is reporting a real source gap in a named truth
+   domain, not a comparison failure. Read `blockedTruthDomains` and the per-domain reason rather
+   than re-running.
+5. A comparison reporting `comparison_failed` means the comparison itself could not complete. The
+   serving result for that run was unaffected.
+6. Do not treat `equivalent` as authorization to promote.

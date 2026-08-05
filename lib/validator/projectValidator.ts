@@ -5,7 +5,10 @@ import {
   buildContractIntelligenceRateScheduleRows,
   type AnalyzeContractIntelligenceInput,
 } from '@/lib/contracts/analyzeContractIntelligence';
-import { loadContractUploadGuidanceForDocument } from '@/lib/contracts/contractUploadGuidance';
+import {
+  loadContractUploadGuidanceForDocument,
+  type ContractUploadGuidanceRateScheduleIncluded,
+} from '@/lib/contracts/contractUploadGuidance';
 import {
   assembleContractPricingRowsWithCandidates,
   canonicalTaxonomyKeyForAllowedCategory,
@@ -33,7 +36,10 @@ import {
 } from '@/lib/documentFactReviews';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { getCanonicalTransactionDataForProject } from '@/lib/server/transactionDataPersistence';
+import {
+  getCanonicalTransactionDataForProject,
+  type ProjectTransactionData,
+} from '@/lib/server/transactionDataPersistence';
 import {
   buildProjectReconciliationSummary,
   buildValidatorReconciliationContext,
@@ -74,6 +80,7 @@ import {
   type ValidatorLegacyExtractionRow,
   type ValidatorProjectRow,
   type ValidatorSourceArtifactSnapshotEntry,
+  type ValidatorTruthCategoryDocumentIds,
 } from '@/lib/validator/shared';
 import {
   deriveBillingKeysForInvoiceLine,
@@ -108,6 +115,10 @@ import {
   isCanonicalAuthorityEstablished,
   isCanonicalAuthorityUnavailable,
 } from '@/lib/canonical/authority/canonicalExecutionContext';
+import {
+  PROJECT_TRUTH_AUTHORITY_ENV_VAR,
+  type ProjectTruthAuthorityMode,
+} from '@/lib/canonical/authority/projectTruthAuthorityMode';
 import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type {
   DocumentRelationshipRecord,
@@ -1197,10 +1208,19 @@ export function buildManualRateLinkOverrides(params: {
   return overrides;
 }
 
-export async function loadManualRateLinkOverrides(params: {
-  project: Pick<ValidatorProjectRow, 'id' | 'organization_id'>;
-  rateScheduleItems: readonly RateScheduleItem[];
-}): Promise<Map<string, RateScheduleItem>> {
+/**
+ * Loads the raw active manual rate-link rows for a project.
+ *
+ * Split out from {@link loadManualRateLinkOverrides} because the query is
+ * authority-independent while `buildManualRateLinkOverrides` is not: it resolves
+ * links against whichever authority produced the rate-schedule items. Loading
+ * the rows once and applying the pure builder per authority is what lets the
+ * shadow comparator run two authorities over one frozen source snapshot without
+ * a second database read.
+ */
+export async function loadInvoiceLineRateLinkRows(
+  project: Pick<ValidatorProjectRow, 'id' | 'organization_id'>,
+): Promise<InvoiceLineRateLinkRow[]> {
   const admin = getSupabaseAdmin();
   if (!admin) throw new Error('Server validation client is not configured.');
 
@@ -1209,18 +1229,25 @@ export async function loadManualRateLinkOverrides(params: {
     .select(
       'id, organization_id, project_id, invoice_document_id, invoice_line_subject_id, contract_document_id, contract_rate_row_id, rate_row_description, rate_row_unit_type, rate_row_rate_amount, reason, created_at, is_active, superseded_by',
     )
-    .eq('organization_id', params.project.organization_id)
-    .eq('project_id', params.project.id)
+    .eq('organization_id', project.organization_id)
+    .eq('project_id', project.id)
     .eq('is_active', true)
     .order('created_at', { ascending: false });
 
   if (error && isInvoiceLineRateLinksTableUnavailableError(error)) {
-    return new Map<string, RateScheduleItem>();
+    return [];
   }
   if (error) throw new Error(error.message);
 
+  return (data ?? []) as InvoiceLineRateLinkRow[];
+}
+
+export async function loadManualRateLinkOverrides(params: {
+  project: Pick<ValidatorProjectRow, 'id' | 'organization_id'>;
+  rateScheduleItems: readonly RateScheduleItem[];
+}): Promise<Map<string, RateScheduleItem>> {
   return buildManualRateLinkOverrides({
-    rows: (data ?? []) as InvoiceLineRateLinkRow[],
+    rows: await loadInvoiceLineRateLinkRows(params.project),
     rateScheduleItems: params.rateScheduleItems,
   });
 }
@@ -2566,10 +2593,58 @@ function deriveWorkspaceOverviewFinancials(
 export async function loadProjectValidatorInput(
   projectId: string,
 ): Promise<ProjectValidatorInput> {
-  return loadValidatorInput(projectId);
+  return buildValidatorInputFromSourceSnapshot(await loadValidatorSourceSnapshot(projectId));
 }
 
-async function loadValidatorInput(projectId: string): Promise<ProjectValidatorInput> {
+/**
+ * Everything one validation execution loads and derives BEFORE the authority
+ * decision is made.
+ *
+ * This is the frozen boundary the legacy/canonical shadow comparator runs both
+ * authorities against. Two properties make it the right seam:
+ *
+ *  - it contains no authority-dependent value, so building an input from it is a
+ *    pure function of `(snapshot, authorityMode)`;
+ *  - every database read for the execution has already happened, so a second
+ *    authority run cannot reload documents, reread publication storage, or
+ *    rerun OCR or extraction.
+ *
+ * Fields are deliberately the exact objects the previous single-pass loader
+ * retained, so the serving path's behavior is unchanged by the split.
+ */
+export type ValidatorSourceSnapshot = {
+  readonly project: ValidatorProjectRow;
+  readonly validationPhase: ProjectValidationPhase;
+  readonly documents: ValidatorDocumentRow[];
+  readonly ruleStateByRuleId: Map<string, ValidationRuleState>;
+  readonly mobileTickets: MobileTicketRow[];
+  readonly loadTickets: LoadTicketRow[];
+  readonly transactionData: ProjectTransactionData | null;
+  readonly sourceArtifactSnapshot: readonly ValidatorSourceArtifactSnapshotEntry[];
+  readonly precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
+  readonly documentRelationships: DocumentRelationshipRecord[];
+  readonly familyDocumentIds: ValidatorDocumentIdsByFamily;
+  readonly governingDocumentIds: ValidatorDocumentIdsByFamily;
+  readonly truthCategoryDocumentIds: ValidatorTruthCategoryDocumentIds;
+  readonly factsByDocumentId: Map<string, ValidatorFactRecord[]>;
+  readonly allFacts: ValidatorFactRecord[];
+  readonly invoices: InvoiceRow[];
+  readonly invoiceLines: InvoiceLineRow[];
+  readonly assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
+  readonly contractValidationContext: ValidatorContractAnalysisContext | null;
+  readonly baseFactLookups: ValidatorFactLookups;
+  readonly contractUploadGuidanceRateScheduleIncluded: ContractUploadGuidanceRateScheduleIncluded | null;
+  readonly invoiceLineRateLinkRows: readonly InvoiceLineRateLinkRow[];
+  readonly sourceArtifactSnapshotDigest: string | null;
+};
+
+/**
+ * Performs every read and every authority-independent derivation for one
+ * execution, exactly once.
+ */
+export async function loadValidatorSourceSnapshot(
+  projectId: string,
+): Promise<ValidatorSourceSnapshot> {
   const project = await loadProject(projectId);
   const documents = await loadProjectDocuments(project);
   const documentIds = documents.map((document) => document.id);
@@ -2682,6 +2757,95 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     truthCategoryDocumentIds,
     assembledContractPricingRows,
   });
+
+  // The last two reads of the execution. Both are authority-independent: the
+  // guidance row is keyed by contract document, and the rate-link rows are
+  // scoped by organization and project. Resolving links against the winning
+  // authority's rate rows is a pure step, performed per authority below.
+  const contractDocumentIdForGuidance =
+    contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const [contractUploadGuidance, invoiceLineRateLinkRows] = await Promise.all([
+    contractDocumentIdForGuidance
+      ? loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
+        () => null,
+      )
+      : Promise.resolve(null),
+    loadInvoiceLineRateLinkRows(project),
+  ]);
+
+  return {
+    project,
+    validationPhase,
+    documents,
+    ruleStateByRuleId,
+    mobileTickets: mobileTickets as MobileTicketRow[],
+    loadTickets: loadTickets as LoadTicketRow[],
+    transactionData: transactionData ?? null,
+    sourceArtifactSnapshot,
+    precedenceFamilies,
+    documentRelationships,
+    familyDocumentIds,
+    governingDocumentIds,
+    truthCategoryDocumentIds,
+    factsByDocumentId,
+    allFacts,
+    invoices: effectiveInvoices,
+    invoiceLines: effectiveInvoiceLines,
+    assembledContractPricingRows,
+    contractValidationContext,
+    baseFactLookups,
+    contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
+    invoiceLineRateLinkRows,
+    sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
+  };
+}
+
+/**
+ * Builds one validator input from a frozen source snapshot under one authority.
+ *
+ * Pure and synchronous: given the same snapshot and the same authority mode this
+ * always produces the same input. That is what makes a two-authority comparison
+ * possible without reloading anything and without either run being able to
+ * observe the other's work — the snapshot's collections are read, never mutated,
+ * and every authority-dependent structure below is freshly constructed.
+ *
+ * `authorityMode`, when supplied, overrides the ambient environment for THIS
+ * input only. The serving path omits it so production behavior continues to come
+ * from `EIGHTFORGE_PROJECT_TRUTH_AUTHORITY` alone.
+ */
+export function buildValidatorInputFromSourceSnapshot(
+  snapshot: ValidatorSourceSnapshot,
+  options: { readonly authorityMode?: ProjectTruthAuthorityMode } = {},
+): ProjectValidatorInput {
+  const {
+    project,
+    validationPhase,
+    documents,
+    assembledContractPricingRows,
+    contractValidationContext,
+    truthCategoryDocumentIds,
+    familyDocumentIds,
+    governingDocumentIds,
+    factsByDocumentId,
+    allFacts,
+    ruleStateByRuleId,
+    mobileTickets,
+    loadTickets,
+    precedenceFamilies,
+    sourceArtifactSnapshot,
+    documentRelationships,
+  } = snapshot;
+  const effectiveInvoices = snapshot.invoices;
+  const effectiveInvoiceLines = snapshot.invoiceLines;
+  const baseFactLookups = snapshot.baseFactLookups;
+  const transactionData = snapshot.transactionData ?? undefined;
+  // An explicit mode is expressed as a scoped environment record rather than a
+  // second code path, so both authorities travel through the identical resolver
+  // the serving path uses.
+  const env: Readonly<Record<string, string | undefined>> | undefined =
+    options.authorityMode != null
+      ? { [PROJECT_TRUTH_AUTHORITY_ENV_VAR]: options.authorityMode }
+      : undefined;
   // ── The single authority decision for this execution ──────────────────────
   // Resolved exactly once, before any rule pack runs. In canonical mode the
   // frozen canonical registry section replaces legacy rate schedule items; in
@@ -2690,6 +2854,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
   // without knowing which it was.
   const projectTruthAuthority = resolveProjectTruthAuthority({
     projectId: project.id,
+    env,
     assembledContractPricingRows,
     pricingContext: {
       // Schedule identity is not exposed on the validator contract context.
@@ -2714,7 +2879,7 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     governingDocumentIds,
     familyDocumentIds,
     documentRelationships,
-    sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
+    sourceArtifactSnapshotDigest: snapshot.sourceArtifactSnapshotDigest,
   });
   // Canonical truth governs only when it actually established. A blocked or
   // failed canonical context must NOT quietly hand back legacy items: the block
@@ -2725,23 +2890,16 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
       ? []
       : [...baseFactLookups.rateScheduleItems];
 
-  const contractDocumentIdForGuidance =
-    contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
-  const contractUploadGuidance = contractDocumentIdForGuidance
-    ? await loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
-        () => null,
-      )
-    : null;
   const factLookups = {
     ...baseFactLookups,
     rateScheduleItems: authoritativeRateScheduleItems,
-    contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
+    contractUploadGuidanceRateScheduleIncluded: snapshot.contractUploadGuidanceRateScheduleIncluded,
   };
-  const manualRateLinkOverrides = await loadManualRateLinkOverrides({
-    project,
+  const manualRateLinkOverrides = buildManualRateLinkOverrides({
+    rows: snapshot.invoiceLineRateLinkRows,
     rateScheduleItems: factLookups.rateScheduleItems,
   });
-  const mobileToLoadsMap = buildMobileToLoadsMap(loadTickets as LoadTicketRow[]);
+  const mobileToLoadsMap = buildMobileToLoadsMap(snapshot.loadTickets);
   const invoiceLineToRateMap = buildInvoiceLineToRateMap(
     effectiveInvoiceLines,
     factLookups.rateScheduleItems,
@@ -2783,8 +2941,8 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     invoices: effectiveInvoices,
     factsByDocumentId,
     invoiceDocumentIds: familyDocumentIds.invoice,
-    mobileTickets: mobileTickets as MobileTicketRow[],
-    loadTickets: loadTickets as LoadTicketRow[],
+    mobileTickets,
+    loadTickets,
     fallbackTotalBilled: readPersistedProjectTotalBilled(project.validation_summary_json),
   });
   const baseInput = {
@@ -2801,8 +2959,8 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     ruleStateByRuleId,
     factsByDocumentId,
     allFacts,
-    mobileTickets: mobileTickets as MobileTicketRow[],
-    loadTickets: loadTickets as LoadTicketRow[],
+    mobileTickets,
+    loadTickets,
     invoices: effectiveInvoices,
     invoiceLines: effectiveInvoiceLines,
     mobileToLoadsMap,
@@ -2880,8 +3038,29 @@ function finalizeResult(
 
 export async function runProjectValidation(
   projectId: string,
-): Promise<{ result: ValidatorResult; input: ProjectValidatorInput }> {
-  const input = await loadValidatorInput(projectId);
+): Promise<{
+  result: ValidatorResult;
+  input: ProjectValidatorInput;
+  sourceSnapshot: ValidatorSourceSnapshot;
+}> {
+  const sourceSnapshot = await loadValidatorSourceSnapshot(projectId);
+  const { result, input } = executeProjectValidation(
+    buildValidatorInputFromSourceSnapshot(sourceSnapshot),
+  );
+  return { result, input, sourceSnapshot };
+}
+
+/**
+ * Runs every rule pack, exposure, and finalization for one already-built input.
+ *
+ * Synchronous and side-effect free: it reads the input, produces findings, and
+ * returns a result. It never persists, publishes, notifies, or mutates project
+ * state — those belong to the serving orchestration above it. This is what makes
+ * a second, non-serving authority execution safe to run in memory.
+ */
+export function executeProjectValidation(
+  input: ProjectValidatorInput,
+): { result: ValidatorResult; input: ProjectValidatorInput } {
   const findings: ValidatorFindingResult[] = [];
   const rulesApplied: string[] = [];
   let contractInvoiceReconciliation: ContractInvoiceReconciliationSummary | null = null;

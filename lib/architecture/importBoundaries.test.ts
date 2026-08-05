@@ -52,7 +52,126 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
   // execution context rather than recomputed downstream.
   'lib/validator/persistValidationRun.ts -> @/lib/canonical/authority/canonicalExecutionContext',
   'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/authority/canonicalExecutionContext',
+  // The authority mode vocabulary reaches the validator so one input can be built
+  // for an explicitly named authority. Required by the A15 shadow comparison,
+  // which builds a legacy input and a canonical input from one frozen snapshot.
+  'lib/validator/projectValidator.ts -> @/lib/canonical/authority/projectTruthAuthorityMode',
+  // ── Non-serving authority comparison (amendment A15) ──
+  // The comparison is invoked from the serving orchestrator ONLY, after the
+  // serving result is persisted, and only through these three edges. The
+  // orchestrator is the one production module allowed to know comparison exists;
+  // the validator, the rule packs, and the publisher must not.
+  'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/comparison/authorityComparisonFlag',
+  'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/comparison/authorityComparisonPersistence',
+  'lib/validator/triggerProjectValidation.ts -> @/lib/canonical/comparison/runProjectTruthAuthorityComparison',
 ]);
+
+const COMPARISON_ROOT = 'lib/canonical/comparison';
+
+/**
+ * The comparison layer may call authority orchestration; nothing in the
+ * validation call graph may call comparison persistence.
+ *
+ * A production reader that imported the comparison artifact reader would turn an
+ * audit record into an input to truth — the single failure this whole phase is
+ * built to prevent. The rule is asserted from both directions: comparison must not
+ * be imported by authority/validator/publisher/extraction/UI code, and comparison
+ * itself must not import UI.
+ */
+function comparisonBoundaryViolations(workspaceRoot = ROOT): string[] {
+  const violations: string[] = [];
+  const comparisonModules = new Set(
+    walk(path.join(workspaceRoot, COMPARISON_ROOT))
+      .map((file) => path.relative(workspaceRoot, file).replaceAll('\\', '/')),
+  );
+
+  for (const edge of allEdges()) {
+    const target = resolveImportTarget(edge);
+    if (!isWithin(target, COMPARISON_ROOT)) continue;
+    // The serving orchestrator is the single authorized production consumer.
+    if (edge.source === 'lib/validator/triggerProjectValidation.ts') continue;
+    if (edge.source.startsWith(`${COMPARISON_ROOT}/`)) continue;
+    violations.push(`${edge.source} -> ${edge.specifier} (unauthorized comparison consumer)`);
+  }
+
+  // Nothing that produces truth may reach comparison, and comparison may not
+  // reach the UI. Both directions are checked explicitly.
+  for (const source of comparisonModules) {
+    for (const edge of importsInFile(path.join(workspaceRoot, source), workspaceRoot)) {
+      const target = resolveImportTarget(edge);
+      if (isWithin(target, 'components') || isWithin(target, 'app')) {
+        violations.push(`${source} -> ${edge.specifier} (comparison imports UI)`);
+      }
+      if (isWithin(target, 'lib/extraction')) {
+        violations.push(`${source} -> ${edge.specifier} (comparison imports extraction)`);
+      }
+      if (target === 'lib/validator/persistValidationRun'
+        || target === 'lib/validator/triggerProjectValidation') {
+        violations.push(`${source} -> ${edge.specifier} (comparison imports serving persistence)`);
+      }
+    }
+  }
+
+  // The authority layer, the rule packs, the publisher, and extraction must not
+  // mention comparison at all — not by import and not by identifier.
+  const forbiddenMentionRoots = [
+    'lib/canonical/authority',
+    'lib/canonical/publication',
+    'lib/canonical/project',
+    'lib/validator/rulePacks',
+    'lib/extraction',
+  ];
+  for (const root of forbiddenMentionRoots) {
+    for (const file of walk(path.join(workspaceRoot, root))) {
+      const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+      const text = readFileSync(file, 'utf8');
+      if (/canonical[\\/]comparison[\\/]|AuthorityComparison|runProjectTruthAuthorityComparison/.test(text)) {
+        violations.push(`${source} -> references the comparison layer`);
+      }
+    }
+  }
+
+  return violations.sort();
+}
+
+/**
+ * A comparison outcome must not be able to become a serving validation result.
+ *
+ * Enforced structurally: the comparison orchestrator does not import
+ * `ValidatorResult` and does not name it, so there is no type by which a
+ * `ValidatorResult` could leave the module. The two in-memory results are local to
+ * one private helper and are dropped when the comparison returns.
+ */
+function comparisonServingLeakViolations(workspaceRoot = ROOT): string[] {
+  const orchestrator = path.join(
+    workspaceRoot,
+    COMPARISON_ROOT,
+    'runProjectTruthAuthorityComparison.ts',
+  );
+  if (!existsSync(orchestrator)) return ['comparison orchestrator is missing'];
+  const text = readFileSync(orchestrator, 'utf8');
+  const violations: string[] = [];
+  if (/\bValidatorResult\b/.test(text)) {
+    violations.push('comparison orchestrator references ValidatorResult');
+  }
+  if (/persistValidationRun|scheduleCanonicalProjectTruthShadowPublication|logActivityEvent/.test(text)) {
+    violations.push('comparison orchestrator reaches a serving side effect');
+  }
+  return violations.sort();
+}
+
+function comparisonSingletonModules(
+  workspaceRoot: string,
+  pattern: RegExp,
+): string[] {
+  const root = path.join(workspaceRoot, COMPARISON_ROOT);
+  if (!existsSync(root)) return [];
+  return walk(root)
+    .filter((file) => !file.endsWith('.test.ts'))
+    .filter((file) => pattern.test(readFileSync(file, 'utf8')))
+    .map((file) => path.relative(workspaceRoot, file).replaceAll('\\', '/'))
+    .sort();
+}
 
 function walk(directory: string): string[] {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
@@ -446,6 +565,24 @@ describe('production architecture import boundaries', () => {
   it('keeps exactly one canonical-to-validator projection module', () => {
     expect(canonicalProjectionModules())
       .toEqual(['lib/canonical/authority/canonicalValidatorProjection.ts']);
+  }, 30_000);
+
+  it('keeps the authority comparison layer out of every truth-producing path', () => {
+    expect(comparisonBoundaryViolations()).toEqual([]);
+  }, 30_000);
+
+  it('prevents a comparison outcome from becoming a serving validation result', () => {
+    expect(comparisonServingLeakViolations()).toEqual([]);
+  });
+
+  it('keeps exactly one comparison normalization module', () => {
+    expect(comparisonSingletonModules(ROOT, /export function normalizeAuthorityRun\s*\(/))
+      .toEqual(['lib/canonical/comparison/authorityRunNormalization.ts']);
+  }, 30_000);
+
+  it('keeps exactly one comparison orchestration entry point', () => {
+    expect(comparisonSingletonModules(ROOT, /export async function runProjectTruthAuthorityComparison\s*\(/))
+      .toEqual(['lib/canonical/comparison/runProjectTruthAuthorityComparison.ts']);
   }, 30_000);
 
   it('keeps the publication layer isolated from production authorities and UI', () => {

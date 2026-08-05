@@ -94,7 +94,12 @@ import {
   PACK_AUTHORED_RATE_ROW_QUARANTINE,
   runAuthoredRateRowQuarantineRules,
 } from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
+import {
+  PACK_TRANSACTION_GRAIN_CONFLICT,
+  runTransactionGrainConflictRules,
+} from '@/lib/validator/rulePacks/transactionGrainConflict';
 import { resolveProjectTruthAuthority } from '@/lib/canonical/authority/resolveProjectTruthAuthority';
+import { projectCanonicalTransactionRows } from '@/lib/canonical/authority/canonicalValidatorProjection';
 import {
   isCanonicalAuthorityEstablished,
   isCanonicalAuthorityUnavailable,
@@ -2693,10 +2698,25 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     factLookups.rateScheduleItems,
     manualRateLinkOverrides,
   );
-  const validatorTransactionData = transactionData
+  // ── Transaction authority reroute ────────────────────────────────────────
+  // In canonical mode the rows every downstream consumer reads — exposure,
+  // reconciliation, and the transaction rule packs — are the canonical
+  // projection. Swapping this single array moves all of them onto canonical
+  // truth without any rule pack knowing which authority produced it. Legacy and
+  // canonical rows are never both active in one execution.
+  const canonicalTransactionRows = isCanonicalAuthorityEstablished(projectTruthAuthority)
+    ? projectCanonicalTransactionRows(
+      projectTruthAuthority.validatorProjection!.transactions.rows,
+      project.id,
+    )
+    : null;
+  const effectiveTransactionData = canonicalTransactionRows != null
+    ? { datasets: transactionData?.datasets ?? [], rows: canonicalTransactionRows }
+    : transactionData;
+  const validatorTransactionData = effectiveTransactionData
     ? {
-      ...transactionData,
-      rollups: buildValidatorTransactionRollups(transactionData),
+      ...effectiveTransactionData,
+      rollups: buildValidatorTransactionRollups(effectiveTransactionData),
     }
     : {
       datasets: [],
@@ -2821,6 +2841,12 @@ export async function runProjectValidation(
 
   findings.push(...runAuthoredRateRowQuarantineRules(input));
   rulesApplied.push(PACK_AUTHORED_RATE_ROW_QUARANTINE);
+
+  // Canonical ticket-grain conflicts run before the gating packs so a disputed
+  // quantity or amount blocks rather than silently feeding downstream totals.
+  // Contributes nothing in legacy mode.
+  findings.push(...runTransactionGrainConflictRules(input));
+  rulesApplied.push(PACK_TRANSACTION_GRAIN_CONFLICT);
 
   try {
     const requiredSourceFindings = runRequiredSourcesRules(input);

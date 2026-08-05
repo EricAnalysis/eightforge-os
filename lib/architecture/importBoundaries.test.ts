@@ -42,6 +42,10 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
   // so no further validator -> canonical edge can appear unreviewed.
   'lib/validator/projectValidator.ts -> @/lib/canonical/authority/resolveProjectTruthAuthority',
   'lib/validator/projectValidator.ts -> @/lib/canonical/authority/canonicalExecutionContext',
+  // Transaction authority reroute: the validator projects canonical transactions
+  // into the existing row interface at the seam. Rule packs read that projection
+  // off their input and import nothing from lib/canonical themselves.
+  'lib/validator/projectValidator.ts -> @/lib/canonical/authority/canonicalValidatorProjection',
   'lib/validator/projectValidator.ts -> @/lib/canonical/publication/projectTruthPublicationIdentity',
   'lib/validator/shared.ts -> @/lib/canonical/authority/canonicalExecutionContext',
   // Authority metadata is persisted with every run and threaded from the

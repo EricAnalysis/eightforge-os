@@ -18,7 +18,8 @@ import { isValueBearingState } from '@/lib/canonical/truth/envelope';
 import type { TruthEnvelope } from '@/lib/canonical/truth/envelope';
 import { authoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import { deriveBillingKeysForRateScheduleItem } from '@/lib/validator/billingKeys';
-import type { RateScheduleItem } from '@/lib/validator/shared';
+import type { CanonicalTransaction } from '@/lib/canonical/transaction/transaction';
+import type { RateScheduleItem, ValidatorTransactionDataRow } from '@/lib/validator/shared';
 
 /**
  * Reads a canonical envelope as an authoritative value.
@@ -160,4 +161,44 @@ export function projectCanonicalRateScheduleItems(
     }
   }
   return items;
+}
+
+/**
+ * Projects canonical transactions into the existing validator row interface.
+ *
+ * This is the single reroute point for transaction truth. Because exposure,
+ * reconciliation, and the transaction rule packs all read
+ * `ProjectValidatorInput.transactionData.rows`, swapping this one array moves
+ * every consumer onto canonical truth without rewriting any rule pack.
+ *
+ * Row grain is preserved exactly: one canonical transaction projects to one row.
+ * Nothing is merged, summed, or deduplicated here — ticket-grain aggregation is
+ * the consumer's concern, and collapsing rows would destroy the repeated-row
+ * evidence that makes a grain conflict visible.
+ */
+export function projectCanonicalTransactionRows(
+  transactions: readonly CanonicalTransaction[],
+  fallbackProjectId: string,
+): ValidatorTransactionDataRow[] {
+  return transactions.map((transaction) => ({
+    id: transaction.transactionId,
+    document_id: transaction.sourceDocumentId ?? '',
+    project_id: fallbackProjectId,
+    invoice_number: authoritativeString(transaction.invoiceNumber),
+    transaction_number: authoritativeString(transaction.transactionNumber),
+    rate_code: authoritativeString(transaction.rateCode),
+    billing_rate_key: transaction.matchingKeys.billingRateKey,
+    description_match_key: transaction.matchingKeys.descriptionMatchKey,
+    site_material_key: transaction.matchingKeys.siteMaterialKey,
+    invoice_rate_key: transaction.matchingKeys.invoiceRateKey,
+    transaction_quantity: authoritativeNumber(transaction.quantity),
+    extended_cost: authoritativeNumber(transaction.extendedCost),
+    invoice_date: authoritativeString(transaction.occurredAt),
+    source_sheet_name: transaction.sourceSheet ?? '',
+    source_row_number: transaction.sourceRow ?? 0,
+    // Raw observation retained verbatim so evidence stays traceable to source.
+    record_json: transaction.rawRowEvidence as Record<string, unknown>,
+    raw_row_json: transaction.rawRowEvidence as Record<string, unknown>,
+    created_at: '',
+  }));
 }

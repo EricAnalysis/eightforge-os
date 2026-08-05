@@ -1,3 +1,4 @@
+import type { CanonicalProjectTruth } from '@/lib/canonical/project/projectTruth';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { PersistedCanonicalTransactionRowInput } from '@/lib/canonical/transaction/transactionAdapter';
 import type { ValidationEvidence, ValidationFinding, ValidatorResult } from '@/types/validator';
@@ -41,4 +42,14 @@ export type ProjectTruthPublicationSource = {
   })[];
   readonly sourceArtifactSnapshot: readonly SourceArtifactSnapshotEntry[];
   readonly effectiveResult: ValidatorResult;
+  /**
+   * The frozen authoritative registry assembled during validation, when
+   * canonical authority governed the run.
+   *
+   * When present the publisher MUST reuse its source-of-truth sections instead
+   * of reassembling them. Publication is audit evidence derived from the same
+   * object that governed validation, never an independent second assembly.
+   * Null in legacy mode, where no authoritative registry exists.
+   */
+  readonly authoritativeRegistry?: CanonicalProjectTruth | null;
 };

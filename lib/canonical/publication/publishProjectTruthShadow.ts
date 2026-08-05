@@ -109,6 +109,10 @@ function sourceFromInput(input: CanonicalProjectTruthShadowPublicationInput): Pr
     // Publication never queries documents or extraction_source_artifacts.
     sourceArtifactSnapshot: input.validatorInput.sourceArtifactSnapshot,
     effectiveResult: input.effectiveResult,
+    // The exact frozen registry that governed validation, when canonical
+    // authority was established. Publication derives evidence from this object
+    // instead of assembling a competing one.
+    authoritativeRegistry: input.validatorInput.projectTruthAuthority?.registry ?? null,
   };
 }
 

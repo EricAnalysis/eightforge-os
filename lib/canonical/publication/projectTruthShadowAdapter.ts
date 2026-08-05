@@ -433,22 +433,33 @@ export function projectSourceBackedExposureReferences(result: ValidatorResult): 
 export function adaptProjectTruthPublicationSource(source: ProjectTruthPublicationSource): AdaptedProjectTruthPublication {
   const sourceBinding = bindPublicationSourceDocuments({ snapshot: source.sourceArtifactSnapshot, governingDocumentIds: source.governingDocumentIds });
   const pricingGoverningId = source.pricingContext?.documentId ?? null;
-  const pricingCandidates = adaptAssembledPricingRows(source.assembledContractPricingRows, {
-    documentId: pricingGoverningId,
-    projectId: source.project.id,
-    rateSchedule: source.pricingContext ? { scheduleId: source.pricingContext.scheduleId ?? null, scheduleName: source.pricingContext.scheduleName ?? null } : null,
-    governingDocument: pricingGoverningId ? {
+  // When canonical authority governed this run, the pricing section is REUSED
+  // from the frozen registry rather than reassembled. A second assembly here
+  // could diverge from the truth that actually produced the findings, which
+  // would make the published artifact misleading evidence.
+  const authoritativePricing = source.authoritativeRegistry?.contractPricing ?? null;
+  const pricingCandidates = authoritativePricing != null
+    ? []
+    : adaptAssembledPricingRows(source.assembledContractPricingRows, {
       documentId: pricingGoverningId,
-      family: familyAndGoverning(pricingGoverningId, source.governingDocumentIds).family,
-      title: null,
-    } : null,
-  });
-  const pricingRows = pricingCandidates.map((candidate) => resolveCanonicalPricingRow(candidate));
-  const contractPricing = pricingRows.length > 0 ? [buildCanonicalPricingSchedule({
-    scheduleId: source.pricingContext?.scheduleId ?? null,
-    scheduleName: source.pricingContext?.scheduleName ?? null,
-    rows: pricingRows,
-  })] : [];
+      projectId: source.project.id,
+      rateSchedule: source.pricingContext ? { scheduleId: source.pricingContext.scheduleId ?? null, scheduleName: source.pricingContext.scheduleName ?? null } : null,
+      governingDocument: pricingGoverningId ? {
+        documentId: pricingGoverningId,
+        family: familyAndGoverning(pricingGoverningId, source.governingDocumentIds).family,
+        title: null,
+      } : null,
+    });
+  const pricingRows = authoritativePricing != null
+    ? authoritativePricing.flatMap((schedule) => schedule.rows)
+    : pricingCandidates.map((candidate) => resolveCanonicalPricingRow(candidate));
+  const contractPricing = authoritativePricing != null
+    ? authoritativePricing
+    : pricingRows.length > 0 ? [buildCanonicalPricingSchedule({
+      scheduleId: source.pricingContext?.scheduleId ?? null,
+      scheduleName: source.pricingContext?.scheduleName ?? null,
+      rows: pricingRows,
+    })] : [];
   const invoice = adaptInvoices(source);
   const transactions = prepareCanonicalTransactionStream({ rows: source.transactionData?.rows ?? [], sourceArtifacts: source.sourceArtifactSnapshot });
   const matches = projectSourceBackedPricingMatches({

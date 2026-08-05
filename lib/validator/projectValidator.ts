@@ -2654,6 +2654,12 @@ async function loadValidatorInput(projectId: string): Promise<ProjectValidatorIn
     },
     governingDocumentFamily: null,
     legacyRateScheduleItems: baseFactLookups.rateScheduleItems,
+    // Transaction and document-relationship truth join the same single
+    // assembly. These are the frozen objects already retained by validator-input
+    // construction; canonical mode adapts them and never re-reads sources.
+    transactionRows: transactionData?.rows ?? [],
+    transactionDatasets: transactionData?.datasets ?? [],
+    governingDocumentIds,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
   });
   // Canonical truth governs only when it actually established. A blocked or

@@ -22,9 +22,16 @@ import {
 } from '@/lib/canonical/contract/pricingResolution';
 import type { CanonicalContractPricingSchedule } from '@/lib/canonical/contract/pricing';
 import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';
+import type { CanonicalGoverningDocumentReference } from '@/lib/canonical/project/projectTruth';
 import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
+import type { PersistedCanonicalTransactionRowInput } from '@/lib/canonical/transaction/transactionAdapter';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
-import type { RateScheduleItem } from '@/lib/validator/shared';
+import type { RateScheduleItem, ValidatorTransactionDataDataset } from '@/lib/validator/shared';
+
+import {
+  type CanonicalTransactionAssembly,
+  assembleCanonicalTransactions,
+} from './canonicalTransactionAuthority';
 
 import {
   type CanonicalProjectTruthExecutionContext,
@@ -54,6 +61,14 @@ export type ProjectTruthAuthorityInput = {
   readonly governingDocumentFamily?: string | null;
   /** Legacy items, used only as the authoritative value in legacy mode. */
   readonly legacyRateScheduleItems: readonly RateScheduleItem[];
+  /**
+   * Persisted transaction rows retained during validator-input construction.
+   * Canonical mode adapts these in place; it never re-reads workbooks.
+   */
+  readonly transactionRows?: readonly PersistedCanonicalTransactionRowInput[];
+  readonly transactionDatasets?: readonly ValidatorTransactionDataDataset[];
+  /** Document-family and governing relationships from the precedence snapshot. */
+  readonly governingDocumentIds?: Readonly<Record<string, readonly string[]>>;
   readonly sourceArtifactSnapshotDigest: string | null;
   readonly sourceSnapshotId?: string | null;
   /** Injected for tests and harnesses so `process.env` is never mutated. */
@@ -107,18 +122,44 @@ function assembleCanonicalPricing(
  * section is an honest "not yet canonical", while a legacy back-fill would mix
  * authorities inside one run.
  */
+/**
+ * Projects document-family membership into canonical governing references.
+ *
+ * The relationship label is carried verbatim from the precedence snapshot's
+ * family key; canonical code does not reinterpret it. Ordering is deterministic.
+ */
+function assembleGoverningDocuments(
+  governingDocumentIds: Readonly<Record<string, readonly string[]>> | undefined,
+): readonly CanonicalGoverningDocumentReference[] {
+  if (governingDocumentIds == null) return [];
+  const references: CanonicalGoverningDocumentReference[] = [];
+  for (const family of Object.keys(governingDocumentIds).sort((l, r) => l.localeCompare(r, 'en-US'))) {
+    for (const documentId of [...(governingDocumentIds[family] ?? [])].sort((l, r) => l.localeCompare(r, 'en-US'))) {
+      references.push({
+        documentId,
+        family,
+        relationship: 'governs',
+        effectiveAt: null,
+        evidence: [],
+      });
+    }
+  }
+  return references;
+}
+
 function assembleAuthoritativeRegistry(
   input: ProjectTruthAuthorityInput,
   contractPricing: readonly CanonicalContractPricingSchedule[],
+  transactionAssembly: CanonicalTransactionAssembly,
 ) {
   return buildCanonicalProjectTruth({
     projectId: input.projectId,
-    governingDocuments: [],
+    governingDocuments: assembleGoverningDocuments(input.governingDocumentIds),
     contractTermReferences: [],
     contractPricing,
     invoices: [],
     invoiceLines: [],
-    transactions: [],
+    transactions: transactionAssembly.transactions,
     derived: {
       // Derived sections are outputs of validation, not inputs to it. They are
       // completed once from the result after rule packs run; assembling them
@@ -168,7 +209,14 @@ export function resolveProjectTruthAuthority(
     });
   }
 
-  const registry = assembleAuthoritativeRegistry(input, contractPricing);
+  // Transactions are assembled in the same single pass. A grain conflict is
+  // recorded as a diagnostic, not resolved: canonical authority never picks a
+  // winner between conflicting source observations of one physical ticket.
+  const transactionAssembly = assembleCanonicalTransactions({
+    rows: input.transactionRows ?? [],
+  });
+
+  const registry = assembleAuthoritativeRegistry(input, contractPricing, transactionAssembly);
   const registryDigest = hashCanonicalJson(registry);
   const rateScheduleItems = projectCanonicalRateScheduleItems(contractPricing);
 
@@ -201,7 +249,14 @@ export function resolveProjectTruthAuthority(
     registry,
     registryDigest,
     sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
-    validatorProjection: { rateScheduleItems },
+    validatorProjection: {
+      rateScheduleItems,
+      transactions: {
+        rows: transactionAssembly.transactions,
+        distinctIdentityCount: transactionAssembly.distinctIdentityCount,
+        grainConflicts: transactionAssembly.grainConflicts,
+      },
+    },
     blockReason: null,
     block: null,
   });

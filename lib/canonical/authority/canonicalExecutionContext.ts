@@ -13,8 +13,10 @@
  */
 
 import type { CanonicalProjectTruth } from '@/lib/canonical/project/projectTruth';
+import type { CanonicalTransaction } from '@/lib/canonical/transaction/transaction';
 import type { RateScheduleItem } from '@/lib/validator/shared';
 
+import type { CanonicalTransactionGrainConflict } from './canonicalTransactionAuthority';
 import type {
   CanonicalAuthorityBlock,
   CanonicalAuthorityBlockReason,
@@ -48,6 +50,19 @@ export type CanonicalExecutionAssemblyStatus =
  */
 export type CanonicalValidatorProjection = {
   readonly rateScheduleItems: readonly RateScheduleItem[];
+  /**
+   * Ticket-grain transaction truth: identity, quantity, and amount.
+   *
+   * `distinctIdentityCount` is the correct denominator for ticket-grain counts;
+   * `rows.length` may exceed it when a ticket appears on repeated physical rows.
+   * `grainConflicts` is non-empty when repeated rows disagree on a ticket-grain
+   * value — a deterministic diagnostic rather than a silently chosen winner.
+   */
+  readonly transactions: {
+    readonly rows: readonly CanonicalTransaction[];
+    readonly distinctIdentityCount: number;
+    readonly grainConflicts: readonly CanonicalTransactionGrainConflict[];
+  };
 };
 
 export type CanonicalProjectTruthExecutionContext = {

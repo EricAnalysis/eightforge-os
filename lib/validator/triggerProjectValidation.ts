@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
+import { buildProjectTruthAuthorityMetadata } from '@/lib/canonical/authority/canonicalExecutionContext';
+import { scheduleCanonicalProjectTruthShadowPublication } from '@/lib/canonical/publication/publishProjectTruthShadow';
 import {
   isDocumentFactOverridesTableUnavailableError,
 } from '@/lib/documentFactOverrides';
@@ -13,7 +15,7 @@ import {
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { persistValidationRun } from '@/lib/validator/persistValidationRun';
-import { validateProject } from '@/lib/validator/projectValidator';
+import { runProjectValidation } from '@/lib/validator/projectValidator';
 import type { ValidationTriggerSource } from '@/types/validator';
 import type { ValidationTriggerEntity } from '@/lib/validator/validationTriggerAttribution';
 import { reportValidatorFreshnessShadow } from '@/lib/validator/validatorFreshnessAudit';
@@ -482,15 +484,31 @@ export async function runValidationFlow(params: {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const result = await validateProject(params.projectId);
-  await persistValidationRun(
+  const { result, input } = await runProjectValidation(params.projectId);
+  // The execution context assembled during validation carries the authority
+  // identity. It is threaded here rather than recomputed, so the persisted
+  // metadata describes the exact registry that governed this run.
+  const authorityMetadata = input.projectTruthAuthority
+    ? buildProjectTruthAuthorityMetadata(input.projectTruthAuthority)
+    : null;
+  const persisted = await persistValidationRun(
     params.projectId,
     result,
     params.source,
     params.userId,
     params.inputsSnapshotHash,
     params.triggerEntity,
+    authorityMetadata,
   );
+  scheduleCanonicalProjectTruthShadowPublication({
+    projectId: params.projectId,
+    runId: persisted.runId,
+    triggerSource: params.source,
+    inputsSnapshotHash: params.inputsSnapshotHash,
+    validatorInput: input,
+    effectiveResult: persisted.effectiveResult,
+    persistedFindings: persisted.persistedFindings,
+  });
 }
 
 async function logValidationRunRequested(params: {

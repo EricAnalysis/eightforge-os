@@ -1,3 +1,4 @@
+import type { ProjectTruthAuthorityMetadata } from '@/lib/canonical/authority/canonicalExecutionContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
@@ -43,8 +44,16 @@ const CONTRACT_ISSUE_TYPE_BY_SUPPRESSED_ISSUE_ID: Record<string, string> = {
   'missing_required_clause:activation_trigger': 'missing_required_clause',
 };
 
-type PersistableValidationFinding = ValidationFinding & {
+export type PersistedValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
+};
+
+type PersistableValidationFinding = PersistedValidationFinding;
+
+export type PersistValidationRunResult = {
+  readonly runId: string;
+  readonly effectiveResult: ValidatorResult;
+  readonly persistedFindings: readonly PersistedValidationFinding[];
 };
 
 type ExistingOpenFindingRow = ValidationFinding & { id: string };
@@ -949,13 +958,20 @@ async function createValidationFindingGeneratedActivityEvent(params: {
 async function updateProjectValidationState(
   projectId: string,
   result: ValidatorResult,
+  authorityMetadata?: ProjectTruthAuthorityMetadata | null,
 ): Promise<void> {
   const admin = requireAdminClient();
+  // Authority metadata rides in the existing structured summary field, so the
+  // cutover needs no migration. It identifies which authority produced this
+  // result and which exact registry and frozen sources backed it.
+  const summary = authorityMetadata
+    ? { ...result.summary, project_truth_authority: authorityMetadata }
+    : result.summary;
   const { error } = await admin
     .from('projects')
     .update({
       validation_status: result.status,
-      validation_summary_json: result.summary,
+      validation_summary_json: summary,
     })
     .eq('id', projectId);
 
@@ -1103,7 +1119,12 @@ export async function persistValidationRun(
   triggeredByUserId?: string,
   inputsSnapshotHash?: string | null,
   triggerEntity?: ValidationTriggerEntity,
-): Promise<{ runId: string }> {
+  /**
+   * Authority metadata for this execution. Optional so legacy callers are
+   * unaffected; when present it is persisted alongside the summary.
+   */
+  authorityMetadata?: ProjectTruthAuthorityMetadata | null,
+): Promise<PersistValidationRunResult> {
   const findings = suppressOverlappingMissingContractRateFindings(
     (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
   );
@@ -1240,7 +1261,7 @@ export async function persistValidationRun(
     });
 
     await markRunComplete(runId, effectivePersistedFindings);
-    await updateProjectValidationState(projectId, effectiveResult);
+    await updateProjectValidationState(projectId, effectiveResult, authorityMetadata);
 
     const completedRunId = runId;
     const sideEffectContext = { projectId, runId: completedRunId };
@@ -1357,7 +1378,11 @@ export async function persistValidationRun(
       }
     });
       // Never throw — action execution is a side effect, not part of validation correctness
-    return { runId };
+    return {
+      runId,
+      effectiveResult,
+      persistedFindings: effectivePersistedFindings,
+    };
   } catch (error) {
     if (runId) {
       await markRunFailed(runId);

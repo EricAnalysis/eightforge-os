@@ -1,11 +1,63 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
-import { analyzeContractIntelligence } from '@/lib/contracts/analyzeContractIntelligence';
-import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
+import {
+  analyzeContractIntelligence,
+  buildContractIntelligenceRateScheduleRows,
+  buildContractPricingSelectedCategoryOverrides,
+} from '@/lib/contracts/analyzeContractIntelligence';
+import {
+  assembleContractPricingRows,
+  assembleContractPricingRowsWithCandidates,
+} from '@/lib/contracts/contractPricingAssembly';
+import type { ContractRateScheduleRow } from '@/lib/contracts/types';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 
 describe('contract pricing authored correction provenance', () => {
+  it('retains an analyzer-rescued category in the single coordinated selected view', () => {
+    const structuralRow: ContractRateScheduleRow = {
+      row_id: 'synthetic-tree-rescue-row',
+      source_kind: undefined,
+      category: null,
+      source_category: 'Tree',
+      material_type: 'Tree',
+      canonical_category: null,
+      category_confidence: null,
+      description: 'Tree removal service',
+      unit: 'Tree',
+      unit_type: 'Tree',
+      rate: 95,
+      rate_amount: 95,
+      page: 9,
+      source_anchor_ids: ['synthetic:tree:1'],
+      rate_raw: '$95.00',
+    };
+    const sourceScope = {
+      documentId: 'synthetic-human-override-contract',
+      sourceVersionIdentity: 'fixture-version-1',
+    } as const;
+    const selectedCategoryBySourceRow = buildContractPricingSelectedCategoryOverrides(
+      [structuralRow],
+      sourceScope,
+      'authoritative_rate_schedule',
+    );
+    const result = assembleContractPricingRowsWithCandidates(
+      [structuralRow],
+      sourceScope,
+      { selectedCategoryBySourceRow },
+    );
+
+    assert.deepEqual(result.selectedRows.map(({ id, category, unit, rate }) => ({
+      id, category, unit, rate,
+    })), [{
+      id: 'synthetic-tree-rescue-row',
+      category: 'Tree Operations',
+      unit: 'Tree',
+      rate: 95,
+    }]);
+    assert.deepEqual([...result.candidatesBySourceRow.values()], [[]]);
+  });
+
   it('stamps the existing Williamson correction without changing its output values', () => {
     const [assembled] = assembleContractPricingRows([
       {
@@ -94,10 +146,27 @@ describe('contract pricing authored correction provenance', () => {
       facts: [],
       fact_map: {},
     } satisfies NormalizedNodeDocument;
+    const sourceScope = {
+      documentId: document.document_id,
+      sourceVersionIdentity: 'test-source-version',
+    } as const;
+    const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows({
+      primaryDocument: document,
+    });
+    const pricingAssembly = assembleContractPricingRowsWithCandidates(
+      structuralRateScheduleRows,
+      sourceScope,
+    );
 
     const analysis = analyzeContractIntelligence({
       primaryDocument: document,
       relatedDocuments: [],
+      pricingAssembly: {
+        sourceScope,
+        candidateInputRole: 'authoritative_rate_schedule',
+        structuralRateScheduleRows,
+        candidatesBySourceRow: pricingAssembly.candidatesBySourceRow,
+      },
     });
     const persisted = analysis?.rate_schedule_rows?.[0];
 

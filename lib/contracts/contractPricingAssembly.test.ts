@@ -4,8 +4,12 @@ import { describe, it } from 'vitest';
 
 import {
   assembleContractPricingRows,
+  assembleContractPricingRowsWithCandidates,
   cleanContractRateDescriptionForDisplay,
+  ContractPricingSourceIdentityCollisionError,
+  contractPricingSourceRowIdentity,
   formatContractPricingRate,
+  lookupContractPricingCandidates,
   scoreContractPricingRowSourceQuality,
 } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
@@ -33,6 +37,247 @@ function row(overrides: Partial<ContractRateScheduleRow> = {}): ContractRateSche
 }
 
 describe('assembleContractPricingRows', () => {
+  it('preserves explicit pre-refactor wrapper output and returns isolated mutable copies', () => {
+    const rows = [
+      row(),
+      row({
+        row_id: 'rate_row:fallback:3',
+        description: 'Vegetative Collect, Remove & Haul from Rural Areas ROW to DMS 0 to 15 Miles',
+        rate: 13.5,
+        rate_amount: 13.5,
+        rate_raw:
+          'Vegetative Collect, Remove & Haul | from Rural Areas ROW to DMS 0 to 15 Miles | Cubic Yard | $13.50',
+      }),
+    ];
+
+    const coordinated = assembleContractPricingRowsWithCandidates(rows, {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    });
+    const legacy = assembleContractPricingRows(rows);
+
+    assert.deepEqual(legacy.map(({ id, category, description, unit, rate }) => ({
+      id, category, description, unit, rate,
+    })), [
+      {
+        id: 'rate_row:fallback:2',
+        category: 'Vegetative Collect, Remove & Haul',
+        description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
+        rate: 6.9,
+      },
+      {
+        id: 'rate_row:fallback:3',
+        category: 'Vegetative Collect, Remove & Haul',
+        description: 'from Rural Areas ROW to DMS 0 to 15 Miles',
+        unit: 'Cubic Yard',
+        rate: 13.5,
+      },
+    ]);
+    assert.equal(Object.isFrozen(legacy), false);
+    assert.equal(Object.isFrozen(legacy[0]), false);
+    legacy[0]!.description = 'caller mutation';
+    (legacy[0]!.pricingDimensions as { routeKind: string }).routeKind = 'unresolved';
+    assert.equal(coordinated.selectedRows[0]?.description, 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles');
+    assert.equal(coordinated.selectedRows[0]?.pricingDimensions?.routeKind, 'row_to_dms');
+  });
+
+  it('keys candidates by document and immutable source version identity', () => {
+    const sourceRow = row();
+    const firstScope = {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    } as const;
+    const secondDocumentScope = {
+      documentId: 'contract-document-2',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    } as const;
+    const secondVersionScope = {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-2:sha-2:version-2',
+    } as const;
+
+    const firstIdentity = contractPricingSourceRowIdentity(sourceRow, 0, firstScope);
+    const secondDocumentIdentity = contractPricingSourceRowIdentity(sourceRow, 0, secondDocumentScope);
+    const secondVersionIdentity = contractPricingSourceRowIdentity(sourceRow, 0, secondVersionScope);
+
+    assert.notEqual(firstIdentity, secondDocumentIdentity);
+    assert.notEqual(firstIdentity, secondVersionIdentity);
+    assert.equal(
+      assembleContractPricingRowsWithCandidates([sourceRow], firstScope)
+        .candidatesBySourceRow.has(firstIdentity),
+      true,
+    );
+  });
+
+  it('uses deterministic role-scoped identities for authoritative and structural rows sharing a row_id', () => {
+    const scope = {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    } as const;
+    const persisted = row({ row_id: 'shared-row', rate: 99, rate_amount: 99 });
+    const structural = row({ row_id: 'shared-row', rate: 6.9, rate_amount: 6.9 });
+    const result = assembleContractPricingRowsWithCandidates([persisted], scope, {}, [structural]);
+    const authoritativeIdentity = contractPricingSourceRowIdentity(
+      persisted, 0, scope, 'authoritative_rate_schedule',
+    );
+    const structuralIdentity = contractPricingSourceRowIdentity(
+      structural, 0, scope, 'structural_candidate',
+    );
+
+    assert.notEqual(authoritativeIdentity, structuralIdentity);
+    assert.equal(
+      lookupContractPricingCandidates(result.candidatesBySourceRow, {
+        row: persisted,
+        sourceIndex: 0,
+        sourceScope: scope,
+        inputRole: 'authoritative_rate_schedule',
+      }).state,
+      'candidates',
+    );
+    const structuralLookup = lookupContractPricingCandidates(result.candidatesBySourceRow, {
+      row: structural,
+      sourceIndex: 0,
+      sourceScope: scope,
+      inputRole: 'structural_candidate',
+    });
+    assert.equal(structuralLookup.state, 'candidates');
+    assert.equal(structuralLookup.state === 'candidates' ? structuralLookup.candidates[0]?.rate : null, 6.9);
+  });
+
+  it('distinguishes repeated anchorless text by coordinated ordinal and remains allocation-stable', () => {
+    const scope = { documentId: 'contract-document-1', sourceVersionIdentity: 'version-1' } as const;
+    const anchorless = row({ row_id: '', source_anchor_ids: [], geometry_refs: [], page: 8 });
+    const first = contractPricingSourceRowIdentity(anchorless, 0, scope, 'authoritative_rate_schedule');
+    const second = contractPricingSourceRowIdentity({ ...anchorless }, 1, scope, 'authoritative_rate_schedule');
+    const repeated = contractPricingSourceRowIdentity({ ...anchorless }, 0, scope, 'authoritative_rate_schedule');
+
+    assert.notEqual(first, second);
+    assert.equal(first, repeated);
+    assert.doesNotThrow(() => assembleContractPricingRowsWithCandidates([
+      anchorless,
+      { ...anchorless },
+    ], scope));
+  });
+
+  it('fails visibly on duplicate stable identities within one input role', () => {
+    const scope = { documentId: 'contract-document-1', sourceVersionIdentity: 'version-1' } as const;
+    assert.throws(
+      () => assembleContractPricingRowsWithCandidates([
+        row({ row_id: 'duplicate-stable-id' }),
+        row({ row_id: 'duplicate-stable-id' }),
+      ], scope),
+      ContractPricingSourceIdentityCollisionError,
+    );
+  });
+
+  it('distinguishes known no-candidate rows, lookup misses, and valid multi-candidate buckets', () => {
+    const scope = { documentId: 'contract-document-1', sourceVersionIdentity: 'version-1' } as const;
+    const rejected = row({
+      row_id: 'rejected-row',
+      category: '1',
+      source_category: '1',
+      material_type: '1',
+      canonical_category: null,
+      description: '',
+      unit: null,
+      unit_type: null,
+      rate: null,
+      rate_amount: null,
+      rate_raw: '',
+      raw_text: '',
+    });
+    const result = assembleContractPricingRowsWithCandidates([rejected], scope);
+    assert.equal(lookupContractPricingCandidates(result.candidatesBySourceRow, {
+      row: rejected,
+      sourceIndex: 0,
+      sourceScope: scope,
+      inputRole: 'authoritative_rate_schedule',
+    }).state, 'no_visible_candidate');
+    assert.equal(lookupContractPricingCandidates(result.candidatesBySourceRow, {
+      row: rejected,
+      sourceIndex: 0,
+      sourceScope: { ...scope, sourceVersionIdentity: 'version-2' },
+      inputRole: 'authoritative_rate_schedule',
+    }).state, 'identity_miss');
+
+    const identity = contractPricingSourceRowIdentity(row(), 0, scope, 'authoritative_rate_schedule');
+    const candidate = result.selectedRows[0] ?? assembleContractPricingRowsWithCandidates([row()], scope).selectedRows[0]!;
+    const multiple = lookupContractPricingCandidates(new Map([[identity, [candidate, { ...candidate, id: 'second' }]]]), {
+      row: row(),
+      sourceIndex: 0,
+      sourceScope: scope,
+      inputRole: 'authoritative_rate_schedule',
+    });
+    assert.equal(multiple.state, 'candidates');
+    assert.equal(multiple.state === 'candidates' ? multiple.candidates.length : 0, 2);
+  });
+
+  it('keeps singleton candidate visibility equivalent to singleton selected visibility across a corpus', () => {
+    const scope = { documentId: 'visibility-corpus', sourceVersionIdentity: 'version-1' } as const;
+    const corpus = [
+      row({ row_id: 'tdot', source_kind: 'tdot_appendix_b_stitched_table' }),
+      row({ row_id: 'mdot', source_kind: 'mdot_section_905_bid_schedule' }),
+      row({ row_id: 'contract:canonical' }),
+      row({ row_id: 'contract:uncategorized-canonical', category: null, source_category: null, material_type: null, canonical_category: null }),
+      row({ row_id: 'rejected', category: '1', source_category: '1', material_type: '1', canonical_category: null }),
+      row({ row_id: 'grouped', category: 'Equipment', source_category: 'Equipment', material_type: 'Equipment', canonical_category: 'equipment', page: 10, description: 'Pickup Truck', unit: 'Hour', rate: 25, rate_amount: 25 }),
+    ];
+
+    for (const sourceRow of corpus) {
+      const result = assembleContractPricingRowsWithCandidates([sourceRow], scope);
+      const identity = contractPricingSourceRowIdentity(sourceRow, 0, scope, 'authoritative_rate_schedule');
+      const lookup = lookupContractPricingCandidates(result.candidatesBySourceRow, {
+        row: sourceRow,
+        sourceIndex: 0,
+        sourceScope: scope,
+        inputRole: 'authoritative_rate_schedule',
+      });
+      assert.equal(lookup.state === 'candidates', result.selectedRows.length > 0, sourceRow.row_id);
+    }
+  });
+
+  it('returns immutable coordinated views', () => {
+    const result = assembleContractPricingRowsWithCandidates([row()], {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    });
+    const candidateBucket = [...result.candidatesBySourceRow.values()][0];
+
+    assert.equal(Object.isFrozen(result), true);
+    assert.equal(Object.isFrozen(result.selectedRows), true);
+    assert.equal(Object.isFrozen(result.selectedRows[0]), true);
+    assert.equal(Object.isFrozen(candidateBucket), true);
+    assert.equal(Object.isFrozen(candidateBucket?.[0]), true);
+    assert.equal('set' in result.candidatesBySourceRow, false);
+    assert.equal('delete' in result.candidatesBySourceRow, false);
+    assert.equal('clear' in result.candidatesBySourceRow, false);
+  });
+
+  it('retains candidates that full-set deduplication discards from selected rows', () => {
+    const duplicate = row({
+      row_id: 'rate_row:fallback:duplicate',
+      source_anchor_ids: ['pdf:text:p8:b13'],
+    });
+    const result = assembleContractPricingRowsWithCandidates([row(), duplicate], {
+      documentId: 'contract-document-1',
+      sourceVersionIdentity: 'artifact-1:sha-1:version-1',
+    });
+    const candidates = [...result.candidatesBySourceRow.values()].flat();
+
+    assert.equal(result.selectedRows.length, 1);
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.id).sort(),
+      ['rate_row:fallback:2', 'rate_row:fallback:duplicate'],
+    );
+    assert.equal(
+      result.selectedRows[0]?.mergeDiagnostics?.some(
+        (diagnostic) => diagnostic.reason === 'dedupe_key_collision',
+      ),
+      true,
+    );
+  });
+
   it('assembles clean rate row with category, description, unit, rate, page', () => {
     const [assembled] = assembleContractPricingRows([row()]);
     assert.equal(assembled?.category, 'Vegetative Collect, Remove & Haul');

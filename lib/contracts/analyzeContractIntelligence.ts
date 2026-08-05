@@ -4,7 +4,14 @@ import {
   classifyContractCeiling,
   contractCeilingSummary,
 } from '@/lib/contracts/contractCeiling';
-import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
+import {
+  contractPricingSourceRowIdentity,
+  lookupContractPricingCandidates,
+  type ContractPricingAssemblyRow,
+  type ContractPricingRateScheduleInputRole,
+  type ContractPricingAssemblySourceScope,
+  type ContractPricingSourceRowIdentity,
+} from '@/lib/contracts/contractPricingAssembly';
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
@@ -34,7 +41,36 @@ import {
   resolveCanonicalRateCategory,
 } from '@/lib/validator/rateTaxonomy';
 
-type AnalyzeContractIntelligenceInput = {
+export type ContractIntelligencePricingAssemblyContext = {
+  readonly sourceScope: ContractPricingAssemblySourceScope;
+  readonly candidateInputRole: ContractPricingRateScheduleInputRole;
+  readonly structuralRateScheduleRows: readonly ContractRateScheduleRow[];
+  readonly candidatesBySourceRow: ReadonlyMap<
+    ContractPricingSourceRowIdentity,
+    readonly ContractPricingAssemblyRow[]
+  >;
+};
+
+export class ContractPricingCandidateIdentityMissError extends Error {
+  readonly code = 'contract_pricing_candidate_identity_miss';
+
+  constructor(params: {
+    sourceScope: ContractPricingAssemblySourceScope;
+    inputRole: ContractPricingRateScheduleInputRole;
+    sourceIndex: number;
+  }) {
+    super([
+      'Contract pricing candidate identity miss',
+      `document=${params.sourceScope.documentId}`,
+      `version=${params.sourceScope.sourceVersionIdentity ?? 'null'}`,
+      `role=${params.inputRole}`,
+      `sourceIndex=${params.sourceIndex}`,
+    ].join(' '));
+    this.name = 'ContractPricingCandidateIdentityMissError';
+  }
+}
+
+export type AnalyzeContractIntelligenceInput = {
   primaryDocument: NormalizedNodeDocument;
   relatedDocuments: NormalizedNodeDocument[];
   confirmedGoverningScheduleResolved?: boolean;
@@ -45,6 +81,11 @@ type AnalyzeContractIntelligenceInput = {
    * never a restriction on which pages get extracted.
    */
   operatorRateSchedulePageHints?: readonly number[];
+  /**
+   * Candidate rows produced by the caller's single coordinated pricing
+   * assembly execution. Contract intelligence never assembles pricing.
+   */
+  pricingAssembly?: ContractIntelligencePricingAssemblyContext;
 };
 
 type FieldFamilies = Pick<
@@ -1013,26 +1054,81 @@ function buildFieldFamilies(
   };
 }
 
+function resolveRateScheduleRowCategory(row: ContractRateScheduleRow): {
+  resolution: ReturnType<typeof resolveCanonicalRateCategory>;
+  allowedCategory: string | null;
+} {
+  const resolution = resolveCanonicalRateCategory({
+    sourceCategory: row.category ?? row.source_category ?? row.material_type,
+    sourceDescriptors: [
+      row.description,
+      row.rate_raw,
+      row.raw_text,
+      ...(row.raw_cells ?? []),
+    ],
+    existingCanonicalCategory: row.canonical_category,
+    existingConfidence: row.category_confidence,
+  });
+  return {
+    resolution,
+    allowedCategory: allowedCategoryForCanonicalTaxonomyKey(resolution.canonical_category),
+  };
+}
+
+export function buildContractPricingSelectedCategoryOverrides(
+  rows: readonly ContractRateScheduleRow[],
+  sourceScope: ContractPricingAssemblySourceScope,
+  inputRole: ContractPricingRateScheduleInputRole,
+): ReadonlyMap<ContractPricingSourceRowIdentity, string> {
+  const entries: Array<readonly [ContractPricingSourceRowIdentity, string]> = [];
+  for (const [sourceIndex, row] of rows.entries()) {
+    const { allowedCategory } = resolveRateScheduleRowCategory(row);
+    if (!allowedCategory) continue;
+    entries.push([
+      contractPricingSourceRowIdentity(row, sourceIndex, sourceScope, inputRole),
+      allowedCategory,
+    ] as const);
+  }
+  return new Map(entries);
+}
+
 function enrichRateScheduleRowsForPersistence(
   rows: readonly ContractRateScheduleRow[],
+  pricingAssembly: ContractIntelligencePricingAssemblyContext | undefined,
 ): ContractRateScheduleRow[] {
   if (rows.length === 0) return [];
 
-  return rows.map((row) => {
-    const assembled = assembleContractPricingRows([row])[0] ?? null;
-    const authoredValueCorrection = assembled?.authoredValueCorrection === true;
-    const resolution = resolveCanonicalRateCategory({
-      sourceCategory: assembled?.category ?? row.category ?? row.source_category ?? row.material_type,
-      sourceDescriptors: [
-        row.description,
-        row.rate_raw,
-        row.raw_text,
-        ...(row.raw_cells ?? []),
-      ],
-      existingCanonicalCategory: row.canonical_category,
-      existingConfidence: row.category_confidence,
+  return rows.map((row, index) => {
+    const lookup = pricingAssembly
+      ? lookupContractPricingCandidates(pricingAssembly.candidatesBySourceRow, {
+          row,
+          sourceIndex: index,
+          sourceScope: pricingAssembly.sourceScope,
+          inputRole: pricingAssembly.candidateInputRole,
+        })
+      : null;
+    if (lookup?.state === 'identity_miss') {
+      throw new ContractPricingCandidateIdentityMissError({
+        sourceScope: pricingAssembly!.sourceScope,
+        inputRole: pricingAssembly!.candidateInputRole,
+        sourceIndex: index,
+      });
+    }
+    const assembledCandidates = lookup?.state === 'candidates' ? lookup.candidates : [];
+    const authoredValueCorrection = assembledCandidates.some(
+      (candidate) => candidate.authoredValueCorrection === true,
+    );
+    const assembledCategories = [...new Set(
+      assembledCandidates
+        .map((candidate) => candidate.category)
+        .filter((category): category is string => Boolean(category)),
+    )];
+    const assembledCategory = assembledCategories.length === 1 ? assembledCategories[0] : null;
+    const { resolution, allowedCategory } = resolveRateScheduleRowCategory({
+      ...row,
+      category: assembledCategory ?? row.category,
     });
-    const category = assembled?.category ?? allowedCategoryForCanonicalTaxonomyKey(resolution.canonical_category);
+    const category = assembledCategory ?? allowedCategory;
     if (!category) {
       return authoredValueCorrection
         ? { ...row, authoredValueCorrection: true }
@@ -1054,24 +1150,18 @@ function enrichRateScheduleRowsForPersistence(
   });
 }
 
-export function analyzeContractIntelligence(
-  input: AnalyzeContractIntelligenceInput,
-): ContractAnalysisResult | null {
-  if (input.primaryDocument.family !== 'contract') return null;
-
-  const profile = determineDocumentTypeProfile(input.primaryDocument);
-  const patterns = detectClausePatterns(input.primaryDocument);
-  const { families, scopeCategoryEvidenceAnchors } = buildFieldFamilies(
-    input.primaryDocument,
-    patterns,
-    profile,
-  );
+export function buildContractIntelligenceRateScheduleRows(
+  input: Pick<
+    AnalyzeContractIntelligenceInput,
+    'primaryDocument' | 'operatorRateSchedulePageHints'
+  >,
+): readonly ContractRateScheduleRow[] {
   const rateSchedulePages = uniqueStrings([
     ...numberArray(input.primaryDocument.fact_map.rate_schedule_pages?.value ?? null).map(String),
     ...numberArray(input.primaryDocument.section_signals.rate_section_pages ?? null).map(String),
   ]).map((value) => Number.parseInt(value, 10));
   const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
-  const structuralRateScheduleRows = buildContractRateScheduleRows({
+  return buildContractRateScheduleRows({
     documentType: input.primaryDocument.document_type,
     rateTable: input.primaryDocument.typed_fields.rate_table,
     canonicalRateScheduleAssembly: input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
@@ -1088,7 +1178,26 @@ export function analyzeContractIntelligence(
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
   });
-  const rateScheduleRows = enrichRateScheduleRowsForPersistence(structuralRateScheduleRows);
+}
+
+export function analyzeContractIntelligence(
+  input: AnalyzeContractIntelligenceInput,
+): ContractAnalysisResult | null {
+  if (input.primaryDocument.family !== 'contract') return null;
+
+  const profile = determineDocumentTypeProfile(input.primaryDocument);
+  const patterns = detectClausePatterns(input.primaryDocument);
+  const { families, scopeCategoryEvidenceAnchors } = buildFieldFamilies(
+    input.primaryDocument,
+    patterns,
+    profile,
+  );
+  const structuralRateScheduleRows = input.pricingAssembly?.structuralRateScheduleRows
+    ?? buildContractIntelligenceRateScheduleRows(input);
+  const rateScheduleRows = enrichRateScheduleRowsForPersistence(
+    structuralRateScheduleRows,
+    input.pricingAssembly,
+  );
 
   const analysisWithoutIssues: Omit<ContractAnalysisResult, 'coverage_status' | 'issues' | 'trace_summary'> = {
     document_id: input.primaryDocument.document_id,

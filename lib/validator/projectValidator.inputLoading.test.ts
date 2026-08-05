@@ -22,6 +22,7 @@ import {
   type InvoiceLineRateLinkRow,
 } from '@/lib/validator/projectValidator';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import { deriveBillingKeysForRateScheduleItem } from '@/lib/validator/billingKeys';
 import { buildEvidenceTarget } from '@/lib/validator/evidenceNavigation';
 import {
@@ -282,6 +283,8 @@ describe('project validator input loading', () => {
       project: { id: 'project-1', organization_id: 'org-1', name: 'Project', code: 'P1' },
       validationPhase: 'billing_review',
       documents: [],
+      assembledContractPricingRows: [],
+      sourceArtifactSnapshot: [],
       documentRelationships: [],
       precedenceFamilies: [],
       familyDocumentIds: families,
@@ -578,6 +581,9 @@ describe('project validator input loading', () => {
       factsByDocumentId: new Map(),
       rateDocumentIds: [],
       contractValidationContext: context,
+      assembledContractPricingRows: assembleContractPricingRows(
+        context.analysis.rate_schedule_rows,
+      ),
     });
 
     assert.equal(items.some((item) => item.rate_amount === 6.9), true);

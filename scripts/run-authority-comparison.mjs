@@ -37,7 +37,10 @@ const persist = !args.includes('--no-persist');
 const projectIds = args.filter((arg) => !arg.startsWith('--'));
 
 if (projectIds.length === 0) {
-  console.error('Usage: node scripts/run-authority-comparison.mjs [--no-persist] <projectId> [...]');
+  console.error('Usage: npm run compare:authority -- [--no-persist] <projectId> [<projectId> ...]');
+  console.error('');
+  console.error('Read-only with respect to validation: no validation run is triggered, no');
+  console.error('project state changes, and --no-persist suppresses the audit artifact too.');
   process.exit(2);
 }
 

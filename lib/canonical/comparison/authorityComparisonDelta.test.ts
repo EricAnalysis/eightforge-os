@@ -49,6 +49,7 @@ function runSummary(overrides: Partial<AuthorityRunSummary> = {}): AuthorityRunS
     quantityTotals: [],
     amountTotals: [],
     governingPricing: [],
+    pricingObservations: [],
     findingSummary: {
       total: 0,
       open: 0,
@@ -351,6 +352,11 @@ describe('blocking materiality safety rules', () => {
       sourceArtifactId: 'artifact-contract',
       sourcePage: 8,
       provenanceReference: 'row-1',
+      unitClass: 'cy',
+      observationCount: 1,
+      distinctSourceCount: 1,
+      descriptions: ['HAUL'],
+      billingKeyLost: false,
     };
     const deltas = buildAuthorityComparisonDeltas(
       runSummary({ governingPricing: [{ ...pricing, rate: 12.5 }] }),
@@ -371,6 +377,11 @@ describe('blocking materiality safety rules', () => {
       unit: 'cubic yard',
       sourcePage: 8,
       provenanceReference: 'row-1',
+      unitClass: 'cy',
+      observationCount: 1,
+      distinctSourceCount: 1,
+      descriptions: ['HAUL'],
+      billingKeyLost: false,
     };
     const deltas = buildAuthorityComparisonDeltas(
       runSummary({

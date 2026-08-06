@@ -38,7 +38,19 @@ import {
   roundComparisonQuantity,
   type AuthorityRunSummary,
 } from './authorityComparisonModel';
-import { normalizeAuthorityRun } from './authorityRunNormalization';
+import {
+  alignedPricingReferences,
+  normalizeAuthorityRun,
+} from './authorityRunNormalization';
+import { alignPricingObservations } from './pricingObservationAlignment';
+
+/** Aligns both authorities' pricing observations for one fixture snapshot. */
+function alignFor(snapshot: ValidatorSourceSnapshot) {
+  return alignPricingObservations([
+    ...normalize(snapshot, 'legacy').pricingObservations,
+    ...normalize(snapshot, 'canonical').pricingObservations,
+  ]);
+}
 
 function normalize(
   snapshot: ValidatorSourceSnapshot,
@@ -165,12 +177,17 @@ describe('normalized ticket-grain quantity', () => {
 });
 
 describe('normalized amounts', () => {
-  it('aggregates amounts at project, invoice, category, and governing pricing row grain', () => {
+  it('aggregates amounts at project, invoice, and category grain only', () => {
     const grains = new Set(
       normalize(cleanProfile(), 'legacy').amountTotals.map((entry) => entry.grain),
     );
 
-    expect([...grains].sort()).toEqual(['category', 'governing_pricing_row', 'invoice', 'project']);
+    // Governing pricing rates are deliberately NOT an amount grain. A rate is a
+    // per-contract-line value; summing the observations of one line double-counts
+    // exactly the duplicates a deduplicating authority collapses, and a
+    // per-authority bucket key would reintroduce the identity defect. Rates are
+    // compared in the pricing domain against the aligned identity instead.
+    expect([...grains].sort()).toEqual(['category', 'invoice', 'project']);
   });
 
   it('takes invoice billed amounts from the shared exposure builder, not a re-derivation', () => {
@@ -184,11 +201,9 @@ describe('normalized amounts', () => {
       .toBe(roundComparisonAmount(result.exposure!.invoices[0]!.billed_amount ?? 0));
   });
 
-  it('carries the governing rate as the pricing-row amount', () => {
-    const pricingRow = normalize(cleanProfile(), 'legacy').amountTotals
-      .find((entry) => entry.grain === 'governing_pricing_row')!;
-
-    expect(pricingRow.amountTotal).toBe(12.5);
+  it('does not aggregate governing rates into an amount grain', () => {
+    expect(normalize(cleanProfile(), 'legacy').amountTotals
+      .some((entry) => entry.grain === 'governing_pricing_row')).toBe(false);
   });
 });
 
@@ -208,30 +223,45 @@ describe('decimal normalization', () => {
 });
 
 describe('normalized pricing', () => {
-  it('identifies a pricing row by its source-backed tuple, not by an internal record id', () => {
-    const legacy = normalize(exactParityProfile(), 'legacy').governingPricing;
-    const canonical = normalize(exactParityProfile(), 'canonical').governingPricing;
+  it('leaves per-run pricing empty, because identity is cross-authority', () => {
+    // A per-run key is precisely the defect the first production cohort exposed:
+    // `canonical_category` is a taxonomy slug under legacy and raw text under
+    // canonical, so no per-item key can be authority-neutral.
+    expect(normalize(cleanProfile(), 'legacy').governingPricing).toEqual([]);
+    expect(normalize(cleanProfile(), 'legacy').pricingObservations.length).toBe(1);
+  });
+
+  it('gives both authorities one shared identity for the same contract line', () => {
+    const aligned = alignFor(exactParityProfile());
+    const legacy = alignedPricingReferences(aligned, 'legacy');
+    const canonical = alignedPricingReferences(aligned, 'canonical');
 
     expect(legacy.map((row) => row.pricingKey)).toEqual(canonical.map((row) => row.pricingKey));
+    // Identity is the shared billing key, never an adapter record id.
     expect(legacy[0]!.pricingKey).not.toContain('record');
   });
 
-  it('carries governing document, category, description, unit, rate, artifact, page, and provenance', () => {
-    const row = normalize(cleanProfile(), 'legacy').governingPricing[0]!;
+  it('carries governing document, raw category, description, unit, rate, artifact, page, and provenance', () => {
+    const row = alignedPricingReferences(alignFor(cleanProfile()), 'legacy')[0]!;
 
     expect(row.governingDocumentId).toBe('fixture-contract');
+    // The RAW source category, not the resolved taxonomy slug.
     expect(row.category).toBe('transport');
     expect(row.description).toBe('HAUL 0-15 MILES');
     expect(row.unit).toBe('cubic yard');
+    expect(row.unitClass).toBe('cy');
     expect(row.rate).toBe(12.5);
     expect(row.sourceArtifactId).toBe('artifact-fixture-contract');
     expect(row.sourcePage).toBe(8);
     expect(row.provenanceReference).toBe('legacy:HAUL-0-15');
+    expect(row.observationCount).toBe(1);
+    expect(row.billingKeyLost).toBe(false);
   });
 
   it('distinguishes pricing sourced from different governing documents', () => {
-    const legacy = normalize(crossDocumentProfile(), 'legacy').governingPricing[0]!;
-    const canonical = normalize(crossDocumentProfile(), 'canonical').governingPricing[0]!;
+    const aligned = alignFor(crossDocumentProfile());
+    const legacy = alignedPricingReferences(aligned, 'legacy')[0]!;
+    const canonical = alignedPricingReferences(aligned, 'canonical')[0]!;
 
     expect(legacy.governingDocumentId).toBe('fixture-invoice');
     expect(canonical.governingDocumentId).toBe('fixture-contract');

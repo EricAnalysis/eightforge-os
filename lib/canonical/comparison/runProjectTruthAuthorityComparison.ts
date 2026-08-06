@@ -38,6 +38,7 @@ import {
 } from '@/lib/validator/projectValidator';
 
 import {
+  buildAuthorityComparisonDeltaGroups,
   buildAuthorityComparisonDeltas,
   summarizeClassifications,
 } from './authorityComparisonDelta';
@@ -51,7 +52,11 @@ import {
   type OperatorDispositionSummary,
   type ProjectTruthAuthorityComparison,
 } from './authorityComparisonModel';
-import { normalizeAuthorityRun } from './authorityRunNormalization';
+import {
+  alignedPricingReferences,
+  normalizeAuthorityRun,
+} from './authorityRunNormalization';
+import { alignPricingObservations } from './pricingObservationAlignment';
 import { buildComparisonInputSnapshotDigest } from './comparisonInputDigest';
 
 /**
@@ -182,7 +187,25 @@ export async function runProjectTruthAuthorityComparison(
       );
     }
 
-    const deltas = buildAuthorityComparisonDeltas(legacy, canonical);
+    // Pricing identity is authority-neutral and therefore cross-authority: it can
+    // only be assigned once both runs exist. Aligning here — rather than inside each
+    // run's normalization — is what lets two legacy observations and one canonical
+    // observation of the same contract line share an identity.
+    const aligned = alignPricingObservations([
+      ...legacy.pricingObservations,
+      ...canonical.pricingObservations,
+    ]);
+    const alignedLegacy: AuthorityRunSummary = {
+      ...legacy,
+      governingPricing: alignedPricingReferences(aligned, 'legacy'),
+    };
+    const alignedCanonical: AuthorityRunSummary = {
+      ...canonical,
+      governingPricing: alignedPricingReferences(aligned, 'canonical'),
+    };
+
+    const deltas = buildAuthorityComparisonDeltas(alignedLegacy, alignedCanonical);
+    const deltaGroups = buildAuthorityComparisonDeltaGroups(deltas);
     const classificationSummary = summarizeClassifications(deltas);
     const materialDeltaCount = classificationSummary.blockingDeltas
       + classificationSummary.reviewRequiredDeltas;
@@ -193,9 +216,10 @@ export async function runProjectTruthAuthorityComparison(
       comparisonVersion: PROJECT_TRUTH_AUTHORITY_COMPARISON_VERSION,
       projectId,
       inputSnapshotDigest,
-      legacy,
-      canonical,
+      legacy: alignedLegacy,
+      canonical: alignedCanonical,
       deltas,
+      deltaGroups,
       classificationSummary,
       comparisonStatus: resolveComparisonStatus(canonical, materialDeltaCount),
       failureReason: null,

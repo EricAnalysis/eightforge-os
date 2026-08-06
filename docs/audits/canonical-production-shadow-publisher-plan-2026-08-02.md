@@ -40,7 +40,9 @@ section, marked `(amended)`.
 | A14 | **Canonical transaction, invoice, and document-relationship authority.** Canonical authority extends from pricing to transactions, invoices, invoice lines, and document-family/governing relationships, with a per-domain coverage model that makes "canonical governed this run" a checkable claim. A run may not report complete authority while any required domain is blocked. Ticket-grain conflicts are preserved as deterministic diagnostics, never arbitrated. Full statement in §21. | §0, §4, §5.1, §21 | **authorized, implemented; acceptance gate passing (see §21)** |
 | A15 | **Non-serving legacy versus canonical authority comparison.** Both authority modes run over ONE frozen validation input; their outputs are normalized, deltas are classified conservatively, and an operator-reviewable report is emitted. The comparison is advisory: the canonical result is non-serving and no comparison outcome can become a serving validation result. Comparison is a third independent control (`EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE`), defaults to `off`, is cohort-scoped by explicit project allowlist, and its failure is non-blocking to the serving run. Automated classifications are candidates only; promotion requires operator disposition of every material delta, never parity alone. Comparison artifacts are audit evidence and are never read as validation authority. Recommended production configuration: `authority=legacy`, `comparison=on`. Full statement in §22. | §0, §22 | **authorized, implemented; acceptance gate passing (see §22)** |
 
-Amendments A1, A2, A11, A12, A13, A14, and A15 change the **production** contract; A3–A10 change
+| A16 | **Comparison identity repair and dependent-delta collapse.** The A15 comparator keyed pricing on `canonical_category` and raw `unit_type`, neither of which is authority-neutral: on the first production cohort it reported a correct canonical deduplication as 22 blocking regressions while hiding a real description-loss regression beside it. Pricing observations are now aligned by equivalence closure over shared source record identity, the shared `billing_rate_key`, and the shared description match key, with units compared by the repository's existing enumerated equivalence table. Category and description are compared truth, never identity. Multiplicity is a first-class field, so a deduplicating authority is never mistaken for one that lost rows. Deltas carry a `rootCauseKey` and collapse into `AuthorityComparisonDeltaGroup` entries for operator review, while every raw delta is retained in the machine artifact; clearance, exposure, coverage, and findings are never attributed to a block. The operator report is three levels: decision summary, root causes, machine detail. Promotion remains HOLD. Full statement in §23. | §0, §23 | **authorized, implemented; repaired cohort rerun deterministic (see §23.10)** |
+
+Amendments A1, A2, A11, A12, A13, A14, A15, and A16 change the **production** contract; A3–A10 change
 only publisher-internal behavior. A1/A2 exist for the same reason: the publisher must not
 become a second authority for pricing or for source identity, and must not re-read
 mutable production state after the snapshot it is publishing was defined.
@@ -2005,3 +2007,249 @@ To run the shadow phase:
 5. A comparison reporting `comparison_failed` means the comparison itself could not complete. The
    serving result for that run was unaffected.
 6. Do not treat `equivalent` as authorization to promote.
+
+## 23. A16 â€” Comparison identity repair and dependent-delta collapse
+
+The first read-only production cohort (Â§ audit `canonical-authority-shadow-cohort-review-2026-08-06.md`)
+found the A15 comparator had two disqualifying defects. A16 repairs both. Promotion
+remains **HOLD**; the repaired comparator's output is what a subsequent operator review
+will judge.
+
+A16 changes no serving behavior, no production configuration, and no extraction.
+Comparison remains read-only, non-serving, and disabled by default.
+
+### 23.1 Defect 1 â€” the comparison identity was authority-dependent
+
+`pricingIdentity` keyed on `canonical_category ?? source_category ?? material_type`
+plus raw `unit_type`. Neither is authority-neutral:
+
+| Field | Legacy | Canonical |
+|---|---|---|
+| `canonical_category` | resolved taxonomy slug (`tree_operations`) | raw source text (`Tree Operations`) |
+| `material_type` | raw category text | `null` |
+| `unit_type` | `Each` on one load path, `EA` on the other | `Each` |
+
+On the one cohort project where canonical actually established authority, legacy
+loaded the same five contract lines twice â€” once from persisted rows, once from
+contract intelligence â€” and canonical deduplicated them correctly. No key ever
+matched, so the comparator reported that **correction** as 13 blocking
+`regression_candidate` plus 9 blocking `source_gap` deltas, and simultaneously **hid**
+a real regression: canonical carried `description: null` for two Equipment lines whose
+descriptions legacy preserved.
+
+A harness that inverts the clearest case in the cohort trains operators to dismiss
+blocking deltas. That is why this was disqualifying rather than merely inconvenient.
+
+### 23.2 Authority-neutral pricing identity
+
+Every field is now classified, and only source-identity and shared-normalization
+fields participate:
+
+| Field | Class | Identity |
+|---|---|---|
+| `source_document_id` | source identity | yes |
+| `record_id` | source identity, when shared across paths | yes, as an equivalence edge |
+| `billing_rate_key` | normalized business value, one shared builder | yes |
+| `description_match_key` | normalized business value, same builder | yes, bridging edge |
+| `unit_type` | display value | only via equivalence class |
+| `source_category` | raw business value | no â€” compared |
+| `description` | mutable business value | no â€” compared |
+| `rate_amount` | source-backed business value | no â€” compared |
+| `canonical_category` | authority-specific derived value | **never** |
+| `material_type` | authority-specific | **never** |
+| `source_kind` | authority-specific adapter label | **never** |
+| array position | unstable runtime value | **never** |
+
+**Alignment, not keying.** A single per-item string cannot express "these two legacy
+rows and this one canonical row are the same contract line", which is the shape real
+data takes when one authority deduplicates. Observations are grouped by equivalence
+closure over three deterministic edges:
+
+- **E1 â€” shared source record identity.** Byte-identical `record_id` means the same
+  source row by definition. This is what aligns a description-less canonical row to
+  its legacy counterpart: an exact string match, not a heuristic.
+- **E2 â€” semantic billing identity.** Governing document + shared `billing_rate_key` +
+  unit equivalence class.
+- **E3 â€” normalized description.** `billing_rate_key` prefers a rate code when one
+  exists, so an authority carrying a rate code and one that does not produce different
+  primary keys for the same line. The description match key bridges that, from the same
+  shared builder, with no fuzzy matching.
+
+Closure is order-independent. Category is deliberately absent from every edge: it is
+the field most likely to be populated by one adapter and blank on the other, and keying
+on it is what manufactured the phantom missing-row pairs.
+
+### 23.3 Unit alias normalization
+
+Unit equivalence uses the repository's existing enumerated table, extracted from
+`canonicalOperationalRateDiff.ts` into `lib/validator/billingKeys.ts` â€” the module both
+authority paths already share for billing normalization. `canonicalOperationalRateDiff`
+remains a consumer; there is one table, not two.
+
+`Each` â‰¡ `EA` â‰¡ `ea`; `Cubic Yard` â‰¡ `CY` â‰¡ `cyd`; `LS` â‰¡ `lump sum`; and the rest of
+the existing table. An unlisted unit normalizes to its own stripped lowercase form and
+so compares equal only to an identical spelling. That direction is deliberate: wrongly
+merging two units would reconcile a per-cubic-yard rate against a per-each rate. No
+fuzzy matching was introduced.
+
+Differing spellings within one class are reported as `equivalent_normalization` /
+`informational` â€” visible, but not a pricing change.
+
+### 23.4 Multiplicity-aware comparison
+
+Normalized pricing now distinguishes semantic billing identity, observation count,
+distinct source count, normalized unit, rate, description, governing source, and source
+evidence. Per aligned identity the comparison evaluates semantic existence,
+multiplicity, description, category, unit, rate, governing source, and provenance.
+
+`pricing/present` now fires only when an authority produced **no observation at all** of
+a contract line. Duplicate legacy rows align to the same identity as canonical's single
+row and are reported as `pricing/observationCount`, with both legacy source records
+preserved.
+
+Governing pricing rates are no longer an amount grain. A rate is a per-line value;
+summing observations of one line double-counts exactly the duplicates a deduplicating
+authority collapses, and the per-authority bucket key reintroduced the identity defect.
+Rates are compared in the pricing domain against the aligned identity.
+
+### 23.5 Description as compared truth, not identity
+
+Description stays out of the identity so rows still align when one authority drops it,
+and is compared so the drop is reported. Materiality is precise: `review_required` for
+evidence-quality loss, **`blocking`** when the loss empties the billing key â€” a row with
+no billing key cannot be matched to an invoice line at all, so the governing rate is
+unreachable. That is a pricing failure, not a cosmetic one.
+
+### 23.6 Root-cause versus dependent deltas
+
+Deltas now carry `rootCauseKey`, defaulting to `independent`. A delta is attributed to
+an upstream condition only when the emitter can show it is a mechanical consequence:
+
+- a delta already classified `authority_policy_difference` on a refused canonical run
+  carries that classification *because* canonical refused;
+- a delta in a block-attributable domain whose canonical side is simply absent on a
+  refused run is the shadow of that same refusal.
+
+`AuthorityComparisonDeltaGroup` collapses deltas sharing
+`(domain, field, classification, materiality, rootCauseKey)` into one operator entry
+with `affectedEntityCount`, `affectedTransactionCount`, `affectedInvoiceCount`,
+`affectedFindingCount`, `affectedAmount`, bounded `representativeEntities`, evidence,
+and the full `dependentDeltaIds`. Group ids are content-derived digests; `rootDeltaId`
+is the lexicographically smallest member.
+
+**Never collapsed.** `clearance`, `exposure`, `authority_coverage`, and `finding` are
+excluded from block attribution in *both* routes. A clearance or exposure movement
+folded behind an entry an operator reads as "expected consequence of the block" is
+hidden, which is precisely what this must not do. A regression on a run where canonical
+established authority always stays `independent` and top-level.
+
+Findings group by rule code, which is what turns a project with over a thousand
+ticket-grain conflicts into one operator summary with a count and samples.
+
+### 23.7 Machine detail preservation
+
+Grouping summarizes; it discards nothing. Every delta keeps its own id, entity key,
+values, evidence, and classification in `ProjectTruthAuthorityComparison.deltas`, and
+each appears in exactly one group's `dependentDeltaIds`. `pricingObservations` retains
+every raw observation per authority, including duplicates the counterpart collapsed.
+
+### 23.8 Operator report hierarchy
+
+- **Level 1 â€” decision summary.** Promotion recommendation first, then project id,
+  digests, status, root-cause counts by materiality, total affected entities, retained
+  delta volume, both authority statuses, and exposure/clearance movement.
+- **Level 2 â€” root causes.** One entry per cause: root-cause summary, impact counts,
+  representative entities, sample values, evidence, classification, rationale, group and
+  root delta ids, retained-delta count, and an operator disposition field. Informational
+  groups are counted, not itemized.
+- **Level 3 â€” machine detail.** Retained delta count, group count, and the artifact
+  reference.
+
+Deterministic: identical input produces identical grouping, ordering, and report text
+apart from the explicit runtime timestamp.
+
+### 23.9 Conservative classification, unchanged in spirit
+
+Canonical deduplication with matching rates and equivalent governing source is
+`canonical_correction_candidate` / `review_required`, never a confirmed correction, and
+its rationale explicitly asks the operator to confirm the extra legacy observations are
+duplicates rather than distinct contract rows. Description loss is
+`regression_candidate`. A canonical refusal remains `authority_policy_difference`, and
+clearance loosening remains blocking even when canonical also refused.
+
+### 23.10 Repaired-cohort results (read-only, two passes)
+
+| Project | Status | Deltas | Groups | Blocking groups | Before (blocking deltas) |
+|---|---|---|---|---|---|
+| Golden | `canonical_blocked` | 11,206 | 32 | 6 | 5,124 |
+| Goodlettsville | `canonical_blocked` | 8,152 | 14 | 6 | 4,063 |
+| MDOT | `material_delta` | 14 | 6 | 2 | 22 |
+| STL | `canonical_blocked` | 1 | 1 | 0 | 0 |
+| MVSU | `canonical_blocked` | 13 | 8 | 4 | 13 |
+
+Both passes were byte-identical on input digests, content digests, group ids, group
+membership, counts, ordering, classification, materiality, and status.
+
+**MDOT.** The five contract lines align; the deduplication is now
+`canonical_correction_candidate` / `review_required`; unit spellings are
+`equivalent_normalization`; zero false missing-row deltas remain. The two genuine
+blocking items are the real ones: `pricing/description` (canonical dropped a
+source-backed description, breaking rate linkage) and `pricing/present` for the two
+Equipment descriptions canonical never carried.
+
+**Golden.** The 1,337 ticket-grain conflicts collapse to one operator group with the
+conflict count preserved, and all 1,337 remain individually in the machine artifact.
+Legacy's across-rows sum, the distinct ticket count, and the conflicted identity count
+all remain visible. Clearance and exposure differences remain independent, top-level
+entries.
+
+### 23.11 Goodlettsville root diagnosis
+
+**Classification: relationship/scope mapping missing â€” outside canonical authority and
+outside the comparator.**
+
+Traced deterministically:
+
+- The project has one `contract` and two `price_sheet` documents, with
+  `price_sheet --attached_to--> contract` relationships present and a resolved
+  precedence family naming a governing rate sheet.
+- Legacy resolves 10 governing rate rows, all sourced from the **two price-sheet
+  documents** via `canonical_contract_intelligence:rate_table`.
+- `ProjectValidatorInput.assembledContractPricingRows` is **empty**, and the contract
+  pricing assembly is scoped to `contractValidationContext.document_id`, which is the
+  **contract** document â€” a document carrying no rate table.
+- Canonical therefore receives nothing, and blocks honestly with
+  `missing_governing_pricing`.
+
+The rows exist; they never reach canonical. The gap is in the contract pricing
+assembly's document scoping â€” upstream of both the authority layer and the comparator â€”
+so no fix was made here, per the scope rule. Instead the comparator gained a precise
+diagnostic: a project-level `pricing/assemblySourceScope` delta naming the source
+documents legacy priced from, so an assembly-scope gap is distinguishable from genuinely
+absent source data. That delta fires on Goodlettsville, Golden, and MVSU.
+
+Canonical remaining blocked for Goodlettsville is correct and is not a comparator
+defect.
+
+### 23.12 Promotion status
+
+**HOLD.** The comparator is now trustworthy enough to review, which it was not before.
+Promotion still requires operator disposition of every material root cause across a
+repeated cohort, and canonical serving authority remains a separate, explicitly
+configured decision.
+
+`EIGHTFORGE_PROJECT_TRUTH_AUTHORITY` remains `legacy`.
+`EIGHTFORGE_CANONICAL_AUTHORITY_COMPARE` remains unset in every environment. No
+production validation was triggered and no comparison artifact was persisted.
+
+### 23.13 Updated promotion ledger
+
+| # | Item | Status |
+|---|---|---|
+| C1 | Comparison layer (`lib/canonical/comparison/`) | retained; identity and collapse repaired under A16 |
+| C2 | Comparison audit artifacts | still not persisted; enable only after an operator reviews repaired cohort output |
+| C3 | Contract pricing assembly document scoping | **open, outside A16** â€” diagnosed for Goodlettsville, tracked by the `assemblySourceScope` diagnostic |
+| C4 | Canonical rate-row description loss | **open** â€” genuine regression candidate surfaced by the repair, awaiting canonical-side fix |
+| C5 | Ticket-grain conflicts on the Golden corpus | **open** â€” truth finding independent of the cutover |
+
+Phase 3 remains separate upstream evidence preservation, untouched by A16.

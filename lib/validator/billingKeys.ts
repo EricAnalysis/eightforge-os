@@ -55,6 +55,63 @@ export function normalizeDisposalSite(value: string | null | undefined): string 
   return normalizeRateDescription(value);
 }
 
+/**
+ * Closed alias map for units of measure.
+ *
+ * Deliberately an enumerated table, not fuzzy matching: two units are equivalent
+ * only when this repository has explicitly said so. An unlisted unit normalizes to
+ * its own whitespace-stripped lowercase form and therefore compares equal only to
+ * an identical spelling, which is the safe direction — wrongly merging two units
+ * would silently reconcile a cubic-yard rate against a per-each rate.
+ *
+ * Extracted from `canonicalOperationalRateDiff.ts`, which remains a consumer. It
+ * lives here because this is the module both authority paths already share for
+ * billing normalization, and a second unit table would be a second, divergent
+ * notion of unit equality.
+ */
+const UNIT_EQUIVALENCE_CLASSES: readonly (readonly [string, readonly string[]])[] = [
+  ['cy', ['cy', 'cyd', 'cubicyard', 'cubicyards']],
+  ['hour', ['hr', 'hrs', 'hour', 'hours']],
+  ['ea', ['ea', 'each']],
+  ['ton', ['tn', 'ton', 'tons']],
+  ['lf', ['lf', 'linearfoot', 'linearfeet']],
+  ['ls', ['ls', 'lumpsum']],
+  ['tree', ['tree', 'trees']],
+  ['stump', ['stump', 'stumps']],
+  ['pound', ['pound', 'pounds', 'lb', 'lbs']],
+  ['unit', ['unit', 'units']],
+  ['row', ['row']],
+];
+
+const UNIT_CLASS_BY_ALIAS: ReadonlyMap<string, string> = new Map(
+  UNIT_EQUIVALENCE_CLASSES.flatMap(
+    ([className, aliases]) => aliases.map((alias) => [alias, className] as const),
+  ),
+);
+
+/**
+ * Normalizes a unit of measure into its equivalence class.
+ *
+ * `Each` and `EA` both yield `ea`; `Cubic Yard` and `CY` both yield `cy`. Returns
+ * null for absent or blank input so a missing unit is never treated as equal to
+ * another missing unit by accident at a call site that cares.
+ */
+export function normalizeUnitEquivalenceClass(value: unknown): string | null {
+  const text = typeof value === 'string'
+    ? value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    : '';
+  if (!text) return null;
+  return UNIT_CLASS_BY_ALIAS.get(text) ?? text;
+}
+
+/** True when both units resolve to the same approved equivalence class. */
+export function unitsAreEquivalent(left: unknown, right: unknown): boolean {
+  const l = normalizeUnitEquivalenceClass(left);
+  const r = normalizeUnitEquivalenceClass(right);
+  if (!l || !r) return false;
+  return l === r;
+}
+
 /** Invoice/document numbers normalized into a join-safe alphanumeric key. */
 export function normalizeInvoiceNumber(value: string | null | undefined): string | null {
   return normalizeCode(value);

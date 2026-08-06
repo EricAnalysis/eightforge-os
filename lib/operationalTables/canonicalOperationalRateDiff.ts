@@ -1,3 +1,4 @@
+import { unitsAreEquivalent } from '@/lib/validator/billingKeys';
 import type {
   CanonicalOperationalTableRow,
   OperationalTableRowEvidenceRef,
@@ -113,30 +114,6 @@ function similarity(left: unknown, right: unknown): number {
   return union > 0 ? intersection / union : 0;
 }
 
-function normalizeUnit(value: unknown): string | null {
-  const text = normalizeText(value).replace(/\s+/g, '');
-  if (!text) return null;
-  if (['cy', 'cyd', 'cubicyard', 'cubicyards'].includes(text)) return 'cy';
-  if (['hr', 'hrs', 'hour', 'hours'].includes(text)) return 'hour';
-  if (['ea', 'each'].includes(text)) return 'ea';
-  if (['tn', 'ton', 'tons'].includes(text)) return 'ton';
-  if (['lf', 'linearfoot', 'linearfeet'].includes(text)) return 'lf';
-  if (['ls', 'lumpsum'].includes(text)) return 'ls';
-  if (['tree', 'trees'].includes(text)) return 'tree';
-  if (['stump', 'stumps'].includes(text)) return 'stump';
-  if (['pound', 'pounds', 'lb', 'lbs'].includes(text)) return 'pound';
-  if (['unit', 'units'].includes(text)) return 'unit';
-  if (text === 'row') return 'row';
-  return text;
-}
-
-function compatibleUnit(left: unknown, right: unknown): boolean {
-  const l = normalizeUnit(left);
-  const r = normalizeUnit(right);
-  if (!l || !r) return false;
-  return l === r;
-}
-
 function sameText(left: unknown, right: unknown): boolean {
   const l = normalizeText(left);
   const r = normalizeText(right);
@@ -203,7 +180,7 @@ function scoreCandidate(
 
   if (invoice.unit || contract.unit) {
     weight += 0.18;
-    if (compatibleUnit(invoice.unit, contract.unit)) {
+    if (unitsAreEquivalent(invoice.unit, contract.unit)) {
       score += 0.18;
       matchReasons.push(`unit compatible: ${invoice.unit} to ${contract.unit}`);
     } else {

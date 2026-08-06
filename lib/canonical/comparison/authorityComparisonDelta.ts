@@ -23,6 +23,7 @@ import { sha256Hex } from '@/lib/canonical/publication/projectTruthPublicationId
 import {
   type AuthorityComparisonClassificationSummary,
   type AuthorityComparisonDelta,
+  type AuthorityComparisonDeltaGroup,
   type AuthorityRunSummary,
   type ComparisonDeltaClassification,
   type ComparisonDeltaDomain,
@@ -31,6 +32,7 @@ import {
   type NormalizedAmountTotal,
   type NormalizedPricingReference,
   type NormalizedQuantityTotal,
+  roundComparisonAmount,
 } from './authorityComparisonModel';
 
 /**
@@ -56,6 +58,9 @@ export function buildDeltaId(
   ).slice(0, 32);
 }
 
+/** Marks a delta that is not downstream of any other condition. */
+export const INDEPENDENT_ROOT_CAUSE = 'independent';
+
 type DeltaDraft = {
   readonly domain: ComparisonDeltaDomain;
   readonly entityKey: string;
@@ -67,6 +72,18 @@ type DeltaDraft = {
   readonly classificationRationale: string;
   readonly explanation: string;
   readonly evidenceReferences?: readonly ComparisonEvidenceReference[];
+  /**
+   * The upstream condition this delta descends from, when one provably exists.
+   *
+   * Set ONLY where the emitter can show the difference is a mechanical consequence
+   * — e.g. canonical produced no transactions because the transactions domain is
+   * blocked. Defaults to `independent`, so a delta is never collapsed by accident:
+   * grouping has to be earned, and an unattributed regression stays top-level.
+   */
+  readonly rootCauseKey?: string;
+  readonly rootCauseSummary?: string;
+  /** Impact carried into the group summary so collapsing loses no magnitude. */
+  readonly affectedAmount?: number | null;
 };
 
 function finalize(draft: DeltaDraft): AuthorityComparisonDelta {
@@ -82,6 +99,33 @@ function finalize(draft: DeltaDraft): AuthorityComparisonDelta {
     classificationRationale: draft.classificationRationale,
     explanation: draft.explanation,
     evidenceReferences: draft.evidenceReferences ?? [],
+    rootCauseKey: draft.rootCauseKey ?? INDEPENDENT_ROOT_CAUSE,
+    rootCauseSummary: draft.rootCauseSummary ?? null,
+    affectedAmount: draft.affectedAmount ?? null,
+  };
+}
+
+/**
+ * Names the upstream condition when canonical declined to govern.
+ *
+ * Returns null when canonical established authority, which is what keeps a genuine
+ * regression on an assembled run from being swept into a block group.
+ */
+function canonicalBlockRootCause(
+  canonical: AuthorityRunSummary,
+): { readonly key: string; readonly summary: string } | null {
+  if (!canonicalRefusedToAssert(canonical)) return null;
+  const domains = canonical.blockedTruthDomains.length > 0
+    ? canonical.blockedTruthDomains.join(',')
+    : (canonical.blockReason ?? canonical.assemblyStatus);
+  return {
+    key: `canonical_block:${canonical.assemblyStatus}:${domains}`,
+    summary: `Canonical authority reported ${canonical.assemblyStatus}`
+      + `${canonical.blockReason ? ` (${canonical.blockReason})` : ''}`
+      + `${canonical.blockedTruthDomains.length > 0
+        ? `, blocking truth domain(s): ${canonical.blockedTruthDomains.join(', ')}`
+        : ''}`
+      + '. Every difference in this group is a mechanical consequence of that one refusal.',
   };
 }
 
@@ -398,12 +442,61 @@ function pricingDeltas(
   const deltas: AuthorityComparisonDelta[] = [];
   const legacyByKey = new Map(legacy.governingPricing.map((row) => [row.pricingKey, row]));
   const canonicalByKey = new Map(canonical.governingPricing.map((row) => [row.pricingKey, row]));
-  const refused = canonicalRefusedToAssert(canonical);
+  const block = canonicalBlockRootCause(canonical);
+
+  // ── Pricing assembly scope diagnostic ───────────────────────────────────
+  // Canonical priced nothing at all while legacy priced from real documents. The
+  // per-row `present` deltas below describe the symptom once per row; this states
+  // the discriminating fact once, at project level: WHICH source documents legacy
+  // drew pricing from. That is what distinguishes "the contract genuinely has no
+  // rates" from "the rates live on attached price sheets the canonical pricing
+  // assembly never received", which are very different problems and were
+  // indistinguishable in the first production cohort report.
+  if (canonical.governingPricing.length === 0 && legacy.governingPricing.length > 0) {
+    const legacyPricingDocuments = [...new Set(
+      legacy.governingPricing
+        .map((row) => row.governingDocumentId)
+        .filter((value): value is string => value != null),
+    )].sort((left, right) => left.localeCompare(right, 'en-US'));
+
+    deltas.push(finalize({
+      domain: 'pricing',
+      entityKey: 'project',
+      field: 'assemblySourceScope',
+      legacyValue: legacyPricingDocuments,
+      canonicalValue: [],
+      classification: 'source_gap',
+      materiality: 'blocking',
+      classificationRationale: 'Canonical received no assembled contract pricing rows, so it could '
+        + `establish no governing pricing at all. Legacy priced this project from `
+        + `${String(legacyPricingDocuments.length)} source document(s). Compare that document set `
+        + 'against the document the pricing assembly was scoped to: if they differ, the rows exist '
+        + 'but never reached canonical, which is an assembly-scope gap rather than absent source data.',
+      explanation: 'Canonical resolved zero governing pricing rows while legacy resolved '
+        + `${String(legacy.governingPricing.length)} from document(s) `
+        + `${legacyPricingDocuments.join(', ')}.`,
+      evidenceReferences: legacyPricingDocuments.map((documentId) => ({
+        kind: 'legacy_pricing_source_document',
+        sourceDocumentId: documentId,
+        sourceArtifactId: legacy.governingPricing.find(
+          (row) => row.governingDocumentId === documentId,
+        )?.sourceArtifactId ?? null,
+        page: null,
+        detail: 'legacy resolved governing pricing from this document; canonical received none',
+      })),
+    }));
+  }
 
   for (const pricingKey of sortedKeys(legacyByKey, canonicalByKey)) {
     const left = legacyByKey.get(pricingKey) ?? null;
     const right = canonicalByKey.get(pricingKey) ?? null;
 
+    // ── Semantic existence ────────────────────────────────────────────────
+    // Reached only when an authority produced NO observation of this contract
+    // line. Duplicate legacy rows no longer land here: they align to the same
+    // semantic identity as canonical's single row and are reported as
+    // multiplicity below, which is what stopped a correct canonical deduplication
+    // from being reported as nine missing pricing rows in the first cohort.
     if (left != null && right == null) {
       deltas.push(finalize({
         domain: 'pricing',
@@ -411,21 +504,18 @@ function pricingDeltas(
         field: 'present',
         legacyValue: pricingSummary(left),
         canonicalValue: null,
-        // Governing pricing that vanished. If canonical explicitly refused, that
-        // is policy; otherwise it is missing required truth, which is a source gap
-        // rather than a correction — and blocking either way, because a governing
-        // rate change without relationship evidence is a safety rule.
-        classification: refused ? 'authority_policy_difference' : 'source_gap',
+        classification: block != null ? 'authority_policy_difference' : 'source_gap',
         materiality: 'blocking',
-        classificationRationale: refused
-          ? `Canonical reported ${canonical.assemblyStatus}`
-            + `${canonical.blockReason ? ` (${canonical.blockReason})` : ''} and refused to assert `
-            + 'governing pricing it could not establish from source truth.'
-          : 'Canonical resolved no governing pricing row for a source identity legacy priced, and '
-            + 'reported no block. Required governing truth is absent.',
-        explanation: `Governing pricing row "${pricingKey}" is present under legacy at rate `
+        classificationRationale: block != null
+          ? `${block.summary} Canonical withheld this governing pricing row rather than losing it.`
+          : 'Canonical resolved no observation of a contract line legacy priced, and reported no '
+            + 'block. Required governing truth is absent.',
+        explanation: `Governing pricing "${pricingKey}" is priced by legacy at `
           + `${String(left.rate)} and absent under canonical.`,
         evidenceReferences: pricingEvidence(left),
+        rootCauseKey: block?.key,
+        rootCauseSummary: block?.summary,
+        affectedAmount: left.rate,
       }));
       continue;
     }
@@ -438,27 +528,175 @@ function pricingDeltas(
         legacyValue: null,
         canonicalValue: pricingSummary(right),
         classification: right.governingDocumentId != null
-          // Canonical selecting a governing exhibit legacy ignored is the
-          // designed correction. The governing document id is the evidence.
           ? 'canonical_correction_candidate'
           : 'unclassified',
         materiality: 'review_required',
         classificationRationale: right.governingDocumentId != null
-          ? `Canonical selected governing pricing from document ${right.governingDocumentId}, which `
-            + 'legacy did not treat as governing.'
+          ? `Canonical resolved governing pricing from document ${right.governingDocumentId} for a `
+            + 'contract line legacy did not price.'
           : 'Canonical produced a pricing row with no governing document to justify it.',
-        explanation: `Governing pricing row "${pricingKey}" is present under canonical at rate `
+        explanation: `Governing pricing "${pricingKey}" is present under canonical at rate `
           + `${String(right.rate)} and absent under legacy.`,
         evidenceReferences: pricingEvidence(right),
+        affectedAmount: right.rate,
       }));
       continue;
     }
 
     if (left == null || right == null) continue;
 
+    const ratesEquivalent = sameMembers(
+      left.rate != null ? [String(left.rate)] : [],
+      right.rate != null ? [String(right.rate)] : [],
+    );
+    const governingEquivalent = left.governingDocumentId === right.governingDocumentId;
+
+    // ── Multiplicity ──────────────────────────────────────────────────────
+    // One authority observed the same contract line more times than the other.
+    // The observed production shape: legacy loads each line twice, from a
+    // persisted-row path and a contract-intelligence path, and canonical carries one.
+    if (left.observationCount !== right.observationCount) {
+      const canonicalDeduplicated = right.observationCount < left.observationCount;
+      const deduplicationIsClean = canonicalDeduplicated
+        && ratesEquivalent
+        && governingEquivalent;
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: pricingKey,
+        field: 'observationCount',
+        legacyValue: left.observationCount,
+        canonicalValue: right.observationCount,
+        classification: deduplicationIsClean
+          // Same contract line, same rate, same governing document, fewer copies.
+          // A candidate — never a confirmed correction — because whether the extra
+          // legacy observations were true duplicates or distinct source rows is an
+          // operator judgement about provenance.
+          ? 'canonical_correction_candidate'
+          : canonicalDeduplicated
+            ? 'authority_policy_difference'
+            : 'regression_candidate',
+        materiality: canonicalDeduplicated ? 'review_required' : 'blocking',
+        classificationRationale: deduplicationIsClean
+          ? `Legacy observed this contract line ${String(left.observationCount)} times across `
+            + `${String(left.distinctSourceCount)} source record(s); canonical carries `
+            + `${String(right.observationCount)}. Rate and governing document are identical, so this `
+            + 'is canonical collapsing duplicate observations of one line rather than losing pricing. '
+            + 'Confirm the extra legacy observations are duplicates and not distinct contract rows.'
+          : canonicalDeduplicated
+            ? 'Canonical carries fewer observations of this line, but rate or governing document '
+              + 'also differ, so the reduction is not a clean deduplication.'
+            : 'Canonical observes this contract line more times than legacy, which introduces '
+              + 'duplicate governing pricing rather than removing it.',
+        explanation: `Contract line "${pricingKey}" is observed ${String(left.observationCount)} `
+          + `time(s) by legacy and ${String(right.observationCount)} time(s) by canonical. `
+          + `Legacy source records: ${left.distinctSourceCount}; canonical: ${right.distinctSourceCount}.`,
+        evidenceReferences: [...pricingEvidence(left), ...pricingEvidence(right)],
+      }));
+    }
+
+    // ── Description ───────────────────────────────────────────────────────
+    // Description is compared truth, never identity. Keeping it out of the key is
+    // what lets description-less canonical rows align at all; comparing it here is
+    // what makes a canonical description loss visible instead of silent.
+    if (!sameMembers(left.descriptions, right.descriptions)) {
+      const lost = missingFrom(left.descriptions, right.descriptions);
+      const canonicalHasNone = right.descriptions.length === 0;
+      // Blocking only when the loss actually breaks rate linkage: a row with no
+      // billing key cannot match an invoice line, so the governing rate is
+      // effectively unreachable. Otherwise this is evidence quality, not a
+      // financial control change.
+      const breaksRateLinkage = lost.length > 0 && right.billingKeyLost;
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: pricingKey,
+        field: 'description',
+        legacyValue: left.descriptions,
+        canonicalValue: right.descriptions,
+        classification: lost.length > 0 ? 'regression_candidate' : 'canonical_correction_candidate',
+        materiality: breaksRateLinkage
+          ? 'blocking'
+          : lost.length > 0
+            ? 'review_required'
+            : 'informational',
+        classificationRationale: breaksRateLinkage
+          ? `Canonical carries no description for this contract line, so it has no billing key and `
+            + 'cannot be matched to an invoice line. The governing rate is effectively unreachable, '
+            + `and legacy's description(s) ${lost.map((value) => `"${value}"`).join(', ')} are lost.`
+          : lost.length > 0
+            ? `Canonical dropped source-backed description(s) `
+              + `${lost.map((value) => `"${value}"`).join(', ')} that legacy carries. Rate linkage `
+              + 'still resolves, so this is evidence quality rather than a pricing change.'
+            : 'Canonical carries description text legacy did not.',
+        explanation: `Description for "${pricingKey}" is `
+          + `${left.descriptions.length > 0 ? left.descriptions.map((value) => `"${value}"`).join(', ') : 'absent'} `
+          + `under legacy and ${canonicalHasNone ? 'absent' : right.descriptions.map((value) => `"${value}"`).join(', ')} `
+          + 'under canonical.',
+        evidenceReferences: [...pricingEvidence(left), ...pricingEvidence(right)],
+      }));
+    }
+
+    // ── Category ──────────────────────────────────────────────────────────
+    // Compared, never identity. Category is the field most likely to be populated
+    // by one adapter and not the other, so keying on it manufactured phantom
+    // missing rows; comparing it reports the real difference instead.
+    if (left.category !== right.category) {
+      const lost = left.category != null && right.category == null;
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: pricingKey,
+        field: 'category',
+        legacyValue: left.category,
+        canonicalValue: right.category,
+        classification: lost ? 'regression_candidate' : 'unclassified',
+        materiality: 'review_required',
+        classificationRationale: lost
+          ? 'Canonical carries no source category for a contract line legacy categorized.'
+          : 'The two authorities report different source categories for the same contract line.',
+        explanation: `Source category for "${pricingKey}" is ${String(left.category)} under legacy `
+          + `and ${String(right.category)} under canonical.`,
+        evidenceReferences: [...pricingEvidence(left), ...pricingEvidence(right)],
+      }));
+    }
+
+    // ── Unit ──────────────────────────────────────────────────────────────
+    // Only the equivalence class is compared. `Each` versus `EA` and `Cubic Yard`
+    // versus `CY` resolve to one class and are reported as an expected
+    // representational difference, not as a pricing change.
+    if (left.unitClass !== right.unitClass) {
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: pricingKey,
+        field: 'unitClass',
+        legacyValue: left.unitClass,
+        canonicalValue: right.unitClass,
+        classification: 'unclassified',
+        materiality: 'blocking',
+        classificationRationale: 'The two authorities price this line in units that are not in the '
+          + 'same approved equivalence class, so the rates are not directly comparable.',
+        explanation: `Unit for "${pricingKey}" is "${String(left.unit)}" (class `
+          + `${String(left.unitClass)}) under legacy and "${String(right.unit)}" (class `
+          + `${String(right.unitClass)}) under canonical.`,
+        evidenceReferences: [...pricingEvidence(left), ...pricingEvidence(right)],
+      }));
+    } else if (left.unit !== right.unit) {
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: pricingKey,
+        field: 'unitSpelling',
+        legacyValue: left.unit,
+        canonicalValue: right.unit,
+        classification: 'equivalent_normalization',
+        materiality: 'informational',
+        classificationRationale: `"${String(left.unit)}" and "${String(right.unit)}" resolve to the `
+          + `same approved unit equivalence class "${String(left.unitClass)}", so they describe the `
+          + 'same unit of measure.',
+        explanation: `Unit spelling for "${pricingKey}" differs but is equivalent.`,
+      }));
+    }
+
+    // ── Rate ──────────────────────────────────────────────────────────────
     if (left.rate !== right.rate) {
-      const relationshipBacked = right.governingDocumentId != null
-        && right.governingDocumentId !== left.governingDocumentId;
+      const relationshipBacked = right.governingDocumentId != null && !governingEquivalent;
       deltas.push(finalize({
         domain: 'pricing',
         entityKey: pricingKey,
@@ -468,9 +706,6 @@ function pricingDeltas(
         classification: relationshipBacked
           ? 'canonical_correction_candidate'
           : 'regression_candidate',
-        // Blocking regardless of classification: a governing rate change is a
-        // financial control point, and the safety rule requires relationship
-        // evidence before it can be treated as anything less.
         materiality: 'blocking',
         classificationRationale: relationshipBacked
           ? `Canonical sourced this rate from governing document ${right.governingDocumentId} while `
@@ -480,10 +715,12 @@ function pricingDeltas(
         explanation: `Governing rate for "${pricingKey}" is ${String(left.rate)} under legacy and `
           + `${String(right.rate)} under canonical.`,
         evidenceReferences: [...pricingEvidence(left), ...pricingEvidence(right)],
+        affectedAmount: right.rate != null && left.rate != null ? right.rate - left.rate : null,
       }));
     }
 
-    if (left.governingDocumentId !== right.governingDocumentId) {
+    // ── Governing source ──────────────────────────────────────────────────
+    if (!governingEquivalent) {
       deltas.push(finalize({
         domain: 'pricing',
         entityKey: pricingKey,
@@ -501,11 +738,10 @@ function pricingDeltas(
       }));
     }
 
-    if (left.provenanceReference !== right.provenanceReference
-      && (left.provenanceReference == null) !== (right.provenanceReference == null)) {
-      // Only the PRESENCE of provenance is compared. Differing internal record
-      // ids for the same source row are an expected adapter difference, not
-      // evidence loss; a provenance reference that disappeared is evidence loss.
+    // ── Provenance ────────────────────────────────────────────────────────
+    // Presence only. Differing internal record ids for one source row are an
+    // expected adapter difference; a provenance reference that vanished is not.
+    if ((left.provenanceReference == null) !== (right.provenanceReference == null)) {
       const lost = right.provenanceReference == null;
       deltas.push(finalize({
         domain: 'provenance',
@@ -533,9 +769,11 @@ function pricingSummary(row: NormalizedPricingReference): Record<string, unknown
   return {
     governingDocumentId: row.governingDocumentId,
     category: row.category,
-    description: row.description,
+    descriptions: row.descriptions,
     unit: row.unit,
+    unitClass: row.unitClass,
     rate: row.rate,
+    observationCount: row.observationCount,
   };
 }
 
@@ -545,7 +783,7 @@ function pricingEvidence(row: NormalizedPricingReference): ComparisonEvidenceRef
     sourceDocumentId: row.governingDocumentId,
     sourceArtifactId: row.sourceArtifactId,
     page: row.sourcePage,
-    detail: [row.category, row.description, row.unit].filter(Boolean).join(' / ') || null,
+    detail: [row.category, row.descriptions[0] ?? null, row.unit].filter(Boolean).join(' / ') || null,
   }];
 }
 
@@ -1035,9 +1273,10 @@ export function buildAuthorityComparisonDeltas(
   // Deduplicate by delta id. Two rules may legitimately observe the same
   // (domain, entityKey, field); the first wins so ordering stays stable and no
   // duplicate id can reach an operator disposition.
+  const block = canonicalBlockRootCause(canonical);
   const byId = new Map<string, AuthorityComparisonDelta>();
   for (const delta of deltas) {
-    if (!byId.has(delta.deltaId)) byId.set(delta.deltaId, delta);
+    if (!byId.has(delta.deltaId)) byId.set(delta.deltaId, attributeRootCause(delta, block));
   }
 
   return [...byId.values()].sort((left, right) => (
@@ -1046,6 +1285,160 @@ export function buildAuthorityComparisonDeltas(
       'en-US',
     )
   ));
+}
+
+/**
+ * Domains whose deltas may be attributed to a canonical block.
+ *
+ * Deliberately excludes `clearance`, `exposure`, `authority_coverage`, and
+ * `finding`. Those are the differences an operator must see individually — a
+ * clearance change or an exposure movement swept into a block group is exactly the
+ * kind of hiding this grouping exists to avoid. They are few in number anyway, so
+ * there is no volume argument for collapsing them.
+ */
+const BLOCK_ATTRIBUTABLE_DOMAINS: ReadonlySet<ComparisonDeltaDomain> = new Set([
+  'transaction',
+  'invoice',
+  'invoice_line',
+  'quantity',
+  'amount',
+  'pricing',
+  'provenance',
+  'relationship',
+]);
+
+/**
+ * Attributes a delta to an upstream condition when one provably explains it.
+ *
+ * Two attributions, both earned rather than assumed:
+ *
+ *  - A delta already classified `authority_policy_difference` on a refused
+ *    canonical run carries that classification *because* canonical refused, so the
+ *    refusal is its cause by construction.
+ *  - A delta in a block-attributable domain whose canonical side is simply absent
+ *    on a refused run is the mechanical shadow of that same refusal.
+ *
+ * Anything else keeps `independent` and stays a top-level operator item, including
+ * every regression on a run where canonical actually established authority.
+ */
+function attributeRootCause(
+  delta: AuthorityComparisonDelta,
+  block: { readonly key: string; readonly summary: string } | null,
+): AuthorityComparisonDelta {
+  if (delta.rootCauseKey !== INDEPENDENT_ROOT_CAUSE) return delta;
+
+  if (delta.domain === 'finding') {
+    // Findings group by their rule code. A project with over a thousand ticket-grain
+    // conflicts becomes one operator summary with a count and samples, while every
+    // distinct conflict keeps its own delta in the machine artifact.
+    const code = delta.entityKey.split('|')[0] ?? 'unknown';
+    return {
+      ...delta,
+      rootCauseKey: `finding_code:${code}`,
+      rootCauseSummary: `Findings raised under rule ${code}. Each affected entity keeps its own `
+        + 'delta in the machine artifact; this entry summarizes the condition.',
+    };
+  }
+
+  if (block == null) return delta;
+  // The domain gate applies to BOTH attribution routes. A clearance or exposure
+  // movement is classified `authority_policy_difference` on a blocked run too, but
+  // it is exactly the difference an operator must weigh individually — folding it
+  // behind an entry that reads "expected consequence of the block" is hiding it.
+  if (!BLOCK_ATTRIBUTABLE_DOMAINS.has(delta.domain)) return delta;
+  const mechanical = delta.classification === 'authority_policy_difference'
+    || delta.canonicalValue == null;
+  if (!mechanical) return delta;
+
+  return { ...delta, rootCauseKey: block.key, rootCauseSummary: block.summary };
+}
+
+const REPRESENTATIVE_SAMPLE_LIMIT = 5;
+
+function buildGroupId(
+  domain: string,
+  field: string,
+  classification: string,
+  materiality: string,
+  rootCauseKey: string,
+): string {
+  return sha256Hex([domain, field, classification, materiality, rootCauseKey]
+    .join(DELTA_KEY_SEPARATOR)).slice(0, 32);
+}
+
+/**
+ * Collapses deltas into deterministic root-cause groups.
+ *
+ * Summarizes without discarding: every input delta appears in exactly one group's
+ * `dependentDeltaIds`, and the full delta list is retained separately, so the
+ * machine artifact keeps per-entity detail while the operator report shows causes.
+ */
+export function buildAuthorityComparisonDeltaGroups(
+  deltas: readonly AuthorityComparisonDelta[],
+): readonly AuthorityComparisonDeltaGroup[] {
+  const buckets = new Map<string, AuthorityComparisonDelta[]>();
+  for (const delta of deltas) {
+    const bucketKey = [
+      delta.domain,
+      delta.field,
+      delta.classification,
+      delta.materiality,
+      delta.rootCauseKey,
+    ].join(DELTA_KEY_SEPARATOR);
+    buckets.set(bucketKey, [...(buckets.get(bucketKey) ?? []), delta]);
+  }
+
+  return [...buckets.values()]
+    .map((members) => {
+      const ordered = [...members].sort(
+        (left, right) => left.deltaId.localeCompare(right.deltaId, 'en-US'),
+      );
+      const first = ordered[0]!;
+      const amounts = ordered
+        .map((delta) => delta.affectedAmount)
+        .filter((value): value is number => value != null);
+      const entityKeys = [...new Set(ordered.map((delta) => delta.entityKey))]
+        .sort((left, right) => left.localeCompare(right, 'en-US'));
+
+      return {
+        groupId: buildGroupId(
+          first.domain,
+          first.field,
+          first.classification,
+          first.materiality,
+          first.rootCauseKey,
+        ),
+        // The lexicographically smallest member, so the representative does not
+        // depend on emission order.
+        rootDeltaId: first.deltaId,
+        domain: first.domain,
+        field: first.field,
+        classification: first.classification,
+        materiality: first.materiality,
+        rootCauseKey: first.rootCauseKey,
+        rootCauseSummary: first.rootCauseSummary ?? first.classificationRationale,
+        affectedEntityCount: entityKeys.length,
+        affectedTransactionCount: ordered.filter(
+          (delta) => delta.domain === 'transaction' || delta.entityKey.startsWith('ticket:'),
+        ).length,
+        affectedInvoiceCount: ordered.filter(
+          (delta) => delta.domain === 'invoice' || delta.entityKey.startsWith('invoice:'),
+        ).length,
+        affectedFindingCount: ordered.filter((delta) => delta.domain === 'finding').length,
+        affectedAmount: amounts.length > 0
+          ? roundComparisonAmount(amounts.reduce((total, value) => total + value, 0))
+          : null,
+        representativeEntities: entityKeys.slice(0, REPRESENTATIVE_SAMPLE_LIMIT),
+        evidenceReferences: first.evidenceReferences,
+        dependentDeltaIds: ordered.map((delta) => delta.deltaId),
+      };
+    })
+    .sort((left, right) => (
+      `${left.domain} ${left.field} ${left.rootCauseKey}`.localeCompare(
+        `${right.domain} ${right.field} ${right.rootCauseKey}`,
+        'en-US',
+      )
+    ));
 }
 
 export function summarizeClassifications(

@@ -58,6 +58,13 @@ import {
   roundComparisonAmount,
   roundComparisonQuantity,
 } from './authorityComparisonModel';
+import {
+  alignPricingObservations,
+  pricingObservationKey,
+  toPricingObservation,
+  type AlignedPricingIdentity,
+  type PricingObservation,
+} from './pricingObservationAlignment';
 
 // ---------------------------------------------------------------------------
 // Field key conventions
@@ -353,23 +360,19 @@ function normalizeQuantityTotals(
 function normalizeAmountTotals(
   input: ProjectValidatorInput,
   result: ValidatorResult,
+  authorityMode: ProjectTruthAuthorityMode,
 ): readonly NormalizedAmountTotal[] {
   const rows = input.transactionData?.rows ?? [];
   const project = accumulateTicketGrain(rows, () => 'project');
   const byInvoice = accumulateTicketGrain(rows, (row) => row.invoice_number ?? MISSING);
   const byCategory = accumulateTicketGrain(rows, (row) => row.billing_rate_key ?? row.rate_code ?? MISSING);
 
-  // Governing-pricing-row amounts are the authority's own rate values, not a
-  // recomputed extension. A rate is invoice-independent, so `rowCount` is the
-  // number of governing rows carrying that identity.
-  const byPricingRow = new Map<string, GrainAccumulator>();
-  for (const item of input.factLookups.rateScheduleItems) {
-    const pricingKey = pricingIdentity(item);
-    const accumulator = byPricingRow.get(pricingKey) ?? emptyAccumulator();
-    accumulator.rowCount += 1;
-    accumulator.amountTotal += roundComparisonAmount(item.rate_amount ?? 0);
-    byPricingRow.set(pricingKey, accumulator);
-  }
+  // Governing pricing rates are deliberately NOT aggregated as an amount grain.
+  // A rate is a per-contract-line value, not a sum: adding up the observations of
+  // one line double-counts exactly the duplicate rows canonical deduplicates, and
+  // a per-authority bucket key reintroduces the identity defect this repair
+  // removes. Rates are compared in the pricing domain, against the aligned
+  // authority-neutral identity, where multiplicity is a first-class field.
 
   // Invoice-grain billed amounts are taken from the exposure summary the shared
   // exposure builder already produced. They are NOT re-derived from line rows:
@@ -387,7 +390,6 @@ function normalizeAmountTotals(
     ...amountTotalsFrom('invoice', byInvoice),
     ...amountTotalsFrom('invoice', byExposureInvoice),
     ...amountTotalsFrom('category', byCategory),
-    ...amountTotalsFrom('governing_pricing_row', byPricingRow),
   ];
 }
 
@@ -396,20 +398,22 @@ function normalizeAmountTotals(
 // ---------------------------------------------------------------------------
 
 /**
- * Stable identity for a governing pricing row.
+ * Builds the authority-neutral observation view of one run's governing pricing.
  *
- * Deliberately excludes `record_id`: internal record ids differ between the
- * legacy and canonical adapters for the very same source row, so including one
- * would report every pricing row as changed. Identity is the source-backed
- * tuple, which is what an operator can actually verify against an exhibit.
+ * Identity is NOT computed here. A single per-item identity string cannot express
+ * "these two legacy rows and this one canonical row are the same contract line",
+ * which is the shape real data takes when one authority deduplicates. Alignment is
+ * a collection-level operation performed by `pricingObservationAlignment.ts`.
  */
-function pricingIdentity(item: RateScheduleItem): string {
-  return key(
-    item.source_document_id,
-    item.canonical_category ?? item.source_category ?? item.material_type,
-    item.description,
-    item.unit_type,
-  );
+function pricingObservationsFor(
+  input: ProjectValidatorInput,
+  authorityMode: ProjectTruthAuthorityMode,
+): readonly PricingObservation[] {
+  const pageIndex = buildPricingPageIndex(input);
+  return input.factLookups.rateScheduleItems.map((item) => toPricingObservation(item, authorityMode, {
+    sourceArtifactIdForDocument: (documentId) => sourceArtifactIdForDocument(input, documentId),
+    pageFor: (candidate) => readPage(candidate.raw_value) ?? pricingPageFor(pageIndex, candidate),
+  }));
 }
 
 /**
@@ -444,22 +448,41 @@ function buildPricingPageIndex(
   return pages;
 }
 
-function normalizePricing(
-  input: ProjectValidatorInput,
+/**
+ * Projects one side of an alignment into the comparison's pricing view.
+ *
+ * Only emits an entry when the authority actually observed the contract line, so
+ * an aligned identity present on one side and absent on the other yields exactly
+ * one genuine "missing row" signal instead of a matched pair of phantom rows.
+ */
+export function alignedPricingReferences(
+  aligned: readonly AlignedPricingIdentity[],
+  authority: ProjectTruthAuthorityMode,
 ): readonly NormalizedPricingReference[] {
-  const pageIndex = buildPricingPageIndex(input);
-  return input.factLookups.rateScheduleItems
-    .map((item) => ({
-      pricingKey: pricingIdentity(item),
-      governingDocumentId: item.source_document_id ?? null,
-      category: item.canonical_category ?? item.source_category ?? item.material_type ?? null,
-      description: item.description ?? null,
-      unit: item.unit_type ?? null,
-      rate: item.rate_amount != null ? roundComparisonAmount(item.rate_amount) : null,
-      sourceArtifactId: sourceArtifactIdForDocument(input, item.source_document_id),
-      sourcePage: readPage(item.raw_value) ?? pricingPageFor(pageIndex, item),
-      provenanceReference: item.record_id ?? null,
-    }))
+  return aligned
+    .filter((identity) => identity[authority].present)
+    .map((identity) => {
+      const side = identity[authority];
+      return {
+        pricingKey: identity.pricingKey,
+        governingDocumentId: side.governingDocumentIds[0] ?? null,
+        // The RAW source category, which both authorities carry unchanged. The
+        // resolved taxonomy slug is deliberately absent: it is the field whose
+        // per-authority divergence caused the first cohort's false regressions.
+        category: identity.rawCategories[0] ?? null,
+        description: side.descriptions[0] ?? null,
+        unit: side.rawUnits[0] ?? null,
+        unitClass: side.unitClasses[0] ?? null,
+        rate: side.rates.length === 1 ? side.rates[0]! : (side.rates[0] ?? null),
+        sourceArtifactId: side.sourceArtifactIds[0] ?? null,
+        sourcePage: side.sourcePages[0] ?? null,
+        provenanceReference: side.provenanceReferences[0] ?? null,
+        observationCount: side.observationCount,
+        distinctSourceCount: side.distinctSourceCount,
+        descriptions: side.descriptions,
+        billingKeyLost: side.billingKeyLost,
+      };
+    })
     .sort((left, right) => left.pricingKey.localeCompare(right.pricingKey, 'en-US'));
 }
 
@@ -682,6 +705,7 @@ function normalizeClearance(
 
 function normalizeProvenance(
   input: ProjectValidatorInput,
+  authorityMode: ProjectTruthAuthorityMode,
 ): NormalizedProvenanceSummary {
   const authority = input.projectTruthAuthority ?? null;
   const projection = authority != null && isCanonicalAuthorityEstablished(authority)
@@ -693,7 +717,12 @@ function normalizeProvenance(
   for (const item of input.factLookups.rateScheduleItems) {
     references.push({
       recordKind: 'pricing',
-      recordKey: pricingIdentity(item),
+      recordKey: pricingObservationKey(
+        toPricingObservation(item, authorityMode, {
+          sourceArtifactIdForDocument: (documentId) => sourceArtifactIdForDocument(input, documentId),
+          pageFor: (candidate) => readPage(candidate.raw_value) ?? pricingPageFor(pageIndex, candidate),
+        }),
+      ),
       sourceArtifactId: sourceArtifactIdForDocument(input, item.source_document_id),
       sourceDocumentId: item.source_document_id ?? null,
       page: readPage(item.raw_value) ?? pricingPageFor(pageIndex, item),
@@ -820,12 +849,16 @@ export function normalizeAuthorityRun(params: {
     ).length,
     identities: normalizeIdentities(input),
     quantityTotals: normalizeQuantityTotals(input),
-    amountTotals: normalizeAmountTotals(input, result),
-    governingPricing: normalizePricing(input),
+    amountTotals: normalizeAmountTotals(input, result, authorityMode),
+    // Left empty here on purpose. Pricing identity is authority-neutral and can
+    // only be assigned once both runs are known, so `applyPricingAlignment` fills
+    // this in. A per-run key would reintroduce the exact defect this replaces.
+    governingPricing: [],
+    pricingObservations: pricingObservationsFor(input, authorityMode),
     findingSummary: normalizeFindingSummary(result),
     findings: normalizeFindings(result),
     exposure: normalizeExposure(result),
     clearance: normalizeClearance(input, result),
-    provenanceSummary: normalizeProvenance(input),
+    provenanceSummary: normalizeProvenance(input, authorityMode),
   };
 }

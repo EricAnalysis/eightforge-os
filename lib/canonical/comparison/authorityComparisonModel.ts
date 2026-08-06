@@ -22,6 +22,8 @@
 import type { CanonicalAuthorityCoverage } from '@/lib/canonical/authority/canonicalDomainCoverage';
 import type { ProjectTruthAuthorityMode } from '@/lib/canonical/authority/projectTruthAuthorityMode';
 
+import type { PricingObservation } from './pricingObservationAlignment';
+
 export const PROJECT_TRUTH_AUTHORITY_COMPARISON_VERSION = 'authority-comparison-v1';
 
 /**
@@ -93,18 +95,39 @@ export type NormalizedAmountTotal = {
   readonly conflictedIdentityCount: number;
 };
 
-/** One governing pricing row, reduced to its stable source-backed identity. */
+/**
+ * One governing pricing row as one authority observed it.
+ *
+ * `pricingKey` is the AUTHORITY-NEUTRAL semantic identity assigned by
+ * `pricingObservationAlignment.ts` — never a per-authority taxonomy slug or raw
+ * unit spelling. Two authorities describing the same contract line share this key
+ * even when they disagree on category label, unit spelling, or row multiplicity.
+ */
 export type NormalizedPricingReference = {
-  /** Deterministic identity: governing document, category, description, unit. */
   readonly pricingKey: string;
   readonly governingDocumentId: string | null;
   readonly category: string | null;
   readonly description: string | null;
   readonly unit: string | null;
+  /** Approved equivalence class, e.g. `Each` and `EA` both yield `ea`. */
+  readonly unitClass: string | null;
   readonly rate: number | null;
   readonly sourceArtifactId: string | null;
   readonly sourcePage: number | null;
   readonly provenanceReference: string | null;
+  /**
+   * Observations this authority produced for this one contract line.
+   *
+   * Greater than one means the authority loaded the same line more than once. That
+   * is reported as multiplicity rather than as extra pricing rows, so a
+   * deduplicating authority is never mistaken for one that lost rows.
+   */
+  readonly observationCount: number;
+  readonly distinctSourceCount: number;
+  /** Every distinct description observed. Compared, never part of identity. */
+  readonly descriptions: readonly string[];
+  /** True when no observation carries a billing key, so the row is unmatchable. */
+  readonly billingKeyLost: boolean;
 };
 
 /**
@@ -238,7 +261,22 @@ export type AuthorityRunSummary = {
   readonly identities: NormalizedIdentitySummary;
   readonly quantityTotals: readonly NormalizedQuantityTotal[];
   readonly amountTotals: readonly NormalizedAmountTotal[];
+  /**
+   * Governing pricing keyed by AUTHORITY-NEUTRAL semantic identity.
+   *
+   * Populated only after both runs are normalized, because alignment is inherently
+   * cross-authority: no per-item key can express "two legacy rows and one canonical
+   * row are the same contract line". Empty until `applyPricingAlignment` runs.
+   */
   readonly governingPricing: readonly NormalizedPricingReference[];
+  /**
+   * This authority's raw pricing observations, before alignment.
+   *
+   * Retained so the machine artifact keeps every observation an authority made,
+   * including duplicates a deduplicating counterpart collapsed. Alignment summarizes;
+   * it must never be the only surviving record.
+   */
+  readonly pricingObservations: readonly PricingObservation[];
 
   readonly findingSummary: NormalizedFindingSummary;
   readonly findings: readonly NormalizedFindingReference[];
@@ -312,6 +350,16 @@ export type AuthorityComparisonDelta = {
   /** Plain-language statement of what differs and why it matters. */
   readonly explanation: string;
   readonly evidenceReferences: readonly ComparisonEvidenceReference[];
+  /**
+   * The upstream condition this delta descends from, or `independent`.
+   *
+   * Only a provable mechanical consequence carries a non-independent key, so an
+   * unexplained regression can never be collapsed into somebody else's group.
+   */
+  readonly rootCauseKey: string;
+  readonly rootCauseSummary: string | null;
+  /** Dollar magnitude this delta accounts for, when it has one. */
+  readonly affectedAmount: number | null;
 };
 
 export type AuthorityComparisonClassificationSummary = {
@@ -327,6 +375,46 @@ export type AuthorityComparisonClassificationSummary = {
     readonly classification: ComparisonDeltaClassification;
     readonly count: number;
   }[];
+};
+
+/**
+ * A set of deltas that are provably consequences of one upstream condition.
+ *
+ * Exists because the first production cohort produced 11,364 deltas on one project
+ * and 8,161 on another, of which the overwhelming majority were one mechanical
+ * shape repeated once per ticket — all downstream of a single blocked truth domain.
+ * An operator asked to read 5,124 blocking items reads none of them.
+ *
+ * Grouping SUMMARIZES; it never discards. Every dependent delta keeps its own id and
+ * stays in `ProjectTruthAuthorityComparison.deltas`, so the machine artifact retains
+ * full per-entity detail while the operator report shows root causes with counts.
+ */
+export type AuthorityComparisonDeltaGroup = {
+  /** Deterministic: derived from the root cause and the delta shape, never positional. */
+  readonly groupId: string;
+  /** The delta chosen to represent the group. Always a real member. */
+  readonly rootDeltaId: string;
+  readonly domain: ComparisonDeltaDomain;
+  readonly field: string;
+  readonly classification: ComparisonDeltaClassification;
+  readonly materiality: ComparisonDeltaMateriality;
+  /**
+   * What all members descend from — e.g. `canonical_block:transactions`. `independent`
+   * marks a group that is not downstream of anything, so it is never collapsed away.
+   */
+  readonly rootCauseKey: string;
+  readonly rootCauseSummary: string;
+
+  readonly affectedEntityCount: number;
+  readonly affectedTransactionCount: number;
+  readonly affectedInvoiceCount: number;
+  readonly affectedFindingCount: number;
+  readonly affectedAmount: number | null;
+
+  /** A bounded, deterministic sample. Full membership is in `dependentDeltaIds`. */
+  readonly representativeEntities: readonly string[];
+  readonly evidenceReferences: readonly ComparisonEvidenceReference[];
+  readonly dependentDeltaIds: readonly string[];
 };
 
 export type ComparisonStatus =
@@ -376,7 +464,10 @@ export type ProjectTruthAuthorityComparison = {
   readonly legacy: AuthorityRunSummary;
   readonly canonical: AuthorityRunSummary;
 
+  /** Full per-entity detail. Never collapsed — this is the machine artifact. */
   readonly deltas: readonly AuthorityComparisonDelta[];
+  /** The operator-facing view: root causes with impact counts. */
+  readonly deltaGroups: readonly AuthorityComparisonDeltaGroup[];
   readonly classificationSummary: AuthorityComparisonClassificationSummary;
 
   readonly comparisonStatus: ComparisonStatus;

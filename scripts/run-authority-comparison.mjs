@@ -2,8 +2,13 @@
  * Run the non-serving legacy-versus-canonical authority comparison for one or more
  * projects and print the operator review report.
  *
- *   node scripts/run-authority-comparison.mjs <projectId> [<projectId> ...]
- *   node scripts/run-authority-comparison.mjs --no-persist <projectId>
+ *   npm run compare:authority -- <projectId> [<projectId> ...]
+ *   npm run compare:authority -- --no-persist <projectId>
+ *
+ * The npm script supplies `--experimental-transform-types`. Bare `node` is not
+ * enough: repo source uses TypeScript parameter properties, which Node's default
+ * strip-only mode cannot transform. `./lib/registerRepoAlias.mjs` covers the other
+ * half — the `@/` alias and extensionless specifiers.
  *
  * This is READ-ONLY with respect to validation. It never persists a validation
  * result, never publishes canonical truth, never changes project state, and never
@@ -15,9 +20,17 @@
  * production ids into the repository would both leak them and make the harness
  * unreproducible on a fresh checkout.
  */
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { config } from 'dotenv';
 
+import { registerRepoAlias } from './lib/registerRepoAlias.mjs';
+
 config({ path: '.env.local' });
+
+// The comparison modules import each other through the repo's `@/` alias, which
+// bare `node` does not resolve. Registered before any dynamic import below.
+registerRepoAlias(path.resolve(fileURLToPath(import.meta.url), '../..'));
 
 const args = process.argv.slice(2);
 const persist = !args.includes('--no-persist');

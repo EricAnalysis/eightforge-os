@@ -75,6 +75,10 @@ export function rateItem(params: {
     unit_type: params.unit,
     rate_amount: params.rate,
     material_type: params.category ?? null,
+    // Real legacy rate items carry BOTH the raw source category and the resolved
+    // taxonomy slug. The fixture mirrors that so alignment is exercised against the
+    // shape production actually produces.
+    source_category: params.category ?? null,
     description: params.description,
     canonical_category: params.category ?? null,
     raw_value: {

@@ -55,15 +55,20 @@ describe('operator comparison report header and summary', () => {
     expect(report).toContain('Canonical (non-serving shadow)');
   });
 
-  it('reports counts by materiality, domain, and classification', async () => {
+  it('leads with root-cause counts, not raw delta totals', async () => {
     const comparison = await compare(crossDocumentProfile());
     const report = renderAuthorityComparisonReport({ comparison });
-
-    expect(report).toContain(
-      `- Total deltas: ${String(comparison.classificationSummary.totalDeltas)}`,
+    const blocking = comparison.deltaGroups.filter((group) => group.materiality === 'blocking');
+    const review = comparison.deltaGroups.filter(
+      (group) => group.materiality === 'review_required',
     );
+
+    // Root causes are what an operator acts on. The raw delta count is reported as
+    // machine-artifact volume, not as a review workload.
+    expect(report).toContain(`- Root causes: **${String(blocking.length)} blocking**, `
+      + `${String(review.length)} review-required`);
     expect(report).toContain(
-      `- Blocking: ${String(comparison.classificationSummary.blockingDeltas)}`,
+      `- Underlying deltas retained in the machine artifact: ${String(comparison.deltas.length)}`,
     );
     for (const entry of comparison.classificationSummary.byDomain) {
       expect(report).toContain(`- ${entry.domain}: ${String(entry.count)}`);
@@ -71,6 +76,24 @@ describe('operator comparison report header and summary', () => {
     for (const entry of comparison.classificationSummary.byClassification) {
       expect(report).toContain(`- ${entry.classification}: ${String(entry.count)}`);
     }
+  });
+
+  it('states the promotion recommendation before any delta detail', async () => {
+    const report = renderAuthorityComparisonReport({
+      comparison: await compare(crossDocumentProfile()),
+    });
+
+    expect(report.indexOf('Promotion recommendation: HOLD'))
+      .toBeLessThan(report.indexOf('## Level 2'));
+  });
+
+  it('reports exposure and clearance movement in the decision summary', async () => {
+    const comparison = await compare(crossDocumentProfile());
+    const report = renderAuthorityComparisonReport({ comparison });
+
+    expect(report).toContain(`- Clearance: legacy \`${comparison.legacy.clearance.outcome}\` → `
+      + `canonical \`${comparison.canonical.clearance.outcome}\``);
+    expect(report).toContain('- At risk: ');
   });
 
   it('states plainly that the canonical result did not serve', async () => {
@@ -85,40 +108,67 @@ describe('operator comparison report header and summary', () => {
 });
 
 describe('material differences', () => {
-  it('itemizes every blocking and review-required delta with full operator context', async () => {
+  it('itemizes every blocking and review-required root cause with full operator context', async () => {
     const comparison = await compare(crossDocumentProfile());
     const report = renderAuthorityComparisonReport({ comparison });
-    const material = comparison.deltas.filter(
-      (delta) => delta.materiality === 'blocking' || delta.materiality === 'review_required',
+    const material = comparison.deltaGroups.filter(
+      (group) => group.materiality === 'blocking' || group.materiality === 'review_required',
     );
 
     expect(material.length).toBeGreaterThan(0);
-    for (const delta of material) {
-      expect(report).toContain(delta.explanation);
-      expect(report).toContain(`- Affected entity: \`${delta.entityKey}\``);
-      expect(report).toContain(`- Automated classification: \`${delta.classification}\``);
-      expect(report).toContain(`- Why: ${delta.classificationRationale}`);
-      expect(report).toContain(`- Delta id: \`${delta.deltaId}\``);
+    for (const group of material) {
+      expect(report).toContain(`- Automated classification: \`${group.classification}\``);
+      expect(report).toContain(`- Group id: \`${group.groupId}\``);
+      expect(report).toContain(`- Root delta id: \`${group.rootDeltaId}\``);
+      expect(report).toContain('- Impact: ');
       expect(report).toContain('Source evidence');
       expect(report).toContain('**Operator disposition:**');
     }
   });
 
-  it('does not itemize informational deltas, so material ones stay findable', async () => {
+  it('does not itemize informational root causes, so material ones stay findable', async () => {
     const comparison = await compare(crossDocumentProfile());
     const report = renderAuthorityComparisonReport({ comparison });
-    const informational = comparison.deltas.filter(
-      (delta) => delta.materiality === 'informational',
+    const informational = comparison.deltaGroups.filter(
+      (group) => group.materiality === 'informational',
     );
 
     expect(informational.length).toBeGreaterThan(0);
-    for (const delta of informational) {
-      expect(report).not.toContain(`- Delta id: \`${delta.deltaId}\``);
+    for (const group of informational) {
+      expect(report).not.toContain(`- Group id: \`${group.groupId}\``);
     }
-    // It is still counted, so nothing is silently dropped from the operator's view.
-    expect(report).toContain(
-      `- Informational: ${String(comparison.classificationSummary.informationalDeltas)}`,
+    // Still counted, so nothing is silently dropped from the operator's view.
+    expect(report).toContain(`${String(informational.length)} informational`);
+  });
+
+  it('collapses a repeated mechanical shape into one entry with an impact count', async () => {
+    const comparison = await compare(ticketGrainConflictProfile());
+    const report = renderAuthorityComparisonReport({ comparison });
+    const collapsed = comparison.deltaGroups.filter(
+      (group) => group.dependentDeltaIds.length > 1
+        && group.materiality !== 'informational',
     );
+
+    expect(collapsed.length).toBeGreaterThan(0);
+    for (const group of collapsed) {
+      // One entry stands for many deltas, and says how many and which.
+      expect(report).toContain(`- Group id: \`${group.groupId}\``);
+      expect(report).toContain(
+        `${String(group.dependentDeltaIds.length)} deltas retained in the machine artifact`,
+      );
+      expect(report).toContain('- Representative entities: ');
+    }
+  });
+
+  it('points at the machine detail rather than inlining it', async () => {
+    const comparison = await compare(ticketGrainConflictProfile());
+
+    expect(renderAuthorityComparisonReport({ comparison }))
+      .toContain('_not persisted for this run_');
+    expect(renderAuthorityComparisonReport({
+      comparison,
+      artifactReference: 'authority-comparison/project/p/input/d/c.json',
+    })).toContain('authority-comparison/project/p/input/d/c.json');
   });
 
   it('offers the full disposition vocabulary on an undecided delta', async () => {
@@ -133,12 +183,12 @@ describe('material differences', () => {
 
   it('shows a recorded disposition in place of the prompt', async () => {
     const baseline = await compare(crossDocumentProfile());
-    const target = baseline.deltas.find((delta) => delta.materiality === 'blocking')!;
+    const target = baseline.deltaGroups.find((group) => group.materiality === 'blocking')!;
     const annotated = await runProjectTruthAuthorityComparison('fixture-cross-document', {
       sourceSnapshot: crossDocumentProfile(),
       now: () => '2026-08-05T00:00:00.000Z',
       operatorDispositions: [{
-        deltaId: target.deltaId,
+        deltaId: target.rootDeltaId,
         disposition: 'expected_policy_difference',
         note: null,
         recordedBy: 'operator-1',
@@ -150,22 +200,19 @@ describe('material differences', () => {
     expect(report).toContain('**Operator disposition:** `expected_policy_difference`');
   });
 
-  it('states explicitly when a delta carries no evidence rather than omitting the line', async () => {
+  it('states explicitly when a root cause carries no evidence rather than omitting the line', async () => {
     const comparison = await compare(ticketGrainConflictProfile());
     const report = renderAuthorityComparisonReport({ comparison });
-    const withoutEvidence = comparison.deltas.filter(
-      (delta) => delta.evidenceReferences.length === 0
-        && delta.materiality !== 'informational',
+    const material = comparison.deltaGroups.filter(
+      (group) => group.materiality !== 'informational',
     );
+    const withoutEvidence = material.filter((group) => group.evidenceReferences.length === 0);
 
     if (withoutEvidence.length > 0) {
       expect(report).toContain('Source evidence: _none attached_');
     }
-    // Every material delta gets an evidence line one way or the other.
-    const materialCount = comparison.deltas.filter(
-      (delta) => delta.materiality !== 'informational',
-    ).length;
-    expect(report.split('Source evidence').length - 1).toBeGreaterThanOrEqual(materialCount);
+    // Every material root cause gets an evidence line one way or the other.
+    expect(report.split('Source evidence').length - 1).toBeGreaterThanOrEqual(material.length);
   });
 });
 
@@ -175,7 +222,7 @@ describe('promotion rule', () => {
     const report = renderAuthorityComparisonReport({ comparison });
 
     expect(comparison.classificationSummary.blockingDeltas).toBe(0);
-    expect(report).toContain('_No blocking or review-required deltas._');
+    expect(report).toContain('_No blocking or review-required root causes._');
     expect(report).toContain('Parity alone does not authorize promotion');
     expect(report).toContain('does not authorize promotion on its own');
     expect(report).toContain('Legacy rollback stays available');

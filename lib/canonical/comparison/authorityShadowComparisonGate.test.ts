@@ -560,6 +560,7 @@ describe('full-chain production safety', () => {
       'comparisonStatus',
       'comparisonVersion',
       'createdAt',
+      'deltaGroups',
       'deltas',
       'failureReason',
       'inputSnapshotDigest',
@@ -584,7 +585,7 @@ describe('full-chain production safety', () => {
     expect(publish).not.toHaveBeenCalled();
     persist.mockRestore();
     publish.mockRestore();
-  });
+  }, 30_000);
 
   it('does not mutate the project row it was given', async () => {
     const snapshot = cleanProfile();

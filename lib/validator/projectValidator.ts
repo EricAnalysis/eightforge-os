@@ -14,11 +14,18 @@ import {
   canonicalTaxonomyKeyForAllowedCategory,
   type ContractPricingAssemblyResult,
   type ContractPricingAssemblyRow,
+  type ContractPricingAssemblySourceOptions,
   type ContractPricingAssemblySourceScope,
   type ContractPricingSourceRowIdentity,
 } from '@/lib/contracts/contractPricingAssembly';
 import { authoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import {
+  detectContractPricingDuplicateAuthority,
+  type ContractPricingAuthorityDiscriminator,
+  type ContractPricingDuplicateAuthorityFinding,
+} from '@/lib/contracts/contractPricingDuplicateAuthority';
+import {
+  canonicalizeRelationshipType,
   inferGoverningDocumentFamily,
   resolveDocumentTruthCategoryIds,
   type GoverningDocumentFamily,
@@ -80,6 +87,8 @@ import {
   type ValidatorLegacyExtractionRow,
   type ValidatorProjectRow,
   type ValidatorSourceArtifactSnapshotEntry,
+  type ValidatorSourceArtifactSnapshotResult,
+  type ValidatorSourceIdentityStoreState,
   type ValidatorTruthCategoryDocumentIds,
 } from '@/lib/validator/shared';
 import {
@@ -598,6 +607,32 @@ export function buildPersistedContractValidationContextFromTrace(
   };
 }
 
+/**
+ * Anchored rate rows for one eligible pricing-source document.
+ *
+ * Deliberately the SAME trace reader the contract document already goes
+ * through, with only the eligibility gate widened from
+ * `isCanonicalContractDocument` to `isCanonicalRateAuthorityDocument`. Attached
+ * price sheets publish `contract_analysis.rate_schedule_rows` in exactly the
+ * shape the assembler consumes — fully anchored — so no converter is introduced
+ * and no PDF is reparsed. Routing these rows through `typedRowsToRateRows`
+ * would strip the anchors this path exists to preserve.
+ */
+export function buildPersistedPricingSourceRateScheduleRows(
+  document: Pick<ValidatorDocumentRow, 'id' | 'document_type' | 'intelligence_trace'>,
+): readonly ContractRateScheduleRow[] | null {
+  const trace = persistedDocumentTrace(document);
+  if (!trace || !isCanonicalRateAuthorityDocument(document, trace)) {
+    return null;
+  }
+
+  const analysis = asRecord(trace.contract_analysis);
+  if (!analysis) return null;
+
+  const rows = (analysis as unknown as ContractAnalysisResult).rate_schedule_rows;
+  return Array.isArray(rows) ? rows : null;
+}
+
 function isInactiveAuthorityStatus(status: string | null | undefined): boolean {
   return status === 'superseded' || status === 'archived';
 }
@@ -1002,11 +1037,33 @@ export function retainAssembledContractPricingRows(
   return Object.freeze(rows.map((row) => Object.freeze({ ...row })));
 }
 
-async function loadSourceArtifactSnapshot(params: {
+/**
+ * Reads the immutable source-identity store for this execution's documents.
+ *
+ * A successful read that returns no rows is an honest empty state: those
+ * documents have no recorded source identity. A failed read is NOT that — it is
+ * reported as `unreadable` and carries the store error, so a caller can tell
+ * "this document has no recorded identity" from "the identity store could not
+ * be consulted". Collapsing the error into an empty artifact list (the previous
+ * behavior) made every document look identity-less project-wide and would turn
+ * "unproven, therefore block" into an unexplained block.
+ *
+ * The read failure is not thrown: `extraction_source_artifacts` is not deployed
+ * everywhere, and ordinary non-duplicate assembly does not require it. The
+ * state is carried instead, and only becomes load-bearing where identity
+ * actually decides something.
+ */
+export async function loadSourceArtifactSnapshot(params: {
   project: ValidatorProjectRow;
   documents: readonly ValidatorDocumentRow[];
-}): Promise<readonly ValidatorSourceArtifactSnapshotEntry[]> {
-  if (params.documents.length === 0) return Object.freeze([]);
+}): Promise<ValidatorSourceArtifactSnapshotResult> {
+  if (params.documents.length === 0) {
+    return Object.freeze({
+      storeState: 'read' as const,
+      readError: null,
+      entries: Object.freeze([]),
+    });
+  }
 
   const admin = getSupabaseAdmin();
   if (!admin) throw new Error('Server validation client is not configured.');
@@ -1017,9 +1074,27 @@ async function loadSourceArtifactSnapshot(params: {
     .eq('organization_id', params.project.organization_id)
     .in('source_document_id', params.documents.map((document) => document.id));
 
-  return buildSourceArtifactSnapshot({
-    documents: params.documents,
-    sourceArtifacts: error ? [] : (data ?? []) as ValidatorSourceArtifactRow[],
+  if (error) {
+    return Object.freeze({
+      storeState: 'unreadable' as const,
+      readError: error.message,
+      // Entries are still shaped per document so downstream consumers keep the
+      // same projection; every identity is null because none was READ, which is
+      // exactly what `storeState` qualifies.
+      entries: buildSourceArtifactSnapshot({
+        documents: params.documents,
+        sourceArtifacts: [],
+      }),
+    });
+  }
+
+  return Object.freeze({
+    storeState: 'read' as const,
+    readError: null,
+    entries: buildSourceArtifactSnapshot({
+      documents: params.documents,
+      sourceArtifacts: (data ?? []) as ValidatorSourceArtifactRow[],
+    }),
   });
 }
 
@@ -1365,10 +1440,17 @@ export function buildDocumentIdsByFamily(
     families: precedenceFamilies,
     relationships: documentRelationships,
   });
+  // Relationship meaning is resolved by the shared canonicalizer, not by raw
+  // string equality: `governs` and `applies_to` are the same attachment as
+  // `attached_to`, and matching only the literal silently dropped price sheets
+  // linked under the aliases. Exclusion state (`voided`, `supersedes`,
+  // `replaces`) is a different question and stays in
+  // VALIDATION_EXCLUDED_RELATIONSHIP_TYPES — `voided` is not relationship
+  // vocabulary, so canonicalizing it would return null and neutralize the
+  // exclusion.
   const attachedPricingDocumentIds = uniqueDocumentIds(
     documentRelationships.flatMap((relationship) => {
-      const relationshipType = relationship.relationship_type?.trim().toLowerCase() ?? '';
-      if (relationshipType !== 'attached_to') return [];
+      if (canonicalizeRelationshipType(relationship.relationship_type) !== 'attached_to') return [];
       const sourceDocument = documentById.get(relationship.source_document_id) ?? null;
       return isPricingAuthorityDocument(sourceDocument) ? [relationship.source_document_id] : [];
     }),
@@ -1735,6 +1817,7 @@ export function buildRateScheduleItems(params: {
 
   const assembledRateRows = params.assembledContractPricingRows.map((row) => ({
     row_id: row.id,
+    source_document_id: row.sourceDocumentId,
     source_kind: row.sourceKind,
     category: row.category,
     source_category: row.category,
@@ -1774,14 +1857,39 @@ export function buildRateScheduleItems(params: {
     // persisted rows carrying a non-allowed category must not bypass selection.
     ...categorylessPersistedCompatibilityRows,
   ];
+  /**
+   * Source documents whose pricing already entered through assembly.
+   *
+   * Consumed by the `facts.rate_table` pass below to keep one document's
+   * extraction from being counted twice. Membership is by document identity
+   * only.
+   */
+  const assembledSourceDocumentIds = new Set<string>();
   for (const [index, row] of validatorRateRows.entries()) {
-    pushItem(
-      normalizeRateScheduleItem(
-        row,
-        params.contractValidationContext?.document_id ?? 'contract_summary',
-        row.row_id ?? `contract_rate_row:${index + 1}`,
-      ),
+    // `row.source_document_id` is present only on rows mapped from
+    // `assembledContractPricingRows` (C3 per-document lineage); the persisted
+    // trace fallback rows below belong to the single contract document by
+    // construction. Without this, every row assembled from an attached
+    // pricing source is stamped with the CONTRACT's document id regardless of
+    // which document it actually came from — which silently collapses two
+    // distinct documents' identical-content rows into one `RateScheduleItem`
+    // via the dedupe key below, exactly the duplicate legacy count C3 exists
+    // to keep visible.
+    const sourceDocumentId =
+      (row as { source_document_id?: string | null }).source_document_id
+      ?? params.contractValidationContext?.document_id
+      ?? 'contract_summary';
+    const item = normalizeRateScheduleItem(
+      row,
+      sourceDocumentId,
+      row.row_id ?? `contract_rate_row:${index + 1}`,
     );
+    // A document counts as covered only once it has actually contributed an
+    // item. Deriving coverage from the raw input instead would let a document
+    // whose rows all normalized away suppress its own fact rows and lose the
+    // pricing entirely — silence rather than double-counting, but still a loss.
+    if (item != null) assembledSourceDocumentIds.add(sourceDocumentId);
+    pushItem(item);
   }
 
   const scheduleFacts = findFactRecords(
@@ -1791,6 +1899,24 @@ export function buildRateScheduleItems(params: {
   );
 
   for (const fact of scheduleFacts) {
+    // Document-scoped grain guard. `facts.rate_table` and the assembled pricing
+    // rows are two PROJECTIONS OF THE SAME EXTRACTION for a given document (C3
+    // design §5.4), so emitting both counts every physical rate twice.
+    //
+    // Before C3, assembly was scoped to the single contract document, so for a
+    // project whose rates live on attached price sheets the assembled list was
+    // empty and only this facts path ran. C3 widens assembly to every eligible
+    // pricing source, which activates both projections at once — measured on
+    // Goodlettsville as legacy 10 → 20.
+    //
+    // The suppression is per source document, never global: a document covered
+    // by assembly uses its assembled representation (which carries anchors,
+    // geometry, and merge diagnostics the fact projection lacks), while a
+    // document with no assembled rows keeps its fact rows. Coverage is decided
+    // purely by source-document identity — never by description, rate, or any
+    // other row-content similarity.
+    if (assembledSourceDocumentIds.has(fact.document_id)) continue;
+
     const rawValue = fact.value;
     if (Array.isArray(rawValue)) {
       rawValue.forEach((entry, index) => {
@@ -1928,11 +2054,41 @@ function buildContractRelationshipContext(
   };
 }
 
+/** One eligible pricing-source document, assembled under its own scope. */
+type PreparedContractPricingSource = {
+  readonly sourceScope: ContractPricingAssemblySourceScope;
+  readonly rateScheduleRows: readonly ContractRateScheduleRow[];
+  readonly relationshipBasis: string | null;
+};
+
+/** Schedule governance, read from the precedence family and never re-derived. */
+type ResolvedPricingScheduleGovernance = {
+  readonly documentId: string;
+  readonly family: string | null;
+  readonly reason: string | null;
+  readonly reasonDetail: string | null;
+  readonly consideredDocumentIds: readonly string[];
+};
+
 type PreparedContractValidationContext = {
   readonly sourceScope: ContractPricingAssemblySourceScope;
   readonly authoritativeRateScheduleRows: readonly ContractRateScheduleRow[];
   readonly candidateOnlyRateScheduleRows: readonly ContractRateScheduleRow[];
   readonly selectedCategoryBySourceRow?: ReadonlyMap<ContractPricingSourceRowIdentity, string>;
+  /**
+   * Eligible pricing documents OTHER than the contract scope above. Each is
+   * assembled under its own scope so per-document source identity and evidence
+   * lineage survive; concatenating their rows into one call would stamp the
+   * contract's artifact identity onto price-sheet rows.
+   */
+  readonly additionalPricingSources: readonly PreparedContractPricingSource[];
+  readonly scheduleGovernance: ResolvedPricingScheduleGovernance | null;
+  readonly duplicateAuthorityDiscriminators: ReadonlyMap<
+    string,
+    ContractPricingAuthorityDiscriminator
+  >;
+  readonly sourceIdentityStoreState: ValidatorSourceIdentityStoreState;
+  readonly sourceIdentityReadError: string | null;
   readonly finalize: (
     assembly: ContractPricingAssemblyResult,
   ) => ValidatorContractAnalysisContext | null;
@@ -1945,7 +2101,137 @@ type ContractValidationContextParams = {
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
   sourceArtifactSnapshot?: readonly ValidatorSourceArtifactSnapshotEntry[];
+  precedenceFamilies?: readonly ResolvedDocumentPrecedenceFamily[];
+  documentRelationships?: readonly DocumentRelationshipRecord[];
+  /**
+   * Already computed before assembly for invoice scoping. Pricing must consult
+   * it too: a replaced or voided price sheet must not enter row loading,
+   * governance, duplicate evaluation, or assembly.
+   */
+  excludedValidationDocumentIds?: ReadonlySet<string>;
+  sourceIdentityStoreState?: ValidatorSourceIdentityStoreState;
+  sourceIdentityReadError?: string | null;
 };
+
+/**
+ * Eligible pricing-source documents, in deterministic order.
+ *
+ * `(contract_identity ∪ pricing) − excluded − inactive authority`, then gated by
+ * the same rate-authority predicate legacy already uses. No new relationship
+ * walk and no new classification rule: every input is already resolved upstream.
+ */
+function resolveEligiblePricingSourceDocumentIds(params: {
+  readonly truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
+  readonly documentById: ReadonlyMap<string, ValidatorDocumentRow>;
+  readonly excludedDocumentIds: ReadonlySet<string>;
+  readonly inactiveDocumentIds: ReadonlySet<string>;
+}): readonly string[] {
+  return uniqueDocumentIds([
+    ...params.truthCategoryDocumentIds.contract_identity,
+    ...params.truthCategoryDocumentIds.pricing,
+  ]).filter((documentId) => {
+    if (params.excludedDocumentIds.has(documentId)) return false;
+    if (params.inactiveDocumentIds.has(documentId)) return false;
+    const document = params.documentById.get(documentId) ?? null;
+    return document != null && isCanonicalRateAuthorityDocument(document);
+  });
+}
+
+/**
+ * Schedule governance, carried verbatim from the precedence family that
+ * governs one of the eligible pricing sources.
+ *
+ * Precedence is NOT re-derived here. When no family governs an eligible source
+ * and more than one source is in play, governance stays unresolved rather than
+ * being guessed from row agreement or document order.
+ */
+function resolvePricingScheduleGovernance(params: {
+  readonly precedenceFamilies: readonly ResolvedDocumentPrecedenceFamily[];
+  readonly eligibleDocumentIds: readonly string[];
+}): ResolvedPricingScheduleGovernance | null {
+  const eligible = new Set(params.eligibleDocumentIds);
+
+  for (const family of params.precedenceFamilies) {
+    const governingDocumentId = family.governing_document_id;
+    if (!governingDocumentId || !eligible.has(governingDocumentId)) continue;
+    return {
+      documentId: governingDocumentId,
+      family: family.family,
+      reason: family.governing_reason,
+      reasonDetail: family.governing_reason_detail,
+      consideredDocumentIds: Object.freeze([...family.considered_document_ids]),
+    };
+  }
+
+  // Exactly one eligible source is not an ambiguity to resolve; it is the only
+  // source there is. Two or more with no family selection stays unresolved.
+  if (params.eligibleDocumentIds.length === 1) {
+    return {
+      documentId: params.eligibleDocumentIds[0]!,
+      family: null,
+      reason: null,
+      reasonDetail: 'Single eligible pricing source',
+      consideredDocumentIds: Object.freeze([...params.eligibleDocumentIds]),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Precedence facts per document that could resolve a duplicate pair.
+ *
+ * Read from the precedence snapshot and the relationship graph only. Upload or
+ * processing recency is deliberately absent: it is not an authority signal.
+ */
+function buildDuplicateAuthorityDiscriminators(params: {
+  readonly precedenceFamilies: readonly ResolvedDocumentPrecedenceFamily[];
+  readonly documentRelationships: readonly DocumentRelationshipRecord[];
+}): ReadonlyMap<string, ContractPricingAuthorityDiscriminator> {
+  const supersededBy = new Map<string, Set<string>>();
+  for (const relationship of params.documentRelationships) {
+    const canonicalType = canonicalizeRelationshipType(relationship.relationship_type);
+    if (canonicalType !== 'supersedes' && canonicalType !== 'amends') continue;
+    const target = relationship.target_document_id;
+    const source = relationship.source_document_id;
+    if (!target || !source) continue;
+    const existing = supersededBy.get(target) ?? new Set<string>();
+    existing.add(source);
+    supersededBy.set(target, existing);
+  }
+
+  const discriminators = new Map<string, ContractPricingAuthorityDiscriminator>();
+  for (const family of params.precedenceFamilies) {
+    for (const document of family.documents) {
+      discriminators.set(document.id, {
+        authorityStatus: document.authority_status ?? null,
+        effectiveDate: document.effective_date ?? null,
+        supersededByDocumentIds: Object.freeze([
+          ...(supersededBy.get(document.id) ?? []),
+        ].sort((left, right) => left.localeCompare(right, 'en-US'))),
+        isGoverningDocument: family.governing_document_id === document.id,
+        // Carried so duplicate-authority detection can tell an approved
+        // precedence signal from `upload_recency_fallback`, which the design
+        // forbids as an authority discriminator.
+        governingReason: family.governing_reason,
+      });
+    }
+  }
+
+  for (const [documentId, sources] of supersededBy) {
+    if (discriminators.has(documentId)) continue;
+    discriminators.set(documentId, {
+      authorityStatus: null,
+      effectiveDate: null,
+      supersededByDocumentIds: Object.freeze(
+        [...sources].sort((left, right) => left.localeCompare(right, 'en-US')),
+      ),
+      isGoverningDocument: false,
+    });
+  }
+
+  return discriminators;
+}
 
 function prepareContractValidationContext(
   params: ContractValidationContextParams,
@@ -1973,6 +2259,67 @@ function prepareContractValidationContext(
     documentId: contractDocumentId ?? 'contract-summary',
     sourceVersionIdentity: sourceSnapshot?.exactSourceIdentity ?? null,
   };
+
+  // ── Pricing source scope, resolved once for every return path below ───────
+  const precedenceFamilies = params.precedenceFamilies ?? [];
+  const documentRelationships = params.documentRelationships ?? [];
+  const excludedDocumentIds = params.excludedValidationDocumentIds ?? new Set<string>();
+  const documentById = new Map(params.documents.map((document) => [document.id, document] as const));
+  const inactiveDocumentIds = new Set(
+    precedenceFamilies.flatMap((family) =>
+      family.documents
+        .filter((document) => isInactiveAuthorityStatus(document.authority_status ?? null))
+        .map((document) => document.id),
+    ),
+  );
+  const eligiblePricingDocumentIds = resolveEligiblePricingSourceDocumentIds({
+    truthCategoryDocumentIds: params.truthCategoryDocumentIds,
+    documentById,
+    excludedDocumentIds,
+    inactiveDocumentIds,
+  });
+  const attachedPricingBasisByDocumentId = new Map<string, string>();
+  for (const relationship of documentRelationships) {
+    const canonicalType = canonicalizeRelationshipType(relationship.relationship_type);
+    if (canonicalType !== 'attached_to') continue;
+    if (!attachedPricingBasisByDocumentId.has(relationship.source_document_id)) {
+      attachedPricingBasisByDocumentId.set(relationship.source_document_id, canonicalType);
+    }
+  }
+  const additionalPricingSources: readonly PreparedContractPricingSource[] = Object.freeze(
+    eligiblePricingDocumentIds
+      .filter((documentId) => documentId !== contractDocumentId)
+      .flatMap((documentId) => {
+        const document = documentById.get(documentId);
+        if (!document) return [];
+        const rows = buildPersistedPricingSourceRateScheduleRows(document);
+        if (rows == null || rows.length === 0) return [];
+        const entry = params.sourceArtifactSnapshot?.find(
+          (candidate) => candidate.documentId === documentId,
+        ) ?? null;
+        return [Object.freeze({
+          sourceScope: {
+            documentId,
+            sourceVersionIdentity: entry?.exactSourceIdentity ?? null,
+          },
+          rateScheduleRows: rows,
+          relationshipBasis: attachedPricingBasisByDocumentId.get(documentId) ?? null,
+        })];
+      }),
+  );
+  const pricingScope = {
+    additionalPricingSources,
+    scheduleGovernance: resolvePricingScheduleGovernance({
+      precedenceFamilies,
+      eligibleDocumentIds: eligiblePricingDocumentIds,
+    }),
+    duplicateAuthorityDiscriminators: buildDuplicateAuthorityDiscriminators({
+      precedenceFamilies,
+      documentRelationships,
+    }),
+    sourceIdentityStoreState: params.sourceIdentityStoreState ?? 'read',
+    sourceIdentityReadError: params.sourceIdentityReadError ?? null,
+  } as const;
   if (contractDocumentId) {
     const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
     if (document) {
@@ -1992,6 +2339,7 @@ function prepareContractValidationContext(
         if (persistedContext) {
           return {
             sourceScope,
+            ...pricingScope,
             authoritativeRateScheduleRows: persistedContext.analysis.rate_schedule_rows ?? [],
             candidateOnlyRateScheduleRows: [],
             finalize: () => ({
@@ -2044,6 +2392,7 @@ function prepareContractValidationContext(
 
         return {
           sourceScope,
+          ...pricingScope,
           authoritativeRateScheduleRows,
           candidateOnlyRateScheduleRows: preferPersistedRateSchedule
             ? structuralRateScheduleRows
@@ -2088,6 +2437,7 @@ function prepareContractValidationContext(
   if (persistedProjectContext) {
     return {
       sourceScope,
+      ...pricingScope,
       authoritativeRateScheduleRows: persistedProjectContext.analysis.rate_schedule_rows ?? [],
       candidateOnlyRateScheduleRows: [],
       finalize: () => ({
@@ -2099,36 +2449,127 @@ function prepareContractValidationContext(
 
   return {
     sourceScope,
+    ...pricingScope,
     authoritativeRateScheduleRows: [],
     candidateOnlyRateScheduleRows: [],
     finalize: () => null,
   };
 }
 
+/**
+ * Runs the assembler once per eligible pricing source and merges the results.
+ *
+ * The contract scope is assembled first and drives the contract validation
+ * context, exactly as before. Each additional eligible pricing document is then
+ * assembled under its OWN scope, so its rows carry its own source identity and
+ * its own evidence lineage. Source-row identities already include the document,
+ * so the merged candidate map cannot collide across sources.
+ *
+ * Ordering is the resolver's document order, which is itself derived from the
+ * precedence snapshot — never iteration or insertion order.
+ */
 function executePreparedContractPricingAssembly(
   prepared: PreparedContractValidationContext,
 ): {
   readonly contractValidationContext: ValidatorContractAnalysisContext | null;
   readonly assembly: ContractPricingAssemblyResult;
+  readonly duplicateAuthorityFindings: readonly ContractPricingDuplicateAuthorityFinding[];
 } {
-  const assembly = assembleContractPricingRowsWithCandidates(
-    prepared.authoritativeRateScheduleRows,
-    prepared.sourceScope,
-    { selectedCategoryBySourceRow: prepared.selectedCategoryBySourceRow },
-    prepared.candidateOnlyRateScheduleRows,
-  );
+  // One plan entry per eligible source, contract scope first. The assembler
+  // still has exactly ONE call site; it is invoked once per entry rather than
+  // once per project, which is what keeps per-document identity intact.
+  const assemblyPlan = [
+    {
+      scope: prepared.sourceScope,
+      rateScheduleRows: prepared.authoritativeRateScheduleRows,
+      sources: { selectedCategoryBySourceRow: prepared.selectedCategoryBySourceRow },
+      candidateOnlyRateScheduleRows: prepared.candidateOnlyRateScheduleRows,
+      relationshipBasis: null as string | null,
+    },
+    ...prepared.additionalPricingSources.map((source) => ({
+      scope: source.sourceScope,
+      rateScheduleRows: source.rateScheduleRows,
+      sources: {} as ContractPricingAssemblySourceOptions,
+      candidateOnlyRateScheduleRows: [] as readonly ContractRateScheduleRow[],
+      relationshipBasis: source.relationshipBasis,
+    })),
+  ];
+
+  const assembled = assemblyPlan.map((entry) => ({
+    entry,
+    assembly: assembleContractPricingRowsWithCandidates(
+      entry.rateScheduleRows,
+      entry.scope,
+      entry.sources,
+      entry.candidateOnlyRateScheduleRows,
+    ),
+  }));
+
+  // The contract scope is always the first plan entry, and it alone finalizes
+  // the contract validation context.
+  const contractAssembly = assembled[0]!.assembly;
+
+  const selectedRows = assembled.flatMap((entry) => entry.assembly.selectedRows);
+  const candidatesBySourceRow = new Map<
+    ContractPricingSourceRowIdentity,
+    readonly ContractPricingAssemblyRow[]
+  >();
+  for (const entry of assembled) {
+    for (const [identity, candidates] of entry.assembly.candidatesBySourceRow) {
+      candidatesBySourceRow.set(identity, candidates);
+    }
+  }
+
+  const duplicateAuthorityFindings = detectContractPricingDuplicateAuthority({
+    sources: assembled.map((entry) => ({
+      documentId: entry.entry.scope.documentId,
+      sourceVersionIdentity: entry.entry.scope.sourceVersionIdentity,
+      relationshipBasis: entry.entry.relationshipBasis,
+      rows: entry.assembly.selectedRows,
+    })),
+    sourceIdentityStoreState: prepared.sourceIdentityStoreState,
+    sourceIdentityReadError: prepared.sourceIdentityReadError,
+    discriminators: prepared.duplicateAuthorityDiscriminators,
+  });
+
+  const assembly: ContractPricingAssemblyResult = Object.freeze({
+    selectedRows: Object.freeze(selectedRows),
+    candidatesBySourceRow,
+  });
+
   return {
-    contractValidationContext: prepared.finalize(assembly),
+    contractValidationContext: prepared.finalize(contractAssembly),
     assembly,
+    duplicateAuthorityFindings,
   };
 }
 
 export function buildContractValidationContext(
   params: ContractValidationContextParams,
 ): ValidatorContractAnalysisContext | null {
-  return executePreparedContractPricingAssembly(
-    prepareContractValidationContext(params),
-  ).contractValidationContext;
+  return buildContractPricingExecution(params).contractValidationContext;
+}
+
+/**
+ * The full contract pricing execution: the validation context, the assembled
+ * rows across every eligible source, and any unresolved duplicate authority.
+ *
+ * Same single chokepoint as {@link buildContractValidationContext}; this one
+ * simply does not discard the assembly and diagnostics the caller needs.
+ */
+export function buildContractPricingExecution(
+  params: ContractValidationContextParams,
+): {
+  readonly contractValidationContext: ValidatorContractAnalysisContext | null;
+  readonly assembly: ContractPricingAssemblyResult;
+  readonly duplicateAuthorityFindings: readonly ContractPricingDuplicateAuthorityFinding[];
+  readonly scheduleGovernance: ResolvedPricingScheduleGovernance | null;
+} {
+  const prepared = prepareContractValidationContext(params);
+  return {
+    ...executePreparedContractPricingAssembly(prepared),
+    scheduleGovernance: prepared.scheduleGovernance,
+  };
 }
 
 function buildFactLookups(params: {
@@ -2621,6 +3062,9 @@ export type ValidatorSourceSnapshot = {
   readonly loadTickets: LoadTicketRow[];
   readonly transactionData: ProjectTransactionData | null;
   readonly sourceArtifactSnapshot: readonly ValidatorSourceArtifactSnapshotEntry[];
+  /** Whether the identity store answered at all — see D1 in the C3 design. */
+  readonly sourceIdentityStoreState: ValidatorSourceIdentityStoreState;
+  readonly sourceIdentityReadError: string | null;
   readonly precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
   readonly documentRelationships: DocumentRelationshipRecord[];
   readonly familyDocumentIds: ValidatorDocumentIdsByFamily;
@@ -2632,6 +3076,9 @@ export type ValidatorSourceSnapshot = {
   readonly invoiceLines: InvoiceLineRow[];
   readonly assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
   readonly contractValidationContext: ValidatorContractAnalysisContext | null;
+  /** Unresolved duplicate pricing authority, blocking when non-empty. */
+  readonly contractPricingDuplicateAuthority: readonly ContractPricingDuplicateAuthorityFinding[];
+  readonly pricingScheduleGovernance: ResolvedPricingScheduleGovernance | null;
   readonly baseFactLookups: ValidatorFactLookups;
   readonly contractUploadGuidanceRateScheduleIncluded: ContractUploadGuidanceRateScheduleIncluded | null;
   readonly invoiceLineRateLinkRows: readonly InvoiceLineRateLinkRow[];
@@ -2657,7 +3104,7 @@ export async function loadValidatorSourceSnapshot(
     mobileTickets,
     loadTickets,
     transactionData,
-    sourceArtifactSnapshot,
+    sourceArtifactSnapshotResult,
   ] =
     await Promise.all([
       loadExtractionFactRows(documentIds),
@@ -2673,6 +3120,8 @@ export async function loadValidatorSourceSnapshot(
       }),
       loadSourceArtifactSnapshot({ project, documents }),
     ]);
+
+  const sourceArtifactSnapshot = sourceArtifactSnapshotResult.entries;
 
   let precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [];
   let documentRelationships: DocumentRelationshipRecord[] = [];
@@ -2741,6 +3190,11 @@ export async function loadValidatorSourceSnapshot(
     legacyRowsByDocumentId,
     truthCategoryDocumentIds,
     sourceArtifactSnapshot,
+    precedenceFamilies,
+    documentRelationships,
+    excludedValidationDocumentIds,
+    sourceIdentityStoreState: sourceArtifactSnapshotResult.storeState,
+    sourceIdentityReadError: sourceArtifactSnapshotResult.readError,
   });
   const contractPricingExecution = executePreparedContractPricingAssembly(
     preparedContractValidationContext,
@@ -2782,6 +3236,8 @@ export async function loadValidatorSourceSnapshot(
     loadTickets: loadTickets as LoadTicketRow[],
     transactionData: transactionData ?? null,
     sourceArtifactSnapshot,
+    sourceIdentityStoreState: sourceArtifactSnapshotResult.storeState,
+    sourceIdentityReadError: sourceArtifactSnapshotResult.readError,
     precedenceFamilies,
     documentRelationships,
     familyDocumentIds,
@@ -2793,6 +3249,8 @@ export async function loadValidatorSourceSnapshot(
     invoiceLines: effectiveInvoiceLines,
     assembledContractPricingRows,
     contractValidationContext,
+    contractPricingDuplicateAuthority: contractPricingExecution.duplicateAuthorityFindings,
+    pricingScheduleGovernance: preparedContractValidationContext.scheduleGovernance,
     baseFactLookups,
     contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
     invoiceLineRateLinkRows,
@@ -2856,15 +3314,23 @@ export function buildValidatorInputFromSourceSnapshot(
     projectId: project.id,
     env,
     assembledContractPricingRows,
+    contractPricingDuplicateAuthority: snapshot.contractPricingDuplicateAuthority,
     pricingContext: {
+      // Schedule governance is READ from the precedence family that resolved it
+      // (`governing_document_id`), not re-derived from row agreement — rows from
+      // two sources never agree, and agreeing is not what makes a document
+      // govern. Falls back to the assembled contract document only when the
+      // family established no governance.
+      documentId: snapshot.pricingScheduleGovernance?.documentId
+        ?? contractValidationContext?.document_id
+        ?? null,
       // Schedule identity is not exposed on the validator contract context.
       // Left null rather than inferred; the registry digest still pins the
       // exact resolved rows.
-      documentId: contractValidationContext?.document_id ?? null,
       scheduleId: null,
       scheduleName: null,
     },
-    governingDocumentFamily: null,
+    governingDocumentFamily: snapshot.pricingScheduleGovernance?.family ?? null,
     legacyRateScheduleItems: baseFactLookups.rateScheduleItems,
     // Transaction and document-relationship truth join the same single
     // assembly. These are the frozen objects already retained by validator-input

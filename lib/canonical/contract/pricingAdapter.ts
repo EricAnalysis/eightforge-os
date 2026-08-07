@@ -19,9 +19,10 @@
  * Additive and unreachable from production in this slice.
  */
 
-import type {
-  ContractPricingAssemblyRow,
-  ContractPricingRowMergeDiagnostic,
+import {
+  contractPricingScopedRowId,
+  type ContractPricingAssemblyRow,
+  type ContractPricingRowMergeDiagnostic,
 } from '@/lib/contracts/contractPricingAssembly';
 import type { GeometryCellRef, TableCellGeometry } from '@/lib/extraction/tableGeometry';
 import {
@@ -84,10 +85,11 @@ function boundingBoxFromGeometry(geometry: TableCellGeometry) {
 function evidenceFromGeometryRef(
   ref: GeometryCellRef,
   context: ContractPricingAdapterContext,
+  sourceDocumentId: string | null,
 ): CanonicalEvidenceRef {
   const geometry = ref.geometry;
   return canonicalEvidenceRef({
-    documentId: geometry.source_document_id ?? context.documentId ?? null,
+    documentId: geometry.source_document_id ?? sourceDocumentId ?? context.documentId ?? null,
     page: geometry.page_number ?? null,
     boundingBox: boundingBoxFromGeometry(geometry),
     rawSpan: ref.text ?? geometry.text ?? null,
@@ -116,7 +118,10 @@ function buildEvidence(
   if (row.sourceAnchor != null || row.page != null) {
     refs.push(
       canonicalEvidenceRef({
-        documentId: context.documentId ?? null,
+        // The row's own source document wins over the assembly-wide context:
+        // rows assembled from an attached price sheet must anchor to that
+        // sheet, not to the governing contract.
+        documentId: row.sourceDocumentId ?? context.documentId ?? null,
         page: row.page,
         sourceAnchor: row.sourceAnchor,
         rawSpan: row.rawText ?? null,
@@ -128,7 +133,7 @@ function buildEvidence(
   }
 
   for (const geometryRef of row.geometryRefs ?? []) {
-    refs.push(evidenceFromGeometryRef(geometryRef, context));
+    refs.push(evidenceFromGeometryRef(geometryRef, context, row.sourceDocumentId ?? null));
   }
 
   return dedupeEvidenceRefs(refs);
@@ -216,7 +221,10 @@ export function adaptAssembledPricingRow(
   const totalAmount = finiteOrNull(row.totalAmount);
 
   return {
-    candidateId: row.id,
+    // Document-scoped: the bare physical row id collides across two documents
+    // carrying the same extracted table, which would silently merge or shadow
+    // rows that belong to different sources.
+    candidateId: contractPricingScopedRowId(row),
     ordinal,
 
     rateSchedule: context.rateSchedule ?? null,

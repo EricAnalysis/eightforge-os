@@ -54,6 +54,7 @@ function goldenVegetativeRow(
 ): ContractPricingAssemblyRow {
   return {
     id: 'rate_row:golden:veg-row-dms-0-15',
+    sourceDocumentId: GOLDEN_DOCUMENT_ID,
     category: 'Vegetative Collect, Remove & Haul',
     description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
     route: 'ROW to DMS',
@@ -117,7 +118,12 @@ describe('2/3. incomplete and uncategorized rows are retained', () => {
       ADAPTER_CONTEXT,
     );
     assert.equal(candidates.length, 1);
-    assert.equal(candidates[0]?.candidateId, 'rate_row:golden:veg-row-dms-0-15');
+    // Candidate identity is document-scoped: the physical row id alone is not
+    // unique across documents.
+    assert.equal(
+      candidates[0]?.candidateId,
+      `${GOLDEN_DOCUMENT_ID}:rate_row:golden:veg-row-dms-0-15`,
+    );
   });
 
   it('does not drop a row whose category failed to resolve', () => {
@@ -129,7 +135,7 @@ describe('2/3. incomplete and uncategorized rows are retained', () => {
     assert.equal(candidates.length, 2);
     assert.deepEqual(
       candidates.map((candidate) => candidate.candidateId),
-      ['row-with-category', 'row-without-category'],
+      [`${GOLDEN_DOCUMENT_ID}:row-with-category`, `${GOLDEN_DOCUMENT_ID}:row-without-category`],
     );
   });
 });
@@ -443,7 +449,10 @@ describe('15. candidate and evidence ordering are deterministic', () => {
     const second = adaptAssembledPricingRows(rows, ADAPTER_CONTEXT);
     assert.equal(JSON.stringify(first), JSON.stringify(second));
 
-    assert.deepEqual(first.map((candidate) => candidate.candidateId), ['row-a', 'row-b', 'row-c']);
+    assert.deepEqual(
+      first.map((candidate) => candidate.candidateId),
+      [`${GOLDEN_DOCUMENT_ID}:row-a`, `${GOLDEN_DOCUMENT_ID}:row-b`, `${GOLDEN_DOCUMENT_ID}:row-c`],
+    );
     assert.deepEqual(first.map((candidate) => candidate.ordinal), [0, 1, 2]);
   });
 

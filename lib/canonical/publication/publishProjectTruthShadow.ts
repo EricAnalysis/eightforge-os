@@ -1,6 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import { after } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isCanonicalAuthorityEstablished } from '@/lib/canonical/authority/canonicalExecutionContext';
 import type { ProjectValidatorInput } from '@/lib/validator/shared';
 import type {
   ValidationEvidence,
@@ -91,7 +92,7 @@ async function loadValidationRun(
   return data as ValidationRunSnapshot;
 }
 
-function sourceFromInput(input: CanonicalProjectTruthShadowPublicationInput): ProjectTruthPublicationSource {
+export function sourceFromInput(input: CanonicalProjectTruthShadowPublicationInput): ProjectTruthPublicationSource {
   return {
     project: input.validatorInput.project,
     documents: input.validatorInput.documents,
@@ -112,7 +113,18 @@ function sourceFromInput(input: CanonicalProjectTruthShadowPublicationInput): Pr
     // The exact frozen registry that governed validation, when canonical
     // authority was established. Publication derives evidence from this object
     // instead of assembling a competing one.
-    authoritativeRegistry: input.validatorInput.projectTruthAuthority?.registry ?? null,
+    //
+    // Gated on `isCanonicalAuthorityEstablished`, not on `registry !== null`: a
+    // blocked authority (duplicate_authority, missing_governing_pricing,
+    // incomplete_domain_authority) can retain a non-null, non-empty registry so
+    // its observations stay inspectable — see resolveProjectTruthAuthority.ts.
+    // A bare `registry != null` check would let a duplicate-authority-blocked
+    // registry's contested pricing rows reach the shadow artifact labeled
+    // "authoritative", even though no authority actually selected them.
+    authoritativeRegistry: input.validatorInput.projectTruthAuthority != null
+      && isCanonicalAuthorityEstablished(input.validatorInput.projectTruthAuthority)
+      ? input.validatorInput.projectTruthAuthority.registry
+      : null,
   };
 }
 

@@ -63,7 +63,21 @@ export type ContractPricingRowMergeDiagnostic = {
 };
 
 export type ContractPricingAssemblyRow = {
+  /**
+   * The row's own physical identity, verbatim from extraction. NOT unique
+   * across documents: two uploads of one PDF mint identical `row_id`s, so this
+   * must never be used alone as a semantic key. See
+   * {@link contractPricingScopedRowId}.
+   */
   id: string;
+  /**
+   * The document this row was actually read from.
+   *
+   * Carried per row rather than inferred from an assembly-wide governing
+   * document, so a row assembled from an attached price sheet anchors its
+   * evidence to that price sheet and not to the contract.
+   */
+  sourceDocumentId: string | null;
   category: string | null;
   description: string;
   route: string | null;
@@ -1369,6 +1383,24 @@ export function contractPricingSourceRowIdentity(
   ]) as ContractPricingSourceRowIdentity;
 }
 
+/**
+ * Document-scoped semantic identity for an assembled pricing row.
+ *
+ * A physical row id such as `structural_table:pdf:table:p2:t3:r1` is unique
+ * only within one document; the same PDF assembled from two document records
+ * mints byte-identical ids. Consumers that key rows semantically — the canonical
+ * adapter and the parity projection — must use this, not `row.id`.
+ *
+ * The original row id is preserved verbatim as the second component; nothing is
+ * rewritten or discarded. Rows with no source document keep their bare id so the
+ * identity stays a pure function of the row.
+ */
+export function contractPricingScopedRowId(
+  row: Pick<ContractPricingAssemblyRow, 'id' | 'sourceDocumentId'>,
+): string {
+  return row.sourceDocumentId ? `${row.sourceDocumentId}:${row.id}` : row.id;
+}
+
 export function lookupContractPricingCandidates(
   candidatesBySourceRow: ReadonlyMap<
     ContractPricingSourceRowIdentity,
@@ -2477,6 +2509,7 @@ export function assembleContractPricingRowsWithCandidates(
         nativeCategory,
         candidate: {
           id,
+          sourceDocumentId: scope.documentId,
           category,
           description,
           route,

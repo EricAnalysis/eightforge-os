@@ -72,6 +72,12 @@ export type CanonicalAuthorityBlockReason =
   | 'missing_governing_pricing'
   | 'missing_source_snapshot'
   /**
+   * Two or more equally eligible pricing sources assert the same rate rows and
+   * nothing in the precedence data resolves which governs. Canonical authority
+   * neither selects nor collapses them; the operator dispositions the conflict.
+   */
+  | 'duplicate_authority'
+  /**
    * A required truth domain was not canonically governed. Canonical mode may
    * not report success while any required domain is still legacy-loaded,
    * unresolved, or conflicting — see `canonicalDomainCoverage.ts`. The
@@ -80,9 +86,34 @@ export type CanonicalAuthorityBlockReason =
   | 'incomplete_domain_authority'
   | 'assembly_failed';
 
+/**
+ * Everything an operator needs to disposition one duplicate-authority conflict:
+ * which documents collide, on what relationship basis, over which rows, what the
+ * immutable identity channel could say, and what is missing that would resolve
+ * it. Carried on the block rather than flattened into prose so consumers do not
+ * re-parse the detail string.
+ */
+export type CanonicalDuplicateAuthorityDiagnostic = {
+  readonly diagnosticId: string;
+  readonly documentIds: readonly string[];
+  readonly relationshipBasis: readonly string[];
+  readonly rowIdentities: readonly string[];
+  readonly sourceIdentityStatus: string;
+  readonly sourceIdentityByDocumentId: readonly {
+    readonly documentId: string;
+    readonly sourceVersionIdentity: string | null;
+  }[];
+  /** Why the identity store failed, when `sourceIdentityStatus` is `unreadable`. */
+  readonly sourceIdentityReadError: string | null;
+  readonly missingDiscriminator: string | null;
+  readonly detail: string;
+};
+
 export type CanonicalAuthorityBlock = {
   readonly reason: CanonicalAuthorityBlockReason;
   readonly detail: string;
   /** Source identities implicated in the gap, for operator triage. */
   readonly sourceGaps: readonly string[];
+  /** Present only when `reason` is `duplicate_authority`. */
+  readonly duplicateAuthority?: readonly CanonicalDuplicateAuthorityDiagnostic[];
 };

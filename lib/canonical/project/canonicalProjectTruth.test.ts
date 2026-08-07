@@ -39,7 +39,8 @@ const invoiceSource: InvoiceExtraction = {
 
 function pricingRow(authoredValueCorrection = false): ContractPricingAssemblyRow {
   return {
-    id: 'rate-row-1', sourceDocumentId: null, category: 'Vegetative', description: 'Haul vegetative debris',
+    id: 'rate-row-1', sourceDocumentId: null, sourceDescription: 'Haul vegetative debris',
+    category: 'Vegetative', description: 'Haul vegetative debris',
     route: 'ROW to DMS', distanceBand: '0 to 15 Miles', unit: 'CY', rate: 5,
     page: 8, sourceAnchor: 'contract:row:1', confidence: 'high',
     sourceKind: 'exhibit_a_table', sourceQuality: 'clean', authoredValueCorrection,

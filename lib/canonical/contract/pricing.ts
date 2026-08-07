@@ -122,6 +122,14 @@ export type CanonicalContractPricingCandidate = {
   readonly category: string | null;
   readonly subcategory: string | null;
   readonly description: string | null;
+  /**
+   * The description as the source published it, before assembly's display
+   * cleanup. Unlike `description`, this is never the `Raw row needs review`
+   * sentinel and is never recovered from raw text or a neighbouring row.
+   * `null` means the source genuinely published none — it is not a signal to
+   * fall back to the display value.
+   */
+  readonly sourceDescription: string | null;
   /** Deterministic display/search normalization. NOT a billing match key. */
   readonly normalizedDescription: string | null;
   readonly unit: string | null;
@@ -241,6 +249,14 @@ export type CanonicalContractPricingRow = {
   // ── mechanical, not enveloped ──
   readonly rowId: string;
   readonly candidateId: string;
+  /**
+   * Source-published description, carried verbatim. Not enveloped: it is an
+   * observation copied through, not a truth decision canonical resolution
+   * makes. Semantic identity (billing and description-match keys) is built
+   * from this, never from the enveloped `description`, which may hold the
+   * operator-facing `Raw row needs review` sentinel.
+   */
+  readonly sourceDescription: string | null;
   readonly ordinal: number;
   readonly sourceFamily: CanonicalPricingSourceFamily;
   readonly mergeDiagnostics: readonly CanonicalPricingMergeDiagnostic[];

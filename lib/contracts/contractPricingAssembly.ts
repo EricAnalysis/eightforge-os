@@ -78,6 +78,24 @@ export type ContractPricingAssemblyRow = {
    * evidence to that price sheet and not to the contract.
    */
   sourceDocumentId: string | null;
+  /**
+   * The description exactly as the source row published it, before any display
+   * cleanup ran.
+   *
+   * `description` below is the OPERATOR-FACING value: it may be recovered,
+   * rewritten, or replaced by the `Raw row needs review` sentinel when the
+   * display heuristic judges the row unreadable. That sentinel is a display
+   * decision, not source truth, and semantic identity must never be built from
+   * it — two different line items ("Mobilization", "Maintenance of Traffic")
+   * both collapse onto it and become indistinguishable.
+   *
+   * This field is therefore the only channel that survives display cleanup, and
+   * it is read from `row.description` alone. It is deliberately NOT recovered
+   * from `rawText`, `raw_cells`, category, rate code, neighbouring rows, or a
+   * correction's display text: a fallback would manufacture source truth that
+   * was never observed. `null` means the source genuinely published none.
+   */
+  sourceDescription: string | null;
   category: string | null;
   description: string;
   route: string | null;
@@ -2290,6 +2308,12 @@ export function assembleContractPricingRowsWithCandidates(
       const id = clean(row.row_id) ?? `contract_pricing_row:${index + 1}`;
       const rawText = clean([row.rate_raw, row.raw_text].map(clean).filter(Boolean).join(' ')) ?? clean(row.description) ?? '';
       const sourceDescription = clean(row.description) ?? rawText;
+      // Distinct from `sourceDescription` above, which falls back to `rawText`
+      // for classification purposes. Semantic identity must not inherit that
+      // fallback: `rawText` is the raw OCR blob (for MDOT, an entire page of
+      // proposal boilerplate), and treating it as a description would be
+      // fabricated source truth. Null here means the source published none.
+      const observedSourceDescription = clean(row.description);
       const combinedText = `${sourceDescription} ${rawText}`;
       const classificationText = clean([combinedText, ...(row.raw_cells ?? [])].join(' ')) ?? combinedText;
       const sourceKind = rowSourceKind(row);
@@ -2510,6 +2534,7 @@ export function assembleContractPricingRowsWithCandidates(
         candidate: {
           id,
           sourceDocumentId: scope.documentId,
+          sourceDescription: observedSourceDescription,
           category,
           description,
           route,

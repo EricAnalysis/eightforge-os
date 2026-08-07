@@ -443,6 +443,7 @@ export function resolveCanonicalPricingRow(
   return {
     rowId: candidate.candidateId,
     candidateId: candidate.candidateId,
+    sourceDescription: candidate.sourceDescription,
     ordinal: candidate.ordinal,
     sourceFamily: candidate.sourceFamily,
     mergeDiagnostics: candidate.mergeDiagnostics,

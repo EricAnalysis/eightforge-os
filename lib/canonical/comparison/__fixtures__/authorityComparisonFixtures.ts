@@ -109,6 +109,11 @@ export function pricingAssemblyRow(params: {
     ...(golden as unknown as Record<string, unknown>),
     row_id: params.rowId,
     description: params.description,
+    // Production assembly always populates this, so the fixture must too:
+    // these rows are readable, meaning the display value and the source value
+    // are the same text. Leaving it unset would model a row that never went
+    // through assembly, which is not the shape being exercised here.
+    sourceDescription: params.description,
     unit: params.unit,
     unit_type: params.unit,
     rate_amount: params.rate,

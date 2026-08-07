@@ -148,9 +148,23 @@ export function toPricingObservation(
     readonly pageFor: (item: RateScheduleItem) => number | null;
   },
 ): PricingObservation {
+  // Comparison-facing identity is derived from the SOURCE description, not the
+  // operator-facing one. Assembly may replace an unreadable row's text with the
+  // `Raw row needs review` display sentinel; deriving keys from that collapsed
+  // every such row onto `desc:raw row needs review`, and it also made the two
+  // authorities disagree — legacy carried the sentinel while canonical resolved
+  // it to null, so the same physical rate failed to align at all.
+  //
+  // `source_description` is absent (undefined) only on items built by paths that
+  // never ran display cleanup, whose own description IS source truth. A present
+  // but null value means the source published none, and stays null rather than
+  // falling back to the sentinel.
+  const observedDescription = item.source_description !== undefined
+    ? item.source_description
+    : (item.description ?? null);
   const keys = deriveBillingKeysForRateScheduleItem({
     rate_code: item.rate_code,
-    description: item.description,
+    description: observedDescription,
     material_type: item.material_type,
     unit_type: item.unit_type,
     service_item: item.service_item ?? null,
@@ -164,7 +178,10 @@ export function toPricingObservation(
     // `source_category` deliberately, never `canonical_category`: the raw source
     // text is what both authorities carry unchanged.
     rawCategory: item.source_category ?? null,
-    description: item.description ?? null,
+    // Source truth, for the same reason as the keys above: this is what the two
+    // authorities are compared on, and the display sentinel is not what the
+    // source said.
+    description: observedDescription,
     rawUnit: item.unit_type ?? null,
     unitClass: normalizeUnitEquivalenceClass(item.unit_type),
     rate: item.rate_amount != null ? roundComparisonAmount(item.rate_amount) : null,

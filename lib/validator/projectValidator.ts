@@ -1743,9 +1743,25 @@ function normalizeRateScheduleItem(
       assemblerCategoryKey ?? readRowString(row, ['canonical_category']),
     existingConfidence: assemblerCategoryKey ? 1 : toNumber(row.category_confidence),
   });
+  // The channel exists only on rows mapped from assembled pricing rows, which
+  // are the only rows whose `description` may have been replaced by a display
+  // sentinel. Fact-sourced rows never went through display cleanup, so their
+  // own description IS source truth.
+  //
+  // Presence of the KEY is what matters, not whether it holds a value: an
+  // assembled row with a null source description genuinely had none, and must
+  // stay semantically unidentified rather than falling back to the sentinel.
+  const hasSourceDescriptionChannel = Object.hasOwn(row, 'source_description');
+  const sourceDescription = readRowString(row, ['source_description']) ?? null;
+  // Semantic identity is derived from source truth. Keying on `description`
+  // meant every row whose text assembly had replaced with the
+  // `Raw row needs review` sentinel produced the same
+  // `desc:raw row needs review`, collapsing distinct contract line items onto
+  // one key.
+  const semanticDescription = hasSourceDescriptionChannel ? sourceDescription : description;
   const keys = deriveBillingKeysForRateScheduleItem({
     rate_code: rateCode,
-    description,
+    description: semanticDescription,
     material_type: materialType,
     unit_type: unitType,
     service_item: serviceItem,
@@ -1775,6 +1791,7 @@ function normalizeRateScheduleItem(
     rate_amount: rateAmount,
     material_type: materialType,
     description,
+    source_description: semanticDescription,
     service_item: serviceItem,
     source_category: sourceCategory,
     canonical_category: categoryResolution.canonical_category,
@@ -1818,6 +1835,10 @@ export function buildRateScheduleItems(params: {
   const assembledRateRows = params.assembledContractPricingRows.map((row) => ({
     row_id: row.id,
     source_document_id: row.sourceDocumentId,
+    // Always present on assembled rows (even when null) so the key-derivation
+    // below can tell "source published no description" from "this row never
+    // went through display cleanup".
+    source_description: row.sourceDescription,
     source_kind: row.sourceKind,
     category: row.category,
     source_category: row.category,

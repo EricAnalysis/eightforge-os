@@ -91,6 +91,27 @@ export type ValidatorSourceArtifactSnapshotEntry = {
   readonly exactSourceIdentity: string | null;
 };
 
+/**
+ * Whether the immutable source-identity store could be read at all.
+ *
+ * `read` means the store answered; a document with no artifact genuinely has no
+ * recorded source identity. `unreadable` means the store could not be consulted
+ * — missing table, query error, permission failure, schema mismatch — and says
+ * nothing about whether identity exists.
+ *
+ * The two states are kept distinct because source identity is load-bearing for
+ * a blocking duplicate-authority decision: an unreadable store must never be
+ * reported as "no identity recorded".
+ */
+export type ValidatorSourceIdentityStoreState = 'read' | 'unreadable';
+
+export type ValidatorSourceArtifactSnapshotResult = {
+  readonly storeState: ValidatorSourceIdentityStoreState;
+  /** Verbatim store error when `storeState` is `unreadable`; null otherwise. */
+  readonly readError: string | null;
+  readonly entries: readonly ValidatorSourceArtifactSnapshotEntry[];
+};
+
 export type ValidatorExtractionFactRow = {
   document_id: string;
   field_key: string;

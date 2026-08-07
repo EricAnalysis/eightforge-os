@@ -164,7 +164,11 @@ describe('Golden parity — assembler → canonical candidates', () => {
 
   it('retains dedupe-suppressed rows as merge diagnostics on the surviving row', () => {
     const { schedule } = scheduleFor(GOLDEN_INPUTS);
-    const survivor = schedule.rows.find((row) => row.rowId === 'golden:rate-row:1');
+    // Row identity is document-scoped; `assembleContractPricingRows` is the
+    // compatibility wrapper, so that is the scope these rows carry.
+    const survivor = schedule.rows.find(
+      (row) => row.rowId === 'compatibility-wrapper:golden:rate-row:1',
+    );
     assert.ok(survivor, 'the winning row must be emitted');
 
     const suppressedIds = survivor.mergeDiagnostics.map((d) => d.droppedRowId).sort();

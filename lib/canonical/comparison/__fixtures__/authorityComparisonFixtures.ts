@@ -348,6 +348,10 @@ export function buildComparisonSourceSnapshot(
       })),
     } as ValidatorSourceSnapshot['transactionData'],
     sourceArtifactSnapshot: artifactSnapshot(documentIds),
+    sourceIdentityStoreState: 'read',
+    sourceIdentityReadError: null,
+    contractPricingDuplicateAuthority: [],
+    pricingScheduleGovernance: null,
     precedenceFamilies: [],
     documentRelationships: [...(options.documentRelationships ?? [])] as
       ValidatorSourceSnapshot['documentRelationships'],

@@ -1,4 +1,5 @@
 import { buildCanonicalProjectTruthShadowComparison, type CanonicalShadowComparisonInput } from '@/lib/canonical/parity/shadowComparison';
+import { contractPricingScopedRowId } from '@/lib/contracts/contractPricingAssembly';
 import type { ProjectTruthParityReport } from './projectTruthPublication';
 import type { ProjectTruthPublicationSource } from './projectTruthPublicationSource';
 import type { AdaptedProjectTruthPublication } from './projectTruthShadowAdapter';
@@ -25,7 +26,10 @@ export function buildProjectTruthParityReport(input: {
   const comparisons: CanonicalShadowComparisonInput[] = [
     {
       boundary: 'contract_pricing',
-      currentSemanticKeys: input.source.assembledContractPricingRows.map((row) => row.id),
+      // Document-scoped on both sides: the canonical rowId is scoped, so keying
+      // the current side on the bare physical id would compare two different
+      // identity spaces and manufacture deltas.
+      currentSemanticKeys: input.source.assembledContractPricingRows.map(contractPricingScopedRowId),
       canonicalSemanticKeys: registry.contractPricing.flatMap((schedule) => schedule.rows.map((row) => row.rowId)),
       currentSourceAvailable: true, canonicalRepresentable: true,
       richerTyping: true,

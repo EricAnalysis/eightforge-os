@@ -26,6 +26,7 @@ import type { CanonicalGoverningDocumentReference } from '@/lib/canonical/projec
 import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type { PersistedCanonicalTransactionRowInput } from '@/lib/canonical/transaction/transactionAdapter';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
+import type { ContractPricingDuplicateAuthorityFinding } from '@/lib/contracts/contractPricingDuplicateAuthority';
 import type { RateScheduleItem, ValidatorTransactionDataDataset } from '@/lib/validator/shared';
 
 import {
@@ -108,6 +109,11 @@ export type ProjectTruthAuthorityInput = {
   }[];
   /** Human relationship decisions. Outrank derived state; never fabricated. */
   readonly operatorRelationshipAssertions?: readonly CanonicalOperatorRelationshipAssertion[];
+  /**
+   * Unresolved duplicate pricing authority detected during assembly. Non-empty
+   * blocks canonical authority; it is never resolved by choosing a document.
+   */
+  readonly contractPricingDuplicateAuthority?: readonly ContractPricingDuplicateAuthorityFinding[];
   readonly sourceArtifactSnapshotDigest: string | null;
   readonly sourceSnapshotId?: string | null;
   /** Injected for tests and harnesses so `process.env` is never mutated. */
@@ -374,6 +380,47 @@ export function resolveProjectTruthAuthority(
   );
   const registryDigest = hashCanonicalJson(registry);
   const rateScheduleItems = projectCanonicalRateScheduleItems(contractPricing);
+
+  // Unresolved duplicate pricing authority blocks GOVERNING SELECTION, not
+  // observation. The registry and its digest are retained exactly as every other
+  // source-gap block does, so both documents' adapted rows, their evidence, and
+  // their candidates stay inspectable; only `validatorProjection` — the
+  // authoritative projection — is withheld. Nulling the registry here would
+  // equate "authority is unresolved" with "the observations never existed",
+  // which is a different and false claim.
+  //
+  // No row is selected, dropped, or collapsed on this path: the block is
+  // decided AFTER adaptation precisely because adaptation makes no authority
+  // choice, and it is decided BEFORE any projection because that is where a
+  // choice would otherwise be forced.
+  const duplicateAuthority = input.contractPricingDuplicateAuthority ?? [];
+  if (duplicateAuthority.length > 0) {
+    return freezeExecutionContext({
+      authorityMode: mode,
+      assemblyStatus: 'blocked',
+      registry,
+      registryDigest,
+      sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
+      validatorProjection: null,
+      blockReason: 'duplicate_authority',
+      block: {
+        reason: 'duplicate_authority',
+        detail: duplicateAuthority.map((finding) => finding.detail).join(' '),
+        sourceGaps: duplicateAuthority.flatMap((finding) => [...finding.documentIds]),
+        duplicateAuthority: duplicateAuthority.map((finding) => Object.freeze({
+          diagnosticId: finding.findingId,
+          documentIds: finding.documentIds,
+          relationshipBasis: finding.relationshipBasis,
+          rowIdentities: finding.rowIdentities,
+          sourceIdentityStatus: finding.sourceIdentityStatus,
+          sourceIdentityByDocumentId: finding.sourceIdentityByDocumentId,
+          sourceIdentityReadError: finding.sourceIdentityReadError,
+          missingDiscriminator: finding.missingDiscriminator,
+          detail: finding.detail,
+        })),
+      },
+    });
+  }
 
   // Governing pricing is required truth. When the assembly yields nothing
   // projectable, canonical mode reports the gap instead of rescuing from legacy

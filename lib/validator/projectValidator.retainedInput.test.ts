@@ -54,6 +54,7 @@ function document(): ValidatorDocumentRow {
 function assembledRow(rate: number): ContractPricingAssemblyRow {
   return {
     id: 'retained-rate-row',
+    sourceDocumentId: null,
     category: 'hauling_transport',
     description: 'Retained hauling rate',
     route: null,

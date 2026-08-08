@@ -203,3 +203,102 @@ semantic separation from accidental fragmentation in C4's Golden cohort.
   `registryDigest` array-order sensitivity; P1 duplicate-document vocabulary; P2
   `extraction_source_artifacts` migration and hash backfill; invoice identity not
   consulting identity-store readability.
+
+---
+
+## 7. Implementation findings — 2026-08-07 (correction)
+
+Added after implementing §3 against the §2 baseline. Sections 1–6 are left exactly
+as written so the audit trail keeps the prediction that turned out to be wrong;
+this section supersedes them where they conflict.
+
+### 7.1 Correction: Golden is 7 → 7, not approximately 7 → 5
+
+§2.1 classified rows #1 (`60+ Miles from ROW to DMS`) and #2
+(`60+ Milgs from ROW to DMS`) as "readable — must be preserved", and §3 predicted
+Golden would fall from 7 sentinels to about 5. **Both were wrong.** The
+classification was an eyeball judgement about whether the text reads like English;
+the function's standard is whether the description works as a rate-row description,
+and these are route qualifiers rather than line items.
+
+Measured by running the function twice per row, once with real surroundings and once
+with `rawText: null, rawCells: null`:
+
+| Row | with surroundings | description only | condemned by surroundings? |
+|---|---|---|---|
+| `Mobilization` (MDOT #8) | preserved | preserved | — |
+| `Maintenance of Traffic` (MDOT #9) | preserved | preserved | — |
+| `60+ Miles from ROW to DMS` (#1) | sentinel | **sentinel** | **no** |
+| `60+ Milgs from ROW to DMS` (#2) | sentinel | **sentinel** | **no** |
+
+Rows #1 and #2 fail the description-only checks independently. They were never
+victims of the `rawText` defect, so the repair correctly leaves them sentinelled.
+§3's stated criterion — *no clean source description condemned by surrounding OCR
+noise* — was right; only the row-count prediction derived from it was wrong. Golden's
+correct expected result is **7 → 7**.
+
+The §3 note that row #2 was "an empirical question to be answered against the
+implementation, not asserted here" was the right instinct. Row #1 should have carried
+the same caveat and did not.
+
+### 7.2 Discovered: display description is not fully display-only
+
+C4 isolated **semantic billing identity** from display. It did **not** isolate
+**assembly multiplicity** from display: the display description participates in the
+assembly dedupe key, so changing display can change how rows collapse and therefore
+how many rows survive.
+
+This was discovered by testing a broader repair than §3 specified — an additional
+gate that preserved any independently readable description before recovery was
+consulted. It produced:
+
+```
+Golden: 91 rows -> 95 rows
+```
+
+Four rows that previously collapsed against each other stopped doing so, purely
+because their display text changed. That is a multiplicity change, and it was
+rejected and reverted. Only the §3 predicate narrowing survives.
+
+**Consequence for the record:** the surviving change is safe because its measured row
+counts and semantic identity digests are unchanged — not because display-heuristic
+changes are inherently safe. The two are different claims and only the first is
+evidenced.
+
+### 7.3 Measured outcome of the shipped change
+
+Removing `hasSevereOcrDamage(rawText)` and `hasSevereOcrDamage(rawCellsText)` from
+`sourceDamaged`, and nothing else:
+
+| | baseline (§2) | after |
+|---|---|---|
+| MDOT sentinels | 2 | **0** |
+| Golden sentinels | 7 | 7 (all fail independently) |
+| Goodlettsville sentinels | 0 | 0 |
+| Row counts (Golden / MDOT / GV) | 91 / 5 / 10 | unchanged |
+| Golden semanticIdentityDigest | `52196a0a…` | unchanged |
+| MDOT semanticIdentityDigest | `7acf15a4…` | unchanged |
+| Goodlettsville semanticIdentityDigest | `d89c822e…` | unchanged |
+| MDOT root-cause groups | 3 | 3, zero pricing groups |
+| Goodlettsville C3 | blocked, registry `4c1fffed…` | unchanged |
+
+The MDOT **canonical registry digest** did move (`aceb68fe…` → `5489ca7e…`). That is
+expected and is not semantic drift: the registry carries the operator-facing display
+description, which is exactly what this repair changes. The load-bearing invariant is
+the **semantic identity digest** above, which pins source descriptions, billing keys,
+description-match keys, rates, units, and row counts, and which did not move. Reviewers
+should not read registry-digest movement as identity movement; they measure different
+things.
+
+### 7.4 Follow-up raised by this phase — highest priority
+
+**Decouple display description from assembly dedupe identity.** Until that is done,
+any future display-heuristic work must either demonstrate unchanged assembly grain on
+the cohorts, or first remove the display description from the dedupe key. The
+alternative — tuning display and discovering multiplicity moved — is only detectable
+by the baseline-and-measure sequence used here, and only if that sequence is run every
+time.
+
+This supersedes the earlier ordering of follow-ups: it ranks above the stale comparator
+`assemblySourceScope` explanation, `registryDigest` array-order sensitivity, P1, P2,
+and invoice identity readability, all of which remain open.

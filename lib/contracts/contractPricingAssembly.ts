@@ -1571,11 +1571,32 @@ export function cleanContractRateDescriptionForDisplay(params: {
     distance,
     rate: params.rate ?? null,
   });
-  const sourceDamaged =
+  // Damage is judged from the DESCRIPTION alone. `rawText` and `rawCellsText`
+  // previously participated here, which let text that is not the description
+  // condemn a description that reads perfectly: on the MDOT bid schedule
+  // `rawText` is a page-level OCR blob of proposal boilerplate, so a clean
+  // "Mobilization" was replaced by the sentinel. Surrounding text still feeds
+  // RECOVERY below — that is what recovery is for — but it no longer decides
+  // that the description is damaged.
+  // Split by ROLE. `sourceDamaged` below is used for two different decisions,
+  // and only one of them was defective.
+  //
+  // Condemnation ("show the sentinel") must be description-local: surrounding
+  // text saying nothing about the description cannot make it unreadable. That
+  // is what replaced MDOT's clean "Mobilization" with the sentinel, because
+  // `rawText` there is a page-level OCR blob of proposal boilerplate.
+  const descriptionDamaged =
     hasStrongDescriptionNoise(sourceDescription) ||
-    hasSevereOcrDamage(sourceDescription) ||
+    hasSevereOcrDamage(sourceDescription);
+  // Recovery ("try to repair from the surrounding text") legitimately keys on
+  // surrounding damage: rows whose description is subtly damaged in ways the
+  // description-local predicates cannot see are detected precisely because the
+  // raw span around them is visibly broken. Golden's
+  // "I : Specialty. val" -> "Demolition of Private Structure" depends on this.
+  const surroundingDamaged =
     hasSevereOcrDamage(rawText) ||
     hasSevereOcrDamage(rawCellsText);
+  const sourceDamaged = descriptionDamaged || surroundingDamaged;
 
   let displayDescription = builtDescription;
   let recovered = false;
@@ -1627,7 +1648,10 @@ export function cleanContractRateDescriptionForDisplay(params: {
     };
   }
 
-  if (sourceDamaged && !recovered) {
+  // Description-local only: recovery already had its chance above using the
+  // surrounding text, and a clean description that recovery declined to improve
+  // is still a clean description.
+  if (descriptionDamaged && !recovered) {
     return {
       displayDescription: 'Raw row needs review',
       descriptionQuality: 'damaged',

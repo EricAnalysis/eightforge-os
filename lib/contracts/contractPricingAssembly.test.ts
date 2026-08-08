@@ -2911,3 +2911,163 @@ describe('assembleContractPricingRows', () => {
     );
   });
 });
+
+// ── Display-description quality: condemnation is description-only ────────────
+describe('display description quality judges the description alone', () => {
+  const SENTINEL = 'Raw row needs review';
+  // The MDOT shape: a clean description alongside a page-level OCR blob. The
+  // blob is genuinely damaged; the description is not.
+  const MDOT_BLOB =
+    'SecLion 905 - Proposaf l,etting Date: 04/1.1 /2026 cMEPl0000222Bl Bidder rD:481245968 '
+    + 'PDF text block on page 193 Bid Schedule Removal & Disposal of Debris on various routes '
+    + 'throughout District 1-, known as Federal Ald Project Nos. MEP-1000-02(228) / 310225302';
+
+  it('preserves a clean description that damaged raw text surrounds', () => {
+    const cleanup = cleanContractRateDescriptionForDisplay({
+      category: 'Equipment',
+      description: 'Mobilization',
+      rawText: MDOT_BLOB,
+      unit: 'LS',
+      rate: 1,
+      page: 193,
+      source_kind: 'mdot_section_905_bid_schedule',
+    });
+
+    assert.notEqual(cleanup.displayDescription, SENTINEL);
+    assert.match(cleanup.displayDescription, /Mobilization/i);
+  });
+
+  it('preserves a clean description that damaged raw cells surround', () => {
+    const cleanup = cleanContractRateDescriptionForDisplay({
+      category: 'Equipment',
+      description: 'Maintenance of Traffic',
+      rawText: null,
+      rawCells: [MDOT_BLOB, 'cMEPl0000222Bl', 'rD:481245968'],
+      unit: 'LS',
+      rate: 1,
+      page: 193,
+      source_kind: 'mdot_section_905_bid_schedule',
+    });
+
+    assert.notEqual(cleanup.displayDescription, SENTINEL);
+    assert.match(cleanup.displayDescription, /Maintenance of Traffic/i);
+  });
+
+  it('reaches the same verdict with and without surrounding text', () => {
+    const inputs = {
+      category: 'Equipment',
+      description: 'Mobilization',
+      unit: 'LS',
+      rate: 1,
+      page: 193,
+      source_kind: 'mdot_section_905_bid_schedule' as const,
+    };
+    const withSurroundings = cleanContractRateDescriptionForDisplay({
+      ...inputs,
+      rawText: MDOT_BLOB,
+      rawCells: [MDOT_BLOB],
+    });
+    const descriptionOnly = cleanContractRateDescriptionForDisplay({
+      ...inputs,
+      rawText: null,
+      rawCells: null,
+    });
+
+    // Surrounding text may inform recovery, but it must not change the verdict
+    // on a description that stands on its own.
+    assert.equal(withSurroundings.displayDescription, descriptionOnly.displayDescription);
+  });
+
+  it('lets surrounding text RECOVER a description that failed on its own', () => {
+    // The ordering the repair preserves: the description fails independently, so
+    // recovery is consulted, and clean surrounding text repairs it. Recovery
+    // reading raw text is what recovery is for; only condemnation was narrowed.
+    const cleanup = cleanContractRateDescriptionForDisplay({
+      category: 'Equipment',
+      description: 'pment me',
+      rawText: 'Equipment Loader with bucket Hour $96.00',
+      unit: 'Hour',
+      rate: 96,
+      page: 11,
+      source_kind: 'exhibit_a_table',
+    });
+
+    assert.notEqual(cleanup.displayDescription, SENTINEL);
+    assert.equal(cleanup.stateHint, 'derived', 'a repaired description is derived, not confirmed');
+  });
+
+  it('sentinels a damaged description when the surroundings cannot repair it', () => {
+    // The production Golden shape: fragment description, and surrounding text
+    // too damaged to recover from. Nothing can be shown, so the sentinel stands.
+    const cleanup = cleanContractRateDescriptionForDisplay({
+      category: 'Equipment',
+      description: 'pment me',
+      rawText: 'ent nt II" tr Bug BLA i EXC we ok kwith',
+      rawCells: ['ent nt II"', 'tr Bug BLA', 'i EXC we'],
+      unit: 'Hour',
+      rate: 96,
+      page: 11,
+      source_kind: 'exhibit_a_table',
+    });
+
+    assert.equal(cleanup.displayDescription, SENTINEL);
+    assert.equal(cleanup.descriptionQuality, 'damaged');
+  });
+
+  it('does not special-case the Golden route-fragment rows, which fail on their own', () => {
+    // "60+ Miles from ROW to DMS" is a route qualifier, not a line item, and the
+    // description-only readability checks reject it independently. It stays
+    // sentinelled because it fails by itself — not because raw text condemned it.
+    for (const description of ['60+ Miles from ROW to DMS', '60+ Milgs from ROW to DMS']) {
+      const withSurroundings = cleanContractRateDescriptionForDisplay({
+        category: 'Vegetative Collect, Remove & Haul',
+        description,
+        rawText: `Vegetative Collect, Remove & Haul ${description} Cubic Yard i $10.90`,
+        rawCells: ['Vegetative Collect, Remove & Haul', description, 'Cubic Yard i $10.90'],
+        unit: 'Cubic Yard',
+        rate: 10.9,
+        page: 8,
+        source_kind: 'exhibit_a_table',
+      });
+      const descriptionOnly = cleanContractRateDescriptionForDisplay({
+        category: 'Vegetative Collect, Remove & Haul',
+        description,
+        rawText: null,
+        rawCells: null,
+        unit: 'Cubic Yard',
+        rate: 10.9,
+        page: 8,
+        source_kind: 'exhibit_a_table',
+      });
+
+      assert.equal(withSurroundings.displayDescription, SENTINEL);
+      assert.equal(
+        descriptionOnly.displayDescription,
+        SENTINEL,
+        `${description} must fail independently, not via surrounding noise`,
+      );
+    }
+  });
+
+  it('still recovers a description whose damage is only visible in the raw span', () => {
+    // Regression guard for a defect an earlier draft of this repair introduced.
+    // `sourceDamaged` served two roles: it condemned, and it triggered recovery.
+    // Narrowing BOTH to description-local evidence silently degraded Golden rows
+    // whose descriptions are damaged in ways the description-local predicates
+    // cannot see -- "I : Specialty. val" reads as ordinary text to them, and only
+    // the visibly broken raw span reveals it. Recovery must keep keying on the
+    // surrounding damage; only condemnation was narrowed.
+    const cleanup = cleanContractRateDescriptionForDisplay({
+      category: 'Specialty Removal',
+      description: 'I : Specialty. val',
+      rawText: 'I]: Specialty. val (ition of Private Struoture | Gupic ee Yard [$28.00',
+      unit: 'Cubic Yard',
+      rate: 28,
+      page: 9,
+      source_kind: 'exhibit_a_table',
+    });
+
+    assert.notEqual(cleanup.displayDescription, SENTINEL);
+    assert.match(cleanup.displayDescription, /Demolition of Private Structure/i);
+  });
+});

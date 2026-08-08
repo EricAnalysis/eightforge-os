@@ -180,7 +180,15 @@ export type RateScheduleItem = {
   unit_type: string | null;
   rate_amount: number | null;
   material_type: string | null;
+  /** Operator-facing text; may be the `Raw row needs review` display sentinel. */
   description: string | null;
+  /**
+   * The description the source actually published, before display cleanup.
+   * Billing and description-match keys are derived from this, so two unreadable
+   * rows never collapse onto one shared key. `null` when the source published
+   * none — never backfilled from `description`.
+   */
+  source_description?: string | null;
   service_item?: string | null;
   source_category?: string | null;
   canonical_category?: string | null;

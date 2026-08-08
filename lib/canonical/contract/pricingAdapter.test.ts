@@ -55,6 +55,7 @@ function goldenVegetativeRow(
   return {
     id: 'rate_row:golden:veg-row-dms-0-15',
     sourceDocumentId: GOLDEN_DOCUMENT_ID,
+    sourceDescription: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
     category: 'Vegetative Collect, Remove & Haul',
     description: 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles',
     route: 'ROW to DMS',

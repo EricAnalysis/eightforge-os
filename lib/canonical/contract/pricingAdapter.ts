@@ -206,6 +206,10 @@ export function adaptAssembledPricingRow(
   const descriptionIsSentinel =
     rawDescription != null && sentinels.includes(rawDescription);
   const description = descriptionIsSentinel ? null : rawDescription;
+  // Carried straight through from assembly. When the display value is the
+  // sentinel this is what still holds the real line item, so it — not
+  // `description` — is what semantic identity downstream is built from.
+  const sourceDescription = nonEmpty(row.sourceDescription ?? null);
 
   const evidence = buildEvidence(row, context);
 
@@ -234,7 +238,11 @@ export function adaptAssembledPricingRow(
     category,
     subcategory: null,
     description,
-    normalizedDescription: normalizeCanonicalDescription(description),
+    sourceDescription,
+    // Normalized from SOURCE truth, not the display value: this field is the
+    // comparison-facing representation, and normalizing the sentinel would key
+    // every unreadable row to the same string.
+    normalizedDescription: normalizeCanonicalDescription(sourceDescription),
     unit,
     rate,
     // The assembler carries no currency. Defaulting to USD would fill an

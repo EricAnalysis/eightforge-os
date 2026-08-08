@@ -67,6 +67,13 @@ function authoritativeNumber(envelope: TruthEnvelope<number> | null | undefined)
  * mode does not introduce phantom rate rows that legacy mode would have
  * dropped, which would change Golden finding counts for a non-truth reason.
  */
+/** Trims a plain (non-enveloped) observed string; empty becomes absent. */
+function nonEmptyOrNull(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function isProjectableRow(item: {
   readonly rate_code: string | null;
   readonly unit_type: string | null;
@@ -101,6 +108,7 @@ function projectRow(
   const rateAmount = authoritativeNumber(row.rate);
   const materialType = authoritativeString(row.materialType);
   const description = authoritativeString(row.description);
+  const sourceDescription = nonEmptyOrNull(row.sourceDescription);
   const serviceItem = authoritativeString(row.serviceType);
   const sourceCategory = authoritativeString(row.category);
 
@@ -113,9 +121,16 @@ function projectRow(
   };
   if (!isProjectableRow(core)) return null;
 
+  // Semantic identity comes from the SOURCE description, never the enveloped
+  // display value. When assembly replaced an unreadable row's text with the
+  // `Raw row needs review` sentinel, keying on the display value collapsed
+  // every such row onto `desc:raw row needs review`, making genuinely different
+  // line items indistinguishable. A null source description stays null: it is
+  // never backfilled from the sentinel, so an unidentified row stays honestly
+  // unidentified rather than joining a shared bucket.
   const keys = deriveBillingKeysForRateScheduleItem({
     rate_code: rateCode,
-    description,
+    description: sourceDescription,
     material_type: materialType,
     unit_type: unitType,
     service_item: serviceItem,
@@ -137,6 +152,7 @@ function projectRow(
     rate_amount: rateAmount,
     material_type: materialType,
     description,
+    source_description: sourceDescription,
     service_item: serviceItem,
     source_category: sourceCategory,
     canonical_category: sourceCategory,

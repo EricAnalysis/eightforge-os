@@ -20,6 +20,7 @@ function row(
     id: 'structural_table:pdf:table:p2:t3:r1',
     sourceDocumentId,
     sourceDescription: 'Haul vegetative debris',
+    authoredEquivalenceKey: null,
     category: 'Hauling',
     description: 'Haul vegetative debris',
     route: null,

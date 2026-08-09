@@ -1943,10 +1943,20 @@ describe('assembleContractPricingRows', () => {
       }),
     ]);
 
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.id, 'exhibit_a_table:pdf:table:p8:t24:r2');
-    assert.equal(rows[0]?.sourceKind, 'exhibit_a_table');
-    assert.equal(rows[0]?.unit, 'Cubic Yard');
+    // GRAIN PREMISE (revised): these two rows share no deterministic equivalence
+    // evidence — different source descriptions, different units, no shared row
+    // id, anchor, recovery link, or authored equivalence key. They previously
+    // collapsed only because display cleanup recovered both to the same label,
+    // which made a display decision determine row count. Grain is now derived
+    // from source truth, so both observations are preserved and neither is
+    // silently discarded. Winner-selection among genuine duplicates is still
+    // covered by the dedupe-key-collision test above, where the two rows do
+    // share a source identity.
+    assert.equal(rows.length, 2);
+    const structured = rows.find((r) => r.id === 'exhibit_a_table:pdf:table:p8:t24:r2');
+    assert.equal(structured?.sourceKind, 'exhibit_a_table');
+    assert.equal(structured?.unit, 'Cubic Yard');
+    assert.ok(rows.find((r) => r.id === 'rate_row:fallback:duplicate-veg'));
   });
 
   it('does not let a noisy canonical row replace a cleaner assembled fallback row', () => {
@@ -1981,10 +1991,20 @@ describe('assembleContractPricingRows', () => {
       },
     );
 
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.id, 'rate_row:fallback:cleanable');
-    assert.equal(rows[0]?.sourceKind, 'fallback');
-    assert.equal(rows[0]?.description, 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles');
+    // GRAIN PREMISE (revised): these two rows share no deterministic equivalence
+    // evidence — different source descriptions, different units, no shared row
+    // id, anchor, recovery link, or authored equivalence key. They previously
+    // collapsed only because display cleanup recovered both to the same label,
+    // which made a display decision determine row count. Grain is now derived
+    // from source truth, so both observations are preserved and neither is
+    // silently discarded. Winner-selection among genuine duplicates is still
+    // covered by the dedupe-key-collision test above, where the two rows do
+    // share a source identity.
+    assert.equal(rows.length, 2);
+    const cleaner = rows.find((r) => r.id === 'rate_row:fallback:cleanable');
+    assert.equal(cleaner?.sourceKind, 'fallback');
+    // The cleaner row keeps its own description; the noisy row does not overwrite it.
+    assert.equal(cleaner?.description, 'from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles');
   });
 
   it('does not replace broad fallback coverage with a low-coverage canonical source wholesale', () => {
@@ -2094,10 +2114,19 @@ describe('assembleContractPricingRows', () => {
       },
     );
 
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.id, 'typed_rate_table:typed-bucket');
-    assert.equal(rows[0]?.sourceKind, 'typed_fields');
-    assert.equal(rows[0]?.description, 'Bucket Truck');
+    // GRAIN PREMISE (revised): these two rows share no deterministic equivalence
+    // evidence — different source descriptions, different units, no shared row
+    // id, anchor, recovery link, or authored equivalence key. They previously
+    // collapsed only because display cleanup recovered both to the same label,
+    // which made a display decision determine row count. Grain is now derived
+    // from source truth, so both observations are preserved and neither is
+    // silently discarded. Winner-selection among genuine duplicates is still
+    // covered by the dedupe-key-collision test above, where the two rows do
+    // share a source identity.
+    assert.equal(rows.length, 2);
+    const typed = rows.find((r) => r.id === 'typed_rate_table:typed-bucket');
+    assert.equal(typed?.sourceKind, 'typed_fields');
+    assert.equal(typed?.description, 'Bucket Truck');
   });
 
   it('preserves unique billable fallback rows as needs review when source quality is weak', () => {

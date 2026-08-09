@@ -55,10 +55,23 @@ export type ContractPricingRowMergeDiagnostic = {
   droppedSourceAnchor: string | null;
   droppedRate: number | null;
   droppedDescription: string;
+  /** The dropped row's immutable observed text, retained as merge evidence. */
+  droppedSourceDescription?: string | null;
   droppedQualityScore: number;
   winningRowId: string;
   winningQualityScore: number;
-  reason: 'dedupe_key_collision' | 'trusted_coverage_suppression' | 'trusted_description_slot_suppression';
+  /**
+   * `authored_equivalence_collapse` means a repository-authored correction
+   * explicitly asserted the two rows are one physical item. The other reasons
+   * are naturally deduced from matching source fields.
+   */
+  reason:
+    | 'dedupe_key_collision'
+    | 'trusted_coverage_suppression'
+    | 'trusted_description_slot_suppression'
+    | 'authored_equivalence_collapse';
+  /** The equivalence class, when the merge was correction-authorized. */
+  authoredEquivalenceKey?: string | null;
   comparisonMethod: ContractPricingRowMergeComparisonMethod;
 };
 
@@ -96,6 +109,20 @@ export type ContractPricingAssemblyRow = {
    * was never observed. `null` means the source genuinely published none.
    */
   sourceDescription: string | null;
+  /**
+   * Explicit authored assertion that this row and any other row carrying the
+   * same key are one physical pricing item, permitting assembly grain to
+   * collapse them across otherwise-distinct source identities.
+   *
+   * `null` for essentially every row: ordinary grain preserves distinct
+   * document-scoped source observations, and equivalence is the exception. It
+   * is emitted only by a repository-authored correction rule that states the
+   * equality outright — never derived from display text, description
+   * similarity, equal rates or units, category, page, or ordering.
+   *
+   * Deliberately NOT part of billing identity or `sourceDescription`.
+   */
+  authoredEquivalenceKey: string | null;
   category: string | null;
   description: string;
   route: string | null;
@@ -1139,7 +1166,32 @@ type DisplayCorrection = {
   rate?: number;
   route?: string;
   preserveConfidence?: boolean;
+  /**
+   * Explicit assertion that the rows matching this rule are the SAME physical
+   * pricing item, so assembly grain may collapse them.
+   *
+   * Exceptional and opt-in: almost every correction leaves this undefined, and a
+   * correction that merely rewrites description, rate, unit, or category does
+   * NOT imply equivalence. Equivalence must be stated, never inferred — that is
+   * the whole point of the channel. Grain reads this instead of the corrected
+   * display text, which is what previously leaked authored knowledge into the
+   * dedupe key and made display cleanup able to move row counts.
+   */
+  equivalenceKey?: string;
 };
+
+/**
+ * Equivalence class for Exhibit A page 9 "Hazardous Trees 6-12 inch trunk".
+ *
+ * The table parser and the text-recovery pipeline both extract this one cell and
+ * describe it differently ('6"-12" trunk' vs '6 to 12 inch trunk'). No source
+ * field distinguishes that pair from genuinely distinct rows that also share
+ * rate, unit, page, and category -- the Dump Truck 16-20 / 21-40 pair is
+ * identical on every one of those. The equality is authored knowledge, so it is
+ * stated here explicitly rather than inferred from text.
+ */
+const HAZARDOUS_TREES_6_TO_12_EQUIVALENCE =
+  'exhibit-a:p9:tree-operations:hazardous-trees-6-to-12-inch';
 
 function recoverKnownExhibitADisplayCorrection(params: {
   category: string | null;
@@ -1266,7 +1318,28 @@ function recoverKnownExhibitADisplayCorrection(params: {
     /\b6\s*(?:"|inch|in)?\s*(?:-|to)?\s*12\b/.test(text) &&
     params.rate === 96
   ) {
-    return { description: 'Hazardous Trees 6 to 12 inch trunk', rate: 95, unit: 'Tree' };
+    return {
+      description: 'Hazardous Trees 6 to 12 inch trunk',
+      rate: 95,
+      unit: 'Tree',
+      equivalenceKey: HAZARDOUS_TREES_6_TO_12_EQUIVALENCE,
+    };
+  }
+
+  // The same physical cell as the rule above, reached through the text-recovery
+  // pipeline rather than the table parser. It needs no display or value
+  // correction -- it is already correct -- so it asserts ONLY the equivalence
+  // class. Without this the two rows would key on their genuinely different
+  // source descriptions ('6 to 12 inch trunk' vs '6"-12" trunk') and survive as
+  // two rows for one item.
+  if (
+    params.category === 'Tree Operations' &&
+    params.page === 9 &&
+    /\bhazardous\s+trees?\b/.test(text) &&
+    /\b6\s*(?:"|inch|in)?\s*(?:-|to)?\s*12\b/.test(text) &&
+    params.rate === 95
+  ) {
+    return { equivalenceKey: HAZARDOUS_TREES_6_TO_12_EQUIVALENCE };
   }
 
   if (
@@ -1714,52 +1787,123 @@ function normalizeDedupeText(value: string | null): string {
   return collapseToAlphanumericTokens(normalizeOcrText(value ?? ''));
 }
 
-function dedupeKey(row: ContractPricingAssemblyRow): string {
-  if (row.route || row.distanceBand) {
-    return [
-      row.rate == null ? 'rate:null' : `rate:${row.rate.toFixed(4)}`,
-      `unit:${normalizeDedupeText(row.unit)}`,
-      `page:${row.page ?? 'null'}`,
-      `category:${normalizeDedupeText(row.category)}`,
-      `route:${normalizeDedupeText(row.route)}`,
-      `distance:${normalizeDedupeText(row.distanceBand)}`,
-    ].join('|');
-  }
-  return [
+/**
+ * Document scope for every grain decision.
+ *
+ * Assembly runs once per eligible pricing source (C3), and rows from different
+ * documents must never collapse into one observation — that is exactly the
+ * multiplicity the duplicate-authority block reports on.
+ */
+function grainDocumentScope(row: ContractPricingAssemblyRow): string {
+  return `doc:${row.sourceDocumentId ?? 'unscoped'}`;
+}
+
+/**
+ * The authored-equivalence branch shared by all three grain keys.
+ *
+ * Returns a key only when a repository-authored correction explicitly asserted
+ * that this row is the same physical item as another. Still document-scoped:
+ * cross-document collapse is not something an equivalence assertion grants by
+ * default.
+ */
+function authoredEquivalenceGrainKey(row: ContractPricingAssemblyRow): string | null {
+  return row.authoredEquivalenceKey
+    ? `${grainDocumentScope(row)}|authored:${row.authoredEquivalenceKey}`
+    : null;
+}
+
+/**
+ * Grain identity for one physical pricing observation.
+ *
+ * Precedence, per the grain design:
+ *   1. an explicit authored equivalence assertion  → approved collapse;
+ *   2. otherwise the document-scoped SOURCE observation → collapse only when
+ *      every source-derived field matches;
+ *   3. otherwise the rows stay distinct.
+ *
+ * `description` (the operator-facing display value) is deliberately absent.
+ * Display cleanup rewrites it, so keying on it let a display decision determine
+ * whether two physical rows collapsed — measured on Golden as ten materially
+ * distinct line items merged into their neighbours, including three dozer models
+ * at different rates. `sourceDescription` carries the same discriminating power
+ * without being mutable.
+ */
+/**
+ * The row's identity as a source observation, ignoring authored equivalence.
+ *
+ * Two rows sharing this are the same observation on the evidence alone. It is
+ * also what decides whether an authored equivalence assertion was actually
+ * load-bearing for a given merge, which keeps the merge diagnostic honest.
+ */
+function sourceObservationKey(row: ContractPricingAssemblyRow): string {
+  const head = [
+    grainDocumentScope(row),
     row.rate == null ? 'rate:null' : `rate:${row.rate.toFixed(4)}`,
     `unit:${normalizeDedupeText(row.unit)}`,
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
-    `description:${normalizeDedupeText(row.description)}`,
-  ].join('|');
+  ];
+  // Route and distance are themselves source-derived structural dimensions, and
+  // they discriminate at least as well as the description does. This branch
+  // never consulted the display description, so it was never part of the
+  // defect and is left exactly as it was: adding source description here split
+  // rows that legitimately merged on an OCR artifact ("...ROW to DMS" against
+  // "...ROW to DMS i") and undid an authored route convergence.
+  if (row.route || row.distanceBand) {
+    return [
+      ...head,
+      `route:${normalizeDedupeText(row.route)}`,
+      `distance:${normalizeDedupeText(row.distanceBand)}`,
+    ].join('|');
+  }
+  return [...head, `sourceDescription:${normalizeDedupeText(row.sourceDescription)}`].join('|');
+}
+
+function dedupeKey(row: ContractPricingAssemblyRow): string {
+  return authoredEquivalenceGrainKey(row) ?? sourceObservationKey(row);
 }
 
 function coverageKey(row: ContractPricingAssemblyRow): string {
-  const parts = [
+  const authored = authoredEquivalenceGrainKey(row);
+  if (authored) return authored;
+
+  // The description component was added because Personnel and Equipment
+  // (Section 2 Time & Materials) are long rosters of distinct named line items
+  // that routinely share an hourly rate — Operations Supervisor, Crew Foreman,
+  // and Climber with gear are all $95/hr — so without it a needs_review row for
+  // one role is mistaken for OCR noise duplicating an already-trusted role and
+  // dropped. That intent is preserved and strengthened here: it now reads
+  // SOURCE description, which display cleanup cannot rewrite, and it applies to
+  // every category rather than three. Restricting it to three let rows in other
+  // categories be suppressed on rate+page+category alone, which is what merged
+  // Hazardous Removal 337" into 49"+.
+  return [
+    grainDocumentScope(row),
     row.rate == null ? 'rate:null' : `rate:${row.rate.toFixed(4)}`,
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
-  ];
-  // Personnel and Equipment (Section 2 Time & Materials) are long rosters of distinct
-  // named line items that routinely share an hourly rate (e.g. Operations Supervisor,
-  // Crew Foreman, and Climber with gear are all $95/hr) — without the description, a
-  // needs_review row for one role gets mistaken for OCR noise duplicating a different,
-  // already-trusted role at the same rate and gets dropped.
-  if (
-    row.category === 'Management & Reduction' ||
-    row.category === 'Personnel' ||
-    row.category === 'Equipment'
-  ) {
-    parts.push(`description:${normalizeDedupeText(row.description)}`);
-  }
-  return parts.join('|');
+    `sourceDescription:${normalizeDedupeText(row.sourceDescription)}`,
+  ].join('|');
 }
 
+/**
+ * The trusted description slot a row occupies.
+ *
+ * `page` and `category` are retained alongside source description: they scope
+ * the slot to one table region, and dropping them would let a repeated
+ * description in a different section claim the same slot. Source description
+ * replaces the display value so a recovered label cannot hand two different
+ * rows the same slot.
+ */
 function descriptionSlotKey(row: ContractPricingAssemblyRow): string {
+  const authored = authoredEquivalenceGrainKey(row);
+  if (authored) return authored;
+
   return [
+    grainDocumentScope(row),
     `page:${row.page ?? 'null'}`,
     `category:${normalizeDedupeText(row.category)}`,
-    `description:${normalizeDedupeText(row.description)}`,
+    `sourceDescription:${normalizeDedupeText(row.sourceDescription)}`,
   ].join('|');
 }
 
@@ -1895,16 +2039,34 @@ function selectOperatorFacingRows(rows: ContractPricingAssemblyRow[]): ContractP
     dropped: ContractPricingAssemblyRow,
     reason: ContractPricingRowMergeDiagnostic['reason'],
   ): void {
+    // A merge that happened because both rows carry the same authored
+    // equivalence assertion is reported as correction-authorized, not as a
+    // naturally deduced duplicate. The distinction matters for audit: one is a
+    // repository decision, the other is evidence.
+    // Authored only when the assertion actually did the work. Two rows that
+    // already share a source observation identity merge on their own evidence,
+    // and reporting that as correction-authorized would overstate how much the
+    // repository decided.
+    const authoredEquivalence =
+      winner.authoredEquivalenceKey != null
+      && winner.authoredEquivalenceKey === dropped.authoredEquivalenceKey
+      && sourceObservationKey(winner) !== sourceObservationKey(dropped)
+        ? winner.authoredEquivalenceKey
+        : null;
     const diagnostic: ContractPricingRowMergeDiagnostic = {
       droppedRowId: dropped.id,
       droppedSourceKind: dropped.sourceKind ?? null,
       droppedSourceAnchor: dropped.sourceAnchor,
       droppedRate: dropped.rate,
       droppedDescription: dropped.description,
+      // The dropped row's own observed text survives the merge, so the evidence
+      // that two differently-described sources were combined is not lost.
+      droppedSourceDescription: dropped.sourceDescription,
       droppedQualityScore: rowQualityScore(dropped),
       winningRowId: winner.id,
       winningQualityScore: rowQualityScore(winner),
-      reason,
+      reason: authoredEquivalence ? 'authored_equivalence_collapse' : reason,
+      authoredEquivalenceKey: authoredEquivalence,
       comparisonMethod: 'content_key',
     };
     const carriedFromDropped = diagnosticsByRow.get(dropped) ?? [];
@@ -2387,6 +2549,20 @@ export function assembleContractPricingRowsWithCandidates(
         unit,
         page: row.page ?? null,
       });
+      // An equivalence-only correction asserts GRAIN and nothing else. The three
+      // checks below key on "a correction was applied" to decide confidence,
+      // suspicious-rate handling, and damage assessment, so they must see only
+      // corrections that actually changed a value or the display text.
+      // Otherwise merely asserting that two rows are the same item would alter
+      // a row's quality score and flip which of them survives the merge.
+      const valueCorrection =
+        correction != null
+        && (correction.description != null
+          || correction.rate != null
+          || correction.unit != null
+          || correction.route != null)
+          ? correction
+          : null;
       const confidencePreservingCorrection = Boolean(correction?.preserveConfidence);
       const correctedRate = correction?.rate != null && correction.rate !== rate;
       if (correction?.rate != null) rate = correction.rate;
@@ -2461,7 +2637,7 @@ export function assembleContractPricingRowsWithCandidates(
       }
 
       const initialDescriptionQuality = scoreDescriptionReadability(description, category);
-      const suspiciousRate = correction && !confidencePreservingCorrection
+      const suspiciousRate = valueCorrection && !confidencePreservingCorrection
         ? false
         : isSuspiciousAssemblyRate({
             row,
@@ -2489,8 +2665,8 @@ export function assembleContractPricingRowsWithCandidates(
         rawText,
         descriptionQuality: initialDescriptionQuality,
         suspiciousRate,
-        sourceDamaged: sourceDamaged && (!correction || confidencePreservingCorrection) && displayCleanup.stateHint !== 'derived',
-        sourceConfidence: correction && !confidencePreservingCorrection ? undefined : row.confidence,
+        sourceDamaged: sourceDamaged && (!valueCorrection || confidencePreservingCorrection) && displayCleanup.stateHint !== 'derived',
+        sourceConfidence: valueCorrection && !confidencePreservingCorrection ? undefined : row.confidence,
       });
       if (preserveStitchedTdotRow) {
         confidence = row.confidence === 'needs_review' ? 'needs_review' : 'high';
@@ -2559,6 +2735,7 @@ export function assembleContractPricingRowsWithCandidates(
           id,
           sourceDocumentId: scope.documentId,
           sourceDescription: observedSourceDescription,
+          authoredEquivalenceKey: correction?.equivalenceKey ?? null,
           category,
           description,
           route,
@@ -2575,7 +2752,10 @@ export function assembleContractPricingRowsWithCandidates(
           confidence,
           sourceKind,
           sourceQuality,
-          authoredValueCorrection: correction != null || row.authoredValueCorrection === true,
+          // `valueCorrection`, not `correction`: asserting that two rows are the
+          // same item is not an authored VALUE correction and must not flag the
+          // row for authored-rate quarantine.
+          authoredValueCorrection: valueCorrection != null || row.authoredValueCorrection === true,
           rawText: rawText || undefined,
           geometryRefs: normalizeGeometryRefs(row.geometry_refs),
         },

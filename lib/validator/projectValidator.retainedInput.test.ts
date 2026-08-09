@@ -56,6 +56,7 @@ function assembledRow(rate: number): ContractPricingAssemblyRow {
     id: 'retained-rate-row',
     sourceDocumentId: null,
     sourceDescription: 'Retained hauling rate',
+    authoredEquivalenceKey: null,
     category: 'hauling_transport',
     description: 'Retained hauling rate',
     route: null,

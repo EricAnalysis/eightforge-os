@@ -182,7 +182,7 @@ describe('gate 1 — Golden transaction authority', () => {
   it('emits no findings and no unresolved state on the clean Golden case', () => {
     const projection = resolveProjectTruthAuthority(goldenInput()).validatorProjection!;
 
-    expect(projection.integritySignals).toEqual([]);
+    expect(resolveProjectTruthAuthority(goldenInput()).diagnosticProjection!.integritySignals).toEqual([]);
     expect(projection.invoices.identityConflicts).toEqual([]);
     expect(projection.invoices.unresolvedIdentityCount).toBe(0);
     expect(projection.relationships.unresolvedRequired).toEqual([]);
@@ -407,7 +407,7 @@ describe('gate 5 — relationship conflict', () => {
 
   it('preserves both relationship candidates in the finding evidence', () => {
     const signals = resolveProjectTruthAuthority(goldenInput(CONFLICTING_GOVERNANCE))
-      .validatorProjection!.integritySignals;
+      .diagnosticProjection!.integritySignals;
     const conflict = signals.find((signal) => signal.kind === 'relationship_conflicting')!;
 
     expect(conflict.blocking).toBe(true);

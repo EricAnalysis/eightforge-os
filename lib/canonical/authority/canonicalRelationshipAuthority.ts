@@ -158,6 +158,7 @@ export type CanonicalRelationshipAssemblyInput = {
     readonly relationship_type: string;
   }[];
   readonly sourceArtifactIdByDocumentId?: ReadonlyMap<string, string | null>;
+  readonly sourceIdentityStoreState?: 'read' | 'unreadable';
   readonly operatorAssertions?: readonly CanonicalOperatorRelationshipAssertion[];
 };
 
@@ -678,9 +679,15 @@ function assembleDocumentRelationships(
   for (const family of families) {
     for (const documentId of familyDocuments(input.familyDocumentIds, family)) {
       const artifactId = input.sourceArtifactIdByDocumentId?.get(documentId) ?? null;
+      const sourceIdentityUnreadable = input.sourceIdentityStoreState === 'unreadable';
       relationships.push(relationship({
         kind: 'source_artifact_belongs_to_document_family',
-        from: { kind: 'source_artifact', id: artifactId ?? `document:${documentId}` },
+        from: {
+          kind: 'source_artifact',
+          id: artifactId ?? (sourceIdentityUnreadable
+            ? `unreadable:document:${documentId}`
+            : `document:${documentId}`),
+        },
         to: { kind: 'contract_family', id: family },
         // The family label comes from the precedence snapshot, so this is
         // derived truth, not an independent observation.
@@ -695,7 +702,9 @@ function assembleDocumentRelationships(
         sourceFamily: family,
         detail: artifactId != null
           ? `Source artifact ${artifactId} (document ${documentId}) belongs to the ${family} family.`
-          : `Document ${documentId} belongs to the ${family} family; no source artifact id was recorded.`,
+          : sourceIdentityUnreadable
+            ? `Document ${documentId} belongs to the ${family} family; source artifact identity is unknown because the identity store was unreadable.`
+            : `Document ${documentId} belongs to the ${family} family; no source artifact id was recorded.`,
       }));
     }
   }

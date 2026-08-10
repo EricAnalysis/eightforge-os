@@ -12,6 +12,7 @@ import {
   assembleCanonicalInvoices,
   type PersistedCanonicalInvoiceRowInput,
 } from './canonicalInvoiceAuthority';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 
 const PROJECT_ID = 'project-1';
 
@@ -47,12 +48,16 @@ function assemble(input: {
   invoiceRows: readonly PersistedCanonicalInvoiceRowInput[];
   invoiceLineRows?: readonly PersistedCanonicalInvoiceRowInput[];
   artifacts?: ReadonlyMap<string, string | null>;
+  storeState?: 'read' | 'unreadable';
+  storeReadError?: SourceIdentityReadFailure | null;
 }) {
   return assembleCanonicalInvoices({
     projectId: PROJECT_ID,
     invoiceRows: input.invoiceRows,
     invoiceLineRows: input.invoiceLineRows ?? [],
     sourceArtifactIdByDocumentId: input.artifacts,
+    sourceIdentityStoreState: input.storeState,
+    sourceIdentityReadError: input.storeReadError,
   });
 }
 
@@ -66,6 +71,8 @@ describe('canonical invoice identity', () => {
     const identity = assembly.invoiceIdentities[0];
     expect(identity.projectId).toBe(PROJECT_ID);
     expect(identity.sourceArtifactId).toBe('artifact-sha-1');
+    expect(identity.sourceIdentityStatus).toBe('present');
+    expect(identity.sourceIdentityReadError).toBeNull();
     expect(identity.sourceDocumentId).toBe('doc-invoice-a');
     expect(identity.invoiceNumber).toBe('INV-1001');
     expect(identity.invoiceNumberPresent).toBe(true);
@@ -78,6 +85,48 @@ describe('canonical invoice identity', () => {
       'document:doc-invoice-a',
       'invoice-number:inv-1001',
     ]);
+  });
+
+  it('preserves readable absence as an honest missing identity', () => {
+    const assembly = assemble({
+      invoiceRows: [invoiceRow()],
+      artifacts: new Map([['doc-invoice-a', null]]),
+      storeState: 'read',
+      storeReadError: {
+        code: 'query_failed',
+        safeMessage: 'Source identity store query failed.',
+      },
+    });
+
+    const identity = assembly.invoiceIdentities[0];
+    expect(identity.sourceArtifactId).toBeNull();
+    expect(identity.sourceIdentityStatus).toBe('absent');
+    expect(identity.sourceIdentityReadError).toBeNull();
+    expect(identity.identityConfidence).toBe('document_scoped');
+    expect(identity.identityBasis).toContain('artifact:null');
+  });
+
+  it('preserves an unreadable store as uncertainty, not absent identity', () => {
+    const assembly = assemble({
+      invoiceRows: [invoiceRow()],
+      artifacts: new Map([['doc-invoice-a', null]]),
+      storeState: 'unreadable',
+      storeReadError: {
+        code: 'permission_denied',
+        safeMessage: 'Source identity store access was denied.',
+      },
+    });
+
+    const identity = assembly.invoiceIdentities[0];
+    expect(identity.sourceArtifactId).toBeNull();
+    expect(identity.sourceIdentityStatus).toBe('unreadable');
+    expect(identity.sourceIdentityReadError).toEqual({
+      code: 'permission_denied',
+      safeMessage: 'Source identity store access was denied.',
+    });
+    expect(identity.identityConfidence).toBe('document_scoped');
+    expect(identity.identityBasis).toContain('artifact:unreadable');
+    expect(identity.identityBasis).not.toContain('artifact:null');
   });
 
   it('does not derive identity from the persisted row id', () => {

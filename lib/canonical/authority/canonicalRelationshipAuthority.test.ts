@@ -30,6 +30,8 @@ function invoiceIdentity(
     canonicalInvoiceId: 'canonical-invoice:project-1:doc-a:inv-1001',
     projectId: PROJECT_ID,
     sourceArtifactId: 'artifact-1',
+    sourceIdentityStatus: 'present',
+    sourceIdentityReadError: null,
     sourceDocumentId: 'doc-invoice-a',
     sourceRecordId: 'row-a',
     invoiceNumber: 'INV-1001',
@@ -123,6 +125,27 @@ describe('canonical relationships — established truth', () => {
 
     expect(precedence.state).toBe('observed');
     expect(precedence.detail).toContain('amends');
+  });
+
+  it('keeps readable artifact absence distinct from an unreadable identity store', () => {
+    const absent = assemble({
+      sourceArtifactIdByDocumentId: new Map([['doc-contract-a', null]]),
+      sourceIdentityStoreState: 'read',
+    });
+    const unreadable = assemble({
+      sourceArtifactIdByDocumentId: new Map([['doc-contract-a', null]]),
+      sourceIdentityStoreState: 'unreadable',
+    });
+    const sourceRelationship = (assembly: typeof absent) => assembly.relationships.find(
+      (entry) => entry.kind === 'source_artifact_belongs_to_document_family'
+        && entry.provenance.sourceDocumentId === 'doc-contract-a',
+    )!;
+
+    expect(sourceRelationship(absent).from.id).toBe('document:doc-contract-a');
+    expect(sourceRelationship(absent).detail).toContain('no source artifact id was recorded');
+    expect(sourceRelationship(unreadable).from.id).toBe('unreadable:document:doc-contract-a');
+    expect(sourceRelationship(unreadable).detail).toContain('identity store was unreadable');
+    expect(sourceRelationship(unreadable).detail).not.toContain('no source artifact id was recorded');
   });
 });
 

@@ -12,6 +12,8 @@
  * `shadowPublicationFlag.ts` for the separate publication control.
  */
 
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
+
 export type ProjectTruthAuthorityMode =
   | 'legacy'
   | 'canonical';
@@ -104,7 +106,7 @@ export type CanonicalDuplicateAuthorityDiagnostic = {
     readonly sourceVersionIdentity: string | null;
   }[];
   /** Why the identity store failed, when `sourceIdentityStatus` is `unreadable`. */
-  readonly sourceIdentityReadError: string | null;
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   readonly missingDiscriminator: string | null;
   readonly detail: string;
 };

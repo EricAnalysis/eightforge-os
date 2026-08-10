@@ -246,6 +246,7 @@ export type CanonicalIntegritySignal = {
   readonly signalKey: string;
   readonly kind:
     | 'invoice_identity_conflict'
+    | 'invoice_source_identity_unreadable'
     | 'invoice_line_identity_unresolved'
     | 'relationship_unresolved'
     | 'relationship_conflicting';
@@ -283,6 +284,50 @@ export function projectCanonicalIntegritySignals(input: {
   const identityById = new Map(
     input.invoiceIdentities.map((identity) => [identity.canonicalInvoiceId, identity]),
   );
+
+  const unreadableIdentities = input.invoiceIdentities
+    .filter((identity) => identity.sourceIdentityStatus === 'unreadable')
+    .sort((left, right) => compareText(
+      `${left.sourceDocumentId ?? ''}|${left.canonicalInvoiceId}`,
+      `${right.sourceDocumentId ?? ''}|${right.canonicalInvoiceId}`,
+    ));
+  if (unreadableIdentities.length > 0) {
+    const projectId = unreadableIdentities[0].projectId;
+    const affectedDocumentIds = [...new Set(
+      unreadableIdentities
+        .map((identity) => identity.sourceDocumentId)
+        .filter((value): value is string => value != null),
+    )].sort(compareText);
+    const failure = unreadableIdentities.find(
+      (identity) => identity.sourceIdentityReadError != null,
+    )?.sourceIdentityReadError ?? null;
+    signals.push({
+      signalKey: `canonical_invoice_source_identity:${projectId}:unreadable`,
+      kind: 'invoice_source_identity_unreadable',
+      affectedDomain: 'invoices',
+      blocking: true,
+      subjectType: 'project',
+      subjectId: projectId,
+      field: 'source_artifact_id',
+      expected: 'readable immutable source identity store',
+      actual: failure == null
+        ? `source identity store unreadable for ${String(unreadableIdentities.length)} invoice(s)`
+        : `${failure.safeMessage} Affected invoices: ${String(unreadableIdentities.length)}; `
+          + `documents: ${affectedDocumentIds.join(', ') || 'unknown'}.`,
+      detail:
+        `Immutable source identity could not be read for ${String(unreadableIdentities.length)} invoice(s). `
+        + 'Canonical authority preserved the invoice observation but will not treat a store failure '
+        + 'as evidence that no source identity was recorded.',
+      evidence: unreadableIdentities.map((identity) => projectProvenanceEvidence({
+        evidenceType: 'canonical_invoice_source_identity_unreadable',
+        recordId: identity.canonicalInvoiceId,
+        fieldName: 'source_artifact_id',
+        fieldValue: identity.sourceArtifactId,
+        provenance: identity.provenance,
+        note: `Source identity store unreadable during ${identity.provenance.adapterId} assembly.`,
+      })),
+    });
+  }
 
   for (const conflict of input.invoiceIdentityConflicts) {
     signals.push({

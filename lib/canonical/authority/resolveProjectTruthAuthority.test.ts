@@ -352,6 +352,28 @@ describe('resolveProjectTruthAuthority — duplicate pricing authority', () => {
       .toBe(`duplicate_authority:${DOCUMENT_B}|${DOCUMENT_A}`);
   });
 
+  it('keeps duplicate-authority registry identity stable across observation order', () => {
+    const rows = [
+      assemblyRow({ id: 'row-1', sourceDocumentId: DOCUMENT_A }),
+      assemblyRow({ id: 'row-2', sourceDocumentId: DOCUMENT_B }),
+    ];
+    const forward = resolveProjectTruthAuthority(baseInput({
+      assembledContractPricingRows: rows,
+      contractPricingDuplicateAuthority: [duplicateAuthorityFinding()],
+    }));
+    const reversed = resolveProjectTruthAuthority(baseInput({
+      assembledContractPricingRows: [...rows].reverse(),
+      contractPricingDuplicateAuthority: [duplicateAuthorityFinding()],
+    }));
+
+    expect(forward.assemblyStatus).toBe('blocked');
+    expect(reversed.assemblyStatus).toBe('blocked');
+    expect(forward.block).toEqual(reversed.block);
+    expect(forward.registryDigest).toBe(reversed.registryDigest);
+    expect(forward.validatorProjection).toBeNull();
+    expect(reversed.validatorProjection).toBeNull();
+  });
+
   it('withholds the authoritative projection rather than deleting observations', () => {
     const context = resolveProjectTruthAuthority(baseInput({
       contractPricingDuplicateAuthority: [duplicateAuthorityFinding()],
@@ -389,13 +411,19 @@ describe('resolveProjectTruthAuthority — duplicate pricing authority', () => {
     const context = resolveProjectTruthAuthority(baseInput({
       contractPricingDuplicateAuthority: [duplicateAuthorityFinding({
         sourceIdentityStatus: 'unreadable',
-        sourceIdentityReadError: 'relation "extraction_source_artifacts" does not exist',
+        sourceIdentityReadError: {
+          code: 'relation_unavailable',
+          safeMessage: 'Source identity store relation is unavailable.',
+        },
       })],
     }));
     const diagnostic = context.block?.duplicateAuthority?.[0];
 
     expect(diagnostic?.sourceIdentityStatus).toBe('unreadable');
-    expect(diagnostic?.sourceIdentityReadError).toMatch(/does not exist/);
+    expect(diagnostic?.sourceIdentityReadError).toEqual({
+      code: 'relation_unavailable',
+      safeMessage: 'Source identity store relation is unavailable.',
+    });
   });
 
   it('does not block when no duplicate authority was detected', () => {
@@ -427,7 +455,7 @@ describe('resolveProjectTruthAuthority — duplicate pricing authority', () => {
   });
 });
 
-// ── Registry digest order sensitivity (re-review finding, not fixed here) ────
+// ── Registry digest order independence ──────────────────────────────────────
 
 describe('resolveProjectTruthAuthority — registry digest and input order', () => {
   it('is stable when the same rows are re-resolved without reordering', () => {
@@ -441,29 +469,9 @@ describe('resolveProjectTruthAuthority — registry digest and input order', () 
     expect(first.registryDigest).toEqual(second.registryDigest);
   });
 
-  it('KNOWN GAP: registryDigest is sensitive to assembledContractPricingRows array order', () => {
-    // `canonicalJson` (projectTruthPublicationIdentity.ts) sorts object keys but
-    // not array element order, and neither `assembleCanonicalPricing` nor
-    // `buildCanonicalPricingSchedule` sorts rows into a content-derived order
-    // before hashing. This is a pre-existing, cross-cutting property of the
-    // canonical registry hashing scheme — it is not introduced by C3 and it
-    // applies to every truth domain, not just pricing.
-    //
-    // It becomes load-bearing for C3 specifically because multi-document
-    // assembly now makes DOCUMENT order part of the observable row order, and
-    // that document order is ultimately driven by
-    // `document_relationships … .order('created_at', { ascending: false })`
-    // (lib/server/documentPrecedence.ts) with NO secondary tiebreaker. Two
-    // relationships created in the same request (a realistic shape for a
-    // duplicate-upload event) could return in either order across queries,
-    // which would make `registryDigest` vary run-to-run for the SAME logical
-    // state — not merely differ between two different states.
-    //
-    // Recorded here as a known gap for a separate, appropriately-scoped fix
-    // (a document-id tiebreaker on the relationship query, and/or a
-    // content-derived sort before registry hashing) rather than patched
-    // unilaterally inside C3, since it spans shared DB querying and
-    // registry-hashing code used by every canonical truth domain.
+  it('keeps registryDigest stable when assembled pricing input order reverses', () => {
+    // Hashing uses a content-derived pricing order, while the authoritative
+    // registry and selected projection retain the assembled input order.
     const forward = resolveProjectTruthAuthority(baseInput({
       assembledContractPricingRows: [
         assemblyRow({ id: 'row-1', sourceDocumentId: DOCUMENT_A }),
@@ -477,20 +485,41 @@ describe('resolveProjectTruthAuthority — registry digest and input order', () 
       ],
     }));
 
-    // Deliberately NOT asserted: `forward.registryDigest !== reversed.registryDigest`.
-    // Pinning the current (undesirable) inequality would make this test fail the
-    // moment someone correctly fixes the ordering gap, dressing an improvement up
-    // as a regression. The gap is recorded in the comment above instead.
-    //
-    // What IS asserted are the invariants that must hold both before and after
-    // any such fix: reordering the input never drops, collapses, or renames a
-    // row, and the retained observations stay complete for both documents.
     const rowIds = (context: typeof forward) =>
-      new Set(context.registry?.contractPricing.flatMap((s) => s.rows.map((r) => r.rowId)));
+      context.registry?.contractPricing.flatMap((s) => s.rows.map((r) => r.rowId)) ?? [];
+    const selectedIds = (context: typeof forward) =>
+      context.validatorProjection?.rateScheduleItems.map((item) => item.record_id) ?? [];
 
-    expect(rowIds(forward)).toEqual(rowIds(reversed));
-    expect(rowIds(forward)).toEqual(new Set([`${DOCUMENT_A}:row-1`, `${DOCUMENT_B}:row-2`]));
-    expect(forward.registryDigest).not.toBeNull();
-    expect(reversed.registryDigest).not.toBeNull();
+    expect(rowIds(forward)).toEqual([`${DOCUMENT_A}:row-1`, `${DOCUMENT_B}:row-2`]);
+    expect(rowIds(reversed)).toEqual([`${DOCUMENT_B}:row-2`, `${DOCUMENT_A}:row-1`]);
+    expect(selectedIds(forward)).toEqual(rowIds(forward));
+    expect(selectedIds(reversed)).toEqual(rowIds(reversed));
+    expect(forward.registryDigest).toBe(reversed.registryDigest);
+  });
+
+  it('keeps duplicate multiplicity in the digest-local canonical view', () => {
+    const row = assemblyRow({ id: 'row-1', sourceDocumentId: DOCUMENT_A });
+    const singleton = resolveProjectTruthAuthority(baseInput({
+      assembledContractPricingRows: [row],
+      contractPricingDuplicateAuthority: [duplicateAuthorityFinding()],
+    }));
+    const duplicated = resolveProjectTruthAuthority(baseInput({
+      assembledContractPricingRows: [row, row],
+      contractPricingDuplicateAuthority: [duplicateAuthorityFinding()],
+    }));
+    const rows = (context: typeof singleton) => context.registry!.contractPricing[0].rows;
+
+    expect(rows(singleton).map((entry) => entry.rowId))
+      .toEqual([`${DOCUMENT_A}:row-1`]);
+    expect(rows(duplicated).map((entry) => entry.rowId))
+      .toEqual([`${DOCUMENT_A}:row-1`, `${DOCUMENT_A}:row-1`]);
+    expect(rows(singleton).map((entry) => entry.ordinal)).toEqual([0]);
+    expect(rows(duplicated).map((entry) => entry.ordinal)).toEqual([0, 1]);
+    expect(singleton.blockReason).toBe('duplicate_authority');
+    expect(duplicated.blockReason).toBe('duplicate_authority');
+    expect(singleton.validatorProjection).toBeNull();
+    expect(duplicated.validatorProjection).toBeNull();
+    expect(singleton.registryDigest).not.toBeNull();
+    expect(duplicated.registryDigest).not.toBe(singleton.registryDigest);
   });
 });

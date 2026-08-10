@@ -65,7 +65,10 @@ describe('source identity store read states', () => {
     const snapshot = await loadSourceArtifactSnapshot({ project: PROJECT, documents: DOCUMENTS });
 
     assert.equal(snapshot.storeState, 'unreadable');
-    assert.match(String(snapshot.readError), /does not exist/);
+    assert.deepEqual(snapshot.readError, {
+      code: 'relation_unavailable',
+      safeMessage: 'Source identity store relation is unavailable.',
+    });
   });
 
   it('lets a caller distinguish absent identity from an unreadable store', async () => {
@@ -90,7 +93,39 @@ describe('source identity store read states', () => {
     const snapshot = await loadSourceArtifactSnapshot({ project: PROJECT, documents: DOCUMENTS });
 
     assert.equal(snapshot.storeState, 'unreadable');
-    assert.match(String(snapshot.readError), /permission denied/);
+    assert.deepEqual(snapshot.readError, {
+      code: 'permission_denied',
+      safeMessage: 'Source identity store access was denied.',
+    });
+  });
+
+  it('does not retain credentials, SQL, provider hints, or local paths', async () => {
+    const secrets = [
+      'postgresql://admin:password@example.test/db',
+      'service_role=eyJ-secret',
+      'select * from extraction_source_artifacts',
+      'C:\\Users\\operator\\secrets.txt',
+      '/var/run/private/provider.log',
+    ];
+    mockArtifactRead({
+      data: null,
+      error: {
+        code: '42501',
+        message: `permission denied ${secrets.join(' ')}`,
+        details: secrets.join(' '),
+        hint: 'provider stack trace',
+      },
+    });
+
+    const snapshot = await loadSourceArtifactSnapshot({ project: PROJECT, documents: DOCUMENTS });
+    const serialized = JSON.stringify(snapshot);
+
+    assert.deepEqual(snapshot.readError, {
+      code: 'permission_denied',
+      safeMessage: 'Source identity store access was denied.',
+    });
+    for (const secret of secrets) assert.equal(serialized.includes(secret), false);
+    assert.equal(serialized.includes('provider stack trace'), false);
   });
 
   it('reports an empty document set as a read, without querying the store', async () => {

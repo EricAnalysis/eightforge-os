@@ -3,6 +3,7 @@ import type {
   ResolvedDocumentPrecedenceFamily,
 } from '@/lib/documentPrecedence';
 import type { CanonicalProjectTruthExecutionContext } from '@/lib/canonical/authority/canonicalExecutionContext';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { AuthoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
@@ -107,8 +108,8 @@ export type ValidatorSourceIdentityStoreState = 'read' | 'unreadable';
 
 export type ValidatorSourceArtifactSnapshotResult = {
   readonly storeState: ValidatorSourceIdentityStoreState;
-  /** Verbatim store error when `storeState` is `unreadable`; null otherwise. */
-  readonly readError: string | null;
+  /** Sanitized store failure when `storeState` is `unreadable`; null otherwise. */
+  readonly readError: SourceIdentityReadFailure | null;
   readonly entries: readonly ValidatorSourceArtifactSnapshotEntry[];
 };
 

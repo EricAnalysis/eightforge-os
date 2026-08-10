@@ -43,6 +43,7 @@ import {
 } from '@/lib/documentFactReviews';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { sanitizeSourceIdentityReadFailure, type SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 import {
   getCanonicalTransactionDataForProject,
   type ProjectTransactionData,
@@ -1077,7 +1078,7 @@ export async function loadSourceArtifactSnapshot(params: {
   if (error) {
     return Object.freeze({
       storeState: 'unreadable' as const,
-      readError: error.message,
+      readError: sanitizeSourceIdentityReadFailure(error),
       // Entries are still shaped per document so downstream consumers keep the
       // same projection; every identity is null because none was READ, which is
       // exactly what `storeState` qualifies.
@@ -2109,7 +2110,7 @@ type PreparedContractValidationContext = {
     ContractPricingAuthorityDiscriminator
   >;
   readonly sourceIdentityStoreState: ValidatorSourceIdentityStoreState;
-  readonly sourceIdentityReadError: string | null;
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   readonly finalize: (
     assembly: ContractPricingAssemblyResult,
   ) => ValidatorContractAnalysisContext | null;
@@ -2131,7 +2132,7 @@ type ContractValidationContextParams = {
    */
   excludedValidationDocumentIds?: ReadonlySet<string>;
   sourceIdentityStoreState?: ValidatorSourceIdentityStoreState;
-  sourceIdentityReadError?: string | null;
+  sourceIdentityReadError?: SourceIdentityReadFailure | null;
 };
 
 /**
@@ -3085,7 +3086,7 @@ export type ValidatorSourceSnapshot = {
   readonly sourceArtifactSnapshot: readonly ValidatorSourceArtifactSnapshotEntry[];
   /** Whether the identity store answered at all — see D1 in the C3 design. */
   readonly sourceIdentityStoreState: ValidatorSourceIdentityStoreState;
-  readonly sourceIdentityReadError: string | null;
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   readonly precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
   readonly documentRelationships: DocumentRelationshipRecord[];
   readonly familyDocumentIds: ValidatorDocumentIdsByFamily;
@@ -3362,6 +3363,8 @@ export function buildValidatorInputFromSourceSnapshot(
     invoiceRows: effectiveInvoices,
     invoiceLineRows: effectiveInvoiceLines,
     sourceArtifactIdByDocumentId: buildSourceArtifactIdByDocumentId(sourceArtifactSnapshot),
+    sourceIdentityStoreState: snapshot.sourceIdentityStoreState,
+    sourceIdentityReadError: snapshot.sourceIdentityReadError,
     documentFamilyByDocumentId: buildDocumentFamilyByDocumentId(familyDocumentIds),
     governingDocumentIds,
     familyDocumentIds,

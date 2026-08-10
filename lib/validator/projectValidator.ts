@@ -27,6 +27,8 @@ import {
 import {
   canonicalizeRelationshipType,
   inferGoverningDocumentFamily,
+  resolveDuplicateDocumentIdsForAuthority,
+  resolveDuplicateResolutionEligibleIds,
   resolveDocumentTruthCategoryIds,
   type GoverningDocumentFamily,
 } from '@/lib/documentPrecedence';
@@ -657,6 +659,15 @@ export function buildExcludedValidationDocumentIds(params: {
         excluded.add(document.id);
       }
     }
+  }
+
+  for (const duplicateDocumentId of resolveDuplicateDocumentIdsForAuthority(
+    params.documentRelationships,
+    resolveDuplicateResolutionEligibleIds(
+      params.precedenceFamilies.flatMap((family) => family.documents),
+    ),
+  )) {
+    excluded.add(duplicateDocumentId);
   }
 
   for (const relationship of params.documentRelationships) {
@@ -1461,6 +1472,22 @@ export function buildDocumentIdsByFamily(
     (documentId) => !attachedPricingDocumentIdSet.has(documentId),
   );
 
+  // The attachment union above re-adds price sheets by relationship alone, which
+  // would resurrect a disposed duplicate that resolveDocumentTruthCategoryIds had
+  // already removed — a duplicate is normally attached to the same contract as
+  // its original. The exclusion has to be the last word here, or every consumer
+  // of truthCategoryDocumentIds sees the duplicate again.
+  const duplicateDocumentIds = new Set(
+    resolveDuplicateDocumentIdsForAuthority(
+      documentRelationships,
+      resolveDuplicateResolutionEligibleIds(
+        precedenceFamilies.flatMap((family) => family.documents),
+      ),
+    ),
+  );
+  const withoutDuplicates = (documentIds: readonly string[]): string[] =>
+    documentIds.filter((documentId) => !duplicateDocumentIds.has(documentId));
+
   return {
     familyDocumentIds,
     governingDocumentIds,
@@ -1469,10 +1496,10 @@ export function buildDocumentIdsByFamily(
       contract_identity: contractIdentityDocumentIds.length > 0
         ? contractIdentityDocumentIds
         : resolvedTruthCategoryDocumentIds.contract_identity,
-      pricing: uniqueDocumentIds([
+      pricing: withoutDuplicates(uniqueDocumentIds([
         ...attachedPricingDocumentIds,
         ...resolvedTruthCategoryDocumentIds.pricing,
-      ]),
+      ])),
     },
   };
 }
@@ -2148,6 +2175,10 @@ function resolveEligiblePricingSourceDocumentIds(params: {
   readonly excludedDocumentIds: ReadonlySet<string>;
   readonly inactiveDocumentIds: ReadonlySet<string>;
 }): readonly string[] {
+  // Duplicates are already gone: `truthCategoryDocumentIds` comes from
+  // resolveDocumentTruthCategoryIds, which strips them against the shared
+  // eligibility set. Re-resolving here against the narrower candidate list
+  // would only introduce a fourth, stricter definition of eligibility.
   return uniqueDocumentIds([
     ...params.truthCategoryDocumentIds.contract_identity,
     ...params.truthCategoryDocumentIds.pricing,

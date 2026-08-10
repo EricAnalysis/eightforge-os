@@ -71,6 +71,33 @@ describe('logActivityEvent', () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it('retains duplicate disposition actor, target, reason, and evidence under the activity event identity', async () => {
+    const query = adminReturning({ data: { id: 'duplicate-disposition-event-1' }, error: null });
+    getSupabaseAdminMock.mockReturnValue(query.admin);
+    const duplicateDisposition: ActivityInput = {
+      organization_id: 'org-1',
+      project_id: 'project-1',
+      entity_type: 'document',
+      entity_id: 'duplicate-document',
+      event_type: 'document_relationship_created',
+      changed_by: 'operator-1',
+      old_value: null,
+      new_value: {
+        source_document_id: 'duplicate-document',
+        target_document_id: 'original-document',
+        relationship_type: 'duplicate_of',
+        reason: 'Operator compared the signed source pages.',
+        evidence_reference: 'review-note-42',
+      },
+    };
+
+    await expect(logActivityEvent(duplicateDisposition)).resolves.toEqual({
+      ok: true,
+      id: 'duplicate-disposition-event-1',
+    });
+    expect(query.insert).toHaveBeenCalledWith(duplicateDisposition);
+  });
+
   it('surfaces returned insert failures with a deterministic diagnostic', async () => {
     const query = adminReturning({
       data: null,

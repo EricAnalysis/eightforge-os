@@ -1500,6 +1500,24 @@ describe('project operational rollup', () => {
     });
     const activityEvents: ProjectActivityEventRow[] = [
       {
+        id: 'duplicate-reversal-1',
+        project_id: 'project-1',
+        entity_type: 'document',
+        entity_id: 'doc-truth',
+        event_type: 'document_relationship_changed',
+        old_value: {
+          source_document_title: 'Duplicate Price Sheet',
+          target_document_title: 'Original Price Sheet',
+          relationship_type: 'duplicate_of',
+        },
+        new_value: {
+          action: 'removed',
+          reason: 'The uploads were confirmed to be different revisions.',
+        },
+        changed_by: 'member-1',
+        created_at: '2026-03-20T05:00:00Z',
+      },
+      {
         id: 'relationship-1',
         project_id: 'project-1',
         entity_type: 'document',
@@ -1589,16 +1607,18 @@ describe('project operational rollup', () => {
       [],
     );
 
-    assert.equal(audit[0]?.label, 'Document relationship recorded');
-    assert.equal(audit[0]?.source_label, 'Document relationship');
-    assert.equal(audit[0]?.detail, 'Amendment 2 now has the "Modifies Contract" link to Master Contract.');
-    assert.equal(audit[1]?.label, 'Document precedence changed');
-    assert.equal(audit[1]?.detail, 'Invoice reverted to automatic precedence ordering.');
-    assert.equal(audit[2]?.label, 'Governing document changed');
-    assert.equal(audit[3]?.label, 'Review correction applied');
-    assert.equal(audit[3]?.source_label, 'Fact review / Invoice Total');
-    assert.equal(audit[4]?.label, 'Override applied');
-    assert.equal(audit[4]?.source_label, 'Fact override / Nte Amount');
+    assert.equal(audit[0]?.label, 'Duplicate disposition reversed');
+    assert.match(audit[0]?.detail ?? '', /confirmed to be different revisions/);
+    assert.equal(audit[1]?.label, 'Document relationship recorded');
+    assert.equal(audit[1]?.source_label, 'Document relationship');
+    assert.equal(audit[1]?.detail, 'Amendment 2 now has the "Modifies Contract" link to Master Contract.');
+    assert.equal(audit[2]?.label, 'Document precedence changed');
+    assert.equal(audit[2]?.detail, 'Invoice reverted to automatic precedence ordering.');
+    assert.equal(audit[3]?.label, 'Governing document changed');
+    assert.equal(audit[4]?.label, 'Review correction applied');
+    assert.equal(audit[4]?.source_label, 'Fact review / Invoice Total');
+    assert.equal(audit[5]?.label, 'Override applied');
+    assert.equal(audit[5]?.source_label, 'Fact override / Nte Amount');
   });
 });
 

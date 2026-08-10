@@ -250,6 +250,16 @@ describe('C3 exclusion state after alias canonicalization', () => {
 
     assert.deepEqual(execution.duplicateAuthorityFindings, []);
   });
+
+  it('excludes the duplicate relationship source while retaining the designated original', () => {
+    const excluded = buildExcludedValidationDocumentIds({
+      precedenceFamilies: [contractFamily([CONTRACT_ID, SHEET_A, SHEET_B])],
+      documentRelationships: [relationship(SHEET_B, 'duplicate_of', SHEET_A)],
+    });
+
+    assert.equal(excluded.has(SHEET_B), true);
+    assert.equal(excluded.has(SHEET_A), false);
+  });
 });
 
 // ── Per-document reading ─────────────────────────────────────────────────────
@@ -468,6 +478,27 @@ describe('C3 duplicate authority through the assembly path', () => {
 
     assert.deepEqual(execution.duplicateAuthorityFindings, []);
     assert.equal(execution.assembly.selectedRows.length, 1);
+  });
+
+  it('resolves the Goodlettsville-shaped ambiguity only after an explicit duplicate disposition', () => {
+    const before = twoIdenticalSheets();
+    const unresolved = executionFor(before);
+    const resolved = executionFor({
+      ...before,
+      relationships: [
+        ...before.relationships,
+        relationship(SHEET_B, 'duplicate_of', SHEET_A),
+      ],
+    });
+    const restored = executionFor(before);
+
+    assert.equal(unresolved.assembly.selectedRows.length, 2);
+    assert.equal(unresolved.duplicateAuthorityFindings.length, 1);
+    assert.equal(resolved.assembly.selectedRows.length, 1);
+    assert.equal(resolved.assembly.selectedRows[0]?.sourceDocumentId, SHEET_A);
+    assert.deepEqual(resolved.duplicateAuthorityFindings, []);
+    assert.equal(restored.assembly.selectedRows.length, 2);
+    assert.equal(restored.duplicateAuthorityFindings.length, 1);
   });
 });
 

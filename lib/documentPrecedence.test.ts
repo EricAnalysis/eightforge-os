@@ -2,11 +2,122 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  canonicalizeRelationshipType,
   resolveDocumentPrecedence,
+  resolveDuplicateDocumentIdsForAuthority,
   resolveDocumentTruthCategoryIds,
   type DocumentPrecedenceRecord,
   type DocumentRelationshipRecord,
 } from './documentPrecedence';
+
+describe('duplicate document relationship vocabulary', () => {
+  const relationship = (
+    source: string,
+    target: string,
+    type = 'duplicate_of',
+  ): DocumentRelationshipRecord => ({
+    id: `${source}:${type}:${target}`,
+    project_id: 'project-1',
+    source_document_id: source,
+    target_document_id: target,
+    relationship_type: type,
+  });
+
+  it('canonicalizes duplicate_of distinctly from legal and attachment relationships', () => {
+    assert.equal(canonicalizeRelationshipType('duplicate_of'), 'duplicate_of');
+    assert.notEqual(canonicalizeRelationshipType('duplicate_of'), canonicalizeRelationshipType('supersedes'));
+    assert.notEqual(canonicalizeRelationshipType('duplicate_of'), canonicalizeRelationshipType('replaces'));
+    assert.notEqual(canonicalizeRelationshipType('duplicate_of'), canonicalizeRelationshipType('attached_to'));
+  });
+
+  it('resolves directional duplicate sources deterministically and fails closed on malformed graphs', () => {
+    const ordered = [relationship('doc-b', 'doc-a'), relationship('doc-c', 'doc-b')];
+    const reversed = [...ordered].reverse();
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority(ordered, ['doc-c', 'doc-a', 'doc-b']),
+      ['doc-b', 'doc-c'],
+    );
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority(reversed, ['doc-b', 'doc-c', 'doc-a']),
+      ['doc-b', 'doc-c'],
+    );
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority([
+        relationship('doc-b', 'doc-a'),
+        relationship('doc-b', 'doc-c'),
+      ], ['doc-a', 'doc-b', 'doc-c']),
+      [],
+    );
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority([
+        relationship('doc-a', 'doc-b'),
+        relationship('doc-b', 'doc-a'),
+      ], ['doc-a', 'doc-b']),
+      [],
+    );
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority([relationship('doc-b', 'missing')], ['doc-a', 'doc-b']),
+      [],
+    );
+    assert.deepEqual(
+      resolveDuplicateDocumentIdsForAuthority([
+        relationship('doc-b', 'doc-a'),
+        relationship('doc-b', 'missing'),
+      ], ['doc-a', 'doc-b']),
+      [],
+    );
+  });
+
+  it('keeps both records and provenance links visible while removing only the duplicate authority candidate', () => {
+    const documents = [
+      buildDocument({ id: 'contract', name: 'contract.pdf', document_subtype: 'base_contract' }),
+      buildDocument({
+        id: 'price-a',
+        title: 'Price Sheet A',
+        name: 'price-a.pdf',
+        document_type: 'price sheet',
+        document_subtype: 'pricing_schedule',
+        created_at: '2026-03-01T00:00:00Z',
+      }),
+      buildDocument({
+        id: 'price-b',
+        title: 'Price Sheet B',
+        name: 'price-b.pdf',
+        document_type: 'price sheet',
+        document_subtype: 'pricing_schedule',
+        created_at: '2026-04-01T00:00:00Z',
+      }),
+    ];
+    const relationships = [
+      relationship('price-a', 'contract', 'attached_to'),
+      relationship('price-b', 'contract', 'attached_to'),
+      relationship('price-b', 'price-a'),
+    ];
+    const families = resolveDocumentPrecedence({ documents, relationships });
+    const rateFamily = families.find((family) => family.family === 'rate_sheet');
+    assert.ok(rateFamily);
+    assert.deepEqual(rateFamily.documents.map((document) => document.id).sort(), ['price-a', 'price-b']);
+    assert.equal(rateFamily.governing_document_id, 'price-a');
+    assert.equal(rateFamily.governing_reason, 'duplicate_disposition');
+    assert.match(rateFamily.governing_reason_detail ?? '', /explicit duplicate disposition/i);
+    assert.ok(rateFamily.documents.find((document) => document.id === 'price-b')?.relationship_summary.some(
+      (summary) => summary.includes('duplicate of Price Sheet A'),
+    ));
+
+    const categories = resolveDocumentTruthCategoryIds({ families, relationships });
+    assert.ok(categories.pricing.includes('price-a'));
+    assert.ok(!categories.pricing.includes('price-b'));
+
+    const restoredFamilies = resolveDocumentPrecedence({
+      documents,
+      relationships: relationships.filter((candidate) => candidate.relationship_type !== 'duplicate_of'),
+    });
+    assert.equal(
+      restoredFamilies.find((family) => family.family === 'rate_sheet')?.governing_document_id,
+      'price-b',
+    );
+  });
+});
 
 function buildDocument(
   overrides: Partial<DocumentPrecedenceRecord> = {},

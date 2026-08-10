@@ -88,11 +88,18 @@ jobs:
           EXCEPTION WHEN duplicate_object THEN
             NULL;
           END $$;
+          -- service_role must carry BYPASSRLS to match hosted Supabase. The
+          -- deferred constraint triggers that enforce extraction dependency
+          -- closure are SECURITY INVOKER and fire at COMMIT, outside the
+          -- SECURITY DEFINER publisher that queued them, so they evaluate as
+          -- the session role. Without BYPASSRLS the RLS SELECT policies (which
+          -- are granted TO authenticated only) hide the very rows the invariant
+          -- counts, and the check fails against valid data.
           DO $$
           BEGIN
-            CREATE ROLE service_role NOLOGIN;
+            CREATE ROLE service_role NOLOGIN BYPASSRLS;
           EXCEPTION WHEN duplicate_object THEN
-            NULL;
+            ALTER ROLE service_role BYPASSRLS;
           END $$;
           GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
           GRANT EXECUTE ON FUNCTION auth.uid(), auth.role() TO authenticated, anon, service_role;

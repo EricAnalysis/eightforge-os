@@ -31,6 +31,7 @@ export const AUTHORITY_STATUS_VALUES = [
 ] as const;
 
 export const DOCUMENT_RELATIONSHIP_TYPES = [
+  'duplicate_of',
   'attached_to',
   'supplements',
   'supersedes',
@@ -42,6 +43,7 @@ export const DOCUMENT_RELATIONSHIP_TYPES = [
 ] as const;
 
 export const CANONICAL_DOCUMENT_RELATIONSHIP_TYPES = [
+  'duplicate_of',
   'attached_to',
   'supplements',
   'amends',
@@ -65,6 +67,7 @@ export type CanonicalDocumentRelationshipType =
 export type GoverningDocumentFamily = (typeof GOVERNING_DOCUMENT_FAMILIES)[number];
 export type DocumentPrecedenceReason =
   | 'operator_override'
+  | 'duplicate_disposition'
   | 'supersedes_relationship'
   | 'amends_relationship'
   | 'role_priority'
@@ -152,6 +155,7 @@ const FAMILY_LABELS: Record<GoverningDocumentFamily, string> = {
 };
 
 export const DOCUMENT_RELATIONSHIP_LABELS: Record<CanonicalDocumentRelationshipType, string> = {
+  duplicate_of: 'Duplicate Of',
   attached_to: 'Attached To',
   supplements: 'Adds Requirements',
   amends: 'Modifies Contract',
@@ -196,6 +200,8 @@ export function canonicalizeRelationshipType(
     : null;
 
   switch (normalized) {
+    case 'duplicate_of':
+      return 'duplicate_of';
     case 'attached_to':
     case 'governs':
     case 'applies_to':
@@ -211,6 +217,84 @@ export function canonicalizeRelationshipType(
     default:
       return null;
   }
+}
+
+/**
+ * Returns document records that have an unambiguous, acyclic `duplicate_of`
+ * path to another eligible document. The relationship source is the duplicate
+ * record and the terminal target is the original record that remains eligible.
+ *
+ * Conflicting targets, cycles, self-links, and links to documents outside the
+ * evaluated authority set fail closed and do not remove any source.
+ */
+export function resolveDuplicateDocumentIdsForAuthority(
+  relationships: readonly DocumentRelationshipRecord[],
+  eligibleDocumentIds: readonly string[],
+): readonly string[] {
+  const eligible = new Set(eligibleDocumentIds);
+  const targetsBySource = new Map<string, Set<string>>();
+
+  for (const relationship of relationships) {
+    if (canonicalizeRelationshipType(relationship.relationship_type) !== 'duplicate_of') continue;
+    const source = relationship.source_document_id;
+    const target = relationship.target_document_id;
+    if (!eligible.has(source)) continue;
+    const targets = targetsBySource.get(source) ?? new Set<string>();
+    targets.add(target);
+    targetsBySource.set(source, targets);
+  }
+
+  const memo = new Map<string, boolean>();
+  const resolvesToOriginal = (source: string, visiting: Set<string>): boolean => {
+    const cached = memo.get(source);
+    if (cached != null) return cached;
+    if (visiting.has(source)) return false;
+
+    const targets = targetsBySource.get(source);
+    if (!targets || targets.size !== 1) {
+      memo.set(source, false);
+      return false;
+    }
+
+    const target = [...targets][0]!;
+    if (!eligible.has(target) || target === source) {
+      memo.set(source, false);
+      return false;
+    }
+    const nextVisiting = new Set(visiting);
+    nextVisiting.add(source);
+    const targetTargets = targetsBySource.get(target);
+    const resolved = !targetTargets || targetTargets.size === 0
+      ? true
+      : resolvesToOriginal(target, nextVisiting);
+    memo.set(source, resolved);
+    return resolved;
+  };
+
+  return Object.freeze(
+    [...targetsBySource.keys()]
+      .filter((documentId) => resolvesToOriginal(documentId, new Set()))
+      .sort((left, right) => left.localeCompare(right, 'en-US')),
+  );
+}
+
+/**
+ * The single eligibility predicate for duplicate resolution, shared by
+ * governing selection, truth-category assembly, and the validator.
+ *
+ * It must stay shared. When these paths derived eligibility independently they
+ * disagreed on draft and reference-only records, so a disposition could be
+ * honoured on one path and ignored on another — the duplicate was dropped from
+ * pricing while still governing its family. Only superseded and archived
+ * records drop out here; a draft or reference-only original still anchors its
+ * duplicate.
+ */
+export function resolveDuplicateResolutionEligibleIds(
+  documents: readonly Pick<ResolvedDocumentPrecedenceRecord, 'id' | 'authority_status'>[],
+): string[] {
+  return documents
+    .filter((document) => !isInactiveAuthorityTier(document))
+    .map((document) => document.id);
 }
 
 export function getDocumentRelationshipLabel(
@@ -586,8 +670,17 @@ function determineReason(params: {
   sortedDocuments: EnrichedDocument[];
   relationshipStats: Map<string, RelationshipStats>;
   hasOperatorOverride: boolean;
+  duplicateDispositionChangedWinner: boolean;
+  duplicateDocumentIds: ReadonlySet<string>;
 }): DocumentPrecedenceReason {
-  const { winner, sortedDocuments, relationshipStats, hasOperatorOverride } = params;
+  const {
+    winner,
+    sortedDocuments,
+    relationshipStats,
+    hasOperatorOverride,
+    duplicateDispositionChangedWinner,
+    duplicateDocumentIds,
+  } = params;
   if (hasOperatorOverride && winner.operator_override_precedence) {
     return 'operator_override';
   }
@@ -597,9 +690,15 @@ function determineReason(params: {
     return 'supersedes_relationship';
   }
 
+  if (duplicateDispositionChangedWinner) return 'duplicate_disposition';
+
+  // Compare against the candidates the winner actually beat. A disposed
+  // duplicate is not one of them, and leaving it in reports the tie-break
+  // against a discarded copy of the winner instead of the real discriminator.
   const comparableDocuments = sortedDocuments.filter(
     (document) =>
       document.id !== winner.id &&
+      !duplicateDocumentIds.has(document.id) &&
       document.authority_tier === winner.authority_tier,
   );
   const comparisonDocument = comparableDocuments[0] ?? null;
@@ -644,6 +743,8 @@ function buildReasonDetail(params: {
   switch (reason) {
     case 'operator_override':
       return `Selected by operator override for the ${familyLabel} family.` + authorityNote;
+    case 'duplicate_disposition':
+      return `Selected after an explicit duplicate disposition removed a duplicate representation from the ${familyLabel} candidates.` + authorityNote;
     case 'supersedes_relationship': {
       const count = relationshipStats.get(winner.id)?.outgoing_supersedes ?? 0;
       return `Selected because it explicitly supersedes ${count} ${familyLabel} document${count === 1 ? '' : 's'}.` + authorityNote;
@@ -657,6 +758,8 @@ function buildReasonDetail(params: {
       return `Selected by upload recency fallback after override, relationship, role, and effective-date checks.` + authorityNote;
   }
 }
+
+const EMPTY_DOCUMENT_ID_SET: ReadonlySet<string> = new Set<string>();
 
 function isContractGoverningCandidate(
   document: EnrichedDocument,
@@ -681,8 +784,9 @@ function selectGoverningDocument(params: {
   sortedDocuments: EnrichedDocument[];
   relationshipStats: Map<string, RelationshipStats>;
   relationships: DocumentRelationshipRecord[];
+  duplicateDocumentIds: ReadonlySet<string>;
 }): EnrichedDocument | null {
-  const { family, sortedDocuments, relationshipStats, relationships } = params;
+  const { family, sortedDocuments, relationshipStats, relationships, duplicateDocumentIds } = params;
   if (sortedDocuments.length === 0) return null;
 
   // Attached documents are contextual and must not become governing over the
@@ -700,7 +804,9 @@ function selectGoverningDocument(params: {
     blockedByAttachment.add(relationship.source_document_id);
   }
 
-  const eligibleDocuments = sortedDocuments.filter((document) => !blockedByAttachment.has(document.id));
+  const eligibleDocuments = sortedDocuments.filter((document) =>
+    !blockedByAttachment.has(document.id) && !duplicateDocumentIds.has(document.id),
+  );
   if (eligibleDocuments.length === 0) return null;
 
   if (family !== 'contract') return eligibleDocuments[0] ?? null;
@@ -800,26 +906,35 @@ export function resolveDocumentTruthCategoryIds(params: {
   const linkedComplianceIds = relationshipLinkedDocumentIds(['supplements']);
   const linkedAmendmentIds = relationshipLinkedDocumentIds(['amends']);
 
+  const duplicateDocumentIds = new Set(
+    resolveDuplicateDocumentIdsForAuthority(
+      relationships,
+      resolveDuplicateResolutionEligibleIds(families.flatMap((family) => family.documents)),
+    ),
+  );
+  const withoutDuplicateRepresentations = (documentIds: readonly string[]): string[] =>
+    documentIds.filter((documentId) => !duplicateDocumentIds.has(documentId));
+
   return {
-    contract_identity: contractIdentity,
-    pricing: Array.from(new Set([
+    contract_identity: withoutDuplicateRepresentations(contractIdentity),
+    pricing: withoutDuplicateRepresentations(Array.from(new Set([
       ...linkedPricingIds,
       ...prioritizeByRelationship(pricingIds, ['attached_to']),
       ...pricingIds,
       ...contractIdentity,
-    ])),
-    compliance: Array.from(new Set([
+    ]))),
+    compliance: withoutDuplicateRepresentations(Array.from(new Set([
       ...linkedComplianceIds,
       ...prioritizeByRelationship(complianceIds, ['supplements']),
       ...complianceIds,
       ...contractIdentity,
-    ])),
-    amendments: Array.from(new Set([
+    ]))),
+    amendments: withoutDuplicateRepresentations(Array.from(new Set([
       ...linkedAmendmentIds,
       ...prioritizeByRelationship(amendmentIds, ['amends']),
       ...amendmentIds,
       ...contractIdentity,
-    ])),
+    ]))),
   };
 }
 
@@ -863,6 +978,17 @@ export function resolveDocumentPrecedence(params: {
     existing.push(enriched);
     familyBuckets.set(family, existing);
   }
+
+  // Resolved once, project-wide, over every relationship. Scoping this per
+  // family would silently ignore a disposition whose two copies classified into
+  // different families — the common shape when OCR variance shifts one upload's
+  // inferred type — and would disagree with the validator's global view.
+  const duplicateDocumentIds = new Set(
+    resolveDuplicateDocumentIdsForAuthority(
+      relationships,
+      resolveDuplicateResolutionEligibleIds([...documentsById.values()]),
+    ),
+  );
 
   return GOVERNING_DOCUMENT_FAMILIES.flatMap((family) => {
     const familyDocuments = familyBuckets.get(family) ?? [];
@@ -943,13 +1069,32 @@ export function resolveDocumentPrecedence(params: {
       sortedDocuments,
       relationshipStats,
       relationships: familyRelationships,
+      duplicateDocumentIds,
     });
+    // A disposition only explains the selection when removing the duplicate
+    // actually changed it. Attributing every winner that happens to be a
+    // disposition target would credit the disposition for selections it did not
+    // cause, and would hide the real discriminator against other candidates.
+    const winnerIgnoringDuplicateDisposition = duplicateDocumentIds.size > 0
+      ? selectGoverningDocument({
+          family,
+          sortedDocuments,
+          relationshipStats,
+          relationships: familyRelationships,
+          duplicateDocumentIds: EMPTY_DOCUMENT_ID_SET,
+        })
+      : winner;
+    const duplicateDispositionChangedWinner =
+      winner != null && winnerIgnoringDuplicateDisposition?.id !== winner.id;
+
     const governingReason = winner
       ? determineReason({
           winner,
           sortedDocuments,
           relationshipStats,
           hasOperatorOverride,
+          duplicateDispositionChangedWinner,
+          duplicateDocumentIds,
         })
       : null;
     const governingReasonDetail = winner && governingReason

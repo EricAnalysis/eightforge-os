@@ -34,6 +34,13 @@ type SupportRelationshipFormState = {
   relationshipType: Extract<DocumentRelationshipType, 'attached_to' | 'supplements'>;
 };
 
+type DuplicateDispositionFormState = {
+  duplicateDocumentId: string;
+  originalDocumentId: string;
+  reason: string;
+  evidenceReference: string;
+};
+
 type PrecedenceResponse = {
   ok?: boolean;
   error?: string;
@@ -310,6 +317,8 @@ function reasonLabel(family: ResolvedDocumentPrecedenceFamily): string {
   switch (family.governing_reason) {
     case 'operator_override':
       return 'Operator Override';
+    case 'duplicate_disposition':
+      return 'Duplicate Disposition';
     case 'supersedes_relationship':
       return 'Replaces Contract';
     case 'amends_relationship':
@@ -1098,6 +1107,119 @@ function SupportRelationshipCard({
   );
 }
 
+function DuplicateDispositionCard({
+  documents,
+  relationships,
+  form,
+  saving,
+  setForm,
+  mutate,
+}: {
+  documents: readonly DocumentPrecedenceRecord[];
+  relationships: readonly DocumentRelationshipRecord[];
+  form: DuplicateDispositionFormState;
+  saving: boolean;
+  setForm: Dispatch<SetStateAction<DuplicateDispositionFormState>>;
+  mutate: (payload: Record<string, unknown>, successMessage: string) => Promise<void>;
+}) {
+  const documentById = new Map(documents.map((document) => [document.id, document] as const));
+  const dispositions = relationships.filter((relationship) =>
+    relationship.id && canonicalizeRelationshipType(relationship.relationship_type) === 'duplicate_of',
+  );
+  const duplicateDocumentId = documentById.has(form.duplicateDocumentId)
+    ? form.duplicateDocumentId
+    : documents[0]?.id ?? '';
+  const originalDocumentId = documentById.has(form.originalDocumentId)
+    && form.originalDocumentId !== duplicateDocumentId
+    ? form.originalDocumentId
+    : documents.find((document) => document.id !== duplicateDocumentId)?.id ?? '';
+
+  return (
+    <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
+        Duplicate Dispositions
+      </p>
+      <p className="mt-2 text-sm text-[var(--ef-text-secondary)]">
+        Record that one upload is a duplicate representation of an original document. Both records and their provenance remain intact; this does not supersede, replace, archive, or void either document.
+      </p>
+
+      {dispositions.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {dispositions.map((relationship) => (
+            <div key={relationship.id} className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-[var(--ef-border-subtle-a70)] px-3 py-2">
+              <p className="text-[11px] text-[var(--ef-text-secondary)]">
+                {documentLabel(documentById.get(relationship.source_document_id) ?? { title: null, name: relationship.source_document_id })}
+                {' is a duplicate of '}
+                {documentLabel(documentById.get(relationship.target_document_id) ?? { title: null, name: relationship.target_document_id })}
+              </p>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  const reason = window.prompt('Why is this duplicate disposition being reversed?')?.trim();
+                  if (!reason) return;
+                  const evidenceReference = window.prompt('Optional evidence or reference for the correction:')?.trim() ?? '';
+                  void mutate({
+                    action: 'delete_relationship',
+                    relationshipId: relationship.id,
+                    reason,
+                    evidenceReference: evidenceReference || null,
+                  }, 'Reversed duplicate disposition and preserved its audit history.');
+                }}
+                className="rounded-sm border border-[var(--ef-critical-a40)] bg-[var(--ef-critical-bg)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-critical-soft)] disabled:opacity-50"
+              >
+                Reverse
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-[var(--ef-text-muted)]">No duplicate dispositions have been recorded.</p>
+      )}
+
+      {documents.length >= 2 ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-[11px] text-[var(--ef-text-muted)]">
+            Duplicate document
+            <select value={duplicateDocumentId} onChange={(event) => setForm((current) => ({ ...current, duplicateDocumentId: event.target.value }))} className="mt-1 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]">
+              {documents.map((document) => <option key={document.id} value={document.id}>{documentLabel(document)}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] text-[var(--ef-text-muted)]">
+            Original document
+            <select value={originalDocumentId} onChange={(event) => setForm((current) => ({ ...current, originalDocumentId: event.target.value }))} className="mt-1 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]">
+              {documents.filter((document) => document.id !== duplicateDocumentId).map((document) => <option key={document.id} value={document.id}>{documentLabel(document)}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] text-[var(--ef-text-muted)]">
+            Reason (required)
+            <input value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className="mt-1 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]" />
+          </label>
+          <label className="text-[11px] text-[var(--ef-text-muted)]">
+            Evidence or reference (optional)
+            <input value={form.evidenceReference} onChange={(event) => setForm((current) => ({ ...current, evidenceReference: event.target.value }))} className="mt-1 w-full rounded-sm border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-sm text-[var(--ef-text-primary)]" />
+          </label>
+          <button
+            type="button"
+            disabled={saving || !duplicateDocumentId || !originalDocumentId || duplicateDocumentId === originalDocumentId || !form.reason.trim()}
+            onClick={() => void mutate({
+              action: 'link_relationship',
+              sourceDocumentId: duplicateDocumentId,
+              targetDocumentId: originalDocumentId,
+              relationshipType: 'duplicate_of',
+              reason: form.reason.trim(),
+              evidenceReference: form.evidenceReference.trim() || null,
+            }, 'Recorded duplicate disposition. Both document records remain available in project history.')}
+            className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-purple-primary)] disabled:opacity-50 md:col-span-2"
+          >
+            Record Duplicate
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DocumentPrecedenceSection({
   projectId,
 }: DocumentPrecedenceSectionProps) {
@@ -1111,6 +1233,12 @@ export function DocumentPrecedenceSection({
     sourceDocumentId: '',
     targetDocumentId: '',
     relationshipType: 'attached_to',
+  });
+  const [duplicateDispositionForm, setDuplicateDispositionForm] = useState<DuplicateDispositionFormState>({
+    duplicateDocumentId: '',
+    originalDocumentId: '',
+    reason: '',
+    evidenceReference: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1321,6 +1449,15 @@ export function DocumentPrecedenceSection({
             </div>
           ) : null}
         </div>
+
+        <DuplicateDispositionCard
+          documents={allDocuments}
+          relationships={allRelationships}
+          form={duplicateDispositionForm}
+          saving={saving}
+          setForm={setDuplicateDispositionForm}
+          mutate={mutate}
+        />
 
         {families.length === 0 ? (
           <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4 text-sm text-[var(--ef-text-muted)]">

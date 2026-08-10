@@ -2905,12 +2905,16 @@ export function resolveProjectAuditEvents(
     const governingDocumentTitle = extractStringValue(event.new_value, 'governing_document_title');
     const previousGoverningDocumentTitle = extractStringValue(event.old_value, 'governing_document_title');
     const authorityStatus = extractStringValue(event.new_value, 'authority_status');
-    const relationshipType = extractStringValue(event.new_value, 'relationship_type');
+    const relationshipType = extractStringValue(event.new_value, 'relationship_type')
+      ?? extractStringValue(event.old_value, 'relationship_type');
     const relationshipLabel =
       extractStringValue(event.new_value, 'relationship_label')
       ?? getDocumentRelationshipLabel(relationshipType);
-    const relationshipTargetTitle = extractStringValue(event.new_value, 'target_document_title');
-    const sourceDocumentTitle = extractStringValue(event.new_value, 'source_document_title');
+    const relationshipTargetTitle = extractStringValue(event.new_value, 'target_document_title')
+      ?? extractStringValue(event.old_value, 'target_document_title');
+    const sourceDocumentTitle = extractStringValue(event.new_value, 'source_document_title')
+      ?? extractStringValue(event.old_value, 'source_document_title');
+    const relationshipAction = extractStringValue(event.new_value, 'action');
     const precedenceMode = extractStringValue(event.new_value, 'precedence_mode');
     const entityTitle = isDecision
       ? decisionTitleById.get(event.entity_id) ?? documentTitleById.get(event.entity_id) ?? 'Decision'
@@ -3113,12 +3117,17 @@ export function resolveProjectAuditEvents(
         break;
       case 'document_relationship_created':
       case 'document_relationship_changed':
-        label = 'Document relationship recorded';
-        detail =
-          relationshipLabel && relationshipTargetTitle
-            ? `${sourceDocumentTitle ?? entityTitle} now has the "${relationshipLabel}" link to ${relationshipTargetTitle}.`
+        label = relationshipAction === 'removed'
+          ? relationshipType === 'duplicate_of' ? 'Duplicate disposition reversed' : 'Document relationship removed'
+          : relationshipType === 'duplicate_of' ? 'Duplicate disposition recorded' : 'Document relationship recorded';
+        detail = relationshipAction === 'removed'
+          ? relationshipLabel && relationshipTargetTitle
+            ? `Removed the "${relationshipLabel}" link from ${sourceDocumentTitle ?? entityTitle} to ${relationshipTargetTitle}.${reason ? ` Reason: ${reason}` : ''}`
+            : `Document relationship removed.${reason ? ` Reason: ${reason}` : ''}`
+          : relationshipLabel && relationshipTargetTitle
+            ? `${sourceDocumentTitle ?? entityTitle} now has the "${relationshipLabel}" link to ${relationshipTargetTitle}.${reason ? ` Reason: ${reason}` : ''}`
             : 'Document relationship updated.';
-        tone = 'info';
+        tone = relationshipAction === 'removed' ? 'warning' : 'info';
         objectLabel = sourceDocumentTitle ?? entityTitle;
         sourceLabel = 'Document relationship';
         href = `/platform/documents/${event.entity_id}`;

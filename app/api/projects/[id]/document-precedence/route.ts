@@ -12,6 +12,7 @@ import {
   type GoverningDocumentFamily,
 } from '@/lib/documentPrecedence';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
+import { enforceRequiredActivityEvent } from '@/lib/server/activity/requiredActivityEvent';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -33,6 +34,70 @@ function titleize(value: string | null | undefined): string {
 
 function documentLabel(document: { title?: string | null; name?: string | null } | null | undefined): string {
   return document?.title?.trim() || document?.name || 'Document';
+}
+
+/**
+ * Structural metadata only. The PATCH body carries operator-authored free text
+ * — a duplicate disposition's `reason` and `evidenceReference` — which is
+ * retained deliberately in the append-only activity record and must not be
+ * copied into generic server logs. Identifiers and enum-shaped fields are
+ * allow-listed here; nothing else from the body is logged.
+ */
+export function buildPatchLogMetadata(
+  projectId: string,
+  action: string,
+  body: unknown,
+): Record<string, unknown> {
+  const source = (body ?? {}) as Record<string, unknown>;
+  const identifier = (key: string): string | undefined =>
+    typeof source[key] === 'string' ? (source[key] as string) : undefined;
+
+  return {
+    action,
+    projectId,
+    ...(identifier('documentId') ? { documentId: identifier('documentId') } : {}),
+    ...(identifier('sourceDocumentId') ? { sourceDocumentId: identifier('sourceDocumentId') } : {}),
+    ...(identifier('targetDocumentId') ? { targetDocumentId: identifier('targetDocumentId') } : {}),
+    ...(identifier('relationshipId') ? { relationshipId: identifier('relationshipId') } : {}),
+    ...(identifier('relationshipType') ? { relationshipType: identifier('relationshipType') } : {}),
+    ...(typeof source.reason === 'string' ? { hasReason: true } : {}),
+    ...(typeof source.evidenceReference === 'string' ? { hasEvidenceReference: true } : {}),
+  };
+}
+
+/** Postgres unique_violation, raised when a concurrent request won the edge. */
+const UNIQUE_VIOLATION = '23505';
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function duplicateRelationshipWouldCycle(params: {
+  sourceDocumentId: string;
+  targetDocumentId: string;
+  relationships: readonly { source_document_id: string; target_document_id: string; relationship_type: string }[];
+}): boolean {
+  const targetsBySource = new Map<string, Set<string>>();
+  for (const relationship of params.relationships) {
+    if (canonicalizeRelationshipType(relationship.relationship_type) !== 'duplicate_of') continue;
+    const targets = targetsBySource.get(relationship.source_document_id) ?? new Set<string>();
+    targets.add(relationship.target_document_id);
+    targetsBySource.set(relationship.source_document_id, targets);
+  }
+  const proposedTargets = targetsBySource.get(params.sourceDocumentId) ?? new Set<string>();
+  proposedTargets.add(params.targetDocumentId);
+  targetsBySource.set(params.sourceDocumentId, proposedTargets);
+
+  const pending = [params.targetDocumentId];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (current === params.sourceDocumentId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...(targetsBySource.get(current) ?? []));
+  }
+  return false;
 }
 
 function assertPrecedenceRank(value: unknown): asserts value is number | null {
@@ -87,6 +152,7 @@ async function logTruthMutationActivity(params: {
       error: result.error,
     });
   }
+  return result;
 }
 
 async function projectExists(
@@ -294,16 +360,14 @@ export async function PATCH(
   const action = typeof body?.action === 'string' ? body.action : null;
   if (!action) return jsonError('action is required', 400);
 
-  console.log('[document-precedence PATCH]', {
-    action,
-    body,
-  });
+  console.log('[document-precedence PATCH]', buildPatchLogMetadata(projectId, action, body));
 
   const snapshot = await loadProjectDocumentPrecedenceSnapshot(projectResult.admin, {
     organizationId: ctx.actor.organizationId,
     projectId,
   });
   let shouldRefreshValidator = false;
+  let duplicateAuditAlreadyLogged = false;
   let truthMutationAuditPlan:
     | {
         kind: 'set_governing';
@@ -332,9 +396,12 @@ export async function PATCH(
       }
     | {
         kind: 'link_relationship';
+        relationshipId: string;
         sourceDocumentId: string;
         targetDocumentId: string;
         relationshipType: CanonicalRelationshipType;
+        reason: string | null;
+        evidenceReference: string | null;
       }
     | {
         kind: 'delete_relationship';
@@ -342,6 +409,10 @@ export async function PATCH(
         sourceDocumentId: string;
         targetDocumentId: string;
         relationshipType: CanonicalRelationshipType;
+        reason: string | null;
+        evidenceReference: string | null;
+        createdBy: string | null;
+        createdAt: string | null;
       }
     | {
         kind: 'set_document_subtype';
@@ -560,6 +631,8 @@ export async function PATCH(
       const sourceDocumentId = typeof body.sourceDocumentId === 'string' ? body.sourceDocumentId : null;
       const targetDocumentId = typeof body.targetDocumentId === 'string' ? body.targetDocumentId : null;
       const relationshipType = body.relationshipType;
+      const reason = optionalText(body.reason);
+      const evidenceReference = optionalText(body.evidenceReference);
       const canonicalRelationshipType = canonicalizeRelationshipType(
         typeof relationshipType === 'string' ? relationshipType : null,
       );
@@ -575,10 +648,30 @@ export async function PATCH(
       if (sourceDocumentId === targetDocumentId) {
         return jsonError('A document cannot relate to itself', 400);
       }
+      if (canonicalRelationshipType === 'duplicate_of' && !reason) {
+        return jsonError('A reason is required for a duplicate disposition', 400);
+      }
 
       const documentIds = new Set(snapshot.documents.map((document) => document.id));
       if (!documentIds.has(sourceDocumentId) || !documentIds.has(targetDocumentId)) {
         return jsonError('Related documents must belong to the project', 400);
+      }
+      if (canonicalRelationshipType === 'duplicate_of') {
+        const conflictingDisposition = snapshot.relationships.some((relationship) =>
+          relationship.source_document_id === sourceDocumentId
+          && canonicalizeRelationshipType(relationship.relationship_type) === 'duplicate_of'
+          && relationship.target_document_id !== targetDocumentId,
+        );
+        if (conflictingDisposition) {
+          return jsonError('The duplicate document already points to a different original', 409);
+        }
+        if (duplicateRelationshipWouldCycle({
+          sourceDocumentId,
+          targetDocumentId,
+          relationships: snapshot.relationships,
+        })) {
+          return jsonError('A duplicate disposition cannot create a cycle', 409);
+        }
       }
       const relationshipAlreadyExists = snapshot.relationships.some((relationship) =>
         relationship.source_document_id === sourceDocumentId &&
@@ -586,31 +679,48 @@ export async function PATCH(
         canonicalizeRelationshipType(relationship.relationship_type) === canonicalRelationshipType,
       );
 
-      const { error } = relationshipAlreadyExists
-        ? { error: null as null }
-        : await projectResult.admin
-            .from('document_relationships')
-            .upsert(
-              {
-                organization_id: ctx.actor.organizationId,
-                project_id: projectId,
-                source_document_id: sourceDocumentId,
-                target_document_id: targetDocumentId,
-                relationship_type: canonicalRelationshipType,
-                created_by: ctx.actor.actorId,
-              },
-              {
-                onConflict: 'project_id,source_document_id,target_document_id,relationship_type',
-              },
-            );
-
-      if (error) return jsonError(error.message, 500);
+      // Insert rather than upsert so this request learns whether it actually
+      // created the edge. Audit compensation deletes by row id, and only the
+      // request that created a row may delete it — an upsert cannot distinguish
+      // its own insert from a concurrent one, and would also rewrite the
+      // original row's `created_by` provenance.
+      let createdRelationshipId: string | null = null;
       if (!relationshipAlreadyExists) {
+        const insertResult = await projectResult.admin
+          .from('document_relationships')
+          .insert({
+            organization_id: ctx.actor.organizationId,
+            project_id: projectId,
+            source_document_id: sourceDocumentId,
+            target_document_id: targetDocumentId,
+            relationship_type: canonicalRelationshipType,
+            created_by: ctx.actor.actorId,
+          })
+          .select('id')
+          .maybeSingle();
+
+        if (insertResult.error) {
+          // A concurrent request won the unique edge index. The edge the caller
+          // asked for exists, so this is not an error, but this request did not
+          // create it: it records no creation event and must never compensate
+          // by deleting the winner's row.
+          if (insertResult.error.code !== UNIQUE_VIOLATION) {
+            return jsonError(insertResult.error.message, 500);
+          }
+        } else {
+          createdRelationshipId = insertResult.data?.id ?? null;
+        }
+      }
+
+      if (createdRelationshipId) {
         truthMutationAuditPlan = {
           kind: 'link_relationship',
+          relationshipId: createdRelationshipId,
           sourceDocumentId,
           targetDocumentId,
           relationshipType: canonicalRelationshipType,
+          reason,
+          evidenceReference,
         };
       }
 
@@ -631,15 +741,32 @@ export async function PATCH(
       if (!relationshipType) {
         return jsonError('Relationship type is invalid', 400);
       }
+      const reason = optionalText(body.reason);
+      const evidenceReference = optionalText(body.evidenceReference);
+      if (relationshipType === 'duplicate_of' && !reason) {
+        return jsonError('A reason is required to reverse a duplicate disposition', 400);
+      }
+      if (relationshipType === 'duplicate_of' && !relationship.created_at) {
+        return jsonError('Duplicate disposition history is incomplete and cannot be reversed safely', 500);
+      }
 
-      const { error } = await projectResult.admin
+      // Returning the deleted row proves this request is the one that removed
+      // it. Without that, a request whose delete was a no-op (a concurrent
+      // reversal got there first) would still compensate on audit failure and
+      // resurrect a row the winner had legitimately removed.
+      const { data: deletedRelationship, error } = await projectResult.admin
         .from('document_relationships')
         .delete()
         .eq('id', relationshipId)
         .eq('organization_id', ctx.actor.organizationId)
-        .eq('project_id', projectId);
+        .eq('project_id', projectId)
+        .select('id')
+        .maybeSingle();
 
       if (error) return jsonError(error.message, 500);
+      if (!deletedRelationship) {
+        return jsonError('Relationship not found', 404);
+      }
 
       truthMutationAuditPlan = {
         kind: 'delete_relationship',
@@ -647,19 +774,115 @@ export async function PATCH(
         sourceDocumentId: relationship.source_document_id,
         targetDocumentId: relationship.target_document_id,
         relationshipType,
+        reason,
+        evidenceReference,
+        createdBy: relationship.created_by ?? null,
+        createdAt: relationship.created_at ?? null,
       };
       shouldRefreshValidator = true;
     } else {
       return jsonError('Unsupported action', 400);
     }
 
-    if (shouldRefreshValidator) {
-      // Governing document selection, ordering, authority changes, and explicit
-      // relationships all affect the project truth assembler.
-      void requestDocumentPrecedenceRevalidation({
+    if (
+      truthMutationAuditPlan?.kind === 'link_relationship'
+      && truthMutationAuditPlan.relationshipType === 'duplicate_of'
+    ) {
+      const auditPlan = truthMutationAuditPlan;
+      const documentById = new Map(snapshot.documents.map((document) => [document.id, document]));
+      const activityResult = await logTruthMutationActivity({
+        organizationId: ctx.actor.organizationId,
         projectId,
+        entityType: 'document',
+        entityId: auditPlan.sourceDocumentId,
+        eventType: 'document_relationship_created',
         actorId: ctx.actor.actorId,
+        oldValue: null,
+        newValue: {
+          source_document_id: auditPlan.sourceDocumentId,
+          source_document_title: documentLabel(documentById.get(auditPlan.sourceDocumentId)),
+          target_document_id: auditPlan.targetDocumentId,
+          target_document_title: documentLabel(documentById.get(auditPlan.targetDocumentId)),
+          affected_document_ids: [auditPlan.sourceDocumentId, auditPlan.targetDocumentId],
+          relationship_type: 'duplicate_of',
+          relationship_label: getDocumentRelationshipLabel('duplicate_of'),
+          reason: auditPlan.reason,
+          evidence_reference: auditPlan.evidenceReference,
+        },
       });
+      const requiredAudit = await enforceRequiredActivityEvent({
+        activityResult,
+        rollback: async () => {
+          // Row-specific: this deletes the row this request inserted and no
+          // other. Matching the edge tuple instead would let a compensating
+          // request remove a concurrent request's successfully audited row.
+          // Org and project stay on the predicate as defense in depth.
+          const { error } = await projectResult.admin
+            .from('document_relationships')
+            .delete()
+            .eq('id', auditPlan.relationshipId)
+            .eq('organization_id', ctx.actor.organizationId)
+            .eq('project_id', projectId);
+          return { error };
+        },
+        auditFailureMessage: 'Duplicate disposition was not recorded because its audit event could not be retained',
+        rollbackFailurePrefix: 'Duplicate disposition audit failed and rollback failed',
+      });
+      if (!requiredAudit.ok) return jsonError(requiredAudit.error, requiredAudit.status);
+      duplicateAuditAlreadyLogged = true;
+    } else if (
+      truthMutationAuditPlan?.kind === 'delete_relationship'
+      && truthMutationAuditPlan.relationshipType === 'duplicate_of'
+    ) {
+      const auditPlan = truthMutationAuditPlan;
+      const documentById = new Map(snapshot.documents.map((document) => [document.id, document]));
+      const activityResult = await logTruthMutationActivity({
+        organizationId: ctx.actor.organizationId,
+        projectId,
+        entityType: 'document',
+        entityId: auditPlan.sourceDocumentId,
+        eventType: 'document_relationship_changed',
+        actorId: ctx.actor.actorId,
+        oldValue: {
+          relationship_id: auditPlan.relationshipId,
+          source_document_id: auditPlan.sourceDocumentId,
+          source_document_title: documentLabel(documentById.get(auditPlan.sourceDocumentId)),
+          target_document_id: auditPlan.targetDocumentId,
+          target_document_title: documentLabel(documentById.get(auditPlan.targetDocumentId)),
+          affected_document_ids: [auditPlan.sourceDocumentId, auditPlan.targetDocumentId],
+          relationship_type: 'duplicate_of',
+          relationship_label: getDocumentRelationshipLabel('duplicate_of'),
+          relationship_created_by: auditPlan.createdBy,
+          relationship_created_at: auditPlan.createdAt,
+        },
+        newValue: {
+          action: 'removed',
+          reason: auditPlan.reason,
+          evidence_reference: auditPlan.evidenceReference,
+        },
+      });
+      const requiredAudit = await enforceRequiredActivityEvent({
+        activityResult,
+        rollback: async () => {
+          const { error } = await projectResult.admin
+            .from('document_relationships')
+            .insert({
+              id: auditPlan.relationshipId,
+              organization_id: ctx.actor.organizationId,
+              project_id: projectId,
+              source_document_id: auditPlan.sourceDocumentId,
+              target_document_id: auditPlan.targetDocumentId,
+              relationship_type: 'duplicate_of',
+              created_by: auditPlan.createdBy,
+              created_at: auditPlan.createdAt,
+            });
+          return { error };
+        },
+        auditFailureMessage: 'Duplicate disposition was not reversed because its audit event could not be retained',
+        rollbackFailurePrefix: 'Duplicate disposition reversal audit failed and rollback failed',
+      });
+      if (!requiredAudit.ok) return jsonError(requiredAudit.error, requiredAudit.status);
+      duplicateAuditAlreadyLogged = true;
     }
 
     const refreshed = await loadProjectDocumentPrecedenceSnapshot(projectResult.admin, {
@@ -795,7 +1018,7 @@ export async function PATCH(
           ?? previousDocumentById.get(auditPlan.targetDocumentId)
           ?? null;
 
-        await logTruthMutationActivity({
+        if (!duplicateAuditAlreadyLogged) await logTruthMutationActivity({
           organizationId: ctx.actor.organizationId,
           projectId,
           entityType: 'document',
@@ -814,6 +1037,8 @@ export async function PATCH(
             ],
             relationship_type: auditPlan.relationshipType,
             relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
+            reason: auditPlan.reason,
+            evidence_reference: auditPlan.evidenceReference,
           },
         });
       } else if (auditPlan.kind === 'delete_relationship') {
@@ -824,7 +1049,7 @@ export async function PATCH(
           ?? previousDocumentById.get(auditPlan.targetDocumentId)
           ?? null;
 
-        await logTruthMutationActivity({
+        if (!duplicateAuditAlreadyLogged) await logTruthMutationActivity({
           organizationId: ctx.actor.organizationId,
           projectId,
           entityType: 'document',
@@ -843,8 +1068,14 @@ export async function PATCH(
             ],
             relationship_type: auditPlan.relationshipType,
             relationship_label: getDocumentRelationshipLabel(auditPlan.relationshipType) ?? titleize(auditPlan.relationshipType),
+            relationship_created_by: auditPlan.createdBy,
+            relationship_created_at: auditPlan.createdAt,
           },
-          newValue: null,
+          newValue: {
+            action: 'removed',
+            reason: auditPlan.reason,
+            evidence_reference: auditPlan.evidenceReference,
+          },
         });
       } else if (auditPlan.kind === 'set_document_subtype') {
         const nextDocument = documentById.get(auditPlan.documentId)
@@ -882,6 +1113,16 @@ export async function PATCH(
           nextDocumentById: documentById,
         });
       }
+    }
+
+    if (shouldRefreshValidator) {
+      // Revalidation begins only after required duplicate-disposition audit
+      // delivery succeeds, so a compensated mutation cannot publish transient
+      // authority state.
+      void requestDocumentPrecedenceRevalidation({
+        projectId,
+        actorId: ctx.actor.actorId,
+      });
     }
 
     return NextResponse.json({

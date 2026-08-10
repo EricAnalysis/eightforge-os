@@ -416,6 +416,20 @@ function pricingObservationsFor(
   }));
 }
 
+function retainedPricingRowsFor(
+  input: ProjectValidatorInput,
+): readonly {
+  readonly documentId: string | null;
+}[] {
+  const schedules = input.projectTruthAuthority?.registry?.contractPricing ?? [];
+  return schedules.flatMap((schedule) => schedule.rows.map((row) => ({
+    documentId: row.rateSchedule.governingSource?.documentId
+      ?? row.governingDocument?.documentId
+      ?? schedule.governingDocument?.documentId
+      ?? null,
+  })));
+}
+
 /**
  * Page numbers for the pricing rows this execution assembled, keyed by content.
  *
@@ -830,10 +844,17 @@ export function normalizeAuthorityRun(params: {
   const authority = input.projectTruthAuthority ?? null;
   const projection = authority?.validatorProjection ?? null;
   const coverage = projection?.coverage ?? null;
+  const retainedPricingRows = retainedPricingRowsFor(input);
 
   return {
     authorityMode,
     registryDigest: authority?.registryDigest ?? null,
+    registryPresent: authority?.registry != null,
+    validatorProjectionState: authorityMode === 'legacy'
+      ? 'not_requested'
+      : projection != null
+        ? 'present'
+        : 'withheld',
     sourceSnapshotDigest: authority?.sourceArtifactSnapshotDigest ?? null,
     authorityCoverage: coverage,
     assemblyStatus: authority?.assemblyStatus ?? 'not_requested',
@@ -841,6 +862,12 @@ export function normalizeAuthorityRun(params: {
       ? [...blockedTruthDomains(coverage)].sort((left, right) => left.localeCompare(right, 'en-US'))
       : [],
     blockReason: authority?.blockReason ?? null,
+    authorityBlockSourceGaps: [...(authority?.block?.sourceGaps ?? [])]
+      .sort((left, right) => left.localeCompare(right, 'en-US')),
+    duplicateAuthorityDiagnostics: [...(authority?.block?.duplicateAuthority ?? [])]
+      .sort((left, right) => left.diagnosticId.localeCompare(right.diagnosticId, 'en-US')),
+    retainedPricingRowCount: retainedPricingRows.length,
+    retainedPricingDocumentIds: sortedUnique(retainedPricingRows.map((row) => row.documentId)),
     // Counts are the DISTINCT identity counts, never the physical row counts.
     invoiceCount: sortedUnique(input.invoices.map(invoiceIdentity)).length,
     invoiceLineCount: sortedUnique(input.invoiceLines.map(invoiceLineIdentity)).length,

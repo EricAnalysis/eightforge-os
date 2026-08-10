@@ -479,10 +479,51 @@ describe('normalization is a pure function of the run', () => {
     expect(canonical.authorityMode).toBe('canonical');
     expect(canonical.assemblyStatus).toBe('assembled');
     expect(canonical.registryDigest).not.toBeNull();
+    expect(canonical.registryPresent).toBe(true);
+    expect(canonical.validatorProjectionState).toBe('present');
     expect(legacy.authorityMode).toBe('legacy');
     expect(legacy.assemblyStatus).toBe('not_requested');
     // A legacy run never had a canonical registry, so a digest would be a fiction.
     expect(legacy.registryDigest).toBeNull();
+    expect(legacy.registryPresent).toBe(false);
+    expect(legacy.validatorProjectionState).toBe('not_requested');
     expect(legacy.authorityCoverage).toBeNull();
+  });
+
+  it('carries retained pricing and duplicate diagnostics through the real blocked path', () => {
+    const snapshot = {
+      ...cleanProfile(),
+      contractPricingDuplicateAuthority: [{
+        findingId: 'duplicate_authority:doc-b|doc-a',
+        code: 'duplicate_authority',
+        documentIds: ['doc-b', 'doc-a'],
+        relationshipBasis: ['attached_to'],
+        rowIdentities: ['doc-b:row-1', 'doc-a:row-1'],
+        sourceIdentityStatus: 'absent',
+        sourceIdentityByDocumentId: [
+          { documentId: 'doc-b', sourceVersionIdentity: null },
+          { documentId: 'doc-a', sourceVersionIdentity: null },
+        ],
+        sourceIdentityReadError: null,
+        missingDiscriminator: 'extraction_source_artifacts.source_sha256',
+        detail: 'Two equally eligible pricing sources assert the same rows.',
+      }],
+    } as ValidatorSourceSnapshot;
+    const summary = normalize(snapshot, 'canonical');
+
+    expect(summary.assemblyStatus).toBe('blocked');
+    expect(summary.blockReason).toBe('duplicate_authority');
+    expect(summary.validatorProjectionState).toBe('withheld');
+    expect(summary.registryPresent).toBe(true);
+    expect(summary.registryDigest).not.toBeNull();
+    expect(summary.retainedPricingRowCount).toBe(1);
+    expect(summary.retainedPricingDocumentIds).toEqual([CONTRACT_DOCUMENT_ID]);
+    expect(summary.authorityBlockSourceGaps).toEqual(['doc-a', 'doc-b']);
+    expect(summary.duplicateAuthorityDiagnostics).toEqual([
+      expect.objectContaining({
+        diagnosticId: 'duplicate_authority:doc-b|doc-a',
+        documentIds: ['doc-b', 'doc-a'],
+      }),
+    ]);
   });
 });

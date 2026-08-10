@@ -148,6 +148,14 @@ function evidenceFor(documentId: string | null, detail: string): ComparisonEvide
   }];
 }
 
+function legacyPricingDocuments(legacy: AuthorityRunSummary): readonly string[] {
+  return [...new Set(
+    legacy.governingPricing
+      .map((row) => row.governingDocumentId)
+      .filter((value): value is string => value != null),
+  )].sort((left, right) => left.localeCompare(right, 'en-US'));
+}
+
 // ---------------------------------------------------------------------------
 // Identity and counts
 // ---------------------------------------------------------------------------
@@ -443,6 +451,7 @@ function pricingDeltas(
   const legacyByKey = new Map(legacy.governingPricing.map((row) => [row.pricingKey, row]));
   const canonicalByKey = new Map(canonical.governingPricing.map((row) => [row.pricingKey, row]));
   const block = canonicalBlockRootCause(canonical);
+  const legacyDocuments = legacyPricingDocuments(legacy);
 
   // ── Pricing assembly scope diagnostic ───────────────────────────────────
   // Canonical priced nothing at all while legacy priced from real documents. The
@@ -453,38 +462,127 @@ function pricingDeltas(
   // assembly never received", which are very different problems and were
   // indistinguishable in the first production cohort report.
   if (canonical.governingPricing.length === 0 && legacy.governingPricing.length > 0) {
-    const legacyPricingDocuments = [...new Set(
-      legacy.governingPricing
-        .map((row) => row.governingDocumentId)
-        .filter((value): value is string => value != null),
-    )].sort((left, right) => left.localeCompare(right, 'en-US'));
-
-    deltas.push(finalize({
-      domain: 'pricing',
-      entityKey: 'project',
-      field: 'assemblySourceScope',
-      legacyValue: legacyPricingDocuments,
-      canonicalValue: [],
-      classification: 'source_gap',
-      materiality: 'blocking',
-      classificationRationale: 'Canonical received no assembled contract pricing rows, so it could '
-        + `establish no governing pricing at all. Legacy priced this project from `
-        + `${String(legacyPricingDocuments.length)} source document(s). Compare that document set `
-        + 'against the document the pricing assembly was scoped to: if they differ, the rows exist '
-        + 'but never reached canonical, which is an assembly-scope gap rather than absent source data.',
-      explanation: 'Canonical resolved zero governing pricing rows while legacy resolved '
-        + `${String(legacy.governingPricing.length)} from document(s) `
-        + `${legacyPricingDocuments.join(', ')}.`,
-      evidenceReferences: legacyPricingDocuments.map((documentId) => ({
-        kind: 'legacy_pricing_source_document',
-        sourceDocumentId: documentId,
-        sourceArtifactId: legacy.governingPricing.find(
-          (row) => row.governingDocumentId === documentId,
-        )?.sourceArtifactId ?? null,
-        page: null,
-        detail: 'legacy resolved governing pricing from this document; canonical received none',
-      })),
-    }));
+    if (canonical.assemblyStatus === 'failed' || canonical.blockReason === 'assembly_failed') {
+      const failureDocuments = canonical.authorityBlockSourceGaps.length > 0
+        ? canonical.authorityBlockSourceGaps
+        : canonical.retainedPricingDocumentIds.length > 0
+          ? canonical.retainedPricingDocumentIds
+          : legacyDocuments;
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: 'project',
+        field: 'assemblySourceScope',
+        legacyValue: legacyDocuments,
+        canonicalValue: canonical.retainedPricingDocumentIds,
+        classification: 'regression_candidate',
+        materiality: 'blocking',
+        classificationRationale: 'Canonical pricing assembly failed, including any partial '
+          + 'observations it may have retained. This is an infrastructure failure, not missing '
+          + 'source truth or an intentional authority-resolution block.',
+        explanation: 'Canonical failed while assembling pricing for document(s) '
+          + `${failureDocuments.join(', ') || 'with unknown lineage'}, so it projected zero `
+          + 'governing pricing rows.',
+        evidenceReferences: failureDocuments.map((documentId) => ({
+          kind: 'canonical_pricing_assembly_failure_document',
+          sourceDocumentId: documentId,
+          sourceArtifactId: null,
+          page: null,
+          detail: 'canonical pricing assembly failed before authoritative pricing could be projected',
+        })),
+        rootCauseKey: 'pricing_assembly_failure',
+        rootCauseSummary: 'Canonical pricing assembly failed before governing pricing could be '
+          + 'projected.',
+      }));
+    } else if (canonical.assemblyStatus === 'blocked'
+      && canonical.retainedPricingRowCount > 0) {
+      const retainedDocuments = canonical.retainedPricingDocumentIds;
+      const duplicateDetails = canonical.duplicateAuthorityDiagnostics.flatMap((diagnostic) =>
+        diagnostic.documentIds.map((documentId) => ({
+          kind: 'canonical_duplicate_authority_document',
+          sourceDocumentId: documentId,
+          sourceArtifactId: null,
+          page: null,
+          detail: diagnostic.missingDiscriminator != null
+            ? `${diagnostic.detail} Missing discriminator: ${diagnostic.missingDiscriminator}.`
+            : diagnostic.detail,
+        }) satisfies ComparisonEvidenceReference),
+      );
+      const retainedEvidence = duplicateDetails.length > 0
+        ? duplicateDetails
+        : retainedDocuments.length > 0
+          ? retainedDocuments.map((documentId) => ({
+            kind: 'canonical_retained_pricing_document',
+            sourceDocumentId: documentId,
+            sourceArtifactId: null,
+            page: null,
+            detail: 'canonical retained assembled pricing observations from this document',
+          }) satisfies ComparisonEvidenceReference)
+          : [{
+            kind: 'canonical_retained_pricing_observations',
+            sourceDocumentId: null,
+            sourceArtifactId: null,
+            page: null,
+            detail: 'canonical retained assembled pricing observations with unknown document lineage',
+          }];
+      const retainedLineage = retainedDocuments.length > 0
+        ? ` from document(s) ${retainedDocuments.join(', ')}`
+        : ' with unknown document lineage';
+      const authorityExplanation = canonical.blockReason === 'duplicate_authority'
+        ? 'Canonical retained assembled pricing observations, but validator projection was withheld '
+          + 'because multiple eligible pricing authorities remained unresolved.'
+        : canonical.blockReason === 'incomplete_domain_authority'
+          ? 'Canonical retained assembled pricing observations, but validator projection was withheld '
+            + 'because project authority remained blocked by incomplete domain coverage.'
+          : 'Canonical retained assembled pricing observations, but validator projection was withheld '
+            + `because project authority remained blocked by ${canonical.blockReason ?? 'authority resolution'}.`;
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: 'project',
+        field: 'assemblySourceScope',
+        legacyValue: legacyDocuments,
+        canonicalValue: retainedDocuments,
+        classification: 'authority_policy_difference',
+        materiality: 'blocking',
+        classificationRationale: `${authorityExplanation} This is an authority-resolution block, `
+          + 'not a zero-row source-scope gap.',
+        explanation: `Canonical retained ${String(canonical.retainedPricingRowCount)} assembled `
+          + `pricing row(s)${retainedLineage}, but projected zero governing pricing rows. `
+          + authorityExplanation,
+        evidenceReferences: retainedEvidence,
+        rootCauseKey: `pricing_authority_resolution_block:${canonical.blockReason ?? canonical.assemblyStatus}`,
+        rootCauseSummary: authorityExplanation,
+      }));
+    } else if (canonical.assemblyStatus !== 'assembled') {
+      deltas.push(finalize({
+        domain: 'pricing',
+        entityKey: 'project',
+        field: 'assemblySourceScope',
+        legacyValue: legacyDocuments,
+        canonicalValue: [],
+        classification: 'source_gap',
+        materiality: 'blocking',
+        classificationRationale: 'Canonical received no assembled contract pricing rows, so it could '
+          + `establish no governing pricing at all. Legacy priced this project from `
+          + `${String(legacyDocuments.length)} source document(s). Compare that document set `
+          + 'against the document the pricing assembly was scoped to: if they differ, the rows exist '
+          + 'but never reached canonical, which is an assembly-scope gap rather than absent source data.',
+        explanation: 'Canonical resolved zero governing pricing rows while legacy resolved '
+          + `${String(legacy.governingPricing.length)} from document(s) `
+          + `${legacyDocuments.join(', ')}.`,
+        evidenceReferences: legacyDocuments.map((documentId) => ({
+          kind: 'legacy_pricing_source_document',
+          sourceDocumentId: documentId,
+          sourceArtifactId: legacy.governingPricing.find(
+            (row) => row.governingDocumentId === documentId,
+          )?.sourceArtifactId ?? null,
+          page: null,
+          detail: 'legacy resolved governing pricing from this document; canonical received none',
+        })),
+        rootCauseKey: `pricing_assembly_source_gap:${canonical.blockReason ?? canonical.assemblyStatus}`,
+        rootCauseSummary: 'Canonical received no assembled pricing rows for a governing pricing source '
+          + 'legacy priced from.',
+      }));
+    }
   }
 
   for (const pricingKey of sortedKeys(legacyByKey, canonicalByKey)) {

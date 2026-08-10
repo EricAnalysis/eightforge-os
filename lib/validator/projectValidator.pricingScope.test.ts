@@ -27,6 +27,7 @@ import type {
   ValidatorFactRecord,
   ValidatorLegacyExtractionRow,
 } from '@/lib/validator/shared';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 
 const CONTRACT_ID = 'contract-doc';
 const SHEET_A = 'aaaa-price-sheet';
@@ -134,7 +135,7 @@ function executionFor(params: {
   families: readonly ResolvedDocumentPrecedenceFamily[];
   excluded?: ReadonlySet<string>;
   storeState?: 'read' | 'unreadable';
-  storeReadError?: string | null;
+  storeReadError?: SourceIdentityReadFailure | null;
 }) {
   const { truthCategoryDocumentIds } = buildDocumentIdsByFamily(
     params.documents,
@@ -370,11 +371,17 @@ describe('C3 duplicate authority through the assembly path', () => {
     const execution = executionFor({
       ...twoIdenticalSheets(),
       storeState: 'unreadable',
-      storeReadError: 'relation "extraction_source_artifacts" does not exist',
+      storeReadError: {
+        code: 'relation_unavailable',
+        safeMessage: 'Source identity store relation is unavailable.',
+      },
     });
 
     const finding = execution.duplicateAuthorityFindings[0];
-    assert.equal(finding?.sourceIdentityReadError, 'relation "extraction_source_artifacts" does not exist');
+    assert.deepEqual(finding?.sourceIdentityReadError, {
+      code: 'relation_unavailable',
+      safeMessage: 'Source identity store relation is unavailable.',
+    });
   });
 
   it('does not attach an error message when the identity store was read successfully', () => {
@@ -383,7 +390,10 @@ describe('C3 duplicate authority through the assembly path', () => {
       storeState: 'read',
       // Even if a caller mistakenly supplies leftover error text on a
       // successful read, the finding must not surface it as a store failure.
-      storeReadError: 'stale error from a previous unrelated call',
+      storeReadError: {
+        code: 'query_failed',
+        safeMessage: 'Source identity store query failed.',
+      },
     });
 
     assert.equal(execution.duplicateAuthorityFindings[0]?.sourceIdentityReadError, null);
@@ -397,7 +407,10 @@ describe('C3 duplicate authority through the assembly path', () => {
     const execution = executionFor({
       ...twoIdenticalSheets(),
       storeState: 'unreadable',
-      storeReadError: 'permission denied for table extraction_source_artifacts',
+      storeReadError: {
+        code: 'permission_denied',
+        safeMessage: 'Source identity store access was denied.',
+      },
     });
 
     const finding = execution.duplicateAuthorityFindings[0];
@@ -411,7 +424,10 @@ describe('C3 duplicate authority through the assembly path', () => {
     const params = {
       ...twoIdenticalSheets(),
       storeState: 'unreadable' as const,
-      storeReadError: 'relation "extraction_source_artifacts" does not exist',
+      storeReadError: {
+        code: 'relation_unavailable' as const,
+        safeMessage: 'Source identity store relation is unavailable.',
+      },
     };
     const first = executionFor(params);
     const second = executionFor(params);

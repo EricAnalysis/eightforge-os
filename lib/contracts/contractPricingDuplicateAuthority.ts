@@ -24,6 +24,7 @@
 
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import { contractPricingScopedRowId } from '@/lib/contracts/contractPricingAssembly';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 
 /** The identity channel that would resolve a duplicate, when it is missing. */
 export const CONTRACT_PRICING_SOURCE_IDENTITY_DISCRIMINATOR =
@@ -112,7 +113,7 @@ export type ContractPricingDuplicateAuthorityFinding = {
    * `unreadable`. Null in every other state. Without this an operator sees only
    * that identity was unavailable, never that the store itself failed.
    */
-  readonly sourceIdentityReadError: string | null;
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   /**
    * The channel whose absence prevents resolution; null when identity existed.
    *
@@ -276,8 +277,8 @@ function detailFor(
 export function detectContractPricingDuplicateAuthority(params: {
   readonly sources: readonly ContractPricingDuplicateAuthorityCandidateSource[];
   readonly sourceIdentityStoreState: 'read' | 'unreadable';
-  /** Verbatim store failure, carried through when the store was unreadable. */
-  readonly sourceIdentityReadError?: string | null;
+  /** Sanitized store failure, carried through when the store was unreadable. */
+  readonly sourceIdentityReadError?: SourceIdentityReadFailure | null;
   readonly discriminators?: ReadonlyMap<string, ContractPricingAuthorityDiscriminator>;
 }): readonly ContractPricingDuplicateAuthorityFinding[] {
   const discriminators = params.discriminators ?? new Map();

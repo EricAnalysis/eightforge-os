@@ -147,7 +147,7 @@ describe('coverage under real canonical resolution', () => {
     }));
 
     expect(context.validatorProjection).not.toBeNull();
-    expect(context.validatorProjection!.integritySignals.length).toBeGreaterThan(0);
+    expect(context.diagnosticProjection!.integritySignals.length).toBeGreaterThan(0);
   });
 
   it('blocks when a required governing relationship cannot be established', () => {

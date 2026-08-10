@@ -23,11 +23,19 @@ import {
 import type { CanonicalContractPricingSchedule } from '@/lib/canonical/contract/pricing';
 import { buildCanonicalProjectTruth } from '@/lib/canonical/project/projectTruthBuilder';
 import type { CanonicalGoverningDocumentReference } from '@/lib/canonical/project/projectTruth';
-import { hashCanonicalJson } from '@/lib/canonical/publication/projectTruthPublicationIdentity';
+import {
+  canonicalJson,
+  hashCanonicalJson,
+} from '@/lib/canonical/publication/projectTruthPublicationIdentity';
 import type { PersistedCanonicalTransactionRowInput } from '@/lib/canonical/transaction/transactionAdapter';
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractPricingDuplicateAuthorityFinding } from '@/lib/contracts/contractPricingDuplicateAuthority';
-import type { RateScheduleItem, ValidatorTransactionDataDataset } from '@/lib/validator/shared';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
+import type {
+  RateScheduleItem,
+  ValidatorSourceIdentityStoreState,
+  ValidatorTransactionDataDataset,
+} from '@/lib/validator/shared';
 
 import {
   type CanonicalTransactionAssembly,
@@ -98,6 +106,8 @@ export type ProjectTruthAuthorityInput = {
   readonly invoiceLineRows?: readonly PersistedCanonicalInvoiceRowInput[];
   /** Frozen source-artifact identity per document, already loaded upstream. */
   readonly sourceArtifactIdByDocumentId?: ReadonlyMap<string, string | null>;
+  readonly sourceIdentityStoreState?: ValidatorSourceIdentityStoreState;
+  readonly sourceIdentityReadError?: SourceIdentityReadFailure | null;
   readonly documentFamilyByDocumentId?: ReadonlyMap<string, string | null>;
   /** Document-family and governing relationships from the precedence snapshot. */
   readonly governingDocumentIds?: Readonly<Record<string, readonly string[]>>;
@@ -223,6 +233,32 @@ function assembleAuthoritativeRegistry(
 }
 
 /**
+ * Hashes pricing observations in a content-derived order without changing the
+ * authoritative registry's retained row order or validator projection.
+ *
+ * Pricing ordinals intentionally describe the assembled input order. They are
+ * therefore replaced only in this digest view after rows are sorted by their
+ * complete canonical content with the ordinal neutralized. Equal observations
+ * remain equal, while any other content change still changes the digest.
+ */
+function hashAuthoritativeRegistry(
+  registry: ReturnType<typeof assembleAuthoritativeRegistry>,
+): string {
+  const contractPricing = registry.contractPricing.map((schedule) => ({
+    ...schedule,
+    rows: schedule.rows
+      .map((row) => ({
+        row,
+        sortKey: canonicalJson({ ...row, ordinal: 0 }),
+      }))
+      .sort((left, right) => left.sortKey < right.sortKey ? -1 : left.sortKey > right.sortKey ? 1 : 0)
+      .map(({ row }, ordinal) => ({ ...row, ordinal })),
+  }));
+
+  return hashCanonicalJson({ ...registry, contractPricing });
+}
+
+/**
  * Computes per-domain coverage for one canonical execution.
  *
  * Every branch answers one question honestly: did canonical truth actually
@@ -256,6 +292,9 @@ function computeDomainCoverage(input: {
   const unresolvedInvoiceIdentities = input.invoiceAssembly.invoiceIdentities.filter(
     (identity) => identity.identityConfidence === 'unresolved',
   );
+  const unreadableInvoiceIdentities = input.invoiceAssembly.invoiceIdentities.filter(
+    (identity) => identity.sourceIdentityStatus === 'unreadable',
+  );
   const invoices: CanonicalDomainCoverageEntry = input.invoiceRowCount === 0
     ? notApplicableDomain('project_has_no_invoice_source')
     : input.invoiceAssembly.identityConflicts.length > 0
@@ -263,7 +302,12 @@ function computeDomainCoverage(input: {
         'duplicate_invoice_number_across_source_documents',
         input.invoiceAssembly.identityConflicts.flatMap((conflict) => conflict.sourceDocumentIds),
       )
-      : unresolvedInvoiceIdentities.length > 0
+      : unreadableInvoiceIdentities.length > 0
+        ? blockedDomain(
+          'invoice_source_identity_store_unreadable',
+          unreadableInvoiceIdentities.map((identity) => identity.sourceDocumentId ?? 'unknown-document'),
+        )
+        : unresolvedInvoiceIdentities.length > 0
         ? blockedDomain(
           'unresolved_invoice_identity',
           unresolvedInvoiceIdentities.map((identity) => identity.sourceDocumentId ?? 'unknown-document'),
@@ -346,6 +390,7 @@ export function resolveProjectTruthAuthority(
       registryDigest: null,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
       validatorProjection: null,
+      diagnosticProjection: { integritySignals: [] },
       blockReason: 'assembly_failed',
       block: {
         reason: 'assembly_failed',
@@ -369,6 +414,8 @@ export function resolveProjectTruthAuthority(
     invoiceRows: input.invoiceRows ?? [],
     invoiceLineRows: input.invoiceLineRows ?? [],
     sourceArtifactIdByDocumentId: input.sourceArtifactIdByDocumentId,
+    sourceIdentityStoreState: input.sourceIdentityStoreState,
+    sourceIdentityReadError: input.sourceIdentityReadError,
     documentFamilyByDocumentId: input.documentFamilyByDocumentId,
   });
 
@@ -378,8 +425,17 @@ export function resolveProjectTruthAuthority(
     transactionAssembly,
     invoiceAssembly,
   );
-  const registryDigest = hashCanonicalJson(registry);
+  const registryDigest = hashAuthoritativeRegistry(registry);
   const rateScheduleItems = projectCanonicalRateScheduleItems(contractPricing);
+  const invoiceDiagnosticProjection = {
+    integritySignals: projectCanonicalIntegritySignals({
+      invoiceIdentities: invoiceAssembly.invoiceIdentities,
+      invoiceIdentityConflicts: invoiceAssembly.identityConflicts,
+      invoiceLineIdentities: invoiceAssembly.lineIdentities,
+      invoiceLineIdentityIssues: invoiceAssembly.lineIdentityIssues,
+      relationships: [],
+    }),
+  };
 
   // Unresolved duplicate pricing authority blocks GOVERNING SELECTION, not
   // observation. The registry and its digest are retained exactly as every other
@@ -393,7 +449,8 @@ export function resolveProjectTruthAuthority(
   // decided AFTER adaptation precisely because adaptation makes no authority
   // choice, and it is decided BEFORE any projection because that is where a
   // choice would otherwise be forced.
-  const duplicateAuthority = input.contractPricingDuplicateAuthority ?? [];
+  const duplicateAuthority = [...(input.contractPricingDuplicateAuthority ?? [])]
+    .sort((left, right) => left.findingId.localeCompare(right.findingId, 'en-US'));
   if (duplicateAuthority.length > 0) {
     return freezeExecutionContext({
       authorityMode: mode,
@@ -402,6 +459,7 @@ export function resolveProjectTruthAuthority(
       registryDigest,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
       validatorProjection: null,
+      diagnosticProjection: invoiceDiagnosticProjection,
       blockReason: 'duplicate_authority',
       block: {
         reason: 'duplicate_authority',
@@ -433,6 +491,7 @@ export function resolveProjectTruthAuthority(
       registryDigest,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
       validatorProjection: null,
+      diagnosticProjection: invoiceDiagnosticProjection,
       blockReason: 'missing_governing_pricing',
       block: {
         reason: 'missing_governing_pricing',
@@ -459,6 +518,7 @@ export function resolveProjectTruthAuthority(
     familyDocumentIds: input.familyDocumentIds,
     documentRelationships: input.documentRelationships,
     sourceArtifactIdByDocumentId: input.sourceArtifactIdByDocumentId,
+    sourceIdentityStoreState: input.sourceIdentityStoreState,
     operatorAssertions: input.operatorRelationshipAssertions,
   });
 
@@ -471,6 +531,16 @@ export function resolveProjectTruthAuthority(
     invoiceLineRowCount: input.invoiceLineRows?.length ?? 0,
     transactionRowCount: input.transactionRows?.length ?? 0,
   });
+
+  const diagnosticProjection = {
+    integritySignals: projectCanonicalIntegritySignals({
+      invoiceIdentities: invoiceAssembly.invoiceIdentities,
+      invoiceIdentityConflicts: invoiceAssembly.identityConflicts,
+      invoiceLineIdentities: invoiceAssembly.lineIdentities,
+      invoiceLineIdentityIssues: invoiceAssembly.lineIdentityIssues,
+      relationships: relationshipAssembly.relationships,
+    }),
+  };
 
   const validatorProjection = {
     rateScheduleItems,
@@ -503,13 +573,6 @@ export function resolveProjectTruthAuthority(
       conflicting: relationshipAssembly.conflicting,
       blockedDomains: relationshipAssembly.blockedDomains,
     },
-    integritySignals: projectCanonicalIntegritySignals({
-      invoiceIdentities: invoiceAssembly.invoiceIdentities,
-      invoiceIdentityConflicts: invoiceAssembly.identityConflicts,
-      invoiceLineIdentities: invoiceAssembly.lineIdentities,
-      invoiceLineIdentityIssues: invoiceAssembly.lineIdentityIssues,
-      relationships: relationshipAssembly.relationships,
-    }),
     coverage,
   };
 
@@ -529,6 +592,7 @@ export function resolveProjectTruthAuthority(
       registryDigest,
       sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
       validatorProjection,
+      diagnosticProjection,
       blockReason: 'incomplete_domain_authority',
       block: {
         reason: 'incomplete_domain_authority',
@@ -547,6 +611,7 @@ export function resolveProjectTruthAuthority(
     registryDigest,
     sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
     validatorProjection,
+    diagnosticProjection,
     blockReason: null,
     block: null,
   });

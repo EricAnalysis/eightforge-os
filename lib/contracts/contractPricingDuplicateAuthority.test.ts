@@ -127,18 +127,27 @@ describe('contract pricing duplicate authority detection', () => {
     const [finding] = detectContractPricingDuplicateAuthority({
       sources: goodlettsvilleShapedSources(),
       sourceIdentityStoreState: 'unreadable',
-      sourceIdentityReadError: 'relation "extraction_source_artifacts" does not exist',
+      sourceIdentityReadError: {
+        code: 'relation_unavailable',
+        safeMessage: 'Source identity store relation is unavailable.',
+      },
     });
 
     assert.equal(finding!.sourceIdentityStatus, 'unreadable');
-    assert.match(String(finding!.sourceIdentityReadError), /does not exist/);
+    assert.deepEqual(finding!.sourceIdentityReadError, {
+      code: 'relation_unavailable',
+      safeMessage: 'Source identity store relation is unavailable.',
+    });
   });
 
   it('does not attach a store failure reason when identity is merely absent', () => {
     const [finding] = detectContractPricingDuplicateAuthority({
       sources: goodlettsvilleShapedSources(),
       sourceIdentityStoreState: 'read',
-      sourceIdentityReadError: 'should be ignored on a successful read',
+      sourceIdentityReadError: {
+        code: 'query_failed',
+        safeMessage: 'Source identity store query failed.',
+      },
     });
 
     assert.equal(finding!.sourceIdentityStatus, 'absent');

@@ -20,7 +20,10 @@
  */
 
 import type { CanonicalAuthorityCoverage } from '@/lib/canonical/authority/canonicalDomainCoverage';
-import type { ProjectTruthAuthorityMode } from '@/lib/canonical/authority/projectTruthAuthorityMode';
+import type {
+  CanonicalDuplicateAuthorityDiagnostic,
+  ProjectTruthAuthorityMode,
+} from '@/lib/canonical/authority/projectTruthAuthorityMode';
 
 import type { PricingObservation } from './pricingObservationAlignment';
 
@@ -247,12 +250,18 @@ export type AuthorityRunSummary = {
   readonly authorityMode: ProjectTruthAuthorityMode;
 
   readonly registryDigest: string | null;
+  readonly registryPresent: boolean;
+  readonly validatorProjectionState: 'present' | 'withheld' | 'not_requested';
   readonly sourceSnapshotDigest: string | null;
 
   readonly authorityCoverage: CanonicalAuthorityCoverage | null;
   readonly assemblyStatus: string;
   readonly blockedTruthDomains: readonly string[];
   readonly blockReason: string | null;
+  readonly authorityBlockSourceGaps: readonly string[];
+  readonly duplicateAuthorityDiagnostics: readonly CanonicalDuplicateAuthorityDiagnostic[];
+  readonly retainedPricingRowCount: number;
+  readonly retainedPricingDocumentIds: readonly string[];
 
   readonly invoiceCount: number;
   readonly invoiceLineCount: number;

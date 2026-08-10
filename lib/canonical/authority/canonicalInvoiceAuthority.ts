@@ -27,6 +27,7 @@ import {
 import type { CanonicalInvoice } from '@/lib/canonical/invoice/invoice';
 import type { CanonicalInvoiceLine } from '@/lib/canonical/invoice/invoiceLine';
 import { isValueBearingState } from '@/lib/canonical/truth/envelope';
+import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 
 import {
   buildCanonicalProvenance,
@@ -54,10 +55,19 @@ export type CanonicalIdentityConfidence =
   | 'source_scoped'
   | 'unresolved';
 
+/** Whether immutable source identity was read for one invoice observation. */
+export type CanonicalInvoiceSourceIdentityStatus =
+  | 'present'
+  | 'absent'
+  | 'unreadable';
+
 export type CanonicalInvoiceIdentity = {
   readonly canonicalInvoiceId: string;
   readonly projectId: string;
   readonly sourceArtifactId: string | null;
+  readonly sourceIdentityStatus: CanonicalInvoiceSourceIdentityStatus;
+  /** Sanitized store failure when identity was unreadable; null otherwise. */
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   readonly sourceDocumentId: string | null;
   /** The persisted row id. Evidence and scoping input — never the id basis. */
   readonly sourceRecordId: string | null;
@@ -257,12 +267,15 @@ function groupLines(
 function buildInvoiceIdentityCore(input: {
   readonly projectId: string;
   readonly sourceArtifactId: string | null;
+  readonly sourceIdentityStatus: CanonicalInvoiceSourceIdentityStatus;
   readonly sourceDocumentId: string | null;
   readonly invoiceNumber: string | null;
 }): { readonly id: string; readonly basis: readonly string[] } {
   const basis = [
     `project:${stablePart(input.projectId)}`,
-    `artifact:${stablePart(input.sourceArtifactId)}`,
+    input.sourceIdentityStatus === 'unreadable'
+      ? 'artifact:unreadable'
+      : `artifact:${stablePart(input.sourceArtifactId)}`,
     `document:${stablePart(input.sourceDocumentId)}`,
     input.invoiceNumber != null
       ? `invoice-number:${stablePart(input.invoiceNumber)}`
@@ -307,6 +320,8 @@ type InvoiceDraft = {
   readonly basis: readonly string[];
   readonly sourceRecordId: string | null;
   readonly sourceArtifactId: string | null;
+  readonly sourceIdentityStatus: CanonicalInvoiceSourceIdentityStatus;
+  readonly sourceIdentityReadError: SourceIdentityReadFailure | null;
   readonly sourceDocumentId: string | null;
   readonly invoiceNumber: string | null;
   readonly documentFamily: string | null;
@@ -324,6 +339,8 @@ export function assembleCanonicalInvoices(input: {
   readonly invoiceLineRows: readonly PersistedCanonicalInvoiceRowInput[];
   /** Frozen source-artifact identity per document, already loaded upstream. */
   readonly sourceArtifactIdByDocumentId?: ReadonlyMap<string, string | null>;
+  readonly sourceIdentityStoreState?: 'read' | 'unreadable';
+  readonly sourceIdentityReadError?: SourceIdentityReadFailure | null;
   readonly documentFamilyByDocumentId?: ReadonlyMap<string, string | null>;
 }): CanonicalInvoiceAssembly {
   const invoiceRows = [...input.invoiceRows].sort((left, right) =>
@@ -337,6 +354,12 @@ export function assembleCanonicalInvoices(input: {
     const sourceArtifactId = sourceDocumentId != null
       ? input.sourceArtifactIdByDocumentId?.get(sourceDocumentId) ?? null
       : null;
+    const sourceIdentityStatus: CanonicalInvoiceSourceIdentityStatus =
+      input.sourceIdentityStoreState === 'unreadable'
+        ? 'unreadable'
+        : sourceArtifactId != null
+          ? 'present'
+          : 'absent';
     const ownLineRows = grouped.byInvoiceRow.get(index) ?? [];
     const adapted = adaptCurrentInvoiceRows({
       invoiceRow: row,
@@ -348,6 +371,7 @@ export function assembleCanonicalInvoices(input: {
     const core = buildInvoiceIdentityCore({
       projectId: input.projectId,
       sourceArtifactId,
+      sourceIdentityStatus,
       sourceDocumentId,
       invoiceNumber,
     });
@@ -360,6 +384,9 @@ export function assembleCanonicalInvoices(input: {
       basis: core.basis,
       sourceRecordId: readString(row, RECORD_ID_KEYS),
       sourceArtifactId,
+      sourceIdentityStatus,
+      sourceIdentityReadError:
+        sourceIdentityStatus === 'unreadable' ? input.sourceIdentityReadError ?? null : null,
       sourceDocumentId,
       invoiceNumber,
       documentFamily: sourceDocumentId != null
@@ -413,6 +440,8 @@ export function assembleCanonicalInvoices(input: {
       canonicalInvoiceId,
       projectId: input.projectId,
       sourceArtifactId: draft.sourceArtifactId,
+      sourceIdentityStatus: draft.sourceIdentityStatus,
+      sourceIdentityReadError: draft.sourceIdentityReadError,
       sourceDocumentId: draft.sourceDocumentId,
       sourceRecordId: draft.sourceRecordId,
       invoiceNumber: draft.invoiceNumber,

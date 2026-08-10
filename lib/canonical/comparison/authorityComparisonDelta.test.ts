@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildAuthorityComparisonDeltaGroups,
   buildAuthorityComparisonDeltas,
   buildDeltaId,
   summarizeClassifications,
@@ -31,11 +32,17 @@ function runSummary(overrides: Partial<AuthorityRunSummary> = {}): AuthorityRunS
   return {
     authorityMode: 'legacy',
     registryDigest: null,
+    registryPresent: false,
+    validatorProjectionState: 'not_requested',
     sourceSnapshotDigest: 'shared-source-digest',
     authorityCoverage: null,
     assemblyStatus: 'not_requested',
     blockedTruthDomains: [],
     blockReason: null,
+    authorityBlockSourceGaps: [],
+    duplicateAuthorityDiagnostics: [],
+    retainedPricingRowCount: 0,
+    retainedPricingDocumentIds: [],
     invoiceCount: 1,
     invoiceLineCount: 1,
     transactionCount: 1,
@@ -419,6 +426,182 @@ describe('blocking materiality safety rules', () => {
 
     expect(mismatch!.materiality).toBe('blocking');
     expect(mismatch!.classificationRationale).toContain('did not');
+  });
+});
+
+describe('pricing assembly source-scope diagnosis', () => {
+  const legacyPricing = {
+    pricingKey: 'doc-contract|transport|HAUL|cubic yard',
+    governingDocumentId: 'doc-contract',
+    category: 'transport',
+    description: 'HAUL',
+    unit: 'cubic yard',
+    sourceArtifactId: 'artifact-contract',
+    sourcePage: 8,
+    provenanceReference: 'row-1',
+    unitClass: 'cy',
+    rate: 12.5,
+    observationCount: 1,
+    distinctSourceCount: 1,
+    descriptions: ['HAUL'],
+    billingKeyLost: false,
+  };
+
+  it('keeps a true zero-row canonical pricing block as a source gap', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary({
+        assemblyStatus: 'blocked',
+        blockReason: 'missing_governing_pricing',
+      }),
+    );
+    const scope = deltaFor(deltas, 'assemblySourceScope');
+
+    expect(scope).not.toBeNull();
+    expect(scope!.classification).toBe('source_gap');
+    expect(scope!.canonicalValue).toEqual([]);
+    expect(scope!.classificationRationale).toContain('no assembled contract pricing rows');
+    expect(scope!.rootCauseKey).toBe('pricing_assembly_source_gap:missing_governing_pricing');
+  });
+
+  it('describes a retained duplicate-authority registry as an authority-resolution block', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary({
+        assemblyStatus: 'blocked',
+        blockReason: 'duplicate_authority',
+        retainedPricingRowCount: 2,
+        retainedPricingDocumentIds: ['doc-a', 'doc-b'],
+        duplicateAuthorityDiagnostics: [{
+          diagnosticId: 'duplicate_authority:doc-b|doc-a',
+          documentIds: ['doc-b', 'doc-a'],
+          relationshipBasis: ['attached_to'],
+          rowIdentities: ['doc-b:row-1', 'doc-a:row-1'],
+          sourceIdentityStatus: 'absent',
+          sourceIdentityByDocumentId: [
+            { documentId: 'doc-b', sourceVersionIdentity: null },
+            { documentId: 'doc-a', sourceVersionIdentity: null },
+          ],
+          sourceIdentityReadError: null,
+          missingDiscriminator: 'extraction_source_artifacts.source_sha256',
+          detail: 'Two equally eligible pricing sources assert the same rows.',
+        }],
+      }),
+    );
+    const scope = deltaFor(deltas, 'assemblySourceScope');
+
+    expect(scope).not.toBeNull();
+    expect(scope!.classification).toBe('authority_policy_difference');
+    expect(scope!.classificationRationale).not.toContain('no assembled contract pricing rows');
+    expect(scope!.canonicalValue).toEqual(['doc-a', 'doc-b']);
+    expect(scope!.classificationRationale).toContain(
+      'multiple eligible pricing authorities remained unresolved',
+    );
+    expect(scope!.evidenceReferences.map((reference) => reference.sourceDocumentId))
+      .toEqual(['doc-b', 'doc-a']);
+    expect(scope!.rootCauseKey).toBe('pricing_authority_resolution_block:duplicate_authority');
+  });
+
+  it('distinguishes assembly failure from a source gap', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary({
+        assemblyStatus: 'failed',
+        blockReason: 'assembly_failed',
+        authorityBlockSourceGaps: ['doc-contract'],
+      }),
+    );
+    const scope = deltaFor(deltas, 'assemblySourceScope');
+
+    expect(scope).not.toBeNull();
+    expect(scope!.classification).toBe('regression_candidate');
+    expect(scope!.classificationRationale).toContain('infrastructure failure');
+    expect(scope!.rootCauseKey).toBe('pricing_assembly_failure');
+  });
+
+  it('gives assembly failure precedence even when partial pricing rows were retained', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary({
+        assemblyStatus: 'failed',
+        blockReason: 'assembly_failed',
+        retainedPricingRowCount: 2,
+        retainedPricingDocumentIds: ['doc-partial'],
+      }),
+    );
+    const scope = deltaFor(deltas, 'assemblySourceScope');
+
+    expect(scope!.classification).toBe('regression_candidate');
+    expect(scope!.rootCauseKey).toBe('pricing_assembly_failure');
+    expect(scope!.canonicalValue).toEqual(['doc-partial']);
+  });
+
+  it('classifies retained pricing with unknown document lineage from retained state', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary({
+        assemblyStatus: 'blocked',
+        blockReason: 'incomplete_domain_authority',
+        retainedPricingRowCount: 2,
+        retainedPricingDocumentIds: [],
+      }),
+    );
+    const scope = deltaFor(deltas, 'assemblySourceScope');
+
+    expect(scope!.classification).toBe('authority_policy_difference');
+    expect(scope!.classificationRationale).not.toContain(
+      'Canonical received no assembled contract pricing rows',
+    );
+    expect(scope!.classificationRationale).toContain('incomplete domain coverage');
+    expect(scope!.classificationRationale).not.toContain('blocked source selection');
+    expect(scope!.explanation).toContain('unknown document lineage');
+    expect(scope!.evidenceReferences).toEqual([expect.objectContaining({
+      kind: 'canonical_retained_pricing_observations',
+      sourceDocumentId: null,
+    })]);
+  });
+
+  it('reclassifies only assembly source scope while preserving other groups and multiplicity', () => {
+    const legacy = runSummary({ governingPricing: [legacyPricing] });
+    const stale = canonicalSummary({
+      assemblyStatus: 'blocked',
+      blockReason: 'duplicate_authority',
+    });
+    const corrected = canonicalSummary({
+      assemblyStatus: 'blocked',
+      blockReason: 'duplicate_authority',
+      retainedPricingRowCount: 2,
+      retainedPricingDocumentIds: ['doc-a', 'doc-b'],
+    });
+    const staleDeltas = buildAuthorityComparisonDeltas(legacy, stale);
+    const correctedDeltas = buildAuthorityComparisonDeltas(legacy, corrected);
+    const withoutScope = (deltas: typeof staleDeltas) => deltas
+      .filter((delta) => delta.field !== 'assemblySourceScope')
+      .map((delta) => delta.deltaId);
+    const unaffectedGroupIds = (deltas: typeof staleDeltas) =>
+      buildAuthorityComparisonDeltaGroups(deltas)
+        .filter((group) => group.field !== 'assemblySourceScope')
+        .map((group) => group.groupId);
+
+    expect(correctedDeltas.length).toBe(staleDeltas.length);
+    expect(withoutScope(correctedDeltas)).toEqual(withoutScope(staleDeltas));
+    expect(unaffectedGroupIds(correctedDeltas)).toEqual(unaffectedGroupIds(staleDeltas));
+    expect(deltaFor(staleDeltas, 'assemblySourceScope')!.classification).toBe('source_gap');
+    expect(deltaFor(correctedDeltas, 'assemblySourceScope')!.classification)
+      .toBe('authority_policy_difference');
+    expect(buildAuthorityComparisonDeltaGroups(correctedDeltas)
+      .find((group) => group.field === 'assemblySourceScope')!.groupId)
+      .not.toBe(buildAuthorityComparisonDeltaGroups(staleDeltas)
+        .find((group) => group.field === 'assemblySourceScope')!.groupId);
+  });
+
+  it('does not emit assemblySourceScope once canonical successfully projects pricing', () => {
+    const deltas = buildAuthorityComparisonDeltas(
+      runSummary({ governingPricing: [legacyPricing] }),
+      canonicalSummary(),
+    );
+
+    expect(deltaFor(deltas, 'assemblySourceScope')).toBeNull();
   });
 });
 

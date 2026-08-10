@@ -20,6 +20,8 @@ import { makeFinding, type ProjectValidatorInput, type ValidatorFindingResult } 
 export const PACK_CANONICAL_TRUTH_INTEGRITY = 'canonical_truth_integrity';
 
 export const RULE_CANONICAL_INVOICE_IDENTITY_CONFLICT = 'CANONICAL_INVOICE_IDENTITY_CONFLICT';
+export const RULE_CANONICAL_INVOICE_SOURCE_IDENTITY_UNREADABLE =
+  'CANONICAL_INVOICE_SOURCE_IDENTITY_UNREADABLE';
 export const RULE_CANONICAL_INVOICE_LINE_IDENTITY_UNRESOLVED = 'CANONICAL_INVOICE_LINE_IDENTITY_UNRESOLVED';
 export const RULE_CANONICAL_RELATIONSHIP_UNRESOLVED = 'CANONICAL_GOVERNING_RELATIONSHIP_UNRESOLVED';
 export const RULE_CANONICAL_RELATIONSHIP_CONFLICTING = 'CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING';
@@ -28,6 +30,8 @@ function ruleIdFor(kind: string): string {
   switch (kind) {
     case 'invoice_identity_conflict':
       return RULE_CANONICAL_INVOICE_IDENTITY_CONFLICT;
+    case 'invoice_source_identity_unreadable':
+      return RULE_CANONICAL_INVOICE_SOURCE_IDENTITY_UNREADABLE;
     case 'invoice_line_identity_unresolved':
       return RULE_CANONICAL_INVOICE_LINE_IDENTITY_UNRESOLVED;
     case 'relationship_conflicting':
@@ -40,7 +44,7 @@ function ruleIdFor(kind: string): string {
 export function runCanonicalTruthIntegrityRules(
   input: ProjectValidatorInput,
 ): ValidatorFindingResult[] {
-  const projection = input.projectTruthAuthority?.validatorProjection;
+  const projection = input.projectTruthAuthority?.diagnosticProjection;
   // Legacy mode produces no canonical signals, so legacy behavior is unchanged.
   if (projection == null) return [];
 

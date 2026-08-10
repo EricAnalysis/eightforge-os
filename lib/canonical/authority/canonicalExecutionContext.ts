@@ -104,14 +104,16 @@ export type CanonicalValidatorProjection = {
     readonly conflicting: readonly CanonicalRelationship[];
     readonly blockedDomains: readonly CanonicalTruthDomain[];
   };
-  /**
-   * Deterministic, evidence-carrying signals for the canonical integrity rule
-   * pack. Pre-projected here so the blocking decision stays in the authority
-   * layer and the pack remains a thin, authority-neutral renderer.
-   */
-  readonly integritySignals: readonly CanonicalIntegritySignal[];
   /** Which truth domains this run actually governs. */
   readonly coverage: CanonicalAuthorityCoverage;
+};
+
+/**
+ * Finding-facing integrity state, retained even when authority policy withholds
+ * the validator projection. It carries diagnostics only, never governing rows.
+ */
+export type CanonicalDiagnosticProjection = {
+  readonly integritySignals: readonly CanonicalIntegritySignal[];
 };
 
 export type CanonicalProjectTruthExecutionContext = {
@@ -122,6 +124,7 @@ export type CanonicalProjectTruthExecutionContext = {
   readonly registryDigest: string | null;
   readonly sourceArtifactSnapshotDigest: string | null;
   readonly validatorProjection: CanonicalValidatorProjection | null;
+  readonly diagnosticProjection: CanonicalDiagnosticProjection | null;
   readonly blockReason: CanonicalAuthorityBlockReason | null;
   /** Full block detail including the implicated source gaps. */
   readonly block: CanonicalAuthorityBlock | null;
@@ -188,6 +191,7 @@ export function legacyExecutionContext(input: {
     registryDigest: null,
     sourceArtifactSnapshotDigest: input.sourceArtifactSnapshotDigest,
     validatorProjection: null,
+    diagnosticProjection: null,
     blockReason: null,
     block: null,
   });

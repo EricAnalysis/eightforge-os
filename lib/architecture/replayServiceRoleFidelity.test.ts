@@ -6,13 +6,11 @@ import { describe, expect, it } from 'vitest';
  * Guards the migration-replay harness against regressing to a `service_role`
  * that does not bypass RLS.
  *
- * Hosted Supabase creates `service_role` with BYPASSRLS. The extraction
- * dependency-closure invariant is enforced by SECURITY INVOKER constraint
- * triggers that are DEFERRABLE INITIALLY DEFERRED, so they fire at COMMIT —
- * outside the SECURITY DEFINER publisher that queued them — and evaluate as the
- * session role. When the replay stub creates `service_role` without BYPASSRLS,
- * the RLS SELECT policies (granted TO authenticated only) hide the closure rows
- * the invariant counts, and the check fails against physically valid data.
+ * Hosted Supabase creates `service_role` with BYPASSRLS. Database integrity
+ * functions are independently hardened against caller RLS visibility, but the
+ * replay role must still match the hosted privilege model. These are redundant
+ * protections: one preserves environment fidelity and the other preserves
+ * invariant correctness for every caller class.
  *
  * This is a static guard on the real replay sources. It is not a substitute for
  * the Fresh Postgres replay, which remains the runtime acceptance gate.
@@ -70,8 +68,8 @@ describe('migration replay service_role fidelity', () => {
 
     expect(offenders, [
       'Replay service_role must be created with BYPASSRLS to match hosted Supabase.',
-      'Without it, deferred SECURITY INVOKER closure triggers evaluate under RLS',
-      'and the extraction dependency-closure invariant fails against valid data.',
+      'Security-definer integrity checks do not remove the requirement to model',
+      'the hosted service role faithfully.',
     ].join(' ')).toEqual([]);
   });
 

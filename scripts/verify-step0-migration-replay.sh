@@ -23,10 +23,12 @@ CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE
 AS $$ SELECT current_setting('request.jwt.claim.role', true) $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
--- BYPASSRLS mirrors hosted Supabase. Deferred SECURITY INVOKER constraint
--- triggers fire at COMMIT as the session role; without it, RLS hides the
--- closure rows the invariant counts and valid data fails the check.
+-- BYPASSRLS mirrors hosted Supabase. Dependency-closure checks are separately
+-- hardened against caller RLS visibility; keep both protections so replay
+-- fidelity and database-integrity correctness remain independently enforced.
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN ALTER ROLE service_role BYPASSRLS; END $$;
+DO $$ BEGIN CREATE ROLE extraction_rls_test_role NOLOGIN NOBYPASSRLS; EXCEPTION WHEN duplicate_object THEN ALTER ROLE extraction_rls_test_role NOBYPASSRLS; END $$;
+GRANT authenticated TO extraction_rls_test_role;
 GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid(), auth.role() TO authenticated, anon, service_role;
 SQL
@@ -1602,6 +1604,144 @@ COMMIT;
 
 DO $$
 DECLARE
+  closure_owner text;
+  closure_is_definer boolean;
+  closure_config text[];
+  protected_table text;
+  protected_privilege text;
+BEGIN
+  SELECT owner.rolname, proc.prosecdef, proc.proconfig
+    INTO closure_owner, closure_is_definer, closure_config
+  FROM pg_catalog.pg_proc proc
+  JOIN pg_catalog.pg_roles owner ON owner.oid = proc.proowner
+  WHERE proc.oid = 'public.check_extraction_dependency_closure()'::regprocedure;
+
+  IF closure_owner <> 'postgres'
+    OR NOT closure_is_definer
+    OR closure_config IS NULL
+    OR NOT (closure_config @> ARRAY['search_path=pg_catalog']) THEN
+    RAISE EXCEPTION 'dependency-closure function is not hardened: owner %, definer %, config %',
+      closure_owner, closure_is_definer, closure_config;
+  END IF;
+  IF has_function_privilege(
+      'anon', 'public.check_extraction_dependency_closure()', 'EXECUTE'
+    ) OR has_function_privilege(
+      'authenticated', 'public.check_extraction_dependency_closure()', 'EXECUTE'
+    ) OR has_function_privilege(
+      'service_role', 'public.check_extraction_dependency_closure()', 'EXECUTE'
+    ) OR has_function_privilege(
+      'extraction_rls_test_role',
+      'public.check_extraction_dependency_closure()', 'EXECUTE'
+    ) THEN
+    RAISE EXCEPTION 'dependency-closure trigger function remains directly executable';
+  END IF;
+  IF NOT (SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = 'service_role')
+    OR (SELECT rolbypassrls FROM pg_catalog.pg_roles
+        WHERE rolname = 'extraction_rls_test_role') THEN
+    RAISE EXCEPTION 'dependency-closure caller role classes are not configured correctly';
+  END IF;
+  FOREACH protected_table IN ARRAY ARRAY[
+    'extraction_field_candidates', 'extraction_field_candidate_sources'
+  ] LOOP
+    FOREACH protected_privilege IN ARRAY ARRAY[
+      'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'
+    ] LOOP
+      IF has_table_privilege(
+        'extraction_rls_test_role', format('public.%I', protected_table),
+        protected_privilege
+      ) THEN
+        RAISE EXCEPTION 'RLS-constrained caller gained % on %',
+          protected_privilege, protected_table;
+      END IF;
+    END LOOP;
+  END LOOP;
+END;
+$$;
+
+INSERT INTO auth.users (id, email)
+VALUES ('60000000-0000-0000-0000-000000000003', 'closure-rls@example.test');
+INSERT INTO public.user_profiles (id, organization_id)
+VALUES (
+  '60000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000002'
+);
+CREATE SCHEMA closure_caller_spoof AUTHORIZATION extraction_rls_test_role;
+SET request.jwt.claim.sub = '60000000-0000-0000-0000-000000000003';
+SET request.jwt.claim.role = 'authenticated';
+SET ROLE extraction_rls_test_role;
+CREATE TABLE closure_caller_spoof.extraction_field_candidate_sources (
+  organization_id uuid,
+  field_candidate_id uuid
+);
+SELECT 1 / CASE WHEN public.get_current_user_org_id() =
+  '10000000-0000-0000-0000-000000000002'::uuid THEN 1 ELSE 0 END
+  AS constrained_caller_org_is_explicit;
+SELECT 1 / CASE WHEN (
+  SELECT count(*)
+  FROM public.extraction_field_candidate_sources
+  WHERE field_candidate_id = '30000000-0000-0000-0000-000000000003'
+) = 0 THEN 1 ELSE 0 END AS hidden_closure_row_remains_hidden;
+RESET ROLE;
+
+-- Valid closure and deferred completion under the hosted-equivalent BYPASSRLS
+-- role: the candidate is queued before its source and succeeds at commit.
+BEGIN;
+INSERT INTO public.extraction_field_candidates (
+  id, organization_id, extraction_run_id, source_artifact_id, source_document_id,
+  source_sha256, parser_manifest_hash, raw_text, primitive_kind, proposed_value,
+  parser, confidence, status
+) SELECT
+  '31000000-0000-0000-0000-000000000001', organization_id, id, source_artifact_id,
+  '20000000-0000-0000-0000-000000000001',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  parser_manifest_hash, '123', 'text',
+  '{"type":"text","value":"123"}',
+  '{"stage":"primitive_parse","name":"closure-security-test","version":"1","configuration_hash":"4444444444444444444444444444444444444444444444444444444444444444"}',
+  '{}', 'candidate'
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+INSERT INTO public.extraction_field_candidate_sources (
+  organization_id, extraction_run_id, field_candidate_id, fragment_artifact_id, sequence
+) SELECT organization_id, id,
+  '31000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000002', 1
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+-- Isolate the closure trigger's caller context from the separate retained
+-- SECURITY INVOKER content invariant, which is outside this hardening phase.
+SET CONSTRAINTS trg_extraction_field_candidates_content IMMEDIATE;
+SET LOCAL ROLE service_role;
+SET CONSTRAINTS trg_extraction_field_candidates_closure IMMEDIATE;
+COMMIT;
+
+-- The same physical closure succeeds for a caller that cannot SELECT its
+-- source edge, even with a caller-owned spoof relation first in search_path.
+BEGIN;
+INSERT INTO public.extraction_field_candidates (
+  id, organization_id, extraction_run_id, source_artifact_id, source_document_id,
+  source_sha256, parser_manifest_hash, raw_text, primitive_kind, proposed_value,
+  parser, confidence, status
+) SELECT
+  '32000000-0000-0000-0000-000000000001', organization_id, id, source_artifact_id,
+  '20000000-0000-0000-0000-000000000001',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  parser_manifest_hash, '123', 'text',
+  '{"type":"text","value":"123"}',
+  '{"stage":"primitive_parse","name":"closure-security-test","version":"1","configuration_hash":"4444444444444444444444444444444444444444444444444444444444444444"}',
+  '{}', 'candidate'
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+INSERT INTO public.extraction_field_candidate_sources (
+  organization_id, extraction_run_id, field_candidate_id, fragment_artifact_id, sequence
+) SELECT organization_id, id,
+  '32000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000002', 1
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+SET CONSTRAINTS trg_extraction_field_candidates_content IMMEDIATE;
+SET LOCAL ROLE extraction_rls_test_role;
+SET LOCAL search_path = closure_caller_spoof, public;
+SET CONSTRAINTS trg_extraction_field_candidates_closure IMMEDIATE;
+COMMIT;
+
+DO $$
+DECLARE
   run_row public.extraction_runs%ROWTYPE;
   snapshot_id uuid;
 BEGIN
@@ -2049,6 +2189,109 @@ END;
 $$;
 SQL
 
+run_missing_closure_negative() {
+  local caller_role="$1"
+  local candidate_id="$2"
+  local closure_output
+  local closure_status
+
+  set +e
+  closure_output=$("${psql[@]}" 2>&1 <<SQL
+\set VERBOSITY verbose
+BEGIN;
+INSERT INTO public.extraction_field_candidates (
+  id, organization_id, extraction_run_id, source_artifact_id, source_document_id,
+  source_sha256, parser_manifest_hash, raw_text, primitive_kind, proposed_value,
+  parser, confidence, status
+) SELECT
+  '${candidate_id}', organization_id, id, source_artifact_id,
+  '20000000-0000-0000-0000-000000000001',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  parser_manifest_hash, '123', 'text',
+  '{"type":"text","value":"123"}',
+  '{"stage":"primitive_parse","name":"closure-security-test","version":"1","configuration_hash":"4444444444444444444444444444444444444444444444444444444444444444"}',
+  '{}', 'candidate'
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+SET LOCAL ROLE ${caller_role};
+SET CONSTRAINTS trg_extraction_field_candidates_closure IMMEDIATE;
+COMMIT;
+SQL
+  )
+  closure_status=$?
+  set -e
+
+  if [[ "${closure_status}" -eq 0
+    || "${closure_output}" != *"23514"*
+    || "${closure_output}" != *"extraction_field_candidates requires a non-empty valid dependency closure"* ]]; then
+    echo "DATABASE DEPENDENCY CLOSURE MISSING NEGATIVE: FAILED (${caller_role})"
+    echo "${closure_output}"
+    exit 1
+  fi
+}
+
+run_mismatched_closure_negative() {
+  local caller_role="$1"
+  local target_candidate_id="$2"
+  local other_candidate_id="$3"
+  local closure_output
+  local closure_status
+
+  set +e
+  closure_output=$("${psql[@]}" 2>&1 <<SQL
+\set VERBOSITY verbose
+BEGIN;
+INSERT INTO public.extraction_field_candidates (
+  id, organization_id, extraction_run_id, source_artifact_id, source_document_id,
+  source_sha256, parser_manifest_hash, raw_text, primitive_kind, proposed_value,
+  parser, confidence, status
+) SELECT candidate_id, organization_id, id, source_artifact_id,
+  '20000000-0000-0000-0000-000000000001',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  parser_manifest_hash, '123', 'text',
+  '{"type":"text","value":"123"}',
+  '{"stage":"primitive_parse","name":"closure-security-test","version":"1","configuration_hash":"4444444444444444444444444444444444444444444444444444444444444444"}',
+  '{}', 'candidate'
+FROM public.extraction_runs
+CROSS JOIN (VALUES
+  ('${target_candidate_id}'::uuid),
+  ('${other_candidate_id}'::uuid)
+) candidates(candidate_id)
+WHERE idempotency_key = 'analysis-job:replay-1';
+INSERT INTO public.extraction_field_candidate_sources (
+  organization_id, extraction_run_id, field_candidate_id, fragment_artifact_id, sequence
+) SELECT organization_id, id,
+  '${other_candidate_id}', '30000000-0000-0000-0000-000000000002', 1
+FROM public.extraction_runs WHERE idempotency_key = 'analysis-job:replay-1';
+SET LOCAL ROLE ${caller_role};
+SET CONSTRAINTS trg_extraction_field_candidates_closure IMMEDIATE;
+COMMIT;
+SQL
+  )
+  closure_status=$?
+  set -e
+
+  if [[ "${closure_status}" -eq 0
+    || "${closure_output}" != *"23514"*
+    || "${closure_output}" != *"extraction_field_candidates requires a non-empty valid dependency closure"* ]]; then
+    echo "DATABASE DEPENDENCY CLOSURE MISMATCH NEGATIVE: FAILED (${caller_role})"
+    echo "${closure_output}"
+    exit 1
+  fi
+}
+
+run_missing_closure_negative \
+  service_role 33000000-0000-0000-0000-000000000001
+run_missing_closure_negative \
+  extraction_rls_test_role 34000000-0000-0000-0000-000000000001
+run_mismatched_closure_negative \
+  service_role \
+  35000000-0000-0000-0000-000000000001 \
+  35000000-0000-0000-0000-000000000002
+run_mismatched_closure_negative \
+  extraction_rls_test_role \
+  36000000-0000-0000-0000-000000000001 \
+  36000000-0000-0000-0000-000000000002
+
 concurrent_step1_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'valid\';'
 "${psql[@]}" --command "${concurrent_step1_sql}" >/dev/null &
 step1_pid_one=$!
@@ -2097,6 +2340,8 @@ echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "DATABASE APPEND-ONLY / IDEMPOTENCY: PASS"
 echo "DATABASE VERIFIED/CANONICAL ANTI-CAST / SNAPSHOT CLOSURE / TENANT RLS: PASS"
 echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"
+echo "DATABASE DEPENDENCY CLOSURE RLS-INDEPENDENCE / PRIVILEGE ISOLATION: PASS"
+echo "DATABASE DEPENDENCY CLOSURE MISSING / MISMATCHED NEGATIVES: PASS"
 echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
 echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"
 echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"

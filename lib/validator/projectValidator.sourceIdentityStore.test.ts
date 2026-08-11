@@ -145,6 +145,9 @@ describe('source identity store read states', () => {
         source_document_id: 'doc-a',
         source_sha256: 'sha256:fixture-a',
         storage_object_version: 'v1',
+        storage_bucket: 'documents',
+        storage_path: 'org-1/doc-a.pdf',
+        identity_origin: 'upload',
         media_type_sniffed: 'application/pdf',
         byte_length: 825904,
         created_at: '2026-07-01T00:00:00.000Z',
@@ -158,6 +161,10 @@ describe('source identity store read states', () => {
     const docA = snapshot.entries.find((entry) => entry.documentId === 'doc-a');
     const docB = snapshot.entries.find((entry) => entry.documentId === 'doc-b');
     assert.equal(docA?.sourceSha256, 'sha256:fixture-a');
+    assert.equal(docA?.logicalSourceIdentity, 'source_sha256:sha256:fixture-a');
+    assert.equal(docA?.storageBucket, 'documents');
+    assert.equal(docA?.storageObjectPath, 'org-1/doc-a.pdf');
+    assert.equal(docA?.identityOrigin, 'upload');
     assert.equal(docB?.sourceSha256, null);
   });
 });

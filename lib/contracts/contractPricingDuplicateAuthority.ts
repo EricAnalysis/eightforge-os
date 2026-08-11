@@ -89,6 +89,10 @@ export type ContractPricingDuplicateAuthorityCandidateSource = {
   readonly documentId: string;
   /** Immutable source identity, when the system actually records one. */
   readonly sourceVersionIdentity: string | null;
+  /** SHA-256 of the raw immutable uploaded bytes. Cross-document equality uses only this. */
+  readonly sourceSha256?: string | null;
+  /** Target of a valid authored duplicate disposition, when one exists. */
+  readonly authoredDuplicateTargetDocumentId?: string | null;
   /** Canonical relationship that made this document eligible, e.g. `attached_to`. */
   readonly relationshipBasis: string | null;
   readonly rows: readonly ContractPricingAssemblyRow[];
@@ -98,6 +102,10 @@ export type ContractPricingDuplicateAuthorityFinding = {
   /** Deterministic: a pure function of the participating document ids. */
   readonly findingId: string;
   readonly code: 'duplicate_authority';
+  readonly integrityCode?:
+    | 'authored_duplicate_identity_conflict'
+    | 'authored_duplicate_identity_unreadable'
+    | 'source_observation_identity_conflict';
   /** Every implicated document, ascending. Never narrowed to a "winner". */
   readonly documentIds: readonly string[];
   readonly relationshipBasis: readonly string[];
@@ -161,6 +169,169 @@ function rowEquivalenceSignature(row: ContractPricingAssemblyRow): string {
     row.unit,
     row.rate,
   ]);
+}
+
+function sourceRowMultiset(source: ContractPricingDuplicateAuthorityCandidateSource): readonly string[] {
+  return source.rows.map(rowEquivalenceSignature).sort(ASCENDING);
+}
+
+function sameStringList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export type ContractPricingLogicalSource = {
+  readonly logicalSourceIdentity: string;
+  readonly sourceSha256: string;
+  readonly physicalDocumentIds: readonly string[];
+  readonly representativeDocumentId: string;
+};
+
+export type ContractPricingLogicalSourceResolution = {
+  readonly selectedRows: readonly ContractPricingAssemblyRow[];
+  readonly findings: readonly ContractPricingDuplicateAuthorityFinding[];
+  readonly logicalSources: readonly ContractPricingLogicalSource[];
+};
+
+function integrityFinding(input: {
+  readonly integrityCode: NonNullable<ContractPricingDuplicateAuthorityFinding['integrityCode']>;
+  readonly sources: readonly ContractPricingDuplicateAuthorityCandidateSource[];
+  readonly detail: string;
+  readonly sourceIdentityStatus?: ContractPricingSourceIdentityStatus;
+  readonly sourceIdentityReadError?: SourceIdentityReadFailure | null;
+}): ContractPricingDuplicateAuthorityFinding {
+  const documentIds = input.sources.map((source) => source.documentId).sort(ASCENDING);
+  const sourceIdentityByDocumentId = documentIds.map((documentId) => {
+    const source = input.sources.find((candidate) => candidate.documentId === documentId)!;
+    return Object.freeze({
+      documentId,
+      sourceVersionIdentity: source.sourceSha256 ?? source.sourceVersionIdentity,
+    });
+  });
+  return Object.freeze({
+    findingId: `${input.integrityCode}:${documentIds.join('|')}`,
+    code: 'duplicate_authority',
+    integrityCode: input.integrityCode,
+    documentIds: Object.freeze(documentIds),
+    relationshipBasis: Object.freeze([...new Set(input.sources
+      .map((source) => source.relationshipBasis)
+      .filter((value): value is string => value != null))].sort(ASCENDING)),
+    rowIdentities: Object.freeze(input.sources.flatMap((source) =>
+      source.rows.map(contractPricingScopedRowId)).sort(ASCENDING)),
+    sourceIdentityStatus: input.sourceIdentityStatus ?? 'distinct',
+    sourceIdentityByDocumentId: Object.freeze(sourceIdentityByDocumentId),
+    sourceIdentityReadError: input.sourceIdentityReadError ?? null,
+    missingDiscriminator: input.sourceIdentityStatus === 'unreadable'
+      ? CONTRACT_PRICING_SOURCE_IDENTITY_DISCRIMINATOR
+      : null,
+    detail: input.detail,
+  });
+}
+
+/**
+ * Resolves byte-identical physical pricing records into one logical source.
+ * Legal eligibility is established by the caller. Equality here is SHA-only,
+ * and collapse additionally requires identical complete observation multisets.
+ */
+export function resolveContractPricingLogicalSources(params: {
+  readonly sources: readonly ContractPricingDuplicateAuthorityCandidateSource[];
+  readonly sourceIdentityStoreState: 'read' | 'unreadable';
+  readonly sourceIdentityReadError?: SourceIdentityReadFailure | null;
+  readonly discriminators?: ReadonlyMap<string, ContractPricingAuthorityDiscriminator>;
+}): ContractPricingLogicalSourceResolution {
+  const orderedSources = [...params.sources].sort((left, right) =>
+    ASCENDING(left.documentId, right.documentId));
+  const integrityFindings: ContractPricingDuplicateAuthorityFinding[] = [];
+
+  // Authored disposition and byte identity are independent evidence channels.
+  for (const source of orderedSources) {
+    const targetId = source.authoredDuplicateTargetDocumentId ?? null;
+    if (targetId == null) continue;
+    const target = orderedSources.find((candidate) => candidate.documentId === targetId);
+    if (target == null) continue;
+    if (params.sourceIdentityStoreState === 'unreadable') {
+      integrityFindings.push(integrityFinding({
+        integrityCode: 'authored_duplicate_identity_unreadable',
+        sources: [source, target],
+        sourceIdentityStatus: 'unreadable',
+        sourceIdentityReadError: params.sourceIdentityReadError ?? null,
+        detail: `An authored duplicate disposition links ${source.documentId} to ${target.documentId}, `
+          + 'but the immutable source-identity store is unreadable. Canonical authority will not rely on the unverified disposition.',
+      }));
+      continue;
+    }
+    if (source.sourceSha256 == null) continue;
+    if (target?.sourceSha256 == null || target.sourceSha256 === source.sourceSha256) continue;
+    integrityFindings.push(integrityFinding({
+      integrityCode: 'authored_duplicate_identity_conflict',
+      sources: [source, target],
+      detail: `An authored duplicate disposition links ${source.documentId} to ${target.documentId}, `
+        + 'but their immutable source SHA-256 identities differ. Canonical authority will not rely on the disposition.',
+    }));
+  }
+
+  const groups = new Map<string, ContractPricingDuplicateAuthorityCandidateSource[]>();
+  if (params.sourceIdentityStoreState === 'read') {
+    for (const source of orderedSources) {
+      if (source.sourceSha256 == null) continue;
+      const group = groups.get(source.sourceSha256) ?? [];
+      group.push(source);
+      groups.set(source.sourceSha256, group);
+    }
+  }
+
+  const collapsedDocumentIds = new Set<string>();
+  const replacementRows = new Map<string, readonly ContractPricingAssemblyRow[]>();
+  const logicalSources: ContractPricingLogicalSource[] = [];
+  for (const [sourceSha256, sources] of [...groups.entries()].sort((left, right) => ASCENDING(left[0], right[0]))) {
+    if (sources.length < 2) continue;
+    const signatures = sources.map(sourceRowMultiset);
+    if (!signatures.every((signature) => sameStringList(signature, signatures[0] ?? []))) {
+      integrityFindings.push(integrityFinding({
+        integrityCode: 'source_observation_identity_conflict',
+        sources,
+        detail: `Documents ${sources.map((source) => source.documentId).join(', ')} have equal immutable source `
+          + 'SHA-256 identities but materially different pricing observation sets. Canonical authority will not invent row correspondence.',
+      }));
+      continue;
+    }
+    const physicalDocumentIds = sources.map((source) => source.documentId).sort(ASCENDING);
+    const representative = sources.find((source) => source.documentId === physicalDocumentIds[0])!;
+    const logicalSourceIdentity = `source_sha256:${sourceSha256}`;
+    replacementRows.set(representative.documentId, Object.freeze(representative.rows.map((row) => Object.freeze({
+      ...row,
+      logicalSourceIdentity,
+      sourceAliasDocumentIds: Object.freeze(physicalDocumentIds),
+    }))));
+    for (const source of sources) {
+      if (source.documentId !== representative.documentId) collapsedDocumentIds.add(source.documentId);
+    }
+    logicalSources.push(Object.freeze({
+      logicalSourceIdentity,
+      sourceSha256,
+      physicalDocumentIds: Object.freeze(physicalDocumentIds),
+      representativeDocumentId: representative.documentId,
+    }));
+  }
+
+  const retainedSources = [...params.sources]
+    .filter((source) => !collapsedDocumentIds.has(source.documentId))
+    .map((source) => ({
+      ...source,
+      rows: replacementRows.get(source.documentId) ?? source.rows,
+    }));
+  const duplicateFindings = detectContractPricingDuplicateAuthority({
+    sources: retainedSources,
+    sourceIdentityStoreState: params.sourceIdentityStoreState,
+    sourceIdentityReadError: params.sourceIdentityReadError,
+    discriminators: params.discriminators,
+  });
+
+  return Object.freeze({
+    selectedRows: Object.freeze(retainedSources.flatMap((source) => source.rows)),
+    findings: Object.freeze([...integrityFindings, ...duplicateFindings]
+      .sort((left, right) => ASCENDING(left.findingId, right.findingId))),
+    logicalSources: Object.freeze(logicalSources),
+  });
 }
 
 function authorityTier(status: string | null): number {
@@ -331,7 +502,10 @@ export function detectContractPricingDuplicateAuthority(params: {
       .map(([key, group]) => {
         const identityByDocument = group.documentIds.map((documentId) => ({
           documentId,
-          sourceVersionIdentity: sourceByDocumentId.get(documentId)?.sourceVersionIdentity ?? null,
+          sourceVersionIdentity:
+            sourceByDocumentId.get(documentId)?.sourceSha256
+            ?? sourceByDocumentId.get(documentId)?.sourceVersionIdentity
+            ?? null,
         }));
         const status = resolveIdentityStatus(
           identityByDocument.map((entry) => entry.sourceVersionIdentity),

@@ -92,6 +92,13 @@ export type ContractPricingAssemblyRow = {
    */
   sourceDocumentId: string | null;
   /**
+   * Content-addressed logical source formed only from an immutable source SHA.
+   * This never replaces the physical document id above.
+   */
+  logicalSourceIdentity?: string | null;
+  /** Every physical document record represented by this logical row. */
+  sourceAliasDocumentIds?: readonly string[];
+  /**
    * The description exactly as the source row published it, before any display
    * cleanup ran.
    *

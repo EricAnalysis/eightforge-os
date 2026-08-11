@@ -136,7 +136,13 @@ function buildEvidence(
     refs.push(evidenceFromGeometryRef(geometryRef, context, row.sourceDocumentId ?? null));
   }
 
-  return dedupeEvidenceRefs(refs);
+  const physicalAliases = [...new Set(row.sourceAliasDocumentIds ?? [])]
+    .filter((documentId) => documentId !== row.sourceDocumentId)
+    .sort((left, right) => left.localeCompare(right, 'en-US'));
+  const primaryRefs = dedupeEvidenceRefs(refs);
+  const aliasRefs = physicalAliases.flatMap((documentId) =>
+    primaryRefs.map((ref) => ({ ...ref, documentId })));
+  return dedupeEvidenceRefs([...primaryRefs, ...aliasRefs]);
 }
 
 // ─── Merge diagnostics ───────────────────────────────────────────────────────
@@ -278,6 +284,12 @@ export function adaptAssembledPricingRow(
       // Opaque provenance. Never read by a resolution or approval rule.
       sourceKind: row.sourceKind ?? null,
       sourceQuality: row.sourceQuality ?? null,
+      ...(row.logicalSourceIdentity != null
+        ? { logicalSourceIdentity: row.logicalSourceIdentity }
+        : {}),
+      ...(row.sourceAliasDocumentIds != null
+        ? { physicalDocumentIds: [...row.sourceAliasDocumentIds] }
+        : {}),
     },
     rawValues: {
       // The sentinel is retained here so the fact that the assembler saw

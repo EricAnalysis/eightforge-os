@@ -61,6 +61,10 @@ export type CanonicalPricingSourceFamily = {
   readonly sourceKind: string | null;
   /** Upstream `sourceQuality`, opaque. Never branched on. */
   readonly sourceQuality: string | null;
+  /** Immutable-byte logical source; absent when source identity is unavailable. */
+  readonly logicalSourceIdentity?: string | null;
+  /** Sorted physical document records retained behind the logical source. */
+  readonly physicalDocumentIds?: readonly string[];
 };
 
 /**

@@ -4,6 +4,7 @@ import { describe, it } from 'vitest';
 import {
   CONTRACT_PRICING_SOURCE_IDENTITY_DISCRIMINATOR,
   detectContractPricingDuplicateAuthority,
+  resolveContractPricingLogicalSources,
   type ContractPricingAuthorityDiscriminator,
   type ContractPricingDuplicateAuthorityCandidateSource,
 } from '@/lib/contracts/contractPricingDuplicateAuthority';
@@ -463,5 +464,64 @@ describe('contract pricing duplicate authority detection', () => {
     });
 
     assert.deepEqual(findings, []);
+  });
+});
+
+describe('immutable source alias resolution', () => {
+  const SHA = 'a'.repeat(64);
+
+  it('collapses equal-hash full observation sets and retains all physical ids', () => {
+    const resolution = resolveContractPricingLogicalSources({
+      sources: [
+        source(DOCUMENT_B, [row(DOCUMENT_B)], { sourceSha256: SHA }),
+        source(DOCUMENT_A, [row(DOCUMENT_A)], { sourceSha256: SHA }),
+      ],
+      sourceIdentityStoreState: 'read',
+    });
+
+    assert.equal(resolution.findings.length, 0);
+    assert.equal(resolution.selectedRows.length, 1);
+    assert.equal(resolution.selectedRows[0]?.sourceDocumentId, [DOCUMENT_A, DOCUMENT_B].sort()[0]);
+    assert.equal(resolution.selectedRows[0]?.logicalSourceIdentity, `source_sha256:${SHA}`);
+    assert.deepEqual(resolution.selectedRows[0]?.sourceAliasDocumentIds, [DOCUMENT_B, DOCUMENT_A].sort());
+  });
+
+  it('is byte-identical under reversed physical source order', () => {
+    const sources = [
+      source(DOCUMENT_A, [row(DOCUMENT_A)], { sourceSha256: SHA }),
+      source(DOCUMENT_B, [row(DOCUMENT_B)], { sourceSha256: SHA }),
+    ];
+    const resolve = (value: typeof sources) => resolveContractPricingLogicalSources({
+      sources: value,
+      sourceIdentityStoreState: 'read',
+    });
+    assert.equal(JSON.stringify(resolve(sources)), JSON.stringify(resolve([...sources].reverse())));
+  });
+
+  it('blocks equal bytes whose full observation multisets differ', () => {
+    const resolution = resolveContractPricingLogicalSources({
+      sources: [
+        source(DOCUMENT_A, [row(DOCUMENT_A)], { sourceSha256: SHA }),
+        source(DOCUMENT_B, [row(DOCUMENT_B, { rate: 28 })], { sourceSha256: SHA }),
+      ],
+      sourceIdentityStoreState: 'read',
+    });
+    assert.equal(resolution.selectedRows.length, 2);
+    assert.equal(resolution.findings[0]?.integrityCode, 'source_observation_identity_conflict');
+  });
+
+  it('blocks an authored duplicate disposition whose immutable hashes differ', () => {
+    const resolution = resolveContractPricingLogicalSources({
+      sources: [
+        source(DOCUMENT_A, [row(DOCUMENT_A)], { sourceSha256: 'a'.repeat(64) }),
+        source(DOCUMENT_B, [row(DOCUMENT_B)], {
+          sourceSha256: 'b'.repeat(64),
+          authoredDuplicateTargetDocumentId: DOCUMENT_A,
+        }),
+      ],
+      sourceIdentityStoreState: 'read',
+    });
+    assert.equal(resolution.findings[0]?.integrityCode, 'authored_duplicate_identity_conflict');
+    assert.deepEqual(resolution.findings[0]?.documentIds, [DOCUMENT_B, DOCUMENT_A].sort());
   });
 });

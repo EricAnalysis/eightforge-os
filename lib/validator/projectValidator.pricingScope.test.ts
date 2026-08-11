@@ -26,6 +26,7 @@ import type {
   ValidatorDocumentRow,
   ValidatorFactRecord,
   ValidatorLegacyExtractionRow,
+  ValidatorSourceArtifactSnapshotEntry,
 } from '@/lib/validator/shared';
 import type { SourceIdentityReadFailure } from '@/lib/sourceIdentityReadFailure';
 
@@ -136,6 +137,7 @@ function executionFor(params: {
   excluded?: ReadonlySet<string>;
   storeState?: 'read' | 'unreadable';
   storeReadError?: SourceIdentityReadFailure | null;
+  sourceArtifactSnapshot?: readonly ValidatorSourceArtifactSnapshotEntry[];
 }) {
   const { truthCategoryDocumentIds } = buildDocumentIdsByFamily(
     params.documents,
@@ -152,7 +154,24 @@ function executionFor(params: {
     excludedValidationDocumentIds: params.excluded ?? new Set<string>(),
     sourceIdentityStoreState: params.storeState ?? 'read',
     sourceIdentityReadError: params.storeReadError ?? null,
+    sourceArtifactSnapshot: params.sourceArtifactSnapshot,
   });
+}
+
+function sourceArtifact(documentId: string, sha: string): ValidatorSourceArtifactSnapshotEntry {
+  return {
+    documentId,
+    documentType: 'price_sheet',
+    documentRole: null,
+    storagePath: `documents/${documentId}.pdf`,
+    sourceArtifactId: `artifact-${documentId}`,
+    sourceSha256: sha,
+    storageObjectVersion: `version-${documentId}`,
+    mediaTypeSniffed: 'application/pdf',
+    byteLength: 100,
+    artifactCreatedAt: '2026-08-11T00:00:00.000Z',
+    exactSourceIdentity: `artifact-${documentId}:${sha}:version-${documentId}`,
+  };
 }
 
 // ── Relationship scope ───────────────────────────────────────────────────────
@@ -499,6 +518,81 @@ describe('C3 duplicate authority through the assembly path', () => {
     assert.deepEqual(resolved.duplicateAuthorityFindings, []);
     assert.equal(restored.assembly.selectedRows.length, 2);
     assert.equal(restored.duplicateAuthorityFindings.length, 1);
+  });
+
+  it('collapses equal immutable source SHA values without an authored disposition', () => {
+    const shape = twoIdenticalSheets();
+    const sha = 'a'.repeat(64);
+    const execution = executionFor({
+      ...shape,
+      sourceArtifactSnapshot: [sourceArtifact(SHEET_B, sha), sourceArtifact(SHEET_A, sha)],
+    });
+    assert.equal(execution.duplicateAuthorityFindings.length, 0);
+    assert.equal(execution.assembly.selectedRows.length, 1);
+    assert.equal(execution.assembly.selectedRows[0]?.sourceDocumentId, SHEET_A);
+    assert.deepEqual(execution.assembly.selectedRows[0]?.sourceAliasDocumentIds, [SHEET_A, SHEET_B]);
+  });
+
+  it('validates P1 before exclusion and blocks a different-SHA duplicate disposition', () => {
+    const shape = twoIdenticalSheets();
+    const execution = executionFor({
+      ...shape,
+      relationships: [
+        ...shape.relationships,
+        relationship(SHEET_B, 'duplicate_of', SHEET_A),
+      ],
+      sourceArtifactSnapshot: [
+        sourceArtifact(SHEET_A, 'a'.repeat(64)),
+        sourceArtifact(SHEET_B, 'b'.repeat(64)),
+      ],
+    });
+    assert.equal(execution.assembly.selectedRows.length, 2);
+    assert.equal(
+      execution.duplicateAuthorityFindings.some(
+        (finding) => finding.integrityCode === 'authored_duplicate_identity_conflict',
+      ),
+      true,
+    );
+  });
+
+  it('retains authored and immutable provenance when P1 hashes agree', () => {
+    const shape = twoIdenticalSheets();
+    const sha = 'a'.repeat(64);
+    const relationships = [
+      ...shape.relationships,
+      relationship(SHEET_B, 'duplicate_of', SHEET_A),
+    ];
+    const execution = executionFor({
+      ...shape,
+      relationships,
+      sourceArtifactSnapshot: [sourceArtifact(SHEET_A, sha), sourceArtifact(SHEET_B, sha)],
+    });
+    assert.equal(execution.duplicateAuthorityFindings.length, 0);
+    assert.deepEqual(execution.assembly.selectedRows[0]?.sourceAliasDocumentIds, [SHEET_A, SHEET_B]);
+    assert.equal(relationships.filter((entry) => entry.relationship_type === 'duplicate_of').length, 1);
+  });
+
+  it('does not rely on P1 when the immutable identity store is unreadable', () => {
+    const shape = twoIdenticalSheets();
+    const execution = executionFor({
+      ...shape,
+      relationships: [
+        ...shape.relationships,
+        relationship(SHEET_B, 'duplicate_of', SHEET_A),
+      ],
+      storeState: 'unreadable',
+      storeReadError: {
+        code: 'query_failed',
+        safeMessage: 'Source identity store query failed.',
+      },
+    });
+    assert.equal(execution.assembly.selectedRows.length, 2);
+    assert.equal(
+      execution.duplicateAuthorityFindings.some(
+        (finding) => finding.integrityCode === 'authored_duplicate_identity_unreadable',
+      ),
+      true,
+    );
   });
 });
 

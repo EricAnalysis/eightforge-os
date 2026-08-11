@@ -441,6 +441,21 @@ describe('14. source kind does not control approval eligibility', () => {
 
 // ── 15 ───────────────────────────────────────────────────────────────────────
 describe('15. candidate and evidence ordering are deterministic', () => {
+  it('projects every physical alias into evidence without changing the representative id', () => {
+    const logicalSourceIdentity = `source_sha256:${'a'.repeat(64)}`;
+    const { candidate } = resolveGolden({
+      sourceDocumentId: 'doc-b',
+      logicalSourceIdentity,
+      sourceAliasDocumentIds: ['doc-b', 'doc-a'],
+    });
+    assert.equal(candidate.candidateId.startsWith('doc-b:'), true);
+    assert.equal(candidate.sourceFamily.logicalSourceIdentity, logicalSourceIdentity);
+    assert.deepEqual(candidate.sourceFamily.physicalDocumentIds, ['doc-b', 'doc-a']);
+    assert.deepEqual(
+      [...new Set(candidate.evidence.map((evidence) => evidence.documentId))].sort(),
+      ['doc-a', 'doc-b'],
+    );
+  });
   it('produces byte-identical output across repeated adaptations', () => {
     const rows = [
       goldenVegetativeRow({ id: 'row-a' }),

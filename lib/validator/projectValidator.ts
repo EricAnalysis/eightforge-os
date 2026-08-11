@@ -20,7 +20,7 @@ import {
 } from '@/lib/contracts/contractPricingAssembly';
 import { authoredRateRowQuarantine } from '@/lib/contracts/authoredRowQuarantine';
 import {
-  detectContractPricingDuplicateAuthority,
+  resolveContractPricingLogicalSources,
   type ContractPricingAuthorityDiscriminator,
   type ContractPricingDuplicateAuthorityFinding,
 } from '@/lib/contracts/contractPricingDuplicateAuthority';
@@ -166,7 +166,7 @@ const PROJECT_SELECT =
 export const VALIDATOR_DOCUMENT_SELECT =
   'id, project_id, organization_id, title, name, document_type, document_role, storage_path, created_at, processing_status, operational_status, processed_at, intelligence_trace';
 const SOURCE_ARTIFACT_SELECT =
-  'id, source_document_id, source_sha256, storage_object_version, media_type_sniffed, byte_length, created_at';
+  'id, source_document_id, source_sha256, storage_object_version, storage_bucket, storage_path, identity_origin, media_type_sniffed, byte_length, created_at';
 const EXTRACTION_FACT_SELECT =
   'document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, confidence';
 const LEGACY_EXTRACTION_SELECT = 'document_id, created_at, data';
@@ -931,6 +931,9 @@ type ValidatorSourceArtifactRow = {
   source_document_id: string;
   source_sha256: string | null;
   storage_object_version: string | null;
+  storage_bucket?: string | null;
+  storage_path?: string | null;
+  identity_origin?: string | null;
   media_type_sniffed: string | null;
   byte_length: number | null;
   created_at: string;
@@ -973,7 +976,13 @@ export function buildSourceArtifactSnapshot(params: {
       storagePath: document.storage_path ?? null,
       sourceArtifactId: artifact?.id ?? null,
       sourceSha256: artifact?.source_sha256 ?? null,
+      logicalSourceIdentity: artifact?.source_sha256
+        ? `source_sha256:${artifact.source_sha256}`
+        : null,
       storageObjectVersion: artifact?.storage_object_version ?? null,
+      storageBucket: artifact?.storage_bucket ?? null,
+      storageObjectPath: artifact?.storage_path ?? null,
+      identityOrigin: artifact?.identity_origin ?? null,
       mediaTypeSniffed: artifact?.media_type_sniffed ?? null,
       byteLength: artifact?.byte_length ?? null,
       artifactCreatedAt: artifact?.created_at ?? null,
@@ -2106,6 +2115,8 @@ function buildContractRelationshipContext(
 /** One eligible pricing-source document, assembled under its own scope. */
 type PreparedContractPricingSource = {
   readonly sourceScope: ContractPricingAssemblySourceScope;
+  readonly sourceSha256: string | null;
+  readonly authoredDuplicateTargetDocumentId: string | null;
   readonly rateScheduleRows: readonly ContractRateScheduleRow[];
   readonly relationshipBasis: string | null;
 };
@@ -2121,6 +2132,8 @@ type ResolvedPricingScheduleGovernance = {
 
 type PreparedContractValidationContext = {
   readonly sourceScope: ContractPricingAssemblySourceScope;
+  readonly sourceSha256: string | null;
+  readonly authoredDuplicateTargetDocumentId: string | null;
   readonly authoritativeRateScheduleRows: readonly ContractRateScheduleRow[];
   readonly candidateOnlyRateScheduleRows: readonly ContractRateScheduleRow[];
   readonly selectedCategoryBySourceRow?: ReadonlyMap<ContractPricingSourceRowIdentity, string>;
@@ -2312,6 +2325,7 @@ function prepareContractValidationContext(
     documentId: contractDocumentId ?? 'contract-summary',
     sourceVersionIdentity: sourceSnapshot?.exactSourceIdentity ?? null,
   };
+  const sourceSha256 = sourceSnapshot?.sourceSha256 ?? null;
 
   // ── Pricing source scope, resolved once for every return path below ───────
   const precedenceFamilies = params.precedenceFamilies ?? [];
@@ -2325,12 +2339,41 @@ function prepareContractValidationContext(
         .map((document) => document.id),
     ),
   );
-  const eligiblePricingDocumentIds = resolveEligiblePricingSourceDocumentIds({
+  const ordinarilyEligiblePricingDocumentIds = resolveEligiblePricingSourceDocumentIds({
     truthCategoryDocumentIds: params.truthCategoryDocumentIds,
     documentById,
     excludedDocumentIds,
     inactiveDocumentIds,
   });
+  const sourceSnapshotByDocumentId = new Map(
+    (params.sourceArtifactSnapshot ?? []).map((entry) => [entry.documentId, entry] as const),
+  );
+  const authoredDuplicateTargetByDocumentId = new Map<string, string>();
+  for (const relationship of documentRelationships) {
+    if (canonicalizeRelationshipType(relationship.relationship_type) !== 'duplicate_of') continue;
+    if (!authoredDuplicateTargetByDocumentId.has(relationship.source_document_id)) {
+      authoredDuplicateTargetByDocumentId.set(
+        relationship.source_document_id,
+        relationship.target_document_id,
+      );
+    }
+  }
+  // P1 normally removes the duplicate source before pricing assembly. When both
+  // sides have immutable identity, restore it solely so the machine evidence can
+  // validate the authored assertion before authority relies on that exclusion.
+  const identityComparableDuplicateIds = [...authoredDuplicateTargetByDocumentId.entries()]
+    .filter(([sourceId, targetId]) =>
+      (params.sourceIdentityStoreState === 'unreadable'
+        || (
+          sourceSnapshotByDocumentId.get(sourceId)?.sourceSha256 != null
+          && sourceSnapshotByDocumentId.get(targetId)?.sourceSha256 != null
+        ))
+      && !inactiveDocumentIds.has(sourceId))
+    .map(([sourceId]) => sourceId);
+  const eligiblePricingDocumentIds = [...new Set([
+    ...ordinarilyEligiblePricingDocumentIds,
+    ...identityComparableDuplicateIds,
+  ])].sort((left, right) => left.localeCompare(right, 'en-US'));
   const attachedPricingBasisByDocumentId = new Map<string, string>();
   for (const relationship of documentRelationships) {
     const canonicalType = canonicalizeRelationshipType(relationship.relationship_type);
@@ -2355,12 +2398,18 @@ function prepareContractValidationContext(
             documentId,
             sourceVersionIdentity: entry?.exactSourceIdentity ?? null,
           },
+          sourceSha256: entry?.sourceSha256 ?? null,
+          authoredDuplicateTargetDocumentId:
+            authoredDuplicateTargetByDocumentId.get(documentId) ?? null,
           rateScheduleRows: rows,
           relationshipBasis: attachedPricingBasisByDocumentId.get(documentId) ?? null,
         })];
       }),
   );
   const pricingScope = {
+    sourceSha256,
+    authoredDuplicateTargetDocumentId:
+      authoredDuplicateTargetByDocumentId.get(sourceScope.documentId) ?? null,
     additionalPricingSources,
     scheduleGovernance: resolvePricingScheduleGovernance({
       precedenceFamilies,
@@ -2538,6 +2587,8 @@ function executePreparedContractPricingAssembly(
       sources: { selectedCategoryBySourceRow: prepared.selectedCategoryBySourceRow },
       candidateOnlyRateScheduleRows: prepared.candidateOnlyRateScheduleRows,
       relationshipBasis: null as string | null,
+      sourceSha256: prepared.sourceSha256,
+      authoredDuplicateTargetDocumentId: prepared.authoredDuplicateTargetDocumentId,
     },
     ...prepared.additionalPricingSources.map((source) => ({
       scope: source.sourceScope,
@@ -2545,6 +2596,8 @@ function executePreparedContractPricingAssembly(
       sources: {} as ContractPricingAssemblySourceOptions,
       candidateOnlyRateScheduleRows: [] as readonly ContractRateScheduleRow[],
       relationshipBasis: source.relationshipBasis,
+      sourceSha256: source.sourceSha256,
+      authoredDuplicateTargetDocumentId: source.authoredDuplicateTargetDocumentId,
     })),
   ];
 
@@ -2562,7 +2615,6 @@ function executePreparedContractPricingAssembly(
   // the contract validation context.
   const contractAssembly = assembled[0]!.assembly;
 
-  const selectedRows = assembled.flatMap((entry) => entry.assembly.selectedRows);
   const candidatesBySourceRow = new Map<
     ContractPricingSourceRowIdentity,
     readonly ContractPricingAssemblyRow[]
@@ -2573,10 +2625,12 @@ function executePreparedContractPricingAssembly(
     }
   }
 
-  const duplicateAuthorityFindings = detectContractPricingDuplicateAuthority({
+  const logicalSourceResolution = resolveContractPricingLogicalSources({
     sources: assembled.map((entry) => ({
       documentId: entry.entry.scope.documentId,
       sourceVersionIdentity: entry.entry.scope.sourceVersionIdentity,
+      sourceSha256: entry.entry.sourceSha256,
+      authoredDuplicateTargetDocumentId: entry.entry.authoredDuplicateTargetDocumentId,
       relationshipBasis: entry.entry.relationshipBasis,
       rows: entry.assembly.selectedRows,
     })),
@@ -2586,14 +2640,14 @@ function executePreparedContractPricingAssembly(
   });
 
   const assembly: ContractPricingAssemblyResult = Object.freeze({
-    selectedRows: Object.freeze(selectedRows),
+    selectedRows: logicalSourceResolution.selectedRows,
     candidatesBySourceRow,
   });
 
   return {
     contractValidationContext: prepared.finalize(contractAssembly),
     assembly,
-    duplicateAuthorityFindings,
+    duplicateAuthorityFindings: logicalSourceResolution.findings,
   };
 }
 

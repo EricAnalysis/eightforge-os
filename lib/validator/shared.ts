@@ -85,7 +85,12 @@ export type ValidatorSourceArtifactSnapshotEntry = {
   readonly storagePath: string | null;
   readonly sourceArtifactId: string | null;
   readonly sourceSha256: string | null;
+  /** Content-addressed identity shared by byte-identical physical uploads. */
+  readonly logicalSourceIdentity?: string | null;
   readonly storageObjectVersion: string | null;
+  readonly storageBucket?: string | null;
+  readonly storageObjectPath?: string | null;
+  readonly identityOrigin?: string | null;
   readonly mediaTypeSniffed: string | null;
   readonly byteLength: number | null;
   readonly artifactCreatedAt: string | null;

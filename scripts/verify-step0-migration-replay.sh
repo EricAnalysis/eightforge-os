@@ -2292,6 +2292,80 @@ run_mismatched_closure_negative \
   36000000-0000-0000-0000-000000000001 \
   36000000-0000-0000-0000-000000000002
 
+"${psql[@]}" <<'SQL'
+INSERT INTO public.documents (id, organization_id, name, storage_path)
+VALUES (
+  '20000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'p2-source.pdf', 'step0/p2-source.pdf'
+);
+SET request.jwt.claim.role = 'service_role';
+DO $$
+DECLARE
+  first_result jsonb;
+  retry_result jsonb;
+  identity_payload jsonb := jsonb_build_object(
+    'organization_id', '10000000-0000-0000-0000-000000000001',
+    'source_document_id', '20000000-0000-0000-0000-000000000003',
+    'source_sha256', repeat('7', 64),
+    'storage_object_version', 'p2-object:1',
+    'storage_bucket', 'documents',
+    'storage_path', 'step0/p2-source.pdf',
+    'media_type_sniffed', 'application/pdf',
+    'byte_length', 7,
+    'identity_origin', 'upload'
+  );
+BEGIN
+  first_result := public.record_extraction_source_artifact_identity(identity_payload);
+  retry_result := public.record_extraction_source_artifact_identity(identity_payload);
+  IF first_result->>'outcome' <> 'newly_populated'
+    OR retry_result->>'outcome' <> 'already_populated'
+    OR first_result->>'source_artifact_id' <> retry_result->>'source_artifact_id'
+    OR (SELECT count(*) FROM public.extraction_source_artifacts
+        WHERE source_document_id = '20000000-0000-0000-0000-000000000003') <> 1 THEN
+    RAISE EXCEPTION 'P2 immutable source identity retry did not converge';
+  END IF;
+  IF has_function_privilege(
+      'anon',
+      'public.record_extraction_source_artifact_identity(jsonb)',
+      'EXECUTE'
+    ) OR has_function_privilege(
+      'authenticated',
+      'public.record_extraction_source_artifact_identity(jsonb)',
+      'EXECUTE'
+    ) THEN
+    RAISE EXCEPTION 'P2 source identity recorder leaked execute privilege';
+  END IF;
+END;
+$$;
+SQL
+
+set +e
+p2_conflict_output=$("${psql[@]}" --set=VERBOSITY=verbose 2>&1 <<'SQL'
+SET request.jwt.claim.role = 'service_role';
+SELECT public.record_extraction_source_artifact_identity(jsonb_build_object(
+  'organization_id', '10000000-0000-0000-0000-000000000001',
+  'source_document_id', '20000000-0000-0000-0000-000000000003',
+  'source_sha256', repeat('8', 64),
+  'storage_object_version', 'p2-object:1',
+  'storage_bucket', 'documents',
+  'storage_path', 'step0/p2-source.pdf',
+  'media_type_sniffed', 'application/pdf',
+  'byte_length', 7,
+  'identity_origin', 'backfill'
+));
+SQL
+)
+p2_conflict_status=$?
+set -e
+if [[ "${p2_conflict_status}" -eq 0
+  || "${p2_conflict_output}" != *"23514"*
+  || "${p2_conflict_output}" != *"immutable source artifact identity conflict"* ]]; then
+  echo "DATABASE P2 IMMUTABLE SOURCE IDENTITY CONFLICT: FAILED"
+  echo "${p2_conflict_output}"
+  exit 1
+fi
+
 concurrent_step1_sql=$'SET request.jwt.claim.role = \'service_role\';\nSELECT public.publish_extraction_step1_shadow(payload) FROM public.step1_replay_payloads WHERE name = \'valid\';'
 "${psql[@]}" --command "${concurrent_step1_sql}" >/dev/null &
 step1_pid_one=$!
@@ -2344,6 +2418,7 @@ echo "DATABASE DEPENDENCY CLOSURE RLS-INDEPENDENCE / PRIVILEGE ISOLATION: PASS"
 echo "DATABASE DEPENDENCY CLOSURE MISSING / MISMATCHED NEGATIVES: PASS"
 echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
 echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"
+echo "DATABASE P2 IMMUTABLE SOURCE IDENTITY / RETRY / CONFLICT: PASS"
 echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"
 echo "DATABASE STEP3 CELL RECONSTRUCTION / QUARANTINE CLOSURE / ATOMICITY: PASS"
 echo "DATABASE STEP3 SEMANTIC DIVERGENCE / ATOMIC ROLLBACK: PASS"

@@ -6,6 +6,11 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { normalizeDocumentTypeInput } from '@/lib/documentTypes';
+import {
+  captureUploadedStorageObjectVersion,
+  persistUploadedSourceArtifactIdentity,
+  type UploadedSourceArtifactIdentityResult,
+} from '@/lib/extraction/persistence/sourceArtifactIdentity';
 
 const BUCKET = 'documents';
 
@@ -86,10 +91,11 @@ export async function POST(req: Request) {
     const ts = Date.now();
     const filename = safeFilename(file.name || 'document');
     uploadedPath = `${orgId}/${ts}-${filename}`;
+    const sourceBytes = await file.arrayBuffer();
 
     const { error: storageError } = await admin.storage
       .from(BUCKET)
-      .upload(uploadedPath, file, {
+      .upload(uploadedPath, new Uint8Array(sourceBytes), {
         contentType: file.type || undefined,
         upsert: false,
       });
@@ -136,10 +142,60 @@ export async function POST(req: Request) {
       );
     }
 
+    let sourceIdentity: UploadedSourceArtifactIdentityResult;
+    try {
+      const storageObjectVersion = await captureUploadedStorageObjectVersion({
+        admin,
+        storageBucket: BUCKET,
+        storagePath: uploadedPath,
+      });
+      sourceIdentity = await persistUploadedSourceArtifactIdentity({
+        admin,
+        organizationId: orgId,
+        sourceDocumentId: insertedDoc.id,
+        sourceBytes,
+        storageBucket: BUCKET,
+        storagePath: uploadedPath,
+        storageObjectVersion,
+        mediaType: file.type || null,
+      });
+    } catch {
+      sourceIdentity = {
+        status: 'unavailable',
+        sourceArtifactId: null,
+        sourceSha256: '',
+        storageObjectVersion: null,
+        outcome: null,
+        failure: {
+          code: 'persistence_failed',
+          safeMessage: 'Immutable source identity could not be recorded.',
+        },
+      };
+    }
+
+    if (sourceIdentity.status === 'unavailable') {
+      console.error('[documents/upload] source identity unavailable', {
+        code: sourceIdentity.failure.code,
+        documentId: insertedDoc.id,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       doc: insertedDoc,
       storagePath: uploadedPath,
+      sourceIdentity: sourceIdentity.status === 'persisted'
+        ? {
+            status: sourceIdentity.status,
+            sourceArtifactId: sourceIdentity.sourceArtifactId,
+            sourceSha256: sourceIdentity.sourceSha256,
+            storageObjectVersion: sourceIdentity.storageObjectVersion,
+            outcome: sourceIdentity.outcome,
+          }
+        : {
+            status: sourceIdentity.status,
+            failure: sourceIdentity.failure,
+          },
     });
   } catch (err) {
     console.error('[documents/upload] error:', err);

@@ -18,11 +18,11 @@ import { physicalPageFromExtractorIteration } from '@/lib/extraction/provenance/
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 
 describe('contract pricing authored correction provenance', () => {
-  it('keeps pricing scope resolution unwired from contract intelligence', () => {
+  it('wires the reviewed pricing scope resolver into contract intelligence', () => {
     const source = readFileSync('lib/contracts/analyzeContractIntelligence.ts', 'utf8');
-    expect(source).not.toContain("from '@/lib/contracts/pricingSourceScope'");
-    expect(source).not.toMatch(/\bresolvePricingSourceScope\s*\(/);
-    expect(source).not.toMatch(/\bclassifyPageEligibility\s*\(/);
+    expect(source).toContain("from '@/lib/contracts/pricingSourceScope'");
+    expect(source).toMatch(/\bresolvePricingSourceScope\s*\(/);
+    expect(source).toMatch(/\bclassifyPageEligibility\s*\(/);
   });
 
   it('carries page provenance to source entries without changing pricing output or order', () => {

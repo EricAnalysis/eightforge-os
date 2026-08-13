@@ -1,4 +1,5 @@
 import type { RelatedDocInput } from '@/lib/documentIntelligence';
+import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import type { DocumentFactReviewRow } from '@/lib/documentFactReviews';
 import type { EvidenceObject, ExtractionGap } from '@/lib/extraction/types';
@@ -152,6 +153,8 @@ export interface ExtractNodeInput {
    * pipeline behavior is identical to before this field when absent.
    */
   rateSchedulePageHints?: number[];
+  /** Raw persisted ranges retained for fail-closed scope validation. */
+  rateSchedulePageRanges?: RatePageRange[] | null;
 }
 
 export interface ExtractNodeOutput {

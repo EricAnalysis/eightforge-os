@@ -59,6 +59,10 @@ describe('Goodlettsville scanned price sheet extraction', () => {
       bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       'application/pdf',
       'goodlettsville_price_sheet.pdf',
+      {
+        sourceArtifactId: '20000000-0000-4000-8000-000000000002',
+        sourceDocumentId: 'goodlettsville-price-sheet',
+      },
     );
 
     const pageTwoTables = contentLayerTables(payload).filter((table) => table.page_number === 2);
@@ -183,6 +187,8 @@ describe('Goodlettsville scanned price sheet extraction', () => {
       projectName: 'Goodlettsville',
       extractionData: payload as unknown as Record<string, unknown>,
       relatedDocs: [],
+      rateSchedulePageHints: [2],
+      rateSchedulePageRanges: [{ start: 2, end: 2 }],
     });
 
     assert.deepEqual(

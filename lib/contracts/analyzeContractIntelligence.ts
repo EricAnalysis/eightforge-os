@@ -36,6 +36,12 @@ import type {
 import type { EvidenceObject } from '@/lib/extraction/types';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
+import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
+import {
+  classifyPageEligibility,
+  resolvePricingSourceScope,
+  type PricingSourceEligibilityDiagnostics,
+} from '@/lib/contracts/pricingSourceScope';
 import { buildContractIssues } from '@/lib/server/buildContractIssues';
 import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage';
 import {
@@ -52,7 +58,13 @@ export type ContractIntelligencePricingAssemblyContext = {
     ContractPricingSourceRowIdentity,
     readonly ContractPricingAssemblyRow[]
   >;
+  readonly pricingSourceEligibility?: PricingSourceEligibilityDiagnostics;
 };
+
+export type ContractIntelligencePricingSourcePreparation = Readonly<{
+  rows: readonly ContractRateScheduleRow[];
+  eligibility: PricingSourceEligibilityDiagnostics;
+}>;
 
 export class ContractPricingCandidateIdentityMissError extends Error {
   readonly code = 'contract_pricing_candidate_identity_miss';
@@ -84,6 +96,8 @@ export type AnalyzeContractIntelligenceInput = {
    * never a restriction on which pages get extracted.
    */
   operatorRateSchedulePageHints?: readonly number[];
+  /** Raw persisted guidance used by the fail-closed pricing-scope resolver. */
+  operatorRateSchedulePageRanges?: readonly RatePageRange[] | null;
   /**
    * Candidate rows produced by the caller's single coordinated pricing
    * assembly execution. Contract intelligence never assembles pricing.
@@ -1156,27 +1170,163 @@ function enrichRateScheduleRowsForPersistence(
 export function buildContractIntelligenceRateScheduleRows(
   input: Pick<
     AnalyzeContractIntelligenceInput,
-    'primaryDocument' | 'operatorRateSchedulePageHints'
+    'primaryDocument' | 'operatorRateSchedulePageHints' | 'operatorRateSchedulePageRanges'
   >,
 ): readonly ContractRateScheduleRow[] {
+  return buildContractIntelligencePricingSourcePreparation(input).rows;
+}
+
+function pageNumberFromUnknownRow(value: unknown): number | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const key of ['page', 'page_number', 'source_page']) {
+    const candidate = record[key];
+    if (typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function filterPageScopedRows(
+  value: unknown,
+  eligiblePages: ReadonlySet<number>,
+  preserveUnpaged: boolean,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => {
+      const page = pageNumberFromUnknownRow(entry);
+      return page == null ? preserveUnpaged : eligiblePages.has(page);
+    });
+  }
+  const record = asRecord(value);
+  if (!record || !Array.isArray(record.rows)) return value;
+  return {
+    ...record,
+    rows: record.rows.filter((entry) => {
+      const page = pageNumberFromUnknownRow(entry);
+      return page == null ? preserveUnpaged : eligiblePages.has(page);
+    }),
+  };
+}
+
+/** Resolves and applies Phase 3A eligibility once for one physical source. */
+export function buildContractIntelligencePricingSourcePreparation(
+  input: Pick<
+    AnalyzeContractIntelligenceInput,
+    'primaryDocument' | 'operatorRateSchedulePageHints' | 'operatorRateSchedulePageRanges'
+  >,
+): ContractIntelligencePricingSourcePreparation {
   const rateSchedulePages = uniqueStrings([
     ...numberArray(input.primaryDocument.fact_map.rate_schedule_pages?.value ?? null).map(String),
     ...numberArray(input.primaryDocument.section_signals.rate_section_pages ?? null).map(String),
   ]).map((value) => Number.parseInt(value, 10));
   const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
-  return buildContractRateScheduleRows({
+  const allSourceEntries = buildContractRateScheduleSourceEntries(input.primaryDocument.evidence);
+  const extraction = asRecord(input.primaryDocument.extraction_data?.extraction);
+  const provenanceContainer = asRecord(extraction?.physical_page_provenance_v1);
+  const historicalProvenanceAbsence = provenanceContainer == null;
+  const sourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
+    ? provenanceContainer.source_artifact_id.trim()
+    : '';
+  const totalPhysicalPages = typeof provenanceContainer?.total_physical_pages === 'number'
+    ? provenanceContainer.total_physical_pages
+    : null;
+  const sourceArtifact = {
+    id: sourceArtifactId,
+    source_document_id: input.primaryDocument.document_id,
+  } as const;
+  const scope = resolvePricingSourceScope({
+    sourceArtifact,
+    operatorPageRanges: input.operatorRateSchedulePageRanges ?? null,
+    totalPhysicalPages,
+    pageCoordinates: allSourceEntries
+      .map((entry) => entry.physicalPageCoordinate)
+      .filter((coordinate): coordinate is NonNullable<typeof coordinate> => coordinate != null),
+    machineDetectedPages: rateSchedulePages,
+  });
+  const classified = allSourceEntries.map((entry) => {
+    const result = classifyPageEligibility({
+      scope,
+      coordinate: entry.physicalPageCoordinate,
+      sourceArtifact,
+      historicalProvenanceAbsence,
+    });
+    const coordinate = entry.physicalPageCoordinate;
+    return {
+      entry,
+      result,
+      diagnostic: Object.freeze({
+        observationId: entry.id ?? `source-entry:${input.primaryDocument.document_id}`,
+        sourceDocumentId: input.primaryDocument.document_id,
+        sourceArtifactId: sourceArtifactId || null,
+        physicalPageNumber: coordinate?.physicalPageNumber ?? null,
+        scopeKind: scope.kind,
+        eligibility: result.eligibility,
+        reason: result.reason,
+      }),
+    };
+  });
+  const canonicalEntries = classified
+    .filter(({ result }) => result.eligibility === 'canonical_eligible')
+    .map(({ entry }) => entry);
+  const eligibleAnchorIds = new Set(
+    canonicalEntries
+      .map((entry) => entry.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  );
+  const eligiblePages = new Set(
+    canonicalEntries
+      .map((entry) => entry.physicalPageCoordinate?.physicalPageNumber ?? null)
+      .filter((page): page is number => page != null),
+  );
+  const allPdfTables = asArray<PdfTable>(
+    asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables,
+  );
+  const canonicalPdfTables = historicalProvenanceAbsence
+    ? allPdfTables
+    : allPdfTables.filter((table) => eligibleAnchorIds.has(table.id));
+  const effectiveRateSchedulePages = historicalProvenanceAbsence
+    ? rateSchedulePages
+    : scope.authoritativePages;
+  const rows = buildContractRateScheduleRows({
     documentType: input.primaryDocument.document_type,
-    rateTable: input.primaryDocument.typed_fields.rate_table,
-    canonicalRateScheduleAssembly: input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
-    pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),
-    rateSchedulePages,
+    rateTable: historicalProvenanceAbsence
+      ? input.primaryDocument.typed_fields.rate_table
+      : filterPageScopedRows(input.primaryDocument.typed_fields.rate_table, eligiblePages, true),
+    canonicalRateScheduleAssembly: historicalProvenanceAbsence
+      ? input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly
+      : filterPageScopedRows(
+          input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
+          eligiblePages,
+          true,
+        ),
+    pdfTables: canonicalPdfTables,
+    rateSchedulePages: effectiveRateSchedulePages,
     rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
-    sourceEntries: buildContractRateScheduleSourceEntries(input.primaryDocument.evidence),
+    sourceEntries: canonicalEntries,
     defaultAnchorIds: uniqueStrings([
       ...(input.primaryDocument.fact_map.rate_schedule_present?.evidence_refs ?? []),
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
+    allowUnscopedCompatibility: historicalProvenanceAbsence,
+  }).filter((row) => historicalProvenanceAbsence
+    || row.source_anchor_ids.some((anchorId) => eligibleAnchorIds.has(anchorId)));
+  const observations = classified.map(({ diagnostic }) => diagnostic);
+  const eligibility = Object.freeze({
+    sourceDocumentId: input.primaryDocument.document_id,
+    sourceArtifactId: sourceArtifactId || null,
+    provenanceDisposition: historicalProvenanceAbsence
+      ? 'historical_absence' as const
+      : 'provenance_aware' as const,
+    scope,
+    observationCount: observations.length,
+    canonicalEligibleCount: observations.filter((entry) => entry.eligibility === 'canonical_eligible').length,
+    diagnosticOnlyCount: observations.filter((entry) => entry.eligibility === 'diagnostic_only').length,
+    legacyCompatibilityCount: observations.filter((entry) => entry.reason === 'legacy_compatibility').length,
+    observations: Object.freeze(observations),
   });
+  return Object.freeze({ rows: Object.freeze(rows), eligibility });
 }
 
 /**
@@ -1229,6 +1379,9 @@ export function analyzeContractIntelligence(
     compliance_model: families.compliance_model,
     payment_model: families.payment_model,
     rate_schedule_rows: rateScheduleRows,
+    ...(input.pricingAssembly?.pricingSourceEligibility
+      ? { pricing_source_eligibility: input.pricingAssembly.pricingSourceEligibility }
+      : {}),
     clause_patterns_detected: patterns,
   };
 

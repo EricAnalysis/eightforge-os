@@ -6,7 +6,7 @@ import { normalizeNode } from '@/lib/pipeline/nodes/normalizeNode';
 import {
   analyzeContractIntelligence,
   buildContractPricingSelectedCategoryOverrides,
-  buildContractIntelligenceRateScheduleRows,
+  buildContractIntelligencePricingSourcePreparation,
   type AnalyzeContractIntelligenceInput,
 } from '@/lib/contracts/analyzeContractIntelligence';
 import { assembleContractPricingRowsWithCandidates } from '@/lib/contracts/contractPricingAssembly';
@@ -144,12 +144,14 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
     primaryDocument: primaryDocumentForAnalysis,
     relatedDocuments,
     operatorRateSchedulePageHints: input.rateSchedulePageHints,
+    operatorRateSchedulePageRanges: input.rateSchedulePageRanges,
   };
   const contractAnalysis = primaryDocumentForAnalysis.family === 'contract'
     ? (() => {
-        const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows(
+        const pricingSourcePreparation = buildContractIntelligencePricingSourcePreparation(
           contractAnalysisInput,
         );
+        const structuralRateScheduleRows = pricingSourcePreparation.rows;
         const sourceScope = {
           documentId: primaryDocumentForAnalysis.document_id,
           sourceVersionIdentity: null,
@@ -172,6 +174,7 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
             candidateInputRole: 'authoritative_rate_schedule',
             structuralRateScheduleRows,
             candidatesBySourceRow: assembly.candidatesBySourceRow,
+            pricingSourceEligibility: pricingSourcePreparation.eligibility,
           },
         });
       })()

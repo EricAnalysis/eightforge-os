@@ -2484,7 +2484,10 @@ function prepareContractValidationContext(
         const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
         const preferPersistedRateSchedule =
           persistedRateScheduleRows != null
-          && persistedRateScheduleRows.length > structuralRateScheduleRows.length;
+          && (
+            persistedContext?.analysis.pricing_source_eligibility != null
+            || persistedRateScheduleRows.length > structuralRateScheduleRows.length
+          );
         const authoritativeRateScheduleRows = preferPersistedRateSchedule
           ? persistedRateScheduleRows
           : structuralRateScheduleRows;

@@ -366,9 +366,21 @@ describe('pricing source scope resolution', () => {
       totalPhysicalPages: 30,
       pageCoordinates: resolvedPages([5, 6]),
     });
-    expect(classifyPageEligibility(scope, 5)).toBe('canonical_eligible');
-    expect(classifyPageEligibility(scope, 20)).toBe('diagnostic_only');
-    expect(classifyPageEligibility(scope, null)).toBe('diagnostic_only');
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([5])[0],
+      sourceArtifact: SOURCE_ARTIFACT,
+    })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'authoritative_scope_match' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([20])[0],
+      sourceArtifact: SOURCE_ARTIFACT,
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'authoritative_scope_miss' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: null,
+      sourceArtifact: SOURCE_ARTIFACT,
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
   });
 
   it('classifies everything diagnostic-only when scope is not authoritative', () => {
@@ -377,8 +389,55 @@ describe('pricing source scope resolution', () => {
       scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 }),
       scopeFor({ operatorPageRanges: [{ start: 99, end: 99 }], totalPhysicalPages: 30 }),
     ]) {
-      expect(classifyPageEligibility(scope, 4)).toBe('diagnostic_only');
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: resolvedPages([4])[0],
+        sourceArtifact: SOURCE_ARTIFACT,
+      }).eligibility).toBe('diagnostic_only');
     }
+  });
+
+  it('requires exact observation document and artifact binding', () => {
+    const scope = scopeFor({
+      operatorPageRanges: [{ start: 5, end: 5 }],
+      totalPhysicalPages: 30,
+      pageCoordinates: resolvedPages([5]),
+    });
+    for (const foreignSource of [
+      { id: 'foreign-artifact' as SourceArtifactId, source_document_id: 'doc' },
+      { id: SOURCE_ARTIFACT.id, source_document_id: 'foreign-doc' },
+    ]) {
+      const foreignCoordinate = resolvedPages([5], 'pdf_native_text', foreignSource)[0];
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: foreignCoordinate,
+        sourceArtifact: SOURCE_ARTIFACT,
+      })).toMatchObject({
+        eligibility: 'diagnostic_only',
+        reason: 'provenance_source_mismatch',
+      });
+    }
+  });
+
+  it('makes legacy compatibility explicit and never derives it from failed modern proof', () => {
+    const scope = scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 });
+    const legacy = legacyPageCoordinate({
+      sourceDocumentId: 'doc',
+      sourceArtifactId: 'artifact',
+      legacyPageValue: 5,
+    });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: legacy,
+      sourceArtifact: SOURCE_ARTIFACT,
+      historicalProvenanceAbsence: true,
+    })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'legacy_compatibility' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: legacy,
+      sourceArtifact: SOURCE_ARTIFACT,
+      historicalProvenanceAbsence: false,
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
   });
 });
 

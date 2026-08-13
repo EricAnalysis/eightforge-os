@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/verify-step0-migration-replay.sh'
+      - 'scripts/sql/verify-phase1b-physical-page-provenance.sql'
       - '.github/workflows/migration-fresh-replay.yml'
   push:
     branches:
@@ -12,11 +13,12 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/verify-step0-migration-replay.sh'
+      - 'scripts/sql/verify-phase1b-physical-page-provenance.sql'
       - '.github/workflows/migration-fresh-replay.yml'
 
 jobs:
   migration-fresh-replay:
-    name: Fresh Postgres migration replay
+    name: Phase 1B Postgres regression
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -102,7 +104,7 @@ jobs:
           GRANT EXECUTE ON FUNCTION auth.uid(), auth.role() TO authenticated, anon, service_role;
           SQL
 
-      - name: Replay migrations and verify Step 0 database invariants
+      - name: Replay migrations and verify durable database invariants
         run: |
           set -Eeuo pipefail
           STEP0_REPLAY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/postgres' \

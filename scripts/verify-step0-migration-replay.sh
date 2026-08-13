@@ -38,9 +38,107 @@ if [[ "${#migrations[@]}" -eq 0 ]]; then
   echo "FRESH REPLAY: FAILED AT no migration files found"
   exit 1
 fi
+"${psql[@]}" <<'SQL'
+CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+  version text PRIMARY KEY,
+  statements text[] NOT NULL DEFAULT '{}',
+  name text NOT NULL
+);
+SQL
 for migration in "${migrations[@]}"; do
   "${psql[@]}" --file "${migration}" >/dev/null
+  migration_file="$(basename "${migration}" .sql)"
+  migration_version="${migration_file%%_*}"
+  migration_name="${migration_file#*_}"
+  "${psql[@]}" \
+    --set="migration_version=${migration_version}" \
+    --set="migration_name=${migration_name}" <<'SQL' >/dev/null
+INSERT INTO supabase_migrations.schema_migrations(version, name)
+VALUES (:'migration_version', :'migration_name');
+SQL
 done
+
+"${psql[@]}" --set="expected_migration_count=${#migrations[@]}" <<'SQL'
+SELECT 1 / CASE WHEN
+  (SELECT count(*) FROM supabase_migrations.schema_migrations)
+    = :'expected_migration_count'::integer
+  AND (SELECT count(DISTINCT version) FROM supabase_migrations.schema_migrations)
+    = :'expected_migration_count'::integer
+  AND (SELECT count(*) FROM supabase_migrations.schema_migrations
+       WHERE version = '20260812192944'
+         AND name = 'phase1b_physical_page_provenance') = 1
+  THEN 1 ELSE 0 END AS migration_ledger_complete;
+SQL
+
+"${psql[@]}" --file scripts/sql/verify-phase1b-physical-page-provenance.sql
+
+phase1b_migration='supabase/migrations/20260812192944_phase1b_physical_page_provenance.sql'
+"${psql[@]}" --file "${phase1b_migration}" >/dev/null
+
+run_phase1b_drift_negative() {
+  local label="$1"
+  local expected_message="$2"
+  local setup_sql="$3"
+  local drift_output
+  local drift_status
+
+  set +e
+  drift_output=$("${psql[@]}" --set=VERBOSITY=verbose --single-transaction \
+    --command "${setup_sql}" --file "${phase1b_migration}" 2>&1)
+  drift_status=$?
+  set -e
+  if [[ "${drift_status}" -eq 0
+    || "${drift_output}" != *"23514"*
+    || "${drift_output}" != *"${expected_message}"* ]]; then
+    echo "PHASE 1B MIGRATION DRIFT ${label}: FAILED"
+    echo "${drift_output}"
+    exit 1
+  fi
+}
+
+run_phase1b_drift_negative \
+  constraint \
+  'has an incompatible physical-page constraint' \
+  "ALTER TABLE public.extraction_page_artifacts DROP CONSTRAINT extraction_page_artifacts_physical_page_coordinate_check; ALTER TABLE public.extraction_page_artifacts ADD CONSTRAINT extraction_page_artifacts_physical_page_coordinate_check CHECK (physical_page_coordinate IS NULL) NOT VALID;"
+run_phase1b_drift_negative \
+  validator-helper \
+  'is_valid_physical_page_coordinate has an incompatible definition' \
+  "CREATE OR REPLACE FUNCTION public.is_valid_physical_page_coordinate(coordinate jsonb, expected_document_id uuid, expected_artifact_id uuid, expected_page integer) RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = '' AS 'SELECT true';"
+run_phase1b_drift_negative \
+  enforcement-helper \
+  'enforce_v2_physical_page_coordinate has an incompatible definition' \
+  "CREATE OR REPLACE FUNCTION public.enforce_v2_physical_page_coordinate() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS 'BEGIN RETURN NEW; END';"
+run_phase1b_drift_negative \
+  publisher \
+  'publish_extraction_step1_shadow has an incompatible definition' \
+  "ALTER FUNCTION public.publish_extraction_step1_shadow(jsonb) SECURITY INVOKER;"
+run_phase1b_drift_negative \
+  publisher-body \
+  'publish_extraction_step1_shadow has an incompatible definition' \
+  "CREATE OR REPLACE FUNCTION public.publish_extraction_step1_shadow(payload jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS 'BEGIN RETURN jsonb_build_object(); END';"
+
+# A second compatible reapply proves every expected-failure transaction rolled
+# back its deliberate drift rather than contaminating the shared replay DB.
+"${psql[@]}" --file "${phase1b_migration}" >/dev/null
+
+"${psql[@]}" <<'SQL'
+DO $$
+BEGIN
+  IF NOT has_function_privilege(
+      'service_role', 'public.publish_extraction_step1_shadow(jsonb)', 'EXECUTE'
+    )
+    OR has_function_privilege(
+      'anon', 'public.publish_extraction_step1_shadow(jsonb)', 'EXECUTE'
+    )
+    OR has_function_privilege(
+      'authenticated', 'public.publish_extraction_step1_shadow(jsonb)', 'EXECUTE'
+    ) THEN
+    RAISE EXCEPTION 'compatible reapply or drift probes changed publisher grants';
+  END IF;
+END;
+$$;
+SQL
 
 "${psql[@]}" <<'SQL'
 SET request.jwt.claim.role = 'service_role';
@@ -2411,6 +2509,10 @@ END \$\$;" >/dev/null
 "${psql[@]}" --command "DROP TABLE public.step1_replay_payloads" >/dev/null
 
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
+echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
+echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
+echo "PHASE 1B COMPATIBLE REAPPLY / INCOMPATIBLE DRIFT DETECTION: PASS"
+echo "PHASE 1B PUBLISHER CATALOG / GRANT / RPC ROUND TRIP: PASS"
 echo "DATABASE APPEND-ONLY / IDEMPOTENCY: PASS"
 echo "DATABASE VERIFIED/CANONICAL ANTI-CAST / SNAPSHOT CLOSURE / TENANT RLS: PASS"
 echo "DATABASE SERVICE-ROLE RPC-ONLY WRITE / TRUNCATE REJECTION: PASS"

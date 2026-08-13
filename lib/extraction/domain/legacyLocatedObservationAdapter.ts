@@ -799,11 +799,13 @@ export async function adaptLegacyExtractionToStep1Shadow(
   if (hashParserManifest(input.parserManifest) !== input.parserManifestHash) {
     throw new Error('parser manifest hash does not match the supplied manifest');
   }
-  if (!input.parserManifest.artifact_schema_version.trim()) {
-    throw new Error('parser manifest artifact schema version must be nonblank');
+  if (input.parserManifest.artifact_schema_version !== 'extraction-artifact-v1') {
+    throw new Error('unsupported parser manifest artifact schema version');
   }
-  if (!input.artifactSchemaVersion.trim()) {
-    throw new Error('artifact persistence schema version must be nonblank');
+  if (!['extraction-artifact-v1', 'extraction-artifact-v2'].includes(
+    input.artifactSchemaVersion,
+  )) {
+    throw new Error('unsupported artifact persistence schema version');
   }
   const completedAt = input.completedAt ?? new Date().toISOString();
   const pageGroups = new Map<number, LegacyOcrPageObservation>();

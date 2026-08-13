@@ -36,6 +36,8 @@ describe('Phase 1B physical-page provenance migration', () => {
   it('defines retry-safe insert and update enforcement', () => {
     expect(sql).toContain('is_valid_physical_page_coordinate has an incompatible definition');
     expect(sql).toContain('enforce_v2_physical_page_coordinate has an incompatible definition');
+    expect(sql).toContain("p.proparallel = 'u'");
+    expect(sql).toContain('NOT p.proisstrict');
     expect(sql).toContain('BEFORE INSERT OR UPDATE OF');
     expect(sql).toContain(
       'organization_id, extraction_run_id, source_artifact_id, source_document_id, page, physical_page_coordinate',
@@ -51,7 +53,10 @@ describe('Phase 1B physical-page provenance migration', () => {
     expect(sql).toContain("SET search_path TO ''");
     expect(sql).not.toContain('SELECT prosrc INTO function_body');
     expect(sql).not.toContain('replaced_body := replace');
-    expect(sql).toContain('unrecognized publish_extraction_step1_shadow definition');
+    expect(sql).toContain('publish_extraction_step1_shadow has an incompatible definition');
+    expect(sql).toContain("owner_role.rolname = 'postgres'");
+    expect(sql).toContain("language_role.lanname = 'plpgsql'");
+    expect(sql).toContain("p.prorettype = 'pg_catalog.jsonb'::pg_catalog.regtype");
     expect(sql).toContain('ALTER FUNCTION public.publish_extraction_step1_shadow(jsonb) OWNER TO postgres');
     expect(sql).toContain('FROM PUBLIC, anon, authenticated, service_role');
     expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.publish_extraction_step1_shadow(jsonb)');

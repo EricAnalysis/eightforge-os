@@ -18,6 +18,8 @@ BEGIN
       AND p.prorettype = 'pg_catalog.bool'::pg_catalog.regtype
       AND NOT p.prosecdef
       AND p.provolatile = 'i'
+      AND p.proparallel = 'u'
+      AND NOT p.proisstrict
       AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
   ) THEN
     RAISE EXCEPTION 'is_valid_physical_page_coordinate has an incompatible definition'
@@ -201,6 +203,8 @@ BEGIN
       AND p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype
       AND p.prosecdef
       AND p.provolatile = 'v'
+      AND p.proparallel = 'u'
+      AND NOT p.proisstrict
       AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
   ) THEN
     RAISE EXCEPTION 'enforce_v2_physical_page_coordinate has an incompatible definition'
@@ -281,17 +285,34 @@ END;
 $migration$;
 
 DO $migration$
-DECLARE current_body_md5 text;
+DECLARE existing_function oid;
 BEGIN
-  SELECT pg_catalog.md5(p.prosrc) INTO current_body_md5
-  FROM pg_catalog.pg_proc p
-  WHERE p.oid = 'public.publish_extraction_step1_shadow(jsonb)'::regprocedure;
-  IF current_body_md5 NOT IN (
-    '04ae56b4b36b08703b697bedbe977481',
-    '135d5bb3debe14bfa854796464d6d07d'
+  existing_function := pg_catalog.to_regprocedure(
+    'public.publish_extraction_step1_shadow(jsonb)'
+  );
+  IF existing_function IS NULL OR NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = p.proowner
+    JOIN pg_catalog.pg_language language_role ON language_role.oid = p.prolang
+    WHERE p.oid = existing_function
+      AND pg_catalog.md5(p.prosrc) IN (
+        '04ae56b4b36b08703b697bedbe977481',
+        '135d5bb3debe14bfa854796464d6d07d'
+      )
+      AND owner_role.rolname = 'postgres'
+      AND language_role.lanname = 'plpgsql'
+      AND p.prorettype = 'pg_catalog.jsonb'::pg_catalog.regtype
+      AND p.pronargs = 1
+      AND p.proargtypes[0] = 'pg_catalog.jsonb'::pg_catalog.regtype
+      AND p.prosecdef
+      AND p.provolatile = 'v'
+      AND p.proparallel = 'u'
+      AND NOT p.proisstrict
+      AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
   ) THEN
-    RAISE EXCEPTION 'unrecognized publish_extraction_step1_shadow definition: %',
-      current_body_md5 USING ERRCODE = '23514';
+    RAISE EXCEPTION 'publish_extraction_step1_shadow has an incompatible definition'
+      USING ERRCODE = '23514';
   END IF;
 END;
 $migration$;

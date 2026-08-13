@@ -80,6 +80,61 @@ describe('shadow-only legacy located-observation adapter', () => {
     expect(result.run.artifact_schema_version).toBe('extraction-artifact-v2');
   });
 
+  it('rejects unsupported parser and persistence schema versions independently', async () => {
+    const { sourceArtifact } = fixture();
+    const baseInput = {
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: MANIFEST_HASH,
+      artifactSchemaVersion: 'extraction-artifact-v2',
+      idempotencyKey: 'job:schema-version-guard',
+      completedAt: '2026-07-24T00:00:00.000Z',
+      locatedObservations: [],
+    } as const;
+
+    await expect(adaptLegacyExtractionToStep1Shadow({
+      ...baseInput,
+      parserManifest: {
+        ...PARSER_MANIFEST,
+        artifact_schema_version: 'extraction-artifat-v1',
+      },
+      parserManifestHash: hashParserManifest({
+        ...PARSER_MANIFEST,
+        artifact_schema_version: 'extraction-artifat-v1',
+      }),
+    })).rejects.toThrow('unsupported parser manifest artifact schema version');
+
+    await expect(adaptLegacyExtractionToStep1Shadow({
+      ...baseInput,
+      artifactSchemaVersion: 'extraction-artifat-v2',
+    })).rejects.toThrow('unsupported artifact persistence schema version');
+  });
+
+  it('gives a reprocessed v2 graph a new immutable identity instead of reusing v1', async () => {
+    const { sourceArtifact } = fixture();
+    const baseInput = {
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: MANIFEST_HASH,
+      idempotencyKey: 'job:reprocessed-schema-version',
+      completedAt: '2026-07-24T00:00:00.000Z',
+      locatedObservations: [],
+    } as const;
+    const v1 = await adaptLegacyExtractionToStep1Shadow({
+      ...baseInput,
+      artifactSchemaVersion: 'extraction-artifact-v1',
+    });
+    const v2 = await adaptLegacyExtractionToStep1Shadow({
+      ...baseInput,
+      artifactSchemaVersion: 'extraction-artifact-v2',
+    });
+
+    expect(v2.run.source_artifact_id).toBe(v1.run.source_artifact_id);
+    expect(v2.run.id).not.toBe(v1.run.id);
+    expect(v2.snapshot.id).not.toBe(v1.snapshot.id);
+    expect(v2.run.artifact_schema_version).toBe('extraction-artifact-v2');
+  });
+
   it('converts only geometry-complete OCR words through verified dependency closure', async () => {
     const { sourceArtifact, run } = fixture();
     const result = await adaptLegacyExtractionToStep1Shadow({

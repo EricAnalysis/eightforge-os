@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getCanonicalTransactionDataForProject: vi.fn(),
   loadProjectDocumentPrecedenceSnapshot: vi.fn(),
   loadContractUploadGuidanceForDocument: vi.fn(),
+  pricingPreparationInputSpy: vi.fn(),
   persistValidationRun: vi.fn(),
   reportValidatorFreshnessShadow: vi.fn(),
   scheduleCanonicalProjectTruthShadowPublication: vi.fn(),
@@ -25,9 +26,13 @@ vi.mock('@/lib/server/transactionDataPersistence', () => ({
 vi.mock('@/lib/server/documentPrecedence', () => ({
   loadProjectDocumentPrecedenceSnapshot: mocks.loadProjectDocumentPrecedenceSnapshot,
 }));
-vi.mock('@/lib/contracts/contractUploadGuidance', () => ({
-  loadContractUploadGuidanceForDocument: mocks.loadContractUploadGuidanceForDocument,
-}));
+vi.mock('@/lib/contracts/contractUploadGuidance', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/contracts/contractUploadGuidance')>();
+  return {
+    ...actual,
+    loadContractUploadGuidanceForDocument: mocks.loadContractUploadGuidanceForDocument,
+  };
+});
 vi.mock('@/lib/validator/persistValidationRun', () => ({
   persistValidationRun: mocks.persistValidationRun,
 }));
@@ -55,6 +60,17 @@ vi.mock('@/lib/contracts/analyzeContractIntelligence', async (importOriginal) =>
     ) => {
       const rows = actual.buildContractIntelligenceRateScheduleRows(...args);
       return mocks.structuralRowsOverride(rows) ?? rows;
+    },
+    // The validator now takes the preparation entry point so it retains the
+    // eligibility record alongside the rows; the override has to ride along or
+    // this suite silently stops exercising the rescue path it is named for.
+    buildContractIntelligencePricingSourcePreparation: (
+      ...args: Parameters<typeof actual.buildContractIntelligencePricingSourcePreparation>
+    ) => {
+      mocks.pricingPreparationInputSpy(args[0]);
+      const prepared = actual.buildContractIntelligencePricingSourcePreparation(...args);
+      const overridden = mocks.structuralRowsOverride(prepared.rows);
+      return overridden == null ? prepared : { ...prepared, rows: overridden };
     },
   };
 });
@@ -445,6 +461,7 @@ describe('project validator rescued-category parity', () => {
     mocks.getCanonicalTransactionDataForProject.mockReset();
     mocks.loadProjectDocumentPrecedenceSnapshot.mockReset();
     mocks.loadContractUploadGuidanceForDocument.mockReset();
+    mocks.pricingPreparationInputSpy.mockReset();
     mocks.persistValidationRun.mockReset();
     mocks.reportValidatorFreshnessShadow.mockReset();
     mocks.scheduleCanonicalProjectTruthShadowPublication.mockReset();
@@ -487,6 +504,30 @@ describe('project validator rescued-category parity', () => {
     } else {
       process.env.EIGHTFORGE_CANONICAL_SHADOW_PROJECT_IDS = initialPublicationProjectIds;
     }
+  });
+
+  it('loads selected-document guidance before validator pricing preparation', async () => {
+    configureFixture('human_override', 'structural_wins');
+    const pageRanges = [{ start: 8, end: 8 }];
+    mocks.loadContractUploadGuidanceForDocument.mockResolvedValue({
+      document_id: CONTRACT_DOCUMENT_ID,
+      rate_schedule_page_ranges: pageRanges,
+      rate_schedule_included: 'yes',
+    });
+
+    await runProjectValidation(PROJECT_ID);
+
+    assert.equal(mocks.loadContractUploadGuidanceForDocument.mock.calls.length, 1);
+    assert.equal(
+      mocks.loadContractUploadGuidanceForDocument.mock.calls[0]?.[1],
+      CONTRACT_DOCUMENT_ID,
+    );
+    const preparationInput = mocks.pricingPreparationInputSpy.mock.calls[0]?.[0] as {
+      operatorRateSchedulePageRanges?: unknown;
+      operatorRateSchedulePageHints?: unknown;
+    };
+    assert.deepEqual(preparationInput.operatorRateSchedulePageRanges, pageRanges);
+    assert.deepEqual(preparationInput.operatorRateSchedulePageHints, [8]);
   });
 
   it.each([

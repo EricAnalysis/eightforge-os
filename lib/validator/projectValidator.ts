@@ -1,12 +1,17 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { rehydratePhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import { resolveProvenanceCaptureState } from '@/lib/extraction/provenance/provenanceCaptureState';
+import { canonicalJson } from '@/lib/extraction/domain/hash';
 import {
   analyzeContractIntelligence,
   buildContractPricingSelectedCategoryOverrides,
-  buildContractIntelligenceRateScheduleRows,
+  buildContractIntelligencePricingSourcePreparation,
   type AnalyzeContractIntelligenceInput,
 } from '@/lib/contracts/analyzeContractIntelligence';
 import {
   loadContractUploadGuidanceForDocument,
+  rateSchedulePageHintsFromGuidance,
+  type ContractUploadGuidanceRow,
   type ContractUploadGuidanceRateScheduleIncluded,
 } from '@/lib/contracts/contractUploadGuidance';
 import {
@@ -263,6 +268,7 @@ type BlobExtractionData = Record<string, unknown> & {
       page_text?: Array<{
         page_number?: number | null;
         text?: string | null;
+        physical_page_coordinate?: unknown;
       }> | null;
     };
   };
@@ -752,14 +758,77 @@ export function buildPersistedContractValidationContextFromProjectSummary(
   };
 }
 
+/**
+ * Rebuilds pricing evidence from the persisted extraction blob.
+ *
+ * The physical page coordinate persisted alongside each page-text entry is
+ * rehydrated here rather than dropped. Without it the validator's independent
+ * reconstruction could not reproduce the pipeline's eligibility decision at all:
+ * every observation degraded to `provenance_unresolved` and any operator range
+ * blocked as `operator_range_unresolved_pages`, so a modern paginated contract
+ * yielded zero canonical rows no matter how correct its guidance was. Proof is
+ * still validated against its owning row — it is restored, never assumed.
+ */
 function syntheticEvidenceFromLegacyExtraction(
   documentId: string,
   legacyData: BlobExtractionData,
 ): EvidenceObject[] {
   const pageText = legacyData.extraction?.evidence_v1?.page_text ?? [];
+  const rawProvenanceContainer = asRecord(legacyData.extraction)?.physical_page_provenance_v1;
+  const captureState = resolveProvenanceCaptureState(rawProvenanceContainer);
+  const provenanceContainer = asRecord(rawProvenanceContainer);
+  const sourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
+    ? provenanceContainer.source_artifact_id.trim()
+    : '';
   const pageEvidence = pageText.flatMap((entry, index) => {
     const text = typeof entry?.text === 'string' ? entry.text.trim() : '';
     if (!text) return [];
+
+    const pageNumber =
+      typeof entry.page_number === 'number' && Number.isFinite(entry.page_number)
+        ? entry.page_number
+        : undefined;
+    // Rehydration needs a bound artifact and a real page. Without either there is
+    // nothing to validate proof against, so the coordinate stays absent and the
+    // classifier reports unavailable identity rather than inventing a binding.
+    let rehydrated = sourceArtifactId.length > 0 && pageNumber != null
+      ? rehydratePhysicalPageCoordinate(
+          entry.physical_page_coordinate ?? null,
+          {
+            sourceDocumentId: documentId,
+            sourceArtifactId,
+            page: pageNumber,
+            requiresProvenance: captureState === 'captured',
+            fallbackSourceLayer: 'legacy',
+            artifactLocalIndex: pageNumber - 1,
+          },
+        )
+      : null;
+    // A well-formed coordinate bound to another document/artifact is not the
+    // same defect as malformed or missing proof. Rehydrate it against its own
+    // persisted identity solely so the shared classifier can observe and name
+    // the source mismatch; it remains ineligible against this source artifact.
+    if (rehydrated?.status === 'rejected'
+        && (rehydrated.reason === 'document_mismatch' || rehydrated.reason === 'artifact_mismatch')
+        && pageNumber != null) {
+      const rawCoordinate = asRecord(entry.physical_page_coordinate);
+      const observedDocumentId = typeof rawCoordinate?.sourceDocumentId === 'string'
+        ? rawCoordinate.sourceDocumentId.trim()
+        : '';
+      const observedArtifactId = typeof rawCoordinate?.sourceArtifactId === 'string'
+        ? rawCoordinate.sourceArtifactId.trim()
+        : '';
+      if (observedDocumentId.length > 0 && observedArtifactId.length > 0) {
+        rehydrated = rehydratePhysicalPageCoordinate(entry.physical_page_coordinate, {
+          sourceDocumentId: observedDocumentId,
+          sourceArtifactId: observedArtifactId,
+          page: pageNumber,
+          requiresProvenance: captureState === 'captured',
+          fallbackSourceLayer: 'legacy',
+          artifactLocalIndex: pageNumber - 1,
+        });
+      }
+    }
 
     return [{
       id: `${documentId}:page_text:${entry.page_number ?? index + 1}`,
@@ -768,17 +837,20 @@ function syntheticEvidenceFromLegacyExtraction(
       description: 'Legacy page text evidence',
       text,
       location: {
-        page:
-          typeof entry.page_number === 'number' && Number.isFinite(entry.page_number)
-            ? entry.page_number
-            : undefined,
+        page: pageNumber,
         nearby_text: text.slice(0, 240),
       },
       confidence: 0.7,
       weak: false,
       source_document_id: documentId,
+      ...(rehydrated?.status === 'rehydrated'
+        ? { physical_page_coordinate: rehydrated.coordinate }
+        : {}),
       metadata: {
         source_extraction_path: 'legacy_page_text',
+        ...(rehydrated != null && rehydrated.status !== 'rehydrated'
+          ? { physical_page_coordinate_rehydration: rehydrated.status }
+          : {}),
       },
     }];
   });
@@ -2173,7 +2245,24 @@ type ContractValidationContextParams = {
   excludedValidationDocumentIds?: ReadonlySet<string>;
   sourceIdentityStoreState?: ValidatorSourceIdentityStoreState;
   sourceIdentityReadError?: SourceIdentityReadFailure | null;
+  /** Persisted operator guidance for the contract document being reconstructed. */
+  contractUploadGuidance?: ContractUploadGuidanceRow | null;
 };
+
+function pricingReconstructionParity(
+  persistedRows: readonly ContractRateScheduleRow[],
+  reconstructedRows: readonly ContractRateScheduleRow[],
+): NonNullable<ContractAnalysisResult['pricing_reconstruction_parity']> {
+  const comparable = (rows: readonly ContractRateScheduleRow[]): unknown =>
+    JSON.parse(JSON.stringify(rows)) as unknown;
+  return {
+    status: canonicalJson(comparable(persistedRows)) === canonicalJson(comparable(reconstructedRows))
+      ? 'match'
+      : 'mismatch',
+    persisted_row_count: persistedRows.length,
+    reconstructed_row_count: reconstructedRows.length,
+  };
+}
 
 /**
  * Eligible pricing-source documents, in deterministic order.
@@ -2472,19 +2561,33 @@ function prepareContractValidationContext(
         legacyRow: params.legacyRowsByDocumentId.get(contractDocumentId) ?? null,
       });
       if (syntheticDocument) {
+        const contractUploadGuidance = params.contractUploadGuidance?.document_id === contractDocumentId
+          ? params.contractUploadGuidance
+          : null;
         const analysisInput: AnalyzeContractIntelligenceInput = {
           primaryDocument: syntheticDocument,
           relatedDocuments: [],
           confirmedGoverningScheduleResolved,
           confirmedDisposalTreatmentResolved,
+          operatorRateSchedulePageHints: rateSchedulePageHintsFromGuidance(contractUploadGuidance),
+          operatorRateSchedulePageRanges:
+            contractUploadGuidance?.rate_schedule_page_ranges ?? null,
         };
-        const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows(
+        // Same preparation the pipeline runs, so the validator's independent
+        // reconstruction produces the same eligibility decision AND retains the
+        // reason it reached that decision. Discarding the eligibility record
+        // here left an empty reconstruction indistinguishable from a defect.
+        const pricingSourcePreparation = buildContractIntelligencePricingSourcePreparation(
           analysisInput,
         );
+        const structuralRateScheduleRows = pricingSourcePreparation.rows;
         const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
         const preferPersistedRateSchedule =
           persistedRateScheduleRows != null
-          && persistedRateScheduleRows.length > structuralRateScheduleRows.length;
+          && (
+            persistedContext?.analysis.pricing_source_eligibility != null
+            || persistedRateScheduleRows.length > structuralRateScheduleRows.length
+          );
         const authoritativeRateScheduleRows = preferPersistedRateSchedule
           ? persistedRateScheduleRows
           : structuralRateScheduleRows;
@@ -2514,14 +2617,36 @@ function prepareContractValidationContext(
                 candidateInputRole,
                 structuralRateScheduleRows,
                 candidatesBySourceRow: assembly.candidatesBySourceRow,
+                pricingSourceEligibility: pricingSourcePreparation.eligibility,
               },
             });
             if (!analysis) return null;
+            const reconstructedRateScheduleRows = analysis.rate_schedule_rows ?? [];
+            const reconstructionParity = persistedRateScheduleRows != null
+              && persistedRateScheduleRows.length > 0
+              && reconstructedRateScheduleRows.length > 0
+              && pricingSourcePreparation.eligibility.pageScopeApplicable
+              ? pricingReconstructionParity(
+                  persistedRateScheduleRows,
+                  reconstructedRateScheduleRows,
+                )
+              : undefined;
             return {
               document_id: contractDocumentId,
               analysis: preferPersistedRateSchedule
-                ? { ...analysis, rate_schedule_rows: persistedRateScheduleRows }
-                : analysis,
+                ? {
+                    ...analysis,
+                    rate_schedule_rows: persistedRateScheduleRows,
+                    ...(reconstructionParity
+                      ? { pricing_reconstruction_parity: reconstructionParity }
+                      : {}),
+                  }
+                : {
+                    ...analysis,
+                    ...(reconstructionParity
+                      ? { pricing_reconstruction_parity: reconstructionParity }
+                      : {}),
+                  },
               evidence_by_id: new Map(
                 syntheticDocument.evidence.map((evidence) => [evidence.id, evidence] as const),
               ),
@@ -3290,6 +3415,15 @@ export async function loadValidatorSourceSnapshot(
   });
   const effectiveInvoices = effectiveInvoiceTruth.invoices;
   const effectiveInvoiceLines = effectiveInvoiceTruth.invoiceLines;
+  const contractDocumentIdForGuidance = truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const [contractUploadGuidance, invoiceLineRateLinkRows] = await Promise.all([
+    contractDocumentIdForGuidance
+      ? loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
+        () => null,
+      )
+      : Promise.resolve(null),
+    loadInvoiceLineRateLinkRows(project),
+  ]);
   const preparedContractValidationContext = prepareContractValidationContext({
     projectValidationSummary: project.validation_summary_json,
     documents,
@@ -3302,6 +3436,7 @@ export async function loadValidatorSourceSnapshot(
     excludedValidationDocumentIds,
     sourceIdentityStoreState: sourceArtifactSnapshotResult.storeState,
     sourceIdentityReadError: sourceArtifactSnapshotResult.readError,
+    contractUploadGuidance,
   });
   const contractPricingExecution = executePreparedContractPricingAssembly(
     preparedContractValidationContext,
@@ -3318,21 +3453,6 @@ export async function loadValidatorSourceSnapshot(
     truthCategoryDocumentIds,
     assembledContractPricingRows,
   });
-
-  // The last two reads of the execution. Both are authority-independent: the
-  // guidance row is keyed by contract document, and the rate-link rows are
-  // scoped by organization and project. Resolving links against the winning
-  // authority's rate rows is a pure step, performed per authority below.
-  const contractDocumentIdForGuidance =
-    contractValidationContext?.document_id ?? truthCategoryDocumentIds.contract_identity[0] ?? null;
-  const [contractUploadGuidance, invoiceLineRateLinkRows] = await Promise.all([
-    contractDocumentIdForGuidance
-      ? loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
-        () => null,
-      )
-      : Promise.resolve(null),
-    loadInvoiceLineRateLinkRows(project),
-  ]);
 
   return {
     project,

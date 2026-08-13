@@ -61,6 +61,8 @@ type BuildContractRateScheduleRowsInput = {
   rateSchedulePagePreferencePages?: readonly number[] | null;
   sourceEntries?: readonly ContractRateScheduleSourceEntry[] | null;
   defaultAnchorIds?: readonly string[] | null;
+  /** Explicit historical-only compatibility for evidence predating page proof. */
+  allowUnscopedCompatibility?: boolean;
 };
 
 const INLINE_RATE_RE = /^(.*?)\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|tons|cubic\s+yard|cy|hour|hr|hrs|mile|each|ea|load|day|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot|pound|lb|lbs|unit|tree|stump)\b/i;
@@ -1525,6 +1527,7 @@ function buildFallbackRowsFromSourceEntries(params: {
   sourceEntries: readonly ContractRateScheduleSourceEntry[];
   rateSchedulePages: readonly number[];
   rateSchedulePagePreferencePages: readonly number[];
+  allowUnscopedCompatibility: boolean;
 }): ContractRateScheduleRow[] {
   const rows: ContractRateScheduleRow[] = [];
   const ratePages = new Set(params.rateSchedulePages);
@@ -1532,7 +1535,9 @@ function buildFallbackRowsFromSourceEntries(params: {
   const candidateEntries = params.sourceEntries
     .filter((entry) => {
       if (normalizeWhitespace(entry.text).length === 0) return false;
-      return ratePages.size === 0 || (entry.page != null && ratePages.has(entry.page));
+      return ratePages.size > 0
+        ? entry.page != null && ratePages.has(entry.page)
+        : params.allowUnscopedCompatibility;
     })
     .sort((left, right) => {
       const leftPreferred = left.page != null && preferredPages.has(left.page) ? 0 : 1;
@@ -1656,5 +1661,6 @@ export function buildContractRateScheduleRows(
     sourceEntries,
     rateSchedulePages,
     rateSchedulePagePreferencePages,
+    allowUnscopedCompatibility: params.allowUnscopedCompatibility !== false,
   });
 }

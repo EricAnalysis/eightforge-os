@@ -1,4 +1,5 @@
 import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import type { PricingSourceEligibilityDiagnostics } from '@/lib/contracts/pricingSourceScope';
 
 export const LANGUAGE_ENGINE_FIELDS_VERSION_V1 = 'language_engine_fields:v1';
 export const CLAUSE_PATTERN_LIBRARY_VERSION_V1 = 'clause_pattern_library:v1';
@@ -307,6 +308,14 @@ export interface ContractAnalysisResult {
   compliance_model: ContractFieldAnalysisMap;
   payment_model: ContractFieldAnalysisMap;
   rate_schedule_rows?: ContractRateScheduleRow[];
+  /** Deterministic Phase 3A pricing-source scope and observation classifications. */
+  pricing_source_eligibility?: PricingSourceEligibilityDiagnostics;
+  /** Non-blocking comparison when persisted and independently reconstructed modern rows coexist. */
+  pricing_reconstruction_parity?: {
+    status: 'match' | 'mismatch';
+    persisted_row_count: number;
+    reconstructed_row_count: number;
+  };
   clause_patterns_detected: DetectedClausePattern[];
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];

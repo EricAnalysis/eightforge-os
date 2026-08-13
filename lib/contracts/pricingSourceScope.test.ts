@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyPageEligibility,
+  resolvePricingCanonicalOutcome,
   resolvePricingSourceScope,
   type PricingSourceScopeInput,
 } from './pricingSourceScope';
@@ -366,9 +367,24 @@ describe('pricing source scope resolution', () => {
       totalPhysicalPages: 30,
       pageCoordinates: resolvedPages([5, 6]),
     });
-    expect(classifyPageEligibility(scope, 5)).toBe('canonical_eligible');
-    expect(classifyPageEligibility(scope, 20)).toBe('diagnostic_only');
-    expect(classifyPageEligibility(scope, null)).toBe('diagnostic_only');
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([5])[0],
+      sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
+    })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'authoritative_scope_match' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([20])[0],
+      sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'authoritative_scope_miss' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: null,
+      sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
   });
 
   it('classifies everything diagnostic-only when scope is not authoritative', () => {
@@ -377,8 +393,92 @@ describe('pricing source scope resolution', () => {
       scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 }),
       scopeFor({ operatorPageRanges: [{ start: 99, end: 99 }], totalPhysicalPages: 30 }),
     ]) {
-      expect(classifyPageEligibility(scope, 4)).toBe('diagnostic_only');
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: resolvedPages([4])[0],
+        sourceArtifact: SOURCE_ARTIFACT,
+        captureState: 'captured',
+      }).eligibility).toBe('diagnostic_only');
     }
+  });
+
+  it('requires exact observation document and artifact binding', () => {
+    const scope = scopeFor({
+      operatorPageRanges: [{ start: 5, end: 5 }],
+      totalPhysicalPages: 30,
+      pageCoordinates: resolvedPages([5]),
+    });
+    for (const foreignSource of [
+      { id: 'foreign-artifact' as SourceArtifactId, source_document_id: 'doc' },
+      { id: SOURCE_ARTIFACT.id, source_document_id: 'foreign-doc' },
+    ]) {
+      const foreignCoordinate = resolvedPages([5], 'pdf_native_text', foreignSource)[0];
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: foreignCoordinate,
+        sourceArtifact: SOURCE_ARTIFACT,
+        captureState: 'captured',
+      })).toMatchObject({
+        eligibility: 'diagnostic_only',
+        reason: 'provenance_source_mismatch',
+      });
+    }
+  });
+
+  it('makes legacy compatibility explicit and never derives it from failed modern proof', () => {
+    const scope = scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 });
+    const legacy = legacyPageCoordinate({
+      sourceDocumentId: 'doc',
+      sourceArtifactId: 'artifact',
+      legacyPageValue: 5,
+    });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: legacy,
+      sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'legacy_pre_provenance',
+    })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'legacy_compatibility' });
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: legacy,
+      sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
+    })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
+  });
+
+  it('gives each declared capture state its own outcome and never reuses legacy', () => {
+    const scope = scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 });
+    const cases = [
+      ['not_applicable_non_paginated', 'canonical_eligible', 'non_paginated_source'],
+      ['capture_failed', 'diagnostic_only', 'provenance_capture_failed'],
+      ['unknown', 'canonical_eligible', 'provenance_capture_unknown'],
+    ] as const;
+    for (const [captureState, eligibility, reason] of cases) {
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: null,
+        sourceArtifact: SOURCE_ARTIFACT,
+        captureState,
+      })).toMatchObject({ eligibility, reason });
+    }
+  });
+
+  it('reports unavailable source identity separately from a real mismatch', () => {
+    const scope = scopeFor({
+      operatorPageRanges: [{ start: 5, end: 5 }],
+      totalPhysicalPages: 30,
+      pageCoordinates: resolvedPages([5]),
+    });
+    // Nothing disagrees here — the artifact binding was simply never recorded.
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([5])[0],
+      sourceArtifact: { id: '' as SourceArtifactId, source_document_id: 'doc' },
+      captureState: 'captured',
+    })).toMatchObject({
+      eligibility: 'diagnostic_only',
+      reason: 'provenance_source_identity_unavailable',
+    });
   });
 });
 
@@ -415,5 +515,46 @@ describe('pricing source scope — regression fixture shapes', () => {
     });
     expect(result.kind).toBe('blocked');
     expect(result.blockedReason).toBe('operator_range_out_of_bounds');
+  });
+});
+
+describe('pricing canonical zero-row outcomes', () => {
+  const authoritativeScope = resolvePricingSourceScope({
+    sourceArtifact: SOURCE_ARTIFACT,
+    operatorPageRanges: [{ start: 5, end: 5 }],
+    totalPhysicalPages: 10,
+    pageCoordinates: resolvedPages([5]),
+  });
+
+  it('reports all observations out of scope only when every reason is a proven miss', () => {
+    expect(resolvePricingCanonicalOutcome({
+      captureState: 'captured',
+      scope: authoritativeScope,
+      observationReasons: ['authoritative_scope_miss', 'authoritative_scope_miss'],
+      rowCount: 0,
+    })).toBe('zero_rows_all_observations_out_of_scope');
+  });
+
+  it('reports unproven provenance for pure and mixed provenance failures', () => {
+    for (const observationReasons of [
+      ['provenance_unresolved'],
+      ['authoritative_scope_miss', 'provenance_source_identity_unavailable'],
+    ] as const) {
+      expect(resolvePricingCanonicalOutcome({
+        captureState: 'captured',
+        scope: authoritativeScope,
+        observationReasons,
+        rowCount: 0,
+      })).toBe('zero_rows_provenance_unproven');
+    }
+  });
+
+  it('does not mislabel eligible proof that assembled no canonical row', () => {
+    expect(resolvePricingCanonicalOutcome({
+      captureState: 'captured',
+      scope: authoritativeScope,
+      observationReasons: ['authoritative_scope_match'],
+      rowCount: 0,
+    })).toBe('zero_rows_no_assembled_rows');
   });
 });

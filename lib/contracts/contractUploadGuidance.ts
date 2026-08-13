@@ -71,6 +71,20 @@ export async function loadContractUploadGuidanceForDocument(
 export function rateSchedulePageHintsFromGuidance(
   guidance: ContractUploadGuidanceRow | null,
 ): number[] {
-  if (!guidance?.rate_schedule_page_ranges) return [];
-  return expandRatePageRanges(guidance.rate_schedule_page_ranges);
+  const ranges: readonly unknown[] | null = Array.isArray(guidance?.rate_schedule_page_ranges)
+    ? guidance.rate_schedule_page_ranges
+    : null;
+  if (!ranges) return [];
+  const wellFormed = ranges.every((range) => {
+    if (typeof range !== 'object' || range == null) return false;
+    const candidate = range as { start?: unknown; end?: unknown };
+    return Number.isSafeInteger(candidate.start)
+      && Number.isSafeInteger(candidate.end)
+      && (candidate.start as number) >= 1
+      && (candidate.end as number) >= (candidate.start as number);
+  });
+  // Hints are only a sort preference. Preserve malformed persisted ranges for
+  // the pricing-scope resolver to classify as blocked; never throw or turn them
+  // into apparent absence before that fail-closed decision.
+  return wellFormed ? expandRatePageRanges(ranges as readonly RatePageRange[]) : [];
 }

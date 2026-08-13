@@ -1305,6 +1305,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     relatedDocs: buildContext.buildParams.relatedDocs,
     confirmedFactReviews,
     rateSchedulePageHints: rateSchedulePageHintsFromGuidance(uploadGuidance),
+    rateSchedulePageRanges: uploadGuidance?.rate_schedule_page_ranges ?? null,
   });
 
   await persistExtractionInspectionSnapshots(params.admin, {

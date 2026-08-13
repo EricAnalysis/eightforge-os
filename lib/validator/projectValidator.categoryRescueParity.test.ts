@@ -56,6 +56,16 @@ vi.mock('@/lib/contracts/analyzeContractIntelligence', async (importOriginal) =>
       const rows = actual.buildContractIntelligenceRateScheduleRows(...args);
       return mocks.structuralRowsOverride(rows) ?? rows;
     },
+    // The validator now takes the preparation entry point so it retains the
+    // eligibility record alongside the rows; the override has to ride along or
+    // this suite silently stops exercising the rescue path it is named for.
+    buildContractIntelligencePricingSourcePreparation: (
+      ...args: Parameters<typeof actual.buildContractIntelligencePricingSourcePreparation>
+    ) => {
+      const prepared = actual.buildContractIntelligencePricingSourcePreparation(...args);
+      const overridden = mocks.structuralRowsOverride(prepared.rows);
+      return overridden == null ? prepared : { ...prepared, rows: overridden };
+    },
   };
 });
 vi.mock('@/lib/contracts/contractPricingAssembly', async (importOriginal) => {

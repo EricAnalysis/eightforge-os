@@ -67,6 +67,7 @@ import {
   unresolvedPhysicalPageCoordinate,
   type PhysicalPageCoordinate,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import type { ProvenanceCaptureState } from '@/lib/extraction/provenance/provenanceCaptureState';
 import {
   scheduleGenericContentExtraction,
   type GenericRegion,
@@ -183,6 +184,11 @@ export type ExtractionPayload = {
     ai_assist_v1?: InstructorAssistSnapshot;
     metadata?: Record<string, unknown>;
     physical_page_provenance_v1?: {
+      /**
+       * Declared capture outcome. Required: readers must never infer provenance
+       * disposition from the absence of this container or this field.
+       */
+      readonly capture_state: ProvenanceCaptureState;
       readonly source_artifact_id: string | null;
       readonly total_physical_pages: number | null;
       readonly pages: readonly PhysicalPageCoordinate[];
@@ -1576,9 +1582,28 @@ export async function extractDocument(
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
   const contractDebugEnabled = process.env.EIGHTFORGE_DEBUG_CONTRACT === '1';
+  /**
+   * Terminal wrapper for sources with no page topology (text, CSV, spreadsheets).
+   *
+   * These declare `not_applicable_non_paginated` rather than emitting nothing.
+   * Emitting nothing is what made a modern workbook indistinguishable from a
+   * pre-provenance PDF, which silently restored whole-document pricing scope and
+   * wrote a false historical claim into the audit record.
+   */
   const withoutLocatedOcrObservations = (
     payload: ExtractionPayload,
-  ): ExtractionPayload => attachLocatedOcrObservations(payload, { pages: [] });
+  ): ExtractionPayload => {
+    payload.extraction.physical_page_provenance_v1 = {
+      capture_state: 'not_applicable_non_paginated',
+      source_artifact_id: provenanceContext
+        && provenanceContext.sourceDocumentId === metadata.id
+        ? provenanceContext.sourceArtifactId
+        : null,
+      total_physical_pages: null,
+      pages: [],
+    };
+    return attachLocatedOcrObservations(payload, { pages: [] });
+  };
 
   if (isTextLike(fileName, mimeType)) {
     const fullDecoded = decodeTextPreview(fileBytes);
@@ -1749,7 +1774,17 @@ export async function extractDocument(
       const provenancePages = evidence?.page_text.map(
         (page) => page.physical_page_coordinate,
       ).filter((coordinate): coordinate is PhysicalPageCoordinate => coordinate != null) ?? [];
+      // A paginated source only counts as captured when the artifact binding and
+      // an unconflicted page count are both established; otherwise page proof
+      // cannot exist for this run and the state says so rather than going quiet.
+      const captureState: ProvenanceCaptureState =
+        sourceArtifact != null
+        && !parserPhysicalPageCountConflicted
+        && parserPhysicalPageCount != null
+          ? 'captured'
+          : 'capture_failed';
       payload.extraction.physical_page_provenance_v1 = {
+        capture_state: captureState,
         source_artifact_id: sourceArtifact?.id ?? null,
         total_physical_pages: parserPhysicalPageCountConflicted
           ? null

@@ -39,9 +39,14 @@ import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import {
   classifyPageEligibility,
+  resolvePricingCanonicalOutcome,
   resolvePricingSourceScope,
   type PricingSourceEligibilityDiagnostics,
 } from '@/lib/contracts/pricingSourceScope';
+import {
+  pageScopeApplies,
+  resolveProvenanceCaptureState,
+} from '@/lib/extraction/provenance/provenanceCaptureState';
 import { buildContractIssues } from '@/lib/server/buildContractIssues';
 import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage';
 import {
@@ -1225,7 +1230,11 @@ export function buildContractIntelligencePricingSourcePreparation(
   const allSourceEntries = buildContractRateScheduleSourceEntries(input.primaryDocument.evidence);
   const extraction = asRecord(input.primaryDocument.extraction_data?.extraction);
   const provenanceContainer = asRecord(extraction?.physical_page_provenance_v1);
-  const historicalProvenanceAbsence = provenanceContainer == null;
+  const captureState = resolveProvenanceCaptureState(provenanceContainer);
+  // Page-range scope only governs captured paginated sources. Every other state
+  // keeps its prior row-building behaviour but is labelled for what it is.
+  const scopeApplies = pageScopeApplies(captureState);
+  const unscopedCompatibility = !scopeApplies;
   const sourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
     ? provenanceContainer.source_artifact_id.trim()
     : '';
@@ -1250,7 +1259,7 @@ export function buildContractIntelligencePricingSourcePreparation(
       scope,
       coordinate: entry.physicalPageCoordinate,
       sourceArtifact,
-      historicalProvenanceAbsence,
+      captureState,
     });
     const coordinate = entry.physicalPageCoordinate;
     return {
@@ -1283,18 +1292,18 @@ export function buildContractIntelligencePricingSourcePreparation(
   const allPdfTables = asArray<PdfTable>(
     asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables,
   );
-  const canonicalPdfTables = historicalProvenanceAbsence
+  const canonicalPdfTables = unscopedCompatibility
     ? allPdfTables
     : allPdfTables.filter((table) => eligibleAnchorIds.has(table.id));
-  const effectiveRateSchedulePages = historicalProvenanceAbsence
+  const effectiveRateSchedulePages = unscopedCompatibility
     ? rateSchedulePages
     : scope.authoritativePages;
   const rows = buildContractRateScheduleRows({
     documentType: input.primaryDocument.document_type,
-    rateTable: historicalProvenanceAbsence
+    rateTable: unscopedCompatibility
       ? input.primaryDocument.typed_fields.rate_table
       : filterPageScopedRows(input.primaryDocument.typed_fields.rate_table, eligiblePages, true),
-    canonicalRateScheduleAssembly: historicalProvenanceAbsence
+    canonicalRateScheduleAssembly: unscopedCompatibility
       ? input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly
       : filterPageScopedRows(
           input.primaryDocument.extracted_record.canonicalContractRateScheduleAssembly,
@@ -1309,19 +1318,27 @@ export function buildContractIntelligencePricingSourcePreparation(
       ...(input.primaryDocument.fact_map.rate_schedule_present?.evidence_refs ?? []),
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
-    allowUnscopedCompatibility: historicalProvenanceAbsence,
-  }).filter((row) => historicalProvenanceAbsence
+    allowUnscopedCompatibility: unscopedCompatibility,
+  }).filter((row) => unscopedCompatibility
     || row.source_anchor_ids.some((anchorId) => eligibleAnchorIds.has(anchorId)));
   const observations = classified.map(({ diagnostic }) => diagnostic);
+  const canonicalEligibleCount = observations
+    .filter((entry) => entry.eligibility === 'canonical_eligible').length;
   const eligibility = Object.freeze({
     sourceDocumentId: input.primaryDocument.document_id,
     sourceArtifactId: sourceArtifactId || null,
-    provenanceDisposition: historicalProvenanceAbsence
-      ? 'historical_absence' as const
-      : 'provenance_aware' as const,
+    provenanceDisposition: captureState,
+    pageScopeApplicable: scopeApplies,
+    canonicalOutcome: resolvePricingCanonicalOutcome({
+      captureState,
+      scope,
+      observationCount: observations.length,
+      canonicalEligibleCount,
+      rowCount: rows.length,
+    }),
     scope,
     observationCount: observations.length,
-    canonicalEligibleCount: observations.filter((entry) => entry.eligibility === 'canonical_eligible').length,
+    canonicalEligibleCount,
     diagnosticOnlyCount: observations.filter((entry) => entry.eligibility === 'diagnostic_only').length,
     legacyCompatibilityCount: observations.filter((entry) => entry.reason === 'legacy_compatibility').length,
     observations: Object.freeze(observations),

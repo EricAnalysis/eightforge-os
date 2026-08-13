@@ -1,8 +1,10 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { rehydratePhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import {
   analyzeContractIntelligence,
   buildContractPricingSelectedCategoryOverrides,
   buildContractIntelligenceRateScheduleRows,
+  buildContractIntelligencePricingSourcePreparation,
   type AnalyzeContractIntelligenceInput,
 } from '@/lib/contracts/analyzeContractIntelligence';
 import {
@@ -752,14 +754,51 @@ export function buildPersistedContractValidationContextFromProjectSummary(
   };
 }
 
+/**
+ * Rebuilds pricing evidence from the persisted extraction blob.
+ *
+ * The physical page coordinate persisted alongside each page-text entry is
+ * rehydrated here rather than dropped. Without it the validator's independent
+ * reconstruction could not reproduce the pipeline's eligibility decision at all:
+ * every observation degraded to `provenance_unresolved` and any operator range
+ * blocked as `operator_range_unresolved_pages`, so a modern paginated contract
+ * yielded zero canonical rows no matter how correct its guidance was. Proof is
+ * still validated against its owning row — it is restored, never assumed.
+ */
 function syntheticEvidenceFromLegacyExtraction(
   documentId: string,
   legacyData: BlobExtractionData,
 ): EvidenceObject[] {
   const pageText = legacyData.extraction?.evidence_v1?.page_text ?? [];
+  const provenanceContainer = asRecord(
+    asRecord(legacyData.extraction)?.physical_page_provenance_v1,
+  );
+  const sourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
+    ? provenanceContainer.source_artifact_id.trim()
+    : '';
   const pageEvidence = pageText.flatMap((entry, index) => {
     const text = typeof entry?.text === 'string' ? entry.text.trim() : '';
     if (!text) return [];
+
+    const pageNumber =
+      typeof entry.page_number === 'number' && Number.isFinite(entry.page_number)
+        ? entry.page_number
+        : undefined;
+    // Rehydration needs a bound artifact and a real page. Without either there is
+    // nothing to validate proof against, so the coordinate stays absent and the
+    // classifier reports unavailable identity rather than inventing a binding.
+    const rehydrated = sourceArtifactId.length > 0 && pageNumber != null
+      ? rehydratePhysicalPageCoordinate(
+          (entry as { physical_page_coordinate?: unknown }).physical_page_coordinate ?? null,
+          {
+            sourceDocumentId: documentId,
+            sourceArtifactId,
+            page: pageNumber,
+            requiresProvenance: false,
+            fallbackSourceLayer: 'legacy',
+          },
+        )
+      : null;
 
     return [{
       id: `${documentId}:page_text:${entry.page_number ?? index + 1}`,
@@ -768,17 +807,20 @@ function syntheticEvidenceFromLegacyExtraction(
       description: 'Legacy page text evidence',
       text,
       location: {
-        page:
-          typeof entry.page_number === 'number' && Number.isFinite(entry.page_number)
-            ? entry.page_number
-            : undefined,
+        page: pageNumber,
         nearby_text: text.slice(0, 240),
       },
       confidence: 0.7,
       weak: false,
       source_document_id: documentId,
+      ...(rehydrated?.status === 'rehydrated'
+        ? { physical_page_coordinate: rehydrated.coordinate }
+        : {}),
       metadata: {
         source_extraction_path: 'legacy_page_text',
+        ...(rehydrated != null && rehydrated.status !== 'rehydrated'
+          ? { physical_page_coordinate_rehydration: rehydrated.status }
+          : {}),
       },
     }];
   });
@@ -2478,9 +2520,14 @@ function prepareContractValidationContext(
           confirmedGoverningScheduleResolved,
           confirmedDisposalTreatmentResolved,
         };
-        const structuralRateScheduleRows = buildContractIntelligenceRateScheduleRows(
+        // Same preparation the pipeline runs, so the validator's independent
+        // reconstruction produces the same eligibility decision AND retains the
+        // reason it reached that decision. Discarding the eligibility record
+        // here left an empty reconstruction indistinguishable from a defect.
+        const pricingSourcePreparation = buildContractIntelligencePricingSourcePreparation(
           analysisInput,
         );
+        const structuralRateScheduleRows = pricingSourcePreparation.rows;
         const persistedRateScheduleRows = persistedContext?.analysis.rate_schedule_rows;
         const preferPersistedRateSchedule =
           persistedRateScheduleRows != null
@@ -2517,6 +2564,7 @@ function prepareContractValidationContext(
                 candidateInputRole,
                 structuralRateScheduleRows,
                 candidatesBySourceRow: assembly.candidatesBySourceRow,
+                pricingSourceEligibility: pricingSourcePreparation.eligibility,
               },
             });
             if (!analysis) return null;

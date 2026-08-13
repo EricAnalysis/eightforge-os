@@ -43,6 +43,8 @@ function evidence(id: string, page: number, text: string, withProof = true): Evi
 
 function document(params?: {
   historical?: boolean;
+  captureState?: string;
+  noContainer?: boolean;
   evidence?: EvidenceObject[];
   machinePages?: number[];
 }): NormalizedNodeDocument {
@@ -57,11 +59,14 @@ function document(params?: {
     document_title: 'Source',
     family: 'contract',
     is_primary: true,
-    extraction_data: params?.historical
+    extraction_data: params?.noContainer
       ? null
+      : params?.historical
+      ? { extraction: { physical_page_provenance_v1: { capture_state: 'legacy_pre_provenance' } } }
       : {
           extraction: {
             physical_page_provenance_v1: {
+              capture_state: params?.captureState ?? 'captured',
               source_artifact_id: ARTIFACT_ID,
               total_physical_pages: 6,
             },
@@ -196,9 +201,80 @@ describe('Phase 3A pricing observation eligibility', () => {
       operatorRateSchedulePageRanges: null,
     });
     expect(result.rows.map((row) => row.rate)).toEqual([11, 99]);
-    expect(result.eligibility.provenanceDisposition).toBe('historical_absence');
+    expect(result.eligibility.provenanceDisposition).toBe('legacy_pre_provenance');
     expect(result.eligibility.legacyCompatibilityCount).toBe(2);
     expect(new Set(result.eligibility.observations.map((entry) => entry.reason)))
       .toEqual(new Set(['legacy_compatibility']));
+  });
+
+  // ── Capture-state discrimination (Fix 1) ─────────────────────────────────
+  it('never reads a missing provenance container as historical evidence', () => {
+    const result = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document({ noContainer: true }),
+      operatorRateSchedulePageRanges: null,
+    });
+    // Behaviour for pre-declaration records is preserved deliberately...
+    expect(result.rows.map((row) => row.rate)).toEqual([11, 99]);
+    // ...but the record must not claim these are pre-provenance.
+    expect(result.eligibility.provenanceDisposition).toBe('unknown');
+    expect(result.eligibility.legacyCompatibilityCount).toBe(0);
+    expect(new Set(result.eligibility.observations.map((entry) => entry.reason)))
+      .toEqual(new Set(['provenance_capture_unknown']));
+  });
+
+  it('treats a non-paginated source as its own topology, not as legacy compatibility', () => {
+    const result = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document({ captureState: 'not_applicable_non_paginated' }),
+      // Page ranges are meaningless for a source without pages; supplying them
+      // must not blank the rows, and must not be recorded as a scope miss.
+      operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+    });
+    expect(result.rows.map((row) => row.rate)).toEqual([11, 99]);
+    expect(result.eligibility.provenanceDisposition).toBe('not_applicable_non_paginated');
+    expect(result.eligibility.pageScopeApplicable).toBe(false);
+    expect(result.eligibility.legacyCompatibilityCount).toBe(0);
+    expect(new Set(result.eligibility.observations.map((entry) => entry.reason)))
+      .toEqual(new Set(['non_paginated_source']));
+  });
+
+  it('fails closed when a paginated source declares failed capture', () => {
+    const result = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document({ captureState: 'capture_failed' }),
+      operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+    });
+    expect(result.rows).toEqual([]);
+    expect(result.eligibility.canonicalOutcome).toBe('zero_rows_capture_failed');
+    expect(new Set(result.eligibility.observations.map((entry) => entry.reason)))
+      .toEqual(new Set(['provenance_capture_failed']));
+  });
+
+  it('fails closed on an unrecognized declared state rather than defaulting open', () => {
+    const result = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document({ captureState: 'something_a_newer_writer_emits' }),
+      operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+    });
+    expect(result.rows).toEqual([]);
+    expect(result.eligibility.provenanceDisposition).toBe('capture_failed');
+  });
+
+  // ── Zero-row explanation (Fix 2 diagnostic) ──────────────────────────────
+  it('explains why canonical assembly received nothing instead of implying defect', () => {
+    const cases = [
+      [null as never, 'zero_rows_scope_absent'],
+      [[{ start: 2, end: 7 }], 'zero_rows_scope_blocked'],
+    ] as const;
+    for (const [ranges, outcome] of cases) {
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ machinePages: [] }),
+        operatorRateSchedulePageRanges: ranges,
+      });
+      expect(result.rows).toEqual([]);
+      expect(result.eligibility.canonicalOutcome).toBe(outcome);
+    }
+    const present = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document(),
+      operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+    });
+    expect(present.eligibility.canonicalOutcome).toBe('canonical_rows_present');
   });
 });

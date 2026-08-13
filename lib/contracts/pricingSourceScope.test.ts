@@ -370,16 +370,19 @@ describe('pricing source scope resolution', () => {
       scope,
       coordinate: resolvedPages([5])[0],
       sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
     })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'authoritative_scope_match' });
     expect(classifyPageEligibility({
       scope,
       coordinate: resolvedPages([20])[0],
       sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
     })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'authoritative_scope_miss' });
     expect(classifyPageEligibility({
       scope,
       coordinate: null,
       sourceArtifact: SOURCE_ARTIFACT,
+      captureState: 'captured',
     })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
   });
 
@@ -393,6 +396,7 @@ describe('pricing source scope resolution', () => {
         scope,
         coordinate: resolvedPages([4])[0],
         sourceArtifact: SOURCE_ARTIFACT,
+        captureState: 'captured',
       }).eligibility).toBe('diagnostic_only');
     }
   });
@@ -412,6 +416,7 @@ describe('pricing source scope resolution', () => {
         scope,
         coordinate: foreignCoordinate,
         sourceArtifact: SOURCE_ARTIFACT,
+        captureState: 'captured',
       })).toMatchObject({
         eligibility: 'diagnostic_only',
         reason: 'provenance_source_mismatch',
@@ -430,14 +435,49 @@ describe('pricing source scope resolution', () => {
       scope,
       coordinate: legacy,
       sourceArtifact: SOURCE_ARTIFACT,
-      historicalProvenanceAbsence: true,
+      captureState: 'legacy_pre_provenance',
     })).toMatchObject({ eligibility: 'canonical_eligible', reason: 'legacy_compatibility' });
     expect(classifyPageEligibility({
       scope,
       coordinate: legacy,
       sourceArtifact: SOURCE_ARTIFACT,
-      historicalProvenanceAbsence: false,
+      captureState: 'captured',
     })).toMatchObject({ eligibility: 'diagnostic_only', reason: 'provenance_unresolved' });
+  });
+
+  it('gives each declared capture state its own outcome and never reuses legacy', () => {
+    const scope = scopeFor({ operatorPageRanges: [], totalPhysicalPages: 30 });
+    const cases = [
+      ['not_applicable_non_paginated', 'canonical_eligible', 'non_paginated_source'],
+      ['capture_failed', 'diagnostic_only', 'provenance_capture_failed'],
+      ['unknown', 'canonical_eligible', 'provenance_capture_unknown'],
+    ] as const;
+    for (const [captureState, eligibility, reason] of cases) {
+      expect(classifyPageEligibility({
+        scope,
+        coordinate: null,
+        sourceArtifact: SOURCE_ARTIFACT,
+        captureState,
+      })).toMatchObject({ eligibility, reason });
+    }
+  });
+
+  it('reports unavailable source identity separately from a real mismatch', () => {
+    const scope = scopeFor({
+      operatorPageRanges: [{ start: 5, end: 5 }],
+      totalPhysicalPages: 30,
+      pageCoordinates: resolvedPages([5]),
+    });
+    // Nothing disagrees here — the artifact binding was simply never recorded.
+    expect(classifyPageEligibility({
+      scope,
+      coordinate: resolvedPages([5])[0],
+      sourceArtifact: { id: '' as SourceArtifactId, source_document_id: 'doc' },
+      captureState: 'captured',
+    })).toMatchObject({
+      eligibility: 'diagnostic_only',
+      reason: 'provenance_source_identity_unavailable',
+    });
   });
 });
 

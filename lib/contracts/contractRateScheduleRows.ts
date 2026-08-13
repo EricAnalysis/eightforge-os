@@ -8,11 +8,14 @@ import {
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
+import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
 
-type ContractRateScheduleSourceEntry = {
+export type ContractRateScheduleSourceEntry = {
   id?: string | null;
   page?: number | null;
   text: string;
+  /** Carried for future scope resolution; not consulted by Phase 1 row assembly. */
+  physicalPageCoordinate?: PhysicalPageCoordinate | null;
 };
 
 type ExhibitATextRecoverySpec = {

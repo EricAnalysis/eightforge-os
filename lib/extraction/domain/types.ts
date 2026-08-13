@@ -1,5 +1,7 @@
 export type NonEmpty<T> = readonly [T, ...T[]];
 
+import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+
 declare const sourceArtifactIdBrand: unique symbol;
 declare const extractionRunIdBrand: unique symbol;
 declare const pageArtifactIdBrand: unique symbol;
@@ -89,6 +91,7 @@ export interface PageArtifact {
   readonly parser_manifest_hash: string;
   readonly parser: ParserIdentity;
   readonly status: 'processed' | 'blank_verified' | 'partial' | 'failed';
+  readonly physical_page_coordinate?: PhysicalPageCoordinate;
 }
 
 export type FragmentKind = 'token' | 'cell' | 'region' | 'layout_signal';
@@ -111,7 +114,20 @@ export interface SourceFragmentArtifact {
   readonly reading_order: number;
   readonly artifact_data?: Readonly<Record<string, unknown>>;
   readonly corroboration_kind?: 'independent_engine' | 'source_pixel_classifier';
+  readonly physical_page_coordinate?: PhysicalPageCoordinate;
 }
+
+/** Historical rows may predate provenance; every newly written v2 page must carry it. */
+export type ProvenanceRequiredPageArtifact = PageArtifact & Readonly<{
+  physical_page_coordinate: PhysicalPageCoordinate;
+}>;
+
+/** Historical rows may predate provenance; every newly written v2 fragment must carry it. */
+export type ProvenanceRequiredSourceFragmentArtifact<
+  T extends SourceFragmentArtifact = SourceFragmentArtifact,
+> = T & Readonly<{
+  physical_page_coordinate: PhysicalPageCoordinate;
+}>;
 
 export type TableValueKind =
   | 'free_text'

@@ -172,6 +172,33 @@ describe('documentExtraction pdf fallback gate', () => {
       pages: [{ page_number: 1 }],
       content_gaps: result?.content_gaps,
     });
+
+    const seed = {
+      physical_page_number: 3,
+      total_physical_pages: 9,
+      source_layer: 'pdf_page_render' as const,
+      artifact_local_index: 2,
+    };
+    const page = {
+      page_number: 3,
+      render_sha256: 'b'.repeat(64),
+      width: 100,
+      height: 100,
+      text_detected: false,
+      words: [],
+      physical_page_provenance: { state: 'iterated' as const, seed },
+    };
+    expect(mergeLocatedSidecars({ pages: [page] }, { pages: [page] }).pages[0])
+      .toMatchObject({ physical_page_provenance: { state: 'iterated', seed } });
+    expect(mergeLocatedSidecars({ pages: [page] }, {
+      pages: [{
+        ...page,
+        physical_page_provenance: {
+          state: 'iterated' as const,
+          seed: { ...seed, total_physical_pages: 10 },
+        },
+      }],
+    }).pages[0]?.physical_page_provenance).toEqual({ state: 'conflicting' });
   });
 
   it('uses pdf_text when meaningful native page text blocks the weak fallback gate', async () => {
@@ -227,6 +254,10 @@ describe('documentExtraction pdf fallback gate', () => {
       new TextEncoder().encode('not-a-real-pdf').buffer,
       'application/pdf',
       'meaningful-native-contract.pdf',
+      {
+        sourceArtifactId: '10000000-0000-4000-8000-000000000001',
+        sourceDocumentId: 'test-doc-gate',
+      },
     );
 
     expect(payload.extraction.mode).toBe('pdf_text');
@@ -238,6 +269,23 @@ describe('documentExtraction pdf fallback gate', () => {
       ocr_pages_attempted: 0,
       canonical_persisted: false,
     });
+    expect(payload.extraction.evidence_v1?.page_text).toEqual([
+      expect.objectContaining({
+        page_number: 1,
+        physical_page_coordinate: expect.objectContaining({
+          sourceDocumentId: 'test-doc-gate',
+          sourceArtifactId: '10000000-0000-4000-8000-000000000001',
+          physicalPageNumber: 1,
+          totalPhysicalPages: 2,
+          sourceLayer: 'pdf_native_text',
+          mappingState: 'resolved_physical_page',
+        }),
+      }),
+      expect.objectContaining({
+        page_number: 2,
+        physical_page_coordinate: expect.objectContaining({ physicalPageNumber: 2 }),
+      }),
+    ]);
   });
 
   it('keeps short valid native contract text on the pdf_text path when word-rich content is present', async () => {
@@ -481,6 +529,12 @@ describe('documentExtraction pdf fallback gate', () => {
           width: 200,
           height: 300,
           text_detected: true,
+          physical_page_provenance: { state: 'iterated', seed: {
+            physical_page_number: 1,
+            total_physical_pages: 2,
+            source_layer: 'pdf_page_render',
+            artifact_local_index: 0,
+          } },
           words: [{
             text: 'Recovered',
             confidence: 86,
@@ -493,6 +547,12 @@ describe('documentExtraction pdf fallback gate', () => {
           width: 200,
           height: 300,
           text_detected: true,
+          physical_page_provenance: { state: 'iterated', seed: {
+            physical_page_number: 2,
+            total_physical_pages: 2,
+            source_layer: 'pdf_page_render',
+            artifact_local_index: 1,
+          } },
           words: [],
         },
       ],

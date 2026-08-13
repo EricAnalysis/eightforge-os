@@ -67,6 +67,27 @@ describe('uploaded source artifact identity persistence', () => {
     });
   });
 
+  it('records processing-time identity with the same immutable byte binding', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        source_artifact_id: '30000000-0000-0000-0000-000000000001',
+        outcome: 'already_populated',
+      },
+      error: null,
+    });
+    await persistUploadedSourceArtifactIdentity({
+      ...input(rpc),
+      identityOrigin: 'processing',
+    });
+    expect(rpc).toHaveBeenCalledWith('record_extraction_source_artifact_identity', {
+      payload: expect.objectContaining({
+        source_sha256: expectedSha,
+        storage_object_version: 'object-1:v1',
+        identity_origin: 'processing',
+      }),
+    });
+  });
+
   it('returns a sanitized conflict without retaining provider details', async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: null,

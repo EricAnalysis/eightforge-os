@@ -12,7 +12,10 @@ import {
   type ContractPricingAssemblySourceScope,
   type ContractPricingSourceRowIdentity,
 } from '@/lib/contracts/contractPricingAssembly';
-import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
+import {
+  buildContractRateScheduleRows,
+  type ContractRateScheduleSourceEntry,
+} from '@/lib/contracts/contractRateScheduleRows';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
   CLAUSE_PATTERN_LIBRARY_VERSION_V1,
@@ -1168,16 +1171,27 @@ export function buildContractIntelligenceRateScheduleRows(
     pdfTables: asArray<PdfTable>(asRecord(asRecord(input.primaryDocument.content_layers?.pdf)?.tables)?.tables),
     rateSchedulePages,
     rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
-    sourceEntries: input.primaryDocument.evidence.map((evidence) => ({
-      id: evidence.id,
-      page: evidence.location.page ?? null,
-      text: evidenceText(evidence),
-    })),
+    sourceEntries: buildContractRateScheduleSourceEntries(input.primaryDocument.evidence),
     defaultAnchorIds: uniqueStrings([
       ...(input.primaryDocument.fact_map.rate_schedule_present?.evidence_refs ?? []),
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
   });
+}
+
+/**
+ * Preserves validated provenance at the pricing-source boundary. The rate-row
+ * assembler remains the sole consumer and does not consult the additive field.
+ */
+export function buildContractRateScheduleSourceEntries(
+  evidence: readonly EvidenceObject[],
+): ContractRateScheduleSourceEntry[] {
+  return evidence.map((entry) => ({
+    id: entry.id,
+    page: entry.location.page ?? null,
+    text: evidenceText(entry),
+    physicalPageCoordinate: entry.physical_page_coordinate ?? null,
+  }));
 }
 
 export function analyzeContractIntelligence(

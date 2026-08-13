@@ -3,6 +3,7 @@
 // No AI. Pure functions. Designed to be persisted inside extraction blobs.
 
 import { CONTRACT_FAILURE_MODES } from '@/lib/extraction/failureModes/contractFailureModes';
+import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
 
 export type EvidenceSourceMethod = 'pdf_text' | 'ocr' | 'text';
 
@@ -10,6 +11,9 @@ export type PageTextEvidence = {
   page_number: number; // 1-indexed
   text: string;
   source_method: EvidenceSourceMethod;
+  physical_page_coordinate?: PhysicalPageCoordinate;
+  /** True only for compatibility containers with no page-bound source span. */
+  physical_page_mapping_origin?: 'extractor_page' | 'synthetic_unlocated';
 };
 
 export type ContractStructuredFieldsV1 = {

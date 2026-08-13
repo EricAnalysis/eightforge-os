@@ -1,3 +1,5 @@
+import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+
 export type ExtractionGapSeverity = 'info' | 'warning' | 'critical';
 
 export interface ExtractionGap {
@@ -56,5 +58,7 @@ export interface EvidenceObject {
   weak: boolean;
   /** Always set at extraction ingest; also copied into metadata.source_document_id when metadata is present. */
   source_document_id: string;
+  /** Validated physical-page provenance when the persisted evidence supplies it. */
+  physical_page_coordinate?: PhysicalPageCoordinate;
   metadata?: Record<string, unknown>;
 }

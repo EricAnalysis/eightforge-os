@@ -188,7 +188,7 @@ async function setupProcessDocumentTest(params: SetupParams) {
     ? vi.fn(async () => null)
     : vi.fn()
         .mockResolvedValueOnce(storageVersions[0])
-        .mockResolvedValueOnce(storageVersions[1]);
+        .mockResolvedValue(storageVersions[1]);
   const publishExtractionComplianceShadowNonBlocking = params.pendingShadowPublisher
     ? vi.fn((input: Record<string, unknown>) => {
         void input;
@@ -330,7 +330,7 @@ describe('processDocument canonical persistence gating', () => {
           }),
         }),
       );
-      expect(spies.captureStorageObjectVersion).toHaveBeenCalledTimes(2);
+      expect(spies.captureStorageObjectVersion).toHaveBeenCalledTimes(3);
       expect(spies.publishExtractionComplianceShadowNonBlocking).toHaveBeenCalledWith(
         expect.objectContaining({ storageObjectVersion: 'object-1:version-1' }),
       );

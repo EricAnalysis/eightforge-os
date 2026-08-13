@@ -70,6 +70,7 @@ export async function persistUploadedSourceArtifactIdentity(params: {
   readonly storagePath: string;
   readonly storageObjectVersion: string | null;
   readonly mediaType: string | null;
+  readonly identityOrigin?: 'upload' | 'processing';
 }): Promise<UploadedSourceArtifactIdentityResult> {
   const sourceSha256 = sha256Hex(params.sourceBytes);
   const storageObjectVersion = params.storageObjectVersion?.trim() || null;
@@ -87,10 +88,13 @@ export async function persistUploadedSourceArtifactIdentity(params: {
     });
   }
 
-  const { data, error } = await params.admin.rpc(
-    'record_extraction_source_artifact_identity',
-    {
-      payload: {
+  let data: unknown;
+  let error: RpcError | null = null;
+  try {
+    const result = await params.admin.rpc(
+      'record_extraction_source_artifact_identity',
+      {
+        payload: {
         organization_id: params.organizationId,
         source_document_id: params.sourceDocumentId,
         source_sha256: sourceSha256,
@@ -99,10 +103,22 @@ export async function persistUploadedSourceArtifactIdentity(params: {
         storage_path: params.storagePath,
         media_type_sniffed: sniffExtractionMediaType(params.sourceBytes, params.mediaType),
         byte_length: params.sourceBytes.byteLength,
-        identity_origin: 'upload',
+        identity_origin: params.identityOrigin ?? 'upload',
+        },
       },
-    },
-  );
+    );
+    data = result.data;
+    error = result.error;
+  } catch {
+    return Object.freeze({
+      status: 'unavailable',
+      sourceArtifactId: null,
+      sourceSha256,
+      storageObjectVersion,
+      outcome: null,
+      failure: safeFailure(null),
+    });
+  }
 
   if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
     return Object.freeze({

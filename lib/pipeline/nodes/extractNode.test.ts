@@ -155,6 +155,146 @@ describe('extract node family routing', () => {
     });
   });
 
+  it('rehydrates persisted page provenance onto legacy and existing content-layer evidence', () => {
+    const persistedCoordinate = {
+      sourceDocumentId: 'doc-provenance',
+      sourceArtifactId: '00000000-0000-4000-8000-000000000123',
+      physicalPageNumber: 2,
+      sourceLayer: 'pdf_native_text',
+      artifactLocalIndex: 1,
+      mappingState: 'resolved_physical_page',
+      mappingBasis: 'extractor_iterated_physical_page',
+      legacyPageValue: null,
+      totalPhysicalPages: 4,
+    };
+    const result = extractNode({
+      documentId: 'doc-provenance',
+      documentType: 'contract',
+      documentName: 'contract.pdf',
+      documentTitle: 'Contract',
+      projectName: 'Proj',
+      extractionData: {
+        extraction: {
+          text_preview: 'Rate schedule',
+          physical_page_provenance_v1: {
+            source_artifact_id: persistedCoordinate.sourceArtifactId,
+            pages: [persistedCoordinate],
+          },
+          evidence_v1: {
+            page_text: [{
+              page_number: 2,
+              text: 'Rate schedule',
+              source_method: 'pdf_text',
+              physical_page_coordinate: persistedCoordinate,
+            }],
+          },
+          content_layers_v1: {
+            pdf: {
+              confidence: 0.9,
+              evidence: [{
+                id: 'pdf:text:2:1',
+                kind: 'text',
+                source_type: 'pdf',
+                source_document_id: 'doc-provenance',
+                description: 'Rate schedule',
+                text: 'Rate schedule',
+                location: { page: 2 },
+                confidence: 0.9,
+                weak: false,
+              }],
+              text: { confidence: 0.9, pages: [] },
+            },
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    expect(result.primaryDocument.evidence).toHaveLength(2);
+    expect(result.primaryDocument.evidence[0]?.physical_page_coordinate).toMatchObject({
+      mappingState: 'resolved_physical_page',
+      mappingBasis: 'inherited_from_proven_parent',
+      physicalPageNumber: 2,
+      sourceDocumentId: 'doc-provenance',
+      sourceArtifactId: '00000000-0000-4000-8000-000000000123',
+    });
+    expect(result.primaryDocument.evidence[1]?.physical_page_coordinate).toMatchObject({
+      mappingState: 'resolved_physical_page',
+      mappingBasis: 'extractor_iterated_physical_page',
+      physicalPageNumber: 2,
+    });
+  });
+
+  it('does not restore resolved proof from a persisted coordinate bound to another document', () => {
+    const forgedCoordinate = {
+      sourceDocumentId: 'other-document',
+      sourceArtifactId: '00000000-0000-4000-8000-000000000123',
+      physicalPageNumber: 2,
+      sourceLayer: 'pdf_native_text',
+      artifactLocalIndex: 1,
+      mappingState: 'resolved_physical_page',
+      mappingBasis: 'extractor_iterated_physical_page',
+      legacyPageValue: null,
+      totalPhysicalPages: 4,
+    };
+    const result = extractNode({
+      documentId: 'doc-provenance',
+      documentType: 'contract',
+      documentName: 'contract.pdf',
+      documentTitle: 'Contract',
+      projectName: 'Proj',
+      extractionData: {
+        extraction: {
+          physical_page_provenance_v1: {
+            source_artifact_id: forgedCoordinate.sourceArtifactId,
+            pages: [forgedCoordinate],
+          },
+          evidence_v1: {
+            page_text: [{
+              page_number: 2,
+              text: 'Rate schedule',
+              source_method: 'pdf_text',
+              physical_page_coordinate: forgedCoordinate,
+            }],
+          },
+        },
+      },
+      relatedDocs: [],
+    });
+
+    expect(result.primaryDocument.evidence[0]?.physical_page_coordinate).toMatchObject({
+      mappingState: 'unresolved_physical_page',
+      physicalPageNumber: null,
+      sourceDocumentId: 'doc-provenance',
+    });
+  });
+
+  it('does not conceal rejected required provenance as historical legacy evidence', () => {
+    expect(() => extractNode({
+      documentId: 'doc-provenance',
+      documentType: 'contract',
+      documentName: 'contract.pdf',
+      documentTitle: 'Contract',
+      projectName: 'Proj',
+      extractionData: {
+        extraction: {
+          physical_page_provenance_v1: {
+            source_artifact_id: '00000000-0000-4000-8000-000000000123',
+            pages: [],
+          },
+          evidence_v1: {
+            page_text: [{
+              page_number: 2,
+              text: 'Rate schedule',
+              physical_page_coordinate: { mappingState: 'resolved_physical_page' },
+            }],
+          },
+        },
+      },
+      relatedDocs: [],
+    })).toThrow('Rejected required physical-page provenance: missing_required_field');
+  });
+
   it('treats explicit transaction_data spreadsheets as spreadsheet-family documents', () => {
     const result = extractNode({
       documentId: 'doc-4',

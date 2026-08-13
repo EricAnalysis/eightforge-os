@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 
 import {
   analyzeContractIntelligence,
   buildContractIntelligenceRateScheduleRows,
+  buildContractRateScheduleSourceEntries,
   buildContractPricingSelectedCategoryOverrides,
 } from '@/lib/contracts/analyzeContractIntelligence';
 import {
@@ -12,8 +14,87 @@ import {
 } from '@/lib/contracts/contractPricingAssembly';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
+import { physicalPageFromExtractorIteration } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 
 describe('contract pricing authored correction provenance', () => {
+  it('keeps pricing scope resolution unwired from contract intelligence', () => {
+    const source = readFileSync('lib/contracts/analyzeContractIntelligence.ts', 'utf8');
+    expect(source).not.toContain("from '@/lib/contracts/pricingSourceScope'");
+    expect(source).not.toMatch(/\bresolvePricingSourceScope\s*\(/);
+    expect(source).not.toMatch(/\bclassifyPageEligibility\s*\(/);
+  });
+
+  it('carries page provenance to source entries without changing pricing output or order', () => {
+    const coordinate = physicalPageFromExtractorIteration({
+      sourceArtifact: {
+        id: opaqueIds.existingSourceArtifact('00000000-0000-4000-8000-000000000123'),
+        source_document_id: 'contract-doc',
+      },
+      physicalPageNumber: 3,
+      totalPhysicalPages: 5,
+      sourceLayer: 'pdf_native_text',
+      artifactLocalIndex: 2,
+    });
+    const baseEvidence = {
+      id: 'contract-doc:legacy:text:3',
+      kind: 'text' as const,
+      source_type: 'pdf' as const,
+      description: 'Rate schedule source',
+      text: 'Hauling service | Cubic Yard | $14.00',
+      location: { page: 3 },
+      confidence: 0.9,
+      weak: false,
+      source_document_id: 'contract-doc',
+    };
+    const withoutProvenance = buildContractRateScheduleSourceEntries([baseEvidence]);
+    const withProvenance = buildContractRateScheduleSourceEntries([{
+      ...baseEvidence,
+      physical_page_coordinate: coordinate,
+    }]);
+
+    expect(withProvenance).toEqual([{
+      id: baseEvidence.id,
+      page: 3,
+      text: `${baseEvidence.text} ${baseEvidence.description}`,
+      physicalPageCoordinate: coordinate,
+    }]);
+    expect(withoutProvenance.map(({ physicalPageCoordinate: _coordinate, ...entry }) => entry))
+      .toEqual(withProvenance.map(({ physicalPageCoordinate: _coordinate, ...entry }) => entry));
+
+    const document = {
+      document_id: 'contract-doc',
+      document_type: 'contract',
+      document_name: 'contract.pdf',
+      document_title: 'Contract',
+      family: 'contract',
+      is_primary: true,
+      extraction_data: null,
+      typed_fields: { rate_table: [] },
+      structured_fields: {},
+      section_signals: { rate_section_pages: [3] },
+      text_preview: baseEvidence.text,
+      evidence: [baseEvidence],
+      gaps: [],
+      confidence: 0.9,
+      content_layers: null,
+      extracted_record: {},
+      facts: [],
+      fact_map: {},
+    } satisfies NormalizedNodeDocument;
+    const baseline = buildContractIntelligenceRateScheduleRows({ primaryDocument: document });
+    const threaded = buildContractIntelligenceRateScheduleRows({
+      primaryDocument: {
+        ...document,
+        evidence: [{ ...baseEvidence, physical_page_coordinate: coordinate }],
+      },
+    });
+
+    expect(threaded).toEqual(baseline);
+    expect(threaded).toHaveLength(baseline.length);
+    expect(threaded.map((row) => row.row_id)).toEqual(baseline.map((row) => row.row_id));
+  });
+
   it('retains an analyzer-rescued category in the single coordinated selected view', () => {
     const structuralRow: ContractRateScheduleRow = {
       row_id: 'synthetic-tree-rescue-row',

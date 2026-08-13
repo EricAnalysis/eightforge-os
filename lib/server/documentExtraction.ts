@@ -60,6 +60,13 @@ import {
   attachLocatedOcrObservations,
   type LocatedOcrObservationSidecar,
 } from '@/lib/extraction/ocrObservationSidecar';
+import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
+import {
+  conflictingPhysicalPageCoordinate,
+  physicalPageFromExtractorIteration,
+  unresolvedPhysicalPageCoordinate,
+  type PhysicalPageCoordinate,
+} from '@/lib/extraction/provenance/physicalPageCoordinate';
 import {
   scheduleGenericContentExtraction,
   type GenericRegion,
@@ -148,6 +155,11 @@ export type DocumentMetadata = {
   storage_path: string;
 };
 
+export type ExtractionProvenanceContext = {
+  readonly sourceArtifactId: string;
+  readonly sourceDocumentId: string;
+};
+
 export type ExtractionPayload = {
   status: string;
   source: string;
@@ -170,6 +182,11 @@ export type ExtractionPayload = {
     parsed_elements_v1?: ParsedElementsV1;
     ai_assist_v1?: InstructorAssistSnapshot;
     metadata?: Record<string, unknown>;
+    physical_page_provenance_v1?: {
+      readonly source_artifact_id: string | null;
+      readonly total_physical_pages: number | null;
+      readonly pages: readonly PhysicalPageCoordinate[];
+    };
   };
   fields: {
     detected_document_type: string | null;
@@ -873,6 +890,7 @@ type PdfOcrExtractionResult = {
   geometryPages: OcrGeometryPage[];
   pagesAttempted: number;
   confidenceAvg: number | null;
+  totalPhysicalPages: number | null;
   pageImages?: Array<{
     page_number: number;
     png_buffer: Buffer;
@@ -942,6 +960,7 @@ async function extractPdfPageTextViaOcr(
     geometryPages: [],
     pagesAttempted: 0,
     confidenceAvg: null,
+    totalPhysicalPages: null,
   };
 
   try {
@@ -1034,6 +1053,7 @@ async function extractPdfPageTextViaOcr(
             ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
             : null,
         pageImages,
+        totalPhysicalPages: pdfDoc.numPages,
       };
     } finally {
       await worker.terminate();
@@ -1049,6 +1069,7 @@ async function extractPdfPageTextViaOcr(
 function buildLocatedOcrObservationSidecar(
   pageImages: NonNullable<PdfOcrExtractionResult['pageImages']>,
   geometryPages: readonly OcrGeometryPage[],
+  totalPhysicalPages: number | null,
 ): LocatedOcrObservationSidecar {
   const geometryByPage = new Map(
     geometryPages.map((page) => [page.page_number, page] as const),
@@ -1067,6 +1088,14 @@ function buildLocatedOcrObservationSidecar(
         height: page.height,
         text_detected: page.text_detected,
         words: geometryByPage.get(page.page_number)?.words ?? [],
+        physical_page_provenance: totalPhysicalPages != null
+          ? { state: 'iterated' as const, seed: {
+              physical_page_number: page.page_number,
+              total_physical_pages: totalPhysicalPages,
+              source_layer: 'pdf_page_render' as const,
+              artifact_local_index: page.page_number - 1,
+            } }
+          : undefined,
       })),
   };
 }
@@ -1156,6 +1185,7 @@ export async function buildGenericPdfShadowSidecar(
     const located = buildLocatedOcrObservationSidecar(
       ocr.pageImages ?? [],
       ocr.geometryPages,
+      ocr.totalPhysicalPages,
     );
     const imageByPage = new Map(
       (ocr.pageImages ?? []).map((page) => [page.page_number, page] as const),
@@ -1205,6 +1235,12 @@ export async function buildGenericPdfShadowSidecar(
         words,
         engine: 'native' as const,
         parser: nativeParser,
+        physical_page_provenance: { state: 'iterated' as const, seed: {
+          physical_page_number: page.page_number,
+          total_physical_pages: nativeLayout.page_count,
+          source_layer: 'pdf_native_text' as const,
+          artifact_local_index: page.page_number - 1,
+        } },
       }];
     });
     const ocrEnginePages = located.pages
@@ -1213,6 +1249,12 @@ export async function buildGenericPdfShadowSidecar(
         ...page,
         engine: 'ocr' as const,
         parser: ocrParser,
+        physical_page_provenance: { state: 'iterated' as const, seed: {
+          physical_page_number: page.page_number,
+          total_physical_pages: nativeLayout.page_count,
+          source_layer: 'ocr' as const,
+          artifact_local_index: page.page_number - 1,
+        } },
       }));
     return {
       pages: located.pages,
@@ -1243,6 +1285,7 @@ export function mergeLocatedSidecars(
   legacy: LocatedOcrObservationSidecar,
 ): LocatedOcrObservationSidecar {
   const byPage = new Map<number, LocatedOcrObservationSidecar['pages'][number]>();
+  const conflictedPages = new Set<number>();
   for (const page of generic?.pages ?? []) byPage.set(page.page_number, page);
   for (const page of legacy.pages) {
     const existing = byPage.get(page.page_number);
@@ -1251,6 +1294,11 @@ export function mergeLocatedSidecars(
       continue;
     }
     const words = [...existing.words];
+    const seedsAgree = hashCanonical(existing.physical_page_provenance ?? null)
+      === hashCanonical(page.physical_page_provenance ?? null);
+    if (existing.physical_page_provenance && page.physical_page_provenance && !seedsAgree) {
+      conflictedPages.add(page.page_number);
+    }
     const seen = new Set(words.map((word) => hashCanonical({
       text: word.text,
       bbox: word.bbox,
@@ -1266,6 +1314,9 @@ export function mergeLocatedSidecars(
       ...existing,
       text_detected: existing.text_detected || page.text_detected,
       words,
+      physical_page_provenance: conflictedPages.has(page.page_number)
+        ? { state: 'conflicting' }
+        : existing.physical_page_provenance ?? page.physical_page_provenance,
     });
   }
   return {
@@ -1273,7 +1324,9 @@ export function mergeLocatedSidecars(
     engine_pages: [
       ...(generic?.engine_pages ?? []),
       ...(legacy.engine_pages ?? []),
-    ],
+    ].map((page) => conflictedPages.has(page.page_number)
+      ? { ...page, physical_page_provenance: { state: 'conflicting' as const } }
+      : page),
     content_analysis: generic?.content_analysis,
     content_gaps: generic?.content_gaps,
   };
@@ -1518,7 +1571,8 @@ export async function extractDocument(
   metadata: DocumentMetadata,
   fileBytes: ArrayBuffer,
   mimeType: string | null,
-  fileName: string
+  fileName: string,
+  provenanceContext?: ExtractionProvenanceContext | null,
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
   const contractDebugEnabled = process.env.EIGHTFORGE_DEBUG_CONTRACT === '1';
@@ -1616,12 +1670,94 @@ export async function extractDocument(
     let ocrTriggerReason: string | null = null;
     let ocrGeometryPages: OcrGeometryPage[] = [];
     let ocrPageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
+    let parserPhysicalPageCount: number | null = null;
+    let parserPhysicalPageCountConflicted = false;
+    const observePhysicalPageCount = (value: number | null) => {
+      if (value == null || !Number.isSafeInteger(value) || value <= 0) return;
+      if (parserPhysicalPageCount == null) parserPhysicalPageCount = value;
+      else if (parserPhysicalPageCount !== value) parserPhysicalPageCountConflicted = true;
+    };
     const withLocatedOcrObservations = (
       payload: ExtractionPayload,
-    ): ExtractionPayload => attachLocatedOcrObservations(
-      payload,
-      buildLocatedOcrObservationSidecar(ocrPageImages, ocrGeometryPages),
-    );
+    ): ExtractionPayload => {
+      const sidecar = buildLocatedOcrObservationSidecar(
+        ocrPageImages,
+        ocrGeometryPages,
+        parserPhysicalPageCount,
+      );
+      const provenanceSidecar = parserPhysicalPageCountConflicted
+        ? {
+            ...sidecar,
+            pages: sidecar.pages.map((page) => ({
+              ...page,
+              physical_page_provenance: { state: 'conflicting' as const },
+            })),
+          }
+        : sidecar;
+      const sourceArtifact = provenanceContext
+        && provenanceContext.sourceDocumentId === metadata.id
+        ? {
+            id: opaqueIds.existingSourceArtifact(provenanceContext.sourceArtifactId),
+            source_document_id: provenanceContext.sourceDocumentId,
+          }
+        : null;
+      const nativeIteratedPages = new Set(pdfLayout.pages.map((page) => page.page_number));
+      const ocrIteratedPages = new Set(ocrPageImages.map((page) => page.page_number));
+      const pageCoordinate = (pageNumber: number, sourceLayer: 'pdf_native_text' | 'ocr') =>
+        parserPhysicalPageCountConflicted
+          ? conflictingPhysicalPageCoordinate({
+              sourceDocumentId: metadata.id,
+              sourceArtifactId: sourceArtifact?.id ?? null,
+              sourceLayer,
+              artifactLocalIndex: pageNumber - 1,
+            })
+          : sourceArtifact
+              && parserPhysicalPageCount != null
+              && (sourceLayer === 'ocr'
+                ? ocrIteratedPages.has(pageNumber)
+                : nativeIteratedPages.has(pageNumber))
+          ? physicalPageFromExtractorIteration({
+              sourceArtifact,
+              physicalPageNumber: pageNumber,
+              totalPhysicalPages: parserPhysicalPageCount,
+              sourceLayer,
+              artifactLocalIndex: pageNumber - 1,
+            })
+          : unresolvedPhysicalPageCoordinate({
+              sourceDocumentId: metadata.id,
+              sourceArtifactId: sourceArtifact?.id ?? null,
+              sourceLayer,
+              artifactLocalIndex: pageNumber - 1,
+            });
+      const evidence = payload.extraction.evidence_v1;
+      if (evidence) {
+        evidence.page_text = evidence.page_text.map((page) => ({
+          ...page,
+          physical_page_coordinate:
+            page.physical_page_mapping_origin === 'synthetic_unlocated'
+              ? unresolvedPhysicalPageCoordinate({
+                  sourceDocumentId: metadata.id,
+                  sourceArtifactId: sourceArtifact?.id ?? null,
+                  sourceLayer: page.source_method === 'ocr' ? 'ocr' : 'pdf_native_text',
+                })
+              : pageCoordinate(
+                  page.page_number,
+                  page.source_method === 'ocr' ? 'ocr' : 'pdf_native_text',
+                ),
+        }));
+      }
+      const provenancePages = evidence?.page_text.map(
+        (page) => page.physical_page_coordinate,
+      ).filter((coordinate): coordinate is PhysicalPageCoordinate => coordinate != null) ?? [];
+      payload.extraction.physical_page_provenance_v1 = {
+        source_artifact_id: sourceArtifact?.id ?? null,
+        total_physical_pages: parserPhysicalPageCountConflicted
+          ? null
+          : parserPhysicalPageCount,
+        pages: provenancePages,
+      };
+      return attachLocatedOcrObservations(payload, provenanceSidecar);
+    };
     const pdfParsePartialLength: number | null = null;
     const partialWeak: boolean | null = null;
     let fallbackReason: string | null = null;
@@ -1638,6 +1774,7 @@ export async function extractDocument(
     const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
       maxPages: MAX_EVIDENCE_PAGES,
     });
+    observePhysicalPageCount(pdfLayout.page_count);
     const pdfGateTextLayer = buildPdfTextExtraction({
       layout: pdfLayout,
       fallbackText: null,
@@ -1712,6 +1849,7 @@ export async function extractDocument(
       });
 
       const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
+      observePhysicalPageCount(ocrResult.totalPhysicalPages);
       const ocrPages = ocrResult.pages;
       ocrGeometryPages = ocrResult.geometryPages;
       ocrPageImages = ocrResult.pageImages ?? [];
@@ -1767,6 +1905,7 @@ export async function extractDocument(
         const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
           pageNumbers: weakFrontPages,
         });
+        observePhysicalPageCount(ocrResult.totalPhysicalPages);
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
         ocrPageImages = [
@@ -1813,6 +1952,7 @@ export async function extractDocument(
         const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
           pageNumbers: [1, 2, 8, 9, 10, 11],
         });
+        observePhysicalPageCount(ocrResult.totalPhysicalPages);
         const ocrPages = ocrResult.pages;
         ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
         ocrPageImages = [
@@ -2111,6 +2251,7 @@ export async function extractDocument(
                 page_number: 1,
                 text: textPreview,
                 source_method: extractionMode === 'pdf_text' ? 'pdf_text' : 'ocr',
+                physical_page_mapping_origin: 'synthetic_unlocated',
               } as PageTextEvidence]
             : [];
       payload.extraction.evidence_v1 = buildEvidenceV1({

@@ -310,6 +310,12 @@ export interface ContractAnalysisResult {
   rate_schedule_rows?: ContractRateScheduleRow[];
   /** Deterministic Phase 3A pricing-source scope and observation classifications. */
   pricing_source_eligibility?: PricingSourceEligibilityDiagnostics;
+  /** Non-blocking comparison when persisted and independently reconstructed modern rows coexist. */
+  pricing_reconstruction_parity?: {
+    status: 'match' | 'mismatch';
+    persisted_row_count: number;
+    reconstructed_row_count: number;
+  };
   clause_patterns_detected: DetectedClausePattern[];
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];

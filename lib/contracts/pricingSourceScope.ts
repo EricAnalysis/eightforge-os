@@ -229,7 +229,12 @@ export function resolvePricingSourceScope(
   input: PricingSourceScopeInput,
 ): PricingSourceScopeResult {
   const machinePages = normalizePageList(input.machineDetectedPages);
-  const ranges: readonly unknown[] = [...(input.operatorPageRanges ?? [])];
+  const rawRanges: unknown = input.operatorPageRanges;
+  const ranges: readonly unknown[] = rawRanges == null
+    ? []
+    : Array.isArray(rawRanges)
+      ? rawRanges
+      : [null];
 
   if (ranges.length === 0) {
     return freezeResult({

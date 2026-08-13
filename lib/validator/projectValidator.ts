@@ -1,5 +1,6 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { rehydratePhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import { resolveProvenanceCaptureState } from '@/lib/extraction/provenance/provenanceCaptureState';
 import {
   analyzeContractIntelligence,
   buildContractPricingSelectedCategoryOverrides,
@@ -265,6 +266,7 @@ type BlobExtractionData = Record<string, unknown> & {
       page_text?: Array<{
         page_number?: number | null;
         text?: string | null;
+        physical_page_coordinate?: unknown;
       }> | null;
     };
   };
@@ -770,9 +772,9 @@ function syntheticEvidenceFromLegacyExtraction(
   legacyData: BlobExtractionData,
 ): EvidenceObject[] {
   const pageText = legacyData.extraction?.evidence_v1?.page_text ?? [];
-  const provenanceContainer = asRecord(
-    asRecord(legacyData.extraction)?.physical_page_provenance_v1,
-  );
+  const rawProvenanceContainer = asRecord(legacyData.extraction)?.physical_page_provenance_v1;
+  const captureState = resolveProvenanceCaptureState(rawProvenanceContainer);
+  const provenanceContainer = asRecord(rawProvenanceContainer);
   const sourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
     ? provenanceContainer.source_artifact_id.trim()
     : '';
@@ -789,13 +791,14 @@ function syntheticEvidenceFromLegacyExtraction(
     // classifier reports unavailable identity rather than inventing a binding.
     const rehydrated = sourceArtifactId.length > 0 && pageNumber != null
       ? rehydratePhysicalPageCoordinate(
-          (entry as { physical_page_coordinate?: unknown }).physical_page_coordinate ?? null,
+          entry.physical_page_coordinate ?? null,
           {
             sourceDocumentId: documentId,
             sourceArtifactId,
             page: pageNumber,
-            requiresProvenance: false,
+            requiresProvenance: captureState === 'captured',
             fallbackSourceLayer: 'legacy',
+            artifactLocalIndex: pageNumber - 1,
           },
         )
       : null;

@@ -1604,6 +1604,20 @@ export async function extractDocument(
     };
     return attachLocatedOcrObservations(payload, { pages: [] });
   };
+  const withUnsupportedPageTopology = (
+    payload: ExtractionPayload,
+  ): ExtractionPayload => {
+    payload.extraction.physical_page_provenance_v1 = {
+      capture_state: 'capture_failed',
+      source_artifact_id: provenanceContext
+        && provenanceContext.sourceDocumentId === metadata.id
+        ? provenanceContext.sourceArtifactId
+        : null,
+      total_physical_pages: null,
+      pages: [],
+    };
+    return attachLocatedOcrObservations(payload, { pages: [] });
+  };
 
   if (isTextLike(fileName, mimeType)) {
     const fullDecoded = decodeTextPreview(fileBytes);
@@ -2591,5 +2605,5 @@ export async function extractDocument(
   const payload = buildBase(metadata, 'binary_fallback', null);
   payload.file.mime_type = mimeType;
   payload.file.size_bytes = size;
-  return withoutLocatedOcrObservations(payload);
+  return withUnsupportedPageTopology(payload);
 }

@@ -19,8 +19,9 @@ export type ProvenanceCaptureState =
    */
   | 'not_applicable_non_paginated'
   /**
-   * Paginated source whose page proof could not be established this run
-   * (conflicting parser page counts, unknown page count, or unbound artifact).
+   * Source whose physical-page topology or page proof could not be established
+   * this run (unsupported binary topology, conflicting parser page counts,
+   * unknown page count, or unbound artifact).
    * Fail-closed: this is an absence of proof, never a grant of compatibility.
    */
   | 'capture_failed'
@@ -64,10 +65,13 @@ export function isProvenanceCaptureState(
  *   corrupted record fails closed instead of inheriting a permissive default.
  */
 export function resolveProvenanceCaptureState(
-  container: Readonly<Record<string, unknown>> | null | undefined,
+  container: unknown,
 ): ResolvedProvenanceCaptureState {
-  if (container == null) return 'unknown';
-  const declared = container.capture_state;
+  if (container === undefined) return 'unknown';
+  if (typeof container !== 'object' || container == null || Array.isArray(container)) {
+    return 'capture_failed';
+  }
+  const declared = (container as Readonly<Record<string, unknown>>).capture_state;
   if (isProvenanceCaptureState(declared)) return declared;
   return 'capture_failed';
 }

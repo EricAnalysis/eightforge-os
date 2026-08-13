@@ -390,6 +390,7 @@ export type PricingCanonicalOutcome =
   | 'zero_rows_scope_blocked'
   | 'zero_rows_all_observations_out_of_scope'
   | 'zero_rows_provenance_unproven'
+  | 'zero_rows_no_assembled_rows'
   | 'zero_rows_capture_failed'
   | 'zero_rows_no_observations';
 
@@ -416,18 +417,29 @@ export type PricingSourceEligibilityDiagnostics = Readonly<{
 export function resolvePricingCanonicalOutcome(params: {
   readonly captureState: ResolvedProvenanceCaptureState;
   readonly scope: PricingSourceScopeResult;
-  readonly observationCount: number;
-  readonly canonicalEligibleCount: number;
+  readonly observationReasons: readonly PricingPageEligibilityReason[];
   readonly rowCount: number;
 }): PricingCanonicalOutcome {
   if (params.rowCount > 0) return 'canonical_rows_present';
   if (params.captureState === 'capture_failed') return 'zero_rows_capture_failed';
-  if (params.observationCount === 0) return 'zero_rows_no_observations';
+  if (params.observationReasons.length === 0) return 'zero_rows_no_observations';
   if (params.scope.kind === 'blocked') return 'zero_rows_scope_blocked';
   if (params.scope.kind === 'no_scope') return 'zero_rows_scope_absent';
   if (params.scope.kind === 'provisional') return 'zero_rows_scope_provisional';
-  if (params.canonicalEligibleCount > 0) return 'zero_rows_all_observations_out_of_scope';
-  return 'zero_rows_provenance_unproven';
+  if (params.observationReasons.every((reason) => reason === 'authoritative_scope_miss')) {
+    return 'zero_rows_all_observations_out_of_scope';
+  }
+  const provenanceFailureReasons = new Set<PricingPageEligibilityReason>([
+    'provenance_unresolved',
+    'provenance_conflict',
+    'provenance_source_mismatch',
+    'provenance_source_identity_unavailable',
+    'provenance_capture_failed',
+  ]);
+  if (params.observationReasons.some((reason) => provenanceFailureReasons.has(reason))) {
+    return 'zero_rows_provenance_unproven';
+  }
+  return 'zero_rows_no_assembled_rows';
 }
 
 /**

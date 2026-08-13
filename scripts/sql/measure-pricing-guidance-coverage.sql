@@ -32,18 +32,91 @@ WITH pricing_documents AS (
   FROM public.documents d
   WHERE LOWER(COALESCE(d.document_type, '')) IN ('contract', 'price_sheet', 'price sheet')
 ),
-extraction_blob AS (
-  -- Mirrors loadLegacyExtractionRows + pickPreferredExtractionBlob: the
-  -- whole-document blob rows (field_key IS NULL), newest first, preferring the
-  -- first row that actually carries extraction data.
-  SELECT DISTINCT ON (de.document_id)
+extraction_candidates AS (
+  -- SQL equivalent of hasUsableExtractionBlobData. Keep this predicate in lockstep
+  -- with lib/blobExtractionSelection.ts; selection correctness is part of the
+  -- measurement, not merely an optimization.
+  SELECT
     de.document_id,
-    de.data #> '{extraction,physical_page_provenance_v1}' AS provenance_container
+    de.data,
+    de.created_at,
+    (
+      COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,content_layers_v1,pdf,text,pages}',
+        'strict $[*].text ? (@.type() == "string" && @ like_regex "\\S")',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,content_layers_v1,pdf,text,pages}',
+        'strict $[*].plain_text_blocks[*].text ? (@.type() == "string" && @ like_regex "\\S")',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR CASE
+        WHEN jsonb_typeof(de.data #> '{extraction,content_layers_v1,pdf,evidence}') = 'array'
+          THEN jsonb_array_length(de.data #> '{extraction,content_layers_v1,pdf,evidence}') > 0
+        ELSE false
+      END
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,text_preview}',
+        'strict $ ? (@.type() == "string" && @ like_regex "\\S")',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,evidence_v1,page_text}',
+        'strict $[*].text ? (@.type() == "string" && @ like_regex "\\S")',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{fields,typed_fields}',
+        'strict $.** ? ((@.type() == "string" && @ like_regex "\\S") || @.type() == "number" || (@.type() == "boolean" && @ == true))',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,evidence_v1,structured_fields}',
+        'strict $.** ? ((@.type() == "string" && @ like_regex "\\S") || @.type() == "number" || (@.type() == "boolean" && @ == true))',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR COALESCE(jsonb_path_exists(
+        de.data #> '{extraction,evidence_v1,section_signals}',
+        'strict $.** ? ((@.type() == "string" && @ like_regex "\\S") || (@.type() == "number" && @ > 0) || (@.type() == "boolean" && @ == true))',
+        '{}'::jsonb,
+        true
+      ), false)
+      OR CASE WHEN jsonb_typeof(de.data #> '{fields,rate_mentions}') = 'array'
+        THEN jsonb_array_length(de.data #> '{fields,rate_mentions}') > 0 ELSE false END
+      OR CASE WHEN jsonb_typeof(de.data #> '{fields,material_mentions}') = 'array'
+        THEN jsonb_array_length(de.data #> '{fields,material_mentions}') > 0 ELSE false END
+      OR CASE WHEN jsonb_typeof(de.data #> '{fields,scope_mentions}') = 'array'
+        THEN jsonb_array_length(de.data #> '{fields,scope_mentions}') > 0 ELSE false END
+      OR CASE WHEN jsonb_typeof(de.data #> '{fields,compliance_mentions}') = 'array'
+        THEN jsonb_array_length(de.data #> '{fields,compliance_mentions}') > 0 ELSE false END
+      OR CASE WHEN jsonb_typeof(de.data #> '{fields,detected_keywords}') = 'array'
+        THEN jsonb_array_length(de.data #> '{fields,detected_keywords}') > 0 ELSE false END
+    ) AS is_usable
   FROM public.document_extractions de
   WHERE de.field_key IS NULL
+),
+extraction_blob AS (
+  -- Mirrors newest-first pickPreferredExtractionBlob: first usable row, falling
+  -- back to the newest row only when no candidate contains usable extraction data.
+  SELECT DISTINCT ON (de.document_id)
+    de.document_id,
+    de.data,
+    jsonb_typeof(de.data) = 'object'
+      AND jsonb_typeof(de.data -> 'extraction') = 'object'
+      AND (de.data -> 'extraction') ? 'physical_page_provenance_v1'
+      AS provenance_container_present,
+    de.data #> '{extraction,physical_page_provenance_v1}' AS provenance_container
+  FROM extraction_candidates de
   ORDER BY
     de.document_id,
-    (de.data #> '{extraction}') IS NOT NULL DESC,
+    de.is_usable DESC,
     de.created_at DESC
 ),
 guidance AS (
@@ -62,15 +135,21 @@ classified AS (
     COALESCE(gu.range_count, 0) > 0 AS has_guidance,
     eb.provenance_container,
     CASE
-      WHEN eb.provenance_container IS NULL THEN
+      WHEN NOT COALESCE(eb.provenance_container_present, false) THEN
         CASE WHEN p.file_ext IN ('pdf') THEN 'absent_container_paginated'
              WHEN p.file_ext IN ('xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'txt', 'md')
                THEN 'absent_container_non_paginated'
              ELSE 'absent_container_unknown_topology' END
-      WHEN eb.provenance_container ->> 'capture_state' IS NOT NULL
+      WHEN jsonb_typeof(eb.provenance_container) = 'object'
+        AND jsonb_typeof(eb.provenance_container -> 'capture_state') = 'string'
+        AND eb.provenance_container ->> 'capture_state' IN (
+          'captured',
+          'not_applicable_non_paginated',
+          'capture_failed',
+          'legacy_pre_provenance'
+        )
         THEN 'declared_' || (eb.provenance_container ->> 'capture_state')
-      -- Pre-declaration container: written only by the paginated PDF path.
-      ELSE 'undeclared_container_paginated'
+      ELSE 'declared_capture_failed'
     END AS topology_bucket
   FROM pricing_documents p
   LEFT JOIN extraction_blob eb ON eb.document_id = p.id
@@ -93,7 +172,7 @@ ORDER BY documents DESC;
 -- The five numbers requested map to buckets above:
 --
 --   modern provenance-aware pricing documents
---     = declared_captured + undeclared_container_paginated
+--     = declared_captured
 --   modern docs WITH non-empty operator guidance
 --     = the `with_operator_guidance` column of those buckets
 --   modern docs WITHOUT guidance
@@ -105,6 +184,8 @@ ORDER BY documents DESC;
 --       emits it and no durable marker exists — see the backfill question below)
 --   non-paginated pricing documents
 --     = declared_not_applicable_non_paginated + absent_container_non_paginated
+--   malformed or undeclared present containers
+--     = declared_capture_failed  (matches the runtime fail-closed parser)
 --
 -- BACKFILL DECISION INPUT
 -- `absent_container_paginated` is the ambiguous set: paginated sources with no

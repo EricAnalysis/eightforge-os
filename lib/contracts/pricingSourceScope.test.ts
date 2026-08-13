@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyPageEligibility,
+  resolvePricingCanonicalOutcome,
   resolvePricingSourceScope,
   type PricingSourceScopeInput,
 } from './pricingSourceScope';
@@ -514,5 +515,46 @@ describe('pricing source scope — regression fixture shapes', () => {
     });
     expect(result.kind).toBe('blocked');
     expect(result.blockedReason).toBe('operator_range_out_of_bounds');
+  });
+});
+
+describe('pricing canonical zero-row outcomes', () => {
+  const authoritativeScope = resolvePricingSourceScope({
+    sourceArtifact: SOURCE_ARTIFACT,
+    operatorPageRanges: [{ start: 5, end: 5 }],
+    totalPhysicalPages: 10,
+    pageCoordinates: resolvedPages([5]),
+  });
+
+  it('reports all observations out of scope only when every reason is a proven miss', () => {
+    expect(resolvePricingCanonicalOutcome({
+      captureState: 'captured',
+      scope: authoritativeScope,
+      observationReasons: ['authoritative_scope_miss', 'authoritative_scope_miss'],
+      rowCount: 0,
+    })).toBe('zero_rows_all_observations_out_of_scope');
+  });
+
+  it('reports unproven provenance for pure and mixed provenance failures', () => {
+    for (const observationReasons of [
+      ['provenance_unresolved'],
+      ['authoritative_scope_miss', 'provenance_source_identity_unavailable'],
+    ] as const) {
+      expect(resolvePricingCanonicalOutcome({
+        captureState: 'captured',
+        scope: authoritativeScope,
+        observationReasons,
+        rowCount: 0,
+      })).toBe('zero_rows_provenance_unproven');
+    }
+  });
+
+  it('does not mislabel eligible proof that assembled no canonical row', () => {
+    expect(resolvePricingCanonicalOutcome({
+      captureState: 'captured',
+      scope: authoritativeScope,
+      observationReasons: ['authoritative_scope_match'],
+      rowCount: 0,
+    })).toBe('zero_rows_no_assembled_rows');
   });
 });

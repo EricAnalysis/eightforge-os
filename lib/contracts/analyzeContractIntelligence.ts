@@ -1229,8 +1229,9 @@ export function buildContractIntelligencePricingSourcePreparation(
   const operatorRateSchedulePageHints = numberArray(input.operatorRateSchedulePageHints ?? null);
   const allSourceEntries = buildContractRateScheduleSourceEntries(input.primaryDocument.evidence);
   const extraction = asRecord(input.primaryDocument.extraction_data?.extraction);
-  const provenanceContainer = asRecord(extraction?.physical_page_provenance_v1);
-  const captureState = resolveProvenanceCaptureState(provenanceContainer);
+  const rawProvenanceContainer = extraction?.physical_page_provenance_v1;
+  const captureState = resolveProvenanceCaptureState(rawProvenanceContainer);
+  const provenanceContainer = asRecord(rawProvenanceContainer);
   // Page-range scope only governs captured paginated sources. Every other state
   // keeps its prior row-building behaviour but is labelled for what it is.
   const scopeApplies = pageScopeApplies(captureState);
@@ -1332,8 +1333,7 @@ export function buildContractIntelligencePricingSourcePreparation(
     canonicalOutcome: resolvePricingCanonicalOutcome({
       captureState,
       scope,
-      observationCount: observations.length,
-      canonicalEligibleCount,
+      observationReasons: observations.map((observation) => observation.reason),
       rowCount: rows.length,
     }),
     scope,

@@ -13,7 +13,7 @@ const DOCUMENT_ID = '30000000-0000-4000-8000-000000000001';
 const ARTIFACT_ID = '40000000-0000-4000-8000-000000000001';
 
 /** Coordinate as it survives persistence: plain JSON, runtime brand stripped. */
-function persistedCoordinate(page: number): unknown {
+function persistedCoordinate(page: number, artifactLocalIndex = page - 1): unknown {
   return JSON.parse(JSON.stringify(physicalPageFromExtractorIteration({
     sourceArtifact: {
       id: opaqueIds.existingSourceArtifact(ARTIFACT_ID),
@@ -22,11 +22,16 @@ function persistedCoordinate(page: number): unknown {
     physicalPageNumber: page,
     totalPhysicalPages: 4,
     sourceLayer: 'pdf_native_text',
-    artifactLocalIndex: page - 1,
+    artifactLocalIndex,
   })));
 }
 
-function legacyRow(params: { withCoordinates: boolean }): ValidatorLegacyExtractionRow {
+function legacyRow(params: {
+  withCoordinates: boolean;
+  page?: number;
+  artifactLocalIndex?: number;
+}): ValidatorLegacyExtractionRow {
+  const page = params.page ?? 2;
   return {
     document_id: DOCUMENT_ID,
     data: {
@@ -40,11 +45,16 @@ function legacyRow(params: { withCoordinates: boolean }): ValidatorLegacyExtract
         evidence_v1: {
           page_text: [
             {
-              page_number: 2,
+              page_number: page,
               text: 'Hauling | CY | $11.00',
               source_method: 'pdf_text',
               ...(params.withCoordinates
-                ? { physical_page_coordinate: persistedCoordinate(2) }
+                ? {
+                    physical_page_coordinate: persistedCoordinate(
+                      page,
+                      params.artifactLocalIndex ?? page - 1,
+                    ),
+                  }
                 : {}),
             },
           ],
@@ -71,7 +81,11 @@ const truthCategoryDocumentIds: ValidatorTruthCategoryDocumentIds = {
   amendments: [],
 };
 
-function contextFor(params: { withCoordinates: boolean }) {
+function contextFor(params: {
+  withCoordinates: boolean;
+  page?: number;
+  artifactLocalIndex?: number;
+}) {
   return buildContractValidationContext({
     documents: [contractDocument()],
     factsByDocumentId: new Map<string, ValidatorFactRecord[]>(),
@@ -111,5 +125,26 @@ describe('validator synthetic reconstruction carries physical page provenance', 
     // At source level the absent scope still dominates: no proof, however good,
     // could have produced canonical rows without a scope to be inside of.
     expect(eligibility?.canonicalOutcome).toBe('zero_rows_scope_absent');
+  });
+
+  it('rejects a coordinate whose artifact-local index disagrees with its owning page row', () => {
+    const eligibility = contextFor({
+      withCoordinates: true,
+      page: 2,
+      artifactLocalIndex: 2,
+    })?.analysis.pricing_source_eligibility;
+
+    expect(eligibility?.observations.map((entry) => entry.physicalPageNumber)).toEqual([null]);
+    expect(eligibility?.observations.map((entry) => entry.reason)).toEqual(['provenance_unresolved']);
+  });
+
+  it('derives the local index from physical page identity rather than sparse array position', () => {
+    const eligibility = contextFor({
+      withCoordinates: true,
+      page: 4,
+      artifactLocalIndex: 3,
+    })?.analysis.pricing_source_eligibility;
+
+    expect(eligibility?.observations.map((entry) => entry.physicalPageNumber)).toEqual([4]);
   });
 });

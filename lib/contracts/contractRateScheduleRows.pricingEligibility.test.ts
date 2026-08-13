@@ -45,8 +45,10 @@ function document(params?: {
   historical?: boolean;
   captureState?: string;
   noContainer?: boolean;
+  rawProvenanceContainer?: unknown;
   evidence?: EvidenceObject[];
   machinePages?: number[];
+  rateTable?: Array<{ row_id: string; description: string; unit: string; rate: number; page: number }>;
 }): NormalizedNodeDocument {
   const rows = [
     { row_id: 'inside', description: 'Eligible hauling', unit: 'CY', rate: 11, page: 2 },
@@ -65,14 +67,19 @@ function document(params?: {
       ? { extraction: { physical_page_provenance_v1: { capture_state: 'legacy_pre_provenance' } } }
       : {
           extraction: {
-            physical_page_provenance_v1: {
-              capture_state: params?.captureState ?? 'captured',
-              source_artifact_id: ARTIFACT_ID,
-              total_physical_pages: 6,
-            },
+            physical_page_provenance_v1: Object.prototype.hasOwnProperty.call(
+              params ?? {},
+              'rawProvenanceContainer',
+            )
+              ? params?.rawProvenanceContainer
+              : {
+                  capture_state: params?.captureState ?? 'captured',
+                  source_artifact_id: ARTIFACT_ID,
+                  total_physical_pages: 6,
+                },
           },
         },
-    typed_fields: { rate_table: rows },
+    typed_fields: { rate_table: params?.rateTable ?? rows },
     structured_fields: {},
     section_signals: { rate_section_pages: params?.machinePages ?? [] },
     text_preview: '',
@@ -257,6 +264,21 @@ describe('Phase 3A pricing observation eligibility', () => {
     expect(result.eligibility.provenanceDisposition).toBe('capture_failed');
   });
 
+  it.each([null, 'captured', [], 7])(
+    'fails closed for a present malformed provenance container %#',
+    (rawProvenanceContainer) => {
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ rawProvenanceContainer }),
+        operatorRateSchedulePageRanges: null,
+      });
+      expect(result.rows).toEqual([]);
+      expect(result.eligibility.provenanceDisposition).toBe('capture_failed');
+      expect(result.eligibility.canonicalOutcome).toBe('zero_rows_capture_failed');
+      expect(result.eligibility.observations.map((entry) => entry.reason))
+        .not.toContain('provenance_capture_unknown');
+    },
+  );
+
   // ── Zero-row explanation (Fix 2 diagnostic) ──────────────────────────────
   it('explains why canonical assembly received nothing instead of implying defect', () => {
     const cases = [
@@ -276,5 +298,22 @@ describe('Phase 3A pricing observation eligibility', () => {
       operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
     });
     expect(present.eligibility.canonicalOutcome).toBe('canonical_rows_present');
+  });
+
+  it('distinguishes proven scope misses from unproven observations', () => {
+    const unproven = buildContractIntelligencePricingSourcePreparation({
+      primaryDocument: document({
+        rateTable: [],
+        evidence: [
+          evidence('scope-proof', 2, 'Rate schedule scope marker'),
+          evidence('unproven-only', 2, 'Eligible hauling | CY | $11.00', false),
+        ],
+      }),
+      operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+    });
+    expect(unproven.rows).toEqual([]);
+    expect(unproven.eligibility.observations.map((entry) => entry.reason))
+      .toEqual(['authoritative_scope_match', 'provenance_unresolved']);
+    expect(unproven.eligibility.canonicalOutcome).toBe('zero_rows_provenance_unproven');
   });
 });

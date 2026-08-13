@@ -6,6 +6,12 @@ import type {
   ExtractedNodeDocument,
 } from '@/lib/pipeline/types';
 import type { DocumentFamily } from '@/lib/types/documentIntelligence';
+import {
+  inheritPhysicalPageCoordinates,
+  rehydratePhysicalPageCoordinate,
+  type PageSourceLayer,
+  type PhysicalPageCoordinate,
+} from '@/lib/extraction/provenance/physicalPageCoordinate';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -141,6 +147,63 @@ function parseEvidence(
   const extraction = asRecord(extractionData?.extraction);
   const evidenceV1 = asRecord(extraction?.evidence_v1);
   const pageText = asArray<Record<string, unknown>>(evidenceV1?.page_text);
+  const provenanceContainer = asRecord(extraction?.physical_page_provenance_v1);
+  // The extraction-level binding is independent evidence for validating each
+  // persisted page row. Never derive this value from the coordinate under test.
+  const persistedSourceArtifactId = typeof provenanceContainer?.source_artifact_id === 'string'
+    ? provenanceContainer.source_artifact_id.trim()
+    : '';
+  const requiresProvenance = provenanceContainer != null;
+  const coordinatesByPage = new Map<number, PhysicalPageCoordinate[]>();
+  const pageCoordinate = (
+    page: Record<string, unknown>,
+    pageNumber: number,
+  ): PhysicalPageCoordinate => {
+    const sourceMethod = typeof page.source_method === 'string' ? page.source_method : null;
+    const sourceLayer: PageSourceLayer = sourceMethod === 'ocr'
+      ? 'ocr'
+      : sourceMethod === 'pdf_text'
+        ? 'pdf_native_text'
+        : 'legacy';
+    const rehydrated = rehydratePhysicalPageCoordinate(page.physical_page_coordinate, {
+      sourceDocumentId: documentId,
+      sourceArtifactId: persistedSourceArtifactId,
+      page: pageNumber,
+      requiresProvenance,
+      expectedSourceLayer: sourceLayer,
+      fallbackSourceLayer: sourceLayer,
+      artifactLocalIndex: pageNumber - 1,
+    });
+    if (
+      requiresProvenance
+      && sourceLayer === 'legacy'
+      && rehydrated.status === 'rejected'
+    ) {
+      throw new Error(`Rejected required physical-page provenance: ${rehydrated.reason}`);
+    }
+    return rehydrated.coordinate;
+  };
+  for (const [pageIndex, page] of pageText.entries()) {
+    const pageNumber = typeof page.page_number === 'number' ? page.page_number : pageIndex + 1;
+    const coordinate = pageCoordinate(page, pageNumber);
+    coordinatesByPage.set(pageNumber, [
+      ...(coordinatesByPage.get(pageNumber) ?? []),
+      coordinate,
+    ]);
+  }
+  const coordinateForDerivedEvidence = (pageNumber: number): PhysicalPageCoordinate | undefined => {
+    const parents = coordinatesByPage.get(pageNumber) ?? [];
+    return parents.length === 0
+      ? undefined
+      : inheritPhysicalPageCoordinates(parents, { sourceLayer: 'table_artifact' });
+  };
+  const withPageProvenance = (evidence: EvidenceObject): EvidenceObject => {
+    const pageNumber = evidence.location.page;
+    const coordinate = pageNumber == null ? undefined : coordinateForDerivedEvidence(pageNumber);
+    return coordinate ? { ...evidence, physical_page_coordinate: coordinate } : evidence;
+  };
+  const provenanceAwarePdfEvidence = pdfEvidence.map(withPageProvenance);
+  const provenanceAwareRehydratedPdfTextEvidence = rehydratedPdfTextEvidence.map(withPageProvenance);
   const legacy = pageText.map((page, index) => {
     const pageNum = typeof page.page_number === 'number' ? page.page_number : index + 1;
     return {
@@ -155,6 +218,7 @@ function parseEvidence(
       },
       confidence: 0.55,
       weak: true,
+      physical_page_coordinate: pageCoordinate(page, pageNum),
       metadata: {
         source_document_id: documentId,
         source_extraction_path: 'legacy_evidence_v1_page_text',
@@ -167,7 +231,12 @@ function parseEvidence(
 
   if (pdfEvidence.length > 0 || rehydratedPdfTextEvidence.length > 0 || spreadsheetEvidence.length > 0) {
     return withSourceDocument(
-      [...pdfEvidence, ...rehydratedPdfTextEvidence, ...legacy, ...spreadsheetEvidence] as EvidenceObject[],
+      [
+        ...provenanceAwarePdfEvidence,
+        ...provenanceAwareRehydratedPdfTextEvidence,
+        ...legacy,
+        ...spreadsheetEvidence,
+      ] as EvidenceObject[],
       documentId,
     );
   }

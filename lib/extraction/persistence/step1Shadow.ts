@@ -16,8 +16,56 @@ import type { Step3InterpretationBridge } from '@/lib/extraction/domain/step3Int
 import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
+import {
+  conflictingPhysicalPageCoordinate,
+  legacyPageCoordinate,
+  physicalPageFromExtractorIteration,
+  unresolvedPhysicalPageCoordinate,
+} from '@/lib/extraction/provenance/physicalPageCoordinate';
 
-const ARTIFACT_SCHEMA_VERSION = 'extraction-artifact-v1';
+function coordinateFromPageProvenance(
+  page: LocatedOcrObservationSidecar['pages'][number],
+  sourceArtifact: SourceArtifact,
+  sourceLayer: 'pdf_page_render' | 'pdf_native_text' | 'ocr',
+) {
+  const provenance = page.physical_page_provenance;
+  if (provenance?.state === 'conflicting') {
+    return conflictingPhysicalPageCoordinate({
+      sourceDocumentId: sourceArtifact.source_document_id,
+      sourceArtifactId: sourceArtifact.id,
+      sourceLayer,
+    });
+  }
+  const seed = provenance?.state === 'iterated' ? provenance.seed : null;
+  const valid = seed != null
+    && seed.physical_page_number === page.page_number
+    && seed.artifact_local_index === page.page_number - 1;
+  return valid
+    ? physicalPageFromExtractorIteration({
+        sourceArtifact,
+        physicalPageNumber: seed.physical_page_number,
+        totalPhysicalPages: seed.total_physical_pages,
+        sourceLayer,
+        artifactLocalIndex: seed.artifact_local_index,
+      })
+    : provenance
+      ? unresolvedPhysicalPageCoordinate({
+          sourceDocumentId: sourceArtifact.source_document_id,
+          sourceArtifactId: sourceArtifact.id,
+          sourceLayer,
+          artifactLocalIndex: seed?.artifact_local_index,
+        })
+      : legacyPageCoordinate({
+          sourceDocumentId: sourceArtifact.source_document_id,
+          sourceArtifactId: sourceArtifact.id,
+          legacyPageValue: page.page_number,
+        });
+}
+
+// Parser semantics and persistence shape are independent identity dimensions.
+// Physical-page provenance changes the immutable artifact graph, but it does
+// not change how source content is parsed or interpreted.
+const ARTIFACT_PERSISTENCE_SCHEMA_VERSION = 'extraction-artifact-v2';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -92,6 +140,7 @@ function unlocatedLegacyCategories(
 function flattenLocatedObservations(
   sidecar: LocatedOcrObservationSidecar,
   parser: ParserIdentity,
+  sourceArtifact: SourceArtifact,
 ): LegacyLocatedObservation[] {
   const pages = sidecar.engine_pages && sidecar.engine_pages.length > 0
     ? sidecar.engine_pages
@@ -107,6 +156,13 @@ function flattenLocatedObservations(
       text: word.text,
       confidence: word.confidence,
       bbox: word.bbox,
+      physical_page_coordinate: coordinateFromPageProvenance(
+        page,
+        sourceArtifact,
+        (page as { readonly parser?: ParserIdentity }).parser?.stage === 'native_text'
+          ? 'pdf_native_text'
+          : 'ocr',
+      ),
     })),
   );
 }
@@ -114,6 +170,7 @@ function flattenLocatedObservations(
 function locatedPages(
   sidecar: LocatedOcrObservationSidecar,
   parser: ParserIdentity,
+  sourceArtifact: SourceArtifact,
 ): LegacyLocatedPageObservation[] {
   return sidecar.pages.map((page) => ({
     page: page.page_number,
@@ -123,6 +180,11 @@ function locatedPages(
     render_sha256: page.render_sha256,
     parser,
     text_detected: page.text_detected,
+    physical_page_coordinate: coordinateFromPageProvenance(
+      page,
+      sourceArtifact,
+      'pdf_page_render',
+    ),
   }));
 }
 
@@ -234,17 +296,21 @@ export async function persistExtractionStep1Shadow(
   const semanticPublicationKey = hashCanonical({
     source_artifact_id: sourceArtifact.id,
     parser_manifest_hash: parserManifestHash,
-    artifact_schema_version: ARTIFACT_SCHEMA_VERSION,
+    artifact_schema_version: ARTIFACT_PERSISTENCE_SCHEMA_VERSION,
   });
   const graph = await adaptLegacyExtractionToStep1Shadow({
     sourceArtifact,
     parserManifest: manifest,
     parserManifestHash,
-    artifactSchemaVersion: ARTIFACT_SCHEMA_VERSION,
+    artifactSchemaVersion: ARTIFACT_PERSISTENCE_SCHEMA_VERSION,
     idempotencyKey: `step1-shadow:${semanticPublicationKey}`,
     completedAt: input.observedAt,
-    locatedPages: locatedPages(input.locatedObservations, rendererParser),
-    locatedObservations: flattenLocatedObservations(input.locatedObservations, ocrParser),
+    locatedPages: locatedPages(input.locatedObservations, rendererParser, sourceArtifact),
+    locatedObservations: flattenLocatedObservations(
+      input.locatedObservations,
+      ocrParser,
+      sourceArtifact,
+    ),
     unlocatedOutputs: unlocatedLegacyCategories(
       input.legacyExtractionPayload,
       input.locatedObservations.pages.length,
@@ -277,7 +343,7 @@ export async function persistExtractionStep1Shadow(
       source_sha256: sourceSha256,
       parser_manifest: manifest,
       parser_manifest_hash: parserManifestHash,
-      artifact_schema_version: ARTIFACT_SCHEMA_VERSION,
+      artifact_schema_version: ARTIFACT_PERSISTENCE_SCHEMA_VERSION,
       run_id: graph.run.id,
       snapshot_id: graph.snapshot.id,
       idempotency_key: graph.run.idempotency_key,
@@ -288,8 +354,8 @@ export async function persistExtractionStep1Shadow(
       snapshot_status: graph.snapshot.status,
       content_extraction_fingerprint: graph.snapshot.content_extraction_fingerprint,
       artifact_root_hash: graph.snapshot.artifact_root_hash,
-      pages: graph.pages,
-      fragments: graph.fragments,
+      pages: graph.provenanceRequiredPages,
+      fragments: graph.provenanceRequiredFragments,
       candidates: graph.candidates,
       verified_fields: graph.verifiedFields,
       gaps: graph.gaps,

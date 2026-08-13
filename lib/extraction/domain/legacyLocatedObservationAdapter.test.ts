@@ -63,6 +63,23 @@ describe('shadow-only legacy located-observation adapter', () => {
     );
   });
 
+  it('keeps parser semantic identity independent from the artifact persistence schema', async () => {
+    const { sourceArtifact } = fixture();
+    const result = await adaptLegacyExtractionToStep1Shadow({
+      sourceArtifact,
+      parserManifest: PARSER_MANIFEST,
+      parserManifestHash: MANIFEST_HASH,
+      artifactSchemaVersion: 'extraction-artifact-v2',
+      idempotencyKey: 'job:separated-schema-version',
+      completedAt: '2026-07-24T00:00:00.000Z',
+      locatedObservations: [],
+    });
+
+    expect(PARSER_MANIFEST.artifact_schema_version).toBe('extraction-artifact-v1');
+    expect(result.run.parser_manifest_hash).toBe(MANIFEST_HASH);
+    expect(result.run.artifact_schema_version).toBe('extraction-artifact-v2');
+  });
+
   it('converts only geometry-complete OCR words through verified dependency closure', async () => {
     const { sourceArtifact, run } = fixture();
     const result = await adaptLegacyExtractionToStep1Shadow({

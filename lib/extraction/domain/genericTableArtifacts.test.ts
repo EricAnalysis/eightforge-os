@@ -11,9 +11,16 @@ import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
 import type {
   ExtractionRun,
   PageArtifact,
+  ProvenanceRequiredPageArtifact,
+  ProvenanceRequiredSourceFragmentArtifact,
   SourceArtifact,
   SourceFragmentArtifact,
 } from '@/lib/extraction/domain/types';
+import {
+  conflictingPhysicalPageCoordinate,
+  inheritPhysicalPageCoordinate,
+  physicalPageFromExtractorIteration,
+} from '@/lib/extraction/provenance/physicalPageCoordinate';
 
 const SHA = 'a'.repeat(64);
 const MANIFEST = 'b'.repeat(64);
@@ -48,9 +55,20 @@ describe('generic table policy identity', () => {
       hashCanonical(GENERIC_TABLE_POLICY_V8),
     );
   });
+
+  it('requires provenance-aware pages and fragments at the new-artifact builder boundary', () => {
+    const historicalPage = {} as PageArtifact;
+    const historicalFragment = {} as SourceFragmentArtifact;
+    // @ts-expect-error Historical page shapes cannot enter the new-artifact builder.
+    const invalidPages: Parameters<typeof buildGenericTableArtifacts>[0]['pages'] = [historicalPage];
+    // @ts-expect-error Historical fragment shapes cannot enter the new-artifact builder.
+    const invalidFragments: Parameters<typeof buildGenericTableArtifacts>[0]['fragments'] = [historicalFragment];
+    expect(invalidPages).toHaveLength(1);
+    expect(invalidFragments).toHaveLength(1);
+  });
 });
 
-function page(pageNumber: number): PageArtifact {
+function page(pageNumber: number): ProvenanceRequiredPageArtifact {
   return {
     id: opaqueIds.pageArtifact({ run: run.id, page: pageNumber }),
     organization_id: source.organization_id,
@@ -66,18 +84,25 @@ function page(pageNumber: number): PageArtifact {
     parser_manifest_hash: MANIFEST,
     parser: { ...GENERIC_TABLE_PARSER, stage: 'page_render' },
     status: 'processed',
+    physical_page_coordinate: physicalPageFromExtractorIteration({
+      sourceArtifact: source,
+      physicalPageNumber: pageNumber,
+      totalPhysicalPages: 100,
+      sourceLayer: 'pdf_page_render',
+      artifactLocalIndex: pageNumber - 1,
+    }),
   };
 }
 
 function token(
-  targetPage: PageArtifact,
+  targetPage: ProvenanceRequiredPageArtifact,
   text: string,
   x0: number,
   y0: number,
   x1: number,
   y1: number,
   readingOrder: number,
-): SourceFragmentArtifact {
+): ProvenanceRequiredSourceFragmentArtifact {
   const boundingBox = {
     coordinate_space: 'page_normalized' as const,
     origin: 'top_left' as const,
@@ -108,12 +133,16 @@ function token(
     parser: { ...GENERIC_TABLE_PARSER, stage: 'native_text' },
     recognition_confidence: null,
     reading_order: readingOrder,
+    physical_page_coordinate: inheritPhysicalPageCoordinate(
+      targetPage.physical_page_coordinate,
+      { sourceLayer: 'pdf_native_text', artifactLocalIndex: readingOrder - 1 },
+    ),
   };
 }
 
 function build(
-  pages: readonly PageArtifact[],
-  fragments: readonly SourceFragmentArtifact[],
+  pages: readonly ProvenanceRequiredPageArtifact[],
+  fragments: readonly ProvenanceRequiredSourceFragmentArtifact[],
   regions?: readonly ObservedTableRegion[],
   sections?: Parameters<typeof buildGenericTableArtifacts>[0]['sections'],
 ) {
@@ -1224,11 +1253,11 @@ describe('generic physical table artifacts', () => {
   it('keeps non-adjacent continuation identities and ordering stable on replay', () => {
     const scenario = splitRowScenario(3);
     const left = build(scenario.pages, scenario.fragments, scenario.regions);
-    const right = build(
-      structuredClone(scenario.pages),
-      structuredClone(scenario.fragments),
-      structuredClone(scenario.regions),
-    );
+    // Rebuild through trusted constructors. A structured clone deliberately
+    // drops the private provenance brand and must go through the contextual
+    // rehydrator before it can be treated as proof.
+    const replay = splitRowScenario(3);
+    const right = build(replay.pages, replay.fragments, replay.regions);
 
     expect(right).toEqual(left);
     expect(left.continuation_links.map(({ id }) => id))
@@ -1289,5 +1318,42 @@ describe('generic physical table artifacts', () => {
     expect(left.cells.map(({ raw_text }) => raw_text)).toEqual(['10', '10']);
     expect(new Set(left.cells.map(({ id }) => id)).size).toBe(2);
     expect(right).toEqual(left);
+  });
+
+  it('keeps conflicting token provenance sticky through cells, rows, and segments', () => {
+    const p = page(6);
+    const first = token(p, 'A', 0.1, 0.1, 0.2, 0.12, 1);
+    const second = {
+      ...token(p, 'B', 0.2, 0.1, 0.3, 0.12, 2),
+      physical_page_coordinate: conflictingPhysicalPageCoordinate({
+        sourceDocumentId: 'other-document',
+        sourceArtifactId: 'other-artifact',
+        sourceLayer: 'ocr',
+        artifactLocalIndex: 1,
+      }),
+    } satisfies ProvenanceRequiredSourceFragmentArtifact;
+    const region: ObservedTableRegion = {
+      page_artifact_id: p.id,
+      rows: [{ cells: [{ token_ids: [first.id, second.id] }] }],
+      detection_evidence: ['ruling_lines'],
+    };
+    const forward = build([p], [first, second], [region]);
+    const reversed = build([p], [second, first], [region]);
+
+    for (const result of [forward, reversed]) {
+      for (const artifact of [...result.cells, ...result.rows, ...result.segments]) {
+        expect(artifact.physical_page_coordinate).toMatchObject({
+          mappingState: 'conflicting_physical_page_mapping',
+          sourceDocumentId: null,
+          sourceArtifactId: null,
+        });
+      }
+    }
+    expect(reversed.cells[0]?.physical_page_coordinate)
+      .toEqual(forward.cells[0]?.physical_page_coordinate);
+    expect(reversed.rows[0]?.physical_page_coordinate)
+      .toEqual(forward.rows[0]?.physical_page_coordinate);
+    expect(reversed.segments[0]?.physical_page_coordinate)
+      .toEqual(forward.segments[0]?.physical_page_coordinate);
   });
 });

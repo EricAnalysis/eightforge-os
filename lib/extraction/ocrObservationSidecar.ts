@@ -1,6 +1,18 @@
 import type { OcrGeometryWord } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import type { GenericContentAnalysis } from '@/lib/extraction/domain/genericContentScheduling';
 import type { ParserIdentity } from '@/lib/extraction/domain/types';
+import type { PageSourceLayer } from '@/lib/extraction/provenance/physicalPageCoordinate';
+
+export interface ExtractorPhysicalPageSeed {
+  readonly physical_page_number: number;
+  readonly total_physical_pages: number;
+  readonly source_layer: Exclude<PageSourceLayer, 'legacy' | 'table_artifact'>;
+  readonly artifact_local_index: number;
+}
+
+export type ExtractorPhysicalPageProvenance =
+  | { readonly state: 'iterated'; readonly seed: ExtractorPhysicalPageSeed }
+  | { readonly state: 'conflicting' };
 
 export interface GenericContentDiagnosticGap {
   readonly gap_key: string;
@@ -23,6 +35,8 @@ export interface LocatedOcrPageObservation {
   readonly height: number;
   readonly text_detected: boolean;
   readonly words: readonly OcrGeometryWord[];
+  /** Unbound extractor proof. Bound to immutable source identity by Step 1. */
+  readonly physical_page_provenance?: ExtractorPhysicalPageProvenance;
 }
 
 export interface LocatedOcrObservationSidecar {

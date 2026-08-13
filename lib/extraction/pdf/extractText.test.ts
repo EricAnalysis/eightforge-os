@@ -50,6 +50,7 @@ describe('buildPdfTextExtraction fallback pages', () => {
       fallbackText: 'combined OCR text only',
     });
 
+    expect(result.page_count).toBe(12);
     expect(result.pages.map((page) => page.page_number)).toEqual([1]);
     expect(result.combined_text).toBe('combined OCR text only');
   });

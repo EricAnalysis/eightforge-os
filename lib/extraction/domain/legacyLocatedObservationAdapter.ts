@@ -13,9 +13,24 @@ import type {
   PageArtifact,
   ParserIdentity,
   ProcessingGap,
+  ProvenanceRequiredPageArtifact,
+  ProvenanceRequiredSourceFragmentArtifact,
   SourceArtifact,
   SourceFragmentArtifact,
 } from '@/lib/extraction/domain/types';
+import {
+  inheritPhysicalPageCoordinates,
+  legacyPageCoordinate,
+  type PhysicalPageCoordinate,
+} from '@/lib/extraction/provenance/physicalPageCoordinate';
+
+function inheritedCoordinate(
+  parents: readonly PhysicalPageCoordinate[],
+  sourceLayer: 'pdf_native_text' | 'ocr' | 'table_artifact',
+  artifactLocalIndex?: number | null,
+): PhysicalPageCoordinate {
+  return inheritPhysicalPageCoordinates(parents, { sourceLayer, artifactLocalIndex });
+}
 import {
   verifyFieldCandidate,
   type VerificationRepository,
@@ -72,6 +87,7 @@ export interface LegacyOcrWordObservation {
     readonly y1: number;
   } | null;
   readonly parser?: ParserIdentity;
+  readonly physical_page_coordinate?: PhysicalPageCoordinate;
 }
 
 export interface LegacyOcrPageObservation {
@@ -83,6 +99,7 @@ export interface LegacyOcrPageObservation {
   readonly parser: ParserIdentity;
   readonly text_detected?: boolean;
   readonly words: readonly LegacyOcrWordObservation[];
+  readonly physical_page_coordinate: PhysicalPageCoordinate;
 }
 
 export interface UnlocatedLegacyOutput {
@@ -103,8 +120,8 @@ interface LegacyLocatedObservationAdapterInput {
 }
 
 interface LegacyLocatedObservationAdapterResult {
-  readonly pages: readonly PageArtifact[];
-  readonly fragments: readonly SourceFragmentArtifact[];
+  readonly pages: readonly ProvenanceRequiredPageArtifact[];
+  readonly fragments: readonly ProvenanceRequiredSourceFragmentArtifact[];
   readonly candidates: readonly FieldCandidate[];
   readonly verifiedFields: readonly VerifiedField[];
   readonly verifiedFieldHandles: readonly VerifiedFieldHandle[];
@@ -241,8 +258,8 @@ function missingGeometryGap(
 async function adaptLegacyLocatedObservations(
   input: LegacyLocatedObservationAdapterInput,
 ): Promise<LegacyLocatedObservationAdapterResult> {
-  const pages: PageArtifact[] = [];
-  const fragments: SourceFragmentArtifact[] = [];
+  const pages: ProvenanceRequiredPageArtifact[] = [];
+  const fragments: ProvenanceRequiredSourceFragmentArtifact[] = [];
   const candidates: FieldCandidate[] = [];
   const verifiedFields: VerifiedField[] = [];
   const verifiedFieldHandles: VerifiedFieldHandle[] = [];
@@ -287,7 +304,7 @@ async function adaptLegacyLocatedObservations(
       parser: pageInput.parser,
     });
     const pageGapsBefore = gaps.length;
-    const pageArtifact: PageArtifact = {
+    const pageArtifact: ProvenanceRequiredPageArtifact = {
       id: pageId,
       organization_id: input.sourceArtifact.organization_id,
       extraction_run_id: input.run.id,
@@ -302,6 +319,7 @@ async function adaptLegacyLocatedObservations(
       parser_manifest_hash: input.run.parser_manifest_hash,
       parser: pageInput.parser,
       status: pageInput.words.length === 0 ? 'partial' : 'processed',
+      physical_page_coordinate: pageInput.physical_page_coordinate,
     };
     pages.push(pageArtifact);
 
@@ -337,7 +355,7 @@ async function adaptLegacyLocatedObservations(
         raw_text_sha256: sha256Hex(text),
         parser: word.parser ?? pageInput.parser,
       });
-      const fragment: SourceFragmentArtifact = {
+      const fragment: ProvenanceRequiredSourceFragmentArtifact = {
         id: fragmentId,
         organization_id: input.sourceArtifact.organization_id,
         kind: 'token',
@@ -354,6 +372,13 @@ async function adaptLegacyLocatedObservations(
         recognition_confidence: recognitionScore(word.confidence),
         reading_order: index + 1,
         artifact_data: {},
+        physical_page_coordinate: inheritedCoordinate(
+          [word.physical_page_coordinate ?? pageInput.physical_page_coordinate],
+          (word.parser ?? pageInput.parser).stage === 'native_text'
+            ? 'pdf_native_text'
+            : 'ocr',
+          index,
+        ),
       };
       const candidate: FieldCandidate = {
         id: opaqueIds.fieldCandidate({
@@ -472,6 +497,7 @@ export interface LegacyLocatedObservation {
   /** Legacy OCR confidence on its native 0-100 scale. */
   readonly confidence?: number | null;
   readonly bbox?: LegacyOcrWordObservation['bbox'];
+  readonly physical_page_coordinate?: PhysicalPageCoordinate;
 }
 
 export interface LegacyLocatedPageObservation {
@@ -482,6 +508,7 @@ export interface LegacyLocatedPageObservation {
   readonly render_sha256: string;
   readonly parser: ParserIdentity;
   readonly text_detected: boolean;
+  readonly physical_page_coordinate?: PhysicalPageCoordinate;
 }
 
 export interface Step1ShadowExtractionRun extends ExtractionRun {
@@ -531,8 +558,11 @@ export interface AdaptLegacyExtractionToStep1ShadowInput {
 
 export interface AdaptLegacyExtractionToStep1ShadowResult {
   readonly run: Step1ShadowExtractionRun;
+  /** Historical-compatible read views. New persistence uses the required aliases below. */
   readonly pages: readonly PageArtifact[];
   readonly fragments: readonly SourceFragmentArtifact[];
+  readonly provenanceRequiredPages: readonly ProvenanceRequiredPageArtifact[];
+  readonly provenanceRequiredFragments: readonly ProvenanceRequiredSourceFragmentArtifact[];
   readonly candidates: readonly FieldCandidate[];
   readonly verifiedFields: readonly VerifiedField[];
   readonly verifiedFieldHandles: readonly VerifiedFieldHandle[];
@@ -599,16 +629,16 @@ function regionMeasurement(
 function buildArbitratedRegions(input: {
   readonly sourceArtifact: SourceArtifact;
   readonly run: Step1ShadowExtractionRun;
-  readonly tokens: readonly SourceFragmentArtifact[];
+  readonly tokens: readonly ProvenanceRequiredSourceFragmentArtifact[];
 }): {
-  readonly regions: readonly RegionCandidate[];
+  readonly regions: readonly ProvenanceRequiredSourceFragmentArtifact<RegionCandidate>[];
   readonly decisions: readonly (ArbitrationDecision & {
     readonly processing_gap_id?: string | null;
   })[];
-  readonly acceptedTokens: readonly SourceFragmentArtifact[];
+  readonly acceptedTokens: readonly ProvenanceRequiredSourceFragmentArtifact[];
   readonly gaps: readonly ProcessingGap[];
 } {
-  const regions: RegionCandidate[] = [];
+  const regions: ProvenanceRequiredSourceFragmentArtifact<RegionCandidate>[] = [];
   const decisions: Array<ArbitrationDecision & { processing_gap_id?: string | null }> = [];
   const gaps: ProcessingGap[] = [];
   const acceptedTokenIds = new Set<FragmentArtifactId>();
@@ -713,6 +743,16 @@ function buildArbitratedRegions(input: {
             reading_order_consistency: regionMeasurement(1, ids, ['deterministic geometric order']),
             image_text_coverage: null,
           },
+          physical_page_coordinate: inheritedCoordinate(
+            ordered.map((token) => token.physical_page_coordinate
+              ?? legacyPageCoordinate({
+                sourceDocumentId: token.source_document_id,
+                sourceArtifactId: token.source_artifact_id,
+                legacyPageValue: token.page,
+              })),
+            firstToken.parser.stage === 'native_text' ? 'pdf_native_text' : 'ocr',
+            bandIndex,
+          ),
         } satisfies RegionCandidate;
       });
       if (candidates.length === 0) continue;
@@ -759,8 +799,11 @@ export async function adaptLegacyExtractionToStep1Shadow(
   if (hashParserManifest(input.parserManifest) !== input.parserManifestHash) {
     throw new Error('parser manifest hash does not match the supplied manifest');
   }
-  if (input.parserManifest.artifact_schema_version !== input.artifactSchemaVersion) {
-    throw new Error('artifact schema version does not match the parser manifest');
+  if (!input.parserManifest.artifact_schema_version.trim()) {
+    throw new Error('parser manifest artifact schema version must be nonblank');
+  }
+  if (!input.artifactSchemaVersion.trim()) {
+    throw new Error('artifact persistence schema version must be nonblank');
   }
   const completedAt = input.completedAt ?? new Date().toISOString();
   const pageGroups = new Map<number, LegacyOcrPageObservation>();
@@ -777,6 +820,12 @@ export async function adaptLegacyExtractionToStep1Shadow(
       parser: page.parser,
       text_detected: page.text_detected,
       words: [],
+      physical_page_coordinate: page.physical_page_coordinate
+        ?? legacyPageCoordinate({
+          sourceDocumentId: input.sourceArtifact.source_document_id,
+          sourceArtifactId: input.sourceArtifact.id,
+          legacyPageValue: page.page,
+        }),
     });
   }
   const orderedObservations = [...input.locatedObservations].sort((left, right) => {
@@ -812,6 +861,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
       confidence: observation.confidence,
       bbox: observation.bbox,
       parser: observation.parser,
+      physical_page_coordinate: observation.physical_page_coordinate,
     };
     if (existing) {
       pageGroups.set(observation.page, {
@@ -828,6 +878,12 @@ export async function adaptLegacyExtractionToStep1Shadow(
         parser: observation.parser,
         text_detected: true,
         words: [word],
+        physical_page_coordinate: observation.physical_page_coordinate
+          ?? legacyPageCoordinate({
+            sourceDocumentId: input.sourceArtifact.source_document_id,
+            sourceArtifactId: input.sourceArtifact.id,
+            legacyPageValue: observation.page,
+          }),
       });
     }
   }
@@ -879,10 +935,10 @@ export async function adaptLegacyExtractionToStep1Shadow(
     pages: adapted.pages,
     fragments: arbitration.acceptedTokens,
   });
-  const tableFragments: SourceFragmentArtifact[] = [
-    ...tableResult.cells,
-    ...tableResult.rows,
-    ...tableResult.segments,
+  const tableFragments: ProvenanceRequiredSourceFragmentArtifact[] = [
+    ...tableResult.provenanceRequiredCells,
+    ...tableResult.provenanceRequiredRows,
+    ...tableResult.provenanceRequiredSegments,
   ];
   const fragments = [
     ...adapted.fragments,
@@ -1215,6 +1271,8 @@ export async function adaptLegacyExtractionToStep1Shadow(
     run,
     pages: adapted.pages,
     fragments,
+    provenanceRequiredPages: adapted.pages,
+    provenanceRequiredFragments: fragments,
     candidates,
     verifiedFields,
     verifiedFieldHandles,

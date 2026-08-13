@@ -34,6 +34,7 @@ import {
 } from '@/lib/extraction/persistence/complianceShadow';
 import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
+import { persistUploadedSourceArtifactIdentity } from '@/lib/extraction/persistence/sourceArtifactIdentity';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -323,12 +324,37 @@ export async function processDocument(params: {
       storage_path: storagePath,
     };
 
+    const storageVersionAfterDownload = await captureStorageObjectVersion(
+      admin,
+      BUCKET,
+      storagePath,
+    );
+    const processingIdentity = await persistUploadedSourceArtifactIdentity({
+      admin,
+      organizationId: params.organizationId,
+      sourceDocumentId: params.documentId,
+      sourceBytes: bytes,
+      storageBucket: BUCKET,
+      storagePath,
+      storageObjectVersion: storageVersionBeforeDownload === storageVersionAfterDownload
+        ? storageVersionBeforeDownload
+        : null,
+      mediaType: mimeType,
+      identityOrigin: 'processing',
+    });
+
     // ── 4. Extract text and fields ───────────────────────────────────────────
     const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
       fileName,
+      processingIdentity.status === 'persisted'
+        ? {
+            sourceArtifactId: processingIdentity.sourceArtifactId,
+            sourceDocumentId: params.documentId,
+          }
+        : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
     const complianceShadowTask = scheduleExtractionComplianceShadow({

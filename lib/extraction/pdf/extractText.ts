@@ -288,10 +288,15 @@ export async function loadPdfLayout(
   }
 }
 
-function buildFallbackTextExtraction(fallbackText: string): PdfTextExtractionResult {
+function buildFallbackTextExtraction(
+  fallbackText: string,
+  physicalPageCount: number,
+): PdfTextExtractionResult {
   const normalized = normalizeWhitespace(fallbackText);
   return {
-    page_count: normalized ? 1 : 0,
+    // The text is locationless and represented as one synthetic evidence page,
+    // but the artifact's physical length remains the parser-derived layout count.
+    page_count: physicalPageCount,
     pages: normalized
       ? [{
           page_number: 1,
@@ -432,7 +437,10 @@ export function buildPdfTextExtraction(params: {
   }
 
   if (!combinedText && params.fallbackText) {
-    const fallback = buildFallbackTextExtraction(params.fallbackText);
+    const fallback = buildFallbackTextExtraction(
+      params.fallbackText,
+      params.layout.page_count,
+    );
     return {
       ...fallback,
       gaps: [...params.layout.gaps, ...fallback.gaps],

@@ -11,6 +11,8 @@ import type {
   PageArtifact,
   ParserIdentity,
   ProcessingGap,
+  ProvenanceRequiredPageArtifact,
+  ProvenanceRequiredSourceFragmentArtifact,
   SourceArtifact,
   SourceFragmentArtifact,
   TableChainArtifact,
@@ -19,6 +21,7 @@ import type {
   TableSegmentArtifact,
   TableValueKind,
 } from '@/lib/extraction/domain/types';
+import { inheritPhysicalPageCoordinates } from '@/lib/extraction/provenance/physicalPageCoordinate';
 
 export const GENERIC_TABLE_POLICY_V8 = Object.freeze({
   name: 'generic-geometric-table-reconstruction',
@@ -324,16 +327,20 @@ export interface ObservedSectionPlan {
 export interface BuildGenericTableArtifactsInput {
   readonly source_artifact: SourceArtifact;
   readonly run: ExtractionRun;
-  readonly pages: readonly PageArtifact[];
-  readonly fragments: readonly SourceFragmentArtifact[];
+  readonly pages: readonly ProvenanceRequiredPageArtifact[];
+  readonly fragments: readonly ProvenanceRequiredSourceFragmentArtifact[];
   readonly regions?: readonly ObservedTableRegion[];
   readonly sections?: readonly ObservedSectionPlan[];
 }
 
 export interface GenericTableArtifactsResult {
+  /** Historical-compatible read views. New persistence uses the required aliases below. */
   readonly cells: readonly GridCellArtifact[];
   readonly rows: readonly LogicalTableRow[];
   readonly segments: readonly TableSegmentArtifact[];
+  readonly provenanceRequiredCells: readonly ProvenanceRequiredSourceFragmentArtifact<GridCellArtifact>[];
+  readonly provenanceRequiredRows: readonly ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow>[];
+  readonly provenanceRequiredSegments: readonly ProvenanceRequiredSourceFragmentArtifact<TableSegmentArtifact>[];
   readonly candidates: readonly FieldCandidate[];
   readonly continuation_links: readonly TableContinuationLink[];
   readonly chains: readonly TableChainArtifact[];
@@ -1985,7 +1992,12 @@ export function buildGenericTableArtifacts(
     throw new Error('Extraction run does not belong to the supplied source artifact.');
   }
   const pageById = new Map(input.pages.map((page) => [page.id, page]));
-  const fragmentById = new Map(input.fragments.map((fragment) => [fragment.id, fragment]));
+  const fragmentById = new Map<
+    SourceFragmentArtifact['id'],
+    ProvenanceRequiredSourceFragmentArtifact
+  >(
+    input.fragments.map((fragment) => [fragment.id, fragment]),
+  );
   for (const fragment of input.fragments) {
     const page = pageById.get(fragment.page_artifact_id);
     if (!page) throw new Error('Fragment page artifact is missing.');
@@ -2008,12 +2020,12 @@ export function buildGenericTableArtifacts(
       }
     : autoRegions(input);
   const regions = automatic.regions;
-  const cells: GridCellArtifact[] = [];
-  const rows: LogicalTableRow[] = [];
-  const segments: TableSegmentArtifact[] = [];
+  const cells: ProvenanceRequiredSourceFragmentArtifact<GridCellArtifact>[] = [];
+  const rows: ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow>[] = [];
+  const segments: ProvenanceRequiredSourceFragmentArtifact<TableSegmentArtifact>[] = [];
   const candidates: FieldCandidate[] = [];
   const gaps: ProcessingGap[] = [...automatic.gaps];
-  const segmentRows: LogicalTableRow[][] = [];
+  const segmentRows: ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow>[][] = [];
 
   for (const [regionIndex, region] of regions.entries()) {
     const page = pageById.get(region.page_artifact_id);
@@ -2023,7 +2035,7 @@ export function buildGenericTableArtifacts(
     }
     const plannedFragments = region.rows.flatMap((row) =>
       row.cells.flatMap((cell) => cell.token_ids.map((id) => fragmentById.get(id))))
-      .filter((item): item is SourceFragmentArtifact => item != null);
+      .filter((item): item is ProvenanceRequiredSourceFragmentArtifact => item != null);
     const uniquePlanIds = region.rows.flatMap((row) =>
       row.cells.flatMap((cell) => cell.token_ids));
     if (
@@ -2057,16 +2069,18 @@ export function buildGenericTableArtifacts(
       kind: 'table_segment',
       ...segmentIdentity,
     });
-    const localRows: LogicalTableRow[] = [];
-    const localCells: GridCellArtifact[] = [];
+    const localRows: ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow>[] = [];
+    const localCells: ProvenanceRequiredSourceFragmentArtifact<GridCellArtifact>[] = [];
     for (const [rowIndex, rowPlan] of region.rows.entries()) {
-      const rowCells: GridCellArtifact[] = [];
+      const rowCells: ProvenanceRequiredSourceFragmentArtifact<GridCellArtifact>[] = [];
       for (const [ordinalColumnIndex, cellPlan] of rowPlan.cells.entries()) {
         const columnIndex = cellPlan.column_index ?? ordinalColumnIndex;
         const tokenFragments = cellPlan.token_ids.map((id) =>
-          fragmentById.get(id)) as Array<SourceFragmentArtifact | undefined>;
+          fragmentById.get(id)) as Array<ProvenanceRequiredSourceFragmentArtifact | undefined>;
         if (tokenFragments.some((fragment) => !fragment)) continue;
-        const sourceTokens = tokenFragments as unknown as NonEmpty<SourceFragmentArtifact>;
+        const sourceTokens = tokenFragments as unknown as NonEmpty<
+          ProvenanceRequiredSourceFragmentArtifact
+        >;
         const content = orderedLines(sourceTokens);
         const rowSpan = cellPlan.row_span ?? 1;
         const columnSpan = cellPlan.column_span ?? 1;
@@ -2093,7 +2107,7 @@ export function buildGenericTableArtifacts(
           column_span: columnSpan,
           parser: GENERIC_TABLE_PARSER,
         });
-        const cell: GridCellArtifact = {
+        const cell: ProvenanceRequiredSourceFragmentArtifact<GridCellArtifact> = {
           id: cellId,
           organization_id: input.source_artifact.organization_id,
           kind: 'cell',
@@ -2142,6 +2156,15 @@ export function buildGenericTableArtifacts(
               row_center_tolerance: GENERIC_TABLE_POLICY_V8.row_center_tolerance,
             },
           },
+          physical_page_coordinate: inheritPhysicalPageCoordinates(
+            [page.physical_page_coordinate, ...sourceTokens.map(
+              ({ physical_page_coordinate }) => physical_page_coordinate,
+            )],
+            {
+              sourceLayer: 'table_artifact',
+              artifactLocalIndex: rowIndex * 10_000 + columnIndex,
+            },
+          ),
         };
         const candidate: FieldCandidate = {
           id: opaqueIds.fieldCandidate({
@@ -2176,7 +2199,7 @@ export function buildGenericTableArtifacts(
       if (rowCells.length === 0) continue;
       const rowSourceFragments = nonEmpty(rowCells.flatMap((cell) =>
         cell.content_token_ids.map((id) => fragmentById.get(id)))
-        .filter((item): item is SourceFragmentArtifact => item != null)
+        .filter((item): item is ProvenanceRequiredSourceFragmentArtifact => item != null)
         .sort((a, b) => a.bounding_box.x0 - b.bounding_box.x0),
       'Table row requires source fragments.');
       const rowId = opaqueIds.fragmentArtifact({
@@ -2186,7 +2209,7 @@ export function buildGenericTableArtifacts(
         cell_ids: rowCells.map(({ id }) => id),
         parser: GENERIC_TABLE_PARSER,
       });
-      const row: LogicalTableRow = {
+      const row: ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow> = {
         id: rowId,
         organization_id: input.source_artifact.organization_id,
         kind: 'region',
@@ -2214,6 +2237,12 @@ export function buildGenericTableArtifacts(
           rowSourceFragments.map(({ id }) => id),
           'Table row requires source fragment IDs.',
         ),
+        physical_page_coordinate: inheritPhysicalPageCoordinates(
+          [page.physical_page_coordinate, ...rowCells.map(
+            ({ physical_page_coordinate }) => physical_page_coordinate,
+          )],
+          { sourceLayer: 'table_artifact', artifactLocalIndex: rowIndex },
+        ),
       };
       localRows.push(row);
       rows.push(row);
@@ -2227,7 +2256,7 @@ export function buildGenericTableArtifacts(
     }
     const columnIndexes = [...new Set(localCells.map(({ column_start }) => column_start))]
       .sort((left, right) => left - right);
-    const segment: TableSegmentArtifact = {
+    const segment: ProvenanceRequiredSourceFragmentArtifact<TableSegmentArtifact> = {
       id: segmentId,
       organization_id: input.source_artifact.organization_id,
       kind: 'region',
@@ -2247,6 +2276,14 @@ export function buildGenericTableArtifacts(
       recognition_confidence: null,
       reading_order: regionIndex + 1,
       region_role: 'table',
+      physical_page_coordinate: inheritPhysicalPageCoordinates(
+        [
+          page.physical_page_coordinate,
+          ...localRows.map(({ physical_page_coordinate }) => physical_page_coordinate),
+          ...localCells.map(({ physical_page_coordinate }) => physical_page_coordinate),
+        ],
+        { sourceLayer: 'table_artifact', artifactLocalIndex: regionIndex },
+      ),
       child_fragment_ids: nonEmpty([
         ...localRows.map(({ id }) => id),
         ...localCells.map(({ id }) => id),
@@ -2343,7 +2380,9 @@ export function buildGenericTableArtifacts(
       typeof competitionReason === 'string'
         ? `Measured cross-page table continuation remains ambiguous: ${competitionReason}.`
         : 'Measured cross-page table continuation remains ambiguous.',
-      [from, to].filter((segment): segment is TableSegmentArtifact => segment != null),
+      [from, to].filter((segment): segment is ProvenanceRequiredSourceFragmentArtifact<
+        TableSegmentArtifact
+      > => segment != null),
       null,
       null,
     ));
@@ -2400,7 +2439,8 @@ export function buildGenericTableArtifacts(
     const chain = segment && chainBySegmentId.get(segment.id);
     if (!segment || !localRows || !chain) return [];
     const members = plan.member_row_indexes.map((index) => localRows[index])
-      .filter((row): row is LogicalTableRow => row != null);
+      .filter((row): row is ProvenanceRequiredSourceFragmentArtifact<LogicalTableRow> =>
+        row != null);
     if (members.length === 0) return [];
     const childChainIds = (plan.child_region_indexes ?? []).flatMap((index) => {
       const child = segments[index];
@@ -2447,6 +2487,9 @@ export function buildGenericTableArtifacts(
     cells,
     rows,
     segments,
+    provenanceRequiredCells: cells,
+    provenanceRequiredRows: rows,
+    provenanceRequiredSegments: segments,
     candidates,
     continuation_links: continuationLinks,
     chains: completedChains,

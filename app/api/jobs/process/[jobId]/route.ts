@@ -21,6 +21,7 @@ import {
 } from '@/lib/extraction/persistence/complianceShadow';
 import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
+import { persistUploadedSourceArtifactIdentity } from '@/lib/extraction/persistence/sourceArtifactIdentity';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -127,11 +128,36 @@ export async function POST(
       storage_path: storagePath,
     };
 
+    const storageVersionAfterDownload = await captureStorageObjectVersion(
+      admin,
+      BUCKET,
+      storagePath,
+    );
+    const processingIdentity = await persistUploadedSourceArtifactIdentity({
+      admin,
+      organizationId: job.organization_id,
+      sourceDocumentId: job.document_id,
+      sourceBytes: bytes,
+      storageBucket: BUCKET,
+      storagePath,
+      storageObjectVersion: storageVersionBeforeDownload === storageVersionAfterDownload
+        ? storageVersionBeforeDownload
+        : null,
+      mediaType: mimeType,
+      identityOrigin: 'processing',
+    });
+
     const payload = (await extractDocument(
       metadata,
       bytes,
       mimeType,
-      fileName
+      fileName,
+      processingIdentity.status === 'persisted'
+        ? {
+            sourceArtifactId: processingIdentity.sourceArtifactId,
+            sourceDocumentId: job.document_id,
+          }
+        : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
     after(scheduleExtractionComplianceShadow({

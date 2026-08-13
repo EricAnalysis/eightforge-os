@@ -6,6 +6,7 @@ import {
   publishExtractionStep1ShadowNonBlocking,
 } from '@/lib/extraction/persistence/step1Shadow';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { hashParserManifest, type ParserManifest } from '@/lib/extraction/domain/parserManifest';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const DOCUMENT_ID = '20000000-0000-4000-8000-000000000001';
@@ -96,6 +97,12 @@ function input(admin: never) {
         width: 100,
         height: 200,
         text_detected: true,
+        physical_page_provenance: { state: 'iterated', seed: {
+          physical_page_number: 1,
+          total_physical_pages: 7,
+          source_layer: 'pdf_page_render',
+          artifact_local_index: 0,
+        } },
         words: [{
           text: 'Observed',
           confidence: 99,
@@ -176,6 +183,42 @@ describe('Step 1 shadow persistence', () => {
 
     const payload = publishCall?.payload ?? {};
     expect(payload.completed_at).toBe('2026-07-24T00:00:00.000Z');
+    expect(payload.artifact_schema_version).toBe('extraction-artifact-v2');
+    expect(payload.parser_manifest).toEqual(expect.objectContaining({
+      artifact_schema_version: 'extraction-artifact-v1',
+    }));
+    const parserManifest = payload.parser_manifest as ParserManifest;
+    const parserManifestHash = hashParserManifest(parserManifest);
+    expect(payload.parser_manifest_hash).toBe(parserManifestHash);
+    expect(payload.idempotency_key).toBe(`step1-shadow:${hashCanonical({
+      source_artifact_id: SOURCE_ID,
+      parser_manifest_hash: parserManifestHash,
+      artifact_schema_version: 'extraction-artifact-v2',
+    })}`);
+    expect(payload.pages).toEqual([expect.objectContaining({
+      physical_page_coordinate: expect.objectContaining({
+        sourceDocumentId: DOCUMENT_ID,
+        sourceArtifactId: SOURCE_ID,
+        physicalPageNumber: 1,
+        sourceLayer: 'pdf_page_render',
+        artifactLocalIndex: 0,
+        mappingState: 'resolved_physical_page',
+        mappingBasis: 'extractor_iterated_physical_page',
+      }),
+    })]);
+    expect(payload.fragments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'token',
+        physical_page_coordinate: expect.objectContaining({
+          sourceDocumentId: DOCUMENT_ID,
+          sourceArtifactId: SOURCE_ID,
+          physicalPageNumber: 1,
+          sourceLayer: 'ocr',
+          mappingState: 'resolved_physical_page',
+          mappingBasis: 'inherited_from_proven_parent',
+        }),
+      }),
+    ]));
     for (const key of [
       'pages',
       'fragments',

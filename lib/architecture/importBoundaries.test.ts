@@ -68,35 +68,50 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 
 const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
-const FORGEWING_FORBIDDEN_OUTBOUND_ROOTS = [
-  'lib/validator',
-  'lib/contracts',
-  'lib/canonical',
-  'lib/interpretation/canonical',
-  'lib/extraction/provenance',
-  'lib/server',
-  'app',
-  'components',
-] as const;
-const FORGEWING_FORBIDDEN_OUTBOUND_TARGET_ROOTS = [
-  'lib/extraction/domain/verifiedField',
-  'lib/extraction/domain/opaqueIds',
-  'lib/pipeline/processDocument',
-  'lib/supabaseClient',
-  '@supabase/supabase-js',
-  'openai',
-  '@anthropic-ai/sdk',
-  '@instructor-ai/instructor',
-] as const;
+const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set(['zod']);
+const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b/;
 
-function isModuleOrSubpath(target: string, root: string): boolean {
-  return isWithin(target, root) || target.startsWith(`${root}.`);
+function productionFilesIn(workspaceRoot: string): string[] {
+  return PRODUCTION_ROOTS
+    .flatMap((root) => walk(path.join(workspaceRoot, root)));
 }
 
 function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
-  return PRODUCTION_ROOTS
-    .flatMap((root) => walk(path.join(workspaceRoot, root)))
+  return productionFilesIn(workspaceRoot)
     .flatMap((file) => importsInFile(file, workspaceRoot));
+}
+
+function nonLiteralModuleLoadsInFile(
+  absolutePath: string,
+  workspaceRoot: string,
+): string[] {
+  const source = path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
+  const sourceFile = ts.createSourceFile(
+    absolutePath,
+    readFileSync(absolutePath, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    absolutePath.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const violations: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? 'import'
+        : ts.isIdentifier(node.expression) && node.expression.text === 'require'
+          ? 'require'
+          : null;
+      if (
+        kind != null
+        && (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]!))
+      ) {
+        violations.push(`${source} -> non-literal ${kind}() (Forgewing outbound import is not statically allowlisted)`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return violations;
 }
 
 /**
@@ -106,24 +121,35 @@ function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
  */
 function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
   const violations: string[] = [];
+  const importConsumers = new Set<string>();
   for (const edge of productionEdgesIn(workspaceRoot)) {
     const target = resolveImportTarget(edge);
     const sourceIsForgewing = isWithin(edge.source, FORGEWING_ROOT);
     const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
 
     if (targetIsForgewing && !sourceIsForgewing) {
+      importConsumers.add(edge.source);
       violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing consumer)`);
     }
     if (
       sourceIsForgewing
-      && (
-        FORGEWING_FORBIDDEN_OUTBOUND_ROOTS.some((root) => isWithin(target, root))
-        || FORGEWING_FORBIDDEN_OUTBOUND_TARGET_ROOTS.some(
-          (root) => isModuleOrSubpath(target, root),
-        )
-      )
+      && !targetIsForgewing
+      && !FORGEWING_ALLOWED_OUTBOUND_MODULES.has(edge.specifier)
     ) {
-      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing authority-boundary import)`);
+      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing outbound import is not allowlisted)`);
+    }
+  }
+
+  for (const file of walk(path.join(workspaceRoot, FORGEWING_ROOT))) {
+    violations.push(...nonLiteralModuleLoadsInFile(file, workspaceRoot));
+  }
+
+  for (const file of productionFilesIn(workspaceRoot)) {
+    const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+    if (isWithin(source, FORGEWING_ROOT)) continue;
+    if (importConsumers.has(source)) continue;
+    if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
+      violations.push(`${source} -> references Forgewing outside its module boundary`);
     }
   }
   return violations.sort();
@@ -264,6 +290,12 @@ function moduleSpecifiers(text: string, fileName: string): string[] {
       && ts.isStringLiteralLike(node.moduleSpecifier)
     ) {
       specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportTypeNode(node)
+      && ts.isLiteralTypeNode(node.argument)
+      && ts.isStringLiteralLike(node.argument.literal)
+    ) {
+      specifiers.push(node.argument.literal.text);
     } else if (
       ts.isImportEqualsDeclaration(node)
       && ts.isExternalModuleReference(node.moduleReference)
@@ -808,56 +840,124 @@ describe('Forgewing proposal authority seal', () => {
     ]);
   });
 
-  it('forbids Forgewing imports of authority, serving, and UI modules', () => {
+  it('allows only the exact dependencies used by current Forgewing production files', () => {
     const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/allowed.ts', [
+      "import { z } from 'zod';",
+      "export { VERSION } from './version';",
+      "const schema = import('@/lib/forgewing/proposal/schema');",
+      "const guards = require('./guards');",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
+  });
+
+  it('rejects truth, semantic, evaluation, pipeline, serving, and UI modules by default', () => {
+    const root = fixtureRoot();
+    const forbiddenSpecifiers = [
+      '@/lib/projectFacts',
+      '@/lib/truthQuery',
+      '@/lib/effectiveFacts',
+      '@/lib/ask/retrieval',
+      '@/lib/interpretation/semanticColumnMapping',
+      '@/lib/interpretation/step3ShadowBridge',
+      '@/lib/evaluation/syntheticGeneralizationHarness',
+      '@/lib/pipeline/documentPipeline',
+      '@/lib/documentIntelligence',
+      '@/lib/contracts/pricing',
+      '@/lib/validator/projectValidator',
+      '@/lib/canonical/authority/resolveProjectTruthAuthority',
+      '@/lib/server/documentExtraction',
+      '@/app/reader',
+      '@/components/reader',
+    ];
     source(root, 'lib/forgewing/proposal/outbound.ts', [
-      "import '@/lib/canonical/authority/resolve';",
-      "import '../../contracts/pricing';",
-      "import '@/lib/validator/projectValidator';",
-      "import '@/lib/server/supabaseAdmin';",
-      "import '@/lib/supabaseClient';",
-      "import '@supabase/supabase-js';",
-      "import 'openai';",
-      "import '@anthropic-ai/sdk';",
-      "import '@instructor-ai/instructor';",
-      "import '@/lib/extraction/domain/verifiedField';",
-      "import '@/lib/extraction/domain/verifiedField.ts';",
-      "import '@/lib/extraction/domain/opaqueIds';",
-      "import '@/lib/extraction/provenance/physicalPageCoordinate';",
-      "import '@/lib/interpretation/canonical/canonicalFact';",
-      "import '@/lib/pipeline/processDocument';",
-      "import 'openai/resources';",
-      "import '@supabase/supabase-js/dist/main';",
-      "import '@/app/reader';",
-      "import '@/components/reader';",
+      `import '${forbiddenSpecifiers[0]}';`,
+      `export { value } from '${forbiddenSpecifiers[1]}';`,
+      `const effective = import('${forbiddenSpecifiers[2]}');`,
+      `const retrieval = require('${forbiddenSpecifiers[3]}');`,
+      ...forbiddenSpecifiers.slice(4).map((specifier) => `import '${specifier}';`),
+    ].join('\n'));
+    const violations = forgewingBoundaryViolations(root);
+    expect(violations).toHaveLength(forbiddenSpecifiers.length);
+    for (const specifier of forbiddenSpecifiers) {
+      expect(violations.some((violation) => violation.includes(`-> ${specifier} (`))).toBe(true);
+    }
+  });
+
+  it('rejects neutral-looking, arbitrary future, and unlisted external modules', () => {
+    const root = fixtureRoot();
+    const forbiddenSpecifiers = [
+      '@/lib/extraction/domain/types',
+      '@/lib/extraction/domain/hash',
+      '@/lib/futureNeutralLookingModule',
+      'zod/v4',
+      'unreviewed-package',
+    ];
+    source(root, 'lib/forgewing/proposal/defaultDenied.ts', forbiddenSpecifiers
+      .map((specifier) => `import '${specifier}';`)
+      .join('\n'));
+    const violations = forgewingBoundaryViolations(root);
+    expect(violations).toHaveLength(forbiddenSpecifiers.length);
+    for (const specifier of forbiddenSpecifiers) {
+      expect(violations.some((violation) => violation.includes(`-> ${specifier} (`))).toBe(true);
+    }
+  });
+
+  it('rejects type-position imports outside the Forgewing allowlist', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/forgewing/proposal/typeImport.ts',
+      "type Facts = import('@/lib/projectFacts').ProjectFacts;",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/proposal/typeImport.ts -> @/lib/projectFacts (Forgewing outbound import is not allowlisted)',
+    ]);
+  });
+
+  it('rejects non-literal dynamic module loading inside Forgewing', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/computed.ts', [
+      "const target = '@/lib/projectFacts';",
+      'const dynamic = import(target);',
+      'const required = require(target);',
     ].join('\n'));
     expect(forgewingBoundaryViolations(root)).toEqual([
-      'lib/forgewing/proposal/outbound.ts -> ../../contracts/pricing (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/app/reader (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/components/reader (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/canonical/authority/resolve (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/opaqueIds (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/verifiedField (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/verifiedField.ts (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/provenance/physicalPageCoordinate (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/interpretation/canonical/canonicalFact (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/pipeline/processDocument (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/server/supabaseAdmin (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/supabaseClient (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @/lib/validator/projectValidator (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @anthropic-ai/sdk (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @instructor-ai/instructor (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @supabase/supabase-js (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> @supabase/supabase-js/dist/main (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> openai (Forgewing authority-boundary import)',
-      'lib/forgewing/proposal/outbound.ts -> openai/resources (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/computed.ts -> non-literal import() (Forgewing outbound import is not statically allowlisted)',
+      'lib/forgewing/proposal/computed.ts -> non-literal require() (Forgewing outbound import is not statically allowlisted)',
+    ]);
+  });
+
+  it('forbids textual Forgewing backdoors across production modules', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/mention.ts', "const moduleName = 'lib/forgewing/proposal/schema';");
+    source(root, 'lib/contracts/mention.ts', 'type Candidate = ForgewingProposal;');
+    source(root, 'lib/validator/mention.ts', 'type Bundle = ForgewingProposalBundle;');
+    source(root, 'lib/canonical/mention.ts', 'type Result = ForgewingAbstention;');
+    source(root, 'lib/projectFacts.ts', 'type Run = ForgewingRunIdentity;');
+    source(root, 'lib/extraction/relativeMention.ts', [
+      "const target = '../forgewing/proposal/schema';",
+      'const dynamic = import(target);',
+    ].join('\n'));
+    source(root, 'lib/contracts/windowsMention.ts', "const target = '..\\forgewing\\proposal\\schema';");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/canonical/mention.ts -> references Forgewing outside its module boundary',
+      'lib/contracts/mention.ts -> references Forgewing outside its module boundary',
+      'lib/contracts/windowsMention.ts -> references Forgewing outside its module boundary',
+      'lib/extraction/mention.ts -> references Forgewing outside its module boundary',
+      'lib/extraction/relativeMention.ts -> references Forgewing outside its module boundary',
+      'lib/projectFacts.ts -> references Forgewing outside its module boundary',
+      'lib/validator/mention.ts -> references Forgewing outside its module boundary',
     ]);
   });
 
   it('allows Forgewing-internal imports and test-only consumers', () => {
     const root = fixtureRoot();
     source(root, 'lib/forgewing/proposal/guards.ts', "import type { Proposal } from './schema';");
-    source(root, 'lib/extraction/consumer.test.ts', "import { schema } from '@/lib/forgewing/proposal/schema';");
+    source(root, 'lib/extraction/consumer.test.ts', [
+      "import { schema } from '@/lib/forgewing/proposal/schema';",
+      "const label = 'ForgewingProposalBundle';",
+    ].join('\n'));
     expect(forgewingBoundaryViolations(root)).toEqual([]);
   });
 });

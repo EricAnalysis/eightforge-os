@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ForgewingAbstentionSchema,
   ForgewingProposalBundleSchema,
   ForgewingProposalSchema,
 } from '@/lib/forgewing/proposal/schema';
@@ -36,6 +37,21 @@ const baseProposal = {
 };
 
 const value = { label: 'table' as const };
+const runIdentity = {
+  runId: 'run-1',
+  organizationId: 'organization-1',
+  extractionSnapshotId: 'snapshot-1',
+  inputSnapshotHash: 'a'.repeat(64),
+};
+const abstention = {
+  taskId: 'task-1',
+  taskType: 'region_classification' as const,
+  sourceDocumentId: 'document-1',
+  sourceArtifactId: 'source-artifact-1',
+  extractionSnapshotId: 'snapshot-1',
+  inputObservationIds: [],
+  reason: 'runtime_unavailable' as const,
+};
 
 describe('ForgewingProposalSchema evidence and value contracts', () => {
   it('accepts observed value with evidence', () => {
@@ -289,6 +305,31 @@ describe('ForgewingProposalSchema metadata contract', () => {
       }],
     }).success).toBe(false);
   });
+
+  it('round-trips authored raw spans without trimming or normalization', () => {
+    for (const rawSpan of ['  CY  ', 'Rate ', '\t$12.50 ', '\nDescription']) {
+      const parsed = ForgewingProposalSchema.parse({
+        ...proposal,
+        evidence: [{ ...evidence('observation-1'), rawSpan }],
+      });
+      expect(parsed.evidence[0]?.rawSpan).toBe(rawSpan);
+    }
+  });
+
+  it('rejects all-whitespace and oversized raw spans without rewriting them', () => {
+    expect(ForgewingProposalSchema.safeParse({
+      ...proposal,
+      evidence: [{ ...evidence('observation-1'), rawSpan: ' \t\n ' }],
+    }).success).toBe(false);
+    expect(ForgewingProposalSchema.parse({
+      ...proposal,
+      evidence: [{ ...evidence('observation-1'), rawSpan: 'x'.repeat(4_000) }],
+    }).evidence[0]?.rawSpan).toHaveLength(4_000);
+    expect(ForgewingProposalSchema.safeParse({
+      ...proposal,
+      evidence: [{ ...evidence('observation-1'), rawSpan: 'x'.repeat(4_001) }],
+    }).success).toBe(false);
+  });
 });
 
 describe('ForgewingProposalBundleSchema', () => {
@@ -301,9 +342,11 @@ describe('ForgewingProposalBundleSchema', () => {
   const bundle = {
     schemaVersion: FORGEWING_PROPOSAL_SCHEMA_VERSION,
     authority: 'non_authoritative' as const,
+    run: runIdentity,
     taskId: 'task-1',
     taskType: 'region_classification' as const,
     proposals: [proposal],
+    abstentions: [],
   };
 
   it('accepts the explicit version and non-authoritative seal', () => {
@@ -331,10 +374,104 @@ describe('ForgewingProposalBundleSchema', () => {
     }).success).toBe(false);
   });
 
-  it('rejects proposals whose task identity differs from the bundle', () => {
+  it('rejects proposal or abstention task identity that differs from the bundle', () => {
     expect(ForgewingProposalBundleSchema.safeParse({
       ...bundle,
       proposals: [{ ...proposal, taskId: 'task-2' }],
+    }).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      proposals: [],
+      abstentions: [{ ...abstention, taskId: 'task-2' }],
+    }).success).toBe(false);
+  });
+
+  it('requires a strict tenant-scoped run identity', () => {
+    const { run: _run, ...withoutRun } = bundle;
+    void _run;
+    expect(ForgewingProposalBundleSchema.safeParse(withoutRun).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      run: { ...runIdentity, organizationId: undefined },
+    }).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      run: { ...runIdentity, inputSnapshotHash: undefined },
+    }).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      run: { ...runIdentity, inputSnapshotHash: 'A'.repeat(64) },
+    }).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      run: { ...runIdentity, provider: 'not-yet-part-of-v1' },
+    }).success).toBe(false);
+  });
+
+  it('rejects proposal and abstention extraction-snapshot mismatches', () => {
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      proposals: [{ ...proposal, extractionSnapshotId: 'snapshot-2' }],
+    }).success).toBe(false);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      proposals: [],
+      abstentions: [{ ...abstention, extractionSnapshotId: 'snapshot-2' }],
+    }).success).toBe(false);
+  });
+
+  it('accepts proposal-only, abstention-only, and mixed bundles', () => {
+    expect(ForgewingProposalBundleSchema.safeParse(bundle).success).toBe(true);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      proposals: [],
+      abstentions: [abstention],
+    }).success).toBe(true);
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      abstentions: [abstention],
+    }).success).toBe(true);
+  });
+
+  it('rejects a completely empty bundle', () => {
+    expect(ForgewingProposalBundleSchema.safeParse({
+      ...bundle,
+      proposals: [],
+      abstentions: [],
+    }).success).toBe(false);
+  });
+});
+
+describe('ForgewingAbstentionSchema', () => {
+  it('requires a bounded machine-readable reason without fabricated evidence', () => {
+    expect(ForgewingAbstentionSchema.safeParse(abstention).success).toBe(true);
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      evidence: [],
+    }).success).toBe(false);
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      reason: undefined,
+    }).success).toBe(false);
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      reason: 'provider_timeout',
+    }).success).toBe(false);
+  });
+
+  it('bounds optional detail and remains distinct from insufficient evidence', () => {
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      detail: 'Input contract could not be satisfied.',
+    }).success).toBe(true);
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      detail: 'x'.repeat(401),
+    }).success).toBe(false);
+    expect(ForgewingAbstentionSchema.safeParse({
+      ...abstention,
+      state: 'insufficient_evidence',
+      missingEvidence: [{ code: 'missing_source_observation' }],
     }).success).toBe(false);
   });
 });
@@ -350,9 +487,11 @@ describe('Forgewing proposal guards', () => {
     const bundle = ForgewingProposalBundleSchema.parse({
       schemaVersion: FORGEWING_PROPOSAL_SCHEMA_VERSION,
       authority: 'non_authoritative',
+      run: runIdentity,
       taskId: 'task-1',
       taskType: 'region_classification',
       proposals: [proposal],
+      abstentions: [],
     });
 
     expect(hasResolvableProposalEvidence(proposal)).toBe(true);
@@ -360,8 +499,8 @@ describe('Forgewing proposal guards', () => {
     expect(() => assertForgewingProposalIsNonAuthoritative(bundle)).not.toThrow();
   });
 
-  it('does not call an empty abstention evidence set resolvable', () => {
-    const abstention = ForgewingProposalSchema.parse({
+  it('does not call an empty insufficient-evidence proposal resolvable', () => {
+    const insufficientEvidenceProposal = ForgewingProposalSchema.parse({
       ...baseProposal,
       inputObservationIds: [],
       pageArtifactId: undefined,
@@ -371,7 +510,7 @@ describe('Forgewing proposal guards', () => {
       evidence: [],
       missingEvidence: [{ code: 'missing_source_observation' }],
     });
-    expect(hasResolvableProposalEvidence(abstention)).toBe(false);
-    expect(() => assertProposalEvidenceContract(abstention)).not.toThrow();
+    expect(hasResolvableProposalEvidence(insufficientEvidenceProposal)).toBe(false);
+    expect(() => assertProposalEvidenceContract(insufficientEvidenceProposal)).not.toThrow();
   });
 });

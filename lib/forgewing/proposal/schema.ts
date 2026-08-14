@@ -12,6 +12,18 @@ const boundedText = (maximum: number) => z.string()
   .max(maximum)
   .refine((value) => value.trim() === value, 'text must not contain surrounding whitespace');
 
+/** Source evidence is preserved verbatim; whitespace-only spans are not useful citations. */
+const rawSpanSchema = z.string()
+  .min(1)
+  .max(4_000)
+  .refine(
+    (value) => value.trim().length > 0,
+    'raw span must contain at least one non-whitespace character',
+  );
+
+/** Forgewing v0 is intentionally scoped to one task; new tasks require schema evolution. */
+export const ForgewingTaskTypeSchema = z.literal('region_classification');
+
 export const ForgewingProposalStateSchema = z.enum([
   'observed',
   'inferred',
@@ -57,7 +69,7 @@ export const ForgewingEvidenceRefSchema = z.object({
   physicalPageNumber: z.number().int().positive().optional(),
   artifactLocalIndex: z.number().int().nonnegative().optional(),
   boundingBox: ForgewingBoundingBoxSchema.optional(),
-  rawSpan: boundedText(4_000).optional(),
+  rawSpan: rawSpanSchema.optional(),
   sourceLayer: z.enum([
     'pdf_page_render',
     'pdf_native_text',
@@ -121,10 +133,36 @@ const inputObservationIds = (minimum: number) => z.array(boundedIdentifier)
     'input observation identifiers must be distinct',
   );
 
+export const ForgewingRunIdentitySchema = z.object({
+  runId: boundedIdentifier,
+  organizationId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  inputSnapshotHash: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+export const ForgewingAbstentionReasonSchema = z.enum([
+  'unsupported_input',
+  'input_contract_violation',
+  'budget_unavailable',
+  'runtime_unavailable',
+  'task_not_supported',
+]);
+
+export const ForgewingAbstentionSchema = z.object({
+  taskId: boundedIdentifier,
+  taskType: ForgewingTaskTypeSchema,
+  sourceDocumentId: boundedIdentifier,
+  sourceArtifactId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  inputObservationIds: inputObservationIds(0),
+  reason: ForgewingAbstentionReasonSchema,
+  detail: boundedText(400).optional(),
+}).strict();
+
 const proposalIdentityShape = {
   proposalId: boundedIdentifier,
   taskId: boundedIdentifier,
-  taskType: z.literal('region_classification'),
+  taskType: ForgewingTaskTypeSchema,
   sourceDocumentId: boundedIdentifier,
   sourceArtifactId: boundedIdentifier,
   extractionSnapshotId: boundedIdentifier,
@@ -184,13 +222,6 @@ const insufficientEvidenceProposalSchema = z.object({
   missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1),
 }).strict();
 
-const abstentionSchema = z.discriminatedUnion('state', [
-  ambiguousProposalSchema,
-  unresolvedProposalSchema,
-  conflictingProposalSchema,
-  insufficientEvidenceProposalSchema,
-]);
-
 const proposalSchema = z.discriminatedUnion('state', [
   observedProposalSchema,
   inferredProposalSchema,
@@ -247,10 +278,6 @@ function enforceProposalProvenanceCoherence(
   }
 }
 
-export const ForgewingAbstentionSchema = abstentionSchema.superRefine(
-  enforceProposalProvenanceCoherence,
-);
-
 export const ForgewingProposalSchema = proposalSchema.superRefine(
   enforceProposalProvenanceCoherence,
 );
@@ -258,32 +285,61 @@ export const ForgewingProposalSchema = proposalSchema.superRefine(
 export const ForgewingProposalBundleSchema = z.object({
   schemaVersion: z.literal(FORGEWING_PROPOSAL_SCHEMA_VERSION),
   authority: z.literal('non_authoritative'),
+  run: ForgewingRunIdentitySchema,
   taskId: boundedIdentifier,
-  taskType: z.literal('region_classification'),
-  proposals: z.array(ForgewingProposalSchema).min(1),
+  taskType: ForgewingTaskTypeSchema,
+  proposals: z.array(ForgewingProposalSchema),
+  abstentions: z.array(ForgewingAbstentionSchema),
 }).strict().superRefine((bundle, context) => {
-  bundle.proposals.forEach((proposal, index) => {
-    if (proposal.taskId !== bundle.taskId) {
+  if (bundle.proposals.length + bundle.abstentions.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'Forgewing bundle must contain at least one proposal or abstention',
+    });
+  }
+
+  const checkIdentity = (
+    item: { taskId: string; taskType: 'region_classification'; extractionSnapshotId: string },
+    collection: 'proposals' | 'abstentions',
+    index: number,
+  ): void => {
+    if (item.taskId !== bundle.taskId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['proposals', index, 'taskId'],
-        message: 'proposal taskId must match bundle taskId',
+        path: [collection, index, 'taskId'],
+        message: `${collection} taskId must match bundle taskId`,
       });
     }
-    if (proposal.taskType !== bundle.taskType) {
+    if (item.taskType !== bundle.taskType) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['proposals', index, 'taskType'],
-        message: 'proposal taskType must match bundle taskType',
+        path: [collection, index, 'taskType'],
+        message: `${collection} taskType must match bundle taskType`,
       });
     }
-  });
+    if (item.extractionSnapshotId !== bundle.run.extractionSnapshotId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'extractionSnapshotId'],
+        message: `${collection} extractionSnapshotId must match bundle run`,
+      });
+    }
+  };
+
+  bundle.proposals.forEach((proposal, index) => checkIdentity(proposal, 'proposals', index));
+  bundle.abstentions.forEach(
+    (abstention, index) => checkIdentity(abstention, 'abstentions', index),
+  );
 });
 
+export type ForgewingTaskType = z.infer<typeof ForgewingTaskTypeSchema>;
 export type ForgewingProposalState = z.infer<typeof ForgewingProposalStateSchema>;
 export type ForgewingRegionLabel = z.infer<typeof ForgewingRegionLabelSchema>;
 export type ForgewingEvidenceRef = z.infer<typeof ForgewingEvidenceRefSchema>;
 export type ForgewingMissingEvidence = z.infer<typeof ForgewingMissingEvidenceSchema>;
+export type ForgewingRunIdentity = z.infer<typeof ForgewingRunIdentitySchema>;
+export type ForgewingAbstentionReason = z.infer<typeof ForgewingAbstentionReasonSchema>;
 export type ForgewingAbstention = z.infer<typeof ForgewingAbstentionSchema>;
 export type ForgewingProposal = z.infer<typeof ForgewingProposalSchema>;
 export type ForgewingProposalBundle = z.infer<typeof ForgewingProposalBundleSchema>;

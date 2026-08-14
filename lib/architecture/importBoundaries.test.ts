@@ -67,6 +67,67 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 ]);
 
 const COMPARISON_ROOT = 'lib/canonical/comparison';
+const FORGEWING_ROOT = 'lib/forgewing';
+const FORGEWING_FORBIDDEN_OUTBOUND_ROOTS = [
+  'lib/validator',
+  'lib/contracts',
+  'lib/canonical',
+  'lib/interpretation/canonical',
+  'lib/extraction/provenance',
+  'lib/server',
+  'app',
+  'components',
+] as const;
+const FORGEWING_FORBIDDEN_OUTBOUND_TARGET_ROOTS = [
+  'lib/extraction/domain/verifiedField',
+  'lib/extraction/domain/opaqueIds',
+  'lib/pipeline/processDocument',
+  'lib/supabaseClient',
+  '@supabase/supabase-js',
+  'openai',
+  '@anthropic-ai/sdk',
+  '@instructor-ai/instructor',
+] as const;
+
+function isModuleOrSubpath(target: string, root: string): boolean {
+  return isWithin(target, root) || target.startsWith(`${root}.`);
+}
+
+function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
+  return PRODUCTION_ROOTS
+    .flatMap((root) => walk(path.join(workspaceRoot, root)))
+    .flatMap((file) => importsInFile(file, workspaceRoot));
+}
+
+/**
+ * Forgewing may describe evidence, but Commit 1 has no authorized production
+ * consumer and no authority-producing dependency. Both directions are sealed so
+ * future nested files cannot turn proposals into serving truth by import alone.
+ */
+function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
+  const violations: string[] = [];
+  for (const edge of productionEdgesIn(workspaceRoot)) {
+    const target = resolveImportTarget(edge);
+    const sourceIsForgewing = isWithin(edge.source, FORGEWING_ROOT);
+    const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
+
+    if (targetIsForgewing && !sourceIsForgewing) {
+      violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing consumer)`);
+    }
+    if (
+      sourceIsForgewing
+      && (
+        FORGEWING_FORBIDDEN_OUTBOUND_ROOTS.some((root) => isWithin(target, root))
+        || FORGEWING_FORBIDDEN_OUTBOUND_TARGET_ROOTS.some(
+          (root) => isModuleOrSubpath(target, root),
+        )
+      )
+    ) {
+      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing authority-boundary import)`);
+    }
+  }
+  return violations.sort();
+}
 
 /**
  * The comparison layer may call authority orchestration; nothing in the
@@ -571,6 +632,10 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
+  it('keeps Forgewing non-authoritative and forbids every production consumer', () => {
+    expect(forgewingBoundaryViolations()).toEqual([]);
+  }, 30_000);
+
   it('prevents a comparison outcome from becoming a serving validation result', () => {
     expect(comparisonServingLeakViolations()).toEqual([]);
   });
@@ -699,5 +764,100 @@ describe('shadow Project Truth reader-cutover guard', () => {
       'lib/canonical/publication/reassemble.ts -> forbidden pricing reassembly',
       'lib/canonical/publication/sourceRead.ts -> forbidden mutable source read',
     ]);
+  });
+});
+
+describe('Forgewing proposal authority seal', () => {
+  const temporaryRoots: string[] = [];
+  const fixtureRoot = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'eightforge-forgewing-guard-'));
+    temporaryRoots.push(root);
+    return root;
+  };
+  const source = (root: string, relativePath: string, contents: string): void => {
+    const absolute = path.join(root, relativePath);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, contents);
+  };
+
+  afterEach(() => {
+    for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('forbids extraction and canonical imports of Forgewing recursively', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/nested/consumer.ts', "import { schema } from '@/lib/forgewing/proposal/schema';");
+    source(root, 'lib/canonical/authority/nested/consumer.ts', "export { schema } from '../../../forgewing/proposal/schema';");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/canonical/authority/nested/consumer.ts -> ../../../forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/extraction/nested/consumer.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('forbids every production consumer including dynamic and require forms', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/validator/consumer.ts', "import type { Proposal } from '@/lib/forgewing/proposal/schema';");
+    source(root, 'lib/contracts/consumer.ts', "export { schema } from '../forgewing/proposal/schema';");
+    source(root, 'app/dynamic.ts', "const schema = import('@/lib/forgewing/proposal/schema');");
+    source(root, 'components/required.ts', "const schema = require('../lib/forgewing/proposal/schema');");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'app/dynamic.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'components/required.ts -> ../lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/contracts/consumer.ts -> ../forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/validator/consumer.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('forbids Forgewing imports of authority, serving, and UI modules', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/outbound.ts', [
+      "import '@/lib/canonical/authority/resolve';",
+      "import '../../contracts/pricing';",
+      "import '@/lib/validator/projectValidator';",
+      "import '@/lib/server/supabaseAdmin';",
+      "import '@/lib/supabaseClient';",
+      "import '@supabase/supabase-js';",
+      "import 'openai';",
+      "import '@anthropic-ai/sdk';",
+      "import '@instructor-ai/instructor';",
+      "import '@/lib/extraction/domain/verifiedField';",
+      "import '@/lib/extraction/domain/verifiedField.ts';",
+      "import '@/lib/extraction/domain/opaqueIds';",
+      "import '@/lib/extraction/provenance/physicalPageCoordinate';",
+      "import '@/lib/interpretation/canonical/canonicalFact';",
+      "import '@/lib/pipeline/processDocument';",
+      "import 'openai/resources';",
+      "import '@supabase/supabase-js/dist/main';",
+      "import '@/app/reader';",
+      "import '@/components/reader';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/proposal/outbound.ts -> ../../contracts/pricing (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/app/reader (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/components/reader (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/canonical/authority/resolve (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/opaqueIds (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/verifiedField (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/domain/verifiedField.ts (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/extraction/provenance/physicalPageCoordinate (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/interpretation/canonical/canonicalFact (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/pipeline/processDocument (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/server/supabaseAdmin (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/supabaseClient (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @/lib/validator/projectValidator (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @anthropic-ai/sdk (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @instructor-ai/instructor (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @supabase/supabase-js (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> @supabase/supabase-js/dist/main (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> openai (Forgewing authority-boundary import)',
+      'lib/forgewing/proposal/outbound.ts -> openai/resources (Forgewing authority-boundary import)',
+    ]);
+  });
+
+  it('allows Forgewing-internal imports and test-only consumers', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/guards.ts', "import type { Proposal } from './schema';");
+    source(root, 'lib/extraction/consumer.test.ts', "import { schema } from '@/lib/forgewing/proposal/schema';");
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
   });
 });

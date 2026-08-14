@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { after } from 'next/server';
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
   hashParserManifest,
@@ -20,6 +21,11 @@ import { isForgewingShadowEnabled } from '@/lib/forgewing/runtime/modelConfig';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
+import {
+  persistReasoningShadowArtifact,
+  type ReasoningShadowPersistenceInput,
+  type ReasoningShadowPersistenceResult,
+} from '@/lib/extraction/persistence/forgewingShadowPersistence';
 import {
   buildGenericPdfShadowSidecar,
   mergeLocatedSidecars,
@@ -144,6 +150,10 @@ export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
   sourceDocumentId: string,
+  persistence: Readonly<{
+    register?: (task: () => Promise<void>) => void;
+    persist?: (params: { input: ReasoningShadowPersistenceInput }) => Promise<ReasoningShadowPersistenceResult>;
+  }> = {},
 ): Step3InterpretationBridge | undefined {
   if (!deterministicBridge) return undefined;
   return async (input) => {
@@ -153,6 +163,61 @@ export function withForgewingRegionClassificationShadow(
       const result = await runForgewingRegionClassification(
         forgewingInput(input, organizationId, sourceDocumentId),
       );
+      if (result.status === 'applied' || result.status === 'abstained') {
+        const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
+        const persistenceInput: ReasoningShadowPersistenceInput = {
+          organizationId,
+          sourceDocumentId,
+          sourceArtifactId: source.sourceArtifactId,
+          resultStatus: result.status,
+          run: result.bundle.run,
+          schemaVersion: result.bundle.schemaVersion,
+          runtime: {
+            model: result.metadata.model,
+            promptTemplateId: result.metadata.promptTemplateId,
+            promptTemplateVersion: result.metadata.promptTemplateVersion,
+            warningCodes: result.warnings,
+            calls: result.metadata.calls,
+            inputTruncated: result.metadata.inputTruncated,
+          },
+          validatedBundle: result.bundle,
+        };
+        const persist = persistence.persist ?? persistReasoningShadowArtifact;
+        const task = async (): Promise<void> => {
+          try {
+            const persisted = await persist({ input: persistenceInput });
+            if (persisted.status === 'persisted') {
+              console.info('[forgewingShadow] proposal bundle persisted', {
+                mode: 'shadow',
+                status: persisted.status,
+                path: persisted.path,
+                expiresAt: persisted.expiresAt,
+                idempotent: persisted.idempotent,
+              });
+              return;
+            }
+            console.warn('[forgewingShadow] non-fatal proposal persistence outcome', {
+              mode: 'shadow',
+              status: persisted.status,
+              reason: persisted.reason,
+              ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+            });
+          } catch (error) {
+            console.error('[forgewingShadow] non-fatal proposal persistence failure', {
+              mode: 'shadow',
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        };
+        try {
+          (persistence.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+        } catch (error) {
+          console.error('[forgewingShadow] persistence registration failed', {
+            mode: 'shadow',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       if (result.status !== 'skipped') {
         console.info('[forgewingShadow] region classification completed', {
           mode: 'shadow',

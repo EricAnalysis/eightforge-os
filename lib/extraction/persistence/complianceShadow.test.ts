@@ -21,6 +21,43 @@ import {
   withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 
+function actionableResult(
+  status: 'applied' | 'abstained' = 'applied',
+  warnings: readonly string[] = [],
+) {
+  return {
+    status,
+    warnings,
+    metadata: {
+      model: 'claude-test',
+      promptTemplateId: 'forgewing-region-classification',
+      promptTemplateVersion: '1',
+      timeoutMs: 100,
+      maxOutputTokens: 100,
+      calls: 1,
+      inputTruncated: false,
+    },
+    bundle: {
+      schemaVersion: 'forgewing-proposal-v1',
+      authority: 'non_authoritative',
+      run: {
+        runId: 'forgewing-run-1',
+        organizationId: 'organization-1',
+        extractionSnapshotId: 'snapshot-1',
+        inputSnapshotHash: 'a'.repeat(64),
+      },
+      taskId: 'task-1',
+      taskType: 'region_classification',
+      proposals: status === 'applied' ? [{
+        sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+      }] : [],
+      abstentions: status === 'abstained' ? [{
+        sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+      }] : [],
+    },
+  };
+}
+
 describe('compliance shadow dual-write isolation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -65,6 +102,7 @@ describe('compliance shadow dual-write isolation', () => {
       async () => payload,
       'organization-1',
       'document-1',
+      { register: () => undefined },
     );
     await expect(bridge?.({
       extraction_snapshot_id: 'snapshot-1',
@@ -90,6 +128,7 @@ describe('compliance shadow dual-write isolation', () => {
       async () => payload,
       'organization-1',
       'document-1',
+      { register: () => undefined },
     );
 
     await expect(bridge?.({
@@ -108,9 +147,9 @@ describe('compliance shadow dual-write isolation', () => {
   });
 
   it.each([
-    ['success', { status: 'applied', warnings: [], metadata: { calls: 1, inputTruncated: false } }],
-    ['timeout', { status: 'abstained', warnings: ['provider_timeout'], metadata: { calls: 1, inputTruncated: false } }],
-    ['schema rejection', { status: 'abstained', warnings: ['model_schema_rejected'], metadata: { calls: 1, inputTruncated: false } }],
+    ['success', actionableResult('applied')],
+    ['timeout', actionableResult('abstained', ['provider_timeout'])],
+    ['schema rejection', actionableResult('abstained', ['model_schema_rejected'])],
   ])('keeps deterministic Step 3 identical on Forgewing %s', async (_case, outcome) => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
     runForgewingRegionClassification.mockResolvedValueOnce(outcome as never);
@@ -123,6 +162,7 @@ describe('compliance shadow dual-write isolation', () => {
       async () => payload,
       'organization-1',
       'document-1',
+      { register: () => undefined },
     );
     await expect(bridge?.({
       extraction_snapshot_id: 'snapshot-1',
@@ -132,6 +172,83 @@ describe('compliance shadow dual-write isolation', () => {
       verified_field_handles: [],
       published_at: '2026-08-14T00:00:00.000Z',
     } as never)).resolves.toBe(payload);
+  });
+
+  it('returns deterministic Step 3 without waiting for a never-settling persistence task', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
+    const payload = {
+      interpretation_snapshot: { id: 'deterministic' },
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const registered: Array<() => Promise<void>> = [];
+    const persist = vi.fn(() => new Promise<never>(() => undefined));
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: (task) => registered.push(task), persist },
+    );
+
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(registered).toHaveLength(1);
+    expect(persist).not.toHaveBeenCalled();
+    void registered[0]!();
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('does not register persistence for skipped or pre-bundle failed results', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const register = vi.fn();
+    for (const result of [
+      { status: 'skipped', reason: 'no_candidate_regions' },
+      {
+        status: 'failed', reason: 'input_contract_violation', warnings: ['input_contract_violation'],
+        metadata: actionableResult().metadata,
+      },
+    ]) {
+      runForgewingRegionClassification.mockResolvedValueOnce(result as never);
+      const bridge = withForgewingRegionClassificationShadow(
+        async () => ({ interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] }),
+        'organization-1',
+        'document-1',
+        { register },
+      );
+      await bridge?.({
+        extraction_snapshot_id: 'snapshot-1', chains: [], segments: [], cells: [],
+        verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+      } as never);
+    }
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('contains persistence registration and task failures', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => ({ interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] }),
+      'organization-1',
+      'document-1',
+      { register: () => { throw new Error('lifecycle unavailable'); } },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1', chains: [], segments: [], cells: [],
+      verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBeDefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] persistence registration failed',
+      expect.objectContaining({ error: 'lifecycle unavailable' }),
+    );
+    consoleError.mockRestore();
   });
   it('is non-fatal and never mutates the legacy extraction payload', async () => {
     const payload = {

@@ -125,6 +125,36 @@ describe('reasoning shadow persistence', () => {
     ]) expect(JSON.stringify(artifact)).not.toContain(forbidden);
   });
 
+  it('persists a continuation task bundle through the same task-neutral writer', async () => {
+    const store = storage();
+    const base = input();
+    const run = { ...base.run, runId: 'forgewing-run-table-continuation-0123456789abcdef' };
+    const continuation = {
+      ...base,
+      run,
+      schemaVersion: 'forgewing-table-continuation-proposal-v1',
+      runtime: { ...base.runtime, promptTemplateId: 'forgewing-table-continuation' },
+      validatedBundle: {
+        schemaVersion: 'forgewing-table-continuation-proposal-v1',
+        authority: 'non_authoritative',
+        run,
+        taskId: 'forgewing-task-table-continuation-0123456789abcdef',
+        taskType: 'table_continuation',
+        proposals: [{
+          sourceDocumentId: 'document-1',
+          sourceArtifactId: 'artifact-1',
+          evidence: [
+            { artifactId: 'prior', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1' },
+            { artifactId: 'next', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1' },
+          ],
+        }],
+        abstentions: [],
+      },
+    } satisfies ReasoningShadowPersistenceInput;
+    const result = await persistReasoningShadowArtifact({ input: continuation, admin: store.admin as never, now: () => fixedNow });
+    expect(result).toMatchObject({ status: 'persisted', path: expect.stringContaining('forgewing-run-table-continuation-') });
+  });
+
   it('treats a duplicate with identical compressed bytes as idempotent success', async () => {
     const first = storage();
     await persistReasoningShadowArtifact({ input: input(), admin: first.admin as never, now: () => fixedNow });

@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { FORGEWING_PROPOSAL_SCHEMA_VERSION } from '@/lib/forgewing/proposal/schemaVersion';
+import {
+  FORGEWING_PROPOSAL_SCHEMA_VERSION,
+  FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION,
+} from '@/lib/forgewing/proposal/schemaVersion';
 
 const boundedIdentifier = z.string()
   .min(1)
@@ -21,8 +24,10 @@ const rawSpanSchema = z.string()
     'raw span must contain at least one non-whitespace character',
   );
 
-/** Forgewing v0 is intentionally scoped to one task; new tasks require schema evolution. */
-export const ForgewingTaskTypeSchema = z.literal('region_classification');
+export const ForgewingTaskTypeSchema = z.enum([
+  'region_classification',
+  'table_continuation',
+]);
 
 export const ForgewingProposalStateSchema = z.enum([
   'observed',
@@ -42,6 +47,26 @@ export const ForgewingRegionLabelSchema = z.enum([
   'continuation',
   'signature_block',
   'unknown',
+]);
+
+export const ForgewingTableContinuationRelationSchema = z.enum([
+  'same_table',
+  'separate_tables',
+  'ambiguous',
+]);
+
+export const ForgewingTableContinuationRationaleCodeSchema = z.enum([
+  'repeated_header_consistent',
+  'column_structure_consistent',
+  'row_sequence_continues',
+  'prior_row_incomplete',
+  'next_page_header_restart',
+  'title_reset',
+  'column_semantics_changed',
+  'schema_changed',
+  'section_break_detected',
+  'mixed_evidence',
+  'insufficient_structure',
 ]);
 
 export const ForgewingBoundingBoxSchema = z.object({
@@ -119,8 +144,9 @@ export const ForgewingMissingEvidenceSchema = z.object({
   description: boundedText(240).optional(),
 }).strict();
 
-const evidenceReferences = (minimum: number) => z.array(ForgewingEvidenceRefSchema)
+const evidenceReferences = (minimum: number, maximum?: number) => z.array(ForgewingEvidenceRefSchema)
   .min(minimum)
+  .max(maximum ?? 200)
   .refine(
     (references) => new Set(references.map((reference) => JSON.stringify(reference))).size === references.length,
     'evidence references must be distinct',
@@ -162,7 +188,7 @@ export const ForgewingAbstentionSchema = z.object({
 const proposalIdentityShape = {
   proposalId: boundedIdentifier,
   taskId: boundedIdentifier,
-  taskType: ForgewingTaskTypeSchema,
+  taskType: z.literal('region_classification'),
   sourceDocumentId: boundedIdentifier,
   sourceArtifactId: boundedIdentifier,
   extractionSnapshotId: boundedIdentifier,
@@ -222,7 +248,7 @@ const insufficientEvidenceProposalSchema = z.object({
   missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1),
 }).strict();
 
-const proposalSchema = z.discriminatedUnion('state', [
+const regionProposalSchema = z.discriminatedUnion('state', [
   observedProposalSchema,
   inferredProposalSchema,
   ambiguousProposalSchema,
@@ -231,10 +257,10 @@ const proposalSchema = z.discriminatedUnion('state', [
   insufficientEvidenceProposalSchema,
 ]);
 
-type ProposalWithEvidence = z.infer<typeof proposalSchema>;
+type RegionProposalWithEvidence = z.infer<typeof regionProposalSchema>;
 
 function enforceProposalProvenanceCoherence(
-  proposal: ProposalWithEvidence,
+  proposal: RegionProposalWithEvidence,
   context: z.RefinementCtx,
 ): void {
   const inputIds = new Set(proposal.inputObservationIds);
@@ -278,18 +304,201 @@ function enforceProposalProvenanceCoherence(
   }
 }
 
-export const ForgewingProposalSchema = proposalSchema.superRefine(
+export const ForgewingRegionProposalSchema = regionProposalSchema.superRefine(
   enforceProposalProvenanceCoherence,
 );
 
-export const ForgewingProposalBundleSchema = z.object({
+const continuationIdentityShape = {
+  proposalId: boundedIdentifier,
+  taskId: boundedIdentifier,
+  taskType: z.literal('table_continuation'),
+  sourceDocumentId: boundedIdentifier,
+  sourceArtifactId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  priorSegmentId: boundedIdentifier,
+  nextSegmentId: boundedIdentifier,
+  priorPageArtifactId: boundedIdentifier,
+  nextPageArtifactId: boundedIdentifier,
+  priorPhysicalPageNumber: z.number().int().positive(),
+  nextPhysicalPageNumber: z.number().int().positive(),
+  priorArtifactLocalIndex: z.number().int().nonnegative().nullable(),
+  nextArtifactLocalIndex: z.number().int().nonnegative().nullable(),
+  priorSourceLayer: z.enum(['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact']),
+  nextSourceLayer: z.enum(['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact']),
+  confidence: z.number().min(0).max(1).nullable(),
+  rationaleCode: ForgewingTableContinuationRationaleCodeSchema,
+} as const;
+
+const resolvedContinuationProposalSchema = z.object({
+  ...continuationIdentityShape,
+  inputObservationIds: inputObservationIds(2),
+  state: z.enum(['observed', 'inferred']),
+  relation: z.enum(['same_table', 'separate_tables']),
+  evidence: evidenceReferences(2),
+}).strict();
+
+const ambiguousContinuationProposalSchema = z.object({
+  ...continuationIdentityShape,
+  inputObservationIds: inputObservationIds(2),
+  state: z.literal('ambiguous'),
+  relation: z.literal('ambiguous'),
+  evidence: evidenceReferences(2),
+}).strict();
+
+const insufficientContinuationProposalSchema = z.object({
+  ...continuationIdentityShape,
+  inputObservationIds: inputObservationIds(2),
+  state: z.literal('insufficient_evidence'),
+  evidence: evidenceReferences(0, 0),
+  missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1).max(6),
+}).strict();
+
+const continuationProposalSchema = z.discriminatedUnion('state', [
+  resolvedContinuationProposalSchema,
+  ambiguousContinuationProposalSchema,
+  insufficientContinuationProposalSchema,
+]);
+
+type ContinuationProposalWithEvidence = z.infer<typeof continuationProposalSchema>;
+
+function enforceContinuationProvenanceCoherence(
+  proposal: ContinuationProposalWithEvidence,
+  context: z.RefinementCtx,
+): void {
+  if (proposal.priorSegmentId === proposal.nextSegmentId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['nextSegmentId'],
+      message: 'continuation segments must be distinct',
+    });
+  }
+  if (proposal.priorPageArtifactId === proposal.nextPageArtifactId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['nextPageArtifactId'],
+      message: 'continuation pages must be distinct',
+    });
+  }
+  if (proposal.nextPhysicalPageNumber !== proposal.priorPhysicalPageNumber + 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['nextPhysicalPageNumber'],
+      message: 'table continuation v0 requires adjacent physical pages',
+    });
+  }
+
+  const inputIds = new Set(proposal.inputObservationIds);
+  for (const [field, identifier] of [
+    ['priorSegmentId', proposal.priorSegmentId],
+    ['nextSegmentId', proposal.nextSegmentId],
+  ] as const) {
+    if (!inputIds.has(identifier)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} must be declared in inputObservationIds`,
+      });
+    }
+  }
+
+  const citedPages = new Set<string>();
+  proposal.evidence.forEach((reference, index) => {
+    if (!inputIds.has(reference.artifactId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'artifactId'],
+        message: 'evidence artifact must be declared in inputObservationIds',
+      });
+    }
+    if (
+      reference.sourceDocumentId != null
+      && reference.sourceDocumentId !== proposal.sourceDocumentId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'sourceDocumentId'],
+        message: 'sourceDocumentId must match the proposal provenance',
+      });
+    }
+    if (
+      reference.sourceArtifactId != null
+      && reference.sourceArtifactId !== proposal.sourceArtifactId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'sourceArtifactId'],
+        message: 'sourceArtifactId must match the proposal provenance',
+      });
+    }
+
+    const side = reference.pageArtifactId === proposal.priorPageArtifactId
+      ? 'prior' as const
+      : reference.pageArtifactId === proposal.nextPageArtifactId
+        ? 'next' as const
+        : null;
+    if (side == null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'pageArtifactId'],
+        message: 'continuation evidence must identify the prior or next page artifact',
+      });
+      return;
+    }
+    citedPages.add(reference.pageArtifactId!);
+    const physicalPageNumber = side === 'prior'
+      ? proposal.priorPhysicalPageNumber : proposal.nextPhysicalPageNumber;
+    if (
+      reference.physicalPageNumber != null
+      && reference.physicalPageNumber !== physicalPageNumber
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'physicalPageNumber'],
+        message: 'physicalPageNumber must match its continuation page',
+      });
+    }
+    // Child cells have their own proven layer-local identity. Do not collapse
+    // it to the parent segment's artifactLocalIndex or sourceLayer.
+  });
+
+  if (proposal.state !== 'insufficient_evidence') {
+    for (const pageArtifactId of [proposal.priorPageArtifactId, proposal.nextPageArtifactId]) {
+      if (!citedPages.has(pageArtifactId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence'],
+          message: 'resolved and ambiguous continuation proposals must cite both pages',
+        });
+      }
+    }
+  }
+}
+
+export const ForgewingTableContinuationProposalSchema = continuationProposalSchema.superRefine(
+  enforceContinuationProvenanceCoherence,
+);
+
+export const ForgewingProposalSchema = z.union([
+  ForgewingRegionProposalSchema,
+  ForgewingTableContinuationProposalSchema,
+]);
+
+const regionAbstentionSchema = ForgewingAbstentionSchema.extend({
+  taskType: z.literal('region_classification'),
+}).strict();
+
+const continuationAbstentionSchema = ForgewingAbstentionSchema.extend({
+  taskType: z.literal('table_continuation'),
+}).strict();
+
+export const ForgewingRegionProposalBundleSchema = z.object({
   schemaVersion: z.literal(FORGEWING_PROPOSAL_SCHEMA_VERSION),
   authority: z.literal('non_authoritative'),
   run: ForgewingRunIdentitySchema,
   taskId: boundedIdentifier,
-  taskType: ForgewingTaskTypeSchema,
-  proposals: z.array(ForgewingProposalSchema),
-  abstentions: z.array(ForgewingAbstentionSchema),
+  taskType: z.literal('region_classification'),
+  proposals: z.array(ForgewingRegionProposalSchema),
+  abstentions: z.array(regionAbstentionSchema),
 }).strict().superRefine((bundle, context) => {
   if (bundle.proposals.length + bundle.abstentions.length === 0) {
     context.addIssue({
@@ -333,13 +542,72 @@ export const ForgewingProposalBundleSchema = z.object({
   );
 });
 
+export const ForgewingTableContinuationProposalBundleSchema = z.object({
+  schemaVersion: z.literal(FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION),
+  authority: z.literal('non_authoritative'),
+  run: ForgewingRunIdentitySchema,
+  taskId: boundedIdentifier,
+  taskType: z.literal('table_continuation'),
+  proposals: z.array(ForgewingTableContinuationProposalSchema),
+  abstentions: z.array(continuationAbstentionSchema),
+}).strict().superRefine((bundle, context) => {
+  if (bundle.proposals.length + bundle.abstentions.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'Forgewing bundle must contain at least one proposal or abstention',
+    });
+  }
+  const items = [
+    ...bundle.proposals.map((item, index) => ({ item, collection: 'proposals' as const, index })),
+    ...bundle.abstentions.map((item, index) => ({ item, collection: 'abstentions' as const, index })),
+  ];
+  for (const { item, collection, index } of items) {
+    if (item.taskId !== bundle.taskId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'taskId'],
+        message: `${collection} taskId must match bundle taskId`,
+      });
+    }
+    if (item.extractionSnapshotId !== bundle.run.extractionSnapshotId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'extractionSnapshotId'],
+        message: `${collection} extractionSnapshotId must match bundle run`,
+      });
+    }
+  }
+});
+
+export const ForgewingProposalBundleSchema = z.union([
+  ForgewingRegionProposalBundleSchema,
+  ForgewingTableContinuationProposalBundleSchema,
+]);
+
 export type ForgewingTaskType = z.infer<typeof ForgewingTaskTypeSchema>;
 export type ForgewingProposalState = z.infer<typeof ForgewingProposalStateSchema>;
 export type ForgewingRegionLabel = z.infer<typeof ForgewingRegionLabelSchema>;
+export type ForgewingTableContinuationRelation = z.infer<
+  typeof ForgewingTableContinuationRelationSchema
+>;
+export type ForgewingTableContinuationRationaleCode = z.infer<
+  typeof ForgewingTableContinuationRationaleCodeSchema
+>;
 export type ForgewingEvidenceRef = z.infer<typeof ForgewingEvidenceRefSchema>;
 export type ForgewingMissingEvidence = z.infer<typeof ForgewingMissingEvidenceSchema>;
 export type ForgewingRunIdentity = z.infer<typeof ForgewingRunIdentitySchema>;
 export type ForgewingAbstentionReason = z.infer<typeof ForgewingAbstentionReasonSchema>;
 export type ForgewingAbstention = z.infer<typeof ForgewingAbstentionSchema>;
 export type ForgewingProposal = z.infer<typeof ForgewingProposalSchema>;
+export type ForgewingRegionProposal = z.infer<typeof ForgewingRegionProposalSchema>;
+export type ForgewingTableContinuationProposal = z.infer<
+  typeof ForgewingTableContinuationProposalSchema
+>;
+export type ForgewingRegionProposalBundle = z.infer<
+  typeof ForgewingRegionProposalBundleSchema
+>;
+export type ForgewingTableContinuationProposalBundle = z.infer<
+  typeof ForgewingTableContinuationProposalBundleSchema
+>;
 export type ForgewingProposalBundle = z.infer<typeof ForgewingProposalBundleSchema>;

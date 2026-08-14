@@ -17,10 +17,10 @@ import {
   type RegionEvaluationIdentity,
 } from '@/lib/evaluation/forgewing/types';
 import {
-  ForgewingProposalBundleSchema,
+  ForgewingRegionProposalBundleSchema,
   type ForgewingAbstention,
   type ForgewingAbstentionReason,
-  type ForgewingProposal,
+  type ForgewingRegionProposal,
   type ForgewingRegionLabel,
 } from '@/lib/forgewing/proposal/schema';
 
@@ -162,14 +162,14 @@ function identityKey(identity: RegionEvaluationIdentity): string {
   ].join('\u001f');
 }
 
-function forgewingIsAmbiguous(proposal: ForgewingProposal): boolean {
+function forgewingIsAmbiguous(proposal: ForgewingRegionProposal): boolean {
   return proposal.state === 'ambiguous'
     || proposal.state === 'unresolved'
     || proposal.state === 'conflicting'
     || proposal.state === 'insufficient_evidence';
 }
 
-function forgewingLabel(proposal: ForgewingProposal): ForgewingRegionLabel | null {
+function forgewingLabel(proposal: ForgewingRegionProposal): ForgewingRegionLabel | null {
   return proposal.state === 'observed' || proposal.state === 'inferred'
     ? proposal.value.label
     : null;
@@ -231,7 +231,7 @@ function resolveBaseline(params: Readonly<{
 
 function statusFor(
   baseline: DeterministicRegionClassificationObservation | null,
-  proposal: ForgewingProposal | null,
+  proposal: ForgewingRegionProposal | null,
   abstention: ForgewingAbstention | null,
   notComparable: boolean,
 ): RegionComparisonStatus {
@@ -249,7 +249,7 @@ function statusFor(
 
 function comparisonForProposal(params: Readonly<{
   input: ForgewingRegionEvaluationInput;
-  proposal: ForgewingProposal;
+  proposal: ForgewingRegionProposal;
   findings: readonly EvidenceFidelityFinding[];
   snapshotMismatch: boolean;
 }>): RegionEvaluationComparison {
@@ -369,7 +369,7 @@ function emptyBucket(): ConfidenceBucketMetrics {
 export function evaluateForgewingRegionClassification(
   rawInput: ForgewingRegionEvaluationInput,
 ): ForgewingRegionEvaluationReport {
-  const bundle = ForgewingProposalBundleSchema.parse(rawInput.forgewingBundle);
+  const bundle = ForgewingRegionProposalBundleSchema.parse(rawInput.forgewingBundle);
   const input: ForgewingRegionEvaluationInput = { ...rawInput, forgewingBundle: bundle };
   const snapshotMismatch = input.deterministicSnapshot.extractionSnapshotId
     !== bundle.run.extractionSnapshotId

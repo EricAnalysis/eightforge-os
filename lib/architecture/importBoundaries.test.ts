@@ -78,7 +78,7 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
 ]);
-const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b/;
+const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b/;
 
 function productionFilesIn(workspaceRoot: string): string[] {
   return PRODUCTION_ROOTS
@@ -188,6 +188,17 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     }
   }
   return violations.sort();
+}
+
+function forgewingProductionConsumers(workspaceRoot = ROOT): string[] {
+  return [...new Set(productionEdgesIn(workspaceRoot).flatMap((edge) => {
+    const target = resolveImportTarget(edge);
+    return isWithin(target, FORGEWING_ROOT)
+      && !isWithin(edge.source, FORGEWING_ROOT)
+      && !isWithin(edge.source, FORGEWING_EVALUATION_ROOT)
+      ? [edge.source]
+      : [];
+  }))].sort();
 }
 
 /**
@@ -701,6 +712,9 @@ describe('production architecture import boundaries', () => {
 
   it('keeps Forgewing non-authoritative with one shadow consumer and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
+    expect(forgewingProductionConsumers()).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts',
+    ]);
   }, 30_000);
 
   it('prevents a comparison outcome from becoming a serving validation result', () => {
@@ -1045,6 +1059,7 @@ describe('Forgewing proposal authority seal', () => {
       'const dynamic = import(target);',
     ].join('\n'));
     source(root, 'lib/contracts/windowsMention.ts', "const target = '..\\forgewing\\proposal\\schema';");
+    source(root, 'lib/validator/rawTaskDiscriminator.ts', "const taskType = 'table_continuation';");
     expect(forgewingBoundaryViolations(root)).toEqual([
       'lib/canonical/mention.ts -> references Forgewing outside its module boundary',
       'lib/contracts/mention.ts -> references Forgewing outside its module boundary',
@@ -1053,6 +1068,30 @@ describe('Forgewing proposal authority seal', () => {
       'lib/extraction/relativeMention.ts -> references Forgewing outside its module boundary',
       'lib/projectFacts.ts -> references Forgewing outside its module boundary',
       'lib/validator/mention.ts -> references Forgewing outside its module boundary',
+      'lib/validator/rawTaskDiscriminator.ts -> references Forgewing outside its module boundary',
+    ]);
+  });
+
+  it('enumerates the exact production Forgewing consumer set', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/extraction/persistence/complianceShadow.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/extraction/persistence/secondConsumer.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/evaluation/forgewing/measure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    expect(forgewingProductionConsumers(root)).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts',
+      'lib/extraction/persistence/secondConsumer.ts',
     ]);
   });
 

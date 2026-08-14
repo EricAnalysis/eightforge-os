@@ -1,10 +1,15 @@
 import { readFileSync } from 'node:fs';
 
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
-import { REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA } from '@/lib/forgewing/runtime/structuredOutput';
+import {
+  REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
+  TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
+} from '@/lib/forgewing/runtime/structuredOutput';
 
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_ID = 'forgewing-region-classification';
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_VERSION = 'v1';
+export const FORGEWING_TABLE_CONTINUATION_PROMPT_ID = 'forgewing-table-continuation';
+export const FORGEWING_TABLE_CONTINUATION_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -43,7 +48,19 @@ function loadRegionClassificationPrompt(): string {
   );
 }
 
-export const callClaudeForRegionClassification: ForgewingProvider = async (request) => {
+function loadTableContinuationPrompt(): string {
+  return readFileSync(
+    new URL('../prompts/tableContinuation.md', import.meta.url),
+    'utf8',
+  );
+}
+
+async function callClaudeWithStructuredOutput(
+  request: ForgewingProviderRequest,
+  prompt: string,
+  schema: typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
+    | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
+): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
   try {
@@ -51,12 +68,12 @@ export const callClaudeForRegionClassification: ForgewingProvider = async (reque
       model: request.model,
       temperature: 0,
       max_tokens: request.maxOutputTokens,
-      system: loadRegionClassificationPrompt(),
+      system: prompt,
       messages: [{ role: 'user', content: request.inputJson }],
       output_config: {
         format: {
           type: 'json_schema',
-          schema: REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
+          schema,
         },
       },
     }, {
@@ -73,4 +90,18 @@ export const callClaudeForRegionClassification: ForgewingProvider = async (reque
   } finally {
     clearTimeout(timer);
   }
-};
+}
+
+export const callClaudeForRegionClassification: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadRegionClassificationPrompt(),
+    REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
+  );
+
+export const callClaudeForTableContinuation: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadTableContinuationPrompt(),
+    TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
+  );

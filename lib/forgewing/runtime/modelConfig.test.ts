@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getForgewingRuntimeConfig } from '@/lib/forgewing/runtime/modelConfig';
+import {
+  getForgewingRuntimeConfig,
+  isForgewingTableContinuationEnabled,
+} from '@/lib/forgewing/runtime/modelConfig';
 
 describe('Forgewing runtime configuration', () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -37,5 +40,18 @@ describe('Forgewing runtime configuration', () => {
     vi.stubEnv('FORGEWING_MODEL', '');
     vi.stubEnv('ANTHROPIC_MODEL', 'claude-shared-test');
     expect(getForgewingRuntimeConfig().model).toBe('claude-shared-test');
+  });
+
+  it('keeps table continuation default-off behind both the master and task gates', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');
+    expect(isForgewingTableContinuationEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '');
+    expect(isForgewingTableContinuationEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');
+    expect(isForgewingTableContinuationEnabled()).toBe(true);
   });
 });

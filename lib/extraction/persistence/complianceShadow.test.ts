@@ -4,13 +4,22 @@ const runForgewingRegionClassification = vi.hoisted(() => vi.fn(async () => ({
   status: 'skipped' as const,
   reason: 'forgewing_disabled' as const,
 })));
+const runForgewingTableContinuation = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_pairs' as const,
+})));
 
 vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
   runForgewingRegionClassification,
 }));
+vi.mock('@/lib/forgewing/tasks/tableContinuation', () => ({
+  runForgewingTableContinuation,
+}));
 
 vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
   isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
+  isForgewingTableContinuationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
 }));
 
 import {
@@ -63,6 +72,49 @@ describe('compliance shadow dual-write isolation', () => {
     vi.unstubAllEnvs();
     vi.useRealTimers();
     runForgewingRegionClassification.mockClear();
+    runForgewingTableContinuation.mockClear();
+  });
+
+  it('keeps table continuation default-off before mapping, provider, or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload),
+      'organization-1',
+      'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingTableContinuation).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('runs table continuation only in the detached registration and contains persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const continuation = actionableResult('applied') as ReturnType<typeof actionableResult> & { bundle: ReturnType<typeof actionableResult>['bundle'] };
+    continuation.metadata.promptTemplateId = 'forgewing-table-continuation';
+    continuation.bundle.schemaVersion = 'forgewing-table-continuation-proposal-v1';
+    continuation.bundle.taskType = 'table_continuation';
+    runForgewingTableContinuation.mockResolvedValueOnce(continuation as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload),
+      'organization-1',
+      'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingTableContinuation).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingTableContinuation).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledOnce();
   });
 
   it('returns the deterministic Step 3 payload unchanged while Forgewing observes shadow input', async () => {

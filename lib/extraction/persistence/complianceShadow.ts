@@ -17,7 +17,14 @@ import {
   runForgewingRegionClassification,
   type ForgewingRegionClassificationInput,
 } from '@/lib/forgewing/tasks/regionClassification';
-import { isForgewingShadowEnabled } from '@/lib/forgewing/runtime/modelConfig';
+import {
+  runForgewingTableContinuation,
+  type ForgewingTableContinuationInput,
+} from '@/lib/forgewing/tasks/tableContinuation';
+import {
+  isForgewingShadowEnabled,
+  isForgewingTableContinuationEnabled,
+} from '@/lib/forgewing/runtime/modelConfig';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -146,6 +153,102 @@ function forgewingInput(
   };
 }
 
+function forgewingTableContinuationInput(
+  input: Step3InterpretationBridgeInput,
+  organizationId: string,
+  sourceDocumentId: string,
+): ForgewingTableContinuationInput {
+  const chainCompleteness = new Map<string, 'complete' | 'partial' | 'ambiguous'>();
+  for (const chain of input.chains) {
+    for (const segmentId of chain.segment_ids) {
+      const prior = chainCompleteness.get(segmentId);
+      if (prior == null || chain.completeness === 'ambiguous'
+        || (chain.completeness === 'partial' && prior === 'complete')) {
+        chainCompleteness.set(segmentId, chain.completeness);
+      }
+    }
+  }
+  const mapPhysical = (
+    coordinate: (typeof input.segments)[number]['physical_page_coordinate'],
+  ) => coordinate?.mappingState === 'resolved_physical_page'
+    ? {
+        mappingState: coordinate.mappingState,
+        sourceDocumentId: coordinate.sourceDocumentId,
+        sourceArtifactId: coordinate.sourceArtifactId,
+        physicalPageNumber: coordinate.physicalPageNumber,
+        artifactLocalIndex: coordinate.artifactLocalIndex,
+        sourceLayer: coordinate.sourceLayer,
+      }
+    : undefined;
+  const mapBox = (box: (typeof input.segments)[number]['bounding_box']) => ({
+    coordinateSpace: box.coordinate_space,
+    origin: box.origin,
+    x0: box.x0,
+    y0: box.y0,
+    x1: box.x1,
+    y1: box.y1,
+    rotation: box.rotation,
+  });
+  return {
+    organizationId,
+    sourceDocumentId,
+    extractionSnapshotId: input.extraction_snapshot_id,
+    segments: input.segments.map((segment) => ({
+      observationId: segment.id,
+      kind: 'segment' as const,
+      organizationId: segment.organization_id,
+      sourceDocumentId: segment.source_document_id,
+      sourceArtifactId: segment.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: segment.page_artifact_id,
+      boundingBox: mapBox(segment.bounding_box),
+      text: segment.raw_text,
+      readingOrder: segment.reading_order,
+      ...(mapPhysical(segment.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(segment.physical_page_coordinate) }
+        : {}),
+      chainCompleteness: chainCompleteness.get(segment.id) ?? 'unchained',
+      columns: segment.column_hypotheses.map((column) => ({
+        index: column.index,
+        x0: column.x0,
+        x1: column.x1,
+        observedHeader: column.header.observed_text,
+        normalizedHeader: column.header.normalized_label,
+        valueKinds: column.value_kind_hypotheses.map((hypothesis) => hypothesis.kind),
+      })),
+      repeatedHeaderCount: segment.repeated_header_row_ids.length,
+      detectionKinds: segment.detection_evidence.map((evidence) => evidence.kind),
+    })),
+    cells: input.cells.map((cell) => ({
+      observationId: cell.id,
+      kind: 'cell' as const,
+      organizationId: cell.organization_id,
+      sourceDocumentId: cell.source_document_id,
+      sourceArtifactId: cell.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: cell.page_artifact_id,
+      boundingBox: mapBox(cell.bounding_box),
+      text: cell.raw_text,
+      readingOrder: cell.reading_order,
+      ...(mapPhysical(cell.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(cell.physical_page_coordinate) }
+        : {}),
+      targetSegmentId: cell.table_segment_id,
+      rowStart: cell.row_start,
+      rowSpan: cell.row_span,
+      columnStart: cell.column_start,
+      columnSpan: cell.column_span,
+      structure: cell.structure,
+    })),
+    continuationLinks: (input.continuation_links ?? []).map((link) => ({
+      linkId: link.id,
+      fromSegmentId: link.from_segment_id,
+      toSegmentId: link.to_segment_id,
+      decision: link.decision,
+    })),
+  };
+}
+
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
@@ -159,6 +262,68 @@ export function withForgewingRegionClassificationShadow(
   return async (input) => {
     const deterministicPayload = await deterministicBridge(input);
     if (!isForgewingShadowEnabled()) return deterministicPayload;
+    if (isForgewingTableContinuationEnabled()) {
+      const task = async (): Promise<void> => {
+        try {
+          const result = await runForgewingTableContinuation(
+            forgewingTableContinuationInput(input, organizationId, sourceDocumentId),
+          );
+          if (result.status === 'applied' || result.status === 'abstained') {
+            const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
+            const persist = persistence.persist ?? persistReasoningShadowArtifact;
+            const persisted = await persist({
+              input: {
+                organizationId,
+                sourceDocumentId,
+                sourceArtifactId: source.sourceArtifactId,
+                resultStatus: result.status,
+                run: result.bundle.run,
+                schemaVersion: result.bundle.schemaVersion,
+                runtime: {
+                  model: result.metadata.model,
+                  promptTemplateId: result.metadata.promptTemplateId,
+                  promptTemplateVersion: result.metadata.promptTemplateVersion,
+                  warningCodes: result.warnings,
+                  calls: result.metadata.calls,
+                  inputTruncated: result.metadata.inputTruncated,
+                },
+                validatedBundle: result.bundle,
+              },
+            });
+            if (persisted.status !== 'persisted') {
+              console.warn('[forgewingShadow] non-fatal table continuation persistence outcome', {
+                mode: 'shadow',
+                status: persisted.status,
+                reason: persisted.reason,
+                ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+              });
+            }
+          }
+          if (result.status !== 'skipped') {
+            console.info('[forgewingShadow] table continuation completed', {
+              mode: 'shadow',
+              status: result.status,
+              warnings: result.warnings,
+              calls: result.metadata.calls,
+              inputTruncated: result.metadata.inputTruncated,
+            });
+          }
+        } catch (error) {
+          console.error('[forgewingShadow] non-fatal table continuation failure', {
+            mode: 'shadow',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      try {
+        (persistence.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+      } catch (error) {
+        console.error('[forgewingShadow] table continuation registration failed', {
+          mode: 'shadow',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     try {
       const result = await runForgewingRegionClassification(
         forgewingInput(input, organizationId, sourceDocumentId),

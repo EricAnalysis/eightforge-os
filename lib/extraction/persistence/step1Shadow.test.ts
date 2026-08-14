@@ -7,6 +7,7 @@ import {
 } from '@/lib/extraction/persistence/step1Shadow';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { hashParserManifest, type ParserManifest } from '@/lib/extraction/domain/parserManifest';
+import type { Step3InterpretationBridgeInput } from '@/lib/extraction/domain/step3InterpretationBridge';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const DOCUMENT_ID = '20000000-0000-4000-8000-000000000001';
@@ -121,6 +122,28 @@ afterEach(() => {
 });
 
 describe('Step 1 shadow persistence', () => {
+  it('forwards deterministic continuation links through the Step 3 bridge unchanged', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
+    const mock = client();
+    const bridge = vi.fn(async (_bridgeInput: Step3InterpretationBridgeInput) => ({
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    }));
+    await persistExtractionStep1Shadow({
+      ...input(mock.admin),
+      step3InterpretationBridge: bridge,
+    });
+    const publishPayload = mock.calls.find(
+      (call) => call.name === 'publish_extraction_step1_shadow',
+    )?.payload;
+    expect(bridge).toHaveBeenCalledOnce();
+    expect(bridge.mock.calls[0]?.[0]).toHaveProperty('continuation_links');
+    expect(bridge.mock.calls[0]?.[0].continuation_links).toBe(
+      publishPayload?.continuation_links,
+    );
+  });
+
   it('protects the shared shadow assignment from stale Step 0 or Step 1 writers', () => {
     const migration = fs.readFileSync(
       path.join(

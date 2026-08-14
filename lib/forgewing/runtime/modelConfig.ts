@@ -28,6 +28,12 @@ export function isForgewingShadowEnabled(): boolean {
   return process.env.FORGEWING_SHADOW_ENABLED === '1';
 }
 
+/** Table continuation is separately default-off beneath the Forgewing master gate. */
+export function isForgewingTableContinuationEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

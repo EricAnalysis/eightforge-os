@@ -1,15 +1,137 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const runForgewingRegionClassification = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'forgewing_disabled' as const,
+})));
+
+vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
+  runForgewingRegionClassification,
+}));
+
+vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
+  isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
+}));
+
 import {
   captureStorageObjectVersion,
   persistExtractionComplianceShadow,
   publishExtractionComplianceShadowNonBlocking,
   scheduleExtractionComplianceShadow,
+  withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 
 describe('compliance shadow dual-write isolation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.useRealTimers();
+    runForgewingRegionClassification.mockClear();
+  });
+
+  it('returns the deterministic Step 3 payload unchanged while Forgewing observes shadow input', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = {
+      interpretation_snapshot: { id: 'interpretation-1' },
+      semantic_column_mappings: [{ id: 'mapping-1' }],
+      interpretation_records: [{ id: 'record-1' }],
+    };
+    const deterministicBridge = vi.fn(async () => payload);
+    const bridge = withForgewingRegionClassificationShadow(
+      deterministicBridge,
+      'organization-1',
+      'document-1',
+    );
+    const bridgeInput = {
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    };
+
+    await expect(bridge?.(bridgeInput as never)).resolves.toBe(payload);
+    expect(deterministicBridge).toHaveBeenCalledWith(bridgeInput);
+    expect(runForgewingRegionClassification).toHaveBeenCalledOnce();
+  });
+
+  it('does no Forgewing input work or provider orchestration when default-off', async () => {
+    const payload = {
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      get chains() { throw new Error('must not slice when disabled'); },
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(runForgewingRegionClassification).not.toHaveBeenCalled();
+  });
+
+  it('contains Forgewing failure after deterministic Step 3 succeeds', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = {
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    runForgewingRegionClassification.mockRejectedValueOnce(new Error('provider failed'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+    );
+
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal region classification failure',
+      expect.objectContaining({ mode: 'shadow', error: 'provider failed' }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    ['success', { status: 'applied', warnings: [], metadata: { calls: 1, inputTruncated: false } }],
+    ['timeout', { status: 'abstained', warnings: ['provider_timeout'], metadata: { calls: 1, inputTruncated: false } }],
+    ['schema rejection', { status: 'abstained', warnings: ['model_schema_rejected'], metadata: { calls: 1, inputTruncated: false } }],
+  ])('keeps deterministic Step 3 identical on Forgewing %s', async (_case, outcome) => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    runForgewingRegionClassification.mockResolvedValueOnce(outcome as never);
+    const payload = {
+      interpretation_snapshot: { id: 'deterministic' },
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
   });
   it('is non-fatal and never mutates the legacy extraction payload', async () => {
     const payload = {

@@ -8,7 +8,15 @@ import {
   STEP0_INTERPRETER_MANIFEST_HASH,
 } from '@/lib/complianceFoundation/shadowVersions';
 import type { LocatedOcrObservationSidecar } from '@/lib/extraction/ocrObservationSidecar';
-import type { Step3InterpretationBridge } from '@/lib/extraction/domain/step3InterpretationBridge';
+import type {
+  Step3InterpretationBridge,
+  Step3InterpretationBridgeInput,
+} from '@/lib/extraction/domain/step3InterpretationBridge';
+import {
+  runForgewingRegionClassification,
+  type ForgewingRegionClassificationInput,
+} from '@/lib/forgewing/tasks/regionClassification';
+import { isForgewingShadowEnabled } from '@/lib/forgewing/runtime/modelConfig';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -47,6 +55,122 @@ type ScheduledShadowWriteInput = Omit<ShadowWriteInput, 'storageObjectVersion'> 
 
 const STORAGE_IDENTITY_TIMEOUT_MS = 1_000;
 const SHADOW_PUBLICATION_TIMEOUT_MS = 10_000;
+
+function forgewingInput(
+  input: Step3InterpretationBridgeInput,
+  organizationId: string,
+  sourceDocumentId: string,
+): ForgewingRegionClassificationInput {
+  const chainCompleteness = new Map<string, 'complete' | 'partial' | 'ambiguous'>();
+  for (const chain of input.chains) {
+    for (const segmentId of chain.segment_ids) {
+      const prior = chainCompleteness.get(segmentId);
+      if (
+        prior == null
+        || chain.completeness === 'ambiguous'
+        || (chain.completeness === 'partial' && prior === 'complete')
+      ) {
+        chainCompleteness.set(segmentId, chain.completeness);
+      }
+    }
+  }
+  const mapPhysical = (
+    coordinate: (typeof input.segments)[number]['physical_page_coordinate'],
+  ) => coordinate?.mappingState === 'resolved_physical_page'
+    ? {
+        physicalPageNumber: coordinate.physicalPageNumber,
+        artifactLocalIndex: coordinate.artifactLocalIndex,
+        sourceLayer: coordinate.sourceLayer,
+      }
+    : undefined;
+  const mapBox = (box: (typeof input.segments)[number]['bounding_box']) => ({
+    coordinateSpace: box.coordinate_space,
+    origin: box.origin,
+    x0: box.x0,
+    y0: box.y0,
+    x1: box.x1,
+    y1: box.y1,
+    rotation: box.rotation,
+  });
+
+  return {
+    organizationId,
+    sourceDocumentId,
+    extractionSnapshotId: input.extraction_snapshot_id,
+    segments: input.segments.map((segment) => ({
+      observationId: segment.id,
+      kind: 'segment' as const,
+      organizationId: segment.organization_id,
+      sourceDocumentId: segment.source_document_id,
+      sourceArtifactId: segment.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: segment.page_artifact_id,
+      page: segment.page,
+      boundingBox: mapBox(segment.bounding_box),
+      text: segment.raw_text,
+      readingOrder: segment.reading_order,
+      ...(mapPhysical(segment.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(segment.physical_page_coordinate) }
+        : {}),
+      chainCompleteness: chainCompleteness.get(segment.id) ?? 'unchained',
+      detectionKinds: segment.detection_evidence.map((evidence) => evidence.kind),
+    })),
+    cells: input.cells.map((cell) => ({
+      observationId: cell.id,
+      kind: 'cell' as const,
+      organizationId: cell.organization_id,
+      sourceDocumentId: cell.source_document_id,
+      sourceArtifactId: cell.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: cell.page_artifact_id,
+      page: cell.page,
+      boundingBox: mapBox(cell.bounding_box),
+      text: cell.raw_text,
+      readingOrder: cell.reading_order,
+      ...(mapPhysical(cell.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(cell.physical_page_coordinate) }
+        : {}),
+      rowStart: cell.row_start,
+      rowSpan: cell.row_span,
+      columnStart: cell.column_start,
+      columnSpan: cell.column_span,
+      structure: cell.structure,
+      targetSegmentId: cell.table_segment_id,
+    })),
+  };
+}
+
+export function withForgewingRegionClassificationShadow(
+  deterministicBridge: Step3InterpretationBridge | undefined,
+  organizationId: string,
+  sourceDocumentId: string,
+): Step3InterpretationBridge | undefined {
+  if (!deterministicBridge) return undefined;
+  return async (input) => {
+    const deterministicPayload = await deterministicBridge(input);
+    if (!isForgewingShadowEnabled()) return deterministicPayload;
+    try {
+      const result = await runForgewingRegionClassification(
+        forgewingInput(input, organizationId, sourceDocumentId),
+      );
+      if (result.status !== 'skipped') {
+        console.info('[forgewingShadow] region classification completed', {
+          mode: 'shadow',
+          status: result.status,
+          warnings: result.warnings,
+          calls: result.metadata.calls,
+          inputTruncated: result.metadata.inputTruncated,
+        });
+      }
+    } catch (error) {
+      console.error('[forgewingShadow] non-fatal region classification failure', {
+        mode: 'shadow',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return deterministicPayload;
+  };
+}
 
 async function settleWithin<T>(
   operation: Promise<T>,
@@ -275,7 +399,11 @@ export function scheduleExtractionComplianceShadow(
       await settleWithin(publishExtractionStep1ShadowNonBlocking({
           ...commonInput,
           locatedObservations,
-          step3InterpretationBridge: input.step3InterpretationBridge,
+          step3InterpretationBridge: withForgewingRegionClassificationShadow(
+            input.step3InterpretationBridge,
+            input.organizationId,
+            input.sourceDocumentId,
+          ),
           observedAt: input.observedAt ?? new Date().toISOString(),
         }), SHADOW_PUBLICATION_TIMEOUT_MS, 'publication');
     } else {

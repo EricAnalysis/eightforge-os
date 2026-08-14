@@ -68,7 +68,15 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 
 const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
-const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set(['zod']);
+const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
+  'zod',
+  'node:fs',
+  '@/lib/extraction/domain/hash',
+  '@/lib/server/ai/claudeClient',
+]);
+const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
+  'lib/extraction/persistence/complianceShadow.ts',
+]);
 const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b/;
 
 function productionFilesIn(workspaceRoot: string): string[] {
@@ -127,7 +135,11 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     const sourceIsForgewing = isWithin(edge.source, FORGEWING_ROOT);
     const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
 
-    if (targetIsForgewing && !sourceIsForgewing) {
+    if (
+      targetIsForgewing
+      && !sourceIsForgewing
+      && !FORGEWING_AUTHORIZED_CONSUMERS.has(edge.source)
+    ) {
       importConsumers.add(edge.source);
       violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing consumer)`);
     }
@@ -146,7 +158,7 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
 
   for (const file of productionFilesIn(workspaceRoot)) {
     const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
-    if (isWithin(source, FORGEWING_ROOT)) continue;
+    if (isWithin(source, FORGEWING_ROOT) || FORGEWING_AUTHORIZED_CONSUMERS.has(source)) continue;
     if (importConsumers.has(source)) continue;
     if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
       violations.push(`${source} -> references Forgewing outside its module boundary`);
@@ -664,7 +676,7 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative and forbids every production consumer', () => {
+  it('keeps Forgewing non-authoritative with exactly one shadow consumer', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
   }, 30_000);
 
@@ -844,11 +856,31 @@ describe('Forgewing proposal authority seal', () => {
     const root = fixtureRoot();
     source(root, 'lib/forgewing/proposal/allowed.ts', [
       "import { z } from 'zod';",
+      "import { readFileSync } from 'node:fs';",
+      "import { hashCanonical } from '@/lib/extraction/domain/hash';",
+      "import { getClaudeClient } from '@/lib/server/ai/claudeClient';",
       "export { VERSION } from './version';",
       "const schema = import('@/lib/forgewing/proposal/schema');",
       "const guards = require('./guards');",
     ].join('\n'));
     expect(forgewingBoundaryViolations(root)).toEqual([]);
+  });
+
+  it('allows only complianceShadow to consume Forgewing in production', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/extraction/persistence/complianceShadow.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/extraction/persistence/secondConsumer.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/extraction/persistence/secondConsumer.ts -> @/lib/forgewing/tasks/regionClassification (unauthorized Forgewing consumer)',
+    ]);
   });
 
   it('rejects truth, semantic, evaluation, pipeline, serving, and UI modules by default', () => {
@@ -888,7 +920,6 @@ describe('Forgewing proposal authority seal', () => {
     const root = fixtureRoot();
     const forbiddenSpecifiers = [
       '@/lib/extraction/domain/types',
-      '@/lib/extraction/domain/hash',
       '@/lib/futureNeutralLookingModule',
       'zod/v4',
       'unreviewed-package',

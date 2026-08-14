@@ -68,6 +68,7 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 
 const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
+const FORGEWING_EVALUATION_ROOT = 'lib/evaluation/forgewing';
 const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   'zod',
   'node:fs',
@@ -134,10 +135,13 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     const target = resolveImportTarget(edge);
     const sourceIsForgewing = isWithin(edge.source, FORGEWING_ROOT);
     const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
+    const sourceIsForgewingEvaluation = isWithin(edge.source, FORGEWING_EVALUATION_ROOT);
+    const targetIsForgewingEvaluation = isWithin(target, FORGEWING_EVALUATION_ROOT);
 
     if (
       targetIsForgewing
       && !sourceIsForgewing
+      && !sourceIsForgewingEvaluation
       && !FORGEWING_AUTHORIZED_CONSUMERS.has(edge.source)
     ) {
       importConsumers.add(edge.source);
@@ -150,6 +154,21 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     ) {
       violations.push(`${edge.source} -> ${edge.specifier} (Forgewing outbound import is not allowlisted)`);
     }
+    if (targetIsForgewingEvaluation && !sourceIsForgewingEvaluation && !sourceIsForgewing) {
+      importConsumers.add(edge.source);
+      violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing evaluation consumer)`);
+    }
+    if (sourceIsForgewingEvaluation && (
+      isWithin(target, 'app')
+      || isWithin(target, 'components')
+      || isWithin(target, 'lib/server')
+      || isWithin(target, 'lib/pipeline')
+      || isWithin(target, 'lib/canonical')
+      || isWithin(target, 'lib/validator')
+      || isWithin(target, 'lib/contracts')
+    )) {
+      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing evaluation imports serving or authority code)`);
+    }
   }
 
   for (const file of walk(path.join(workspaceRoot, FORGEWING_ROOT))) {
@@ -158,7 +177,11 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
 
   for (const file of productionFilesIn(workspaceRoot)) {
     const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
-    if (isWithin(source, FORGEWING_ROOT) || FORGEWING_AUTHORIZED_CONSUMERS.has(source)) continue;
+    if (
+      isWithin(source, FORGEWING_ROOT)
+      || isWithin(source, FORGEWING_EVALUATION_ROOT)
+      || FORGEWING_AUTHORIZED_CONSUMERS.has(source)
+    ) continue;
     if (importConsumers.has(source)) continue;
     if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
       violations.push(`${source} -> references Forgewing outside its module boundary`);
@@ -676,7 +699,7 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with exactly one shadow consumer', () => {
+  it('keeps Forgewing non-authoritative with one shadow consumer and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
   }, 30_000);
 
@@ -880,6 +903,57 @@ describe('Forgewing proposal authority seal', () => {
     );
     expect(forgewingBoundaryViolations(root)).toEqual([
       'lib/extraction/persistence/secondConsumer.ts -> @/lib/forgewing/tasks/regionClassification (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('allows only the isolated evaluation subtree to measure Forgewing', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/evaluation/forgewing/measure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    source(
+      root,
+      'lib/evaluation/otherMeasure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/otherMeasure.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('forbids Forgewing from importing evaluation and serving code from consuming evaluation', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/forgewing/tasks/contaminated.ts',
+      "import { evaluate } from '@/lib/evaluation/forgewing/regionClassificationEvaluation';",
+    );
+    source(
+      root,
+      'lib/validator/evaluationReader.ts',
+      "import { evaluate } from '@/lib/evaluation/forgewing/regionClassificationEvaluation';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/tasks/contaminated.ts -> @/lib/evaluation/forgewing/regionClassificationEvaluation (Forgewing outbound import is not allowlisted)',
+      'lib/validator/evaluationReader.ts -> @/lib/evaluation/forgewing/regionClassificationEvaluation (unauthorized Forgewing evaluation consumer)',
+    ]);
+  });
+
+  it('forbids evaluation from reaching serving, authority, validator, and contract code', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/evaluation/forgewing/leak.ts', [
+      "import '@/lib/canonical/publication/publishProjectTruthShadow';",
+      "import '@/lib/validator/projectValidator';",
+      "import '@/lib/contracts/analyzeContractIntelligence';",
+      "import '@/lib/server/documentExtraction';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/forgewing/leak.ts -> @/lib/canonical/publication/publishProjectTruthShadow (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/contracts/analyzeContractIntelligence (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/server/documentExtraction (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/validator/projectValidator (Forgewing evaluation imports serving or authority code)',
     ]);
   });
 

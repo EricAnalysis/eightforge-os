@@ -21,7 +21,9 @@ import {
   runForgewingTableContinuation,
   type ForgewingTableContinuationInput,
 } from '@/lib/forgewing/tasks/tableContinuation';
+import { runForgewingColumnMapping } from '@/lib/forgewing/tasks/columnMapping';
 import {
+  isForgewingColumnMappingEnabled,
   isForgewingShadowEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
@@ -249,6 +251,150 @@ function forgewingTableContinuationInput(
   };
 }
 
+function forgewingColumnMappingInput(
+  input: Step3InterpretationBridgeInput,
+  deterministicPayload: Awaited<ReturnType<Step3InterpretationBridge>>,
+  organizationId: string,
+  sourceDocumentId: string,
+): unknown | null {
+  const snapshot = deterministicPayload.interpretation_snapshot;
+  if (snapshot && snapshot.status === 'blocked') return null;
+  const chainCompleteness = new Map<string, 'complete' | 'partial' | 'ambiguous'>();
+  for (const chain of input.chains) {
+    for (const segmentId of chain.segment_ids) {
+      const prior = chainCompleteness.get(segmentId);
+      if (prior == null || chain.completeness === 'ambiguous'
+        || (chain.completeness === 'partial' && prior === 'complete')) {
+        chainCompleteness.set(segmentId, chain.completeness);
+      }
+    }
+  }
+  const mapPhysical = (
+    coordinate: (typeof input.segments)[number]['physical_page_coordinate'],
+  ) => coordinate?.mappingState === 'resolved_physical_page'
+    ? {
+        mappingState: coordinate.mappingState,
+        sourceDocumentId: coordinate.sourceDocumentId,
+        sourceArtifactId: coordinate.sourceArtifactId,
+        physicalPageNumber: coordinate.physicalPageNumber,
+        artifactLocalIndex: coordinate.artifactLocalIndex,
+        sourceLayer: coordinate.sourceLayer,
+      }
+    : undefined;
+  const mapBox = (box: (typeof input.segments)[number]['bounding_box']) => ({
+    coordinateSpace: box.coordinate_space,
+    origin: box.origin,
+    x0: box.x0,
+    y0: box.y0,
+    x1: box.x1,
+    y1: box.y1,
+    rotation: box.rotation,
+  });
+  const asRecord = (value: unknown, label: string): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`invalid deterministic column mapping ${label}`);
+    }
+    return value as Record<string, unknown>;
+  };
+  const mappingSignals = deterministicPayload.semantic_column_mappings.flatMap((raw) => {
+    const mapping = asRecord(raw, 'record');
+    if (mapping.status === 'resolved') return [];
+    if (mapping.status !== 'ambiguous'
+      || typeof mapping.id !== 'string'
+      || typeof mapping.table_segment_id !== 'string'
+      || !Number.isSafeInteger(mapping.column_index)) {
+      throw new Error('invalid deterministic ambiguous column mapping identity');
+    }
+    const assessment = asRecord(mapping.assessment, 'assessment');
+    const decision = asRecord(assessment.decision_evidence, 'decision evidence');
+    const policy = asRecord(assessment.resolution_policy, 'resolution policy');
+    const reason = decision.ambiguity_reason;
+    if (!['conflicting_cell_values', 'multiple_exact_header_roles', 'no_candidate',
+      'below_minimum_score', 'below_minimum_margin'].includes(String(reason))) {
+      throw new Error('invalid deterministic column ambiguity reason');
+    }
+    if (!Array.isArray(assessment.candidate_roles)) {
+      throw new Error('invalid deterministic column candidate roles');
+    }
+    const candidateRoles = assessment.candidate_roles.map((rawCandidate) => {
+      const candidate = asRecord(rawCandidate, 'candidate role');
+      if (typeof candidate.role !== 'string' || typeof candidate.score !== 'number') {
+        throw new Error('invalid deterministic column candidate role');
+      }
+      return { role: candidate.role, score: candidate.score };
+    });
+    for (const field of ['observed_top_score', 'observed_margin', 'minimum_score', 'minimum_margin'] as const) {
+      if (typeof policy[field] !== 'number') {
+        throw new Error(`invalid deterministic column mapping ${field}`);
+      }
+    }
+    return [{
+      mappingId: mapping.id,
+      tableSegmentId: mapping.table_segment_id,
+      columnIndex: mapping.column_index,
+      status: 'ambiguous',
+      ambiguityReason: reason,
+      candidateRoles,
+      observedTopScore: policy.observed_top_score,
+      observedMargin: policy.observed_margin,
+      minimumScore: policy.minimum_score,
+      minimumMargin: policy.minimum_margin,
+    }];
+  });
+  return {
+    organizationId,
+    sourceDocumentId,
+    extractionSnapshotId: input.extraction_snapshot_id,
+    tables: input.segments.map((segment) => ({
+      observationId: segment.id,
+      kind: 'table',
+      organizationId: segment.organization_id,
+      sourceDocumentId: segment.source_document_id,
+      sourceArtifactId: segment.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: segment.page_artifact_id,
+      page: segment.page,
+      boundingBox: mapBox(segment.bounding_box),
+      readingOrder: segment.reading_order,
+      ...(mapPhysical(segment.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(segment.physical_page_coordinate) }
+        : {}),
+      chainCompleteness: chainCompleteness.get(segment.id) ?? 'unchained',
+      detectionKinds: segment.detection_evidence.map((evidence) => evidence.kind),
+      columns: segment.column_hypotheses.map((column) => ({
+        index: column.index,
+        x0: column.x0,
+        x1: column.x1,
+        observedHeader: column.header.observed_text,
+        normalizedHeader: column.header.normalized_label,
+        valueKinds: column.value_kind_hypotheses.map((hypothesis) => hypothesis.kind),
+      })),
+    })),
+    cells: input.cells.map((cell) => ({
+      observationId: cell.id,
+      kind: 'cell',
+      organizationId: cell.organization_id,
+      sourceDocumentId: cell.source_document_id,
+      sourceArtifactId: cell.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: cell.page_artifact_id,
+      boundingBox: mapBox(cell.bounding_box),
+      readingOrder: cell.reading_order,
+      ...(mapPhysical(cell.physical_page_coordinate)
+        ? { physicalCoordinate: mapPhysical(cell.physical_page_coordinate) }
+        : {}),
+      tableSegmentId: cell.table_segment_id,
+      text: cell.raw_text,
+      rowStart: cell.row_start,
+      rowSpan: cell.row_span,
+      columnStart: cell.column_start,
+      columnSpan: cell.column_span,
+      structure: cell.structure,
+    })),
+    mappingSignals,
+  };
+}
+
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
@@ -262,6 +408,68 @@ export function withForgewingRegionClassificationShadow(
   return async (input) => {
     const deterministicPayload = await deterministicBridge(input);
     if (!isForgewingShadowEnabled()) return deterministicPayload;
+    if (isForgewingColumnMappingEnabled()) {
+      const task = async (): Promise<void> => {
+        try {
+          const columnInput = forgewingColumnMappingInput(
+            input,
+            deterministicPayload,
+            organizationId,
+            sourceDocumentId,
+          );
+          if (!columnInput) return;
+          const result = await runForgewingColumnMapping(columnInput);
+          if (result.status === 'applied' || result.status === 'abstained') {
+            const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
+            const persist = persistence.persist ?? persistReasoningShadowArtifact;
+            const persisted = await persist({
+              input: {
+                organizationId,
+                sourceDocumentId,
+                sourceArtifactId: source.sourceArtifactId,
+                resultStatus: result.status,
+                run: result.bundle.run,
+                schemaVersion: result.bundle.schemaVersion,
+                runtime: {
+                  model: result.metadata.model,
+                  promptTemplateId: result.metadata.promptTemplateId,
+                  promptTemplateVersion: result.metadata.promptTemplateVersion,
+                  warningCodes: result.warnings,
+                  calls: result.metadata.calls,
+                  inputTruncated: result.metadata.inputTruncated,
+                },
+                validatedBundle: result.bundle,
+              },
+            });
+            if (persisted.status !== 'persisted') {
+              console.warn('[forgewingShadow] non-fatal column mapping persistence outcome', {
+                mode: 'shadow',
+                status: persisted.status,
+                reason: persisted.reason,
+                ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+              });
+            }
+          }
+          if (result.status !== 'skipped') {
+            console.info('[forgewingShadow] column mapping completed', {
+              mode: 'shadow', status: result.status, warnings: result.warnings,
+              calls: result.metadata.calls, inputTruncated: result.metadata.inputTruncated,
+            });
+          }
+        } catch (error) {
+          console.error('[forgewingShadow] non-fatal column mapping failure', {
+            mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      try {
+        (persistence.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+      } catch (error) {
+        console.error('[forgewingShadow] column mapping registration failed', {
+          mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (isForgewingTableContinuationEnabled()) {
       const task = async (): Promise<void> => {
         try {

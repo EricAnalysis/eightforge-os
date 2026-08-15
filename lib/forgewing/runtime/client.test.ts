@@ -7,6 +7,7 @@ vi.mock('@/lib/server/ai/claudeClient', () => ({
 }));
 
 import {
+  callClaudeForColumnMapping,
   callClaudeForRegionClassification,
   callClaudeForTableContinuation,
   normalizeClaudeProviderError,
@@ -67,6 +68,36 @@ describe('Forgewing Claude adapter', () => {
                 relation: expect.objectContaining({
                   enum: ['same_table', 'separate_tables', 'ambiguous'],
                 }),
+              }),
+            }),
+          }),
+        },
+      }),
+      expect.objectContaining({ timeout: 500, maxRetries: 0, signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it('reuses the Claude adapter with the dedicated column-mapping prompt and schema', async () => {
+    messagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '{"columnMappings":[]}' }],
+    });
+    await expect(callClaudeForColumnMapping({
+      model: 'claude-test',
+      timeoutMs: 500,
+      maxOutputTokens: 800,
+      inputJson: '{"table":{},"columns":[]}',
+    })).resolves.toBe('{"columnMappings":[]}');
+    expect(messagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-test',
+        max_tokens: 800,
+        system: expect.stringContaining('non-authoritative semantic column-mapping observer'),
+        output_config: {
+          format: expect.objectContaining({
+            type: 'json_schema',
+            schema: expect.objectContaining({
+              properties: expect.objectContaining({
+                columnMappings: expect.objectContaining({ maxItems: 12 }),
               }),
             }),
           }),

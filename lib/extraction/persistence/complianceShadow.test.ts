@@ -8,6 +8,10 @@ const runForgewingTableContinuation = vi.hoisted(() => vi.fn(async () => ({
   status: 'skipped' as const,
   reason: 'no_candidate_pairs' as const,
 })));
+const runForgewingColumnMapping = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_tables' as const,
+})));
 
 vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
   runForgewingRegionClassification,
@@ -15,9 +19,14 @@ vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
 vi.mock('@/lib/forgewing/tasks/tableContinuation', () => ({
   runForgewingTableContinuation,
 }));
+vi.mock('@/lib/forgewing/tasks/columnMapping', () => ({
+  runForgewingColumnMapping,
+}));
 
 vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
   isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
+  isForgewingColumnMappingEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_COLUMN_MAPPING_ENABLED === '1',
   isForgewingTableContinuationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
     && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
 }));
@@ -73,6 +82,66 @@ describe('compliance shadow dual-write isolation', () => {
     vi.useRealTimers();
     runForgewingRegionClassification.mockClear();
     runForgewingTableContinuation.mockClear();
+    runForgewingColumnMapping.mockClear();
+  });
+
+  it('keeps column mapping default-off before candidate mapping, provider, or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingColumnMapping).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('maps only ambiguous deterministic column signals in a detached task and contains persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '1');
+    const deterministicPayload = {
+      interpretation_snapshot: { status: 'partial' },
+      semantic_column_mappings: [{
+        id: 'mapping-1', table_segment_id: 'segment-1', column_index: 0,
+        domain_role: 'other', status: 'ambiguous',
+        assessment: {
+          candidate_roles: [{ role: 'rate', score: .6 }],
+          resolution_policy: { observed_top_score: .6, observed_margin: .05, minimum_score: .7, minimum_margin: .2 },
+          decision_evidence: { ambiguity_reason: 'below_minimum_margin' },
+        },
+      }, {
+        id: 'mapping-resolved', table_segment_id: 'segment-1', column_index: 1,
+        domain_role: 'description', status: 'resolved', assessment: {},
+      }],
+      interpretation_records: [],
+    };
+    const columnResult = actionableResult('applied');
+    columnResult.metadata.promptTemplateId = 'forgewing-column-mapping';
+    columnResult.bundle.schemaVersion = 'forgewing-column-mapping-proposal-v1';
+    columnResult.bundle.taskType = 'column_mapping';
+    runForgewingColumnMapping.mockResolvedValueOnce(columnResult as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => deterministicPayload), 'organization-1', 'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(deterministicPayload);
+    expect(runForgewingColumnMapping).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingColumnMapping).toHaveBeenCalledWith(expect.objectContaining({
+      mappingSignals: [expect.objectContaining({ mappingId: 'mapping-1', columnIndex: 0 })],
+    }));
+    const columnTaskCalls = (runForgewingColumnMapping as unknown as {
+      mock: { calls: Array<[unknown]> };
+    }).mock.calls;
+    expect(JSON.stringify(columnTaskCalls[0]?.[0])).not.toContain('description');
+    expect(persist).toHaveBeenCalledOnce();
   });
 
   it('keeps table continuation default-off before mapping, provider, or persistence', async () => {

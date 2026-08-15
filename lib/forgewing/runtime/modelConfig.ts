@@ -34,6 +34,12 @@ export function isForgewingTableContinuationEnabled(): boolean {
     && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1';
 }
 
+/** Semantic column mapping is separately default-off beneath the Forgewing master gate. */
+export function isForgewingColumnMappingEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_COLUMN_MAPPING_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

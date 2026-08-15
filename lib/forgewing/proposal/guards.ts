@@ -18,7 +18,8 @@ export function hasResolvableProposalEvidence(proposal: ForgewingProposal): bool
             && (reference.artifactLocalIndex == null
               || reference.artifactLocalIndex === proposal.artifactLocalIndex)
           )
-        : (
+        : proposal.taskType === 'table_continuation'
+          ? (
             reference.pageArtifactId === proposal.priorPageArtifactId
               ? (
                   (reference.physicalPageNumber == null
@@ -27,14 +28,25 @@ export function hasResolvableProposalEvidence(proposal: ForgewingProposal): bool
               : reference.pageArtifactId === proposal.nextPageArtifactId
                 && (reference.physicalPageNumber == null
                   || reference.physicalPageNumber === proposal.nextPhysicalPageNumber)
-          ))
+          )
+          : (
+              (reference.pageArtifactId == null
+                || reference.pageArtifactId === proposal.pageArtifactId)
+              && (reference.physicalPageNumber == null
+                || proposal.physicalPageNumber == null
+                || reference.physicalPageNumber === proposal.physicalPageNumber)
+            ))
     ));
 }
 
 export function assertProposalEvidenceContract(proposal: ForgewingProposal): void {
   const hasResolvedValue = proposal.taskType === 'region_classification'
     ? 'value' in proposal
-    : 'relation' in proposal && proposal.relation !== 'ambiguous';
+    : proposal.taskType === 'table_continuation'
+      ? 'relation' in proposal && proposal.relation !== 'ambiguous'
+      : proposal.columnMappings.some(
+          (mapping) => mapping.state === 'observed' || mapping.state === 'inferred',
+        );
   const minimumEvidence = proposal.state === 'ambiguous' || proposal.state === 'conflicting'
     ? 2
     : proposal.state === 'insufficient_evidence'
@@ -53,7 +65,19 @@ export function assertProposalEvidenceContract(proposal: ForgewingProposal): voi
   if (proposal.evidence.length > 0 && !hasResolvableProposalEvidence(proposal)) {
     throw new Error(`Forgewing ${proposal.state} proposal cites undeclared or conflicting evidence`);
   }
-  if ((proposal.state === 'observed' || proposal.state === 'inferred') !== hasResolvedValue) {
+  if (proposal.taskType === 'column_mapping') {
+    if (
+      (proposal.state === 'observed' || proposal.state === 'inferred')
+      && !hasResolvedValue
+    ) {
+      throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
+    }
+    if (proposal.state === 'insufficient_evidence' && hasResolvedValue) {
+      throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
+    }
+  } else if (
+    (proposal.state === 'observed' || proposal.state === 'inferred') !== hasResolvedValue
+  ) {
     throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
   }
   if (

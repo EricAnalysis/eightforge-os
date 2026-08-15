@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION,
 } from '@/lib/forgewing/proposal/schemaVersion';
@@ -27,6 +28,7 @@ const rawSpanSchema = z.string()
 export const ForgewingTaskTypeSchema = z.enum([
   'region_classification',
   'table_continuation',
+  'column_mapping',
 ]);
 
 export const ForgewingProposalStateSchema = z.enum([
@@ -65,6 +67,52 @@ export const ForgewingTableContinuationRationaleCodeSchema = z.enum([
   'column_semantics_changed',
   'schema_changed',
   'section_break_detected',
+  'mixed_evidence',
+  'insufficient_structure',
+]);
+
+/** Existing deterministic semantic-column vocabulary; this is not a new authority vocabulary. */
+export const ForgewingSemanticColumnRoleSchema = z.enum([
+  'description',
+  'row_label',
+  'quantity',
+  'unit',
+  'rate',
+  'extension',
+  'origin',
+  'destination',
+  'origin_destination',
+  'category',
+  'code',
+  'identifier',
+  'other',
+]);
+
+/** `other` is the deterministic unresolved fallback, not a confident positive mapping. */
+export const ForgewingProposedSemanticColumnRoleSchema = z.enum([
+  'description',
+  'row_label',
+  'quantity',
+  'unit',
+  'rate',
+  'extension',
+  'origin',
+  'destination',
+  'origin_destination',
+  'category',
+  'code',
+  'identifier',
+]);
+
+export const ForgewingColumnMappingRationaleCodeSchema = z.enum([
+  'header_semantics',
+  'currency_pattern',
+  'unit_pattern',
+  'numeric_rate_pattern',
+  'description_text_pattern',
+  'category_repetition',
+  'code_pattern',
+  'neighboring_column_context',
   'mixed_evidence',
   'insufficient_structure',
 ]);
@@ -478,9 +526,264 @@ export const ForgewingTableContinuationProposalSchema = continuationProposalSche
   enforceContinuationProvenanceCoherence,
 );
 
+const columnIdentitySchema = z.object({
+  columnId: boundedIdentifier,
+  columnIndex: z.number().int().nonnegative().max(10_000),
+}).strict();
+
+const columnMappingEntryCommon = {
+  ...columnIdentitySchema.shape,
+  confidence: z.number().min(0).max(1).nullable(),
+  rationaleCodes: z.array(ForgewingColumnMappingRationaleCodeSchema)
+    .min(1)
+    .max(4)
+    .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+} as const;
+
+const resolvedColumnMappingEntrySchema = z.object({
+  ...columnMappingEntryCommon,
+  state: z.enum(['observed', 'inferred']),
+  proposedRole: ForgewingProposedSemanticColumnRoleSchema,
+  evidenceArtifactIds: inputObservationIds(1).refine(
+    (identifiers) => identifiers.length <= 96,
+    'column evidence identifiers must be bounded',
+  ),
+}).strict();
+
+const ambiguousColumnMappingEntrySchema = z.object({
+  ...columnMappingEntryCommon,
+  state: z.literal('ambiguous'),
+  candidateRoles: z.array(ForgewingProposedSemanticColumnRoleSchema)
+    .min(1)
+    .max(12)
+    .refine((roles) => new Set(roles).size === roles.length, 'candidate roles must be distinct'),
+  evidenceArtifactIds: inputObservationIds(2).refine(
+    (identifiers) => identifiers.length <= 96,
+    'column evidence identifiers must be bounded',
+  ),
+}).strict();
+
+const insufficientColumnMappingEntrySchema = z.object({
+  ...columnMappingEntryCommon,
+  state: z.literal('insufficient_evidence'),
+  confidence: z.null(),
+  evidenceArtifactIds: z.array(z.never()).max(0),
+  missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1).max(6),
+}).strict();
+
+export const ForgewingColumnMappingEntrySchema = z.discriminatedUnion('state', [
+  resolvedColumnMappingEntrySchema,
+  ambiguousColumnMappingEntrySchema,
+  insufficientColumnMappingEntrySchema,
+]);
+
+const columnMappingIdentityShape = {
+  proposalId: boundedIdentifier,
+  taskId: boundedIdentifier,
+  taskType: z.literal('column_mapping'),
+  sourceDocumentId: boundedIdentifier,
+  sourceArtifactId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  tableSegmentId: boundedIdentifier,
+  pageArtifactId: boundedIdentifier,
+  physicalPageNumber: z.number().int().positive().optional(),
+  artifactLocalIndex: z.number().int().nonnegative().optional(),
+  sourceLayer: z.enum(['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact']).optional(),
+  inputObservationIds: inputObservationIds(1),
+  candidateColumns: z.array(columnIdentitySchema)
+    .min(1)
+    .max(12)
+    .refine(
+      (columns) => new Set(columns.map(({ columnId }) => columnId)).size === columns.length
+        && new Set(columns.map(({ columnIndex }) => columnIndex)).size === columns.length,
+      'candidate column identities and indices must be distinct',
+    ),
+  mappingCompleteness: z.enum(['complete', 'partial']),
+  columnMappings: z.array(ForgewingColumnMappingEntrySchema).min(1).max(12),
+  confidence: z.number().min(0).max(1).nullable(),
+} as const;
+
+const resolvedColumnMappingProposalSchema = z.object({
+  ...columnMappingIdentityShape,
+  state: z.enum(['observed', 'inferred']),
+  evidence: evidenceReferences(1, 96),
+}).strict();
+
+const ambiguousColumnMappingProposalSchema = z.object({
+  ...columnMappingIdentityShape,
+  state: z.literal('ambiguous'),
+  evidence: evidenceReferences(2, 96),
+}).strict();
+
+const insufficientColumnMappingProposalSchema = z.object({
+  ...columnMappingIdentityShape,
+  state: z.literal('insufficient_evidence'),
+  confidence: z.null(),
+  mappingCompleteness: z.literal('partial'),
+  evidence: evidenceReferences(0, 0),
+  missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1).max(6),
+}).strict();
+
+const columnMappingProposalSchema = z.discriminatedUnion('state', [
+  resolvedColumnMappingProposalSchema,
+  ambiguousColumnMappingProposalSchema,
+  insufficientColumnMappingProposalSchema,
+]);
+
+type ColumnMappingProposalWithEvidence = z.infer<typeof columnMappingProposalSchema>;
+
+function enforceColumnMappingCoherence(
+  proposal: ColumnMappingProposalWithEvidence,
+  context: z.RefinementCtx,
+): void {
+  if (proposal.artifactLocalIndex != null && proposal.sourceLayer == null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['sourceLayer'],
+      message: 'artifactLocalIndex requires its real source layer',
+    });
+  }
+  if (proposal.physicalPageNumber != null && proposal.sourceLayer == null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['sourceLayer'],
+      message: 'physicalPageNumber requires a proven source layer',
+    });
+  }
+
+  const candidateById = new Map(
+    proposal.candidateColumns.map((column) => [column.columnId, column.columnIndex]),
+  );
+  const mappedIds = new Set<string>();
+  const mappedIndices = new Set<number>();
+  const inputIds = new Set(proposal.inputObservationIds);
+  const citedIds = new Set(proposal.evidence.map(({ artifactId }) => artifactId));
+  let hasResolved = false;
+  let hasInferred = false;
+  let hasAmbiguous = false;
+  let hasInsufficient = false;
+
+  proposal.columnMappings.forEach((mapping, index) => {
+    if (candidateById.get(mapping.columnId) !== mapping.columnIndex) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['columnMappings', index, 'columnId'],
+        message: 'mapped column must match an actual candidate column identity and index',
+      });
+    }
+    if (mappedIds.has(mapping.columnId) || mappedIndices.has(mapping.columnIndex)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['columnMappings', index],
+        message: 'a candidate column may be mapped at most once',
+      });
+    }
+    mappedIds.add(mapping.columnId);
+    mappedIndices.add(mapping.columnIndex);
+    for (const evidenceId of mapping.evidenceArtifactIds) {
+      if (!inputIds.has(evidenceId) || !citedIds.has(evidenceId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['columnMappings', index, 'evidenceArtifactIds'],
+          message: 'column evidence must be declared in the input and reconstructed proposal evidence',
+        });
+      }
+    }
+    hasResolved ||= mapping.state === 'observed' || mapping.state === 'inferred';
+    hasInferred ||= mapping.state === 'inferred';
+    hasAmbiguous ||= mapping.state === 'ambiguous';
+    hasInsufficient ||= mapping.state === 'insufficient_evidence';
+  });
+
+  proposal.evidence.forEach((reference, index) => {
+    if (!inputIds.has(reference.artifactId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'artifactId'],
+        message: 'evidence artifact must be declared in inputObservationIds',
+      });
+    }
+    for (const [field, expected] of [
+      ['sourceDocumentId', proposal.sourceDocumentId],
+      ['sourceArtifactId', proposal.sourceArtifactId],
+      ['pageArtifactId', proposal.pageArtifactId],
+    ] as const) {
+      if (reference[field] != null && reference[field] !== expected) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence', index, field],
+          message: `${field} must match the selected table`,
+        });
+      }
+    }
+    if (
+      proposal.physicalPageNumber != null
+      && reference.physicalPageNumber != null
+      && reference.physicalPageNumber !== proposal.physicalPageNumber
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', index, 'physicalPageNumber'],
+        message: 'physicalPageNumber must match the selected table',
+      });
+    }
+  });
+
+  const expectedCompleteness = proposal.columnMappings.length === proposal.candidateColumns.length
+    && !hasAmbiguous && !hasInsufficient
+    ? 'complete' : 'partial';
+  if (proposal.mappingCompleteness !== expectedCompleteness) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['mappingCompleteness'],
+      message: 'mappingCompleteness must reflect omitted or unresolved candidate columns',
+    });
+  }
+  if (proposal.state === 'ambiguous' && !hasAmbiguous) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['state'],
+      message: 'ambiguous proposal requires an ambiguous column mapping',
+    });
+  }
+  if (proposal.state === 'insufficient_evidence' && (hasResolved || hasAmbiguous || !hasInsufficient)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['state'],
+      message: 'insufficient proposal may contain only insufficient column mappings',
+    });
+  }
+  if ((proposal.state === 'observed' || proposal.state === 'inferred') && (!hasResolved || hasAmbiguous)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['state'],
+      message: 'resolved proposal requires a resolved mapping and no ambiguous mapping',
+    });
+  }
+  if (proposal.state === 'observed' && hasInferred) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['state'],
+      message: 'observed proposal cannot contain an inferred column mapping',
+    });
+  }
+  if (proposal.state === 'inferred' && !hasInferred) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['state'],
+      message: 'inferred proposal requires an inferred column mapping',
+    });
+  }
+}
+
+export const ForgewingColumnMappingProposalSchema = columnMappingProposalSchema.superRefine(
+  enforceColumnMappingCoherence,
+);
+
 export const ForgewingProposalSchema = z.union([
   ForgewingRegionProposalSchema,
   ForgewingTableContinuationProposalSchema,
+  ForgewingColumnMappingProposalSchema,
 ]);
 
 const regionAbstentionSchema = ForgewingAbstentionSchema.extend({
@@ -489,6 +792,10 @@ const regionAbstentionSchema = ForgewingAbstentionSchema.extend({
 
 const continuationAbstentionSchema = ForgewingAbstentionSchema.extend({
   taskType: z.literal('table_continuation'),
+}).strict();
+
+const columnMappingAbstentionSchema = ForgewingAbstentionSchema.extend({
+  taskType: z.literal('column_mapping'),
 }).strict();
 
 export const ForgewingRegionProposalBundleSchema = z.object({
@@ -580,9 +887,48 @@ export const ForgewingTableContinuationProposalBundleSchema = z.object({
   }
 });
 
+export const ForgewingColumnMappingProposalBundleSchema = z.object({
+  schemaVersion: z.literal(FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION),
+  authority: z.literal('non_authoritative'),
+  run: ForgewingRunIdentitySchema,
+  taskId: boundedIdentifier,
+  taskType: z.literal('column_mapping'),
+  proposals: z.array(ForgewingColumnMappingProposalSchema),
+  abstentions: z.array(columnMappingAbstentionSchema),
+}).strict().superRefine((bundle, context) => {
+  if (bundle.proposals.length + bundle.abstentions.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'Forgewing bundle must contain at least one proposal or abstention',
+    });
+  }
+  const items = [
+    ...bundle.proposals.map((item, index) => ({ item, collection: 'proposals' as const, index })),
+    ...bundle.abstentions.map((item, index) => ({ item, collection: 'abstentions' as const, index })),
+  ];
+  for (const { item, collection, index } of items) {
+    if (item.taskId !== bundle.taskId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'taskId'],
+        message: `${collection} taskId must match bundle taskId`,
+      });
+    }
+    if (item.extractionSnapshotId !== bundle.run.extractionSnapshotId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'extractionSnapshotId'],
+        message: `${collection} extractionSnapshotId must match bundle run`,
+      });
+    }
+  }
+});
+
 export const ForgewingProposalBundleSchema = z.union([
   ForgewingRegionProposalBundleSchema,
   ForgewingTableContinuationProposalBundleSchema,
+  ForgewingColumnMappingProposalBundleSchema,
 ]);
 
 export type ForgewingTaskType = z.infer<typeof ForgewingTaskTypeSchema>;
@@ -594,6 +940,13 @@ export type ForgewingTableContinuationRelation = z.infer<
 export type ForgewingTableContinuationRationaleCode = z.infer<
   typeof ForgewingTableContinuationRationaleCodeSchema
 >;
+export type ForgewingSemanticColumnRole = z.infer<typeof ForgewingSemanticColumnRoleSchema>;
+export type ForgewingProposedSemanticColumnRole = z.infer<
+  typeof ForgewingProposedSemanticColumnRoleSchema
+>;
+export type ForgewingColumnMappingRationaleCode = z.infer<
+  typeof ForgewingColumnMappingRationaleCodeSchema
+>;
 export type ForgewingEvidenceRef = z.infer<typeof ForgewingEvidenceRefSchema>;
 export type ForgewingMissingEvidence = z.infer<typeof ForgewingMissingEvidenceSchema>;
 export type ForgewingRunIdentity = z.infer<typeof ForgewingRunIdentitySchema>;
@@ -604,10 +957,17 @@ export type ForgewingRegionProposal = z.infer<typeof ForgewingRegionProposalSche
 export type ForgewingTableContinuationProposal = z.infer<
   typeof ForgewingTableContinuationProposalSchema
 >;
+export type ForgewingColumnMappingEntry = z.infer<typeof ForgewingColumnMappingEntrySchema>;
+export type ForgewingColumnMappingProposal = z.infer<
+  typeof ForgewingColumnMappingProposalSchema
+>;
 export type ForgewingRegionProposalBundle = z.infer<
   typeof ForgewingRegionProposalBundleSchema
 >;
 export type ForgewingTableContinuationProposalBundle = z.infer<
   typeof ForgewingTableContinuationProposalBundleSchema
+>;
+export type ForgewingColumnMappingProposalBundle = z.infer<
+  typeof ForgewingColumnMappingProposalBundleSchema
 >;
 export type ForgewingProposalBundle = z.infer<typeof ForgewingProposalBundleSchema>;

@@ -78,7 +78,7 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
 ]);
-const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b/;
+const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b|\bcolumn_mapping\b/;
 
 function productionFilesIn(workspaceRoot: string): string[] {
   return PRODUCTION_ROOTS
@@ -1060,8 +1060,11 @@ describe('Forgewing proposal authority seal', () => {
     ].join('\n'));
     source(root, 'lib/contracts/windowsMention.ts', "const target = '..\\forgewing\\proposal\\schema';");
     source(root, 'lib/validator/rawTaskDiscriminator.ts', "const taskType = 'table_continuation';");
+    source(root, 'lib/canonical/rawColumnTaskDiscriminator.ts', "const taskType = 'column_mapping';");
+    source(root, 'lib/interpretation/deterministicMappingVocabulary.ts', "const recordType = 'semantic_column_mapping';");
     expect(forgewingBoundaryViolations(root)).toEqual([
       'lib/canonical/mention.ts -> references Forgewing outside its module boundary',
+      'lib/canonical/rawColumnTaskDiscriminator.ts -> references Forgewing outside its module boundary',
       'lib/contracts/mention.ts -> references Forgewing outside its module boundary',
       'lib/contracts/windowsMention.ts -> references Forgewing outside its module boundary',
       'lib/extraction/mention.ts -> references Forgewing outside its module boundary',

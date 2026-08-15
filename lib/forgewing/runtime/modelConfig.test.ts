@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getForgewingRuntimeConfig,
+  isForgewingColumnMappingEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 
@@ -53,5 +54,18 @@ describe('Forgewing runtime configuration', () => {
 
     vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');
     expect(isForgewingTableContinuationEnabled()).toBe(true);
+  });
+
+  it('keeps column mapping default-off behind both the master and task gates', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '1');
+    expect(isForgewingColumnMappingEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '');
+    expect(isForgewingColumnMappingEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '1');
+    expect(isForgewingColumnMappingEnabled()).toBe(true);
   });
 });

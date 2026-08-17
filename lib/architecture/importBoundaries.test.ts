@@ -78,6 +78,14 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
 ]);
+const FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES = [
+  'lib/contracts',
+  'lib/validator',
+  'lib/canonical',
+  'lib/projectFacts',
+  'lib/truthQuery',
+  'lib/effectiveFacts',
+] as const;
 const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b|\bcolumn_mapping\b|\bobservation_arbitration\b|\bpricing_interpretation\b/;
 const FORGEWING_FORBIDDEN_AUTHORITY_MENTION_PATTERN =
   /\bCanonicalFact\b|\bVerifiedField\b|\bCanonicalContractPricingRow\b|\bpricingResolution\b|\bcontractPricingAssembly\b/;
@@ -139,6 +147,14 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
     const sourceIsForgewingEvaluation = isWithin(edge.source, FORGEWING_EVALUATION_ROOT);
     const targetIsForgewingEvaluation = isWithin(target, FORGEWING_EVALUATION_ROOT);
+
+    if (FORGEWING_AUTHORIZED_CONSUMERS.has(edge.source)
+      && FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES.some((root) =>
+        isWithin(target, root))) {
+      violations.push(
+        `${edge.source} -> ${edge.specifier} (Forgewing shadow consumer imports canonical, pricing, or validator authority)`,
+      );
+    }
 
     if (
       targetIsForgewing
@@ -923,6 +939,22 @@ describe('Forgewing proposal authority seal', () => {
     );
     expect(forgewingBoundaryViolations(root)).toEqual([
       'lib/extraction/persistence/secondConsumer.ts -> @/lib/forgewing/tasks/regionClassification (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('keeps the sole Forgewing shadow consumer out of canonical, pricing, and validator authority', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/persistence/complianceShadow.ts', [
+      "import '@/lib/contracts/pricing';",
+      "import '@/lib/validator/projectValidator';",
+      "import '@/lib/canonical/publication/publishProjectTruthShadow';",
+      "import '@/lib/projectFacts';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/canonical/publication/publishProjectTruthShadow (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/contracts/pricing (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/projectFacts (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/validator/projectValidator (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
     ]);
   });
 

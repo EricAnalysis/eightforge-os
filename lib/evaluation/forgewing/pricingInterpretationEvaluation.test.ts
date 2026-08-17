@@ -12,7 +12,10 @@ import {
   evaluateForgewingPricingInterpretation,
   type FrozenPricingArtifact,
 } from '@/lib/evaluation/forgewing/pricingInterpretationEvaluation';
-import type { ForgewingPricingInterpretationProposalBundle } from '@/lib/forgewing/proposal/schema';
+import type {
+  ForgewingPricingInterpretationProposalBundle,
+  ForgewingPricingSemanticRole,
+} from '@/lib/forgewing/proposal/schema';
 import type { ForgewingPricingInterpretationInput } from '@/lib/forgewing/tasks/pricingInterpretation';
 
 const box = {
@@ -83,6 +86,7 @@ function baseBundle(overrides: Partial<{
   boundingBox: typeof box;
   physicalPageNumber: number;
   sourceText: string;
+  semanticRole: ForgewingPricingSemanticRole;
 }> = {}): ForgewingPricingInterpretationProposalBundle {
   return {
     schemaVersion: 'forgewing-pricing-interpretation-proposal-v1',
@@ -117,7 +121,7 @@ function baseBundle(overrides: Partial<{
       confidence: 0.8,
       interpretations: [{
         sourceCellId: overrides.evidenceArtifactId ?? 'cell-1',
-        semanticRole: 'rate_like_amount',
+        semanticRole: overrides.semanticRole ?? 'rate_like_amount',
         sourceText: overrides.sourceText ?? '$12.50',
         interpretationState: 'observed',
         confidence: 0.8,
@@ -200,6 +204,21 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', 
   it('measures value-manufacture violations against independently frozen source text', () => {
     const report = evaluateForgewingPricingInterpretation({
       bundle: baseBundle({ rawSpan: '$99.00', sourceText: '$99.00' }),
+      sourceArtifacts: [rowArtifact, cellArtifact],
+      expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
+    });
+    expect(report.metrics.noValueManufactureViolationCount).toBe(1);
+    expect(report.metrics.evidenceInvalidCount).toBe(1);
+  });
+
+  it('counts invented item-number text as a value-manufacture violation', () => {
+    const report = evaluateForgewingPricingInterpretation({
+      bundle: baseBundle({
+        semanticRole: 'item_number_like_text',
+        rawSpan: 'ITEM-INVENTED',
+        sourceText: 'ITEM-INVENTED',
+      }),
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-1',
       ...expectedIdentity,

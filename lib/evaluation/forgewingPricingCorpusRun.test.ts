@@ -5,10 +5,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  parseForgewingPricingCorpusCli,
   resolveForgewingPricingCorpusAvailability,
+  resolveForgewingPricingCorpusSmokeStatus,
   runForgewingPricingCorpus,
   runForgewingPricingCandidateAttempts,
   summarizeForgewingPricingCorpusAttempts,
+  type ForgewingPricingCorpusAttempt,
   type ForgewingPricingCorpusEntry,
 } from '@/scripts/evaluation/runForgewingPricingCorpus';
 import type { ForgewingPricingInterpretationInput } from '@/lib/forgewing/tasks/pricingInterpretation';
@@ -62,6 +65,26 @@ function syntheticCandidate(rowObservationId: string): ForgewingPricingInterpret
   };
 }
 
+function syntheticAttempt(
+  resultStatus: ForgewingPricingCorpusAttempt['resultStatus'],
+  index = 0,
+): ForgewingPricingCorpusAttempt {
+  return {
+    rowObservationId: `row-${index}-${resultStatus}`,
+    resultStatus,
+    model: null,
+    promptTemplateId: 'forgewing-pricing-interpretation',
+    promptTemplateVersion: 'v1',
+    proposalSchemaVersion: 'forgewing-pricing-interpretation-proposal-v1',
+    inputSnapshotHash: null,
+    taskId: null,
+    runId: null,
+    evaluation: null,
+    warnings: [],
+    failureReason: null,
+  };
+}
+
 describe('Forgewing pricing corpus availability', () => {
   afterEach(() => vi.unstubAllEnvs());
 
@@ -78,6 +101,65 @@ describe('Forgewing pricing corpus availability', () => {
     expect(resolveForgewingPricingCorpusAvailability({
       ...GOODLETTSVILLE_ENTRY, expectedSourceSha256: '0'.repeat(64),
     }).status).toBe('hash_mismatch');
+    expect(resolveForgewingPricingCorpusAvailability({
+      ...GOODLETTSVILLE_ENTRY, expectedSourceSha256: '',
+    }).status).toBe('invalid_expected_sha256');
+  });
+
+  it('parses an explicit contract corpus without hardcoded TDOT values', () => {
+    const parsed = parseForgewingPricingCorpusCli([
+      '--source', 'configured-contract.pdf',
+      '--document-type', 'contract',
+      '--corpus-kind', 'real_labelled_corpus',
+      '--expected-sha256', 'a'.repeat(64),
+      '--page-ranges', '10-12',
+      '--output', 'configured-report.json',
+    ], {});
+    expect(parsed).toEqual({
+      entry: {
+        sourcePdfPath: 'configured-contract.pdf',
+        documentType: 'contract',
+        corpusKind: 'real_labelled_corpus',
+        expectedSourceSha256: 'a'.repeat(64),
+        authoritativeRatePageRanges: [{ start: 10, end: 12 }],
+      },
+      outputPath: 'configured-report.json',
+    });
+  });
+
+  it('accepts source, document type, corpus kind, and expected hash from environment', () => {
+    const parsed = parseForgewingPricingCorpusCli([], {
+      FORGEWING_PRICING_CORPUS_SOURCE: 'environment-contract.pdf',
+      FORGEWING_PRICING_CORPUS_DOCUMENT_TYPE: 'contract',
+      FORGEWING_PRICING_CORPUS_KIND: 'real_labelled_corpus',
+      FORGEWING_PRICING_CORPUS_EXPECTED_SHA256: 'b'.repeat(64),
+      FORGEWING_PRICING_CORPUS_PAGE_RANGES: '4',
+    });
+    expect(parsed.entry).toMatchObject({
+      sourcePdfPath: 'environment-contract.pdf',
+      documentType: 'contract',
+      corpusKind: 'real_labelled_corpus',
+      expectedSourceSha256: 'b'.repeat(64),
+      authoritativeRatePageRanges: [{ start: 4, end: 4 }],
+    });
+  });
+
+  it('rejects malformed expected hashes and exact-byte hash mismatches before provider work', async () => {
+    expect(() => parseForgewingPricingCorpusCli([
+      '--source', GOODLETTSVILLE_ENTRY.sourcePdfPath,
+      '--document-type', 'contract',
+      '--corpus-kind', 'real_unlabelled_smoke',
+      '--expected-sha256', 'NOT-A-SHA',
+      '--page-ranges', '2',
+    ], {})).toThrow('forgewing_pricing_corpus_invalid_expected_sha256');
+
+    const provider = vi.fn(deterministicEvidenceProvider);
+    await expect(runForgewingPricingCorpus({
+      ...GOODLETTSVILLE_ENTRY,
+      documentType: 'contract',
+      expectedSourceSha256: '0'.repeat(64),
+    }, { task: { provider } })).rejects.toThrow('forgewing_pricing_corpus_hash_mismatch');
+    expect(provider).not.toHaveBeenCalled();
   });
 
   it.each(['OPENAI_API_KEY', 'UNSTRUCTURED_API_KEY'])
@@ -89,7 +171,66 @@ describe('Forgewing pricing corpus availability', () => {
   });
 });
 
-describe('Forgewing Goodlettsville real-document pricing smoke', () => {
+describe('SYNTHETIC: Forgewing pricing corpus execution', () => {
+  it.each(['applied', 'abstained', 'failed', 'skipped'] as const)(
+    'accounts for a %s attempt in its named terminal bucket',
+    (resultStatus) => {
+      const metrics = summarizeForgewingPricingCorpusAttempts(
+        1,
+        [syntheticAttempt(resultStatus)],
+      );
+      expect(metrics.totalAttemptedProposals).toBe(1);
+      expect({
+        applied: metrics.appliedCount,
+        abstained: metrics.abstentionCount,
+        failed: metrics.failedCount,
+        skipped: metrics.skippedCount,
+      }[resultStatus]).toBe(1);
+      expect(metrics.attemptStatusAccountingValid).toBe(true);
+    },
+  );
+
+  it('closes mixed attempt accounting across all four terminal statuses', () => {
+    const attempts = (['applied', 'abstained', 'failed', 'skipped'] as const)
+      .map((status, index) => syntheticAttempt(status, index));
+    const metrics = summarizeForgewingPricingCorpusAttempts(4, attempts);
+    expect(metrics).toMatchObject({
+      totalAttemptedProposals: 4,
+      appliedCount: 1,
+      abstentionCount: 1,
+      failedCount: 1,
+      skippedCount: 1,
+      attemptStatusAccountingValid: true,
+    });
+    expect(metrics.totalAttemptedProposals).toBe(
+      metrics.appliedCount + metrics.abstentionCount + metrics.failedCount + metrics.skippedCount,
+    );
+  });
+
+  it('fails closed if an unrecognized terminal status escapes runtime validation', () => {
+    const malformed = {
+      ...syntheticAttempt('failed'),
+      resultStatus: 'unknown_status',
+    } as unknown as ForgewingPricingCorpusAttempt;
+    expect(() => summarizeForgewingPricingCorpusAttempts(1, [malformed]))
+      .toThrow('forgewing_pricing_corpus_attempt_status_accounting_mismatch');
+  });
+
+  it('distinguishes extraction-only zero-candidate runs and rejects non-deterministic measurement', () => {
+    expect(resolveForgewingPricingCorpusSmokeStatus(0, true))
+      .toBe('extracted_but_no_eligible_forgewing_candidates');
+    expect(resolveForgewingPricingCorpusSmokeStatus(1, false))
+      .toBe('non_deterministic_input_order');
+    expect(resolveForgewingPricingCorpusSmokeStatus(1, false))
+      .not.toBe('measured_forgewing_smoke');
+    expect(summarizeForgewingPricingCorpusAttempts(0, [], false)).toMatchObject({
+      totalEligibleCandidates: 0,
+      totalAttemptedProposals: 0,
+      qualityMetricsEvaluated: false,
+      qualityMetrics: null,
+    });
+  });
+
   it('iterates every supplied eligible candidate under offline control', async () => {
     const attempts = await runForgewingPricingCandidateAttempts(
       [syntheticCandidate('row-2'), syntheticCandidate('row-1')],
@@ -182,7 +323,7 @@ describe('Forgewing Goodlettsville real-document pricing smoke', () => {
         evidenceFindings: [],
       },
     });
-    expect(summarizeForgewingPricingCorpusAttempts(1, attempts)).toMatchObject({
+    expect(summarizeForgewingPricingCorpusAttempts(1, attempts).qualityMetrics).toMatchObject({
       evaluatedCandidateCount: 0,
       nonComparableCandidateCount: 1,
     });
@@ -235,7 +376,7 @@ describe('Forgewing Goodlettsville real-document pricing smoke', () => {
         },
       },
     }];
-    expect(summarizeForgewingPricingCorpusAttempts(1, nonComparable)).toMatchObject({
+    expect(summarizeForgewingPricingCorpusAttempts(1, nonComparable).qualityMetrics).toMatchObject({
       evaluatedCandidateCount: 0,
       nonComparableCandidateCount: 1,
       evidenceValidCount: 0,
@@ -244,63 +385,57 @@ describe('Forgewing Goodlettsville real-document pricing smoke', () => {
       identityMismatchCount: 3,
     });
   });
-
-  it('extracts the real PDF, evaluates every eligible candidate, and retains unmet status', async () => {
-    const report = await runForgewingPricingCorpus(GOODLETTSVILLE_ENTRY, {
-      task: {
-        config: {
-          enabled: true, model: 'injected-deterministic-evidence-smoke', timeoutMs: 30_000,
-          maxCalls: 4, maxOutputTokens: 800,
-        },
-        taskEnabled: true,
-        provider: deterministicEvidenceProvider,
-      },
-    });
-
-    expect(report).toMatchObject({
-      authority: 'non_authoritative_measurement',
-      corpusKind: 'real_unlabelled_smoke',
-      corpusStatus: 'unmet',
-      availability: 'available',
-      pricingCorrectnessEvaluated: false,
-      promotionEvidence: false,
-      orderingDeterministic: true,
-      runtime: {
-        model: 'injected-deterministic-evidence-smoke',
-        promptTemplateId: 'forgewing-pricing-interpretation',
-        promptTemplateVersion: 'v1',
-        proposalSchemaVersion: 'forgewing-pricing-interpretation-proposal-v1',
-      },
-    });
-    expect(report.corpusIdentity).toMatch(/^generic\/local-fixture:[a-f0-9]{64}$/);
-    expect(report.metrics.totalAttemptedProposals).toBe(report.metrics.totalEligibleCandidates);
-    expect(report.metrics.evaluatedCandidateCount).toBe(report.metrics.totalEligibleCandidates);
-    expect(report.metrics.appliedCount).toBe(report.metrics.totalEligibleCandidates);
-    expect(report.metrics.abstentionCount).toBe(0);
-    expect(report.smokeStatus).toBe(report.metrics.totalEligibleCandidates > 0
-      ? 'completed' : 'completed_no_eligible_candidates');
-    expect(report.metrics.evidenceValidCount).toBe(report.metrics.evaluatedCandidateCount);
-    expect(report.metrics.evidenceInvalidCount).toBe(0);
-    expect(report.metrics.evidenceUnverifiableCount).toBe(0);
-    expect(report.metrics.silentHallucinationCount).toBe(0);
-    expect(report.metrics.noValueManufactureViolationCount).toBe(0);
-    expect(report.metrics.snapshotMismatchCount).toBe(0);
-    expect(report.metrics.identityMismatchCount).toBe(0);
-    expect(report.metrics.providerRuntimeFailureCount).toBe(0);
-    expect(report.metrics.modelOutputRejectionCount).toBe(0);
-    expect(report.metrics.nonComparableCandidateCount).toBe(0);
-    expect(report.attempts.every((attempt) =>
-      attempt.model === 'injected-deterministic-evidence-smoke'
-      && attempt.promptTemplateId === 'forgewing-pricing-interpretation'
-      && attempt.promptTemplateVersion === 'v1'
-      && attempt.proposalSchemaVersion === 'forgewing-pricing-interpretation-proposal-v1'
-      && attempt.inputSnapshotHash != null
-      && attempt.taskId != null
-      && attempt.runId != null)).toBe(true);
-    const serialized = JSON.stringify(report);
-    for (const prohibited of ['pricingAccuracy', 'precision', 'recall', 'F1',
-      'promotionReadiness', 'rateCorrectness', 'unitCorrectness']) {
-      expect(serialized).not.toContain(`"${prohibited}"`);
-    }
-  }, 180_000);
 });
+
+describe.skipIf(process.env.RUN_FORGEWING_PRICING_REAL_FIXTURE_TESTS !== '1')(
+  'Forgewing Goodlettsville real-document pricing smoke (explicit opt-in)',
+  () => {
+    it('extracts the real PDF and reports extraction-only zero-candidate status', async () => {
+      const report = await runForgewingPricingCorpus(GOODLETTSVILLE_ENTRY, {
+        task: {
+          config: {
+            enabled: true, model: 'injected-deterministic-evidence-smoke', timeoutMs: 30_000,
+            maxCalls: 4, maxOutputTokens: 800,
+          },
+          taskEnabled: true,
+          provider: deterministicEvidenceProvider,
+        },
+      });
+
+      expect(report).toMatchObject({
+        authority: 'non_authoritative_measurement',
+        corpusKind: 'real_unlabelled_smoke',
+        corpusStatus: 'unmet',
+        availability: 'available',
+        pricingCorrectnessEvaluated: false,
+        promotionEvidence: false,
+        orderingDeterministic: true,
+        smokeStatus: 'extracted_but_no_eligible_forgewing_candidates',
+        runtime: {
+          model: 'injected-deterministic-evidence-smoke',
+          promptTemplateId: 'forgewing-pricing-interpretation',
+          promptTemplateVersion: 'v1',
+          proposalSchemaVersion: 'forgewing-pricing-interpretation-proposal-v1',
+        },
+      });
+      expect(report.corpusIdentity).toMatch(/^generic\/local-fixture:[a-f0-9]{64}$/);
+      expect(report.reportVersion).toBe('forgewing-pricing-corpus-smoke-v2');
+      expect(report.metrics.totalEligibleCandidates).toBe(0);
+      expect(report.metrics.totalAttemptedProposals).toBe(report.metrics.totalEligibleCandidates);
+      expect(report.metrics.appliedCount).toBe(report.metrics.totalEligibleCandidates);
+      expect(report.metrics.abstentionCount).toBe(0);
+      expect(report.metrics.failedCount).toBe(0);
+      expect(report.metrics.skippedCount).toBe(0);
+      expect(report.metrics.qualityMetricsEvaluated).toBe(false);
+      expect(report.metrics.qualityMetrics).toBeNull();
+      expect(report.metrics.providerRuntimeFailureCount).toBe(0);
+      expect(report.metrics.modelOutputRejectionCount).toBe(0);
+      expect(report.attempts).toEqual([]);
+      const serialized = JSON.stringify(report);
+      for (const prohibited of ['pricingAccuracy', 'precision', 'recall', 'F1',
+        'promotionReadiness', 'rateCorrectness', 'unitCorrectness']) {
+        expect(serialized).not.toContain(`"${prohibited}"`);
+      }
+    }, 180_000);
+  },
+);

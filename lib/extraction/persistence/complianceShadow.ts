@@ -707,6 +707,21 @@ function isNeutralPricingSemanticHint(value: unknown): value is NeutralPricingSe
   ].includes(String(value));
 }
 
+function freezePricingInterpretationInput(
+  input: ForgewingPricingInterpretationInput,
+): ForgewingPricingInterpretationInput {
+  for (const cell of input.rowObservation.cells) {
+    if (cell.semanticHints) Object.freeze(cell.semanticHints);
+    if (cell.boundingBox) Object.freeze(cell.boundingBox);
+    Object.freeze(cell);
+  }
+  Object.freeze(input.rowObservation.cells);
+  if (input.rowObservation.boundingBox) Object.freeze(input.rowObservation.boundingBox);
+  Object.freeze(input.rowObservation);
+  Object.freeze(input.pricingScope);
+  return Object.freeze(input);
+}
+
 /**
  * Pure post-scope adapter shared by production shadow scheduling and offline
  * evaluation. It exposes only fully admitted task inputs, never a scope
@@ -727,7 +742,10 @@ export function buildEligiblePricingReasoningShadowCandidates(
     || diagnostics.sourceArtifactId !== input.sourceArtifactId) return [];
 
   let duplicateIdentity = false;
-  const candidates = input.pricingRows.flatMap((raw) => {
+  const candidates: Array<Readonly<{
+    stableKey: string;
+    input: ForgewingPricingInterpretationInput;
+  }>> = input.pricingRows.flatMap((raw) => {
     const row = pricingRecord(raw);
     if (!row) return [];
     const deterministicState = pricingDeterministicState(row);
@@ -849,24 +867,9 @@ export function buildEligiblePricingReasoningShadowCandidates(
     || new Set(candidates.map((candidate) => candidate.stableKey)).size !== candidates.length
     || new Set(candidates.map((candidate) => candidate.input.rowObservation.observationId)).size
       !== candidates.length) return [];
-  return Object.freeze(candidates.map((candidate) => {
-    const cells = Object.freeze(candidate.input.rowObservation.cells.map((cell) => Object.freeze({
-      ...cell,
-      ...(cell.semanticHints ? { semanticHints: Object.freeze([...cell.semanticHints]) } : {}),
-      ...(cell.boundingBox ? { boundingBox: Object.freeze({ ...cell.boundingBox }) } : {}),
-    })));
-    return Object.freeze({
-      ...candidate.input,
-      pricingScope: Object.freeze({ ...candidate.input.pricingScope }),
-      rowObservation: Object.freeze({
-        ...candidate.input.rowObservation,
-        cells,
-        ...(candidate.input.rowObservation.boundingBox
-          ? { boundingBox: Object.freeze({ ...candidate.input.rowObservation.boundingBox }) }
-          : {}),
-      }),
-    });
-  })) as unknown as readonly ForgewingPricingInterpretationInput[];
+  const frozenInputs = candidates.map((candidate) =>
+    freezePricingInterpretationInput(candidate.input));
+  return Object.freeze(frozenInputs);
 }
 
 /**

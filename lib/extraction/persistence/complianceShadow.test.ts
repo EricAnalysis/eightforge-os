@@ -237,6 +237,7 @@ describe('compliance shadow dual-write isolation', () => {
 
   it('enumerates all admitted candidates deterministically while production still schedules one', async () => {
     const input = multiplePricingShadowInput();
+    const sourceBeforeShadowProjection = structuredClone(input);
     const candidates = buildEligiblePricingReasoningShadowCandidates(input as never);
     const reversed = buildEligiblePricingReasoningShadowCandidates({
       ...input,
@@ -250,6 +251,7 @@ describe('compliance shadow dual-write isolation', () => {
     expect(candidates.map((candidate) => candidate.rowObservation.observationId))
       .toEqual(['row-1', 'row-2']);
     expect(reversed).toEqual(candidates);
+    expect(input).toEqual(sourceBeforeShadowProjection);
 
     const tasks: Array<() => Promise<void>> = [];
     scheduleForgewingPricingInterpretationShadow(input as never, {
@@ -263,6 +265,10 @@ describe('compliance shadow dual-write isolation', () => {
     expect((runForgewingPricingInterpretation.mock.calls as unknown as Array<[{
       rowObservation: { observationId: string };
     }]>)[0]?.[0].rowObservation.observationId).toBe('row-1');
+    expect(input).toEqual(sourceBeforeShadowProjection);
+    expect(input.pricingRows).toEqual(sourceBeforeShadowProjection.pricingRows);
+    expect(input.pricingSourceEligibility)
+      .toEqual(sourceBeforeShadowProjection.pricingSourceEligibility);
     expect(Object.isFrozen(candidates)).toBe(true);
     expect(Object.isFrozen(candidates[0])).toBe(true);
     expect(Object.isFrozen(candidates[0]?.pricingScope)).toBe(true);

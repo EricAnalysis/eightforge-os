@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parseArgs } from 'node:util';
 
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
 import { extractDocument } from '@/lib/server/documentExtraction';
@@ -39,12 +40,16 @@ import { FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION } from '@/lib/
 import { getForgewingRuntimeConfig } from '@/lib/forgewing/runtime/modelConfig';
 
 export type ForgewingPricingCorpusAvailability =
-  | 'available' | 'unavailable' | 'missing_config' | 'hash_mismatch' | 'missing_labels';
+  | 'available' | 'unavailable' | 'missing_config' | 'hash_mismatch' | 'invalid_expected_sha256'
+  | 'missing_labels';
+
+export type ForgewingPricingCorpusKind =
+  | 'real_unlabelled_smoke' | 'real_labelled_corpus' | 'labelled_external';
 
 export type ForgewingPricingCorpusEntry = Readonly<{
   sourcePdfPath: string;
   optionalLabelPackagePath?: string;
-  corpusKind: 'real_unlabelled_smoke' | 'labelled_external';
+  corpusKind: ForgewingPricingCorpusKind;
   expectedSourceSha256?: string;
   metadata?: Readonly<Record<string, unknown>>;
   documentType: string;
@@ -69,9 +74,19 @@ export type ForgewingPricingCorpusAttempt = Readonly<{
 export type ForgewingPricingCorpusMetrics = Readonly<{
   totalEligibleCandidates: number;
   totalAttemptedProposals: number;
-  evaluatedCandidateCount: number;
   appliedCount: number;
   abstentionCount: number;
+  failedCount: number;
+  skippedCount: number;
+  attemptStatusAccountingValid: true;
+  providerRuntimeFailureCount: number;
+  modelOutputRejectionCount: number;
+  qualityMetricsEvaluated: boolean;
+  qualityMetrics: ForgewingPricingCorpusQualityMetrics | null;
+}>;
+
+export type ForgewingPricingCorpusQualityMetrics = Readonly<{
+  evaluatedCandidateCount: number;
   insufficientEvidenceCount: number;
   evidenceValidCount: number;
   evidenceInvalidCount: number;
@@ -80,18 +95,21 @@ export type ForgewingPricingCorpusMetrics = Readonly<{
   noValueManufactureViolationCount: number;
   snapshotMismatchCount: number;
   identityMismatchCount: number;
-  providerRuntimeFailureCount: number;
-  modelOutputRejectionCount: number;
   nonComparableCandidateCount: number;
 }>;
 
+export type ForgewingPricingCorpusSmokeStatus =
+  | 'measured_forgewing_smoke'
+  | 'extracted_but_no_eligible_forgewing_candidates'
+  | 'non_deterministic_input_order';
+
 export type ForgewingPricingCorpusSmokeReport = Readonly<{
-  reportVersion: 'forgewing-pricing-corpus-smoke-v1';
+  reportVersion: 'forgewing-pricing-corpus-smoke-v2';
   authority: 'non_authoritative_measurement';
-  corpusKind: 'real_unlabelled_smoke' | 'labelled_external';
+  corpusKind: ForgewingPricingCorpusKind;
   corpusIdentity: string;
   corpusStatus: 'unmet';
-  smokeStatus: 'completed' | 'completed_no_eligible_candidates';
+  smokeStatus: ForgewingPricingCorpusSmokeStatus;
   availability: ForgewingPricingCorpusAvailability;
   pricingCorrectnessEvaluated: false;
   promotionEvidence: false;
@@ -198,31 +216,47 @@ export async function runForgewingPricingCandidateAttempts(
 export function summarizeForgewingPricingCorpusAttempts(
   totalEligibleCandidates: number,
   attempts: readonly ForgewingPricingCorpusAttempt[],
+  aggregateQualityMetrics = true,
 ): ForgewingPricingCorpusMetrics {
   const allEvaluations = attempts.flatMap((attempt) => attempt.evaluation ? [attempt.evaluation] : []);
   const evaluations = allEvaluations.filter((evaluation) => evaluation.summary.metricsEvaluated);
   const sum = (select: (report: ForgewingPricingInterpretationEvaluationReport) => number) =>
     evaluations.reduce((total, report) => total + select(report), 0);
+  const appliedCount = attempts.filter((attempt) => attempt.resultStatus === 'applied').length;
+  const abstentionCount = attempts.filter((attempt) => attempt.resultStatus === 'abstained').length;
+  const failedCount = attempts.filter((attempt) => attempt.resultStatus === 'failed').length;
+  const skippedCount = attempts.filter((attempt) => attempt.resultStatus === 'skipped').length;
+  if (attempts.length !== appliedCount + abstentionCount + failedCount + skippedCount) {
+    throw new Error('forgewing_pricing_corpus_attempt_status_accounting_mismatch');
+  }
+  const qualityMetrics: ForgewingPricingCorpusQualityMetrics | null = aggregateQualityMetrics
+    ? {
+      evaluatedCandidateCount: evaluations.length,
+      insufficientEvidenceCount: sum((report) => report.metrics.insufficientEvidenceCount),
+      evidenceValidCount: sum((report) => report.metrics.evidenceValidCount),
+      evidenceInvalidCount: sum((report) => report.metrics.evidenceInvalidCount),
+      evidenceUnverifiableCount: sum((report) => report.metrics.evidenceUnverifiableCount),
+      silentHallucinationCount: sum((report) => report.metrics.silentHallucinationCount),
+      noValueManufactureViolationCount: sum(
+        (report) => report.metrics.noValueManufactureViolationCount,
+      ),
+      snapshotMismatchCount: allEvaluations.reduce(
+        (total, report) => total + report.metrics.snapshotMismatchCount, 0,
+      ),
+      identityMismatchCount: allEvaluations.reduce(
+        (total, report) => total + report.metrics.identityMismatchCount, 0,
+      ),
+      nonComparableCandidateCount: allEvaluations.length - evaluations.length,
+    }
+    : null;
   return {
     totalEligibleCandidates,
     totalAttemptedProposals: attempts.length,
-    evaluatedCandidateCount: evaluations.length,
-    appliedCount: attempts.filter((attempt) => attempt.resultStatus === 'applied').length,
-    abstentionCount: attempts.filter((attempt) => attempt.resultStatus === 'abstained').length,
-    insufficientEvidenceCount: sum((report) => report.metrics.insufficientEvidenceCount),
-    evidenceValidCount: sum((report) => report.metrics.evidenceValidCount),
-    evidenceInvalidCount: sum((report) => report.metrics.evidenceInvalidCount),
-    evidenceUnverifiableCount: sum((report) => report.metrics.evidenceUnverifiableCount),
-    silentHallucinationCount: sum((report) => report.metrics.silentHallucinationCount),
-    noValueManufactureViolationCount: sum(
-      (report) => report.metrics.noValueManufactureViolationCount,
-    ),
-    snapshotMismatchCount: allEvaluations.reduce(
-      (total, report) => total + report.metrics.snapshotMismatchCount, 0,
-    ),
-    identityMismatchCount: allEvaluations.reduce(
-      (total, report) => total + report.metrics.identityMismatchCount, 0,
-    ),
+    appliedCount,
+    abstentionCount,
+    failedCount,
+    skippedCount,
+    attemptStatusAccountingValid: true,
     providerRuntimeFailureCount: attempts.filter((attempt) =>
       attempt.resultStatus === 'abstained' && attempt.warnings.some((warning) =>
         ['provider_timeout', 'provider_error', 'anthropic_not_configured'].includes(warning))).length,
@@ -230,25 +264,52 @@ export function summarizeForgewingPricingCorpusAttempts(
       attempt.resultStatus === 'abstained' && attempt.warnings.some((warning) =>
         ['invalid_model_json', 'model_schema_rejected', 'unknown_evidence_reference',
           'unsupported_source_text'].includes(warning))).length,
-    nonComparableCandidateCount: allEvaluations.length - evaluations.length,
+    qualityMetricsEvaluated: qualityMetrics != null,
+    qualityMetrics,
   };
+}
+
+export function resolveForgewingPricingCorpusSmokeStatus(
+  totalEligibleCandidates: number,
+  orderingDeterministic: boolean,
+): ForgewingPricingCorpusSmokeStatus {
+  if (!orderingDeterministic) return 'non_deterministic_input_order';
+  return totalEligibleCandidates > 0
+    ? 'measured_forgewing_smoke'
+    : 'extracted_but_no_eligible_forgewing_candidates';
+}
+
+type ResolvedCorpusSource = Readonly<{
+  status: ForgewingPricingCorpusAvailability;
+  sha256: string | null;
+  bytes: Buffer | null;
+}>;
+
+function readForgewingPricingCorpusSource(entry: ForgewingPricingCorpusEntry): ResolvedCorpusSource {
+  if (!entry.sourcePdfPath.trim()) return { status: 'missing_config', sha256: null, bytes: null };
+  if (entry.expectedSourceSha256 !== undefined
+    && !/^[a-f0-9]{64}$/.test(entry.expectedSourceSha256)) {
+    return { status: 'invalid_expected_sha256', sha256: null, bytes: null };
+  }
+  const sourcePath = resolve(entry.sourcePdfPath);
+  if (!existsSync(sourcePath)) return { status: 'unavailable', sha256: null, bytes: null };
+  if (entry.corpusKind === 'labelled_external'
+    && (!entry.optionalLabelPackagePath || !existsSync(resolve(entry.optionalLabelPackagePath)))) {
+    return { status: 'missing_labels', sha256: null, bytes: null };
+  }
+  const bytes = readFileSync(sourcePath);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  if (entry.expectedSourceSha256 !== undefined && entry.expectedSourceSha256 !== sha256) {
+    return { status: 'hash_mismatch', sha256, bytes: null };
+  }
+  return { status: 'available', sha256, bytes };
 }
 
 export function resolveForgewingPricingCorpusAvailability(
   entry: ForgewingPricingCorpusEntry,
 ): Readonly<{ status: ForgewingPricingCorpusAvailability; sha256: string | null }> {
-  if (!entry.sourcePdfPath.trim()) return { status: 'missing_config', sha256: null };
-  const sourcePath = resolve(entry.sourcePdfPath);
-  if (!existsSync(sourcePath)) return { status: 'unavailable', sha256: null };
-  if (entry.corpusKind === 'labelled_external'
-    && (!entry.optionalLabelPackagePath || !existsSync(resolve(entry.optionalLabelPackagePath)))) {
-    return { status: 'missing_labels', sha256: null };
-  }
-  const sha256 = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
-  if (entry.expectedSourceSha256 && entry.expectedSourceSha256 !== sha256) {
-    return { status: 'hash_mismatch', sha256 };
-  }
-  return { status: 'available', sha256 };
+  const { status, sha256 } = readForgewingPricingCorpusSource(entry);
+  return { status, sha256 };
 }
 
 function reversedEligibility(value: unknown): unknown {
@@ -269,9 +330,9 @@ export async function runForgewingPricingCorpus(
   if (process.env.OPENAI_API_KEY?.trim() || process.env.UNSTRUCTURED_API_KEY?.trim()) {
     throw new Error('forgewing_pricing_corpus_legacy_extraction_ai_must_be_disabled');
   }
-  const availability = resolveForgewingPricingCorpusAvailability(entry);
-  if (availability.status !== 'available' || !availability.sha256) {
-    throw new Error(`forgewing_pricing_corpus_${availability.status}`);
+  const source = readForgewingPricingCorpusSource(entry);
+  if (source.status !== 'available' || !source.sha256 || !source.bytes) {
+    throw new Error(`forgewing_pricing_corpus_${source.status}`);
   }
   if (!dependencies.task?.provider
     && (process.env.FORGEWING_SHADOW_ENABLED !== '1'
@@ -281,12 +342,13 @@ export async function runForgewingPricingCorpus(
   const runtimeConfig = dependencies.task?.config ?? getForgewingRuntimeConfig();
 
   const sourcePdfPath = resolve(entry.sourcePdfPath);
-  const bytes = readFileSync(sourcePdfPath);
-  const sourceDocumentId = `local-pricing-document-${availability.sha256.slice(0, 24)}`;
+  const bytes = source.bytes;
+  const sourceArrayBuffer = new Uint8Array(bytes).buffer;
+  const sourceDocumentId = `local-pricing-document-${source.sha256.slice(0, 24)}`;
   const sourceArtifactId = opaqueIds.sourceArtifact({
     corpusKind: entry.corpusKind,
     sourceDocumentId,
-    sourceSha256: availability.sha256,
+    sourceSha256: source.sha256,
   });
   const payload = await extractDocument({
     id: sourceDocumentId,
@@ -294,11 +356,11 @@ export async function runForgewingPricingCorpus(
     name: 'pricing-corpus.pdf',
     document_type: entry.documentType,
     storage_path: sourcePdfPath,
-  }, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  }, sourceArrayBuffer,
   'application/pdf', 'pricing-corpus.pdf', { sourceDocumentId, sourceArtifactId });
   const extractionSnapshotId = opaqueIds.extractionSnapshot({
     sourceArtifactId,
-    sourceSha256: availability.sha256,
+    sourceSha256: source.sha256,
     extractionPayloadHash: hashCanonical({
       documentId: payload.document_id,
       file: payload.file,
@@ -336,10 +398,16 @@ export async function runForgewingPricingCorpus(
     pricingSourceEligibility: reversedEligibility(shadowInput.pricingSourceEligibility),
   });
   const orderingDeterministic = canonicalJson(candidates) === canonicalJson(reversedCandidates);
+  const smokeStatus = resolveForgewingPricingCorpusSmokeStatus(
+    candidates.length,
+    orderingDeterministic,
+  );
 
-  const attempts = await runForgewingPricingCandidateAttempts(candidates, dependencies.task);
+  const attempts = orderingDeterministic
+    ? await runForgewingPricingCandidateAttempts(candidates, dependencies.task)
+    : [];
   const executionIdentity = hashCanonical({
-    sourceSha256: availability.sha256,
+    sourceSha256: source.sha256,
     sourceArtifactId,
     extractionSnapshotId,
     candidateInputHashes: candidates.map((candidate: ForgewingPricingInterpretationInput) =>
@@ -358,18 +426,18 @@ export async function runForgewingPricingCorpus(
     },
   });
   return {
-    reportVersion: 'forgewing-pricing-corpus-smoke-v1',
+    reportVersion: 'forgewing-pricing-corpus-smoke-v2',
     authority: 'non_authoritative_measurement',
     corpusKind: entry.corpusKind,
-    corpusIdentity: `generic/local-fixture:${availability.sha256}`,
+    corpusIdentity: `generic/local-fixture:${source.sha256}`,
     corpusStatus: 'unmet',
-    smokeStatus: candidates.length > 0 ? 'completed' : 'completed_no_eligible_candidates',
+    smokeStatus,
     availability: 'available',
     pricingCorrectnessEvaluated: false,
     promotionEvidence: false,
     source: {
       sourcePdfPath,
-      sourceSha256: availability.sha256,
+      sourceSha256: source.sha256,
       sourceByteLength: bytes.byteLength,
       sourceDocumentId,
       sourceArtifactId,
@@ -384,27 +452,74 @@ export async function runForgewingPricingCorpus(
     },
     orderingDeterministic,
     attempts,
-    metrics: summarizeForgewingPricingCorpusAttempts(candidates.length, attempts),
+    metrics: summarizeForgewingPricingCorpusAttempts(
+      candidates.length,
+      attempts,
+      smokeStatus === 'measured_forgewing_smoke',
+    ),
+  };
+}
+
+export function parseForgewingPricingCorpusCli(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+): Readonly<{ entry: ForgewingPricingCorpusEntry; outputPath: string | null }> {
+  const { values, positionals } = parseArgs({
+    args: [...argv],
+    allowPositionals: true,
+    strict: true,
+    options: {
+      source: { type: 'string' },
+      'document-type': { type: 'string' },
+      'corpus-kind': { type: 'string' },
+      'expected-sha256': { type: 'string' },
+      'page-ranges': { type: 'string' },
+      output: { type: 'string' },
+    },
+  });
+  const sourcePdfPath = values.source?.trim()
+    ?? env.FORGEWING_PRICING_CORPUS_SOURCE?.trim()
+    ?? positionals[0]?.trim();
+  const documentType = values['document-type']?.trim()
+    ?? env.FORGEWING_PRICING_CORPUS_DOCUMENT_TYPE?.trim();
+  const corpusKind = values['corpus-kind']?.trim()
+    ?? env.FORGEWING_PRICING_CORPUS_KIND?.trim();
+  const expectedSourceSha256 = values['expected-sha256']?.trim()
+    ?? env.FORGEWING_PRICING_CORPUS_EXPECTED_SHA256?.trim();
+  const pageRanges = values['page-ranges']?.trim()
+    ?? env.FORGEWING_PRICING_CORPUS_PAGE_RANGES?.trim();
+  const allowedCorpusKinds: readonly ForgewingPricingCorpusKind[] = [
+    'real_unlabelled_smoke', 'real_labelled_corpus', 'labelled_external',
+  ];
+  if (!sourcePdfPath || !documentType || !corpusKind || !pageRanges) {
+    throw new Error(
+      'Usage: vite-node scripts/evaluation/runForgewingPricingCorpus.ts '
+      + '--source <pdf> --document-type <type> --corpus-kind <kind> '
+      + '[--expected-sha256 <digest>] --page-ranges <ranges> [--output <json>]',
+    );
+  }
+  if (!allowedCorpusKinds.includes(corpusKind as ForgewingPricingCorpusKind)) {
+    throw new Error('forgewing_pricing_corpus_invalid_corpus_kind');
+  }
+  if (expectedSourceSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSourceSha256)) {
+    throw new Error('forgewing_pricing_corpus_invalid_expected_sha256');
+  }
+  return {
+    entry: {
+      sourcePdfPath,
+      documentType,
+      corpusKind: corpusKind as ForgewingPricingCorpusKind,
+      ...(expectedSourceSha256 !== undefined ? { expectedSourceSha256 } : {}),
+      authoritativeRatePageRanges: parseRatePageRanges(pageRanges),
+    },
+    outputPath: values.output?.trim() ?? positionals[1]?.trim() ?? null,
   };
 }
 
 async function main(): Promise<void> {
-  const sourcePdfPath = process.argv[2]?.trim();
-  const pageRanges = process.env.FORGEWING_PRICING_CORPUS_PAGE_RANGES?.trim();
-  if (!sourcePdfPath || !pageRanges) {
-    throw new Error(
-      'Usage: vite-node scripts/evaluation/runForgewingPricingCorpus.ts <pdf> [output.json] '
-      + 'with FORGEWING_PRICING_CORPUS_PAGE_RANGES set',
-    );
-  }
-  const report = await runForgewingPricingCorpus({
-    sourcePdfPath,
-    corpusKind: 'real_unlabelled_smoke',
-    documentType: 'price_sheet',
-    authoritativeRatePageRanges: parseRatePageRanges(pageRanges),
-  });
+  const { entry, outputPath } = parseForgewingPricingCorpusCli(process.argv.slice(2), process.env);
+  const report = await runForgewingPricingCorpus(entry);
   const serialized = `${JSON.stringify(report, null, 2)}\n`;
-  const outputPath = process.argv[3]?.trim();
   if (outputPath) writeFileSync(resolve(outputPath), serialized, 'utf8');
   else process.stdout.write(serialized);
 }

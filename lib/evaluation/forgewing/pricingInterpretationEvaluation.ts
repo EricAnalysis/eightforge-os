@@ -35,7 +35,11 @@ export type PricingEvaluationBoundingBox = Readonly<{
   rotation: 0 | 90 | 180 | 270;
 }>;
 
-/** Independent, externally-supplied record of one bounded pricing cell/row artifact. */
+/**
+ * Record of one bounded pricing cell/row artifact. It may be derived from the exact
+ * bounded provider input or extraction snapshot, but is checked independently
+ * relative to model output.
+ */
 export type FrozenPricingArtifact = Readonly<{
   artifactId: string;
   organizationId: string;
@@ -129,7 +133,10 @@ export type PricingEvidenceFidelityFinding = Readonly<{
 export type ForgewingPricingInterpretationEvaluationInput = Readonly<{
   /** Caller-validated or raw bundle; re-validated internally regardless. */
   bundle: ForgewingPricingInterpretationProposalBundle;
-  /** Frozen, independently-recorded source artifacts for the same extraction snapshot. */
+  /**
+   * Frozen artifacts for the same extraction snapshot. They may come from the
+   * exact bounded provider input, but are evaluated independently of model output.
+   */
   sourceArtifacts: readonly FrozenPricingArtifact[];
   expectedExtractionSnapshotId: string;
   expectedOrganizationId: string;
@@ -313,7 +320,7 @@ export function evaluateForgewingPricingInterpretation(
       interpretationCount += 1;
       byRole[interpretation.semanticRole] += 1;
       if (['unit_like_text', 'rate_like_amount', 'quantity_like_amount',
-        'extended_amount_like_text'].includes(interpretation.semanticRole)) {
+        'item_number_like_text', 'extended_amount_like_text'].includes(interpretation.semanticRole)) {
         const matchingArtifacts = rawInput.sourceArtifacts.filter((artifact) =>
           artifact.artifactId === interpretation.sourceCellId);
         if (matchingArtifacts.length !== 1

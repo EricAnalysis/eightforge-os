@@ -834,6 +834,8 @@ export async function runGenericShadowFromBytes(input: {
     cells: graph.fragments.filter(
       (fragment): fragment is GridCellArtifact => fragment.kind === 'cell',
     ),
+    region_candidates: graph.regionCandidates,
+    arbitration_decisions: graph.arbitrationDecisions,
     verified_field_handles: graph.verifiedFieldHandles,
     published_at: TDOT_PHASE1_FIXED_TIME,
   });

@@ -23,7 +23,12 @@ import {
 } from '@/lib/forgewing/tasks/tableContinuation';
 import { runForgewingColumnMapping } from '@/lib/forgewing/tasks/columnMapping';
 import {
+  runForgewingObservationArbitration,
+  type ForgewingObservationArbitrationInput,
+} from '@/lib/forgewing/tasks/observationArbitration';
+import {
   isForgewingColumnMappingEnabled,
+  isForgewingObservationArbitrationEnabled,
   isForgewingShadowEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
@@ -395,6 +400,93 @@ function forgewingColumnMappingInput(
   };
 }
 
+function forgewingObservationArbitrationInput(
+  input: Step3InterpretationBridgeInput,
+  organizationId: string,
+  sourceDocumentId: string,
+): ForgewingObservationArbitrationInput {
+  const mapBox = (box: (typeof input.region_candidates)[number]['bounding_box']) => ({
+    coordinateSpace: box.coordinate_space,
+    origin: box.origin,
+    x0: box.x0,
+    y0: box.y0,
+    x1: box.x1,
+    y1: box.y1,
+    rotation: box.rotation,
+  });
+  const mapCoordinate = (
+    coordinate: (typeof input.region_candidates)[number]['physical_page_coordinate'],
+  ) => coordinate.mappingState === 'resolved_physical_page'
+    ? {
+        mappingState: coordinate.mappingState,
+        sourceDocumentId: coordinate.sourceDocumentId,
+        sourceArtifactId: coordinate.sourceArtifactId,
+        physicalPageNumber: coordinate.physicalPageNumber,
+        artifactLocalIndex: coordinate.artifactLocalIndex,
+        sourceLayer: coordinate.sourceLayer,
+      }
+    : {
+        mappingState: coordinate.mappingState,
+        sourceDocumentId: coordinate.sourceDocumentId,
+        sourceArtifactId: coordinate.sourceArtifactId,
+        physicalPageNumber: null,
+        artifactLocalIndex: coordinate.artifactLocalIndex,
+        sourceLayer: coordinate.sourceLayer,
+      };
+  const mapSignal = (signal: (typeof input.region_candidates)[number]['quality_signals']['glyph_validity']) => ({
+    value: signal.value,
+    basisArtifactIds: [...signal.basis_artifact_ids],
+  });
+  return {
+    organizationId,
+    sourceDocumentId,
+    extractionSnapshotId: input.extraction_snapshot_id,
+    regionCandidates: input.region_candidates.map((candidate) => ({
+      candidateId: candidate.id,
+      organizationId: candidate.organization_id,
+      sourceDocumentId: candidate.source_document_id,
+      sourceArtifactId: candidate.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: candidate.page_artifact_id,
+      page: candidate.page,
+      boundingBox: mapBox(candidate.bounding_box),
+      rawText: candidate.raw_text,
+      parser: {
+        stage: candidate.parser.stage,
+        name: candidate.parser.name,
+        version: candidate.parser.version,
+        configurationHash: candidate.parser.configuration_hash,
+      },
+      recognitionConfidence: candidate.recognition_confidence,
+      readingOrder: candidate.reading_order,
+      regionRole: candidate.region_role,
+      orderedTokenIds: [...candidate.ordered_token_ids],
+      engineReportedConfidence: candidate.engine_reported_confidence,
+      qualitySignals: {
+        glyphValidity: mapSignal(candidate.quality_signals.glyph_validity),
+        geometryCoverage: mapSignal(candidate.quality_signals.geometry_coverage),
+        readingOrderConsistency: mapSignal(candidate.quality_signals.reading_order_consistency),
+        imageTextCoverage: candidate.quality_signals.image_text_coverage == null
+          ? null
+          : mapSignal(candidate.quality_signals.image_text_coverage),
+      },
+      physicalCoordinate: mapCoordinate(candidate.physical_page_coordinate),
+    })),
+    arbitrationDecisions: input.arbitration_decisions.map((decision) => ({
+      targetId: decision.id,
+      organizationId: decision.organization_id,
+      sourceDocumentId: decision.source_document_id,
+      sourceArtifactId: decision.source_artifact_id,
+      extractionSnapshotId: input.extraction_snapshot_id,
+      pageArtifactId: decision.page_artifact_id,
+      candidateIds: [...decision.candidate_ids],
+      deterministicState: decision.decision,
+      agreement: decision.agreement?.value ?? null,
+      diagnostics: [...decision.diagnostics],
+    })),
+  };
+}
+
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
@@ -408,6 +500,59 @@ export function withForgewingRegionClassificationShadow(
   return async (input) => {
     const deterministicPayload = await deterministicBridge(input);
     if (!isForgewingShadowEnabled()) return deterministicPayload;
+    if (isForgewingObservationArbitrationEnabled()) {
+      const task = async (): Promise<void> => {
+        try {
+          const result = await runForgewingObservationArbitration(
+            forgewingObservationArbitrationInput(input, organizationId, sourceDocumentId),
+          );
+          if (result.status === 'applied' || result.status === 'abstained') {
+            const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
+            const persist = persistence.persist ?? persistReasoningShadowArtifact;
+            const persisted = await persist({ input: {
+              organizationId,
+              sourceDocumentId,
+              sourceArtifactId: source.sourceArtifactId,
+              resultStatus: result.status,
+              run: result.bundle.run,
+              schemaVersion: result.bundle.schemaVersion,
+              runtime: {
+                model: result.metadata.model,
+                promptTemplateId: result.metadata.promptTemplateId,
+                promptTemplateVersion: result.metadata.promptTemplateVersion,
+                warningCodes: result.warnings,
+                calls: result.metadata.calls,
+                inputTruncated: result.metadata.inputTruncated,
+              },
+              validatedBundle: result.bundle,
+            } });
+            if (persisted.status !== 'persisted') {
+              console.warn('[forgewingShadow] non-fatal observation arbitration persistence outcome', {
+                mode: 'shadow', status: persisted.status, reason: persisted.reason,
+                ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+              });
+            }
+          }
+          if (result.status !== 'skipped') {
+            console.info('[forgewingShadow] observation arbitration completed', {
+              mode: 'shadow', status: result.status, warnings: result.warnings,
+              calls: result.metadata.calls, inputTruncated: result.metadata.inputTruncated,
+            });
+          }
+        } catch (error) {
+          console.error('[forgewingShadow] non-fatal observation arbitration failure', {
+            mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      try {
+        (persistence.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+      } catch (error) {
+        console.error('[forgewingShadow] observation arbitration registration failed', {
+          mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (isForgewingColumnMappingEnabled()) {
       const task = async (): Promise<void> => {
         try {

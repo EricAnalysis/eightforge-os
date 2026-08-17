@@ -40,6 +40,12 @@ export function isForgewingColumnMappingEnabled(): boolean {
     && process.env.FORGEWING_COLUMN_MAPPING_ENABLED === '1';
 }
 
+/** Observation arbitration is separately default-off beneath the Forgewing master gate. */
+export function isForgewingObservationArbitrationEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

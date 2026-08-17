@@ -12,6 +12,10 @@ const runForgewingColumnMapping = vi.hoisted(() => vi.fn(async () => ({
   status: 'skipped' as const,
   reason: 'no_candidate_tables' as const,
 })));
+const runForgewingObservationArbitration = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_targets' as const,
+})));
 
 vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
   runForgewingRegionClassification,
@@ -22,6 +26,9 @@ vi.mock('@/lib/forgewing/tasks/tableContinuation', () => ({
 vi.mock('@/lib/forgewing/tasks/columnMapping', () => ({
   runForgewingColumnMapping,
 }));
+vi.mock('@/lib/forgewing/tasks/observationArbitration', () => ({
+  runForgewingObservationArbitration,
+}));
 
 vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
   isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
@@ -29,6 +36,8 @@ vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
     && process.env.FORGEWING_COLUMN_MAPPING_ENABLED === '1',
   isForgewingTableContinuationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
     && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
+  isForgewingObservationArbitrationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1',
 }));
 
 import {
@@ -83,6 +92,87 @@ describe('compliance shadow dual-write isolation', () => {
     runForgewingRegionClassification.mockClear();
     runForgewingTableContinuation.mockClear();
     runForgewingColumnMapping.mockClear();
+    runForgewingObservationArbitration.mockClear();
+  });
+
+  it('keeps observation arbitration default-off before candidate construction or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [],
+      get region_candidates() { throw new Error('must not map candidates when disabled'); },
+      get arbitration_decisions() { throw new Error('must not map decisions when disabled'); },
+      verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(runForgewingObservationArbitration).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('maps existing arbitration artifacts only inside a detached task and isolates persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_OBSERVATION_ARBITRATION_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const result = actionableResult('applied');
+    result.metadata.promptTemplateId = 'forgewing-observation-arbitration';
+    result.bundle.schemaVersion = 'forgewing-observation-arbitration-proposal-v1';
+    result.bundle.taskType = 'observation_arbitration';
+    runForgewingObservationArbitration.mockResolvedValueOnce(result as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const signal = { value: 0.8, basis_artifact_ids: ['token-a'], calculator: {}, diagnostics: [] };
+    const candidate = (id: string, text: string, stage: string, order: number) => ({
+      id, organization_id: 'organization-1', source_document_id: 'document-1',
+      source_artifact_id: 'artifact-1', extraction_run_id: 'run-1',
+      page_artifact_id: 'page-1', source_sha256: 'a'.repeat(64), parser_manifest_hash: 'manifest-1',
+      kind: 'region', page: 1,
+      bounding_box: { coordinate_space: 'page_normalized', origin: 'top_left', x0: .1, y0: .1, x1: .9, y1: .2, rotation: 0 },
+      raw_text: text, parser: { stage, name: stage, version: 'v1', configuration_hash: 'config-1' },
+      recognition_confidence: 0.8, reading_order: order, region_role: 'unknown',
+      child_fragment_ids: [`token-${id}`], ordered_token_ids: [`token-${id}`],
+      engine_reported_confidence: 0.8,
+      quality_signals: { glyph_validity: signal, geometry_coverage: signal, reading_order_consistency: signal, image_text_coverage: null },
+      physical_page_coordinate: {
+        mappingState: 'resolved_physical_page', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+        physicalPageNumber: 1, artifactLocalIndex: 0, sourceLayer: stage === 'native_text' ? 'pdf_native_text' : 'ocr',
+      },
+    });
+    const candidates = [candidate('candidate-a', '12.50', 'native_text', 1), candidate('candidate-b', '125.00', 'ocr', 2)];
+    const decision = {
+      id: 'decision-1', organization_id: 'organization-1', source_document_id: 'document-1',
+      source_artifact_id: 'artifact-1', extraction_run_id: 'run-1', source_sha256: 'a'.repeat(64),
+      parser_manifest_hash: 'manifest-1', page_artifact_id: 'page-1', parser: {},
+      physical_region_id: 'candidate-a', candidate_ids: ['candidate-a', 'candidate-b'],
+      accepted_candidate_ids: [], rejected_candidate_ids: ['candidate-a', 'candidate-b'],
+      agreement: null, decision: 'conflict', diagnostics: ['Conflicting high-quality candidates remain.'],
+    };
+    const input = {
+      extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [],
+      region_candidates: candidates, arbitration_decisions: [decision], verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    };
+    const inputBefore = JSON.stringify(input);
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingObservationArbitration).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(JSON.stringify(input)).toBe(inputBefore);
+    expect(runForgewingObservationArbitration).toHaveBeenCalledWith(expect.objectContaining({
+      regionCandidates: expect.arrayContaining([
+        expect.objectContaining({ candidateId: 'candidate-a', rawText: '12.50' }),
+        expect.objectContaining({ candidateId: 'candidate-b', rawText: '125.00' }),
+      ]),
+      arbitrationDecisions: [expect.objectContaining({ targetId: 'decision-1', deterministicState: 'conflict' })],
+    }));
+    expect(persist).toHaveBeenCalledOnce();
   });
 
   it('keeps column mapping default-off before candidate mapping, provider, or persistence', async () => {

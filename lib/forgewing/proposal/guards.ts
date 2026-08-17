@@ -29,13 +29,20 @@ export function hasResolvableProposalEvidence(proposal: ForgewingProposal): bool
                 && (reference.physicalPageNumber == null
                   || reference.physicalPageNumber === proposal.nextPhysicalPageNumber)
           )
-          : (
+          : proposal.taskType === 'column_mapping'
+            ? (
               (reference.pageArtifactId == null
                 || reference.pageArtifactId === proposal.pageArtifactId)
               && (reference.physicalPageNumber == null
                 || proposal.physicalPageNumber == null
                 || reference.physicalPageNumber === proposal.physicalPageNumber)
-            ))
+            )
+            : (
+                reference.pageArtifactId === proposal.pageArtifactId
+                && (reference.physicalPageNumber == null
+                  || proposal.physicalPageNumber == null
+                  || reference.physicalPageNumber === proposal.physicalPageNumber)
+              ))
     ));
 }
 
@@ -44,10 +51,15 @@ export function assertProposalEvidenceContract(proposal: ForgewingProposal): voi
     ? 'value' in proposal
     : proposal.taskType === 'table_continuation'
       ? 'relation' in proposal && proposal.relation !== 'ambiguous'
-      : proposal.columnMappings.some(
+      : proposal.taskType === 'column_mapping'
+        ? proposal.columnMappings.some(
           (mapping) => mapping.state === 'observed' || mapping.state === 'inferred',
-        );
-  const minimumEvidence = proposal.state === 'ambiguous' || proposal.state === 'conflicting'
+        )
+        : proposal.state === 'inferred';
+  const minimumEvidence = proposal.taskType === 'observation_arbitration'
+    && proposal.state === 'inferred'
+    ? 2
+    : proposal.state === 'ambiguous' || proposal.state === 'conflicting'
     ? 2
     : proposal.state === 'insufficient_evidence'
       ? 0
@@ -73,6 +85,10 @@ export function assertProposalEvidenceContract(proposal: ForgewingProposal): voi
       throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
     }
     if (proposal.state === 'insufficient_evidence' && hasResolvedValue) {
+      throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
+    }
+  } else if (proposal.taskType === 'observation_arbitration') {
+    if ((proposal.state === 'inferred') !== hasResolvedValue) {
       throw new Error(`Forgewing ${proposal.state} proposal violates its value contract`);
     }
   } else if (

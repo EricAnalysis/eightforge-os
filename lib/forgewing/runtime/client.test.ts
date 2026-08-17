@@ -8,6 +8,7 @@ vi.mock('@/lib/server/ai/claudeClient', () => ({
 
 import {
   callClaudeForColumnMapping,
+  callClaudeForObservationArbitration,
   callClaudeForRegionClassification,
   callClaudeForTableContinuation,
   normalizeClaudeProviderError,
@@ -102,6 +103,32 @@ describe('Forgewing Claude adapter', () => {
             }),
           }),
         },
+      }),
+      expect.objectContaining({ timeout: 500, maxRetries: 0, signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it('reuses the Claude adapter with the dedicated observation-arbitration prompt and schema', async () => {
+    messagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '{"state":"insufficient_evidence"}' }],
+    });
+    await expect(callClaudeForObservationArbitration({
+      model: 'claude-test', timeoutMs: 500, maxOutputTokens: 800, inputJson: '{"target":{}}',
+    })).resolves.toBe('{"state":"insufficient_evidence"}');
+    expect(messagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-test',
+        max_tokens: 800,
+        system: expect.stringContaining('competing extraction observations'),
+        output_config: { format: expect.objectContaining({
+          type: 'json_schema',
+          schema: expect.objectContaining({ properties: expect.objectContaining({
+            relation: expect.objectContaining({ enum: [
+              'prefer_candidate_a', 'prefer_candidate_b', 'preserve_both',
+              'genuinely_conflicting',
+            ] }),
+          }) }),
+        }) },
       }),
       expect.objectContaining({ timeout: 500, maxRetries: 0, signal: expect.any(AbortSignal) }),
     );

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getForgewingRuntimeConfig,
   isForgewingColumnMappingEnabled,
+  isForgewingObservationArbitrationEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 
@@ -67,5 +68,18 @@ describe('Forgewing runtime configuration', () => {
 
     vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '1');
     expect(isForgewingColumnMappingEnabled()).toBe(true);
+  });
+
+  it('keeps observation arbitration default-off behind both the master and task gates', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_OBSERVATION_ARBITRATION_ENABLED', '1');
+    expect(isForgewingObservationArbitrationEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_OBSERVATION_ARBITRATION_ENABLED', '');
+    expect(isForgewingObservationArbitrationEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_OBSERVATION_ARBITRATION_ENABLED', '1');
+    expect(isForgewingObservationArbitrationEnabled()).toBe(true);
   });
 });

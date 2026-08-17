@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import {
   COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
+  OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
@@ -13,6 +14,8 @@ export const FORGEWING_TABLE_CONTINUATION_PROMPT_ID = 'forgewing-table-continuat
 export const FORGEWING_TABLE_CONTINUATION_PROMPT_VERSION = 'v1';
 export const FORGEWING_COLUMN_MAPPING_PROMPT_ID = 'forgewing-column-mapping';
 export const FORGEWING_COLUMN_MAPPING_PROMPT_VERSION = 'v1';
+export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_ID = 'forgewing-observation-arbitration';
+export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -65,12 +68,20 @@ function loadColumnMappingPrompt(): string {
   );
 }
 
+function loadObservationArbitrationPrompt(): string {
+  return readFileSync(
+    new URL('../prompts/observationArbitration.md', import.meta.url),
+    'utf8',
+  );
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
   schema: typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
     | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
-    | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
+    | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
+    | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
@@ -122,4 +133,11 @@ export const callClaudeForColumnMapping: ForgewingProvider = async (request) =>
     request,
     loadColumnMappingPrompt(),
     COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
+  );
+
+export const callClaudeForObservationArbitration: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadObservationArbitrationPrompt(),
+    OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
   );

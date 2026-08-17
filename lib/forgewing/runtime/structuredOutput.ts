@@ -3,6 +3,8 @@ import { z } from 'zod';
 import {
   ForgewingColumnMappingRationaleCodeSchema,
   ForgewingMissingEvidenceCodeSchema,
+  ForgewingObservationArbitrationRationaleCodeSchema,
+  ForgewingObservationArbitrationRelationSchema,
   ForgewingProposedSemanticColumnRoleSchema,
   ForgewingRegionLabelSchema,
   ForgewingTableContinuationRationaleCodeSchema,
@@ -16,6 +18,115 @@ const evidenceIds = (minimum: number, maximum?: number) => z.array(z.string().mi
 const common = {
   confidence: z.number().min(0).max(1).nullable(),
   rationale: z.string().min(1).max(400).optional(),
+} as const;
+
+const observationArbitrationCommon = {
+  confidence: z.number().min(0).max(1).nullable(),
+  rationaleCodes: z.array(ForgewingObservationArbitrationRationaleCodeSchema)
+    .min(1)
+    .max(4)
+    .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+} as const;
+
+export const ObservationArbitrationModelOutputSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('inferred'),
+    relation: ForgewingObservationArbitrationRelationSchema,
+    preferredCandidateId: z.string().min(1).max(200).optional(),
+    evidenceIds: evidenceIds(2, 2),
+    ...observationArbitrationCommon,
+  }).strict(),
+  z.object({
+    state: z.literal('insufficient_evidence'),
+    confidence: z.null(),
+    evidenceIds: evidenceIds(0, 0),
+    missingEvidence: z.array(ForgewingMissingEvidenceCodeSchema).min(1).max(6),
+    rationaleCodes: z.array(ForgewingObservationArbitrationRationaleCodeSchema)
+      .min(1)
+      .max(4)
+      .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+  }).strict(),
+]);
+
+export type ObservationArbitrationModelOutput = z.infer<
+  typeof ObservationArbitrationModelOutputSchema
+>;
+
+export function parseObservationArbitrationModelOutput(
+  raw: string,
+): ObservationArbitrationModelOutput {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error('invalid_model_json');
+  }
+  const parsed = ObservationArbitrationModelOutputSchema.safeParse(value);
+  if (!parsed.success) throw new Error('model_schema_rejected');
+  return parsed.data;
+}
+
+const OBSERVATION_ARBITRATION_RELATIONS = [
+  'prefer_candidate_a',
+  'prefer_candidate_b',
+  'preserve_both',
+  'genuinely_conflicting',
+] as const;
+
+const OBSERVATION_ARBITRATION_RATIONALES = [
+  'text_completeness_difference',
+  'ocr_corruption_detected',
+  'geometry_consistent',
+  'geometry_conflict',
+  'value_conflict',
+  'complementary_fragments',
+  'candidate_contains_other',
+  'source_quality_difference',
+  'mixed_evidence',
+  'insufficient_structure',
+  'unresolvable_conflict',
+] as const;
+
+export const OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state', 'evidenceIds', 'confidence', 'rationaleCodes'],
+  properties: {
+    state: { type: 'string', enum: ['inferred', 'insufficient_evidence'] },
+    relation: { type: 'string', enum: OBSERVATION_ARBITRATION_RELATIONS },
+    preferredCandidateId: { type: 'string' },
+    evidenceIds: {
+      type: 'array',
+      maxItems: 2,
+      uniqueItems: true,
+      items: { type: 'string' },
+    },
+    confidence: { type: ['number', 'null'], minimum: 0, maximum: 1 },
+    rationaleCodes: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      uniqueItems: true,
+      items: { type: 'string', enum: OBSERVATION_ARBITRATION_RATIONALES },
+    },
+    missingEvidence: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      uniqueItems: true,
+      items: {
+        type: 'string',
+        enum: [
+          'missing_source_observation',
+          'missing_physical_page_proof',
+          'insufficient_table_context',
+          'conflicting_observations',
+          'missing_column_context',
+          'truncated_input',
+        ],
+      },
+    },
+  },
 } as const;
 
 export const RegionClassificationModelOutputSchema = z.discriminatedUnion('state', [

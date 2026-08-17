@@ -327,6 +327,8 @@ export async function persistExtractionStep1Shadow(
         cells: graph.fragments.filter(
           (fragment): fragment is GridCellArtifact => fragment.kind === 'cell',
         ),
+        region_candidates: graph.regionCandidates,
+        arbitration_decisions: graph.arbitrationDecisions,
         verified_field_handles: graph.verifiedFieldHandles,
         published_at: graph.run.completed_at,
       })

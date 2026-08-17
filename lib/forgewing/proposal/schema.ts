@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION,
+  FORGEWING_OBSERVATION_ARBITRATION_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION,
 } from '@/lib/forgewing/proposal/schemaVersion';
@@ -29,6 +30,7 @@ export const ForgewingTaskTypeSchema = z.enum([
   'region_classification',
   'table_continuation',
   'column_mapping',
+  'observation_arbitration',
 ]);
 
 export const ForgewingProposalStateSchema = z.enum([
@@ -117,6 +119,27 @@ export const ForgewingColumnMappingRationaleCodeSchema = z.enum([
   'insufficient_structure',
 ]);
 
+export const ForgewingObservationArbitrationRelationSchema = z.enum([
+  'prefer_candidate_a',
+  'prefer_candidate_b',
+  'preserve_both',
+  'genuinely_conflicting',
+]);
+
+export const ForgewingObservationArbitrationRationaleCodeSchema = z.enum([
+  'text_completeness_difference',
+  'ocr_corruption_detected',
+  'geometry_consistent',
+  'geometry_conflict',
+  'value_conflict',
+  'complementary_fragments',
+  'candidate_contains_other',
+  'source_quality_difference',
+  'mixed_evidence',
+  'insufficient_structure',
+  'unresolvable_conflict',
+]);
+
 export const ForgewingBoundingBoxSchema = z.object({
   coordinateSpace: z.literal('page_normalized'),
   origin: z.literal('top_left'),
@@ -200,12 +223,13 @@ const evidenceReferences = (minimum: number, maximum?: number) => z.array(Forgew
     'evidence references must be distinct',
   );
 
-const inputObservationIds = (minimum: number) => z.array(boundedIdentifier)
-  .min(minimum)
-  .refine(
+const inputObservationIds = (minimum: number, maximum?: number) => {
+  const identifiers = z.array(boundedIdentifier).min(minimum);
+  return (maximum == null ? identifiers : identifiers.max(maximum)).refine(
     (identifiers) => new Set(identifiers).size === identifiers.length,
     'input observation identifiers must be distinct',
   );
+};
 
 export const ForgewingRunIdentitySchema = z.object({
   runId: boundedIdentifier,
@@ -780,10 +804,130 @@ export const ForgewingColumnMappingProposalSchema = columnMappingProposalSchema.
   enforceColumnMappingCoherence,
 );
 
+const observationArbitrationIdentityShape = {
+  proposalId: boundedIdentifier,
+  taskId: boundedIdentifier,
+  taskType: z.literal('observation_arbitration'),
+  sourceDocumentId: boundedIdentifier,
+  sourceArtifactId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  targetId: boundedIdentifier,
+  deterministicState: z.enum(['conflict', 'unresolved']),
+  candidateAId: boundedIdentifier,
+  candidateBId: boundedIdentifier,
+  pageArtifactId: boundedIdentifier,
+  physicalPageNumber: z.number().int().positive().optional(),
+  artifactLocalIndex: z.number().int().nonnegative().optional(),
+  inputObservationIds: inputObservationIds(2, 2),
+  rationaleCodes: z.array(ForgewingObservationArbitrationRationaleCodeSchema)
+    .min(1)
+    .max(4)
+    .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+} as const;
+
+const inferredObservationArbitrationProposalSchema = z.object({
+  ...observationArbitrationIdentityShape,
+  state: z.literal('inferred'),
+  relation: ForgewingObservationArbitrationRelationSchema,
+  preferredCandidateId: boundedIdentifier.optional(),
+  confidence: z.number().min(0).max(1).nullable(),
+  evidence: evidenceReferences(2, 2),
+}).strict();
+
+const insufficientObservationArbitrationProposalSchema = z.object({
+  ...observationArbitrationIdentityShape,
+  state: z.literal('insufficient_evidence'),
+  confidence: z.null(),
+  evidence: evidenceReferences(0, 0),
+  missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1).max(6),
+}).strict();
+
+const observationArbitrationProposalSchema = z.discriminatedUnion('state', [
+  inferredObservationArbitrationProposalSchema,
+  insufficientObservationArbitrationProposalSchema,
+]);
+
+export const ForgewingObservationArbitrationProposalSchema =
+  observationArbitrationProposalSchema.superRefine((proposal, context) => {
+    if (proposal.candidateAId === proposal.candidateBId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['candidateBId'],
+        message: 'arbitration candidates must be distinct',
+      });
+    }
+    if (
+      proposal.inputObservationIds[0] !== proposal.candidateAId
+      || proposal.inputObservationIds[1] !== proposal.candidateBId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['inputObservationIds'],
+        message: 'input observations must preserve candidate A/B identity and order',
+      });
+    }
+    if (proposal.state === 'inferred') {
+      const expectedPreferred = proposal.relation === 'prefer_candidate_a'
+        ? proposal.candidateAId
+        : proposal.relation === 'prefer_candidate_b'
+          ? proposal.candidateBId
+          : undefined;
+      if (proposal.preferredCandidateId !== expectedPreferred) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['preferredCandidateId'],
+          message: 'preferred candidate must match the neutral relation slot',
+        });
+      }
+      const cited = new Set(proposal.evidence.map(({ artifactId }) => artifactId));
+      if (!cited.has(proposal.candidateAId) || !cited.has(proposal.candidateBId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence'],
+          message: 'arbitration relation must cite both competing candidates',
+        });
+      }
+    }
+    proposal.evidence.forEach((reference, index) => {
+      if (!proposal.inputObservationIds.includes(reference.artifactId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence', index, 'artifactId'],
+          message: 'evidence must identify one of the bounded candidates',
+        });
+      }
+      for (const [field, expected] of [
+        ['sourceDocumentId', proposal.sourceDocumentId],
+        ['sourceArtifactId', proposal.sourceArtifactId],
+        ['pageArtifactId', proposal.pageArtifactId],
+      ] as const) {
+        if (reference[field] !== expected) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['evidence', index, field],
+            message: `${field} must match the arbitration target`,
+          });
+        }
+      }
+      if (
+        proposal.physicalPageNumber != null
+        && reference.physicalPageNumber != null
+        && reference.physicalPageNumber !== proposal.physicalPageNumber
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence', index, 'physicalPageNumber'],
+          message: 'physicalPageNumber must match the arbitration target',
+        });
+      }
+    });
+  });
+
 export const ForgewingProposalSchema = z.union([
   ForgewingRegionProposalSchema,
   ForgewingTableContinuationProposalSchema,
   ForgewingColumnMappingProposalSchema,
+  ForgewingObservationArbitrationProposalSchema,
 ]);
 
 const regionAbstentionSchema = ForgewingAbstentionSchema.extend({
@@ -796,6 +940,10 @@ const continuationAbstentionSchema = ForgewingAbstentionSchema.extend({
 
 const columnMappingAbstentionSchema = ForgewingAbstentionSchema.extend({
   taskType: z.literal('column_mapping'),
+}).strict();
+
+const observationArbitrationAbstentionSchema = ForgewingAbstentionSchema.extend({
+  taskType: z.literal('observation_arbitration'),
 }).strict();
 
 export const ForgewingRegionProposalBundleSchema = z.object({
@@ -925,10 +1073,49 @@ export const ForgewingColumnMappingProposalBundleSchema = z.object({
   }
 });
 
+export const ForgewingObservationArbitrationProposalBundleSchema = z.object({
+  schemaVersion: z.literal(FORGEWING_OBSERVATION_ARBITRATION_PROPOSAL_SCHEMA_VERSION),
+  authority: z.literal('non_authoritative'),
+  run: ForgewingRunIdentitySchema,
+  taskId: boundedIdentifier,
+  taskType: z.literal('observation_arbitration'),
+  proposals: z.array(ForgewingObservationArbitrationProposalSchema),
+  abstentions: z.array(observationArbitrationAbstentionSchema),
+}).strict().superRefine((bundle, context) => {
+  if (bundle.proposals.length + bundle.abstentions.length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'Observation arbitration bundle must contain exactly one proposal or abstention',
+    });
+  }
+  const items = [
+    ...bundle.proposals.map((item, index) => ({ item, collection: 'proposals' as const, index })),
+    ...bundle.abstentions.map((item, index) => ({ item, collection: 'abstentions' as const, index })),
+  ];
+  for (const { item, collection, index } of items) {
+    if (item.taskId !== bundle.taskId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'taskId'],
+        message: `${collection} taskId must match bundle taskId`,
+      });
+    }
+    if (item.extractionSnapshotId !== bundle.run.extractionSnapshotId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [collection, index, 'extractionSnapshotId'],
+        message: `${collection} extractionSnapshotId must match bundle run`,
+      });
+    }
+  }
+});
+
 export const ForgewingProposalBundleSchema = z.union([
   ForgewingRegionProposalBundleSchema,
   ForgewingTableContinuationProposalBundleSchema,
   ForgewingColumnMappingProposalBundleSchema,
+  ForgewingObservationArbitrationProposalBundleSchema,
 ]);
 
 export type ForgewingTaskType = z.infer<typeof ForgewingTaskTypeSchema>;
@@ -947,6 +1134,12 @@ export type ForgewingProposedSemanticColumnRole = z.infer<
 export type ForgewingColumnMappingRationaleCode = z.infer<
   typeof ForgewingColumnMappingRationaleCodeSchema
 >;
+export type ForgewingObservationArbitrationRelation = z.infer<
+  typeof ForgewingObservationArbitrationRelationSchema
+>;
+export type ForgewingObservationArbitrationRationaleCode = z.infer<
+  typeof ForgewingObservationArbitrationRationaleCodeSchema
+>;
 export type ForgewingEvidenceRef = z.infer<typeof ForgewingEvidenceRefSchema>;
 export type ForgewingMissingEvidence = z.infer<typeof ForgewingMissingEvidenceSchema>;
 export type ForgewingRunIdentity = z.infer<typeof ForgewingRunIdentitySchema>;
@@ -961,6 +1154,9 @@ export type ForgewingColumnMappingEntry = z.infer<typeof ForgewingColumnMappingE
 export type ForgewingColumnMappingProposal = z.infer<
   typeof ForgewingColumnMappingProposalSchema
 >;
+export type ForgewingObservationArbitrationProposal = z.infer<
+  typeof ForgewingObservationArbitrationProposalSchema
+>;
 export type ForgewingRegionProposalBundle = z.infer<
   typeof ForgewingRegionProposalBundleSchema
 >;
@@ -969,5 +1165,8 @@ export type ForgewingTableContinuationProposalBundle = z.infer<
 >;
 export type ForgewingColumnMappingProposalBundle = z.infer<
   typeof ForgewingColumnMappingProposalBundleSchema
+>;
+export type ForgewingObservationArbitrationProposalBundle = z.infer<
+  typeof ForgewingObservationArbitrationProposalBundleSchema
 >;
 export type ForgewingProposalBundle = z.infer<typeof ForgewingProposalBundleSchema>;

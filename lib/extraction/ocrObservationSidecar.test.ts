@@ -44,6 +44,7 @@ describe('located OCR observation sidecar', () => {
         },
       })),
     } as const;
+    const observationsJson = JSON.stringify(observations);
 
     attachLocatedOcrObservations(payload, observations);
 
@@ -52,6 +53,7 @@ describe('located OCR observation sidecar', () => {
       .toEqual(['native', 'ocr']);
     expect(JSON.stringify(payload)).toBe(legacyJson);
     expect(Object.keys(payload)).toEqual(['extraction', 'fields']);
+    expect(JSON.stringify(observations)).toBe(observationsJson);
   });
 
   it('returns null for legacy payloads created without the sidecar', () => {

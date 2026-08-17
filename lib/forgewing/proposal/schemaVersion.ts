@@ -14,3 +14,7 @@ export const FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION =
  */
 export const FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION =
   'forgewing-column-mapping-proposal-v1' as const;
+
+/** Observation arbitration remains an isolated, non-authoritative shadow contract. */
+export const FORGEWING_OBSERVATION_ARBITRATION_PROPOSAL_SCHEMA_VERSION =
+  'forgewing-observation-arbitration-proposal-v1' as const;

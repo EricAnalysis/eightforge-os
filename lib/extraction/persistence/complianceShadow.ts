@@ -26,7 +26,10 @@ import {
   runForgewingObservationArbitration,
   type ForgewingObservationArbitrationInput,
 } from '@/lib/forgewing/tasks/observationArbitration';
-import { runForgewingPricingInterpretation } from '@/lib/forgewing/tasks/pricingInterpretation';
+import {
+  runForgewingPricingInterpretation,
+  type ForgewingPricingInterpretationInput,
+} from '@/lib/forgewing/tasks/pricingInterpretation';
 import {
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
@@ -533,6 +536,16 @@ function pricingString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
+function pricingIdentifier(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+    && value.trim() === value
+    ? value
+    : null;
+}
+
+const MAX_PRICING_SHADOW_SOURCE_TEXT_CHARS = 1_000_000;
+const MAX_PRICING_SHADOW_CELLS = 10_000;
+
 function pricingInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
@@ -541,35 +554,38 @@ function neutralPricingDiagnostics(value: unknown): NeutralPricingScopeDiagnosti
   const record = pricingRecord(value);
   const scope = pricingRecord(record?.scope);
   if (!record || !scope || !Array.isArray(record.observations)) return null;
-  const sourceDocumentId = pricingString(record.sourceDocumentId);
-  const sourceArtifactId = pricingString(record.sourceArtifactId);
+  const sourceDocumentId = pricingIdentifier(record.sourceDocumentId);
+  const sourceArtifactId = pricingIdentifier(record.sourceArtifactId);
   const scopeKind = pricingString(scope.kind);
-  if (!sourceDocumentId || !sourceArtifactId || !scopeKind) return null;
-  const authoritativePages = Array.isArray(scope.authoritativePages)
-    ? [...new Set(scope.authoritativePages.flatMap((page) => {
-      const parsed = pricingInteger(page);
-      return parsed != null && parsed > 0 ? [parsed] : [];
-    }))].sort((left, right) => left - right)
-    : [];
-  const observations = record.observations.flatMap((raw) => {
+  if (!sourceDocumentId || !sourceArtifactId || !scopeKind
+    || !Array.isArray(scope.authoritativePages)) return null;
+  const parsedPages = scope.authoritativePages.map(pricingInteger);
+  if (parsedPages.some((page) => page == null || page < 1)) return null;
+  const authoritativePages = parsedPages as number[];
+  if (new Set(authoritativePages).size !== authoritativePages.length) return null;
+  authoritativePages.sort((left, right) => left - right);
+  const observations: Array<NeutralPricingScopeDiagnostics['observations'][number]> = [];
+  for (const raw of record.observations) {
     const observation = pricingRecord(raw);
-    const observationId = pricingString(observation?.observationId);
-    const observationDocumentId = pricingString(observation?.sourceDocumentId);
-    const observationArtifactId = pricingString(observation?.sourceArtifactId);
+    const observationId = pricingIdentifier(observation?.observationId);
+    const observationDocumentId = pricingIdentifier(observation?.sourceDocumentId);
+    const observationArtifactId = pricingIdentifier(observation?.sourceArtifactId);
     const physicalPageNumber = pricingInteger(observation?.physicalPageNumber);
     const eligibility = pricingString(observation?.eligibility);
     const reason = pricingString(observation?.reason);
     if (!observationId || !observationDocumentId || !observationArtifactId
-      || physicalPageNumber == null || physicalPageNumber < 1 || !eligibility || !reason) return [];
-    return [{
+      || physicalPageNumber == null || physicalPageNumber < 1 || !eligibility || !reason) return null;
+    observations.push({
       observationId,
       sourceDocumentId: observationDocumentId,
       sourceArtifactId: observationArtifactId,
       physicalPageNumber,
       eligibility,
       reason,
-    }];
-  });
+    });
+  }
+  if (new Set(observations.map((observation) => observation.observationId)).size
+    !== observations.length) return null;
   return {
     sourceDocumentId,
     sourceArtifactId,
@@ -600,26 +616,29 @@ function neutralPricingSourceObservation(
   const location = pricingRecord(evidence?.location);
   const coordinate = pricingRecord(evidence?.physical_page_coordinate);
   const metadata = pricingRecord(evidence?.metadata);
-  const observationId = pricingString(evidence?.id);
-  const sourceDocumentId = pricingString(evidence?.source_document_id);
+  const observationId = pricingIdentifier(evidence?.id);
+  const sourceDocumentId = pricingIdentifier(evidence?.source_document_id);
   const physicalPageNumber = pricingInteger(location?.page);
   const rawText = evidence ? pricingEvidenceText(evidence) : null;
   if (!evidence || !observationId || !sourceDocumentId || !rawText
+    || rawText.length > MAX_PRICING_SHADOW_SOURCE_TEXT_CHARS
     || physicalPageNumber == null
     || observationId !== admitted.observationId
     || sourceDocumentId !== input.sourceDocumentId
     || physicalPageNumber !== admitted.physicalPageNumber) return null;
 
   const coordinateResolved = coordinate?.mappingState === 'resolved_physical_page'
-    && pricingString(coordinate.sourceDocumentId) === input.sourceDocumentId
-    && pricingString(coordinate.sourceArtifactId) === input.sourceArtifactId
+    && pricingIdentifier(coordinate.sourceDocumentId) === input.sourceDocumentId
+    && pricingIdentifier(coordinate.sourceArtifactId) === input.sourceArtifactId
     && pricingInteger(coordinate.physicalPageNumber) === physicalPageNumber;
   const sourceLayer = coordinateResolved ? pricingSourceLayer(coordinate.sourceLayer) : null;
   const artifactLocalIndex = coordinateResolved
     ? pricingInteger(coordinate.artifactLocalIndex)
     : null;
-  const pageArtifactId = pricingString(metadata?.pageArtifactId ?? metadata?.page_artifact_id);
+  const rawPageArtifactId = metadata?.pageArtifactId ?? metadata?.page_artifact_id;
+  const pageArtifactId = rawPageArtifactId == null ? null : pricingIdentifier(rawPageArtifactId);
   const boundingBox = pricingBoundingBox(metadata?.boundingBox ?? metadata?.bounding_box);
+  if (!coordinateResolved || !sourceLayer || (rawPageArtifactId != null && !pageArtifactId)) return null;
   return {
     observationId,
     rawText,
@@ -628,7 +647,7 @@ function neutralPricingSourceObservation(
     sourceDocumentId: input.sourceDocumentId,
     sourceArtifactId: input.sourceArtifactId,
     physicalPageNumber,
-    ...(coordinateResolved && sourceLayer ? { sourceLayer } : {}),
+    sourceLayer,
     ...(coordinateResolved && artifactLocalIndex != null ? { artifactLocalIndex } : {}),
     ...(pageArtifactId ? { pageArtifactId } : {}),
     ...(boundingBox ? { boundingBox } : {}),
@@ -688,33 +707,55 @@ function isNeutralPricingSemanticHint(value: unknown): value is NeutralPricingSe
   ].includes(String(value));
 }
 
-function buildNeutralPricingCandidate(
+/**
+ * Pure post-scope adapter shared by production shadow scheduling and offline
+ * evaluation. It exposes only fully admitted task inputs, never a scope
+ * resolver or a canonical pricing object.
+ */
+export function buildEligiblePricingReasoningShadowCandidates(
   input: ForgewingPricingInterpretationShadowInput,
-  diagnostics: NeutralPricingScopeDiagnostics,
-): Parameters<typeof runForgewingPricingInterpretation>[0] | null {
+): readonly ForgewingPricingInterpretationInput[] {
+  if (!pricingIdentifier(input.organizationId)
+    || !pricingIdentifier(input.sourceDocumentId)
+    || !pricingIdentifier(input.sourceArtifactId)
+    || !pricingIdentifier(input.extractionSnapshotId)) return [];
+  const diagnostics = neutralPricingDiagnostics(input.pricingSourceEligibility);
+  if (!diagnostics) return [];
   if (!diagnostics.pageScopeApplicable
     || diagnostics.scope.kind !== 'authoritative'
     || diagnostics.sourceDocumentId !== input.sourceDocumentId
-    || diagnostics.sourceArtifactId !== input.sourceArtifactId) return null;
+    || diagnostics.sourceArtifactId !== input.sourceArtifactId) return [];
 
+  let duplicateIdentity = false;
   const candidates = input.pricingRows.flatMap((raw) => {
     const row = pricingRecord(raw);
     if (!row) return [];
     const deterministicState = pricingDeterministicState(row);
     if (!deterministicState) return [];
-    const rowId = pricingString(row.observationId) ?? pricingString(row.row_id);
-    const rowDocumentId = pricingString(row.sourceDocumentId) ?? pricingString(row.source_document_id);
-    const rowArtifactId = pricingString(row.sourceArtifactId) ?? pricingString(row.source_artifact_id);
-    const pageArtifactId = pricingString(row.pageArtifactId) ?? pricingString(row.page_artifact_id);
+    const rawRowId = row.observationId ?? row.row_id;
+    const rawRowDocumentId = row.sourceDocumentId ?? row.source_document_id;
+    const rawRowArtifactId = row.sourceArtifactId ?? row.source_artifact_id;
+    const rawPageArtifactId = row.pageArtifactId ?? row.page_artifact_id;
+    const rowId = pricingIdentifier(rawRowId);
+    const rowDocumentId = rawRowDocumentId == null ? null : pricingIdentifier(rawRowDocumentId);
+    const rowArtifactId = rawRowArtifactId == null ? null : pricingIdentifier(rawRowArtifactId);
+    const pageArtifactId = rawPageArtifactId == null ? null : pricingIdentifier(rawPageArtifactId);
     const physicalPageNumber = pricingInteger(row.physicalPageNumber ?? row.page);
     const artifactLocalIndex = pricingInteger(row.artifactLocalIndex ?? row.artifact_local_index);
     const sourceLayer = pricingSourceLayer(row.sourceLayer ?? row.source_layer);
     const boundingBox = pricingBoundingBox(row.boundingBox ?? row.bounding_box);
     const anchors = Array.isArray(row.source_anchor_ids)
-      ? row.source_anchor_ids.filter((value): value is string => pricingString(value) != null)
+      ? row.source_anchor_ids.map(pricingIdentifier)
       : [];
+    if (anchors.length > MAX_PRICING_SHADOW_CELLS
+      || anchors.some((anchor) => anchor == null)
+      || new Set(anchors).size !== anchors.length
+      || (rawRowDocumentId != null && !rowDocumentId)
+      || (rawRowArtifactId != null && !rowArtifactId)
+      || (rawPageArtifactId != null && !pageArtifactId)) return [];
+    const validAnchors = anchors as string[];
     const matchingObservation = diagnostics.observations.find((observation) =>
-      anchors.includes(observation.observationId)
+      validAnchors.includes(observation.observationId)
       && observation.sourceDocumentId === input.sourceDocumentId
       && observation.sourceArtifactId === input.sourceArtifactId
       && observation.physicalPageNumber === physicalPageNumber
@@ -725,7 +766,7 @@ function buildNeutralPricingCandidate(
       || (rowDocumentId != null && rowDocumentId !== input.sourceDocumentId)
       || (rowArtifactId != null && rowArtifactId !== input.sourceArtifactId)) return [];
     const admittedById = new Map(diagnostics.observations
-      .filter((observation) => anchors.includes(observation.observationId)
+      .filter((observation) => validAnchors.includes(observation.observationId)
         && observation.sourceDocumentId === input.sourceDocumentId
         && observation.sourceArtifactId === input.sourceArtifactId
         && observation.physicalPageNumber === physicalPageNumber
@@ -733,7 +774,7 @@ function buildNeutralPricingCandidate(
         && observation.reason === 'authoritative_scope_match')
       .map((observation) => [observation.observationId, observation]));
     const cells = input.sourceObservations.flatMap((source) => {
-      const sourceId = pricingString(pricingRecord(source)?.id);
+      const sourceId = pricingIdentifier(pricingRecord(source)?.id);
       const admitted = sourceId ? admittedById.get(sourceId) : null;
       if (!admitted) return [];
       const cell = neutralPricingSourceObservation(source, input, admitted);
@@ -749,17 +790,33 @@ function buildNeutralPricingCandidate(
       return [{ ...cell, ...(semanticHints.length > 0 ? { semanticHints } : {}) }];
     });
     if (cells.length === 0) return [];
+    cells.sort((left, right) => left.columnIndex - right.columnIndex
+      || left.readingOrder - right.readingOrder
+      || left.observationId.localeCompare(right.observationId, 'en-US'));
+    if (new Set(cells.map((cell) => cell.observationId)).size !== cells.length) {
+      duplicateIdentity = true;
+      return [];
+    }
+    if (admittedById.size !== validAnchors.length
+      || cells.length !== admittedById.size
+      || cells.some((cell) => !admittedById.has(cell.observationId))
+      || (pageArtifactId != null
+        && cells.some((cell) => cell.pageArtifactId != null
+          && cell.pageArtifactId !== pageArtifactId))) return [];
     const rawText = cells.map((cell) => cell.rawText).join('\n');
+    if (rawText.length > MAX_PRICING_SHADOW_SOURCE_TEXT_CHARS) return [];
+    const admittedObservationIds = [...admittedById.keys()].sort((left, right) =>
+      left.localeCompare(right, 'en-US'));
     const scopeIdentity = hashCanonical({
       organizationId: input.organizationId,
       sourceDocumentId: input.sourceDocumentId,
       sourceArtifactId: input.sourceArtifactId,
       pageScopeApplicable: diagnostics.pageScopeApplicable,
       authoritativePages: diagnostics.scope.authoritativePages,
-      admittedObservationIds: [...admittedById.keys()].sort(),
+      admittedObservationIds,
     });
     return [{
-      stableKey: `${matchingObservation.observationId}:${rowId}`,
+      stableKey: `${rowId}:${admittedObservationIds.join(':')}`,
       input: {
         organizationId: input.organizationId,
         sourceDocumentId: input.sourceDocumentId,
@@ -788,7 +845,28 @@ function buildNeutralPricingCandidate(
     }];
   });
   candidates.sort((left, right) => left.stableKey.localeCompare(right.stableKey, 'en-US'));
-  return candidates[0]?.input ?? null;
+  if (duplicateIdentity
+    || new Set(candidates.map((candidate) => candidate.stableKey)).size !== candidates.length
+    || new Set(candidates.map((candidate) => candidate.input.rowObservation.observationId)).size
+      !== candidates.length) return [];
+  return Object.freeze(candidates.map((candidate) => {
+    const cells = Object.freeze(candidate.input.rowObservation.cells.map((cell) => Object.freeze({
+      ...cell,
+      ...(cell.semanticHints ? { semanticHints: Object.freeze([...cell.semanticHints]) } : {}),
+      ...(cell.boundingBox ? { boundingBox: Object.freeze({ ...cell.boundingBox }) } : {}),
+    })));
+    return Object.freeze({
+      ...candidate.input,
+      pricingScope: Object.freeze({ ...candidate.input.pricingScope }),
+      rowObservation: Object.freeze({
+        ...candidate.input.rowObservation,
+        cells,
+        ...(candidate.input.rowObservation.boundingBox
+          ? { boundingBox: Object.freeze({ ...candidate.input.rowObservation.boundingBox }) }
+          : {}),
+      }),
+    });
+  })) as unknown as readonly ForgewingPricingInterpretationInput[];
 }
 
 /**
@@ -802,9 +880,7 @@ export function scheduleForgewingPricingInterpretationShadow(
   const env = input.env ?? process.env;
   if (env.FORGEWING_SHADOW_ENABLED !== '1'
     || env.FORGEWING_PRICING_INTERPRETATION_ENABLED !== '1') return;
-  const diagnostics = neutralPricingDiagnostics(input.pricingSourceEligibility);
-  if (!diagnostics) return;
-  const candidate = buildNeutralPricingCandidate(input, diagnostics);
+  const candidate = buildEligiblePricingReasoningShadowCandidates(input)[0];
   if (!candidate) return;
   const task = async (): Promise<void> => {
     try {

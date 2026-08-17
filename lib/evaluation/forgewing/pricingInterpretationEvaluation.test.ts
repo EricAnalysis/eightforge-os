@@ -8,10 +8,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  adaptFrozenPricingArtifacts,
   evaluateForgewingPricingInterpretation,
   type FrozenPricingArtifact,
 } from '@/lib/evaluation/forgewing/pricingInterpretationEvaluation';
 import type { ForgewingPricingInterpretationProposalBundle } from '@/lib/forgewing/proposal/schema';
+import type { ForgewingPricingInterpretationInput } from '@/lib/forgewing/tasks/pricingInterpretation';
 
 const box = {
   coordinateSpace: 'page_normalized' as const,
@@ -48,11 +50,39 @@ const cellArtifact: FrozenPricingArtifact = {
   rawText: '$12.50 per ton',
 };
 
+const expectedIdentity = {
+  expectedOrganizationId: 'org-1',
+  expectedPricingScopeIdentity: 'b'.repeat(64),
+  expectedRowObservationId: 'row-1',
+} as const;
+
+const taskInput: ForgewingPricingInterpretationInput = {
+  organizationId: 'org-1', sourceDocumentId: 'doc-1', sourceArtifactId: 'art-1',
+  extractionSnapshotId: 'snap-1',
+  pricingScope: {
+    scopeKind: 'authoritative', eligibility: 'canonical_eligible',
+    eligibilityReason: 'authoritative_scope_match', scopeIdentity: 'b'.repeat(64),
+  },
+  rowObservation: {
+    observationId: 'row-1', rawText: 'row  text\n$12.50 per ton',
+    deterministicState: 'unresolved', pageArtifactId: 'page-1',
+    physicalPageNumber: 3, artifactLocalIndex: 0, sourceLayer: 'pdf_native_text',
+    boundingBox: box,
+    cells: [{
+      observationId: 'cell-1', rawText: '$12.50  per ton', columnIndex: 1,
+      readingOrder: 2, sourceDocumentId: 'doc-1', sourceArtifactId: 'art-1',
+      pageArtifactId: 'page-1', physicalPageNumber: 3, artifactLocalIndex: 1,
+      sourceLayer: 'pdf_native_text', boundingBox: box,
+    }],
+  },
+};
+
 function baseBundle(overrides: Partial<{
   evidenceArtifactId: string;
   rawSpan: string;
   boundingBox: typeof box;
   physicalPageNumber: number;
+  sourceText: string;
 }> = {}): ForgewingPricingInterpretationProposalBundle {
   return {
     schemaVersion: 'forgewing-pricing-interpretation-proposal-v1',
@@ -88,7 +118,7 @@ function baseBundle(overrides: Partial<{
       interpretations: [{
         sourceCellId: overrides.evidenceArtifactId ?? 'cell-1',
         semanticRole: 'rate_like_amount',
-        sourceText: '$12.50',
+        sourceText: overrides.sourceText ?? '$12.50',
         interpretationState: 'observed',
         confidence: 0.8,
         evidenceArtifactIds: [overrides.evidenceArtifactId ?? 'cell-1'],
@@ -110,15 +140,37 @@ function baseBundle(overrides: Partial<{
 }
 
 describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', () => {
+  it('adapts exact bounded task observations with row-first deterministic provenance', () => {
+    const artifacts = adaptFrozenPricingArtifacts(taskInput);
+    expect(artifacts.map((artifact) => artifact.artifactId)).toEqual(['row-1', 'cell-1']);
+    expect(artifacts[0]).toMatchObject({
+      organizationId: 'org-1', sourceDocumentId: 'doc-1', sourceArtifactId: 'art-1',
+      extractionSnapshotId: 'snap-1', physicalPageNumber: 3,
+      rawText: 'row  text\n$12.50 per ton',
+    });
+    expect(artifacts[1]).toMatchObject({
+      artifactLocalIndex: 1, sourceLayer: 'pdf_native_text', rawText: '$12.50  per ton',
+    });
+    expect(() => adaptFrozenPricingArtifacts({
+      ...taskInput,
+      rowObservation: {
+        ...taskInput.rowObservation,
+        cells: [{ ...taskInput.rowObservation.cells[0]!, observationId: 'row-1' }],
+      },
+    })).toThrow('duplicate_frozen_pricing_artifact_identity');
+  });
+
   it('marks evidence valid when claims match the frozen artifact exactly', () => {
     const report = evaluateForgewingPricingInterpretation({
       bundle: baseBundle(),
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.evidenceValidCount).toBe(1);
     expect(report.metrics.evidenceInvalidCount).toBe(0);
     expect(report.metrics.silentHallucinationCount).toBe(0);
+    expect(report.metrics.noValueManufactureViolationCount).toBe(0);
     expect(report.corpusStatus).toBe('unmet');
   });
 
@@ -127,6 +179,7 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', 
       bundle: baseBundle({ evidenceArtifactId: 'cell-does-not-exist' }),
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.evidenceInvalidCount).toBe(1);
     expect(report.metrics.silentHallucinationCount).toBe(1);
@@ -138,9 +191,21 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', 
       bundle: baseBundle({ boundingBox: { ...box, x0: 0.9, x1: 0.99 } }),
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.evidenceInvalidCount).toBe(1);
     expect(report.metrics.silentHallucinationCount).toBe(1);
+  });
+
+  it('measures value-manufacture violations against independently frozen source text', () => {
+    const report = evaluateForgewingPricingInterpretation({
+      bundle: baseBundle({ rawSpan: '$99.00', sourceText: '$99.00' }),
+      sourceArtifacts: [rowArtifact, cellArtifact],
+      expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
+    });
+    expect(report.metrics.noValueManufactureViolationCount).toBe(1);
+    expect(report.metrics.evidenceInvalidCount).toBe(1);
   });
 
   it('marks evidence unverifiable, not invalid, when the frozen artifact has no recorded raw text', () => {
@@ -149,6 +214,7 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', 
       bundle: baseBundle(),
       sourceArtifacts: [rowArtifact, cellWithoutText],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.evidenceUnverifiableCount).toBe(1);
     expect(report.metrics.evidenceInvalidCount).toBe(0);
@@ -160,6 +226,7 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation evidence fidelity', 
       bundle: baseBundle(),
       sourceArtifacts: [rowArtifact, cellArtifact, { ...cellArtifact }],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.evidenceInvalidCount).toBe(1);
     expect(report.evidenceFindings[0]?.diagnostics).toContain('evidence_artifact_identity_ambiguous');
@@ -172,8 +239,45 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation snapshot coherence',
       bundle: baseBundle(),
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-DIFFERENT',
+      ...expectedIdentity,
     });
     expect(report.summary.diagnosticCodes).toContain('extraction_snapshot_mismatch');
+    expect(report.summary).toMatchObject({
+      comparisonStatus: 'not_comparable', comparable: false,
+    });
+    expect(report.metrics.snapshotMismatchCount).toBeGreaterThan(0);
+    expect(report.metrics.evidenceValidCount).toBe(0);
+  });
+
+  it('makes cross-row or cross-organization input explicitly non-comparable', () => {
+    const report = evaluateForgewingPricingInterpretation({
+      bundle: baseBundle(),
+      sourceArtifacts: [rowArtifact, cellArtifact],
+      expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
+      expectedOrganizationId: 'foreign-org',
+      expectedRowObservationId: 'foreign-row',
+    });
+    expect(report.summary).toMatchObject({
+      comparisonStatus: 'not_comparable', comparable: false, metricsEvaluated: false,
+    });
+    expect(report.metrics.identityMismatchCount).toBeGreaterThan(0);
+    expect(report.metrics.interpretationCount).toBe(0);
+    expect(report.metrics.valueBearingCount).toBe(0);
+  });
+
+  it('rejects a foreign-organization frozen cell even when its other identities match', () => {
+    const report = evaluateForgewingPricingInterpretation({
+      bundle: baseBundle(),
+      sourceArtifacts: [rowArtifact, { ...cellArtifact, organizationId: 'foreign-org' }],
+      expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
+    });
+    expect(report.summary).toMatchObject({
+      comparisonStatus: 'not_comparable', comparable: false, metricsEvaluated: false,
+    });
+    expect(report.metrics.identityMismatchCount).toBe(1);
+    expect(report.metrics.evidenceValidCount).toBe(0);
   });
 });
 
@@ -207,12 +311,26 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation abstention handling'
       bundle: abstained,
       sourceArtifacts: [rowArtifact, cellArtifact],
       expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
     });
     expect(report.metrics.abstentionCount).toBe(1);
     expect(report.metrics.runtimeAbstentionsByReason.runtime_unavailable).toBe(1);
     expect(report.metrics.proposalCount).toBe(0);
     expect(report.metrics.interpretationCount).toBe(0);
     expect(report.metrics.evidenceValidCount).toBe(0);
+  });
+
+  it('treats an omitted empty frozen observation set as non-comparable', () => {
+    const report = evaluateForgewingPricingInterpretation({
+      bundle: baseBundle(),
+      sourceArtifacts: [],
+      expectedExtractionSnapshotId: 'snap-1',
+      ...expectedIdentity,
+    });
+    expect(report.summary).toMatchObject({
+      comparisonStatus: 'not_comparable', comparable: false, metricsEvaluated: false,
+    });
+    expect(report.summary.diagnosticCodes).toContain('frozen_observation_set_unavailable');
   });
 });
 
@@ -222,10 +340,10 @@ describe('SYNTHETIC: evaluateForgewingPricingInterpretation determinism', () => 
     const order2 = [cellArtifact, rowArtifact];
     const bundle = baseBundle();
     const report1 = evaluateForgewingPricingInterpretation({
-      bundle, sourceArtifacts: order1, expectedExtractionSnapshotId: 'snap-1',
+      bundle, sourceArtifacts: order1, expectedExtractionSnapshotId: 'snap-1', ...expectedIdentity,
     });
     const report2 = evaluateForgewingPricingInterpretation({
-      bundle, sourceArtifacts: order2, expectedExtractionSnapshotId: 'snap-1',
+      bundle, sourceArtifacts: order2, expectedExtractionSnapshotId: 'snap-1', ...expectedIdentity,
     });
     expect(report1).toEqual(report2);
   });

@@ -48,6 +48,7 @@ vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
 }));
 
 import {
+  buildEligiblePricingReasoningShadowCandidates,
   captureStorageObjectVersion,
   persistExtractionComplianceShadow,
   publishExtractionComplianceShadowNonBlocking,
@@ -150,6 +151,37 @@ describe('compliance shadow dual-write isolation', () => {
     };
   }
 
+  function multiplePricingShadowInput() {
+    const base = pricingShadowInput();
+    const secondRow = {
+      ...(base.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-2', source_anchor_ids: ['evidence-2'],
+      raw_text: 'Second unresolved row | TON | $25.00',
+    };
+    const secondEvidence = {
+      ...(base.sourceObservations[0] as Record<string, unknown>),
+      id: 'evidence-2', text: 'Second unresolved row | TON | $25.00',
+      physical_page_coordinate: {
+        ...((base.sourceObservations[0] as Record<string, unknown>)
+          .physical_page_coordinate as Record<string, unknown>),
+        artifactLocalIndex: 2,
+      },
+    };
+    const eligibility = base.pricingSourceEligibility as {
+      observations: Array<Record<string, unknown>>;
+    };
+    return {
+      ...base,
+      pricingRows: [secondRow, base.pricingRows[0]],
+      sourceObservations: [secondEvidence, base.sourceObservations[0]],
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [{ ...eligibility.observations[0], observationId: 'evidence-2' },
+          eligibility.observations[0]],
+      },
+    };
+  }
+
   it('returns before pricing input construction when either feature flag is disabled', () => {
     const register = vi.fn();
     const input = {
@@ -201,6 +233,166 @@ describe('compliance shadow dual-write isolation', () => {
       }),
     }));
     expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('enumerates all admitted candidates deterministically while production still schedules one', async () => {
+    const input = multiplePricingShadowInput();
+    const candidates = buildEligiblePricingReasoningShadowCandidates(input as never);
+    const reversed = buildEligiblePricingReasoningShadowCandidates({
+      ...input,
+      pricingRows: [...input.pricingRows].reverse(),
+      sourceObservations: [...input.sourceObservations].reverse(),
+      pricingSourceEligibility: {
+        ...input.pricingSourceEligibility,
+        observations: [...input.pricingSourceEligibility.observations].reverse(),
+      },
+    } as never);
+    expect(candidates.map((candidate) => candidate.rowObservation.observationId))
+      .toEqual(['row-1', 'row-2']);
+    expect(reversed).toEqual(candidates);
+
+    const tasks: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingInterpretationShadow(input as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+    });
+    expect(tasks).toHaveLength(1);
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+    await tasks[0]!();
+    expect(runForgewingPricingInterpretation).toHaveBeenCalledTimes(1);
+    expect((runForgewingPricingInterpretation.mock.calls as unknown as Array<[{
+      rowObservation: { observationId: string };
+    }]>)[0]?.[0].rowObservation.observationId).toBe('row-1');
+    expect(Object.isFrozen(candidates)).toBe(true);
+    expect(Object.isFrozen(candidates[0])).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.pricingScope)).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.rowObservation)).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.rowObservation.cells)).toBe(true);
+  });
+
+  it('fails the candidate set closed on malformed scope members or task identity', () => {
+    const base = pricingShadowInput();
+    const eligibility = base.pricingSourceEligibility as {
+      scope: { kind: string; authoritativePages: unknown[] };
+      observations: unknown[];
+    };
+    const malformedPage = {
+      ...base,
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        scope: { ...eligibility.scope, authoritativePages: [2, 'bad'] },
+      },
+    };
+    const malformedObservation = {
+      ...base,
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [...eligibility.observations, { observationId: 'broken' }],
+      },
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(malformedPage as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates(malformedObservation as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base, organizationId: ' organization-1',
+    } as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base, extractionSnapshotId: ' ',
+    } as never)).toEqual([]);
+  });
+
+  it('requires every admitted row anchor to have exact resolved source evidence', () => {
+    const base = pricingShadowInput();
+    const secondObservation = {
+      ...(base.sourceObservations[0] as Record<string, unknown>),
+      id: 'evidence-2',
+      text: '$12.50',
+      physical_page_coordinate: {
+        ...((base.sourceObservations[0] as Record<string, unknown>)
+          .physical_page_coordinate as Record<string, unknown>),
+        artifactLocalIndex: 2,
+      },
+    };
+    const eligibility = base.pricingSourceEligibility as {
+      observations: Array<Record<string, unknown>>;
+    };
+    const twoAnchor = {
+      ...base,
+      pricingRows: [{
+        ...(base.pricingRows[0] as Record<string, unknown>),
+        source_anchor_ids: ['evidence-1', 'evidence-2'],
+      }],
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [eligibility.observations[0], {
+          ...eligibility.observations[0], observationId: 'evidence-2',
+        }],
+      },
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(twoAnchor as never)).toEqual([]);
+    const complete = buildEligiblePricingReasoningShadowCandidates({
+      ...twoAnchor,
+      sourceObservations: [base.sourceObservations[0], secondObservation],
+    } as never);
+    expect(complete).toHaveLength(1);
+    expect(complete[0]?.rowObservation.cells.map((cell) => cell.observationId))
+      .toEqual(['evidence-1', 'evidence-2']);
+  });
+
+  it('matches the runnable task identifier contract for every identity field', () => {
+    const base = pricingShadowInput();
+    const tooLong = 'x'.repeat(201);
+    const invalidInputs = [
+      { ...base, organizationId: tooLong },
+      { ...base, extractionSnapshotId: tooLong },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), row_id: tooLong }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), row_id: ' row-1' }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: tooLong }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: ' page-1' }] },
+      {
+        ...base,
+        sourceObservations: [{
+          ...(base.sourceObservations[0] as object), id: tooLong,
+        }],
+      },
+    ];
+    for (const input of invalidInputs) {
+      expect(buildEligiblePricingReasoningShadowCandidates(input as never)).toEqual([]);
+    }
+  });
+
+  it('matches task page-artifact coherence and outer source-size limits', () => {
+    const base = pricingShadowInput();
+    const withPageArtifacts = {
+      ...base,
+      pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: 'page-1' }],
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object),
+        metadata: { pageArtifactId: 'page-2' },
+      }],
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(withPageArtifacts as never)).toEqual([]);
+    const coherent = buildEligiblePricingReasoningShadowCandidates({
+      ...withPageArtifacts,
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object),
+        metadata: { pageArtifactId: 'page-1' },
+      }],
+    } as never);
+    expect(coherent).toHaveLength(1);
+
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base,
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object), text: 'x'.repeat(1_000_001),
+      }],
+    } as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base,
+      pricingRows: [{
+        ...(base.pricingRows[0] as object),
+        source_anchor_ids: Array.from({ length: 10_001 }, (_, index) => `evidence-${index}`),
+      }],
+    } as never)).toEqual([]);
   });
 
   it('preserves one authored span verbatim and never promotes evidence metadata to source text', async () => {

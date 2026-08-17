@@ -20,6 +20,7 @@ import type {
   ForgewingPricingSemanticRole,
 } from '@/lib/forgewing/proposal/schema';
 import { ForgewingPricingInterpretationProposalBundleSchema } from '@/lib/forgewing/proposal/schema';
+import type { ForgewingPricingInterpretationInput } from '@/lib/forgewing/tasks/pricingInterpretation';
 
 export const FORGEWING_PRICING_INTERPRETATION_EVALUATION_VERSION =
   'forgewing-pricing-interpretation-evaluation-v1' as const;
@@ -48,6 +49,59 @@ export type FrozenPricingArtifact = Readonly<{
   boundingBox: PricingEvaluationBoundingBox | null;
   rawText: string | null;
 }>;
+
+export type FrozenPricingObservationSetInput = Pick<
+  ForgewingPricingInterpretationInput,
+  'organizationId' | 'sourceDocumentId' | 'sourceArtifactId' | 'extractionSnapshotId'
+> & Readonly<{ rowObservation: ForgewingPricingInterpretationInput['rowObservation'] }>;
+
+function adaptPricingEvaluationBoundingBox(
+  value: ForgewingPricingInterpretationInput['rowObservation']['boundingBox'],
+): PricingEvaluationBoundingBox | null {
+  if (!value) return null;
+  if (![0, 90, 180, 270].includes(value.rotation)) {
+    throw new Error('invalid_frozen_pricing_bounding_box');
+  }
+  return { ...value, rotation: value.rotation as 0 | 90 | 180 | 270 };
+}
+
+/** Freeze the exact bounded task observations independently of model output. */
+export function adaptFrozenPricingArtifacts(
+  input: FrozenPricingObservationSetInput,
+): readonly FrozenPricingArtifact[] {
+  const row = input.rowObservation;
+  const artifacts: FrozenPricingArtifact[] = [{
+    artifactId: row.observationId,
+    organizationId: input.organizationId,
+    sourceDocumentId: input.sourceDocumentId,
+    sourceArtifactId: input.sourceArtifactId,
+    extractionSnapshotId: input.extractionSnapshotId,
+    pageArtifactId: row.pageArtifactId ?? null,
+    physicalPageNumber: row.physicalPageNumber,
+    artifactLocalIndex: row.artifactLocalIndex ?? null,
+    sourceLayer: row.sourceLayer ?? null,
+    boundingBox: adaptPricingEvaluationBoundingBox(row.boundingBox),
+    rawText: row.rawText,
+  }, ...row.cells
+    .map((cell): FrozenPricingArtifact => ({
+      artifactId: cell.observationId,
+      organizationId: input.organizationId,
+      sourceDocumentId: cell.sourceDocumentId ?? input.sourceDocumentId,
+      sourceArtifactId: cell.sourceArtifactId ?? input.sourceArtifactId,
+      extractionSnapshotId: input.extractionSnapshotId,
+      pageArtifactId: cell.pageArtifactId ?? null,
+      physicalPageNumber: cell.physicalPageNumber ?? row.physicalPageNumber,
+      artifactLocalIndex: cell.artifactLocalIndex ?? null,
+      sourceLayer: cell.sourceLayer ?? null,
+      boundingBox: adaptPricingEvaluationBoundingBox(cell.boundingBox),
+      rawText: cell.rawText,
+    }))
+    .sort((left, right) => left.artifactId.localeCompare(right.artifactId, 'en-US'))];
+  if (new Set(artifacts.map((artifact) => artifact.artifactId)).size !== artifacts.length) {
+    throw new Error('duplicate_frozen_pricing_artifact_identity');
+  }
+  return artifacts;
+}
 
 export type PricingEvidenceCheckStatus = 'match' | 'mismatch' | 'not_claimed' | 'unverifiable';
 export type PricingEvidenceFidelityStatus = 'valid' | 'invalid' | 'unverifiable';
@@ -78,6 +132,11 @@ export type ForgewingPricingInterpretationEvaluationInput = Readonly<{
   /** Frozen, independently-recorded source artifacts for the same extraction snapshot. */
   sourceArtifacts: readonly FrozenPricingArtifact[];
   expectedExtractionSnapshotId: string;
+  expectedOrganizationId: string;
+  expectedPricingScopeIdentity: string;
+  expectedRowObservationId: string;
+  /** False when the task exited before its exact provider-bounded observation set was captured. */
+  frozenObservationSetAvailable?: boolean;
 }>;
 
 export type PricingConfidenceBucket = '0.0-0.2' | '0.2-0.4' | '0.4-0.6' | '0.6-0.8' | '0.8-1.0' | 'null';
@@ -104,7 +163,12 @@ export type ForgewingPricingInterpretationEvaluationReport = Readonly<{
   taskType: 'pricing_interpretation';
   runId: string;
   extractionSnapshotId: string;
-  summary: Readonly<{ diagnosticCodes: readonly string[] }>;
+  summary: Readonly<{
+    comparisonStatus: 'comparable' | 'not_comparable';
+    comparable: boolean;
+    metricsEvaluated: boolean;
+    diagnosticCodes: readonly string[];
+  }>;
   evidenceFindings: readonly PricingEvidenceFidelityFinding[];
   metrics: Readonly<{
     proposalCount: number;
@@ -121,6 +185,9 @@ export type ForgewingPricingInterpretationEvaluationReport = Readonly<{
     evidenceInvalidCount: number;
     evidenceUnverifiableCount: number;
     silentHallucinationCount: number;
+    noValueManufactureViolationCount: number;
+    snapshotMismatchCount: number;
+    identityMismatchCount: number;
   }>;
 }>;
 
@@ -174,10 +241,36 @@ export function evaluateForgewingPricingInterpretation(
   }
   const artifactById = new Map(rawInput.sourceArtifacts.map((artifact) => [artifact.artifactId, artifact]));
 
-  const snapshotMismatch = bundle.run.extractionSnapshotId !== rawInput.expectedExtractionSnapshotId
-    || rawInput.sourceArtifacts.some(
-      (artifact) => artifact.extractionSnapshotId !== rawInput.expectedExtractionSnapshotId,
-    );
+  const snapshotMismatchCount = Number(
+    bundle.run.extractionSnapshotId !== rawInput.expectedExtractionSnapshotId,
+  ) + rawInput.sourceArtifacts.filter(
+    (artifact) => artifact.extractionSnapshotId !== rawInput.expectedExtractionSnapshotId,
+  ).length;
+  const snapshotMismatch = snapshotMismatchCount > 0;
+  const proposalIdentities = bundle.proposals.map((proposal) => ({
+    organizationMatches: bundle.run.organizationId === rawInput.expectedOrganizationId,
+    rowMatches: proposal.rowObservationId === rawInput.expectedRowObservationId,
+    scopeMatches: proposal.pricingScopeIdentity === rawInput.expectedPricingScopeIdentity,
+    sourceMatches: rawInput.sourceArtifacts.some((artifact) =>
+      artifact.artifactId === rawInput.expectedRowObservationId
+      && artifact.organizationId === rawInput.expectedOrganizationId
+      && artifact.sourceDocumentId === proposal.sourceDocumentId
+      && artifact.sourceArtifactId === proposal.sourceArtifactId),
+  }));
+  const abstentionOrganizationMismatch = bundle.abstentions.length > 0
+    && bundle.run.organizationId !== rawInput.expectedOrganizationId;
+  const artifactOrganizationMismatchCount = rawInput.sourceArtifacts.filter(
+    (artifact) => artifact.organizationId !== rawInput.expectedOrganizationId,
+  ).length;
+  const identityMismatchCount = proposalIdentities.reduce((total, identity) =>
+    total + Number(!identity.organizationMatches) + Number(!identity.rowMatches)
+      + Number(!identity.scopeMatches) + Number(!identity.sourceMatches), 0)
+    + Number(abstentionOrganizationMismatch)
+    + artifactOrganizationMismatchCount;
+  const frozenObservationSetUnavailable = rawInput.frozenObservationSetAvailable === false
+    || rawInput.sourceArtifacts.length === 0;
+  const notComparable = snapshotMismatch || identityMismatchCount > 0
+    || frozenObservationSetUnavailable;
 
   const runtimeAbstentionsByReason = Object.fromEntries(
     ABSTENTION_REASONS.map((reason) => [reason, 0]),
@@ -200,8 +293,13 @@ export function evaluateForgewingPricingInterpretation(
   const diagnosticCodes = new Set<string>();
 
   if (snapshotMismatch) diagnosticCodes.add('extraction_snapshot_mismatch');
+  if (identityMismatchCount > 0) diagnosticCodes.add('evaluation_identity_mismatch');
+  if (frozenObservationSetUnavailable) {
+    diagnosticCodes.add('frozen_observation_set_unavailable');
+  }
 
-  for (const proposal of bundle.proposals) {
+  let noValueManufactureViolationCount = 0;
+  for (const proposal of notComparable ? [] : bundle.proposals) {
     if (proposal.rowInterpretationState === 'insufficient_evidence') {
       insufficientEvidenceCount += 1;
       continue;
@@ -214,6 +312,16 @@ export function evaluateForgewingPricingInterpretation(
     proposal.interpretations.forEach((interpretation, interpretationIndex) => {
       interpretationCount += 1;
       byRole[interpretation.semanticRole] += 1;
+      if (['unit_like_text', 'rate_like_amount', 'quantity_like_amount',
+        'extended_amount_like_text'].includes(interpretation.semanticRole)) {
+        const matchingArtifacts = rawInput.sourceArtifacts.filter((artifact) =>
+          artifact.artifactId === interpretation.sourceCellId);
+        if (matchingArtifacts.length !== 1
+          || matchingArtifacts[0]?.rawText == null
+          || !matchingArtifacts[0].rawText!.includes(interpretation.sourceText)) {
+          noValueManufactureViolationCount += 1;
+        }
+      }
 
       interpretation.evidenceArtifactIds.forEach((artifactId) => {
         const ambiguousIdentity = (artifactCounts.get(artifactId) ?? 0) > 1;
@@ -307,14 +415,19 @@ export function evaluateForgewingPricingInterpretation(
     taskType: 'pricing_interpretation',
     runId: bundle.run.runId,
     extractionSnapshotId: bundle.run.extractionSnapshotId,
-    summary: { diagnosticCodes: [...diagnosticCodes].sort() },
+    summary: {
+      comparisonStatus: notComparable ? 'not_comparable' : 'comparable',
+      comparable: !notComparable,
+      metricsEvaluated: !notComparable,
+      diagnosticCodes: [...diagnosticCodes].sort(),
+    },
     evidenceFindings,
     metrics: {
       proposalCount: bundle.proposals.length,
       abstentionCount: bundle.abstentions.length,
       runtimeAbstentionsByReason,
       insufficientEvidenceCount,
-      valueBearingCount: bundle.proposals.length - insufficientEvidenceCount,
+      valueBearingCount: notComparable ? 0 : bundle.proposals.length - insufficientEvidenceCount,
       ambiguousCount,
       conflictingCount,
       interpretationCount,
@@ -324,6 +437,9 @@ export function evaluateForgewingPricingInterpretation(
       evidenceInvalidCount: evidenceFindings.filter((finding) => finding.status === 'invalid').length,
       evidenceUnverifiableCount: evidenceFindings.filter((finding) => finding.status === 'unverifiable').length,
       silentHallucinationCount,
+      noValueManufactureViolationCount,
+      snapshotMismatchCount,
+      identityMismatchCount,
     },
   };
 }

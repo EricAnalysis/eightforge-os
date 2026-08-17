@@ -4,6 +4,7 @@ import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import {
   COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
   OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
+  PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
@@ -16,6 +17,8 @@ export const FORGEWING_COLUMN_MAPPING_PROMPT_ID = 'forgewing-column-mapping';
 export const FORGEWING_COLUMN_MAPPING_PROMPT_VERSION = 'v1';
 export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_ID = 'forgewing-observation-arbitration';
 export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_VERSION = 'v1';
+export const FORGEWING_PRICING_INTERPRETATION_PROMPT_ID = 'forgewing-pricing-interpretation';
+export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -75,13 +78,21 @@ function loadObservationArbitrationPrompt(): string {
   );
 }
 
+function loadPricingInterpretationPrompt(): string {
+  return readFileSync(
+    new URL('../prompts/pricingInterpretation.md', import.meta.url),
+    'utf8',
+  );
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
   schema: typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
     | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
     | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
-    | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
+    | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
+    | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
@@ -140,4 +151,11 @@ export const callClaudeForObservationArbitration: ForgewingProvider = async (req
     request,
     loadObservationArbitrationPrompt(),
     OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
+  );
+
+export const callClaudeForPricingInterpretation: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadPricingInterpretationPrompt(),
+    PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
   );

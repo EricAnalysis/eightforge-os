@@ -26,6 +26,7 @@ import {
   runForgewingObservationArbitration,
   type ForgewingObservationArbitrationInput,
 } from '@/lib/forgewing/tasks/observationArbitration';
+import { runForgewingPricingInterpretation } from '@/lib/forgewing/tasks/pricingInterpretation';
 import {
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
@@ -486,6 +487,372 @@ function forgewingObservationArbitrationInput(
     })),
   };
 }
+
+type NeutralPricingScopeDiagnostics = Readonly<{
+  sourceDocumentId: string;
+  sourceArtifactId: string | null;
+  pageScopeApplicable: boolean;
+  scope: Readonly<{ kind: string; authoritativePages: readonly number[] }>;
+  observations: readonly Readonly<{
+    observationId: string;
+    sourceDocumentId: string;
+    sourceArtifactId: string | null;
+    physicalPageNumber: number | null;
+    eligibility: string;
+    reason: string;
+  }>[];
+}>;
+
+export type ForgewingPricingInterpretationShadowInput = Readonly<{
+  organizationId: string;
+  sourceDocumentId: string;
+  sourceArtifactId: string;
+  extractionSnapshotId: string;
+  /** Source-derived pricing rows enriched at the post-scope boundary. */
+  pricingRows: readonly unknown[];
+  /** Actual pipeline evidence objects; assembled row text is never used as a cited span. */
+  sourceObservations: readonly unknown[];
+  /** Structural copy of PricingSourceEligibilityDiagnostics; no authority import. */
+  pricingSourceEligibility: unknown;
+  env?: Readonly<Record<string, string | undefined>>;
+}>;
+
+type PricingShadowDependencies = Readonly<{
+  register?: (task: () => Promise<void>) => void;
+  run?: typeof runForgewingPricingInterpretation;
+  persist?: (params: { input: ReasoningShadowPersistenceInput }) => Promise<ReasoningShadowPersistenceResult>;
+}>;
+
+function pricingRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function pricingString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function pricingInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function neutralPricingDiagnostics(value: unknown): NeutralPricingScopeDiagnostics | null {
+  const record = pricingRecord(value);
+  const scope = pricingRecord(record?.scope);
+  if (!record || !scope || !Array.isArray(record.observations)) return null;
+  const sourceDocumentId = pricingString(record.sourceDocumentId);
+  const sourceArtifactId = pricingString(record.sourceArtifactId);
+  const scopeKind = pricingString(scope.kind);
+  if (!sourceDocumentId || !sourceArtifactId || !scopeKind) return null;
+  const authoritativePages = Array.isArray(scope.authoritativePages)
+    ? [...new Set(scope.authoritativePages.flatMap((page) => {
+      const parsed = pricingInteger(page);
+      return parsed != null && parsed > 0 ? [parsed] : [];
+    }))].sort((left, right) => left - right)
+    : [];
+  const observations = record.observations.flatMap((raw) => {
+    const observation = pricingRecord(raw);
+    const observationId = pricingString(observation?.observationId);
+    const observationDocumentId = pricingString(observation?.sourceDocumentId);
+    const observationArtifactId = pricingString(observation?.sourceArtifactId);
+    const physicalPageNumber = pricingInteger(observation?.physicalPageNumber);
+    const eligibility = pricingString(observation?.eligibility);
+    const reason = pricingString(observation?.reason);
+    if (!observationId || !observationDocumentId || !observationArtifactId
+      || physicalPageNumber == null || physicalPageNumber < 1 || !eligibility || !reason) return [];
+    return [{
+      observationId,
+      sourceDocumentId: observationDocumentId,
+      sourceArtifactId: observationArtifactId,
+      physicalPageNumber,
+      eligibility,
+      reason,
+    }];
+  });
+  return {
+    sourceDocumentId,
+    sourceArtifactId,
+    pageScopeApplicable: record.pageScopeApplicable === true,
+    scope: { kind: scopeKind, authoritativePages },
+    observations,
+  };
+}
+
+function pricingEvidenceText(value: Record<string, unknown>): string | null {
+  const location = pricingRecord(value.location);
+  const authoredSpans = [
+    value.text,
+    typeof value.value === 'string' ? value.value : null,
+    location?.nearby_text,
+  ];
+  const span = authoredSpans.find((part): part is string =>
+    typeof part === 'string' && part.trim().length > 0);
+  return span ?? null;
+}
+
+function neutralPricingSourceObservation(
+  raw: unknown,
+  input: ForgewingPricingInterpretationShadowInput,
+  admitted: NeutralPricingScopeDiagnostics['observations'][number],
+) {
+  const evidence = pricingRecord(raw);
+  const location = pricingRecord(evidence?.location);
+  const coordinate = pricingRecord(evidence?.physical_page_coordinate);
+  const metadata = pricingRecord(evidence?.metadata);
+  const observationId = pricingString(evidence?.id);
+  const sourceDocumentId = pricingString(evidence?.source_document_id);
+  const physicalPageNumber = pricingInteger(location?.page);
+  const rawText = evidence ? pricingEvidenceText(evidence) : null;
+  if (!evidence || !observationId || !sourceDocumentId || !rawText
+    || physicalPageNumber == null
+    || observationId !== admitted.observationId
+    || sourceDocumentId !== input.sourceDocumentId
+    || physicalPageNumber !== admitted.physicalPageNumber) return null;
+
+  const coordinateResolved = coordinate?.mappingState === 'resolved_physical_page'
+    && pricingString(coordinate.sourceDocumentId) === input.sourceDocumentId
+    && pricingString(coordinate.sourceArtifactId) === input.sourceArtifactId
+    && pricingInteger(coordinate.physicalPageNumber) === physicalPageNumber;
+  const sourceLayer = coordinateResolved ? pricingSourceLayer(coordinate.sourceLayer) : null;
+  const artifactLocalIndex = coordinateResolved
+    ? pricingInteger(coordinate.artifactLocalIndex)
+    : null;
+  const pageArtifactId = pricingString(metadata?.pageArtifactId ?? metadata?.page_artifact_id);
+  const boundingBox = pricingBoundingBox(metadata?.boundingBox ?? metadata?.bounding_box);
+  return {
+    observationId,
+    rawText,
+    columnIndex: pricingInteger(location?.column_index) ?? 0,
+    readingOrder: 0,
+    sourceDocumentId: input.sourceDocumentId,
+    sourceArtifactId: input.sourceArtifactId,
+    physicalPageNumber,
+    ...(coordinateResolved && sourceLayer ? { sourceLayer } : {}),
+    ...(coordinateResolved && artifactLocalIndex != null ? { artifactLocalIndex } : {}),
+    ...(pageArtifactId ? { pageArtifactId } : {}),
+    ...(boundingBox ? { boundingBox } : {}),
+  };
+}
+
+function pricingBoundingBox(value: unknown) {
+  const box = pricingRecord(value);
+  if (!box || box.coordinateSpace !== 'page_normalized' || box.origin !== 'top_left') return null;
+  const values = ['x0', 'y0', 'x1', 'y1', 'rotation'] as const;
+  if (values.some((key) => typeof box[key] !== 'number' || !Number.isFinite(box[key]))) return null;
+  const x0 = box.x0 as number;
+  const y0 = box.y0 as number;
+  const x1 = box.x1 as number;
+  const y1 = box.y1 as number;
+  const rotation = box.rotation;
+  if (x0 < 0 || y0 < 0 || x1 > 1 || y1 > 1 || x0 >= x1 || y0 >= y1
+    || ![0, 90, 180, 270].includes(rotation as number)) return null;
+  return {
+    coordinateSpace: 'page_normalized' as const,
+    origin: 'top_left' as const,
+    x0,
+    y0,
+    x1,
+    y1,
+    rotation: rotation as 0 | 90 | 180 | 270,
+  };
+}
+
+function pricingDeterministicState(row: Record<string, unknown>) {
+  const explicit = pricingString(row.deterministicState)?.toLowerCase();
+  const categoryState = pricingString(row.category_resolution_status)?.toLowerCase();
+  const signal = explicit ?? categoryState;
+  if (signal?.includes('conflict')) return 'conflict' as const;
+  if (signal?.includes('ambigu')) return 'ambiguous' as const;
+  if (signal?.includes('unresolved') || signal === 'requires_review') return 'unresolved' as const;
+  if (row.category_requires_review === true || row.confidence === 'needs_review') return 'unresolved' as const;
+  return null;
+}
+
+function pricingSourceLayer(value: unknown) {
+  return ['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact'].includes(String(value))
+    ? value as 'pdf_page_render' | 'pdf_native_text' | 'ocr' | 'table_artifact'
+    : null;
+}
+
+type NeutralPricingSemanticHint =
+  | 'category_like_text' | 'description_like_text' | 'unit_like_text'
+  | 'rate_like_amount' | 'quantity_like_amount' | 'item_number_like_text'
+  | 'extended_amount_like_text' | 'unknown';
+
+function isNeutralPricingSemanticHint(value: unknown): value is NeutralPricingSemanticHint {
+  return [
+    'category_like_text', 'description_like_text', 'unit_like_text',
+    'rate_like_amount', 'quantity_like_amount', 'item_number_like_text',
+    'extended_amount_like_text', 'unknown',
+  ].includes(String(value));
+}
+
+function buildNeutralPricingCandidate(
+  input: ForgewingPricingInterpretationShadowInput,
+  diagnostics: NeutralPricingScopeDiagnostics,
+): Parameters<typeof runForgewingPricingInterpretation>[0] | null {
+  if (!diagnostics.pageScopeApplicable
+    || diagnostics.scope.kind !== 'authoritative'
+    || diagnostics.sourceDocumentId !== input.sourceDocumentId
+    || diagnostics.sourceArtifactId !== input.sourceArtifactId) return null;
+
+  const candidates = input.pricingRows.flatMap((raw) => {
+    const row = pricingRecord(raw);
+    if (!row) return [];
+    const deterministicState = pricingDeterministicState(row);
+    if (!deterministicState) return [];
+    const rowId = pricingString(row.observationId) ?? pricingString(row.row_id);
+    const rowDocumentId = pricingString(row.sourceDocumentId) ?? pricingString(row.source_document_id);
+    const rowArtifactId = pricingString(row.sourceArtifactId) ?? pricingString(row.source_artifact_id);
+    const pageArtifactId = pricingString(row.pageArtifactId) ?? pricingString(row.page_artifact_id);
+    const physicalPageNumber = pricingInteger(row.physicalPageNumber ?? row.page);
+    const artifactLocalIndex = pricingInteger(row.artifactLocalIndex ?? row.artifact_local_index);
+    const sourceLayer = pricingSourceLayer(row.sourceLayer ?? row.source_layer);
+    const boundingBox = pricingBoundingBox(row.boundingBox ?? row.bounding_box);
+    const anchors = Array.isArray(row.source_anchor_ids)
+      ? row.source_anchor_ids.filter((value): value is string => pricingString(value) != null)
+      : [];
+    const matchingObservation = diagnostics.observations.find((observation) =>
+      anchors.includes(observation.observationId)
+      && observation.sourceDocumentId === input.sourceDocumentId
+      && observation.sourceArtifactId === input.sourceArtifactId
+      && observation.physicalPageNumber === physicalPageNumber
+      && observation.eligibility === 'canonical_eligible'
+      && observation.reason === 'authoritative_scope_match');
+    if (!rowId || physicalPageNumber == null || physicalPageNumber < 1 || !matchingObservation
+      || !diagnostics.scope.authoritativePages.includes(physicalPageNumber)
+      || (rowDocumentId != null && rowDocumentId !== input.sourceDocumentId)
+      || (rowArtifactId != null && rowArtifactId !== input.sourceArtifactId)) return [];
+    const admittedById = new Map(diagnostics.observations
+      .filter((observation) => anchors.includes(observation.observationId)
+        && observation.sourceDocumentId === input.sourceDocumentId
+        && observation.sourceArtifactId === input.sourceArtifactId
+        && observation.physicalPageNumber === physicalPageNumber
+        && observation.eligibility === 'canonical_eligible'
+        && observation.reason === 'authoritative_scope_match')
+      .map((observation) => [observation.observationId, observation]));
+    const cells = input.sourceObservations.flatMap((source) => {
+      const sourceId = pricingString(pricingRecord(source)?.id);
+      const admitted = sourceId ? admittedById.get(sourceId) : null;
+      if (!admitted) return [];
+      const cell = neutralPricingSourceObservation(source, input, admitted);
+      if (!cell) return [];
+      const semanticHints: NeutralPricingSemanticHint[] = [
+        [row.description, 'description_like_text'],
+        [row.category ?? row.source_category, 'category_like_text'],
+        [row.unit, 'unit_like_text'],
+        [row.rate_raw, 'rate_like_amount'],
+        [row.quantity_text, 'quantity_like_amount'],
+      ].flatMap(([value, role]) => typeof value === 'string' && value.length > 0
+        && cell.rawText.includes(value) ? [role as NeutralPricingSemanticHint] : []);
+      return [{ ...cell, ...(semanticHints.length > 0 ? { semanticHints } : {}) }];
+    });
+    if (cells.length === 0) return [];
+    const rawText = cells.map((cell) => cell.rawText).join('\n');
+    const scopeIdentity = hashCanonical({
+      organizationId: input.organizationId,
+      sourceDocumentId: input.sourceDocumentId,
+      sourceArtifactId: input.sourceArtifactId,
+      pageScopeApplicable: diagnostics.pageScopeApplicable,
+      authoritativePages: diagnostics.scope.authoritativePages,
+      admittedObservationIds: [...admittedById.keys()].sort(),
+    });
+    return [{
+      stableKey: `${matchingObservation.observationId}:${rowId}`,
+      input: {
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        pricingScope: {
+          scopeKind: 'authoritative' as const,
+          eligibility: 'canonical_eligible' as const,
+          eligibilityReason: 'authoritative_scope_match' as const,
+          scopeIdentity,
+        },
+        rowObservation: {
+          // The row keeps its own identity; cells cite actual admitted source
+          // observations and never assembled row text.
+          observationId: rowId,
+          rawText,
+          deterministicState,
+          physicalPageNumber,
+          cells,
+          ...(pageArtifactId ? { pageArtifactId } : {}),
+          ...(artifactLocalIndex != null ? { artifactLocalIndex } : {}),
+          ...(sourceLayer ? { sourceLayer } : {}),
+          ...(boundingBox ? { boundingBox } : {}),
+        },
+      },
+    }];
+  });
+  candidates.sort((left, right) => left.stableKey.localeCompare(right.stableKey, 'en-US'));
+  return candidates[0]?.input ?? null;
+}
+
+/**
+ * Registers one post-scope pricing proposal task. It returns before touching row
+ * data when either flag is off and never exposes scope resolution to Forgewing.
+ */
+export function scheduleForgewingPricingInterpretationShadow(
+  input: ForgewingPricingInterpretationShadowInput,
+  dependencies: PricingShadowDependencies = {},
+): void {
+  const env = input.env ?? process.env;
+  if (env.FORGEWING_SHADOW_ENABLED !== '1'
+    || env.FORGEWING_PRICING_INTERPRETATION_ENABLED !== '1') return;
+  const diagnostics = neutralPricingDiagnostics(input.pricingSourceEligibility);
+  if (!diagnostics) return;
+  const candidate = buildNeutralPricingCandidate(input, diagnostics);
+  if (!candidate) return;
+  const task = async (): Promise<void> => {
+    try {
+      const result = await (dependencies.run ?? runForgewingPricingInterpretation)(candidate);
+      if (result.status === 'applied' || result.status === 'abstained') {
+        const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
+        const persisted = await (dependencies.persist ?? persistReasoningShadowArtifact)({ input: {
+          organizationId: input.organizationId,
+          sourceDocumentId: input.sourceDocumentId,
+          sourceArtifactId: source.sourceArtifactId,
+          resultStatus: result.status,
+          run: result.bundle.run,
+          schemaVersion: result.bundle.schemaVersion,
+          runtime: {
+            model: result.metadata.model,
+            promptTemplateId: result.metadata.promptTemplateId,
+            promptTemplateVersion: result.metadata.promptTemplateVersion,
+            warningCodes: result.warnings,
+            calls: result.metadata.calls,
+            inputTruncated: result.metadata.inputTruncated,
+          },
+          validatedBundle: result.bundle,
+        } });
+        if (persisted.status !== 'persisted') {
+          console.warn('[forgewingShadow] non-fatal pricing interpretation persistence outcome', {
+            mode: 'shadow', status: persisted.status, reason: persisted.reason,
+            ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[forgewingShadow] non-fatal pricing interpretation failure', {
+        mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  try {
+    (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+  } catch (error) {
+    console.error('[forgewingShadow] pricing interpretation registration failed', {
+      mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** Neutral production-facing name; Forgewing remains private to this sole consumer. */
+export const scheduleEligiblePricingReasoningShadow =
+  scheduleForgewingPricingInterpretationShadow;
 
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,

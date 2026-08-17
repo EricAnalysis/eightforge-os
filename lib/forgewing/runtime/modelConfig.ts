@@ -46,6 +46,12 @@ export function isForgewingObservationArbitrationEnabled(): boolean {
     && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1';
 }
 
+/** Pricing interpretation is separately default-off beneath the Forgewing master gate. */
+export function isForgewingPricingInterpretationEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_PRICING_INTERPRETATION_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

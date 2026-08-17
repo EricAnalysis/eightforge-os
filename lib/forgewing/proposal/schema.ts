@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_OBSERVATION_ARBITRATION_PROPOSAL_SCHEMA_VERSION,
+  FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_PROPOSAL_SCHEMA_VERSION,
   FORGEWING_TABLE_CONTINUATION_PROPOSAL_SCHEMA_VERSION,
 } from '@/lib/forgewing/proposal/schemaVersion';
@@ -31,6 +32,7 @@ export const ForgewingTaskTypeSchema = z.enum([
   'table_continuation',
   'column_mapping',
   'observation_arbitration',
+  'pricing_interpretation',
 ]);
 
 export const ForgewingProposalStateSchema = z.enum([
@@ -138,6 +140,29 @@ export const ForgewingObservationArbitrationRationaleCodeSchema = z.enum([
   'mixed_evidence',
   'insufficient_structure',
   'unresolvable_conflict',
+]);
+
+export const ForgewingPricingSemanticRoleSchema = z.enum([
+  'category_like_text',
+  'description_like_text',
+  'unit_like_text',
+  'rate_like_amount',
+  'quantity_like_amount',
+  'item_number_like_text',
+  'extended_amount_like_text',
+  'unknown',
+]);
+
+export const ForgewingPricingInterpretationRationaleCodeSchema = z.enum([
+  'explicit_currency_marker',
+  'explicit_unit_token',
+  'header_or_column_context',
+  'textual_description_pattern',
+  'numeric_structure',
+  'multiple_plausible_roles',
+  'incompatible_values',
+  'missing_semantic_context',
+  'source_text_only',
 ]);
 
 export const ForgewingBoundingBoxSchema = z.object({
@@ -923,11 +948,143 @@ export const ForgewingObservationArbitrationProposalSchema =
     });
   });
 
+const pricingInterpretationSchema = z.object({
+  sourceCellId: boundedIdentifier,
+  semanticRole: ForgewingPricingSemanticRoleSchema,
+  sourceText: rawSpanSchema,
+  interpretationState: z.enum(['observed', 'inferred', 'ambiguous', 'conflicting']),
+  confidence: z.number().min(0).max(1).nullable(),
+  evidenceArtifactIds: inputObservationIds(1, 16),
+  rationaleCodes: z.array(ForgewingPricingInterpretationRationaleCodeSchema)
+    .min(1)
+    .max(4)
+    .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+}).strict();
+
+const pricingInterpretationIdentityShape = {
+  proposalId: boundedIdentifier,
+  taskId: boundedIdentifier,
+  taskType: z.literal('pricing_interpretation'),
+  sourceDocumentId: boundedIdentifier,
+  sourceArtifactId: boundedIdentifier,
+  extractionSnapshotId: boundedIdentifier,
+  rowObservationId: boundedIdentifier,
+  pageArtifactId: boundedIdentifier.optional(),
+  physicalPageNumber: z.number().int().positive(),
+  artifactLocalIndex: z.number().int().nonnegative().nullable(),
+  sourceLayer: z.enum(['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact']).optional(),
+  pricingScopeKind: z.literal('authoritative'),
+  pricingEligibility: z.literal('canonical_eligible'),
+  pricingEligibilityReason: z.literal('authoritative_scope_match'),
+  pricingScopeIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  inputObservationIds: inputObservationIds(2, 17),
+} as const;
+
+const appliedPricingInterpretationProposalSchema = z.object({
+  ...pricingInterpretationIdentityShape,
+  state: z.enum(['observed', 'inferred', 'ambiguous', 'conflicting']),
+  rowInterpretationState: z.enum(['observed', 'inferred', 'ambiguous', 'conflicting']),
+  confidence: z.number().min(0).max(1).nullable(),
+  interpretations: z.array(pricingInterpretationSchema).min(1).max(16),
+  evidence: evidenceReferences(1, 16),
+}).strict();
+
+const insufficientPricingInterpretationProposalSchema = z.object({
+  ...pricingInterpretationIdentityShape,
+  state: z.literal('insufficient_evidence'),
+  rowInterpretationState: z.literal('insufficient_evidence'),
+  confidence: z.null(),
+  interpretations: z.array(pricingInterpretationSchema).length(0),
+  evidence: evidenceReferences(0, 0),
+  missingEvidence: z.array(ForgewingMissingEvidenceSchema).min(1).max(6),
+}).strict();
+
+export const ForgewingPricingInterpretationProposalSchema = z.discriminatedUnion(
+  'rowInterpretationState',
+  [appliedPricingInterpretationProposalSchema, insufficientPricingInterpretationProposalSchema],
+).superRefine((proposal, context) => {
+  if (proposal.state !== proposal.rowInterpretationState) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['state'],
+      message: 'pricing proposal state must match rowInterpretationState' });
+  }
+  if (proposal.inputObservationIds[0] !== proposal.rowObservationId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['inputObservationIds', 0],
+      message: 'pricing input observations must begin with the row observation',
+    });
+  }
+  const evidenceById = new Map(proposal.evidence.map((reference) => [reference.artifactId, reference]));
+  for (const [index, interpretation] of proposal.interpretations.entries()) {
+    if (!proposal.inputObservationIds.includes(interpretation.sourceCellId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['interpretations', index, 'sourceCellId'],
+        message: 'pricing interpretation must identify a bounded source cell',
+      });
+    }
+    if (!interpretation.evidenceArtifactIds.includes(interpretation.sourceCellId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['interpretations', index, 'evidenceArtifactIds'],
+        message: 'pricing interpretation must cite its source cell',
+      });
+    }
+    for (const evidenceId of interpretation.evidenceArtifactIds) {
+      const reference = evidenceById.get(evidenceId);
+      if (!reference) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['interpretations', index, 'evidenceArtifactIds'],
+          message: 'pricing interpretation evidence must be reconstructed',
+        });
+        continue;
+      }
+      if (reference.sourceDocumentId !== proposal.sourceDocumentId
+        || reference.sourceArtifactId !== proposal.sourceArtifactId
+        || (reference.physicalPageNumber != null
+          && reference.physicalPageNumber !== proposal.physicalPageNumber)
+        || (proposal.pageArtifactId != null && reference.pageArtifactId !== proposal.pageArtifactId)
+        || (proposal.sourceLayer != null && reference.sourceLayer !== proposal.sourceLayer)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['evidence'],
+          message: 'pricing evidence identity must match the bounded row',
+        });
+      }
+    }
+    const sourceReference = evidenceById.get(interpretation.sourceCellId);
+    if (!sourceReference?.rawSpan?.includes(interpretation.sourceText)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['interpretations', index, 'sourceText'],
+        message: 'pricing sourceText must be an exact substring of its source evidence',
+      });
+    }
+  }
+  if (proposal.rowInterpretationState === 'ambiguous' && proposal.interpretations.length < 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['interpretations'],
+      message: 'ambiguous pricing interpretation requires multiple plausible interpretations',
+    });
+  }
+  if (proposal.rowInterpretationState === 'conflicting'
+    && new Set(proposal.interpretations.flatMap((item) => item.evidenceArtifactIds)).size < 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['interpretations'],
+      message: 'conflicting pricing interpretation requires distinct source evidence',
+    });
+  }
+});
+
 export const ForgewingProposalSchema = z.union([
   ForgewingRegionProposalSchema,
   ForgewingTableContinuationProposalSchema,
   ForgewingColumnMappingProposalSchema,
   ForgewingObservationArbitrationProposalSchema,
+  ForgewingPricingInterpretationProposalSchema,
 ]);
 
 const regionAbstentionSchema = ForgewingAbstentionSchema.extend({
@@ -944,6 +1101,10 @@ const columnMappingAbstentionSchema = ForgewingAbstentionSchema.extend({
 
 const observationArbitrationAbstentionSchema = ForgewingAbstentionSchema.extend({
   taskType: z.literal('observation_arbitration'),
+}).strict();
+
+const pricingInterpretationAbstentionSchema = ForgewingAbstentionSchema.extend({
+  taskType: z.literal('pricing_interpretation'),
 }).strict();
 
 export const ForgewingRegionProposalBundleSchema = z.object({
@@ -1111,11 +1272,44 @@ export const ForgewingObservationArbitrationProposalBundleSchema = z.object({
   }
 });
 
+export const ForgewingPricingInterpretationProposalBundleSchema = z.object({
+  schemaVersion: z.literal(FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION),
+  authority: z.literal('non_authoritative'),
+  run: ForgewingRunIdentitySchema,
+  taskId: boundedIdentifier,
+  taskType: z.literal('pricing_interpretation'),
+  proposals: z.array(ForgewingPricingInterpretationProposalSchema),
+  abstentions: z.array(pricingInterpretationAbstentionSchema),
+}).strict().superRefine((bundle, context) => {
+  if (bundle.proposals.length + bundle.abstentions.length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'Pricing interpretation bundle must contain exactly one proposal or abstention',
+    });
+  }
+  const items = [
+    ...bundle.proposals.map((item, index) => ({ item, collection: 'proposals' as const, index })),
+    ...bundle.abstentions.map((item, index) => ({ item, collection: 'abstentions' as const, index })),
+  ];
+  for (const { item, collection, index } of items) {
+    if (item.taskId !== bundle.taskId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [collection, index, 'taskId'],
+        message: `${collection} taskId must match bundle taskId` });
+    }
+    if (item.extractionSnapshotId !== bundle.run.extractionSnapshotId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [collection, index, 'extractionSnapshotId'],
+        message: `${collection} extractionSnapshotId must match bundle run` });
+    }
+  }
+});
+
 export const ForgewingProposalBundleSchema = z.union([
   ForgewingRegionProposalBundleSchema,
   ForgewingTableContinuationProposalBundleSchema,
   ForgewingColumnMappingProposalBundleSchema,
   ForgewingObservationArbitrationProposalBundleSchema,
+  ForgewingPricingInterpretationProposalBundleSchema,
 ]);
 
 export type ForgewingTaskType = z.infer<typeof ForgewingTaskTypeSchema>;
@@ -1140,6 +1334,10 @@ export type ForgewingObservationArbitrationRelation = z.infer<
 export type ForgewingObservationArbitrationRationaleCode = z.infer<
   typeof ForgewingObservationArbitrationRationaleCodeSchema
 >;
+export type ForgewingPricingSemanticRole = z.infer<typeof ForgewingPricingSemanticRoleSchema>;
+export type ForgewingPricingInterpretationRationaleCode = z.infer<
+  typeof ForgewingPricingInterpretationRationaleCodeSchema
+>;
 export type ForgewingEvidenceRef = z.infer<typeof ForgewingEvidenceRefSchema>;
 export type ForgewingMissingEvidence = z.infer<typeof ForgewingMissingEvidenceSchema>;
 export type ForgewingRunIdentity = z.infer<typeof ForgewingRunIdentitySchema>;
@@ -1157,6 +1355,9 @@ export type ForgewingColumnMappingProposal = z.infer<
 export type ForgewingObservationArbitrationProposal = z.infer<
   typeof ForgewingObservationArbitrationProposalSchema
 >;
+export type ForgewingPricingInterpretationProposal = z.infer<
+  typeof ForgewingPricingInterpretationProposalSchema
+>;
 export type ForgewingRegionProposalBundle = z.infer<
   typeof ForgewingRegionProposalBundleSchema
 >;
@@ -1168,5 +1369,8 @@ export type ForgewingColumnMappingProposalBundle = z.infer<
 >;
 export type ForgewingObservationArbitrationProposalBundle = z.infer<
   typeof ForgewingObservationArbitrationProposalBundleSchema
+>;
+export type ForgewingPricingInterpretationProposalBundle = z.infer<
+  typeof ForgewingPricingInterpretationProposalBundleSchema
 >;
 export type ForgewingProposalBundle = z.infer<typeof ForgewingProposalBundleSchema>;

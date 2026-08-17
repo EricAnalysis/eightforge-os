@@ -18,3 +18,7 @@ export const FORGEWING_COLUMN_MAPPING_PROPOSAL_SCHEMA_VERSION =
 /** Observation arbitration remains an isolated, non-authoritative shadow contract. */
 export const FORGEWING_OBSERVATION_ARBITRATION_PROPOSAL_SCHEMA_VERSION =
   'forgewing-observation-arbitration-proposal-v1' as const;
+
+/** Pricing interpretation is descriptive shadow output, never a canonical pricing row. */
+export const FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION =
+  'forgewing-pricing-interpretation-proposal-v1' as const;

@@ -16,6 +16,10 @@ const runForgewingObservationArbitration = vi.hoisted(() => vi.fn(async () => ({
   status: 'skipped' as const,
   reason: 'no_candidate_targets' as const,
 })));
+const runForgewingPricingInterpretation = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_rows' as const,
+})));
 
 vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
   runForgewingRegionClassification,
@@ -28,6 +32,9 @@ vi.mock('@/lib/forgewing/tasks/columnMapping', () => ({
 }));
 vi.mock('@/lib/forgewing/tasks/observationArbitration', () => ({
   runForgewingObservationArbitration,
+}));
+vi.mock('@/lib/forgewing/tasks/pricingInterpretation', () => ({
+  runForgewingPricingInterpretation,
 }));
 
 vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
@@ -44,6 +51,7 @@ import {
   captureStorageObjectVersion,
   persistExtractionComplianceShadow,
   publishExtractionComplianceShadowNonBlocking,
+  scheduleForgewingPricingInterpretationShadow,
   scheduleExtractionComplianceShadow,
   withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
@@ -93,6 +101,197 @@ describe('compliance shadow dual-write isolation', () => {
     runForgewingTableContinuation.mockClear();
     runForgewingColumnMapping.mockClear();
     runForgewingObservationArbitration.mockClear();
+    runForgewingPricingInterpretation.mockClear();
+  });
+
+  function pricingShadowInput(overrides: Record<string, unknown> = {}) {
+    const row = {
+      row_id: 'row-1',
+      page: 2,
+      source_anchor_ids: ['evidence-1'],
+      raw_text: 'Debris removal | CY | $12.50',
+      confidence: 'needs_review',
+    };
+    return {
+      organizationId: 'organization-1',
+      sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1',
+      extractionSnapshotId: 'snapshot-1',
+      pricingRows: [row],
+      sourceObservations: [{
+        id: 'evidence-1', kind: 'table_row', source_type: 'pdf',
+        description: 'Source rate row', text: 'Debris removal | CY | $12.50',
+        value: null, location: { page: 2 }, confidence: 0.8, weak: false,
+        source_document_id: 'document-1',
+        physical_page_coordinate: {
+          sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+          sourceLayer: 'pdf_native_text', artifactLocalIndex: 1,
+          physicalPageNumber: 2, mappingState: 'resolved_physical_page',
+          mappingBasis: 'extractor_iterated_physical_page', legacyPageValue: null,
+          totalPhysicalPages: 3,
+        },
+      }],
+      pricingSourceEligibility: {
+        sourceDocumentId: 'document-1',
+        sourceArtifactId: 'artifact-1',
+        pageScopeApplicable: true,
+        scope: { kind: 'authoritative', authoritativePages: [2] },
+        observations: [{
+          observationId: 'evidence-1', sourceDocumentId: 'document-1',
+          sourceArtifactId: 'artifact-1', physicalPageNumber: 2,
+          eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+        }],
+      },
+      env: {
+        FORGEWING_SHADOW_ENABLED: '1',
+        FORGEWING_PRICING_INTERPRETATION_ENABLED: '1',
+      },
+      ...overrides,
+    };
+  }
+
+  it('returns before pricing input construction when either feature flag is disabled', () => {
+    const register = vi.fn();
+    const input = {
+      organizationId: 'organization-1', sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1', extractionSnapshotId: 'snapshot-1',
+      env: { FORGEWING_SHADOW_ENABLED: '1' },
+      get pricingRows() { throw new Error('must not construct candidate'); },
+      get pricingSourceEligibility() { throw new Error('must not inspect scope'); },
+    };
+    expect(() => scheduleForgewingPricingInterpretationShadow(input as never, {
+      register,
+      run: runForgewingPricingInterpretation as never,
+    })).not.toThrow();
+    expect(register).not.toHaveBeenCalled();
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+  });
+
+  it('registers one detached pricing task only for a coherent authoritative unresolved row', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => ({ status: 'persisted' as const, path: 'p', sha256: 'a', expiresAt: 'later', idempotent: false }));
+    const result = actionableResult('applied');
+    result.metadata.promptTemplateId = 'forgewing-pricing-interpretation';
+    result.bundle.schemaVersion = 'forgewing-pricing-interpretation-proposal-v1';
+    result.bundle.taskType = 'pricing_interpretation';
+    runForgewingPricingInterpretation.mockResolvedValueOnce(result as never);
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist,
+    });
+    expect(tasks).toHaveLength(1);
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingPricingInterpretation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1',
+      pricingScope: {
+        scopeKind: 'authoritative', eligibility: 'canonical_eligible',
+        eligibilityReason: 'authoritative_scope_match',
+        scopeIdentity: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      rowObservation: expect.objectContaining({
+        observationId: 'row-1', rawText: 'Debris removal | CY | $12.50',
+        deterministicState: 'unresolved', physicalPageNumber: 2,
+        cells: [expect.objectContaining({
+          observationId: 'evidence-1', rawText: 'Debris removal | CY | $12.50',
+          columnIndex: 0, readingOrder: 0,
+        })],
+      }),
+    }));
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('preserves one authored span verbatim and never promotes evidence metadata to source text', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const input = pricingShadowInput({
+      sourceObservations: [{
+        ...(pricingShadowInput().sourceObservations[0] as object),
+        text: 'Debris  removal\n| CY | $12.50',
+        description: 'NOT AUTHORED PRICING EVIDENCE',
+        location: { page: 2, label: 'METADATA LABEL' },
+      }],
+    });
+    scheduleForgewingPricingInterpretationShadow(input as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+    });
+    await tasks[0]!();
+    const calls = runForgewingPricingInterpretation.mock.calls as unknown as Array<[{
+      rowObservation: { rawText: string; cells: Array<{ rawText: string }> };
+    }]>;
+    const candidate = calls.at(-1)![0];
+    expect(candidate.rowObservation.rawText).toBe('Debris  removal\n| CY | $12.50');
+    expect(candidate.rowObservation.cells[0]?.rawText).toBe('Debris  removal\n| CY | $12.50');
+    expect(candidate.rowObservation.rawText).not.toContain('NOT AUTHORED');
+    expect(candidate.rowObservation.rawText).not.toContain('METADATA LABEL');
+  });
+
+  it.each([
+    ['no scope', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'no_scope' }, observations: [],
+    } }],
+    ['foreign observation', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'authoritative', authoritativePages: [2] }, observations: [{
+        observationId: 'evidence-1', sourceDocumentId: 'document-1', sourceArtifactId: 'foreign-artifact',
+        physicalPageNumber: 2, eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+      }],
+    } }],
+    ['foreign authoritative page set', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'authoritative', authoritativePages: [3] }, observations: [{
+        observationId: 'evidence-1', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+        physicalPageNumber: 2, eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+      }],
+    } }],
+    ['missing source observation', { sourceObservations: [] }],
+    ['cross-row source observation', { sourceObservations: [{
+      id: 'neighbor-evidence', kind: 'text', source_type: 'pdf', description: 'Neighbor',
+      text: '$99.00', location: { page: 2 }, confidence: 1, weak: false,
+      source_document_id: 'document-1',
+    }] }],
+    ['resolved row', { pricingRows: [{
+      ...pricingShadowInput().pricingRows[0] as object,
+      confidence: 'high', category_resolution_status: 'resolved',
+    }] }],
+  ])('does not register pricing for %s', (_label, override) => {
+    const register = vi.fn();
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput(override) as never, {
+      register,
+      run: runForgewingPricingInterpretation as never,
+    });
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('contains pricing provider and persistence failures', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    runForgewingPricingInterpretation.mockRejectedValueOnce(new Error('provider unavailable'));
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist: vi.fn(async () => { throw new Error('must not persist'); }),
+    });
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal pricing interpretation failure',
+      expect.objectContaining({ error: 'provider unavailable' }),
+    );
+    runForgewingPricingInterpretation.mockResolvedValueOnce(actionableResult('applied') as never);
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist: vi.fn(async () => { throw new Error('storage unavailable'); }),
+    });
+    await expect(tasks[1]!()).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal pricing interpretation failure',
+      expect.objectContaining({ error: 'storage unavailable' }),
+    );
+    consoleError.mockRestore();
   });
 
   it('keeps observation arbitration default-off before candidate construction or persistence', async () => {

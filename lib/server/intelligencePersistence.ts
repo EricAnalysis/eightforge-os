@@ -20,6 +20,9 @@ import {
 import {
   pickPreferredExtractionBlob,
 } from '@/lib/blobExtractionSelection';
+import {
+  scheduleEligiblePricingReasoningShadow,
+} from '@/lib/extraction/persistence/complianceShadow';
 import type {
   DocumentExecutionTrace,
   DocumentFamily,
@@ -1307,6 +1310,25 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     rateSchedulePageHints: rateSchedulePageHintsFromGuidance(uploadGuidance),
     rateSchedulePageRanges: uploadGuidance?.rate_schedule_page_ranges ?? null,
   });
+
+  const pricingSourceEligibility = pipelineResult.contractAnalysis
+    ?.pricing_source_eligibility;
+  const pricingSourceArtifactId = pricingSourceEligibility?.sourceArtifactId;
+  if (
+    buildContext.extractionSnapshotId
+    && typeof pricingSourceArtifactId === 'string'
+    && pricingSourceArtifactId.trim().length > 0
+  ) {
+    scheduleEligiblePricingReasoningShadow({
+      organizationId: params.organizationId,
+      sourceDocumentId: params.documentId,
+      sourceArtifactId: pricingSourceArtifactId,
+      extractionSnapshotId: buildContext.extractionSnapshotId,
+      pricingRows: pipelineResult.contractAnalysis?.rate_schedule_rows ?? [],
+      sourceObservations: pipelineResult.evidence,
+      pricingSourceEligibility,
+    });
+  }
 
   await persistExtractionInspectionSnapshots(params.admin, {
     documentId: params.documentId,

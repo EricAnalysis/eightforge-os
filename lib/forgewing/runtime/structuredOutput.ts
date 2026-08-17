@@ -5,6 +5,8 @@ import {
   ForgewingMissingEvidenceCodeSchema,
   ForgewingObservationArbitrationRationaleCodeSchema,
   ForgewingObservationArbitrationRelationSchema,
+  ForgewingPricingInterpretationRationaleCodeSchema,
+  ForgewingPricingSemanticRoleSchema,
   ForgewingProposedSemanticColumnRoleSchema,
   ForgewingRegionLabelSchema,
   ForgewingTableContinuationRationaleCodeSchema,
@@ -14,6 +16,114 @@ const evidenceIds = (minimum: number, maximum?: number) => z.array(z.string().mi
   .min(minimum)
   .max(maximum ?? 200)
   .refine((ids) => new Set(ids).size === ids.length, 'evidence IDs must be distinct');
+
+const pricingInterpretationItemSchema = z.object({
+  sourceCellId: z.string().min(1).max(200),
+  semanticRole: ForgewingPricingSemanticRoleSchema,
+  sourceText: z.string().min(1).max(2_000)
+    .refine((value) => value.trim().length > 0, 'source text must not be whitespace-only'),
+  interpretationState: z.enum(['observed', 'inferred', 'ambiguous', 'conflicting']),
+  confidence: z.number().min(0).max(1).nullable(),
+  evidenceIds: evidenceIds(1, 16),
+  rationaleCodes: z.array(ForgewingPricingInterpretationRationaleCodeSchema)
+    .min(1).max(4)
+    .refine((codes) => new Set(codes).size === codes.length, 'rationale codes must be distinct'),
+}).strict();
+
+export const PricingInterpretationModelOutputSchema = z.discriminatedUnion(
+  'rowInterpretationState',
+  [
+    z.object({
+      rowInterpretationState: z.enum(['observed', 'inferred', 'ambiguous', 'conflicting']),
+      confidence: z.number().min(0).max(1).nullable(),
+      interpretations: z.array(pricingInterpretationItemSchema).min(1).max(16),
+    }).strict(),
+    z.object({
+      rowInterpretationState: z.literal('insufficient_evidence'),
+      confidence: z.null(),
+      interpretations: z.array(pricingInterpretationItemSchema).length(0),
+      missingEvidence: z.array(ForgewingMissingEvidenceCodeSchema).min(1).max(6),
+    }).strict(),
+  ],
+).superRefine((output, context) => {
+  if (output.rowInterpretationState === 'ambiguous' && output.interpretations.length < 2) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['interpretations'],
+      message: 'ambiguous pricing output requires multiple interpretations' });
+  }
+  if (output.rowInterpretationState === 'conflicting'
+    && new Set(output.interpretations.flatMap((item) => item.evidenceIds)).size < 2) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['interpretations'],
+      message: 'conflicting pricing output requires distinct evidence' });
+  }
+});
+
+export type PricingInterpretationModelOutput = z.infer<
+  typeof PricingInterpretationModelOutputSchema
+>;
+
+export function parsePricingInterpretationModelOutput(
+  raw: string,
+): PricingInterpretationModelOutput {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error('invalid_model_json');
+  }
+  const parsed = PricingInterpretationModelOutputSchema.safeParse(value);
+  if (!parsed.success) throw new Error('model_schema_rejected');
+  return parsed.data;
+}
+
+const PRICING_INTERPRETATION_ROLE_VALUES = [
+  'category_like_text', 'description_like_text', 'unit_like_text', 'rate_like_amount',
+  'quantity_like_amount', 'item_number_like_text', 'extended_amount_like_text', 'unknown',
+] as const;
+
+const PRICING_INTERPRETATION_RATIONALE_VALUES = [
+  'explicit_currency_marker', 'explicit_unit_token', 'header_or_column_context',
+  'textual_description_pattern', 'numeric_structure', 'multiple_plausible_roles',
+  'incompatible_values', 'missing_semantic_context', 'source_text_only',
+] as const;
+
+export const PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['rowInterpretationState', 'confidence', 'interpretations'],
+  properties: {
+    rowInterpretationState: {
+      type: 'string',
+      enum: ['observed', 'inferred', 'ambiguous', 'conflicting', 'insufficient_evidence'],
+    },
+    confidence: { type: ['number', 'null'] },
+    interpretations: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['sourceCellId', 'semanticRole', 'sourceText', 'interpretationState',
+          'confidence', 'evidenceIds', 'rationaleCodes'],
+        properties: {
+          sourceCellId: { type: 'string' },
+          semanticRole: { type: 'string', enum: PRICING_INTERPRETATION_ROLE_VALUES },
+          sourceText: { type: 'string' },
+          interpretationState: { type: 'string', enum: ['observed', 'inferred', 'ambiguous', 'conflicting'] },
+          confidence: { type: ['number', 'null'] },
+          evidenceIds: { type: 'array', items: { type: 'string' } },
+          rationaleCodes: { type: 'array',
+            items: { type: 'string', enum: PRICING_INTERPRETATION_RATIONALE_VALUES } },
+        },
+      },
+    },
+    missingEvidence: {
+      type: 'array',
+      items: { type: 'string', enum: [
+        'missing_source_observation', 'missing_physical_page_proof',
+        'insufficient_table_context', 'conflicting_observations',
+        'missing_column_context', 'truncated_input',
+      ] },
+    },
+  },
+} as const;
 
 const common = {
   confidence: z.number().min(0).max(1).nullable(),

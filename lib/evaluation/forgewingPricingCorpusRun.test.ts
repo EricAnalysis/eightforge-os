@@ -385,6 +385,51 @@ describe('SYNTHETIC: Forgewing pricing corpus execution', () => {
       identityMismatchCount: 3,
     });
   });
+
+  it('suppresses every provider attempt end-to-end when candidate ordering is non-deterministic', async () => {
+    vi.resetModules();
+    let buildCallCount = 0;
+    vi.doMock('@/lib/server/documentExtraction', () => ({
+      extractDocument: vi.fn(async () => ({
+        document_id: 'doc-nondeterministic', file: {}, extraction: {}, fields: {},
+      })),
+    }));
+    vi.doMock('@/lib/pipeline/documentPipeline', () => ({
+      runDocumentPipeline: vi.fn(() => ({
+        contractAnalysis: { rate_schedule_rows: [], pricing_source_eligibility: null },
+        evidence: [],
+      })),
+    }));
+    vi.doMock('@/lib/extraction/persistence/complianceShadow', () => ({
+      buildEligiblePricingReasoningShadowCandidates: vi.fn(() => {
+        buildCallCount += 1;
+        // First call builds forward-order candidates; second call (reversed
+        // input) must return a different set to force non-determinism.
+        return buildCallCount === 1 ? [syntheticCandidate('row-nondeterministic')] : [];
+      }),
+    }));
+    const provider = vi.fn(deterministicEvidenceProvider);
+    try {
+      const { runForgewingPricingCorpus: mockedRun } = await import(
+        '@/scripts/evaluation/runForgewingPricingCorpus'
+      );
+      const report = await mockedRun(GOODLETTSVILLE_ENTRY, { task: { provider } });
+      expect(buildCallCount).toBe(2);
+      expect(report.orderingDeterministic).toBe(false);
+      expect(report.smokeStatus).toBe('non_deterministic_input_order');
+      expect(provider).not.toHaveBeenCalled();
+      expect(report.attempts).toEqual([]);
+      expect(report.metrics.totalEligibleCandidates).toBe(1);
+      expect(report.metrics.totalAttemptedProposals).toBe(0);
+      expect(report.metrics.qualityMetricsEvaluated).toBe(false);
+      expect(report.metrics.qualityMetrics).toBeNull();
+    } finally {
+      vi.doUnmock('@/lib/server/documentExtraction');
+      vi.doUnmock('@/lib/pipeline/documentPipeline');
+      vi.doUnmock('@/lib/extraction/persistence/complianceShadow');
+      vi.resetModules();
+    }
+  });
 });
 
 describe.skipIf(process.env.RUN_FORGEWING_PRICING_REAL_FIXTURE_TESTS !== '1')(

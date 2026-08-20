@@ -39,6 +39,7 @@ import {
   type OcrLayoutDiagnostics,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPdfTableExtraction, type PdfTable } from '@/lib/extraction/pdf/extractTables';
+import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
@@ -1419,6 +1420,7 @@ function applyPdfContentLayers(
   params: {
     text: ReturnType<typeof buildPdfTextExtraction>;
     tables: ReturnType<typeof buildPdfTableExtraction>;
+    pricedScheduleReconstruction: ReturnType<typeof buildPagePricedScheduleReconstruction>;
     forms: ReturnType<typeof buildPdfFormExtraction>;
     pdfEvidenceLayer: ReturnType<typeof buildPdfEvidenceMap>;
     parsedElementsLayer?: ParsedElementsV1 | null;
@@ -1452,6 +1454,7 @@ function applyPdfContentLayers(
     pdf: {
       text: params.text,
       tables: params.tables,
+      priced_schedule_reconstruction_v1: params.pricedScheduleReconstruction,
       forms: params.forms,
       evidence,
       confidence: params.pdfEvidenceLayer.confidence,
@@ -2067,6 +2070,9 @@ export async function extractDocument(
     const pdfTableLayer = buildPdfTableExtraction({
       layout: structuredLayout,
     });
+    const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
+      layout: structuredLayout,
+    });
     const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
 
     for (const ocrPage of ocrPageNumbers) {
@@ -2267,6 +2273,7 @@ export async function extractDocument(
       applyPdfContentLayers(payload, {
         text: pdfTextLayer,
         tables: pdfTableLayer,
+        pricedScheduleReconstruction: pricedScheduleReconstructionLayer,
         forms: pdfFormLayer,
         pdfEvidenceLayer,
         parsedElementsLayer,
@@ -2390,6 +2397,7 @@ export async function extractDocument(
     applyPdfContentLayers(payload, {
       text: pdfTextLayer,
       tables: pdfTableLayer,
+      pricedScheduleReconstruction: pricedScheduleReconstructionLayer,
       forms: pdfFormLayer,
       pdfEvidenceLayer,
       parsedElementsLayer,

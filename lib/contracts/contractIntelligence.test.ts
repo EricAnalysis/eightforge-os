@@ -3,6 +3,8 @@ import { describe, it } from 'vitest';
 
 import type { ContractAnalysisResult } from '@/lib/contracts/types';
 import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
+import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
+import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
 import type { DocumentPipelineResult } from '@/lib/pipeline/types';
 
@@ -393,7 +395,7 @@ describe('contract intelligence analysis', () => {
     );
   });
 
-  it('stitches TDOT Appendix B split rate table rows through the live pipeline path', () => {
+  it('no longer produces authored stitched rows for a split rate schedule', () => {
     const row = (page: number, table: string, index: number, rawText: string) => ({
       id: `pdf:table:p${page}:${table}:r${index}`,
       page_number: page,
@@ -508,73 +510,107 @@ describe('contract intelligence analysis', () => {
     });
 
     const rows = result.contractAnalysis?.rate_schedule_rows ?? [];
-    const expected = [
-      ['Vegetative Collect, Remove & Haul', 'Loading and Hauling Vegetative Debris', 'CY', 'Waterways/Fern areas to DMS', 29],
-      ['Vegetative Collect, Remove & Haul', 'Loading and Hauling Vegetative Debris', 'CY', 'Waterways/Fern areas to Final Disposal', 40],
-      ['Vegetative Collect, Remove & Haul', 'Loading and Hauling Vegetative Debris', 'CY', 'DMS to Final Disposal', 1],
-      ['Vegetative Collect, Remove & Haul', 'Loading and Hauling Vegetative Debris', 'CY', 'ROW to DMS', 27],
-      ['Vegetative Collect, Remove & Haul', 'Loading and Hauling Vegetative Debris', 'CY', 'ROW to Final Disposal', 29],
-      ['Management & Reduction', 'Debris Mgmt. Site Management', 'CY', null, 5],
-      ['Management & Reduction', 'Reduction and Compaction of C&D', 'CY', null, 1.5],
-      ['Management & Reduction', 'Reduction of Vegetative Debris', 'CY', null, 9.24],
-      ['C&D Collect, Remove & Haul', 'Loading, Hauling, and Unloading C&D Debris', 'CY', 'ROW to DMS', 35],
-      ['C&D Collect, Remove & Haul', 'Loading, Hauling, and Unloading C&D Debris', 'CY', 'DMS to Final Disposal', 10],
-      ['C&D Collect, Remove & Haul', 'Loading, Hauling, and Unloading C&D Debris', 'CY', 'ROW to Final Disposal', 35],
-      ['Final Disposal', 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris', 'CY', 'DMS to Final Disposal', 1],
-      ['Specialty Removal', 'White Goods Hauling, evacuation of Freon/Refrigerants', 'Each', 'Fern areas to DMS', 1],
-      ['Specialty Removal', 'White Goods Hauling, evacuation of Freon/Refrigerants', 'Each', 'DMS to Final Disposal', 1],
-      ['Specialty Removal', 'White Goods Hauling, evacuation of Freon/Refrigerants', 'Each', 'Fern areas to Final Disposal', 1],
-      ['Specialty Removal', 'HHW/Hazardous Waste', 'Per Pound', 'Fern areas to Final Disposal', 1],
-      ['Specialty Removal', 'HHW/Hazardous Waste', 'Per Pound', 'DMS to Final Disposal', 1],
-      ['Specialty Removal', 'Electronic Waste', 'Per Pound', 'Fern areas to DMS', 1],
-      ['Specialty Removal', 'Electronic Waste', 'Per Pound', 'DMS to Final Disposal', 1],
-      ['Specialty Removal', 'Electronic Waste', 'Per Pound', 'Fern areas to Final Disposal', 1],
-      ['Specialty Removal', 'Trailers, Vessels, and Vehicles', 'Each Vehicle', 'Fern areas to Final Disposal', 1],
-      ['Specialty Removal', 'Putrescent Debris', 'Per Pound', 'Fern areas to Final Disposal', 1],
-      ['Specialty Removal', 'Removal Rock, Sand, Soil, Silt & Sediment', 'CY', 'Fern areas to DMS', 1],
-      ['Specialty Removal', 'Removal Rock, Sand, Soil, Silt & Sediment', 'CY', 'DMS to Final Disposal', 1],
-      ['Final Disposal', 'Disposal/Tipping Fees', 'Actual Costs', null, null],
-      ['Specialty Removal', 'Tires', 'Each', 'Fern areas to Final Disposal', 1],
-      ['Tree Operations', 'Hazardous Limb/Hangers Cutting >2"', 'Unit', null, 135],
-      ['Tree Operations', 'Hazardous Tree/Leaners Cutting 6"-11.99"', 'Each', null, 1],
-      ['Tree Operations', 'Hazardous Tree/Leaners Cutting 12"-23.99"', 'Each', null, 1],
-      ['Tree Operations', 'Hazardous Tree/Leaners Cutting 24"-35.99"', 'Each', null, 1],
-      ['Tree Operations', 'Hazardous Tree/Leaners Cutting 36"+', 'Each', null, 1],
-      ['Specialty Removal', 'Sweeping', 'Linear Mile', null, 1],
-    ];
 
-    assert.equal(rows.length, 32);
-    assert.deepEqual(
-      rows.map((rateRow) => [
-        rateRow.category,
-        rateRow.description,
-        rateRow.unit,
-        rateRow.origin_destination,
-        rateRow.rate,
-      ]),
-      expected,
+    // The removed path combined structural rows from one set of physical pages
+    // with pricing anchors from another, producing rows whose evidence spanned
+    // multiple pages and whose values were authored rather than read.
+    //
+    // This input carries only table text, with no token geometry. The authored
+    // path would have produced a full schedule from it regardless, because its
+    // values came from a hardcoded specification rather than from the page. The
+    // generic path cannot reconstruct anything without geometry, and no other
+    // generic path matches this shape. Zero rows is therefore the exact
+    // observable outcome, and it is asserted as a count so that the assertions
+    // below cannot pass merely because the array is empty.
+    assert.equal(
+      rows.length,
+      0,
+      'the authored stitching input must now yield no rate schedule rows at all',
     );
-    assert.equal(rows[24]?.rate_raw, 'Pass-through/actual cost');
-    assert.equal(rows[24]?.rate, null);
-    assert.equal(rows[24]?.rate_amount, null);
-    assert.ok(rows.every((rateRow) => rateRow.source_kind === 'tdot_appendix_b_stitched_table'));
-    assert.ok(rows.every((rateRow) => rateRow.source_anchor_ids.length >= 2));
-
-    const assembledRows = assembleContractPricingRows(rows);
-    assert.equal(assembledRows.length, 32);
-    assert.equal(assembledRows[24]?.rate, null);
-    assert.equal(assembledRows[24]?.rawText?.includes('Pass-through/actual cost'), true);
-    assert.deepEqual(
-      assembledRows.map((rateRow) => [
-        rateRow.category,
-        rateRow.description,
-        rateRow.unit,
-        rateRow.route,
-        rateRow.rate,
-      ]),
-      expected,
+    assert.equal(
+      rows.filter((rateRow) => rateRow.source_kind === 'tdot_appendix_b_stitched_table').length,
+      0,
+      'no row may come from the removed authored stitching path',
+    );
+    assert.equal(
+      rows.filter((rateRow) => String(rateRow.row_id).startsWith('tdot_appendix_b_stitched:')).length,
+      0,
+      'no row may carry the removed authored stitching row id',
+    );
+    // Values that were authored rather than read must not reappear anywhere in
+    // the analysis, not merely be absent from an empty row set.
+    assert.ok(
+      !JSON.stringify(result.contractAnalysis ?? {}).includes('Pass-through/actual cost'),
+      'authored rate text must not be manufactured anywhere in the analysis',
     );
   });
+
+  it('still builds source-derived rows generically when the page carries geometry', () => {
+    // Companion to the removal test above: proves the zero-row outcome there is
+    // the absence of the authored path rather than a dead reconstruction path.
+    // The same shape, given real token geometry, still reconstructs generically.
+    const pageNumber = 12;
+    const tokens = (specs: ReadonlyArray<{ x: number; text: string; width: number }>, y: number) =>
+      specs.map((spec) => ({ text: spec.text, x: spec.x, y, width: spec.width, height: 10 }));
+    const buildLine = (
+      y: number,
+      specs: ReadonlyArray<{ x: number; text: string; width: number }>,
+    ) => {
+      const built = tokens(specs, y);
+      return {
+        id: `line:p${pageNumber}:y${y}`,
+        page_number: pageNumber,
+        text: built.map((entry) => entry.text).join(' '),
+        tokens: built,
+        kind: 'table_candidate' as const,
+        x_min: Math.min(...built.map((entry) => entry.x)),
+        x_max: Math.max(...built.map((entry) => entry.x + entry.width)),
+        y,
+      };
+    };
+    const pricedRow = (y: number, description: string, amount: string) => buildLine(y, [
+      { x: 50, text: description, width: 100 },
+      { x: 200, text: 'Widget', width: 60 },
+      { x: 300, text: 'A to B', width: 100 },
+      { x: 450, text: '$', width: 8 },
+      { x: 470, text: amount, width: 40 },
+    ]);
+    const reconstruction = buildPagePricedScheduleReconstruction({
+      layout: {
+        page_count: 1,
+        pages: [{
+          page_number: pageNumber,
+          width: 612,
+          height: 792,
+          lines: [
+            buildLine(700, [
+              { x: 50, text: 'Description', width: 70 },
+              { x: 200, text: 'Unit of Measure', width: 80 },
+              { x: 300, text: 'Origin/ Destination', width: 90 },
+              { x: 450, text: 'Cost', width: 30 },
+            ]),
+            pricedRow(680, 'Alpha service', '12.00'),
+            pricedRow(660, 'Beta service', '3.50'),
+          ],
+        }],
+        gaps: [],
+      },
+    });
+    const genericRows = buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: reconstruction,
+    });
+    assert.equal(genericRows.length, 2, 'the generic path must still produce source-derived rows');
+    assert.ok(
+      genericRows.every((rateRow) => rateRow.source_kind === 'page_priced_schedule'),
+      'rows must come from the generic page-local path',
+    );
+    assert.ok(
+      genericRows.every((rateRow) => rateRow.page === pageNumber),
+      'every generic row must close its evidence on its own physical page',
+    );
+  });
+
 
   it('parses MDOT Section 905 bid schedule rows through the live pipeline path without OCR fallback rows', () => {
     const section905Text = [

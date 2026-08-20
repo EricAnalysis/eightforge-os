@@ -16,6 +16,11 @@ import {
   buildContractRateScheduleRows,
   type ContractRateScheduleSourceEntry,
 } from '@/lib/contracts/contractRateScheduleRows';
+import {
+  PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+  type PagePricedScheduleReconstruction,
+  type PricedSchedulePage,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
   CLAUSE_PATTERN_LIBRARY_VERSION_V1,
@@ -1296,6 +1301,21 @@ export function buildContractIntelligencePricingSourcePreparation(
   const canonicalPdfTables = unscopedCompatibility
     ? allPdfTables
     : allPdfTables.filter((table) => eligibleAnchorIds.has(table.id));
+
+  // Generic single-page priced schedule reconstruction, restricted to pages the
+  // deterministic pricing source scope already admits. This never widens scope.
+  const allPricedSchedulePages = asArray<PricedSchedulePage>(
+    asRecord(
+      asRecord(input.primaryDocument.content_layers?.pdf)?.priced_schedule_reconstruction_v1,
+    )?.pages,
+  );
+  const scopedPricedScheduleReconstruction: PagePricedScheduleReconstruction = {
+    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    pages: unscopedCompatibility
+      ? allPricedSchedulePages
+      : allPricedSchedulePages.filter((page) =>
+          eligiblePages.has(page.physical_page_number)),
+  };
   const effectiveRateSchedulePages = unscopedCompatibility
     ? rateSchedulePages
     : scope.authoritativePages;
@@ -1312,6 +1332,7 @@ export function buildContractIntelligencePricingSourcePreparation(
           true,
         ),
     pdfTables: canonicalPdfTables,
+    pricedScheduleReconstruction: scopedPricedScheduleReconstruction,
     rateSchedulePages: effectiveRateSchedulePages,
     rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
     sourceEntries: canonicalEntries,

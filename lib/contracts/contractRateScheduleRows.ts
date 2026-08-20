@@ -9,6 +9,11 @@ import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import type {
+  PagePricedScheduleReconstruction,
+  PricedScheduleCell,
+  PricedSchedulePage,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 
 export type ContractRateScheduleSourceEntry = {
   id?: string | null;
@@ -30,15 +35,6 @@ type ExhibitATextRecoverySpec = {
   exactRatePattern?: RegExp;
 };
 
-type TdotAppendixBSpec = {
-  rowNumber: number;
-  description: string;
-  unit: string;
-  originDestination: string | null;
-  rate: number | null;
-  rateRaw: string;
-  category: string | null;
-};
 
 type MdotSection905BidScheduleSpec = {
   rowNumber: number;
@@ -61,6 +57,11 @@ type BuildContractRateScheduleRowsInput = {
   rateSchedulePagePreferencePages?: readonly number[] | null;
   sourceEntries?: readonly ContractRateScheduleSourceEntry[] | null;
   defaultAnchorIds?: readonly string[] | null;
+  /**
+   * Generic, source-derived single-page priced schedule reconstruction. Already
+   * scope-filtered by the caller; this builder does not widen pricing scope.
+   */
+  pricedScheduleReconstruction?: PagePricedScheduleReconstruction | null;
   /** Explicit historical-only compatibility for evidence predating page proof. */
   allowUnscopedCompatibility?: boolean;
 };
@@ -69,40 +70,6 @@ const INLINE_RATE_RE = /^(.*?)\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per|\/)\s*(ton|t
 const UNIT_TOKEN_RE = /\b(ton|tons|cubic\s+yard|cy|hour|hours|hr|hrs|mile|miles|each|ea|load|loads|day|days|yd|yard|linear\s+foot|lf|sq\s*ft|square\s+foot|pound|lb|lbs|unit|tree|stump)\b/i;
 const RATE_HEADER_RE = /\b(category|description|service|classification|item|unit|rate|price|scheduled value|qty|quantity|clin)\b/i;
 
-const TDOT_APPENDIX_B_SPECS: readonly TdotAppendixBSpec[] = [
-  { rowNumber: 1, description: 'Loading and Hauling Vegetative Debris', unit: 'CY', originDestination: 'Waterways/Fern areas to DMS', rate: 29, rateRaw: '$29.00', category: 'Vegetative Collect, Remove & Haul' },
-  { rowNumber: 2, description: 'Loading and Hauling Vegetative Debris', unit: 'CY', originDestination: 'Waterways/Fern areas to Final Disposal', rate: 40, rateRaw: '$40.00', category: 'Vegetative Collect, Remove & Haul' },
-  { rowNumber: 3, description: 'Loading and Hauling Vegetative Debris', unit: 'CY', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Vegetative Collect, Remove & Haul' },
-  { rowNumber: 4, description: 'Loading and Hauling Vegetative Debris', unit: 'CY', originDestination: 'ROW to DMS', rate: 27, rateRaw: '$27.00', category: 'Vegetative Collect, Remove & Haul' },
-  { rowNumber: 5, description: 'Loading and Hauling Vegetative Debris', unit: 'CY', originDestination: 'ROW to Final Disposal', rate: 29, rateRaw: '$29.00', category: 'Vegetative Collect, Remove & Haul' },
-  { rowNumber: 6, description: 'Debris Mgmt. Site Management', unit: 'CY', originDestination: null, rate: 5, rateRaw: '$5.00', category: 'Management & Reduction' },
-  { rowNumber: 7, description: 'Reduction and Compaction of C&D', unit: 'CY', originDestination: null, rate: 1.5, rateRaw: '$1.50', category: 'Management & Reduction' },
-  { rowNumber: 8, description: 'Reduction of Vegetative Debris', unit: 'CY', originDestination: null, rate: 9.24, rateRaw: '$9.24', category: 'Management & Reduction' },
-  { rowNumber: 9, description: 'Loading, Hauling, and Unloading C&D Debris', unit: 'CY', originDestination: 'ROW to DMS', rate: 35, rateRaw: '$35.00', category: 'C&D Collect, Remove & Haul' },
-  { rowNumber: 10, description: 'Loading, Hauling, and Unloading C&D Debris', unit: 'CY', originDestination: 'DMS to Final Disposal', rate: 10, rateRaw: '$10.00', category: 'C&D Collect, Remove & Haul' },
-  { rowNumber: 11, description: 'Loading, Hauling, and Unloading C&D Debris', unit: 'CY', originDestination: 'ROW to Final Disposal', rate: 35, rateRaw: '$35.00', category: 'C&D Collect, Remove & Haul' },
-  { rowNumber: 12, description: 'Loading & Hauling to Final Disposal of Reduced Vegetative Debris', unit: 'CY', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Final Disposal' },
-  { rowNumber: 13, description: 'White Goods Hauling, evacuation of Freon/Refrigerants', unit: 'Each', originDestination: 'Fern areas to DMS', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 14, description: 'White Goods Hauling, evacuation of Freon/Refrigerants', unit: 'Each', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 15, description: 'White Goods Hauling, evacuation of Freon/Refrigerants', unit: 'Each', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 16, description: 'HHW/Hazardous Waste', unit: 'Per Pound', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 17, description: 'HHW/Hazardous Waste', unit: 'Per Pound', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 18, description: 'Electronic Waste', unit: 'Per Pound', originDestination: 'Fern areas to DMS', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 19, description: 'Electronic Waste', unit: 'Per Pound', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 20, description: 'Electronic Waste', unit: 'Per Pound', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 21, description: 'Trailers, Vessels, and Vehicles', unit: 'Each Vehicle', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 22, description: 'Putrescent Debris', unit: 'Per Pound', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 23, description: 'Removal Rock, Sand, Soil, Silt & Sediment', unit: 'CY', originDestination: 'Fern areas to DMS', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 24, description: 'Removal Rock, Sand, Soil, Silt & Sediment', unit: 'CY', originDestination: 'DMS to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 25, description: 'Disposal/Tipping Fees', unit: 'Actual Costs', originDestination: null, rate: null, rateRaw: 'Pass-through/actual cost', category: 'Final Disposal' },
-  { rowNumber: 26, description: 'Tires', unit: 'Each', originDestination: 'Fern areas to Final Disposal', rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-  { rowNumber: 27, description: 'Hazardous Limb/Hangers Cutting >2"', unit: 'Unit', originDestination: null, rate: 135, rateRaw: '$135.00', category: 'Tree Operations' },
-  { rowNumber: 28, description: 'Hazardous Tree/Leaners Cutting 6"-11.99"', unit: 'Each', originDestination: null, rate: 1, rateRaw: '$1.00', category: 'Tree Operations' },
-  { rowNumber: 29, description: 'Hazardous Tree/Leaners Cutting 12"-23.99"', unit: 'Each', originDestination: null, rate: 1, rateRaw: '$1.00', category: 'Tree Operations' },
-  { rowNumber: 30, description: 'Hazardous Tree/Leaners Cutting 24"-35.99"', unit: 'Each', originDestination: null, rate: 1, rateRaw: '$1.00', category: 'Tree Operations' },
-  { rowNumber: 31, description: 'Hazardous Tree/Leaners Cutting 36"+', unit: 'Each', originDestination: null, rate: 1, rateRaw: '$1.00', category: 'Tree Operations' },
-  { rowNumber: 32, description: 'Sweeping', unit: 'Linear Mile', originDestination: null, rate: 1, rateRaw: '$1.00', category: 'Specialty Removal' },
-] as const;
 
 const MDOT_SECTION_905_PAGE = 193;
 
@@ -611,192 +578,6 @@ function tableText(table: PdfTable): string {
 function tableHeaders(table: PdfTable): string[] {
   const headers = (table as unknown as Record<string, unknown>).headers;
   return Array.isArray(headers) ? headers.map(String) : [];
-}
-
-function rowNumberFromRawText(value: string): number | null {
-  const match = normalizeWhitespace(value).match(/^(\d{1,2})\b/);
-  if (!match) return null;
-  const parsed = Number.parseInt(match[1] ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function tdotDescriptionRowAnchors(tables: readonly PdfTable[]): Map<number, {
-  page: number;
-  anchorId: string;
-  rawText: string;
-}> {
-  const anchors = new Map<number, { page: number; anchorId: string; rawText: string }>();
-  for (const table of tables) {
-    const page = tablePage(table);
-    if (page !== 43 && page !== 44) continue;
-    const tableId = (table as unknown as Record<string, unknown>).id;
-    const tableAnchor = typeof tableId === 'string' ? tableId : `pdf:table:p${page}:tdot-description`;
-    const headers = tableHeaders(table);
-    if (page === 44 && headers.length > 0 && /^19\b/.test(headers[0] ?? '')) {
-      anchors.set(19, {
-        page,
-        anchorId: tableAnchor,
-        rawText: headers.join(' | '),
-      });
-    }
-    const rows = Array.isArray((table as unknown as Record<string, unknown>).rows)
-      ? ((table as unknown as Record<string, unknown>).rows as unknown[])
-      : [];
-    for (const row of rows) {
-      const rowRecord = asRecord(row);
-      const rawText = rowRawText(row);
-      const rowNumber = rowNumberFromRawText(rawText);
-      if (rowNumber == null) continue;
-      const rowId = typeof rowRecord?.id === 'string' ? rowRecord.id : `${tableAnchor}:r${rowNumber}`;
-      anchors.set(rowNumber, {
-        page,
-        anchorId: rowId,
-        rawText,
-      });
-    }
-  }
-  return anchors;
-}
-
-function tdotCostRowAnchors(table: PdfTable): Map<number, {
-  page: number;
-  anchorId: string;
-  rawText: string;
-}> {
-  const page = tablePage(table) ?? 46;
-  const tableId = (table as unknown as Record<string, unknown>).id;
-  const tableAnchor = typeof tableId === 'string' ? tableId : 'pdf:table:p46:tdot-cost';
-  const rows = Array.isArray((table as unknown as Record<string, unknown>).rows)
-    ? ((table as unknown as Record<string, unknown>).rows as unknown[])
-    : [];
-  const byRowNumber = new Map<number, { page: number; anchorId: string; rawText: string }>();
-  const setAnchor = (rowNumber: number, row: unknown | null, rawText: string): void => {
-    const rowRecord = row ? asRecord(row) : null;
-    const rowId = typeof rowRecord?.id === 'string' ? rowRecord.id : tableAnchor;
-    byRowNumber.set(rowNumber, { page, anchorId: rowId, rawText });
-  };
-  const raw = (index: number): string => rowRawText(rows[index] ?? null);
-
-  const headers = tableHeaders(table).join(' | ');
-  setAnchor(1, null, headers);
-  setAnchor(2, rows[0] ?? null, raw(0));
-  [3, 4, 5].forEach((rowNumber) => setAnchor(rowNumber, rows[1] ?? null, raw(1)));
-  setAnchor(6, rows[2] ?? null, raw(2));
-  setAnchor(7, rows[3] ?? null, raw(3));
-  setAnchor(8, rows[4] ?? null, raw(4));
-  setAnchor(12, rows[5] ?? null, raw(5));
-  setAnchor(9, rows[6] ?? null, raw(6));
-  setAnchor(10, rows[7] ?? null, raw(7));
-  setAnchor(11, rows[8] ?? null, raw(8));
-  setAnchor(13, rows[9] ?? null, raw(9));
-  setAnchor(14, rows[10] ?? null, raw(10));
-  setAnchor(15, rows[11] ?? null, raw(11));
-  setAnchor(16, rows[12] ?? null, raw(12));
-  setAnchor(17, rows[13] ?? null, raw(13));
-  setAnchor(18, rows[14] ?? null, raw(14));
-  setAnchor(19, rows[15] ?? null, raw(15));
-  setAnchor(20, rows[16] ?? null, raw(16));
-  setAnchor(21, rows[17] ?? null, raw(17));
-  setAnchor(22, rows[18] ?? null, raw(18));
-  const actualCostsIndex = rows.findIndex((row) => /\bActual\s+Costs\b/i.test(rowRawText(row)));
-  const tailStartIndex = actualCostsIndex === 22 ? 20 : 19;
-  setAnchor(23, rows[tailStartIndex] ?? null, raw(tailStartIndex));
-  setAnchor(24, rows[tailStartIndex + 1] ?? null, raw(tailStartIndex + 1));
-  setAnchor(25, rows[tailStartIndex + 2] ?? null, raw(tailStartIndex + 2));
-  setAnchor(26, rows[tailStartIndex + 3] ?? null, raw(tailStartIndex + 3));
-  setAnchor(27, rows[tailStartIndex + 4] ?? null, raw(tailStartIndex + 4));
-  setAnchor(28, rows[tailStartIndex + 5] ?? null, raw(tailStartIndex + 5));
-  setAnchor(29, rows[tailStartIndex + 6] ?? null, raw(tailStartIndex + 6));
-  setAnchor(30, rows[tailStartIndex + 7] ?? null, raw(tailStartIndex + 7));
-  setAnchor(31, rows[tailStartIndex + 8] ?? null, raw(tailStartIndex + 8));
-  setAnchor(32, rows[tailStartIndex + 9] ?? null, raw(tailStartIndex + 9));
-
-  return byRowNumber;
-}
-
-function looksLikeTdotAppendixBSplitSchedule(tables: readonly PdfTable[]): {
-  descriptionAnchors: Map<number, { page: number; anchorId: string; rawText: string }>;
-  costAnchors: Map<number, { page: number; anchorId: string; rawText: string }>;
-} | null {
-  const page43 = tables.find((table) => tablePage(table) === 43 && /schedule\s+of\s+items/i.test(tableText(table)));
-  const page44 = tables.find((table) => {
-    if (tablePage(table) !== 44) return false;
-    const headers = tableHeaders(table);
-    if (/^19\b/i.test(headers[0] ?? '')) return true;
-    return /\b19\s+Electronic\s+Waste\s+Per\s+Pound\s+From\s+DMS\s+to\s+Final\s+Disposal\b/i.test(tableText(table));
-  });
-  const page46 = tables.find((table) => tablePage(table) === 46 && /description\s+unit\s+of\s+measure\s+origin\s*\/?\s*destination\s+cost/i.test(tableText(table)));
-  if (!page43 || !page44 || !page46) return null;
-
-  const page43Text = tableText(page43);
-  const page44Text = tableText(page44);
-  const page46Text = tableText(page46);
-  const compactPage46 = compactText(page46Text);
-  if (
-    !/\bemergency\s+debris\s+removal\s+operations\b/i.test(page43Text) ||
-    !/\bDescription\b/i.test(page43Text) ||
-    !/\bOrigin\/Destination\b/i.test(page43Text) ||
-    !/\bDisposal\s*\/\s*Tipping\s+Fees\b/i.test(page44Text) ||
-    !/\b32\s+Sweeping\s+Linear\s+Mile\s+N\/A\b/i.test(page44Text) ||
-    !compactPage46.includes('loadingandhaulingvegetativedebriscubicyardcy') ||
-    !compactPage46.includes('disposaltippingfeesactualcostsna') ||
-    !compactPage46.includes('sweepinglinearmilena')
-  ) {
-    return null;
-  }
-
-  const descriptionAnchors = tdotDescriptionRowAnchors(tables);
-  if (TDOT_APPENDIX_B_SPECS.some((spec) => !descriptionAnchors.has(spec.rowNumber))) return null;
-
-  const costAnchors = tdotCostRowAnchors(page46);
-  if (TDOT_APPENDIX_B_SPECS.some((spec) => !costAnchors.has(spec.rowNumber))) return null;
-  if (costAnchors.get(25)?.rawText && !/\bActual\s+Costs\b/i.test(costAnchors.get(25)?.rawText ?? '')) return null;
-
-  return { descriptionAnchors, costAnchors };
-}
-
-function buildTdotAppendixBStitchedRows(tables: readonly PdfTable[] | null | undefined): ContractRateScheduleRow[] {
-  if (!Array.isArray(tables)) return [];
-  const match = looksLikeTdotAppendixBSplitSchedule(tables);
-  if (!match) return [];
-
-  const rows: ContractRateScheduleRow[] = [];
-  for (const spec of TDOT_APPENDIX_B_SPECS) {
-    const descriptionAnchor = match.descriptionAnchors.get(spec.rowNumber);
-    const costAnchor = match.costAnchors.get(spec.rowNumber);
-    if (!descriptionAnchor || !costAnchor) return [];
-    const assemblerCategoryKey = canonicalTaxonomyKeyForAllowedCategory(spec.category);
-    const categoryResolution = resolveCanonicalRateCategory({
-      sourceCategory: spec.category,
-      sourceDescriptors: [spec.description, spec.originDestination, spec.rateRaw],
-      existingCanonicalCategory: assemblerCategoryKey,
-      existingConfidence: assemblerCategoryKey ? 1 : null,
-    });
-    rows.push({
-      row_id: `tdot_appendix_b_stitched:${spec.rowNumber}`,
-      description: spec.description,
-      unit: spec.unit,
-      rate: spec.rate,
-      origin_destination: spec.originDestination,
-      category: spec.category,
-      source_category: spec.category,
-      canonical_category: categoryResolution.canonical_category,
-      category_confidence: categoryResolution.category_confidence,
-      page: descriptionAnchor.page,
-      source_anchor_ids: [descriptionAnchor.anchorId, costAnchor.anchorId],
-      rate_raw: spec.rateRaw,
-      material_type: spec.category,
-      unit_type: spec.unit,
-      rate_amount: spec.rate,
-      source_kind: 'tdot_appendix_b_stitched_table',
-      confidence: 'high',
-      raw_cells: [descriptionAnchor.rawText, costAnchor.rawText],
-      raw_text: `${descriptionAnchor.rawText} | ${costAnchor.rawText}`,
-      recovery_reason: 'Stitched TDOT Appendix B description/unit/origin rows from pages 43-44 to cost rows from page 46 by verified schedule row order.',
-      category_resolution_status: categoryResolution.canonical_category ? 'resolved' : 'requires_review',
-    });
-  }
-  return rows;
 }
 
 function contextsForMdotSection905(params: {
@@ -1581,6 +1362,115 @@ function buildFallbackRowsFromSourceEntries(params: {
   return [...deduped.values()];
 }
 
+/** Authored non-numeric price markers must never become a number. */
+function numericRateFromAuthoredText(rawText: string): number | null {
+  const match = rawText.match(/-?[\d,]+(?:\.\d+)?/);
+  if (!match) return null;
+  return parseNumber(match[0]);
+}
+
+function cellByRole(
+  row: PricedSchedulePage['rows'][number],
+  role: PricedScheduleCell['role'],
+): PricedScheduleCell | null {
+  return row.cells.find((cell) => cell.role === role) ?? null;
+}
+
+function geometryRefsForPricedScheduleRow(
+  page: PricedSchedulePage,
+  row: PricedSchedulePage['rows'][number],
+): GeometryCellRef[] {
+  const refs: GeometryCellRef[] = [];
+  row.cells.forEach((cell: PricedScheduleCell, cellIndex: number) => {
+    const geometry = normalizeTableCellGeometry({
+      page_number: page.physical_page_number,
+      x_min: cell.x_min,
+      x_max: cell.x_max,
+      y_min: cell.y_min,
+      y_max: cell.y_max,
+      cell_index: cellIndex,
+      row_index: row.row_index,
+      text: cell.raw_text,
+      diagnostics: [`role:${cell.role}`, `source_fragments:${cell.source_refs.length}`],
+    });
+    if (geometry) refs.push({ text: cell.raw_text, geometry });
+  });
+  return refs;
+}
+
+/**
+ * Converts generic single-page priced schedule reconstruction into rate schedule
+ * rows. Every field is source-derived: authored text is preserved verbatim as
+ * evidence, and a non-numeric authored price marker leaves the rate unresolved
+ * rather than manufacturing a value.
+ */
+function buildPagePricedScheduleRows(
+  reconstruction: PagePricedScheduleReconstruction | null | undefined,
+): ContractRateScheduleRow[] {
+  if (!reconstruction || !Array.isArray(reconstruction.pages)) return [];
+
+  const rows: ContractRateScheduleRow[] = [];
+  const pages = [...reconstruction.pages].sort(
+    (left, right) => left.physical_page_number - right.physical_page_number,
+  );
+
+  for (const page of pages) {
+    const pageRows = [...page.rows].sort((left, right) => left.row_index - right.row_index);
+    for (const row of pageRows) {
+      const descriptionCell = cellByRole(row, 'description');
+      const rateCell = cellByRole(row, 'rate');
+      // Fail closed: a priced row needs both an authored description and an
+      // authored price marker on the same physical page.
+      if (!descriptionCell || !rateCell) continue;
+
+      const unitCell = cellByRole(row, 'unit');
+      const originDestinationCell = cellByRole(row, 'origin_destination');
+      const rate = numericRateFromAuthoredText(rateCell.raw_text);
+
+      const categoryResolution = resolveCanonicalRateCategory({
+        sourceCategory: null,
+        sourceDescriptors: [
+          descriptionCell.raw_text,
+          unitCell?.raw_text ?? null,
+          originDestinationCell?.raw_text ?? null,
+        ],
+        existingCanonicalCategory: null,
+        existingConfidence: null,
+      });
+
+      rows.push({
+        row_id: `page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`,
+        description: descriptionCell.raw_text,
+        unit: unitCell?.raw_text ?? null,
+        rate,
+        origin_destination: originDestinationCell?.raw_text ?? null,
+        category: null,
+        source_category: null,
+        canonical_category: categoryResolution.canonical_category,
+        category_confidence: categoryResolution.category_confidence,
+        page: page.physical_page_number,
+        source_anchor_ids: [`page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`],
+        rate_raw: rateCell.raw_text,
+        material_type: null,
+        unit_type: unitCell?.raw_text ?? null,
+        rate_amount: rate,
+        source_kind: 'page_priced_schedule',
+        // A row whose authored price marker carries no number is unresolved,
+        // not zero-rated.
+        confidence: rate == null ? 'needs_review' : 'medium',
+        raw_cells: row.cells.map((cell: PricedScheduleCell) => cell.raw_text),
+        raw_text: row.raw_text,
+        geometry_refs: geometryRefsForPricedScheduleRow(page, row),
+        category_resolution_status: categoryResolution.canonical_category
+          ? 'resolved'
+          : 'requires_review',
+      });
+    }
+  }
+
+  return rows;
+}
+
 export function buildContractRateScheduleRows(
   params: BuildContractRateScheduleRowsInput,
 ): ContractRateScheduleRow[] {
@@ -1622,9 +1512,9 @@ export function buildContractRateScheduleRows(
     return mdotSection905Rows;
   }
 
-  const tdotAppendixBRows = buildTdotAppendixBStitchedRows(params.pdfTables);
-  if (tdotAppendixBRows.length > 0) {
-    return tdotAppendixBRows;
+  const pricedScheduleRows = buildPagePricedScheduleRows(params.pricedScheduleReconstruction);
+  if (pricedScheduleRows.length > 0) {
+    return pricedScheduleRows;
   }
 
   // Phase 1 of retiring EXHIBIT_A_PAGES page-pinning.

@@ -1316,6 +1316,9 @@ export function buildContractIntelligencePricingSourcePreparation(
       : allPricedSchedulePages.filter((page) =>
           eligiblePages.has(page.physical_page_number)),
   };
+  const scopedPricedSchedulePages = new Set(
+    scopedPricedScheduleReconstruction.pages.map((page) => page.physical_page_number),
+  );
   const effectiveRateSchedulePages = unscopedCompatibility
     ? rateSchedulePages
     : scope.authoritativePages;
@@ -1342,7 +1345,15 @@ export function buildContractIntelligencePricingSourcePreparation(
     ]),
     allowUnscopedCompatibility: unscopedCompatibility,
   }).filter((row) => unscopedCompatibility
-    || row.source_anchor_ids.some((anchorId) => eligibleAnchorIds.has(anchorId)));
+    || row.source_anchor_ids.some((anchorId) => eligibleAnchorIds.has(anchorId))
+    // Page-priced rows deliberately retain temporary synthetic row anchors
+    // until anchor-identity remediation. Admit only rows produced by the known
+    // reconstruction path on a page present in both the canonical page scope
+    // and the already scope-filtered reconstruction payload.
+    || (row.source_kind === 'page_priced_schedule'
+      && row.page != null
+      && eligiblePages.has(row.page)
+      && scopedPricedSchedulePages.has(row.page)));
   const observations = classified.map(({ diagnostic }) => diagnostic);
   const canonicalEligibleCount = observations
     .filter((entry) => entry.eligibility === 'canonical_eligible').length;

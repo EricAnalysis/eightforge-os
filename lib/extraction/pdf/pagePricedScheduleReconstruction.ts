@@ -827,8 +827,9 @@ function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
  *     cells whose label is not recognized. Unrecognized cells claim their own
  *     band and their body tokens are dropped, so an unnamed column's values can
  *     never be presented as a neighbouring column's authored text.
- *   - At least two rows populate every recognized column. These anchor the table
- *     body; a page without them fails closed.
+ *   - At least one row populates every recognized column and anchors the table
+ *     body. At least two priced rows must survive before the page is published;
+ *     a page without that evidence fails closed.
  *   - Source lines are atomic. Tokens are grouped into lines first, lines closer
  *     than a fraction of a glyph height are merged, and a line is never split
  *     across two rows.

@@ -8,6 +8,7 @@ import {
   physicalPageFromExtractorIteration,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { EvidenceObject } from '@/lib/extraction/types';
+import type { PricedSchedulePage } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 
 const DOCUMENT_ID = '10000000-0000-4000-8000-000000000001';
@@ -41,6 +42,65 @@ function evidence(id: string, page: number, text: string, withProof = true): Evi
   };
 }
 
+function reconstructedPage(page: number, description = 'Reconstructed hauling'): PricedSchedulePage {
+  const sourceRef = (text: string, xMin: number, xMax: number) => ({
+    text,
+    x_min: xMin,
+    x_max: xMax,
+    y_min: 679,
+    y_max: 689,
+    source: 'pdfjs' as const,
+    confidence: 1,
+  });
+  return {
+    status: 'reconstructed',
+    physical_page_number: page,
+    header_raw_text: 'Description Unit Cost',
+    header_y: 700,
+    columns: [],
+    rows: [{
+      row_index: 0,
+      physical_page_number: page,
+      cells: [
+        {
+          role: 'description',
+          raw_text: description,
+          source_refs: [sourceRef(description, 50, 180)],
+          x_min: 50,
+          x_max: 180,
+          y_min: 679,
+          y_max: 689,
+        },
+        {
+          role: 'unit',
+          raw_text: 'CY',
+          source_refs: [sourceRef('CY', 250, 270)],
+          x_min: 250,
+          x_max: 270,
+          y_min: 679,
+          y_max: 689,
+        },
+        {
+          role: 'rate',
+          raw_text: '$12.00',
+          source_refs: [sourceRef('$12.00', 400, 450)],
+          x_min: 400,
+          x_max: 450,
+          y_min: 679,
+          y_max: 689,
+        },
+      ],
+      raw_text: `${description} CY $12.00`,
+      x_min: 50,
+      x_max: 450,
+      y_min: 679,
+      y_max: 689,
+    }],
+    rejected_spines: [],
+    unassigned_lines: [],
+  };
+}
+
 function document(params?: {
   historical?: boolean;
   captureState?: string;
@@ -49,6 +109,7 @@ function document(params?: {
   evidence?: EvidenceObject[];
   machinePages?: number[];
   rateTable?: Array<{ row_id: string; description: string; unit: string; rate: number; page: number }>;
+  pricedSchedulePages?: PricedSchedulePage[];
 }): NormalizedNodeDocument {
   const rows = [
     { row_id: 'inside', description: 'Eligible hauling', unit: 'CY', rate: 11, page: 2 },
@@ -89,7 +150,16 @@ function document(params?: {
     ],
     gaps: [],
     confidence: 1,
-    content_layers: null,
+    content_layers: params?.pricedSchedulePages
+      ? {
+          pdf: {
+            priced_schedule_reconstruction_v1: {
+              parser_version: 'priced_schedule_reconstruction_v1',
+              pages: params.pricedSchedulePages,
+            },
+          },
+        }
+      : null,
     extracted_record: {},
     facts: [],
     fact_map: {},
@@ -97,6 +167,69 @@ function document(params?: {
 }
 
 describe('Phase 3A pricing observation eligibility', () => {
+  describe('page-priced reconstruction consumer boundary', () => {
+    it('preserves the existing eligible fallback when reconstruction is absent', () => {
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document(),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+
+      expect(result.rows.map((row) => ({ rate: row.rate, sourceKind: row.source_kind })))
+        .toEqual([{ rate: 11, sourceKind: undefined }]);
+    });
+
+    it('admits captured reconstruction from its already-authorized physical page', () => {
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ pricedSchedulePages: [reconstructedPage(2)] }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]).toMatchObject({
+        description: 'Reconstructed hauling',
+        rate: 12,
+        page: 2,
+        source_kind: 'page_priced_schedule',
+        source_anchor_ids: ['page_priced_schedule:p2:r0'],
+      });
+    });
+
+    it('does not widen scope for reconstruction from a non-admitted page', () => {
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ pricedSchedulePages: [reconstructedPage(5)] }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+
+      expect(result.rows.map((row) => ({ rate: row.rate, page: row.page, sourceKind: row.source_kind })))
+        .toEqual([{ rate: 11, page: 2, sourceKind: undefined }]);
+      expect(result.rows.some((row) => row.source_kind === 'page_priced_schedule')).toBe(false);
+    });
+
+    it('rejects reconstruction when the apparent source page has conflicting provenance', () => {
+      const conflictedEvidence = evidence('conflicted', 2, 'Rate schedule scope marker');
+      conflictedEvidence.physical_page_coordinate = conflictingPhysicalPageCoordinate({
+        sourceDocumentId: DOCUMENT_ID,
+        sourceArtifactId: ARTIFACT_ID,
+        sourceLayer: 'pdf_native_text',
+        artifactLocalIndex: 1,
+      });
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({
+          evidence: [conflictedEvidence],
+          rateTable: [],
+          pricedSchedulePages: [reconstructedPage(2)],
+        }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+
+      expect(result.rows).toEqual([]);
+      expect(result.eligibility.observations[0]).toMatchObject({
+        eligibility: 'diagnostic_only',
+        reason: 'provenance_conflict',
+      });
+    });
+  });
+
   it('keeps all observations visible while only authoritative proof enters rows', () => {
     const result = buildContractIntelligencePricingSourcePreparation({
       primaryDocument: document(),

@@ -229,6 +229,37 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     expect(layer.observations).toHaveLength(78);
   }, 300_000);
 
+  it('binds all accepted rows while excluding every diagnostic-only observation', async () => {
+    const { layout, reconstruction } = await loadReconstruction();
+    const layer = buildPdfLayoutObservationsLayer({
+      layout, reconstruction, context: OBSERVATION_CONTEXT,
+    });
+    const rows = buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: reconstruction,
+      pricedScheduleLayoutObservations: layer,
+      pricedScheduleObservationContext: {
+        ...OBSERVATION_CONTEXT,
+        totalPhysicalPages: layout.page_count,
+      },
+    });
+    const acceptedAnchorIds = new Set(rows.flatMap((row) => row.source_anchor_ids));
+    const diagnosticIds = new Set(reconstruction.pages.flatMap((page) =>
+      page.unassigned_lines.flatMap((line) => line.source_refs.flatMap((ref) =>
+        ref.observation_id ? [ref.observation_id] : []))));
+    const observationById = new Map(layer.observations.map((entry) => [entry.id, entry]));
+
+    expect(rows).toHaveLength(21);
+    expect(rows.filter((row) => row.source_anchor_ids.some((id) => id.startsWith('page_priced_schedule:'))))
+      .toEqual([]);
+    expect(acceptedAnchorIds.size).toBe(63);
+    expect([...acceptedAnchorIds].every((id) => observationById.get(id)?.kind === 'pdf_layout_token'))
+      .toBe(true);
+    expect([...acceptedAnchorIds].every((id) => observationById.get(id)?.physical_page_number === EXPECTED_PRICED_PAGE))
+      .toBe(true);
+    expect([...diagnosticIds].filter((id) => acceptedAnchorIds.has(id))).toEqual([]);
+  }, 300_000);
+
   it('reconstructs from the exact bytes these expectations were recorded from', async () => {
     const { pdfBytes, layout, reconstruction } = await loadReconstruction();
 

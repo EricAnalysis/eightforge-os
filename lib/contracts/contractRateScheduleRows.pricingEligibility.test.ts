@@ -8,7 +8,22 @@ import {
   physicalPageFromExtractorIteration,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { EvidenceObject } from '@/lib/extraction/types';
-import type { PricedSchedulePage } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
+import {
+  buildPdfLayoutObservationsLayer,
+  type PdfLayoutObservationsLayer,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
+import {
+  createPdfLayoutObservationIdentity,
+  pdfLayoutPageRepresentationDigest,
+} from '@/lib/extraction/pdf/layoutObservationIdentity';
+import type {
+  PagePricedScheduleReconstruction,
+  PricedSchedulePage,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  buildEligiblePricingReasoningShadowCandidates,
+} from '@/lib/extraction/persistence/complianceShadow';
 import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 
 const DOCUMENT_ID = '10000000-0000-4000-8000-000000000001';
@@ -101,6 +116,74 @@ function reconstructedPage(page: number, description = 'Reconstructed hauling'):
   };
 }
 
+function modernReconstruction(): {
+  page: PricedSchedulePage;
+  layer: PdfLayoutObservationsLayer;
+} {
+  const identifiedToken = (key: string, text: string, x: number): PdfToken => {
+    const observation_identity = createPdfLayoutObservationIdentity({
+      context: { sourceDocumentId: DOCUMENT_ID, sourceArtifactId: ARTIFACT_ID },
+      physicalPageNumber: 2,
+      sourceMethod: 'pdfjs',
+      parser: 'pdfjs_text_content',
+      parserObservationKey: key,
+      pageRepresentationDigest: pdfLayoutPageRepresentationDigest(['modern-page-two']),
+    });
+    return {
+      text, x, y: 679, width: 20, height: 10, source: 'pdfjs',
+      observation_id: observation_identity.id, observation_identity,
+    };
+  };
+  const description = identifiedToken('item:1', 'Zyphor quendal', 50);
+  const unit = identifiedToken('item:2', 'CY', 250);
+  const rate = identifiedToken('item:3', '$12.00', 400);
+  const tokens = [description, unit, rate];
+  const sourceRef = (value: PdfToken) => ({
+    observation_id: value.observation_id,
+    text: value.text,
+    x_min: value.x,
+    x_max: value.x + value.width,
+    y_min: value.y,
+    y_max: value.y + value.height,
+    source: value.source,
+  });
+  const page: PricedSchedulePage = {
+    status: 'reconstructed', physical_page_number: 2,
+    header_raw_text: 'Description Unit Cost', header_y: 700, columns: [],
+    rows: [{
+      row_index: 0, physical_page_number: 2,
+      cells: [
+        { role: 'description', raw_text: description.text, source_refs: [sourceRef(description)],
+          x_min: 50, x_max: 70, y_min: 679, y_max: 689 },
+        { role: 'unit', raw_text: unit.text, source_refs: [sourceRef(unit)],
+          x_min: 250, x_max: 270, y_min: 679, y_max: 689 },
+        { role: 'rate', raw_text: rate.text, source_refs: [sourceRef(rate)],
+          x_min: 400, x_max: 420, y_min: 679, y_max: 689 },
+      ],
+      raw_text: 'Zyphor quendal CY $12.00',
+      x_min: 50, x_max: 420, y_min: 679, y_max: 689,
+    }],
+    rejected_spines: [], unassigned_lines: [],
+  };
+  const reconstruction: PagePricedScheduleReconstruction = {
+    parser_version: 'priced_schedule_reconstruction_v1', pages: [page],
+  };
+  const layout: PdfLayout = {
+    page_count: 6, gaps: [], pages: [{
+      page_number: 2,
+      lines: [{ id: 'line-2', page_number: 2, text: tokens.map((entry) => entry.text).join(' '),
+        tokens, kind: 'table_candidate', x_min: 50, x_max: 420, y: 679, source: 'pdfjs' }],
+    }],
+  };
+  return {
+    page,
+    layer: buildPdfLayoutObservationsLayer({
+      layout, reconstruction,
+      context: { sourceDocumentId: DOCUMENT_ID, sourceArtifactId: ARTIFACT_ID },
+    }),
+  };
+}
+
 function document(params?: {
   historical?: boolean;
   captureState?: string;
@@ -110,6 +193,8 @@ function document(params?: {
   machinePages?: number[];
   rateTable?: Array<{ row_id: string; description: string; unit: string; rate: number; page: number }>;
   pricedSchedulePages?: PricedSchedulePage[];
+  layoutObservations?: PdfLayoutObservationsLayer;
+  reconstructionVersion?: string | null;
 }): NormalizedNodeDocument {
   const rows = [
     { row_id: 'inside', description: 'Eligible hauling', unit: 'CY', rate: 11, page: 2 },
@@ -154,9 +239,14 @@ function document(params?: {
       ? {
           pdf: {
             priced_schedule_reconstruction_v1: {
-              parser_version: 'priced_schedule_reconstruction_v1',
+              ...(params.reconstructionVersion !== null
+                ? { parser_version: params.reconstructionVersion ?? 'priced_schedule_reconstruction_v1' }
+                : {}),
               pages: params.pricedSchedulePages,
             },
+            ...(params.layoutObservations
+              ? { layout_observations_v1: params.layoutObservations }
+              : {}),
           },
         }
       : null,
@@ -194,6 +284,68 @@ describe('Phase 3A pricing observation eligibility', () => {
       });
     });
 
+    it('changes real A2 admission only when modern anchors close to persisted evidence', () => {
+      const historical = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({
+          pricedSchedulePages: [reconstructedPage(2, 'Zyphor quendal')],
+        }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+      const historicalCandidates = buildEligiblePricingReasoningShadowCandidates({
+        organizationId: 'organization-a', sourceDocumentId: DOCUMENT_ID,
+        sourceArtifactId: ARTIFACT_ID, extractionSnapshotId: 'snapshot-a',
+        pricingRows: historical.rows,
+        sourceObservations: document().evidence,
+        pricingSourceEligibility: historical.eligibility,
+      });
+      expect(historical.rows[0]!.source_anchor_ids).toEqual(['page_priced_schedule:p2:r0']);
+      expect(historicalCandidates).toEqual([]);
+
+      const modern = modernReconstruction();
+      const prepared = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({
+          pricedSchedulePages: [modern.page],
+          layoutObservations: modern.layer,
+        }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+      const candidates = buildEligiblePricingReasoningShadowCandidates({
+        organizationId: 'organization-a', sourceDocumentId: DOCUMENT_ID,
+        sourceArtifactId: ARTIFACT_ID, extractionSnapshotId: 'snapshot-a',
+        pricingRows: prepared.rows,
+        sourceObservations: modern.layer.observations,
+        pricingSourceEligibility: prepared.eligibility,
+      });
+      expect(prepared.rows[0]).toMatchObject({
+        row_id: 'page_priced_schedule:p2:r0',
+        category_resolution_status: 'requires_review',
+        source_anchor_ids: modern.layer.observations.map((entry) => entry.id).sort(),
+      });
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]!.rowObservation.cells.map((entry) => entry.observationId).sort())
+        .toEqual(modern.layer.observations.map((entry) => entry.id).sort());
+    });
+
+    it.each([
+      ['absent', null],
+      ['unknown', 'priced_schedule_reconstruction_v999'],
+    ])('keeps %s reconstruction versions on synthetic compatibility anchors', (_label, version) => {
+      const modern = modernReconstruction();
+      const prepared = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({
+          pricedSchedulePages: [modern.page],
+          layoutObservations: modern.layer,
+          reconstructionVersion: version,
+        }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+
+      expect(prepared.rows[0]!.source_anchor_ids).toEqual(['page_priced_schedule:p2:r0']);
+      expect(prepared.eligibility.observations.some((entry) =>
+        modern.layer.observations.some((observation) => observation.id === entry.observationId)))
+        .toBe(false);
+    });
+
     it('does not widen scope for reconstruction from a non-admitted page', () => {
       const result = buildContractIntelligencePricingSourcePreparation({
         primaryDocument: document({ pricedSchedulePages: [reconstructedPage(5)] }),
@@ -203,6 +355,21 @@ describe('Phase 3A pricing observation eligibility', () => {
       expect(result.rows.map((row) => ({ rate: row.rate, page: row.page, sourceKind: row.source_kind })))
         .toEqual([{ rate: 11, page: 2, sourceKind: undefined }]);
       expect(result.rows.some((row) => row.source_kind === 'page_priced_schedule')).toBe(false);
+    });
+
+    it('does not widen scope when exact bound EvidenceObjects exist off the eligible page', () => {
+      const modern = modernReconstruction();
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({
+          pricedSchedulePages: [modern.page],
+          layoutObservations: modern.layer,
+        }),
+        operatorRateSchedulePageRanges: [{ start: 5, end: 5 }],
+      });
+
+      expect(modern.layer.closure.status).toBe('complete');
+      expect(result.rows.some((row) => row.source_kind === 'page_priced_schedule')).toBe(false);
+      expect(result.rows.map((row) => row.page)).toEqual([5]);
     });
 
     it('rejects reconstruction when the apparent source page has conflicting provenance', () => {

@@ -21,6 +21,9 @@ import {
   type PagePricedScheduleReconstruction,
   type PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  resolvePdfLayoutObservationEvidenceByRow,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
 import { LANGUAGE_ENGINE_FIELDS_V1_BY_ID } from '@/lib/contracts/languageEngineFields.v1';
 import {
   CLAUSE_PATTERN_LIBRARY_VERSION_V1,
@@ -1260,7 +1263,7 @@ export function buildContractIntelligencePricingSourcePreparation(
       .filter((coordinate): coordinate is NonNullable<typeof coordinate> => coordinate != null),
     machineDetectedPages: rateSchedulePages,
   });
-  const classified = allSourceEntries.map((entry) => {
+  const classifiedEvidence = allSourceEntries.map((entry) => {
     const result = classifyPageEligibility({
       scope,
       coordinate: entry.physicalPageCoordinate,
@@ -1282,7 +1285,7 @@ export function buildContractIntelligencePricingSourcePreparation(
       }),
     };
   });
-  const canonicalEntries = classified
+  const canonicalEntries = classifiedEvidence
     .filter(({ result }) => result.eligibility === 'canonical_eligible')
     .map(({ entry }) => entry);
   const eligibleAnchorIds = new Set(
@@ -1304,11 +1307,12 @@ export function buildContractIntelligencePricingSourcePreparation(
 
   // Generic single-page priced schedule reconstruction, restricted to pages the
   // deterministic pricing source scope already admits. This never widens scope.
-  const allPricedSchedulePages = asArray<PricedSchedulePage>(
-    asRecord(
-      asRecord(input.primaryDocument.content_layers?.pdf)?.priced_schedule_reconstruction_v1,
-    )?.pages,
+  const rawPricedScheduleReconstruction = asRecord(
+    asRecord(input.primaryDocument.content_layers?.pdf)?.priced_schedule_reconstruction_v1,
   );
+  const bindingVersionAccepted = rawPricedScheduleReconstruction?.parser_version
+    === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+  const allPricedSchedulePages = asArray<PricedSchedulePage>(rawPricedScheduleReconstruction?.pages);
   const scopedPricedScheduleReconstruction: PagePricedScheduleReconstruction = {
     parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages: unscopedCompatibility
@@ -1316,6 +1320,48 @@ export function buildContractIntelligencePricingSourcePreparation(
       : allPricedSchedulePages.filter((page) =>
           eligiblePages.has(page.physical_page_number)),
   };
+  const persistedLayoutObservations = asRecord(
+    asRecord(input.primaryDocument.content_layers?.pdf)?.layout_observations_v1,
+  );
+  const observationBindingContext = sourceArtifactId && totalPhysicalPages != null
+    ? {
+        sourceDocumentId: input.primaryDocument.document_id,
+        sourceArtifactId,
+        totalPhysicalPages,
+      }
+    : null;
+  const boundLayoutObservations = bindingVersionAccepted
+    ? resolvePdfLayoutObservationEvidenceByRow({
+    reconstruction: scopedPricedScheduleReconstruction,
+    persistedLayer: persistedLayoutObservations,
+    context: observationBindingContext,
+      })
+    : [];
+  const classifiedLayoutObservations = boundLayoutObservations.map((entry) => {
+    const result = classifyPageEligibility({
+      scope,
+      coordinate: entry.physical_page_coordinate,
+      sourceArtifact,
+      captureState,
+    });
+    return {
+      entry,
+      result,
+      diagnostic: Object.freeze({
+        observationId: entry.id,
+        sourceDocumentId: entry.source_document_id,
+        sourceArtifactId: entry.source_artifact_id,
+        physicalPageNumber: entry.physical_page_number,
+        scopeKind: scope.kind,
+        eligibility: result.eligibility,
+        reason: result.reason,
+      }),
+    };
+  });
+  for (const { entry, result } of classifiedLayoutObservations) {
+    if (result.eligibility === 'canonical_eligible') eligibleAnchorIds.add(entry.id);
+  }
+  const classified = [...classifiedEvidence, ...classifiedLayoutObservations];
   const scopedPricedSchedulePages = new Set(
     scopedPricedScheduleReconstruction.pages.map((page) => page.physical_page_number),
   );
@@ -1336,6 +1382,8 @@ export function buildContractIntelligencePricingSourcePreparation(
         ),
     pdfTables: canonicalPdfTables,
     pricedScheduleReconstruction: scopedPricedScheduleReconstruction,
+    pricedScheduleLayoutObservations: bindingVersionAccepted ? persistedLayoutObservations : null,
+    pricedScheduleObservationContext: bindingVersionAccepted ? observationBindingContext : null,
     rateSchedulePages: effectiveRateSchedulePages,
     rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
     sourceEntries: canonicalEntries,

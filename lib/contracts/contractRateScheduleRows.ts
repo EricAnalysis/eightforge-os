@@ -14,6 +14,10 @@ import type {
   PricedScheduleCell,
   PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  resolvePdfLayoutObservationEvidence,
+  type PdfLayoutObservationBindingContext,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
 
 export type ContractRateScheduleSourceEntry = {
   id?: string | null;
@@ -62,6 +66,9 @@ type BuildContractRateScheduleRowsInput = {
    * scope-filtered by the caller; this builder does not widen pricing scope.
    */
   pricedScheduleReconstruction?: PagePricedScheduleReconstruction | null;
+  /** Untrusted persisted token evidence used only for exact modern anchor binding. */
+  pricedScheduleLayoutObservations?: unknown;
+  pricedScheduleObservationContext?: PdfLayoutObservationBindingContext | null;
   /** Explicit historical-only compatibility for evidence predating page proof. */
   allowUnscopedCompatibility?: boolean;
 };
@@ -1406,6 +1413,8 @@ function geometryRefsForPricedScheduleRow(
  */
 function buildPagePricedScheduleRows(
   reconstruction: PagePricedScheduleReconstruction | null | undefined,
+  persistedLayoutObservations: unknown,
+  observationContext: PdfLayoutObservationBindingContext | null | undefined,
 ): ContractRateScheduleRow[] {
   if (!reconstruction || !Array.isArray(reconstruction.pages)) return [];
 
@@ -1437,9 +1446,18 @@ function buildPagePricedScheduleRows(
         existingCanonicalCategory: null,
         existingConfidence: null,
       });
+      const rowId = `page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`;
+      const boundEvidence = resolvePdfLayoutObservationEvidence({
+        reconstruction: {
+          parser_version: reconstruction.parser_version,
+          pages: [{ ...page, rows: [row], rejected_spines: [], unassigned_lines: [] }],
+        },
+        persistedLayer: persistedLayoutObservations,
+        context: observationContext ?? null,
+      });
 
       rows.push({
-        row_id: `page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`,
+        row_id: rowId,
         description: descriptionCell.raw_text,
         unit: unitCell?.raw_text ?? null,
         rate,
@@ -1449,7 +1467,9 @@ function buildPagePricedScheduleRows(
         canonical_category: categoryResolution.canonical_category,
         category_confidence: categoryResolution.category_confidence,
         page: page.physical_page_number,
-        source_anchor_ids: [`page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`],
+        source_anchor_ids: boundEvidence
+          ? boundEvidence.map((observation) => observation.evidence_object_id)
+          : [rowId],
         rate_raw: rateCell.raw_text,
         material_type: null,
         unit_type: unitCell?.raw_text ?? null,
@@ -1512,7 +1532,11 @@ export function buildContractRateScheduleRows(
     return mdotSection905Rows;
   }
 
-  const pricedScheduleRows = buildPagePricedScheduleRows(params.pricedScheduleReconstruction);
+  const pricedScheduleRows = buildPagePricedScheduleRows(
+    params.pricedScheduleReconstruction,
+    params.pricedScheduleLayoutObservations,
+    params.pricedScheduleObservationContext,
+  );
   if (pricedScheduleRows.length > 0) {
     return pricedScheduleRows;
   }

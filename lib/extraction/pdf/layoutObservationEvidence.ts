@@ -56,6 +56,12 @@ export type PdfLayoutObservationsLayer = Readonly<{
   closure: PdfLayoutObservationClosure;
 }>;
 
+export type PdfLayoutObservationBindingContext = Readonly<{
+  sourceDocumentId: string;
+  sourceArtifactId: string;
+  totalPhysicalPages: number;
+}>;
+
 type LocatedRef = Readonly<{
   page: number;
   ref: PricedScheduleCellSourceRef;
@@ -339,6 +345,88 @@ export function validatePdfLayoutObservationClosure(params: {
     duplicate_observation_ids: duplicateIds,
     mismatched_observation_ids: mismatchedIds,
   });
+}
+
+/**
+ * Resolves accepted reconstruction refs to their exact persisted EvidenceObjects.
+ * The persisted layer is untrusted: its envelope and closure are independently
+ * validated against caller-owned source context before any object is returned.
+ */
+export function resolvePdfLayoutObservationEvidence(params: {
+  reconstruction: PagePricedScheduleReconstruction;
+  persistedLayer: unknown;
+  context: PdfLayoutObservationBindingContext | null;
+}): readonly PdfLayoutTokenObservation[] | null {
+  if (params.reconstruction.pages.some((page) =>
+    page.rows.some((row) => row.physical_page_number !== page.physical_page_number))) {
+    return null;
+  }
+  if (!params.context || !isRecord(params.persistedLayer)) return null;
+  const layer = params.persistedLayer;
+  if (
+    layer.parser_version !== PDF_LAYOUT_OBSERVATIONS_LAYER_VERSION
+    || layer.observation_version !== PDF_LAYOUT_OBSERVATION_VERSION
+    || layer.source_kind !== 'pdf'
+    || layer.materialization_scope !== 'priced_schedule_reconstruction_refs'
+    || layer.source_document_id !== params.context.sourceDocumentId
+    || layer.source_artifact_id !== params.context.sourceArtifactId
+    || layer.total_physical_pages !== params.context.totalPhysicalPages
+    || !Array.isArray(layer.observations)
+  ) return null;
+
+  const identityContext: PdfLayoutObservationIdentityContext = {
+    sourceDocumentId: params.context.sourceDocumentId,
+    sourceArtifactId: params.context.sourceArtifactId,
+  };
+  const closure = validatePdfLayoutObservationClosure({
+    reconstruction: params.reconstruction,
+    observations: layer.observations,
+    context: identityContext,
+    totalPhysicalPages: params.context.totalPhysicalPages,
+  });
+  if (closure.status !== 'complete') return null;
+
+  const acceptedIds = [...new Set(acceptedRefs(params.reconstruction)
+    .flatMap((entry) => entry.ref.observation_id
+      ? [String(entry.ref.observation_id)]
+      : []))]
+    .sort((left, right) => left.localeCompare(right, 'en-US'));
+  const byId = new Map<string, PdfLayoutTokenObservation>();
+  for (const observation of layer.observations) {
+    if (isPdfLayoutTokenObservation(observation) && acceptedIds.includes(observation.id)) {
+      byId.set(observation.id, observation);
+    }
+  }
+  if (byId.size !== acceptedIds.length) return null;
+  return Object.freeze(acceptedIds.map((id) => byId.get(id)!));
+}
+
+/**
+ * Resolves each reconstructed row atomically and unions only complete rows.
+ * A malformed neighboring row must not suppress evidence for an independently
+ * complete row, while no row can ever publish a partial anchor set.
+ */
+export function resolvePdfLayoutObservationEvidenceByRow(params: {
+  reconstruction: PagePricedScheduleReconstruction;
+  persistedLayer: unknown;
+  context: PdfLayoutObservationBindingContext | null;
+}): readonly PdfLayoutTokenObservation[] {
+  const byId = new Map<string, PdfLayoutTokenObservation>();
+  for (const page of params.reconstruction.pages) {
+    for (const row of page.rows) {
+      const resolved = resolvePdfLayoutObservationEvidence({
+        reconstruction: {
+          parser_version: params.reconstruction.parser_version,
+          pages: [{ ...page, rows: [row], rejected_spines: [], unassigned_lines: [] }],
+        },
+        persistedLayer: params.persistedLayer,
+        context: params.context,
+      });
+      for (const observation of resolved ?? []) byId.set(observation.id, observation);
+    }
+  }
+  return Object.freeze([...byId.values()].sort((left, right) =>
+    left.id.localeCompare(right.id, 'en-US')));
 }
 
 export function buildPdfLayoutObservationsLayer(params: {

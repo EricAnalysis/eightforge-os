@@ -80,18 +80,40 @@ describe.skipIf(!corpusConfigured)('generic priced schedule reconstruction again
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([, value]) => value);
 
-    const layout = await loadPdfLayout(new Uint8Array(pdfBytes).buffer as ArrayBuffer);
+    const layout = await loadPdfLayout(new Uint8Array(pdfBytes).buffer as ArrayBuffer, {
+      observationIdentity: OBSERVATION_CONTEXT,
+    });
     const reconstruction = buildPagePricedScheduleReconstruction({ layout });
+    const layoutObservations = buildPdfLayoutObservationsLayer({
+      layout, reconstruction, context: OBSERVATION_CONTEXT,
+    });
     const rows = buildContractRateScheduleRows({
       rateTable: null,
       pricedScheduleReconstruction: reconstruction,
+      pricedScheduleLayoutObservations: layoutObservations,
+      pricedScheduleObservationContext: {
+        ...OBSERVATION_CONTEXT,
+        totalPhysicalPages: layout.page_count,
+      },
     });
 
     // Only the priced page reconstructs; the unpriced structural pages do not
     // contribute rows and are never stitched into a priced row.
     expect(reconstruction.pages.map((page) => page.physical_page_number)).toEqual([pricedPage]);
     expect(rows).toHaveLength(expectedRows.length);
+    expect(rows).toHaveLength(32);
     expect(rows.every((row) => row.page === pricedPage)).toBe(true);
+    const anchors = rows.flatMap((row) => row.source_anchor_ids);
+    const observationById = new Map(layoutObservations.observations.map((entry) => [entry.id, entry]));
+    expect(rows.filter((row) => row.source_anchor_ids.some((id) => id.startsWith('page_priced_schedule:'))))
+      .toEqual([]);
+    expect(new Set(anchors).size).toBe(181);
+    expect(anchors.every((id) => observationById.get(id)?.kind === 'pdf_layout_token')).toBe(true);
+    expect(anchors.every((id) => observationById.get(id)?.physical_page_number === pricedPage)).toBe(true);
+    expect(anchors.every((id) => observationById.get(id)?.source_document_id === OBSERVATION_CONTEXT.sourceDocumentId))
+      .toBe(true);
+    expect(anchors.every((id) => observationById.get(id)?.source_artifact_id === OBSERVATION_CONTEXT.sourceArtifactId))
+      .toBe(true);
 
     // Every labelled role agrees exactly with the source-derived reconstruction.
     rows.forEach((row, index) => {

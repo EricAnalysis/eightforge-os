@@ -16,7 +16,7 @@ const ORIGIN_X = 300;
 const CURRENCY_X = 450;
 const AMOUNT_X = 470;
 
-type TokenSpec = { x: number; text: string; width?: number };
+type TokenSpec = { x: number; text: string; width?: number; observation_id?: PdfToken['observation_id'] };
 
 function token(spec: TokenSpec, y: number): PdfToken {
   return {
@@ -25,6 +25,7 @@ function token(spec: TokenSpec, y: number): PdfToken {
     y,
     width: spec.width ?? Math.max(8, spec.text.length * 5),
     height: 10,
+    ...(spec.observation_id ? { observation_id: spec.observation_id } : {}),
   };
 }
 
@@ -122,6 +123,26 @@ describe('generic single-page priced schedule reconstruction', () => {
     const descriptionCell = result!.rows[0]!.cells.find((cell) => cell.role === 'description');
     expect(descriptionCell!.source_refs).toHaveLength(2);
     expect(cellText(result!.rows[1]!, 'description')).toBe('Delta service');
+  });
+
+  it('B2: preserves every primitive observation identity in a multiline cell', () => {
+    const result = reconstructSinglePage([
+      headerLine(7),
+      line(7, 686, [{ x: DESCRIPTION_X, text: 'Wrapped Alpha', width: 100, observation_id: 'observation-a' as PdfToken['observation_id'] }]),
+      line(7, 680, [
+        { x: UNIT_X, text: 'Widget', observation_id: 'observation-b' as PdfToken['observation_id'] },
+        { x: ORIGIN_X, text: 'Yard', observation_id: 'observation-c' as PdfToken['observation_id'] },
+        { x: CURRENCY_X, text: '$', observation_id: 'observation-d' as PdfToken['observation_id'] },
+        { x: AMOUNT_X, text: '12.00', observation_id: 'observation-e' as PdfToken['observation_id'] },
+      ]),
+      line(7, 674, [{ x: DESCRIPTION_X, text: 'Tail', width: 100, observation_id: 'observation-f' as PdfToken['observation_id'] }]),
+      pricedLine(7, 640, { description: 'Beta', unit: 'Widget', origin: 'Depot', currency: '$', amount: '3.50' }),
+    ]);
+    const refs = result!.rows[0]!.cells.flatMap((cell) => cell.source_refs)
+      .flatMap((entry) => entry.observation_id ? [entry.observation_id] : []);
+    expect(refs).toEqual([
+      'observation-a', 'observation-f', 'observation-b', 'observation-c', 'observation-d', 'observation-e',
+    ]);
   });
 
   it('C: reassembles an origin/destination that wraps across lines', () => {

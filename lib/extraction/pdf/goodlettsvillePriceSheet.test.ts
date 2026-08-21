@@ -65,6 +65,24 @@ describe('Goodlettsville scanned price sheet extraction', () => {
       },
     );
 
+    const layoutObservations = (payload.extraction.content_layers_v1 as {
+      pdf?: { layout_observations_v1?: {
+        parser_version?: string;
+        source_document_id?: string | null;
+        source_artifact_id?: string | null;
+        observations?: Array<{ id?: string; evidence_object_id?: string }>;
+        closure?: { status?: string; accepted_ref_count?: number };
+      } };
+    } | undefined)?.pdf?.layout_observations_v1;
+    assert.equal(layoutObservations?.parser_version, 'pdf_layout_observations_v1');
+    assert.equal(layoutObservations?.source_document_id, 'goodlettsville-price-sheet');
+    assert.equal(layoutObservations?.source_artifact_id, '20000000-0000-4000-8000-000000000002');
+    if ((layoutObservations?.closure?.accepted_ref_count ?? 0) > 0) {
+      assert.equal(layoutObservations?.closure?.status, 'complete');
+      assert.ok((layoutObservations?.observations?.length ?? 0) > 0);
+      assert.ok(layoutObservations?.observations?.every((entry) => entry.id === entry.evidence_object_id));
+    }
+
     const pageTwoTables = contentLayerTables(payload).filter((table) => table.page_number === 2);
     const priceSheetTable = pageTwoTables.find((table) =>
       table.rows.some((row) => /\$\s*\d/.test(row.raw_text)),

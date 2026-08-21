@@ -3,6 +3,13 @@ import {
   countUnsafeTextControls,
   stripUnsafeTextControls,
 } from '@/lib/extraction/textSanitization';
+import {
+  createPdfLayoutObservationIdentity,
+  pdfLayoutPageRepresentationDigest,
+  type PdfLayoutObservationIdentity,
+  type PdfLayoutObservationIdentityContext,
+  type PdfLayoutObservationId,
+} from '@/lib/extraction/pdf/layoutObservationIdentity';
 
 export interface PdfToken {
   text: string;
@@ -17,6 +24,9 @@ export interface PdfToken {
   // sourced from Tesseract word-level output (see ocrGeometryLayout.ts);
   // undefined for native pdfjs text, which has no per-character OCR confidence.
   confidence?: number | null;
+  /** Primitive source-observation identity assigned before downstream sorting/grouping. */
+  observation_id?: PdfLayoutObservationId;
+  observation_identity?: PdfLayoutObservationIdentity;
 }
 
 export interface PdfLayoutLine {
@@ -171,7 +181,10 @@ function buildTextBlocks(page: PdfLayoutPage): PdfTextBlock[] {
 
 export async function loadPdfLayout(
   bytes: ArrayBuffer,
-  options?: { maxPages?: number },
+  options?: {
+    maxPages?: number;
+    observationIdentity?: PdfLayoutObservationIdentityContext | null;
+  },
 ): Promise<PdfLayout> {
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -192,21 +205,43 @@ export async function loadPdfLayout(
         height?: number;
         transform?: number[];
       }>;
+      const pageRepresentationDigest = options?.observationIdentity
+        ? pdfLayoutPageRepresentationDigest(items.map((item) => ({
+            text: item.str ?? '',
+            width: item.width ?? null,
+            height: item.height ?? null,
+            transform: item.transform ?? null,
+          })))
+        : null;
 
       const tokens = items
-        .map((item) => {
+        .map((item, itemIndex) => {
           const rawText = item.str ?? '';
           const removedControls = countUnsafeTextControls(rawText);
           if (removedControls > 0) {
             strippedControlCount += removedControls;
             sanitizedTokenCount += 1;
           }
+          const observationIdentity = options?.observationIdentity && pageRepresentationDigest
+            ? createPdfLayoutObservationIdentity({
+                context: options.observationIdentity,
+                physicalPageNumber: pageNumber,
+                sourceMethod: 'pdfjs',
+                parser: 'pdfjs_text_content',
+                parserObservationKey: `item:${itemIndex}`,
+                pageRepresentationDigest,
+              })
+            : null;
           return {
             text: stripUnsafeTextControls(rawText).trim(),
             x: Array.isArray(item.transform) ? round(item.transform[4] ?? 0) : 0,
             y: Array.isArray(item.transform) ? round(item.transform[5] ?? 0) : 0,
             width: typeof item.width === 'number' ? round(item.width) : 0,
             height: typeof item.height === 'number' ? round(item.height) : 0,
+            source: 'pdfjs' as const,
+            ...(observationIdentity
+              ? { observation_id: observationIdentity.id, observation_identity: observationIdentity }
+              : {}),
           };
         })
         .filter((token) => token.text.length > 0);
@@ -472,7 +507,12 @@ export function buildPdfTextExtraction(params: {
 
 export async function extractText(
   bytes: ArrayBuffer,
-  options?: { maxPages?: number; fallbackText?: string | null; fallbackPages?: PdfFallbackPageText[] | null },
+  options?: {
+    maxPages?: number;
+    fallbackText?: string | null;
+    fallbackPages?: PdfFallbackPageText[] | null;
+    observationIdentity?: PdfLayoutObservationIdentityContext | null;
+  },
 ): Promise<PdfTextExtractionResult> {
   const layout = await loadPdfLayout(bytes, options);
   return buildPdfTextExtraction({

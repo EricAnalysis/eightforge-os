@@ -27,6 +27,12 @@ export interface EvidenceLocation {
   label?: string;
   nearby_text?: string;
   header_context?: string[];
+  bounding_box?: {
+    x_min: number;
+    x_max: number;
+    y_min: number;
+    y_max: number;
+  };
 }
 
 export type EvidenceValue = string | number | boolean | null;
@@ -45,6 +51,7 @@ export interface EvidenceObject {
     | 'text'
     | 'table'
     | 'table_row'
+    | 'pdf_layout_token'
     | 'form_field'
     | 'sheet'
     | 'sheet_row'
@@ -58,6 +65,8 @@ export interface EvidenceObject {
   weak: boolean;
   /** Always set at extraction ingest; also copied into metadata.source_document_id when metadata is present. */
   source_document_id: string;
+  /** Immutable source artifact when the evidence was created with captured provenance. */
+  source_artifact_id?: string;
   /** Validated physical-page provenance when the persisted evidence supplies it. */
   physical_page_coordinate?: PhysicalPageCoordinate;
   metadata?: Record<string, unknown>;

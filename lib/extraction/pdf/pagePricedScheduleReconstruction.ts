@@ -122,6 +122,8 @@ export type PricedScheduleColumnBand = {
 };
 
 export type PricedScheduleCellSourceRef = {
+  /** Shared primitive PDF layout observation identity when captured by the source parser. */
+  readonly observation_id?: NonNullable<PdfToken['observation_id']>;
   readonly text: string;
   readonly x_min: number;
   readonly x_max: number;
@@ -372,6 +374,7 @@ function isRowSpineToken(token: PdfToken): boolean {
 
 function sourceRefForToken(token: PdfToken): PricedScheduleCellSourceRef {
   return {
+    ...(token.observation_id ? { observation_id: token.observation_id } : {}),
     text: token.text,
     x_min: token.x,
     x_max: token.x + token.width,

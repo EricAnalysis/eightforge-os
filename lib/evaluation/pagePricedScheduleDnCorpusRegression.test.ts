@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { loadPdfLayout } from '@/lib/extraction/pdf/extractText';
+import { buildPdfLayoutObservationsLayer } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import {
   buildPagePricedScheduleReconstruction,
   type PricedSchedulePage,
@@ -41,6 +42,10 @@ const EXPECTED_PHYSICAL_PAGE_COUNT = 131;
 
 /** The priced page, recorded as fixture evidence -- never used to find it. */
 const EXPECTED_PRICED_PAGE = 106;
+const OBSERVATION_CONTEXT = {
+  sourceDocumentId: 'dn-corpus-document',
+  sourceArtifactId: '60000000-0000-4000-8000-000000000106',
+} as const;
 
 /**
  * The authored header, exactly as read. Five of its eight columns carry no
@@ -184,7 +189,9 @@ const RECOGNIZED_ROLES = ['description', 'unit', 'rate'] as const;
 
 async function loadReconstruction() {
   const pdfBytes = await readFile(path.resolve(sourcePdfPath!));
-  const layout = await loadPdfLayout(new Uint8Array(pdfBytes).buffer as ArrayBuffer);
+  const layout = await loadPdfLayout(new Uint8Array(pdfBytes).buffer as ArrayBuffer, {
+    observationIdentity: OBSERVATION_CONTEXT,
+  });
   return {
     pdfBytes,
     layout,
@@ -203,6 +210,25 @@ function cellOf(row: PricedSchedulePage['rows'][number], role: string) {
 }
 
 describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against a real source', () => {
+  it('closes accepted identities while keeping withheld source observations diagnostic-only', async () => {
+    const { layout, reconstruction } = await loadReconstruction();
+    const layer = buildPdfLayoutObservationsLayer({
+      layout, reconstruction, context: OBSERVATION_CONTEXT,
+    });
+    expect(layer.closure).toMatchObject({
+      status: 'complete', accepted_ref_count: 63, accepted_identified_ref_count: 63,
+      diagnostic_identified_ref_count: 15, persisted_observation_count: 78,
+    });
+    const acceptedIds = new Set(reconstruction.pages.flatMap((page) => page.rows.flatMap((row) =>
+      row.cells.flatMap((cell) => cell.source_refs.flatMap((ref) => ref.observation_id ? [ref.observation_id] : [])))));
+    const diagnosticIds = new Set(reconstruction.pages.flatMap((page) => page.unassigned_lines.flatMap((line) =>
+      line.source_refs.flatMap((ref) => ref.observation_id ? [ref.observation_id] : []))));
+    expect(acceptedIds.size).toBe(63);
+    expect(diagnosticIds.size).toBe(15);
+    expect([...diagnosticIds].some((id) => acceptedIds.has(id))).toBe(false);
+    expect(layer.observations).toHaveLength(78);
+  }, 300_000);
+
   it('reconstructs from the exact bytes these expectations were recorded from', async () => {
     const { pdfBytes, layout, reconstruction } = await loadReconstruction();
 

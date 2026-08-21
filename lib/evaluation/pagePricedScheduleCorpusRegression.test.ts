@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { loadPdfLayout } from '@/lib/extraction/pdf/extractText';
+import { buildPdfLayoutObservationsLayer } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 
 /**
@@ -22,6 +23,10 @@ import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/page
 const sourcePdfPath = process.env.TDOT_PHASE1_SOURCE_PDF?.trim();
 const phase0PackagePath = process.env.TDOT_PHASE1_PHASE0_PACKAGE?.trim();
 const corpusConfigured = Boolean(sourcePdfPath && phase0PackagePath);
+const OBSERVATION_CONTEXT = {
+  sourceDocumentId: 'tdot-corpus-document',
+  sourceArtifactId: '70000000-0000-4000-8000-000000000046',
+} as const;
 
 type LedgerObservation = {
   source_pdf_sha256: string;
@@ -132,5 +137,27 @@ describe.skipIf(!corpusConfigured)('generic priced schedule reconstruction again
     });
 
     expect(second).toEqual(first);
+  }, 300_000);
+
+  it('closes every accepted primitive observation and replays the selective layer byte-for-byte', async () => {
+    const pdfBytes = await readFile(path.resolve(sourcePdfPath!));
+    const layout = await loadPdfLayout(new Uint8Array(pdfBytes).buffer as ArrayBuffer, {
+      observationIdentity: OBSERVATION_CONTEXT,
+    });
+    const reconstruction = buildPagePricedScheduleReconstruction({ layout });
+    const first = buildPdfLayoutObservationsLayer({
+      layout, reconstruction, context: OBSERVATION_CONTEXT,
+    });
+    const replay = buildPdfLayoutObservationsLayer({
+      layout: { ...layout, pages: [...layout.pages].reverse() },
+      reconstruction,
+      context: OBSERVATION_CONTEXT,
+    });
+    expect(first.closure).toMatchObject({
+      status: 'complete', accepted_ref_count: 181, accepted_identified_ref_count: 181,
+      diagnostic_identified_ref_count: 0, persisted_observation_count: 181,
+    });
+    expect(new Set(first.observations.map((entry) => entry.id)).size).toBe(181);
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(first));
   }, 300_000);
 });

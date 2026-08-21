@@ -40,6 +40,11 @@ import {
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPdfTableExtraction, type PdfTable } from '@/lib/extraction/pdf/extractTables';
 import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  buildPdfLayoutObservationsLayer,
+  type PdfLayoutObservationsLayer,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
+import type { PdfLayoutObservationIdentityContext } from '@/lib/extraction/pdf/layoutObservationIdentity';
 import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
@@ -913,16 +918,16 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
   if (!Array.isArray(blocks)) return [];
   const words: OcrGeometryWord[] = [];
 
-  for (const block of blocks) {
+  for (const [blockIndex, block] of blocks.entries()) {
     const paragraphs = (block as { paragraphs?: unknown })?.paragraphs;
     if (!Array.isArray(paragraphs)) continue;
-    for (const paragraph of paragraphs) {
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
       const lines = (paragraph as { lines?: unknown })?.lines;
       if (!Array.isArray(lines)) continue;
-      for (const line of lines) {
+      for (const [lineIndex, line] of lines.entries()) {
         const lineWords = (line as { words?: unknown })?.words;
         if (!Array.isArray(lineWords)) continue;
-        for (const word of lineWords) {
+        for (const [wordIndex, word] of lineWords.entries()) {
           const text = (word as { text?: unknown }).text;
           const bbox = (word as { bbox?: unknown }).bbox;
           const confidence = (word as { confidence?: unknown }).confidence;
@@ -940,6 +945,7 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
           words.push({
             text,
             confidence: typeof confidence === 'number' ? confidence : null,
+            parser_path: `block:${blockIndex}/paragraph:${paragraphIndex}/line:${lineIndex}/word:${wordIndex}`,
             bbox: {
               x0: box.x0,
               y0: box.y0,
@@ -1012,6 +1018,7 @@ async function extractPdfPageTextViaOcr(
         };
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
+        const renderSha256 = sha256Hex(pngBuffer);
         const result = recognitionPages.has(pageNum)
           ? await worker.recognize(
               pngBuffer,
@@ -1025,7 +1032,7 @@ async function extractPdfPageTextViaOcr(
         pageImages.push({
           page_number: pageNum,
           png_buffer: pngBuffer,
-          render_sha256: sha256Hex(pngBuffer),
+          render_sha256: renderSha256,
           width,
           height,
           text_detected: typeof text === 'string' && text.trim().length > 0,
@@ -1046,6 +1053,7 @@ async function extractPdfPageTextViaOcr(
             page_number: pageNum,
             width,
             height,
+            representation_key: `tesseract:eng:psm11:pdfjs-scale2:${renderSha256}`,
             words,
           });
         }
@@ -1094,7 +1102,11 @@ function buildLocatedOcrObservationSidecar(
         width: page.width,
         height: page.height,
         text_detected: page.text_detected,
-        words: geometryByPage.get(page.page_number)?.words ?? [],
+        words: (geometryByPage.get(page.page_number)?.words ?? []).map((word) => ({
+          text: word.text,
+          confidence: word.confidence,
+          bbox: word.bbox,
+        })),
         physical_page_provenance: totalPhysicalPages != null
           ? { state: 'iterated' as const, seed: {
               physical_page_number: page.page_number,
@@ -1421,6 +1433,7 @@ function applyPdfContentLayers(
     text: ReturnType<typeof buildPdfTextExtraction>;
     tables: ReturnType<typeof buildPdfTableExtraction>;
     pricedScheduleReconstruction: ReturnType<typeof buildPagePricedScheduleReconstruction>;
+    layoutObservations: PdfLayoutObservationsLayer;
     forms: ReturnType<typeof buildPdfFormExtraction>;
     pdfEvidenceLayer: ReturnType<typeof buildPdfEvidenceMap>;
     parsedElementsLayer?: ParsedElementsV1 | null;
@@ -1455,6 +1468,7 @@ function applyPdfContentLayers(
       text: params.text,
       tables: params.tables,
       priced_schedule_reconstruction_v1: params.pricedScheduleReconstruction,
+      layout_observations_v1: params.layoutObservations,
       forms: params.forms,
       evidence,
       confidence: params.pdfEvidenceLayer.confidence,
@@ -1584,6 +1598,16 @@ export async function extractDocument(
   provenanceContext?: ExtractionProvenanceContext | null,
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
+  const pdfLayoutObservationIdentityContext: PdfLayoutObservationIdentityContext | null =
+    provenanceContext
+    && provenanceContext.sourceDocumentId === metadata.id
+    && typeof provenanceContext.sourceArtifactId === 'string'
+    && provenanceContext.sourceArtifactId.trim().length > 0
+      ? {
+          sourceDocumentId: provenanceContext.sourceDocumentId,
+          sourceArtifactId: provenanceContext.sourceArtifactId,
+        }
+      : null;
   const contractDebugEnabled = process.env.EIGHTFORGE_DEBUG_CONTRACT === '1';
   /**
    * Terminal wrapper for sources with no page topology (text, CSV, spreadsheets).
@@ -1825,6 +1849,7 @@ export async function extractDocument(
 
     const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
       maxPages: MAX_EVIDENCE_PAGES,
+      observationIdentity: pdfLayoutObservationIdentityContext,
     });
     observePhysicalPageCount(pdfLayout.page_count);
     const pdfGateTextLayer = buildPdfTextExtraction({
@@ -2055,6 +2080,7 @@ export async function extractDocument(
       ocrTextPageNumbers: evidencePageText
         .filter((page) => page.source_method === 'ocr')
         .map((page) => page.page_number),
+      observationIdentity: pdfLayoutObservationIdentityContext,
     });
     const structuredLayout = ocrLayoutMerge.layout;
     const pdfTextLayer = buildPdfTextExtraction({
@@ -2072,6 +2098,11 @@ export async function extractDocument(
     });
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: structuredLayout,
+    });
+    const pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
+      layout: structuredLayout,
+      reconstruction: pricedScheduleReconstructionLayer,
+      context: pdfLayoutObservationIdentityContext,
     });
     const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
 
@@ -2274,6 +2305,7 @@ export async function extractDocument(
         text: pdfTextLayer,
         tables: pdfTableLayer,
         pricedScheduleReconstruction: pricedScheduleReconstructionLayer,
+        layoutObservations: pdfLayoutObservationsLayer,
         forms: pdfFormLayer,
         pdfEvidenceLayer,
         parsedElementsLayer,
@@ -2398,6 +2430,7 @@ export async function extractDocument(
       text: pdfTextLayer,
       tables: pdfTableLayer,
       pricedScheduleReconstruction: pricedScheduleReconstructionLayer,
+      layoutObservations: pdfLayoutObservationsLayer,
       forms: pdfFormLayer,
       pdfEvidenceLayer,
       parsedElementsLayer,

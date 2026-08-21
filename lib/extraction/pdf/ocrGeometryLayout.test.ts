@@ -8,6 +8,8 @@ import {
   type OcrGeometryWord,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 
+const IDENTITY_CONTEXT = { sourceDocumentId: 'document-a', sourceArtifactId: 'artifact-a' } as const;
+
 function word(text: string, x: number, y: number, width = Math.max(20, text.length * 8)): OcrGeometryWord {
   return {
     text,
@@ -47,6 +49,49 @@ function emptyNativeLayout(pageCount = 1): PdfLayout {
 }
 
 describe('OCR geometry layout recovery', () => {
+  it('assigns distinct stable primitive identities before sorting duplicate-looking OCR words', () => {
+    const duplicate = word('same', 10, 20);
+    const words = [
+      { ...duplicate, parser_path: 'block:0/paragraph:0/line:0/word:4' },
+      { ...duplicate, parser_path: 'block:0/paragraph:0/line:0/word:5' },
+    ];
+    const first = buildOcrLayoutPages([{ page_number: 1, words }], IDENTITY_CONTEXT);
+    const ids = first[0]!.lines[0]!.tokens.map((token) => token.observation_id);
+    expect(ids[0]).toBeTruthy();
+    expect(ids[0]).not.toBe(ids[1]);
+    const replay = buildOcrLayoutPages([{ page_number: 1, words }], IDENTITY_CONTEXT);
+    expect(replay[0]!.lines[0]!.tokens.map((token) => token.observation_id)).toEqual(ids);
+  });
+
+  it('separates OCR identity by page and preserves the chosen OCR page identities through merge', () => {
+    const sourceWord = { ...word('same', 10, 20), parser_path: 'block:0/paragraph:0/line:0/word:0' };
+    const pages = buildOcrLayoutPages([
+      { page_number: 1, words: [sourceWord] },
+      { page_number: 2, words: [sourceWord] },
+    ], IDENTITY_CONTEXT);
+    expect(pages[0]!.lines[0]!.tokens[0]!.observation_id)
+      .not.toBe(pages[1]!.lines[0]!.tokens[0]!.observation_id);
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: emptyNativeLayout(1),
+      ocrPages: [{ page_number: 1, words: [sourceWord] }],
+      observationIdentity: IDENTITY_CONTEXT,
+    });
+    expect(merged.layout.pages[0]!.lines[0]!.tokens[0]!.observation_id)
+      .toBe(pages[0]!.lines[0]!.tokens[0]!.observation_id);
+  });
+
+  it('changes OCR identity when the rendered extraction representation changes', () => {
+    const sourceWord = { ...word('same', 10, 20), parser_path: 'block:0/paragraph:0/line:0/word:0' };
+    const first = buildOcrLayoutPages([{
+      page_number: 1, representation_key: 'render-a:tesseract-psm11', words: [sourceWord],
+    }], IDENTITY_CONTEXT);
+    const changed = buildOcrLayoutPages([{
+      page_number: 1, representation_key: 'render-b:tesseract-psm11', words: [sourceWord],
+    }], IDENTITY_CONTEXT);
+    expect(first[0]!.lines[0]!.tokens[0]!.observation_id)
+      .not.toBe(changed[0]!.lines[0]!.tokens[0]!.observation_id);
+  });
+
   it('groups OCR words into PdfLayoutLine rows by y-coordinate and reading order', () => {
     const pages = buildOcrLayoutPages([{
       page_number: 8,

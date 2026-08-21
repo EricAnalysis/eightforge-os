@@ -6,6 +6,11 @@ import {
   type PdfLayoutPage,
   type PdfToken,
 } from '@/lib/extraction/pdf/extractText';
+import {
+  createPdfLayoutObservationIdentity,
+  pdfLayoutPageRepresentationDigest,
+  type PdfLayoutObservationIdentityContext,
+} from '@/lib/extraction/pdf/layoutObservationIdentity';
 
 export interface OcrGeometryWord {
   text: string;
@@ -16,12 +21,16 @@ export interface OcrGeometryWord {
     x1: number;
     y1: number;
   };
+  /** Original Tesseract block/paragraph/line/word traversal path, before filtering. */
+  parser_path?: string;
 }
 
 export interface OcrGeometryPage {
   page_number: number;
   width?: number | null;
   height?: number | null;
+  /** Digest/config binding for the exact rendered OCR representation. */
+  representation_key?: string;
   words: OcrGeometryWord[];
 }
 
@@ -51,7 +60,15 @@ function normalizeWordText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function wordToToken(word: OcrGeometryWord): PdfToken | null {
+function wordToToken(
+  word: OcrGeometryWord,
+  params: {
+    pageNumber: number;
+    wordIndex: number;
+    pageRepresentationDigest: string | null;
+    identityContext?: PdfLayoutObservationIdentityContext | null;
+  },
+): PdfToken | null {
   const text = normalizeWordText(word.text);
   const { x0, y0, x1, y1 } = word.bbox;
   if (!text || !Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) {
@@ -66,6 +83,16 @@ function wordToToken(word: OcrGeometryWord): PdfToken | null {
   const confidence = typeof word.confidence === 'number' && Number.isFinite(word.confidence)
     ? Math.max(0, Math.min(1, word.confidence / 100))
     : null;
+  const observationIdentity = params.identityContext && params.pageRepresentationDigest
+    ? createPdfLayoutObservationIdentity({
+        context: params.identityContext,
+        physicalPageNumber: params.pageNumber,
+        sourceMethod: 'ocr_fallback',
+        parser: 'tesseract_blocks',
+        parserObservationKey: word.parser_path ?? `word:${params.wordIndex}`,
+        pageRepresentationDigest: params.pageRepresentationDigest,
+      })
+    : null;
   return {
     text,
     x: Math.round(x0 * 1000) / 1000,
@@ -74,6 +101,9 @@ function wordToToken(word: OcrGeometryWord): PdfToken | null {
     height: Math.round(height * 1000) / 1000,
     source: 'ocr_fallback',
     confidence,
+    ...(observationIdentity
+      ? { observation_id: observationIdentity.id, observation_identity: observationIdentity }
+      : {}),
   };
 }
 
@@ -90,10 +120,29 @@ function median(values: number[]): number {
     : sorted[middle] ?? 0;
 }
 
-export function buildOcrLayoutPages(pages: OcrGeometryPage[]): PdfLayoutPage[] {
+export function buildOcrLayoutPages(
+  pages: OcrGeometryPage[],
+  identityContext?: PdfLayoutObservationIdentityContext | null,
+): PdfLayoutPage[] {
   return pages.map((page) => {
+    const pageRepresentationDigest = identityContext
+      ? pdfLayoutPageRepresentationDigest({
+          representation_key: page.representation_key ?? null,
+          words: page.words.map((word) => ({
+            parser_path: word.parser_path ?? null,
+            text: word.text,
+            confidence: word.confidence ?? null,
+            bbox: word.bbox,
+          })),
+        })
+      : null;
     const tokens = page.words
-      .map(wordToToken)
+      .map((word, wordIndex) => wordToToken(word, {
+        pageNumber: page.page_number,
+        wordIndex,
+        pageRepresentationDigest,
+        identityContext,
+      }))
       .filter((token): token is PdfToken => token != null)
       .sort((left, right) => lineCenter(left) - lineCenter(right) || left.x - right.x);
 
@@ -146,9 +195,11 @@ export function mergeOcrFallbackLayout(params: {
   nativeLayout: PdfLayout;
   ocrPages: OcrGeometryPage[];
   ocrTextPageNumbers?: number[];
+  observationIdentity?: PdfLayoutObservationIdentityContext | null;
 }): OcrLayoutMergeResult {
   const ocrLayoutByPage = new Map(
-    buildOcrLayoutPages(params.ocrPages).map((page) => [page.page_number, page] as const),
+    buildOcrLayoutPages(params.ocrPages, params.observationIdentity)
+      .map((page) => [page.page_number, page] as const),
   );
   const ocrTextPageSet = new Set(params.ocrTextPageNumbers ?? []);
   const pagesUsingNative: number[] = [];

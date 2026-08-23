@@ -60,7 +60,8 @@ describe('auditLabelledPricingA3Ledger', () => {
   it('computes exact mapped denominators and preserves authored nonnumeric cost text', () => {
     const report = auditLabelledPricingA3Ledger(ledger());
 
-    expect(report.corpusStatus).toBe('labelled_a3_labels_ready');
+    expect(report.corpusStatus).toBe('labelled_a3_unmet_labels');
+    expect(report.unmetReasons).toEqual(['human_attestation_missing']);
     expect(report.roleMapping).toEqual({
       description: 'description_like_text',
       unit: 'unit_like_text',
@@ -92,9 +93,10 @@ describe('auditLabelledPricingA3Ledger', () => {
     expect(report.roleMapping).toBe(LABELLED_PRICING_A3_ROLE_MAPPING);
   });
 
-  it('allows human-attested draft labels for evaluation but not promotion', () => {
+  it('does not accept a self-attested draft ledger or authorize promotion', () => {
     const report = auditLabelledPricingA3Ledger(ledger({ package_status: 'draft' }));
-    expect(report.corpusStatus).toBe('labelled_a3_labels_ready');
+    expect(report.corpusStatus).toBe('labelled_a3_unmet_labels');
+    expect(report.unmetReasons).toEqual(['human_attestation_missing']);
     expect(report.warnings).toEqual(['label_package_draft']);
     expect(report.package.promotionSuitable).toBe(false);
   });
@@ -109,7 +111,7 @@ describe('auditLabelledPricingA3Ledger', () => {
           attested_at: '2026-01-02T03:04:05.000Z',
         },
       },
-    }, ['label_provenance_machine_generated']],
+    }, ['human_attestation_missing', 'label_provenance_machine_generated']],
     ['missing human attestation', {
       label_provenance: { method: 'human_authored' },
     }, ['human_attestation_missing']],

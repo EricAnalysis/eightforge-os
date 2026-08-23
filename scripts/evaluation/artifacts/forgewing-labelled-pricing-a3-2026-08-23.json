@@ -3,8 +3,8 @@
   "authority": "non_authoritative_measurement",
   "promotionEvidence": false,
   "runIdentity": {
-    "runId": "forgewing-labelled-a3-977cdaf934ef37888c5748b2c8f1dc5c",
-    "createdAt": "2026-08-23T19:52:40.592Z"
+    "runId": "forgewing-labelled-a3-ed563583ebd860ecb07587bdac823495",
+    "createdAt": "2026-08-23T23:00:39.722Z"
   },
   "sourceIdentity": {
     "path": "C:\\Users\\ADMS Thompson\\Desktop\\EightForgeDocTrainning\\Training Projects\\TDOT\\SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf",
@@ -1519,6 +1519,23 @@
     },
     "promotionSuitable": false
   },
+  "humanAttestation": {
+    "path": null,
+    "supplied": false,
+    "validation": null,
+    "authority": "evaluation_ground_truth_only",
+    "promotionAuthorized": false
+  },
+  "exactLabelLinkage": {
+    "path": null,
+    "supplied": false,
+    "status": "label_linkage_gap",
+    "failureReasons": [
+      "linkage_manifest_missing"
+    ],
+    "scoredLabelObservationIds": [],
+    "promotionAuthorized": false
+  },
   "modelIdentity": {
     "provider": "anthropic",
     "providerConfigured": true,
@@ -1548,7 +1565,8 @@
         "resolutionState": "unresolved",
         "eligibilityReason": "authoritative_scope_match",
         "labelLinkage": "unmet_labels",
-        "labelObservationIds": []
+        "labelObservationIds": [],
+        "linkedRoles": []
       },
       {
         "candidateId": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
@@ -1564,7 +1582,8 @@
         "resolutionState": "unresolved",
         "eligibilityReason": "authoritative_scope_match",
         "labelLinkage": "unmet_labels",
-        "labelObservationIds": []
+        "labelObservationIds": [],
+        "linkedRoles": []
       }
     ]
   },
@@ -1596,7 +1615,6 @@
   },
   "cases": [],
   "failureReasons": [
-    "human_attestation_missing",
-    "label_provenance_machine_generated"
+    "human_attestation_missing"
   ]
 }

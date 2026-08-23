@@ -2,20 +2,28 @@
  * Evaluation-only labelled A3 orchestrator.
  *
  * This freezes the real A2 candidate set before any provider work, audits the
- * label package, and emits a durable non-authoritative report. Labels that are
- * draft, machine-generated, or lack human attestation stop before provider
- * invocation. Exact candidate-to-label linkage is a separate mandatory gate.
+ * label package, and emits a durable non-authoritative report. Labels without
+ * a valid exact-byte attestation stop before provider invocation. Exact
+ * candidate-to-label linkage is a separate mandatory gate.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 
-import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
   auditLabelledPricingA3Ledger,
   FORGEWING_LABELLED_PRICING_A3_VERSION,
 } from '@/lib/evaluation/forgewing/labelledPricingA3';
+import {
+  validateForgewingLabelAttestation,
+  type ForgewingLabelAttestationValidation,
+} from '@/lib/evaluation/forgewing/labelledPricingAttestation';
+import {
+  validateForgewingLabelLinkage,
+  type ForgewingCandidateLabelLinkage,
+} from '@/lib/evaluation/forgewing/labelledPricingLinkage';
 import { parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import {
   prepareForgewingPricingCorpus,
@@ -43,6 +51,21 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
     audit: ReturnType<typeof auditLabelledPricingA3Ledger>;
     promotionSuitable: false;
   }>;
+  humanAttestation: Readonly<{
+    path: string | null;
+    supplied: boolean;
+    validation: ForgewingLabelAttestationValidation | null;
+    authority: 'evaluation_ground_truth_only';
+    promotionAuthorized: false;
+  }>;
+  exactLabelLinkage: Readonly<{
+    path: string | null;
+    supplied: boolean;
+    status: 'label_linkage_ready' | 'label_linkage_gap';
+    failureReasons: readonly string[];
+    scoredLabelObservationIds: readonly string[];
+    promotionAuthorized: false;
+  }>;
   modelIdentity: Readonly<{
     provider: 'anthropic';
     providerConfigured: boolean;
@@ -64,8 +87,9 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
       sourceAnchorIds: readonly string[];
       resolutionState: string;
       eligibilityReason: string;
-      labelLinkage: 'unmet_labels' | 'label_linkage_gap';
+      labelLinkage: 'unmet_labels' | ForgewingCandidateLabelLinkage['linkageStatus'];
       labelObservationIds: readonly string[];
+      linkedRoles: readonly string[];
     }>[];
   }>;
   callBudget: Readonly<{
@@ -101,6 +125,8 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
 export async function runForgewingLabelledPricingA3(params: {
   entry: ForgewingPricingCorpusEntry;
   labelLedgerPath: string;
+  attestationPath?: string;
+  linkageManifestPath?: string;
   callBudget?: number;
   now?: () => Date;
 }): Promise<ForgewingLabelledPricingA3Artifact> {
@@ -109,9 +135,8 @@ export async function runForgewingLabelledPricingA3(params: {
     throw new Error('forgewing_labelled_a3_invalid_call_budget');
   }
   const ledgerPath = resolve(params.labelLedgerPath);
-  const labelAudit = auditLabelledPricingA3Ledger(
-    JSON.parse(readFileSync(ledgerPath, 'utf8')),
-  );
+  const ledgerBytes = readFileSync(ledgerPath);
+  const labelAudit = auditLabelledPricingA3Ledger(JSON.parse(ledgerBytes.toString('utf8')));
   if (params.entry.expectedSourceSha256 !== labelAudit.source.sha256) {
     throw new Error('SOURCE_MISMATCH');
   }
@@ -124,7 +149,36 @@ export async function runForgewingLabelledPricingA3(params: {
     throw new Error('SOURCE_MISMATCH');
   }
 
-  const labelsReady = labelAudit.corpusStatus === 'labelled_a3_labels_ready';
+  const attestationPath = params.attestationPath ? resolve(params.attestationPath) : null;
+  const attestationInput = attestationPath
+    ? JSON.parse(readFileSync(attestationPath, 'utf8')) as unknown
+    : null;
+  const attestationValidation = attestationPath
+    ? validateForgewingLabelAttestation({
+        ledgerBytes,
+        attestation: attestationInput,
+      })
+    : null;
+  const labelsReady = attestationValidation?.status === 'human_attestation_valid';
+  const linkagePath = params.linkageManifestPath ? resolve(params.linkageManifestPath) : null;
+  const linkageBytes = linkagePath ? readFileSync(linkagePath) : null;
+  const linkageValidation = labelsReady && linkagePath
+    ? validateForgewingLabelLinkage({
+        manifest: JSON.parse(linkageBytes!.toString('utf8')),
+        labelPackageSha256: sha256Hex(ledgerBytes),
+        sourcePdfSha256: preparation.source.sourceSha256,
+        linkageManifestSha256: sha256Hex(linkageBytes!),
+        attestedLinkageManifestSha256: attestationValidation.linkageManifestSha256!,
+        audit: labelAudit,
+        candidates: preparation.candidates,
+        attestedLabelObservationIds: attestationValidation.attestedLabelObservationIds,
+        attestationScope: (attestationInput as {
+          scope?: { kind?: string };
+        }).scope?.kind === 'SCORING_SUBSET' ? 'SCORING_SUBSET' : 'FULL_PACKAGE',
+      })
+    : null;
+  const linkagesByRow = new Map(linkageValidation?.candidateLinkages
+    .map((linkage) => [linkage.rowId, linkage]) ?? []);
   const frozenCandidates = preparation.candidates.map((candidate) => ({
     candidateId: hashCanonical(candidate),
     rowId: candidate.rowObservation.observationId,
@@ -132,14 +186,23 @@ export async function runForgewingLabelledPricingA3(params: {
     sourceAnchorIds: candidate.rowObservation.cells.map((cell) => cell.observationId),
     resolutionState: candidate.rowObservation.deterministicState,
     eligibilityReason: candidate.pricingScope.eligibilityReason,
-    labelLinkage: labelsReady ? 'label_linkage_gap' as const : 'unmet_labels' as const,
-    labelObservationIds: [],
+    labelLinkage: labelsReady
+      ? (linkagesByRow.get(candidate.rowObservation.observationId)?.linkageStatus
+        ?? 'missing_label_linkage' as const)
+      : 'unmet_labels' as const,
+    labelObservationIds: linkagesByRow.get(candidate.rowObservation.observationId)
+      ?.linkedLabelObservationIds ?? [],
+    linkedRoles: linkagesByRow.get(candidate.rowObservation.observationId)?.linkedRoles ?? [],
   }));
   const createdAt = (params.now ?? (() => new Date()))().toISOString();
   const corpusStatus = labelsReady ? 'labelled_a3_incomplete' : 'labelled_a3_unmet_labels';
   const failureReasons = labelsReady
-    ? ['LABEL_LINKAGE_GAP']
-    : [...labelAudit.unmetReasons];
+    ? linkageValidation?.status === 'label_linkage_ready'
+      ? ['PROVIDER_DISABLED_PREFLIGHT']
+      : ['LABEL_LINKAGE_GAP', ...(linkageValidation?.failureReasons ?? ['linkage_manifest_missing'])]
+    : attestationValidation
+      ? [...attestationValidation.failureReasons]
+      : ['human_attestation_missing'];
   const runId = `forgewing-labelled-a3-${hashCanonical({
     sourceSha256: preparation.source.sourceSha256,
     labelVersion: labelAudit.package.ledgerVersion,
@@ -162,6 +225,21 @@ export async function runForgewingLabelledPricingA3(params: {
       extractionSnapshotId: preparation.source.extractionSnapshotId,
     },
     labelPackage: { ledgerPath, audit: labelAudit, promotionSuitable: false },
+    humanAttestation: {
+      path: attestationPath,
+      supplied: attestationPath != null,
+      validation: attestationValidation,
+      authority: 'evaluation_ground_truth_only',
+      promotionAuthorized: false,
+    },
+    exactLabelLinkage: {
+      path: linkagePath,
+      supplied: linkagePath != null,
+      status: linkageValidation?.status ?? 'label_linkage_gap',
+      failureReasons: linkageValidation?.failureReasons ?? ['linkage_manifest_missing'],
+      scoredLabelObservationIds: linkageValidation?.scoredLabelObservationIds ?? [],
+      promotionAuthorized: false,
+    },
     modelIdentity: {
       provider: 'anthropic',
       providerConfigured: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
@@ -173,7 +251,8 @@ export async function runForgewingLabelledPricingA3(params: {
     candidateScope: {
       totalLabelledRows: labelAudit.denominators.totalDistinctRows,
       a2EligibleRows: preparation.candidates.length,
-      providerCallCandidateRows: 0,
+      providerCallCandidateRows: linkageValidation?.status === 'label_linkage_ready'
+        ? frozenCandidates.length : 0,
       a3ScoredOutputs: 0,
       orderingDeterministic: preparation.orderingDeterministic,
       frozenCandidates,
@@ -214,6 +293,8 @@ export function parseForgewingLabelledPricingA3Cli(
 ): Readonly<{
   entry: ForgewingPricingCorpusEntry;
   labelLedgerPath: string;
+  attestationPath?: string;
+  linkageManifestPath?: string;
   outputPath: string;
   callBudget: number;
 }> {
@@ -221,6 +302,7 @@ export function parseForgewingLabelledPricingA3Cli(
     args: [...argv], strict: true,
     options: {
       source: { type: 'string' }, labels: { type: 'string' },
+      attestation: { type: 'string' }, linkage: { type: 'string' },
       'document-type': { type: 'string' }, 'expected-sha256': { type: 'string' },
       'page-ranges': { type: 'string' }, output: { type: 'string' },
       'max-calls': { type: 'string' },
@@ -243,6 +325,8 @@ export function parseForgewingLabelledPricingA3Cli(
       authoritativeRatePageRanges: parseRatePageRanges(values['page-ranges']),
     },
     labelLedgerPath: values.labels,
+    ...(values.attestation ? { attestationPath: values.attestation } : {}),
+    ...(values.linkage ? { linkageManifestPath: values.linkage } : {}),
     outputPath: values.output,
     callBudget,
   };

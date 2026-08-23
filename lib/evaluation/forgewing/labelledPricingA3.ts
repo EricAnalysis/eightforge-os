@@ -241,9 +241,9 @@ export function auditLabelledPricingA3Ledger(input: unknown): LabelledPricingA3L
   if (provenanceMethod === 'machine_generated') {
     unmetReasons.add('label_provenance_machine_generated');
   }
-  if (!ledger.label_provenance?.human_attestation) {
-    unmetReasons.add('human_attestation_missing');
-  }
+  // A ledger cannot attest to its own exact bytes. Evaluation readiness is
+  // established only by the external, digest-bound attestation sidecar.
+  unmetReasons.add('human_attestation_missing');
 
   const expectedLabels = ledger.observations.flatMap((observation) => {
     const labelRole = observation.interpreted_field_or_role as LabelledPricingA3LabelRole;
@@ -288,10 +288,10 @@ export function auditLabelledPricingA3Ledger(input: unknown): LabelledPricingA3L
       ledgerVersion: ledger.ledger_version,
       status: packageStatus,
       provenanceMethod,
-      humanAttested: ledger.label_provenance?.human_attestation != null,
-      promotionSuitable: packageStatus === 'final'
-        && ['human_authored', 'human_verified'].includes(provenanceMethod ?? '')
-        && ledger.label_provenance?.human_attestation != null,
+      // Ledger-embedded legacy flags are not digest-bound. Only the separate
+      // attestation validator may establish evaluation readiness.
+      humanAttested: false,
+      promotionSuitable: false,
     },
     source: {
       sha256: ledger.source_pdf.sha256,

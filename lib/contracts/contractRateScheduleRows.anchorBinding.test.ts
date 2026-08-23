@@ -282,6 +282,36 @@ describe('page-priced schedule exact source-anchor binding', () => {
       .toEqual(['page_priced_schedule:p2:r0']);
   });
 
+  it('fails closed when persisted identity metadata cannot recompute the observation id', () => {
+    const source = built();
+    const observations = structuredClone([...source.layer.observations]) as unknown as Array<{
+      metadata: { parser_observation_key: string };
+    }>;
+    observations[0].metadata.parser_observation_key = 'forged-parser-observation-key';
+    expect(rows(source, { ...source.layer, observations })[0]!.source_anchor_ids)
+      .toEqual(['page_priced_schedule:p2:r0']);
+  });
+
+  it('fails closed when persisted raw text differs from the accepted source ref', () => {
+    const source = built();
+    const observations = structuredClone([...source.layer.observations]) as Array<{
+      raw_text: string;
+    }>;
+    observations[0].raw_text = 'forged persisted text';
+    expect(rows(source, { ...source.layer, observations })[0]!.source_anchor_ids)
+      .toEqual(['page_priced_schedule:p2:r0']);
+  });
+
+  it('fails closed when the persisted bbox differs from the accepted source ref', () => {
+    const source = built();
+    const observations = structuredClone([...source.layer.observations]) as Array<{
+      location: { bounding_box: { x_min: number } };
+    }>;
+    observations[0].location.bounding_box.x_min += 0.01;
+    expect(rows(source, { ...source.layer, observations })[0]!.source_anchor_ids)
+      .toEqual(['page_priced_schedule:p2:r0']);
+  });
+
   it('keeps historical refs without observation ids compatible', () => {
     const source = built({ includeIds: false });
     expect(rows(source)[0]!.source_anchor_ids).toEqual(['page_priced_schedule:p2:r0']);

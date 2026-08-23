@@ -12,6 +12,7 @@ import { parseArgs } from 'node:util';
 
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { pricingLayoutSourceObservations } from '@/lib/server/intelligencePersistence';
 import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import { parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
@@ -37,6 +38,7 @@ import {
   callClaudeForPricingInterpretation,
 } from '@/lib/forgewing/runtime/client';
 import { FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION } from '@/lib/forgewing/proposal/schemaVersion';
+import type { ForgewingPricingInterpretationProposalBundle } from '@/lib/forgewing/proposal/schema';
 import { getForgewingRuntimeConfig } from '@/lib/forgewing/runtime/modelConfig';
 
 export type ForgewingPricingCorpusAvailability =
@@ -66,6 +68,8 @@ export type ForgewingPricingCorpusAttempt = Readonly<{
   inputSnapshotHash: string | null;
   taskId: string | null;
   runId: string | null;
+  providerCallCount: number;
+  proposalBundle: ForgewingPricingInterpretationProposalBundle | null;
   evaluation: ForgewingPricingInterpretationEvaluationReport | null;
   warnings: readonly string[];
   failureReason: string | null;
@@ -188,6 +192,8 @@ export async function runForgewingPricingCandidateAttempts(
         inputSnapshotHash: result.bundle.run.inputSnapshotHash,
         taskId: result.bundle.taskId,
         runId: result.bundle.run.runId,
+        providerCallCount: result.metadata.calls,
+        proposalBundle: result.bundle,
         evaluation,
         warnings: [...result.warnings],
         failureReason: null,
@@ -203,6 +209,8 @@ export async function runForgewingPricingCandidateAttempts(
         inputSnapshotHash: null,
         taskId: null,
         runId: null,
+        providerCallCount: result.status === 'failed' ? result.metadata.calls : 0,
+        proposalBundle: null,
         evaluation: null,
         warnings: result.status === 'failed' ? [...result.warnings] : [],
         failureReason: 'reason' in result ? result.reason : null,
@@ -323,10 +331,22 @@ function reversedEligibility(value: unknown): unknown {
   };
 }
 
-export async function runForgewingPricingCorpus(
+export type ForgewingPricingCorpusPreparation = Readonly<{
+  source: ForgewingPricingCorpusSmokeReport['source'];
+  runtime: ForgewingPricingCorpusSmokeReport['runtime'];
+  candidates: readonly ForgewingPricingInterpretationInput[];
+  orderingDeterministic: boolean;
+}>;
+
+/**
+ * Extracts and freezes the evidence-admitted A2 call set without invoking a
+ * provider. Labelled evaluations use this seam to finish source, label, and
+ * ordering gates before any model work begins.
+ */
+export async function prepareForgewingPricingCorpus(
   entry: ForgewingPricingCorpusEntry,
   dependencies: ForgewingPricingCorpusDependencies = {},
-): Promise<ForgewingPricingCorpusSmokeReport> {
+): Promise<ForgewingPricingCorpusPreparation> {
   if (process.env.OPENAI_API_KEY?.trim() || process.env.UNSTRUCTURED_API_KEY?.trim()) {
     throw new Error('forgewing_pricing_corpus_legacy_extraction_ai_must_be_disabled');
   }
@@ -334,13 +354,7 @@ export async function runForgewingPricingCorpus(
   if (source.status !== 'available' || !source.sha256 || !source.bytes) {
     throw new Error(`forgewing_pricing_corpus_${source.status}`);
   }
-  if (!dependencies.task?.provider
-    && (process.env.FORGEWING_SHADOW_ENABLED !== '1'
-      || process.env.FORGEWING_PRICING_INTERPRETATION_ENABLED !== '1')) {
-    throw new Error('forgewing_pricing_corpus_flags_disabled');
-  }
   const runtimeConfig = dependencies.task?.config ?? getForgewingRuntimeConfig();
-
   const sourcePdfPath = resolve(entry.sourcePdfPath);
   const bytes = source.bytes;
   const sourceArrayBuffer = new Uint8Array(bytes).buffer;
@@ -381,13 +395,23 @@ export async function runForgewingPricingCorpus(
     rateSchedulePageRanges: [...entry.authoritativeRatePageRanges],
   });
   const pricingSourceEligibility = pipeline.contractAnalysis?.pricing_source_eligibility;
+  const pricingLayoutObservations = pricingSourceEligibility
+    ? pricingLayoutSourceObservations(
+      pipeline.primaryDocument,
+      pricingSourceEligibility.scope.authoritativePages,
+    )
+    : [];
+  const sourceObservations = [...new Map([
+    ...pipeline.evidence,
+    ...pricingLayoutObservations,
+  ].map((entry) => [entry.id, entry])).values()];
   const shadowInput: ForgewingPricingInterpretationShadowInput = {
     organizationId: 'local-evaluation-organization',
     sourceDocumentId,
     sourceArtifactId,
     extractionSnapshotId,
     pricingRows: pipeline.contractAnalysis?.rate_schedule_rows ?? [],
-    sourceObservations: pipeline.evidence,
+    sourceObservations,
     pricingSourceEligibility,
   };
   const candidates = buildEligiblePricingReasoningShadowCandidates(shadowInput);
@@ -397,7 +421,37 @@ export async function runForgewingPricingCorpus(
     sourceObservations: [...shadowInput.sourceObservations].reverse(),
     pricingSourceEligibility: reversedEligibility(shadowInput.pricingSourceEligibility),
   });
-  const orderingDeterministic = canonicalJson(candidates) === canonicalJson(reversedCandidates);
+  return {
+    source: {
+      sourcePdfPath,
+      sourceSha256: source.sha256,
+      sourceByteLength: bytes.byteLength,
+      sourceDocumentId,
+      sourceArtifactId,
+      extractionSnapshotId,
+    },
+    runtime: {
+      model: runtimeConfig.model,
+      promptTemplateId: FORGEWING_PRICING_INTERPRETATION_PROMPT_ID,
+      promptTemplateVersion: FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION,
+      proposalSchemaVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION,
+    },
+    candidates,
+    orderingDeterministic: canonicalJson(candidates) === canonicalJson(reversedCandidates),
+  };
+}
+
+export async function runForgewingPricingCorpus(
+  entry: ForgewingPricingCorpusEntry,
+  dependencies: ForgewingPricingCorpusDependencies = {},
+): Promise<ForgewingPricingCorpusSmokeReport> {
+  if (!dependencies.task?.provider
+    && (process.env.FORGEWING_SHADOW_ENABLED !== '1'
+      || process.env.FORGEWING_PRICING_INTERPRETATION_ENABLED !== '1')) {
+    throw new Error('forgewing_pricing_corpus_flags_disabled');
+  }
+  const preparation = await prepareForgewingPricingCorpus(entry, dependencies);
+  const { candidates, orderingDeterministic } = preparation;
   const smokeStatus = resolveForgewingPricingCorpusSmokeStatus(
     candidates.length,
     orderingDeterministic,
@@ -407,9 +461,9 @@ export async function runForgewingPricingCorpus(
     ? await runForgewingPricingCandidateAttempts(candidates, dependencies.task)
     : [];
   const executionIdentity = hashCanonical({
-    sourceSha256: source.sha256,
-    sourceArtifactId,
-    extractionSnapshotId,
+    sourceSha256: preparation.source.sourceSha256,
+    sourceArtifactId: preparation.source.sourceArtifactId,
+    extractionSnapshotId: preparation.source.extractionSnapshotId,
     candidateInputHashes: candidates.map((candidate: ForgewingPricingInterpretationInput) =>
       hashCanonical(candidate)),
     attemptIdentities: attempts.map((attempt) => ({
@@ -418,38 +472,21 @@ export async function runForgewingPricingCorpus(
       taskId: attempt.taskId,
       runId: attempt.runId,
     })),
-    runtime: {
-      model: runtimeConfig.model,
-      promptTemplateId: FORGEWING_PRICING_INTERPRETATION_PROMPT_ID,
-      promptTemplateVersion: FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION,
-      proposalSchemaVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION,
-    },
+    runtime: preparation.runtime,
   });
   return {
     reportVersion: 'forgewing-pricing-corpus-smoke-v2',
     authority: 'non_authoritative_measurement',
     corpusKind: entry.corpusKind,
-    corpusIdentity: `generic/local-fixture:${source.sha256}`,
+    corpusIdentity: `generic/local-fixture:${preparation.source.sourceSha256}`,
     corpusStatus: 'unmet',
     smokeStatus,
     availability: 'available',
     pricingCorrectnessEvaluated: false,
     promotionEvidence: false,
-    source: {
-      sourcePdfPath,
-      sourceSha256: source.sha256,
-      sourceByteLength: bytes.byteLength,
-      sourceDocumentId,
-      sourceArtifactId,
-      extractionSnapshotId,
-    },
+    source: preparation.source,
     executionIdentity,
-    runtime: {
-      model: runtimeConfig.model,
-      promptTemplateId: FORGEWING_PRICING_INTERPRETATION_PROMPT_ID,
-      promptTemplateVersion: FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION,
-      proposalSchemaVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION,
-    },
+    runtime: preparation.runtime,
     orderingDeterministic,
     attempts,
     metrics: summarizeForgewingPricingCorpusAttempts(

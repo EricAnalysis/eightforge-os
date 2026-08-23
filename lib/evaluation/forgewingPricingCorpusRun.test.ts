@@ -79,6 +79,8 @@ function syntheticAttempt(
     inputSnapshotHash: null,
     taskId: null,
     runId: null,
+    providerCallCount: 0,
+    proposalBundle: null,
     evaluation: null,
     warnings: [],
     failureReason: null,

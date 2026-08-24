@@ -78,6 +78,15 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
 ]);
+const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
+  'app/evaluation/forgewing/a3-linkage/page.tsx',
+  'app/api/evaluation/forgewing/a3-linkage/source/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/validate/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/manifest/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/attestation/route.ts',
+  'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
+  'components/evaluation/forgewing/A3LinkageReviewWorkspace.tsx',
+]);
 const FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES = [
   'lib/contracts',
   'lib/validator',
@@ -172,7 +181,8 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
     ) {
       violations.push(`${edge.source} -> ${edge.specifier} (Forgewing outbound import is not allowlisted)`);
     }
-    if (targetIsForgewingEvaluation && !sourceIsForgewingEvaluation && !sourceIsForgewing) {
+    if (targetIsForgewingEvaluation && !sourceIsForgewingEvaluation && !sourceIsForgewing
+      && !FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS.has(edge.source)) {
       importConsumers.add(edge.source);
       violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing evaluation consumer)`);
     }
@@ -203,6 +213,7 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
       isWithin(source, FORGEWING_ROOT)
       || isWithin(source, FORGEWING_EVALUATION_ROOT)
       || FORGEWING_AUTHORIZED_CONSUMERS.has(source)
+      || FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS.has(source)
     ) continue;
     if (importConsumers.has(source)) continue;
     if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {

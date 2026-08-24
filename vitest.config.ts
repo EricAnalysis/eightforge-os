@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     include: [
       'lib/**/*.test.ts',
+      'lib/**/*.test.tsx',
       'components/**/*.test.tsx',
       'tests/projectRerunAndDedupe.test.ts',
       'tests/pipelineCrossDocumentGrounding.test.ts',

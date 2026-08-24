@@ -50,5 +50,12 @@ export default defineConfig({
       testMatch: 'tests/**/*.spec.ts',
       dependencies: ['setup'],
     },
+    {
+      name: 'a3-local',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+      testMatch: 'playwright/evaluation/**/*.spec.ts',
+    },
   ],
 });

@@ -324,6 +324,13 @@ describe('Phase 3A pricing observation eligibility', () => {
       expect(candidates).toHaveLength(1);
       expect(candidates[0]!.rowObservation.cells.map((entry) => entry.observationId).sort())
         .toEqual(modern.layer.observations.map((entry) => entry.id).sort());
+      expect(candidates[0]!.rowObservation.sourceCellGroups).toEqual(
+        modern.page.rows[0]!.cells.map((cell) => ({
+          sourceCellRole: cell.role,
+          sourceObservationIds: cell.source_refs.map((ref) => ref.observation_id),
+          authoredRawText: cell.raw_text,
+        })),
+      );
     });
 
     it.each([

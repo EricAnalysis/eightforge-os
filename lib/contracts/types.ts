@@ -223,6 +223,15 @@ export interface ContractRateScheduleRow {
   confidence?: 'high' | 'medium' | 'needs_review';
   raw_cells?: string[];
   raw_text?: string;
+  /**
+   * Exact accepted reconstruction-cell membership for non-authoritative
+   * reasoning presentation. This is source structure, not a semantic result.
+   */
+  pricing_cell_evidence?: Array<{
+    source_cell_role: 'description' | 'unit' | 'origin_destination' | 'rate';
+    source_observation_ids: string[];
+    authored_raw_text: string;
+  }>;
   geometry_refs?: GeometryCellRef[];
   // OCR engine recognition confidence (0-1) for the rate cell specifically,
   // when the rate was extracted from an ocr_fallback (Tesseract) table cell.

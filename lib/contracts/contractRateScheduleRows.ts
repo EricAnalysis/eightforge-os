@@ -1480,6 +1480,12 @@ function buildPagePricedScheduleRows(
         confidence: rate == null ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PricedScheduleCell) => cell.raw_text),
         raw_text: row.raw_text,
+        pricing_cell_evidence: row.cells.map((cell: PricedScheduleCell) => ({
+          source_cell_role: cell.role,
+          source_observation_ids: cell.source_refs.flatMap((ref) =>
+            ref.observation_id ? [ref.observation_id] : []),
+          authored_raw_text: cell.raw_text,
+        })),
         geometry_refs: geometryRefsForPricedScheduleRow(page, row),
         category_resolution_status: categoryResolution.canonical_category
           ? 'resolved'

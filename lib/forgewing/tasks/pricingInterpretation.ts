@@ -33,6 +33,10 @@ const identifier = z.string().min(1).max(200)
   .refine((value) => value.trim() === value, 'identifier whitespace');
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const sourceLayer = z.enum(['pdf_page_render', 'pdf_native_text', 'ocr', 'table_artifact']);
+const sourceCellRole = z.enum([
+  'category', 'description', 'unit', 'origin_destination', 'rate', 'quantity',
+  'item_number', 'extended_amount', 'unknown',
+]);
 const semanticRole = z.enum([
   'category_like_text', 'description_like_text', 'unit_like_text', 'rate_like_amount',
   'quantity_like_amount', 'item_number_like_text', 'extended_amount_like_text', 'unknown',
@@ -59,6 +63,12 @@ const cellSchema = z.object({
   boundingBox: box.optional(),
 }).strict();
 
+const sourceCellGroupSchema = z.object({
+  sourceCellRole,
+  sourceObservationIds: z.array(identifier).min(1).max(16),
+  authoredRawText: z.string().max(1_000_000),
+}).strict();
+
 const rowSchema = z.object({
   observationId: identifier,
   rawText: z.string().max(1_000_000),
@@ -69,6 +79,7 @@ const rowSchema = z.object({
   sourceLayer: sourceLayer.optional(),
   boundingBox: box.optional(),
   cells: z.array(cellSchema).max(10_000),
+  sourceCellGroups: z.array(sourceCellGroupSchema).max(16).optional(),
 }).strict();
 
 const inputSchema = z.object({
@@ -95,9 +106,10 @@ type BoundedInput = Readonly<{
   run: Readonly<{ organizationId: string; extractionSnapshotId: string }>;
   source: Readonly<{ sourceDocumentId: string; sourceArtifactId: string }>;
   pricingScope: ParsedInput['pricingScope'];
-  rowObservation: Omit<ParsedInput['rowObservation'], 'rawText' | 'cells'> & Readonly<{
+  rowObservation: Omit<ParsedInput['rowObservation'], 'rawText' | 'cells' | 'sourceCellGroups'> & Readonly<{
     rawText: string;
     cells: readonly BoundedCell[];
+    sourceCellGroups?: ParsedInput['rowObservation']['sourceCellGroups'];
   }>;
   truncated: boolean;
 }>;
@@ -154,6 +166,16 @@ function bound(input: ParsedInput): BoundedInput | null {
       throw new Error('input_contract_violation');
     }
   }
+  if (row.sourceCellGroups) {
+    const grouped = new Set<string>();
+    for (const group of row.sourceCellGroups) {
+      for (const id of group.sourceObservationIds) {
+        if (!seen.has(id) || grouped.has(id)) throw new Error('input_contract_violation');
+        grouped.add(id);
+      }
+    }
+    if (grouped.size !== seen.size) throw new Error('input_contract_violation');
+  }
   const ordered = row.cells
     .filter((cell) => cell.rawText.trim().length > 0)
     .sort((left, right) => left.columnIndex - right.columnIndex
@@ -171,12 +193,25 @@ function bound(input: ParsedInput): BoundedInput | null {
     cells.push({ ...cell, rawText });
   }
   if (cells.length === 0) return null;
+  const boundedIds = new Set(cells.map((cell) => cell.observationId));
+  const boundedGroups = row.sourceCellGroups?.filter((group) =>
+    group.sourceObservationIds.every((id) => boundedIds.has(id)));
+  const boundedGroupedIds = new Set(boundedGroups?.flatMap((group) => group.sourceObservationIds) ?? []);
+  const rowWithoutGroups = { ...row };
+  delete rowWithoutGroups.sourceCellGroups;
   return {
     taskType: 'pricing_interpretation',
     run: { organizationId: input.organizationId, extractionSnapshotId: input.extractionSnapshotId },
     source: { sourceDocumentId: input.sourceDocumentId, sourceArtifactId: input.sourceArtifactId },
     pricingScope: input.pricingScope,
-    rowObservation: { ...row, rawText: row.rawText.slice(0, MAX_ROW_TEXT), cells },
+    rowObservation: {
+      ...rowWithoutGroups,
+      rawText: row.rawText.slice(0, MAX_ROW_TEXT),
+      cells,
+      ...(boundedGroups && boundedGroups.length > 0 && boundedGroupedIds.size === cells.length
+        ? { sourceCellGroups: boundedGroups }
+        : {}),
+    },
     truncated,
   };
 }
@@ -200,11 +235,28 @@ function evidenceRef(input: ParsedInput, row: BoundedInput['rowObservation'], ce
   };
 }
 
-function supportsRole(cell: BoundedCell, role: string, sourceText: string): boolean {
+function supportsRole(
+  cell: BoundedCell,
+  role: string,
+  sourceText: string,
+  evidenceIds: readonly string[],
+  row: BoundedInput['rowObservation'],
+): boolean {
+  const group = row.sourceCellGroups?.find((entry) =>
+    entry.sourceObservationIds.includes(cell.observationId));
   if (role === 'rate_like_amount') {
-    return /[$£€¥]/.test(sourceText) || cell.semanticHints?.includes('rate_like_amount') === true;
+    if (group && group.sourceCellRole !== 'rate') return false;
+    if (/[$£€¥]|\b(?:USD|GBP|EUR|JPY|CAD|AUD)\b/i.test(sourceText)) return true;
+    if (!group) return cell.semanticHints?.includes('rate_like_amount') === true;
+    const byId = new Map(row.cells.map((entry) => [entry.observationId, entry]));
+    const citedCurrencySibling = group.sourceObservationIds.some((id) => id !== cell.observationId
+      && evidenceIds.includes(id)
+      && /[$£€¥]|\b(?:USD|GBP|EUR|JPY|CAD|AUD)\b/i.test(byId.get(id)?.rawText ?? ''));
+    return /^[+-]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?$/.test(sourceText.trim())
+      && citedCurrencySibling;
   }
   if (role === 'quantity_like_amount') {
+    if (group) return group.sourceCellRole === 'quantity';
     return cell.semanticHints?.includes('quantity_like_amount') === true;
   }
   if (role === 'unit_like_text') {
@@ -239,10 +291,11 @@ function makeBundle(input: ParsedInput, bounded: BoundedInput, hash: string,
   const interpretations = output.interpretations.map((item) => {
     const source = byId.get(item.sourceCellId);
     if (!source) throw new Error('unknown_evidence_reference');
-    if (!source.rawText.includes(item.sourceText) || !supportsRole(source, item.semanticRole, item.sourceText)) {
+    for (const id of item.evidenceIds) if (!byId.has(id)) throw new Error('unknown_evidence_reference');
+    if (!source.rawText.includes(item.sourceText)
+      || !supportsRole(source, item.semanticRole, item.sourceText, item.evidenceIds, row)) {
       throw new Error('unsupported_source_text');
     }
-    for (const id of item.evidenceIds) if (!byId.has(id)) throw new Error('unknown_evidence_reference');
     if (!item.evidenceIds.includes(item.sourceCellId)) throw new Error('model_schema_rejected');
     return { sourceCellId: item.sourceCellId, semanticRole: item.semanticRole,
       sourceText: item.sourceText, interpretationState: item.interpretationState,

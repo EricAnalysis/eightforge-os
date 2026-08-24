@@ -13,6 +13,7 @@ import {
   callClaudeForRegionClassification,
   callClaudeForTableContinuation,
   ForgewingProviderOutputError,
+  FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION,
   loadPricingInterpretationPrompt,
   normalizeClaudeProviderError,
 } from '@/lib/forgewing/runtime/client';
@@ -60,6 +61,11 @@ describe('Forgewing Claude adapter', () => {
     expect(prompt).toContain('missingEvidence MUST NOT appear');
     expect(prompt).toContain('The property must be omitted');
     expect(prompt).toContain('rowInterpretationState":"ambiguous"');
+    expect(prompt).toContain('sourceCellRole describes where the document placed');
+    expect(prompt).toContain('not Forgewing\'s semantic conclusion');
+    expect(prompt).toContain('Never group observations by text, formatting, geometry, row proximity');
+    expect(prompt).toContain('Cite every real primitive needed for that group-level support');
+    expect(FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION).toBe('v3');
     expect(messagesCreate).toHaveBeenCalledWith(expect.objectContaining({
       max_tokens: 2_000, system: prompt,
     }), expect.objectContaining({ maxRetries: 0 }));

@@ -276,6 +276,69 @@ describe('compliance shadow dual-write isolation', () => {
     expect(Object.isFrozen(candidates[0]?.rowObservation.cells)).toBe(true);
   });
 
+  it('preserves explicit cross-column separation and never groups from same-row proximity', () => {
+    const multiple = multiplePricingShadowInput();
+    const observations = multiple.sourceObservations.map((entry, index) => ({
+      ...(entry as Record<string, unknown>),
+      location: { page: 2, column_index: index + 2 },
+    }));
+    const row = {
+      ...(multiple.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-separated-columns',
+      source_anchor_ids: ['evidence-1', 'evidence-2'],
+      pricing_cell_evidence: [
+        { source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' },
+        { source_cell_role: 'quantity', source_observation_ids: ['evidence-2'], authored_raw_text: '1.00' },
+      ],
+    };
+    const candidates = buildEligiblePricingReasoningShadowCandidates({
+      ...multiple, pricingRows: [row], sourceObservations: observations,
+    } as never);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.rowObservation.cells.map((cell) => cell.columnIndex)).toEqual([2, 3]);
+    expect(candidates[0]!.rowObservation.sourceCellGroups).toEqual([
+      { sourceCellRole: 'rate', sourceObservationIds: ['evidence-1'], authoredRawText: '$' },
+      { sourceCellRole: 'quantity', sourceObservationIds: ['evidence-2'], authoredRawText: '1.00' },
+    ]);
+  });
+
+  it('keeps exact source groups row-local and never combines observations across reconstructed rows', () => {
+    const multiple = multiplePricingShadowInput();
+    const pricingRows = multiple.pricingRows.map((entry, index) => ({
+      ...(entry as Record<string, unknown>),
+      pricing_cell_evidence: [{ source_cell_role: 'rate',
+        source_observation_ids: [index === 0 ? 'evidence-2' : 'evidence-1'],
+        authored_raw_text: index === 0 ? '$25.00' : '$12.50' }],
+    }));
+    const candidates = buildEligiblePricingReasoningShadowCandidates({
+      ...multiple, pricingRows,
+    } as never);
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.rowObservation.sourceCellGroups?.[0]
+      ?.sourceObservationIds)).toEqual([['evidence-1'], ['evidence-2']]);
+  });
+
+  it('fails closed on incomplete, duplicate, or foreign persisted cell membership', () => {
+    const multiple = multiplePricingShadowInput();
+    const baseRow = {
+      ...(multiple.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-malformed-groups',
+      source_anchor_ids: ['evidence-1', 'evidence-2'],
+    };
+    for (const pricing_cell_evidence of [
+      [{ source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' }],
+      [
+        { source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' },
+        { source_cell_role: 'quantity', source_observation_ids: ['evidence-1'], authored_raw_text: '1.00' },
+      ],
+      [{ source_cell_role: 'rate', source_observation_ids: ['foreign'], authored_raw_text: '$ 1.00' }],
+    ]) {
+      expect(buildEligiblePricingReasoningShadowCandidates({
+        ...multiple, pricingRows: [{ ...baseRow, pricing_cell_evidence }],
+      } as never)).toEqual([]);
+    }
+  });
+
   it('fails the candidate set closed on malformed scope members or task identity', () => {
     const base = pricingShadowInput();
     const eligibility = base.pricingSourceEligibility as {

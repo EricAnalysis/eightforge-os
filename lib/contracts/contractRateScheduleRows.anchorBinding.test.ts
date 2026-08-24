@@ -80,13 +80,15 @@ function reconstruction(params?: {
   reverse?: boolean;
   duplicateDescriptionRef?: boolean;
   diagnosticRef?: PricedScheduleCellSourceRef;
+  splitRate?: boolean;
 }): { reconstruction: PagePricedScheduleReconstruction; tokens: PdfToken[] } {
   const includeIds = params?.includeIds !== false;
   const descriptionA = token('item:1', 'Unclassified', 10);
   const descriptionB = token('item:2', 'service', 25);
   const unit = token('item:3', 'CY', 50);
   const route = token('item:4', 'Site to DMS', 70);
-  const rate = token('item:5', '$12.00', 100);
+  const rate = token('item:5', params?.splitRate ? '$' : '$12.00', 100);
+  const rateAmount = params?.splitRate ? token('item:6', '1.00', 112) : null;
   const descriptionRefs = [ref(descriptionA, includeIds), ref(descriptionB, includeIds)];
   if (params?.duplicateDescriptionRef) descriptionRefs.push(ref(descriptionA, includeIds));
   if (params?.reverse) descriptionRefs.reverse();
@@ -94,11 +96,14 @@ function reconstruction(params?: {
     cell('description', 'Unclassified service', descriptionRefs),
     cell('unit', 'CY', [ref(unit, includeIds)]),
     cell('origin_destination', 'Site to DMS', [ref(route, includeIds)]),
-    cell('rate', '$12.00', [ref(rate, includeIds)]),
+    cell('rate', params?.splitRate ? '$ 1.00' : '$12.00', [
+      ref(rate, includeIds),
+      ...(rateAmount ? [ref(rateAmount, includeIds)] : []),
+    ]),
   ];
   if (params?.reverse) cells.reverse();
   return {
-    tokens: [descriptionA, descriptionB, unit, route, rate],
+    tokens: [descriptionA, descriptionB, unit, route, rate, ...(rateAmount ? [rateAmount] : [])],
     reconstruction: {
       parser_version: 'priced_schedule_reconstruction_v1',
       pages: [{
@@ -199,6 +204,30 @@ describe('page-priced schedule exact source-anchor binding', () => {
     expect(rows(source)[0]!.source_anchor_ids).toEqual(
       source.layer.observations.slice(0, 5).map((entry) => entry.id).sort(),
     );
+  });
+
+  it('preserves exact multi-primitive reconstruction-cell membership without fabricating evidence', () => {
+    const source = built({ splitRate: true });
+    const row = rows(source)[0]!;
+    const reconstructionCells = source.reconstruction.pages[0]!.rows[0]!.cells;
+    expect(row.pricing_cell_evidence).toEqual(reconstructionCells.map((entry) => ({
+      source_cell_role: entry.role,
+      source_observation_ids: entry.source_refs.map((ref) => ref.observation_id),
+      authored_raw_text: entry.raw_text,
+    })));
+    expect(row.pricing_cell_evidence?.find((entry) => entry.source_cell_role === 'rate'))
+      .toMatchObject({ authored_raw_text: '$ 1.00' });
+    expect(row.pricing_cell_evidence?.find((entry) => entry.source_cell_role === 'rate')
+      ?.source_observation_ids).toHaveLength(2);
+    expect(row.source_anchor_ids).toHaveLength(6);
+  });
+
+  it('keeps multi-token description primitives in one exact description cell', () => {
+    const source = built();
+    const description = rows(source)[0]!.pricing_cell_evidence
+      ?.find((entry) => entry.source_cell_role === 'description');
+    expect(description).toMatchObject({ authored_raw_text: 'Unclassified service' });
+    expect(description?.source_observation_ids).toHaveLength(2);
   });
 
   it('deduplicates duplicate source refs', () => {

@@ -19,7 +19,7 @@ export const FORGEWING_COLUMN_MAPPING_PROMPT_VERSION = 'v1';
 export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_ID = 'forgewing-observation-arbitration';
 export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_VERSION = 'v1';
 export const FORGEWING_PRICING_INTERPRETATION_PROMPT_ID = 'forgewing-pricing-interpretation';
-export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v2';
+export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v3';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;

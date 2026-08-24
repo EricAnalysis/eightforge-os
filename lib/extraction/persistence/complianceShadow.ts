@@ -716,6 +716,11 @@ function freezePricingInterpretationInput(
     Object.freeze(cell);
   }
   Object.freeze(input.rowObservation.cells);
+  for (const group of input.rowObservation.sourceCellGroups ?? []) {
+    Object.freeze(group.sourceObservationIds);
+    Object.freeze(group);
+  }
+  if (input.rowObservation.sourceCellGroups) Object.freeze(input.rowObservation.sourceCellGroups);
   if (input.rowObservation.boundingBox) Object.freeze(input.rowObservation.boundingBox);
   Object.freeze(input.rowObservation);
   Object.freeze(input.pricingScope);
@@ -821,6 +826,40 @@ export function buildEligiblePricingReasoningShadowCandidates(
       || (pageArtifactId != null
         && cells.some((cell) => cell.pageArtifactId != null
           && cell.pageArtifactId !== pageArtifactId))) return [];
+    const rawGroups = row.pricing_cell_evidence;
+    let sourceCellGroups: ForgewingPricingInterpretationInput['rowObservation']['sourceCellGroups'];
+    if (rawGroups != null) {
+      if (!Array.isArray(rawGroups) || rawGroups.length === 0 || rawGroups.length > 16) return [];
+      const allowedRoles = new Set([
+        'category', 'description', 'unit', 'origin_destination', 'rate', 'quantity',
+        'item_number', 'extended_amount', 'unknown',
+      ]);
+      const groupedIds = new Set<string>();
+      sourceCellGroups = [];
+      for (const rawGroup of rawGroups) {
+        const group = pricingRecord(rawGroup);
+        const role = pricingString(group?.source_cell_role);
+        const authoredRawText = typeof group?.authored_raw_text === 'string'
+          ? group.authored_raw_text
+          : null;
+        const ids = Array.isArray(group?.source_observation_ids)
+          ? group.source_observation_ids.map(pricingIdentifier)
+          : [];
+        if (!group || !role || !allowedRoles.has(role) || authoredRawText == null
+          || authoredRawText.length > MAX_PRICING_SHADOW_SOURCE_TEXT_CHARS
+          || ids.length === 0 || ids.length > 16 || ids.some((id) => id == null)) return [];
+        const validIds = ids as string[];
+        if (validIds.some((id) => !admittedById.has(id) || groupedIds.has(id))) return [];
+        validIds.forEach((id) => groupedIds.add(id));
+        sourceCellGroups.push({
+          sourceCellRole: role as NonNullable<typeof sourceCellGroups>[number]['sourceCellRole'],
+          sourceObservationIds: validIds,
+          authoredRawText,
+        });
+      }
+      if (groupedIds.size !== cells.length
+        || cells.some((cell) => !groupedIds.has(cell.observationId))) return [];
+    }
     const rawText = cells.map((cell) => cell.rawText).join('\n');
     if (rawText.length > MAX_PRICING_SHADOW_SOURCE_TEXT_CHARS) return [];
     const admittedObservationIds = [...admittedById.keys()].sort((left, right) =>
@@ -854,6 +893,7 @@ export function buildEligiblePricingReasoningShadowCandidates(
           deterministicState,
           physicalPageNumber,
           cells,
+          ...(sourceCellGroups ? { sourceCellGroups } : {}),
           ...(pageArtifactId ? { pageArtifactId } : {}),
           ...(artifactLocalIndex != null ? { artifactLocalIndex } : {}),
           ...(sourceLayer ? { sourceLayer } : {}),

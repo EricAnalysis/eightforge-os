@@ -28,6 +28,113 @@ const output = (change: Record<string, unknown> = {}) => JSON.stringify({
 });
 
 describe('runForgewingPricingInterpretation', () => {
+  it('sends exact multi-primitive rate-cell context to the actual provider input', async () => {
+    const grouped = input({ rowObservation: {
+      ...input().rowObservation,
+      rawText: '$\n1.00',
+      cells: [
+        { observationId: 'currency', rawText: '$', columnIndex: 3, readingOrder: 0 },
+        { observationId: 'amount', rawText: '1.00', columnIndex: 3, readingOrder: 1 },
+      ],
+      sourceCellGroups: [{ sourceCellRole: 'rate',
+        sourceObservationIds: ['currency', 'amount'], authoredRawText: '$ 1.00' }],
+    } });
+    let providerInput: Record<string, unknown> | null = null;
+    const result = await runForgewingPricingInterpretation(grouped, { config, taskEnabled: true,
+      provider: async (request) => {
+        providerInput = JSON.parse(request.inputJson) as Record<string, unknown>;
+        return output({ interpretations: [
+          { sourceCellId: 'currency', semanticRole: 'rate_like_amount', sourceText: '$',
+            interpretationState: 'observed', confidence: 0.9,
+            evidenceIds: ['currency', 'amount'], rationaleCodes: ['explicit_currency_marker'] },
+          { sourceCellId: 'amount', semanticRole: 'rate_like_amount', sourceText: '1.00',
+            interpretationState: 'inferred', confidence: 0.8,
+            evidenceIds: ['currency', 'amount'], rationaleCodes: ['numeric_structure'] },
+        ] });
+      } });
+    expect(result.status, JSON.stringify(result)).toBe('applied');
+    expect(providerInput).toMatchObject({ rowObservation: {
+      cells: [
+        { observationId: 'currency', rawText: '$' },
+        { observationId: 'amount', rawText: '1.00' },
+      ],
+      sourceCellGroups: [{ sourceCellRole: 'rate',
+        sourceObservationIds: ['currency', 'amount'], authoredRawText: '$ 1.00' }],
+    } });
+  });
+
+  it.each(['1.00', '1,250.00', '25.00'])(
+    'accepts numeric primitive %s as rate only with a cited currency sibling in the exact rate group',
+    async (amount) => {
+      const currency = amount === '25.00' ? 'USD' : '$';
+      const grouped = input({ rowObservation: { ...input().rowObservation,
+        cells: [
+          { observationId: 'currency', rawText: currency, columnIndex: 2, readingOrder: 0 },
+          { observationId: 'amount', rawText: amount, columnIndex: 2, readingOrder: 1 },
+        ], sourceCellGroups: [{ sourceCellRole: 'rate',
+          sourceObservationIds: ['currency', 'amount'], authoredRawText: `${currency} ${amount}` }] } });
+      const result = await runForgewingPricingInterpretation(grouped, { config, taskEnabled: true,
+        provider: async () => output({ interpretations: [{ sourceCellId: 'amount',
+          semanticRole: 'rate_like_amount', sourceText: amount, interpretationState: 'inferred',
+          confidence: 0.7, evidenceIds: ['amount', 'currency'], rationaleCodes: ['numeric_structure'] }] }) });
+      expect(result.status).toBe('applied');
+      const uncitedSibling = await runForgewingPricingInterpretation(grouped,
+        { config, taskEnabled: true, provider: async () => output({ interpretations: [{
+          sourceCellId: 'amount', semanticRole: 'rate_like_amount', sourceText: amount,
+          interpretationState: 'inferred', confidence: 0.7, evidenceIds: ['amount'],
+          rationaleCodes: ['numeric_structure'],
+        }] }) });
+      expect(uncitedSibling.status === 'abstained' && uncitedSibling.warnings)
+        .toContain('unsupported_source_text');
+    },
+  );
+
+  it('keeps rate, quantity, and unknown numeric support separated by exact source structure', async () => {
+    const grouped = (sourceCellRole: 'rate' | 'quantity' | 'unknown') => input({ rowObservation: {
+      ...input().rowObservation,
+      cells: [{ observationId: 'number', rawText: '1.00', columnIndex: 0, readingOrder: 0 }],
+      sourceCellGroups: [{ sourceCellRole, sourceObservationIds: ['number'], authoredRawText: '1.00' }],
+    } });
+    const interpretation = (semanticRole: 'rate_like_amount' | 'quantity_like_amount') =>
+      output({ interpretations: [{ sourceCellId: 'number', semanticRole, sourceText: '1.00',
+        interpretationState: 'inferred', confidence: 0.5, evidenceIds: ['number'],
+        rationaleCodes: ['numeric_structure'] }] });
+    const quantity = await runForgewingPricingInterpretation(grouped('quantity'),
+      { config, taskEnabled: true, provider: async () => interpretation('quantity_like_amount') });
+    expect(quantity.status).toBe('applied');
+    for (const [cellRole, semantic] of [
+      ['quantity', 'rate_like_amount'],
+      ['rate', 'quantity_like_amount'],
+      ['unknown', 'rate_like_amount'],
+    ] as const) {
+      const result = await runForgewingPricingInterpretation(grouped(cellRole),
+        { config, taskEnabled: true, provider: async () => interpretation(semantic) });
+      expect(result.status === 'abstained' && result.warnings).toContain('unsupported_source_text');
+    }
+  });
+
+  it('does not coerce a grouped authored rate marker into a number', async () => {
+    const marker = input({ rowObservation: { ...input().rowObservation,
+      cells: [
+        { observationId: 'currency', rawText: '$', columnIndex: 2, readingOrder: 0 },
+        { observationId: 'dash', rawText: '-', columnIndex: 2, readingOrder: 1 },
+      ], sourceCellGroups: [{ sourceCellRole: 'rate',
+        sourceObservationIds: ['currency', 'dash'], authoredRawText: '$ -' }] } });
+    const result = await runForgewingPricingInterpretation(marker, { config, taskEnabled: true,
+      provider: async () => output({ rowInterpretationState: 'ambiguous', confidence: 0.4,
+        interpretations: [
+          { sourceCellId: 'currency', semanticRole: 'rate_like_amount', sourceText: '$',
+            interpretationState: 'ambiguous', confidence: 0.4, evidenceIds: ['currency', 'dash'],
+            rationaleCodes: ['explicit_currency_marker'] },
+          { sourceCellId: 'dash', semanticRole: 'unknown', sourceText: '-',
+            interpretationState: 'ambiguous', confidence: 0.4, evidenceIds: ['currency', 'dash'],
+            rationaleCodes: ['missing_semantic_context'] },
+        ] }) });
+    expect(result.status).toBe('applied');
+    expect(result.status === 'applied' && result.bundle.proposals[0]?.interpretations[1]?.sourceText)
+      .toBe('-');
+  });
+
   it('is hard-gated before parsing or provider work', async () => {
     const provider = vi.fn(async () => { throw new Error('called'); });
     await expect(runForgewingPricingInterpretation({} as never,
@@ -199,7 +306,7 @@ describe('runForgewingPricingInterpretation', () => {
           sourceText: '$0', interpretationState: 'observed', confidence: 0.7,
           evidenceIds: ['cell-0'], rationaleCodes: ['explicit_currency_marker'] }] });
     } });
-    expect(result.status).toBe('applied');
+    expect(result.status, JSON.stringify(result)).toBe('applied');
     expect(result.status === 'applied' && result.metadata.inputTruncated).toBe(true);
     const boundedRow = captured.value?.rowObservation as {
       rawText: string; cells: Array<{ rawText: string }>;

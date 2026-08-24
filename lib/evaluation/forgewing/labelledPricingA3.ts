@@ -130,6 +130,10 @@ const ledgerSchema = z.object({
 export type LabelledPricingA3Ledger = z.infer<typeof ledgerSchema>;
 export type LabelledPricingA3Observation = LabelledPricingA3Ledger['observations'][number];
 
+export function parseLabelledPricingA3Ledger(input: unknown): LabelledPricingA3Ledger {
+  return ledgerSchema.parse(input);
+}
+
 export type LabelledPricingA3UnmetLabelReason =
   | 'label_provenance_missing'
   | 'label_provenance_machine_generated'
@@ -229,7 +233,7 @@ function resolvedPackageStatus(ledger: LabelledPricingA3Ledger): 'draft' | 'fina
 }
 
 export function auditLabelledPricingA3Ledger(input: unknown): LabelledPricingA3LabelAudit {
-  const ledger = ledgerSchema.parse(input);
+  const ledger = parseLabelledPricingA3Ledger(input);
   const packageStatus = resolvedPackageStatus(ledger);
   const provenanceMethod = ledger.label_provenance?.method
     ?? (ledger.status === 'machine_generated' ? 'machine_generated' : null);

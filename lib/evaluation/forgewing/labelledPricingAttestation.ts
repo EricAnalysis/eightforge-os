@@ -5,6 +5,11 @@ import {
   auditLabelledPricingA3Ledger,
   type LabelledPricingA3LabelAudit,
 } from '@/lib/evaluation/forgewing/labelledPricingA3';
+import {
+  forgewingLabelLinkageManifestDigest,
+  forgewingLabelLinkageRecordDigest,
+  parseForgewingLabelLinkageManifest,
+} from '@/lib/evaluation/forgewing/labelledPricingLinkage';
 
 export const FORGEWING_LABEL_ATTESTATION_VERSION =
   'forgewing-label-attestation-v1' as const;
@@ -207,6 +212,61 @@ export function buildForgewingLabelAttestationTemplate(params: {
       label_observation_ids: ids,
       label_observation_ids_sha256: labelObservationIdsDigest(ids),
     },
+    notes: '',
+    attestation_digest_sha256: '',
+  };
+}
+
+export function buildPreparedForgewingLabelAttestationTemplate(params: {
+  ledgerBytes: Uint8Array;
+  linkageManifestBytes: Uint8Array;
+  labelObservationIds: readonly string[];
+}): Readonly<Record<string, unknown>> {
+  const ledgerText = new TextDecoder().decode(params.ledgerBytes);
+  const ledger = JSON.parse(ledgerText) as unknown;
+  const audit = auditLabelledPricingA3Ledger(ledger);
+  const knownIds = new Set(audit.expectedLabels.map((label) => label.labelObservationId));
+  const ids = [...new Set(params.labelObservationIds)]
+    .sort((left, right) => left.localeCompare(right, 'en-US'));
+  if (ids.length === 0 || ids.some((id) => !knownIds.has(id))) {
+    throw new Error('forgewing_label_attestation_invalid_prepared_scope');
+  }
+  const manifest = parseForgewingLabelLinkageManifest(
+    JSON.parse(new TextDecoder().decode(params.linkageManifestBytes)),
+  );
+  const manifestIds = manifest.records.map((record) => record.label_observation_id)
+    .sort((left, right) => left.localeCompare(right, 'en-US'));
+  const { manifest_digest_sha256: manifestDigest, ...unsignedManifest } = manifest;
+  if (manifest.label_package_sha256 !== sha256Hex(params.ledgerBytes)
+    || manifest.source.source_pdf_sha256 !== audit.source.sha256
+    || manifestIds.length !== ids.length
+    || manifestIds.some((id, index) => id !== ids[index])
+    || forgewingLabelLinkageManifestDigest(unsignedManifest) !== manifestDigest
+    || manifest.records.some((record) => {
+      const { linkage_record_digest_sha256: digest, ...unsignedRecord } = record;
+      return forgewingLabelLinkageRecordDigest(unsignedRecord) !== digest;
+    })) {
+    throw new Error('forgewing_label_attestation_invalid_linkage_manifest');
+  }
+  const base = buildForgewingLabelAttestationTemplate({ ledgerBytes: params.ledgerBytes });
+  return {
+    ...base,
+    template_instructions: [
+      'Review every label in this exact SCORING_SUBSET against the bound source PDF and reviewed linkage manifest.',
+      'Fill the blank human fields only after completing that review.',
+      'Remove template_only and template_instructions, then compute attestation_digest_sha256 over all remaining fields except that digest.',
+      'This attestation authorizes evaluation ground truth only and never promotion or publication.',
+    ],
+    linkage_manifest_sha256: sha256Hex(params.linkageManifestBytes),
+    scope: {
+      kind: 'SCORING_SUBSET',
+      every_scored_label_reviewed: true,
+      label_observation_ids: ids,
+      label_observation_ids_sha256: labelObservationIdsDigest(ids),
+    },
+    reviewer: { stable_handle: '', reviewed_at: '' },
+    status: '',
+    statement: '',
     notes: '',
     attestation_digest_sha256: '',
   };

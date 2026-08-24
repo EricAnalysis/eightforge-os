@@ -171,7 +171,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isPdfLayoutTokenObservation(value: unknown): value is PdfLayoutTokenObservation {
+export function isPdfLayoutTokenObservation(value: unknown): value is PdfLayoutTokenObservation {
   if (
     !isRecord(value)
     || !isRecord(value.location)

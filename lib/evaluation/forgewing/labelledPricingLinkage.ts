@@ -45,6 +45,10 @@ const manifestSchema = unsignedManifestSchema.extend({ manifest_digest_sha256: s
 export type ForgewingLabelLinkageManifest = z.infer<typeof manifestSchema>;
 export type ForgewingLabelLinkageRecord = ForgewingLabelLinkageManifest['records'][number];
 
+export function parseForgewingLabelLinkageManifest(input: unknown): ForgewingLabelLinkageManifest {
+  return manifestSchema.parse(input);
+}
+
 export type ForgewingCandidateLabelLinkage = Readonly<{
   candidateId: string;
   rowId: string;

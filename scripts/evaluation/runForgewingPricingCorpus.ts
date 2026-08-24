@@ -13,6 +13,10 @@ import { parseArgs } from 'node:util';
 import { runDocumentPipeline } from '@/lib/pipeline/documentPipeline';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { pricingLayoutSourceObservations } from '@/lib/server/intelligencePersistence';
+import {
+  isPdfLayoutTokenObservation,
+  type PdfLayoutTokenObservation,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
 import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import { parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
@@ -335,6 +339,8 @@ export type ForgewingPricingCorpusPreparation = Readonly<{
   source: ForgewingPricingCorpusSmokeReport['source'];
   runtime: ForgewingPricingCorpusSmokeReport['runtime'];
   candidates: readonly ForgewingPricingInterpretationInput[];
+  /** Exact persisted layout observations used by the evaluation-only A2 handoff. */
+  pricingLayoutObservations: readonly PdfLayoutTokenObservation[];
   orderingDeterministic: boolean;
 }>;
 
@@ -437,6 +443,8 @@ export async function prepareForgewingPricingCorpus(
       proposalSchemaVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_SCHEMA_VERSION,
     },
     candidates,
+    pricingLayoutObservations: pricingLayoutObservations
+      .filter(isPdfLayoutTokenObservation),
     orderingDeterministic: canonicalJson(candidates) === canonicalJson(reversedCandidates),
   };
 }

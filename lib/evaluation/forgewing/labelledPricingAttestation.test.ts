@@ -6,6 +6,7 @@ import {
   FORGEWING_LABEL_ATTESTATION_STATEMENT,
   FORGEWING_LABEL_ATTESTATION_VERSION,
   buildForgewingLabelAttestationTemplate,
+  completePreparedForgewingLabelAttestation,
   forgewingLabelAttestationDigest,
   labelObservationIdsDigest,
   validateForgewingLabelAttestation,
@@ -177,5 +178,31 @@ describe('Forgewing label attestation', () => {
     });
     expect(validateForgewingLabelAttestation({ ledgerBytes: bytes(), attestation: first }).status)
       .toBe('human_attestation_invalid');
+  });
+
+  it('completes a prepared template with the exact fixed statement and canonical digest', () => {
+    const prepared = {
+      ...buildForgewingLabelAttestationTemplate({ ledgerBytes: bytes() }),
+      linkage_manifest_sha256: 'd'.repeat(64),
+    };
+    const completed = completePreparedForgewingLabelAttestation({
+      preparedAttestation: prepared,
+      reviewer: 'reviewer-handle',
+      reviewedAt: '2026-08-24T16:20:30.000Z',
+    });
+    expect(completed).toMatchObject({
+      status: 'human_verified',
+      authority: 'evaluation_ground_truth_only',
+      statement: FORGEWING_LABEL_ATTESTATION_STATEMENT,
+      reviewer: {
+        stable_handle: 'reviewer-handle', reviewed_at: '2026-08-24T16:20:30.000Z',
+      },
+    });
+    expect(validateForgewingLabelAttestation({ ledgerBytes: bytes(), attestation: completed }))
+      .toMatchObject({
+        status: 'human_attestation_valid',
+        authority: 'evaluation_ground_truth_only',
+        promotionAuthorized: false,
+      });
   });
 });

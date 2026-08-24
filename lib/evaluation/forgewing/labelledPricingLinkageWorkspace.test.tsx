@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { A3LinkageReviewWorkspace } from
+import { A3LinkageReviewWorkspace, HumanAttestationPanel } from
   '@/components/evaluation/forgewing/A3LinkageReviewWorkspace';
 import { generateForgewingLabelLinkageManifestFromReview, parseForgewingLabelLinkageReviewPacket } from
   '@/lib/evaluation/forgewing/labelledPricingLinkageReview';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/evaluation/forgewing/labelledPricingLinkageWorkspace';
 import {
   isA3WorkspaceEnabled,
+  parseA3WorkspaceAttestationCompletionInput,
   preparedA3AttestationHumanFieldsAreBlank,
   type A3WorkspaceSession,
 } from '@/lib/evaluation/forgewing/labelledPricingLinkageWorkspace.server';
@@ -195,5 +196,80 @@ describe('visual A3 linkage review workspace', () => {
     const blank = { reviewer: { stable_handle: '', reviewed_at: '' }, status: '', statement: '', attestation_digest_sha256: '' };
     expect(preparedA3AttestationHumanFieldsAreBlank(blank)).toBe(true);
     expect(preparedA3AttestationHumanFieldsAreBlank({ ...blank, status: 'human_verified' })).toBe(false);
+  });
+
+  it.each(['', '   '])('23. rejects an empty reviewer handle %j', (reviewer) => {
+    expect(parseA3WorkspaceAttestationCompletionInput({ reviewer, confirmed: true }))
+      .toEqual({ ok: false, code: 'REVIEWER_REQUIRED' });
+  });
+
+  it('24. rejects missing confirmation', () => {
+    expect(parseA3WorkspaceAttestationCompletionInput({ reviewer: 'reviewer' }))
+      .toEqual({ ok: false, code: 'VERIFICATION_CONFIRMATION_REQUIRED' });
+  });
+
+  it.each(['reviewed_at', 'digest'])('25. rejects browser-supplied %s', (field) => {
+    expect(parseA3WorkspaceAttestationCompletionInput({
+      reviewer: 'reviewer', confirmed: true, [field]: 'browser-value',
+    })).toEqual({ ok: false, code: 'ATTESTATION_VALIDATION_FAILED' });
+  });
+
+  it('26. trims reviewer boundary whitespace without changing casing or content', () => {
+    expect(parseA3WorkspaceAttestationCompletionInput({
+      reviewer: '  Reviewer.Mixed-Case  ', confirmed: true,
+    })).toEqual({ ok: true, reviewer: 'Reviewer.Mixed-Case' });
+  });
+
+  it('27. renders the prepared panel with blank reviewer, unchecked confirmation, and disabled completion', () => {
+    const html = renderToStaticMarkup(<HumanAttestationPanel
+      attestation={{
+        state: 'prepared',
+        statement: 'fixed contract statement',
+        preparedArtifactPath: 'local/prepared.json',
+      }}
+      reviewer=""
+      confirmed={false}
+      busy={false}
+      onReviewerChange={() => undefined}
+      onConfirmationChange={() => undefined}
+      onComplete={() => undefined}
+    />);
+    expect(html).toContain('data-testid="human-attestation-panel"');
+    expect(html).toContain('value=""');
+    expect(html).not.toContain('checked=""');
+    expect(html).toContain('COMPLETE HUMAN ATTESTATION');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('fixed contract statement');
+  });
+
+  it('28. renders a validated completed attestation as evaluation-only and without an A3 action', () => {
+    const html = renderToStaticMarkup(<HumanAttestationPanel
+      attestation={{
+        state: 'completed',
+        statement: 'fixed contract statement',
+        reviewer: 'reviewer-handle',
+        reviewedAt: '2026-08-24T16:20:30.000Z',
+        scopeKind: 'SCORING_SUBSET',
+        scopeLabelCount: 6,
+        linkageManifestSha256: 'a'.repeat(64),
+        attestationDigestSha256: 'b'.repeat(64),
+        authority: 'evaluation_ground_truth_only',
+        promotionAuthorized: false,
+      }}
+      reviewer=""
+      confirmed={false}
+      busy={false}
+      onReviewerChange={() => undefined}
+      onConfirmationChange={() => undefined}
+      onComplete={() => undefined}
+    />);
+    expect(html).toContain('HUMAN ATTESTATION COMPLETE');
+    expect(html).toContain('reviewer-handle');
+    expect(html).toContain('2026-08-24T16:20:30.000Z');
+    expect(html).toContain('SCORING_SUBSET — 6 labels');
+    expect(html).toContain('HUMAN VERIFIED — EVALUATION GROUND TRUTH ONLY');
+    expect(html).toContain('does not authorize Forgewing promotion or canonical publication');
+    expect(html).not.toContain('Run Forgewing');
+    expect(html).not.toContain('Run A3');
   });
 });

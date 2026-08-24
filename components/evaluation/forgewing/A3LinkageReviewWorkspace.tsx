@@ -24,6 +24,21 @@ type ManifestResult = Readonly<{
   artifactSha256: string;
 }>;
 
+type AttestationState = Readonly<{
+  state: 'absent' | 'prepared' | 'completed';
+  statement: string;
+  preparedArtifactPath?: string;
+  completedArtifactPath?: string;
+  reviewer?: string;
+  reviewedAt?: string;
+  scopeKind?: 'FULL_PACKAGE' | 'SCORING_SUBSET';
+  scopeLabelCount?: number;
+  linkageManifestSha256?: string;
+  attestationDigestSha256?: string;
+  authority?: 'evaluation_ground_truth_only';
+  promotionAuthorized?: false;
+}>;
+
 function short(value: string, length = 12): string {
   return value.length <= length ? value : `${value.slice(0, length)}…`;
 }
@@ -45,7 +60,11 @@ export function A3LinkageReviewWorkspace({ session }: { session: A3WorkspaceSess
   const [validationStatus, setValidationStatus] = useState<string>('review_incomplete');
   const [busy, setBusy] = useState(false);
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
-  const [attestationPath, setAttestationPath] = useState<string | null>(null);
+  const [attestation, setAttestation] = useState<AttestationState>({
+    state: 'absent', statement: '',
+  });
+  const [reviewer, setReviewer] = useState('');
+  const [attestationConfirmed, setAttestationConfirmed] = useState(false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(A3_LINKAGE_WORKSPACE_STORAGE_KEY);
@@ -65,6 +84,22 @@ export function A3LinkageReviewWorkspace({ session }: { session: A3WorkspaceSess
     if (!hydrated) return;
     window.localStorage.setItem(A3_LINKAGE_WORKSPACE_STORAGE_KEY, JSON.stringify(draft));
   }, [draft, hydrated]);
+
+  const refreshAttestation = async () => {
+    const response = await fetch('/api/evaluation/forgewing/a3-linkage/attestation', {
+      cache: 'no-store',
+    });
+    const body = await response.json() as AttestationState & { error?: string };
+    if (!response.ok) throw new Error(body.error ?? 'ATTESTATION VALIDATION FAILED');
+    setAttestation(body);
+    return body;
+  };
+
+  useEffect(() => {
+    void refreshAttestation().catch((error) => {
+      setMessage(error instanceof Error ? error.message : 'ATTESTATION VALIDATION FAILED');
+    });
+  }, []);
 
   const activeIndex = Math.max(0, session.packet.labels.findIndex((label) =>
     label.label_observation_id === draft.activeLabelObservationId));
@@ -155,10 +190,27 @@ export function A3LinkageReviewWorkspace({ session }: { session: A3WorkspaceSess
       const response = await fetch('/api/evaluation/forgewing/a3-linkage/attestation', { method: 'POST' });
       const body = await response.json() as { artifactPath?: string; error?: string };
       if (!response.ok || !body.artifactPath) throw new Error(body.error ?? 'INCOMPLETE REVIEW');
-      setAttestationPath(body.artifactPath);
+      await refreshAttestation();
       setMessage('Evidence linkage is complete. Human attestation is still required.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'INCOMPLETE REVIEW');
+    } finally { setBusy(false); }
+  };
+
+  const completeAttestation = async () => {
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch('/api/evaluation/forgewing/a3-linkage/attestation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewer, confirmed: attestationConfirmed }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? 'ATTESTATION VALIDATION FAILED');
+      await refreshAttestation();
+      setMessage('HUMAN ATTESTATION COMPLETE');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'ATTESTATION VALIDATION FAILED');
     } finally { setBusy(false); }
   };
 
@@ -226,10 +278,15 @@ export function A3LinkageReviewWorkspace({ session }: { session: A3WorkspaceSess
               onEdit={chooseLabel}
               manifestReady={validationStatus === 'manifest_ready'}
               manifest={manifest}
-              attestationPath={attestationPath}
+              attestation={attestation}
+              reviewer={reviewer}
+              confirmed={attestationConfirmed}
               busy={busy}
               onGenerateManifest={generateManifest}
               onPrepareAttestation={prepareAttestation}
+              onReviewerChange={setReviewer}
+              onConfirmationChange={setAttestationConfirmed}
+              onCompleteAttestation={completeAttestation}
             />
           ) : (
             <>
@@ -305,12 +362,107 @@ function LabelNavigator({ session, draft, candidates, onSelect }: {
   return <nav className="mt-8 border-t border-white/10 pt-5" aria-label="Review labels"><p className="text-[10px] uppercase tracking-wider text-[var(--ef-text-muted)]">Label navigator</p><div className="mt-3 space-y-4">{candidates.map((candidate) => <div key={candidate}><p className="font-mono text-[10px] text-[var(--ef-text-secondary)]">Candidate {candidate.split(':').at(-1)}</p><div className="mt-1 grid grid-cols-3 gap-1">{session.packet.labels.filter((label) => label.candidate_row_id === candidate).map((label) => { const record = draft.records.find((item) => item.labelObservationId === label.label_observation_id)!; return <button key={label.label_observation_id} type="button" onClick={() => onSelect(label.label_observation_id)} className="rounded border border-white/10 px-2 py-2 text-[10px] capitalize hover:bg-white/5"><span aria-hidden>{record.decision ? '✓' : '○'}</span> {label.role}</button>; })}</div></div>)}</div></nav>;
 }
 
-function ReviewSummary({ session, draft, onEdit, manifestReady, manifest, attestationPath, busy, onGenerateManifest, onPrepareAttestation }: {
+function ReviewSummary({
+  session, draft, onEdit, manifestReady, manifest, attestation, reviewer, confirmed, busy,
+  onGenerateManifest, onPrepareAttestation, onReviewerChange, onConfirmationChange,
+  onCompleteAttestation,
+}: {
   session: A3WorkspaceSession; draft: ReturnType<typeof createBlankA3WorkspaceDraft>;
   onEdit: (id: string) => void; manifestReady: boolean; manifest: ManifestResult | null;
-  attestationPath: string | null; busy: boolean; onGenerateManifest: () => void; onPrepareAttestation: () => void;
+  attestation: AttestationState; reviewer: string; confirmed: boolean; busy: boolean;
+  onGenerateManifest: () => void; onPrepareAttestation: () => void;
+  onReviewerChange: (value: string) => void;
+  onConfirmationChange: (value: boolean) => void;
+  onCompleteAttestation: () => void;
 }) {
   const progress = a3WorkspaceProgress(draft);
   const consequence = progress.unreviewed > 0 ? 'Unreviewed labels keep the scoring scope incomplete.' : progress.needsFollowUp > 0 ? 'Needs Follow-up labels prevent manifest generation.' : progress.notLinkable > 0 ? 'Not Linkable labels make exact scoring linkage incomplete.' : !manifestReady ? 'The domain validator has not accepted this review.' : 'All six labels are explicitly linked and structurally valid.';
-  return <div data-testid="review-summary"><h2 className="text-lg font-semibold">Review summary</h2><p className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-[var(--ef-text-secondary)]">{consequence}</p><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-[10px]"><thead className="text-[var(--ef-text-muted)]"><tr><th className="p-2">Candidate</th><th className="p-2">Role</th><th className="p-2">Legacy label</th><th className="p-2">Decision</th><th className="p-2">Selected source text</th><th className="p-2">Token count</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead><tbody>{session.packet.labels.map((label) => { const record = draft.records.find((item) => item.labelObservationId === label.label_observation_id)!; const selectedText = label.modern_pdf_layout_token_observations.filter((observation) => record.selectedObservationIds.includes(observation.observation_id)).map((observation) => observation.raw_text).join(' · '); const status = record.decision === 'linked' && record.selectedObservationIds.length > 0 ? 'Structurally selectable' : record.decision === '' ? 'Unreviewed' : 'Incomplete'; return <tr key={label.label_observation_id} className="border-t border-white/10"><td className="p-2 font-mono">{label.candidate_row_id.split(':').at(-1)}</td><td className="p-2 uppercase">{label.role}</td><td className="max-w-28 p-2">“{label.legacy_labelled_value}”</td><td className="p-2">{decisionLabel(record.decision)}</td><td className="max-w-32 truncate p-2 text-[var(--ef-text-muted)]">{selectedText || 'None'}</td><td className="p-2">{record.selectedObservationIds.length}</td><td className="p-2">{status}</td><td className="p-2"><button type="button" onClick={() => onEdit(label.label_observation_id)} className="text-[var(--ef-purple-accent)]">Edit</button></td></tr>; })}</tbody></table></div><button type="button" disabled={!manifestReady || busy || !!manifest} onClick={onGenerateManifest} className="mt-5 w-full rounded-lg bg-[var(--ef-purple-primary)] px-4 py-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-35">GENERATE LINKAGE MANIFEST</button>{manifest ? <div className="mt-4 rounded-lg border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] p-3 text-xs"><strong>Linkage manifest generated</strong><p className="mt-1 font-mono">SHA-256: {short(manifest.artifactSha256, 18)}</p><p className="mt-1 break-all text-[var(--ef-text-muted)]">Path: {manifest.artifactPath}</p><button type="button" disabled={busy || !!attestationPath} onClick={onPrepareAttestation} className="mt-3 rounded bg-white/10 px-3 py-2 font-semibold disabled:opacity-35">PREPARE ATTESTATION</button></div> : null}{attestationPath ? <div className="mt-4 rounded-lg border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-a10)] p-3 text-xs"><strong>Evidence linkage is complete. Human attestation is still required.</strong><p className="mt-2 break-all text-[var(--ef-text-muted)]">Prepared template: {attestationPath}</p><p className="mt-2">Remaining: Reviewer · Reviewed at · Human verification statement · Attestation digest</p></div> : null}</div>;
+  return (
+    <div data-testid="review-summary">
+      <h2 className="text-lg font-semibold">Review summary</h2>
+      <p className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-[var(--ef-text-secondary)]">{consequence}</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-left text-[10px]">
+          <thead className="text-[var(--ef-text-muted)]"><tr><th className="p-2">Candidate</th><th className="p-2">Role</th><th className="p-2">Legacy label</th><th className="p-2">Decision</th><th className="p-2">Selected source text</th><th className="p-2">Token count</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
+          <tbody>{session.packet.labels.map((label) => {
+            const record = draft.records.find((item) => item.labelObservationId === label.label_observation_id)!;
+            const selectedText = label.modern_pdf_layout_token_observations.filter((observation) => record.selectedObservationIds.includes(observation.observation_id)).map((observation) => observation.raw_text).join(' · ');
+            const status = record.decision === 'linked' && record.selectedObservationIds.length > 0 ? 'Structurally selectable' : record.decision === '' ? 'Unreviewed' : 'Incomplete';
+            return <tr key={label.label_observation_id} className="border-t border-white/10"><td className="p-2 font-mono">{label.candidate_row_id.split(':').at(-1)}</td><td className="p-2 uppercase">{label.role}</td><td className="max-w-28 p-2">“{label.legacy_labelled_value}”</td><td className="p-2">{decisionLabel(record.decision)}</td><td className="max-w-32 truncate p-2 text-[var(--ef-text-muted)]">{selectedText || 'None'}</td><td className="p-2">{record.selectedObservationIds.length}</td><td className="p-2">{status}</td><td className="p-2"><button type="button" onClick={() => onEdit(label.label_observation_id)} className="text-[var(--ef-purple-accent)]">Edit</button></td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+      <button type="button" disabled={!manifestReady || busy || !!manifest} onClick={onGenerateManifest} className="mt-5 w-full rounded-lg bg-[var(--ef-purple-primary)] px-4 py-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-35">GENERATE LINKAGE MANIFEST</button>
+      {manifest ? (
+        <div className="mt-4 rounded-lg border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] p-3 text-xs">
+          <strong>Linkage manifest generated</strong>
+          <p className="mt-1 font-mono">SHA-256: {short(manifest.artifactSha256, 18)}</p>
+          <p className="mt-1 break-all text-[var(--ef-text-muted)]">Path: {manifest.artifactPath}</p>
+          <button type="button" disabled={busy || attestation.state !== 'absent'} onClick={onPrepareAttestation} className="mt-3 rounded bg-white/10 px-3 py-2 font-semibold disabled:opacity-35">PREPARE ATTESTATION</button>
+        </div>
+      ) : null}
+      {attestation.state !== 'absent' ? (
+        <HumanAttestationPanel
+          attestation={attestation}
+          reviewer={reviewer}
+          confirmed={confirmed}
+          busy={busy}
+          onReviewerChange={onReviewerChange}
+          onConfirmationChange={onConfirmationChange}
+          onComplete={onCompleteAttestation}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export function HumanAttestationPanel({
+  attestation, reviewer, confirmed, busy, onReviewerChange, onConfirmationChange, onComplete,
+}: {
+  attestation: AttestationState; reviewer: string; confirmed: boolean; busy: boolean;
+  onReviewerChange: (value: string) => void; onConfirmationChange: (value: boolean) => void;
+  onComplete: () => void;
+}) {
+  if (attestation.state === 'completed') {
+    return (
+      <section className="mt-4 rounded-lg border border-[var(--ef-purple-primary-a40)] bg-[var(--ef-purple-primary-a10)] p-4 text-xs" data-testid="human-attestation-complete">
+        <h3 className="font-semibold">HUMAN ATTESTATION COMPLETE</h3>
+        <dl className="mt-3 grid gap-2">
+          <div><dt className="text-[var(--ef-text-muted)]">Reviewer</dt><dd>{attestation.reviewer}</dd></div>
+          <div><dt className="text-[var(--ef-text-muted)]">Reviewed</dt><dd>{attestation.reviewedAt}</dd></div>
+          <div><dt className="text-[var(--ef-text-muted)]">Scope</dt><dd>{attestation.scopeKind} — {attestation.scopeLabelCount} labels</dd></div>
+          <div><dt className="text-[var(--ef-text-muted)]">Linkage manifest</dt><dd className="font-mono">{short(attestation.linkageManifestSha256 ?? '', 18)}</dd></div>
+          <div><dt className="text-[var(--ef-text-muted)]">Attestation digest</dt><dd className="font-mono">{short(attestation.attestationDigestSha256 ?? '', 18)}</dd></div>
+          <div><dt className="text-[var(--ef-text-muted)]">Status</dt><dd className="font-semibold">HUMAN VERIFIED — EVALUATION GROUND TRUTH ONLY</dd></div>
+        </dl>
+        <p className="mt-3">A3 labelled evaluation is now eligible to run.</p>
+        <p className="mt-2 font-semibold text-[var(--ef-warning)]">This does not authorize Forgewing promotion or canonical publication.</p>
+        <p className="mt-4 border-t border-white/10 pt-3"><strong>NEXT STEP:</strong> Run labelled A3 evaluation separately.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="mt-4 rounded-lg border border-[var(--ef-warning-a30)] bg-[var(--ef-warning-a10)] p-4 text-xs" data-testid="human-attestation-panel">
+      <h3 className="font-semibold">HUMAN ATTESTATION</h3>
+      <p className="mt-2 break-all text-[var(--ef-text-muted)]">Prepared template: {attestation.preparedArtifactPath}</p>
+      <label className="mt-4 block font-semibold">
+        Reviewer
+        <input value={reviewer} onChange={(event) => onReviewerChange(event.target.value)} autoComplete="off" className="mt-2 w-full rounded border border-white/10 bg-black/20 px-3 py-2 font-normal outline-none focus:border-[var(--ef-purple-primary)]" />
+      </label>
+      <div className="mt-4">
+        <p className="font-semibold">Reviewed at</p>
+        <p className="mt-1 text-[var(--ef-text-muted)]">Generated automatically when you complete attestation.</p>
+      </div>
+      <div className="mt-4">
+        <p className="font-semibold">Verification statement</p>
+        <p className="mt-2 rounded border border-white/10 bg-black/20 p-3">“{attestation.statement}”</p>
+      </div>
+      <label className="mt-4 flex items-start gap-2">
+        <input type="checkbox" checked={confirmed} onChange={(event) => onConfirmationChange(event.target.checked)} className="mt-0.5" />
+        <span>I confirm this human verification statement.</span>
+      </label>
+      <button type="button" disabled={busy || reviewer.trim().length === 0 || !confirmed} onClick={onComplete} className="mt-4 w-full rounded bg-[var(--ef-purple-primary)] px-4 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-35">COMPLETE HUMAN ATTESTATION</button>
+      <p className="mt-3 text-[var(--ef-text-muted)]">Evaluation ground truth only. No provider or A3 run is started by this action.</p>
+    </section>
+  );
 }

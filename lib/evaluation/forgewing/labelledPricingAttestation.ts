@@ -76,6 +76,10 @@ const attestationSchema = unsignedAttestationSchema.extend({
 export type ForgewingLabelAttestation = z.infer<typeof attestationSchema>;
 export type ForgewingLabelAttestationScope = z.infer<typeof scopeSchema>;
 
+export function parseForgewingLabelAttestation(input: unknown): ForgewingLabelAttestation {
+  return attestationSchema.parse(input);
+}
+
 export type ForgewingLabelAttestationFailure =
   | 'attestation_missing'
   | 'attestation_schema_rejected'
@@ -108,6 +112,39 @@ export function forgewingLabelAttestationDigest(
   attestation: Omit<ForgewingLabelAttestation, 'attestation_digest_sha256'>,
 ): string {
   return hashCanonical(attestation);
+}
+
+export function completePreparedForgewingLabelAttestation(params: {
+  preparedAttestation: unknown;
+  reviewer: string;
+  reviewedAt: string;
+}): ForgewingLabelAttestation {
+  if (!params.preparedAttestation || typeof params.preparedAttestation !== 'object') {
+    throw new Error('forgewing_label_attestation_invalid_prepared_template');
+  }
+  const prepared = params.preparedAttestation as Record<string, unknown>;
+  const templateOnly = prepared.template_only;
+  const templateInstructions = prepared.template_instructions;
+  if (templateOnly !== true || !Array.isArray(templateInstructions)) {
+    throw new Error('forgewing_label_attestation_invalid_prepared_template');
+  }
+  const preparedUnsigned = { ...prepared };
+  delete preparedUnsigned.template_only;
+  delete preparedUnsigned.template_instructions;
+  delete preparedUnsigned.attestation_digest_sha256;
+  const unsigned = unsignedAttestationSchema.parse({
+    ...preparedUnsigned,
+    status: 'human_verified',
+    statement: FORGEWING_LABEL_ATTESTATION_STATEMENT,
+    reviewer: {
+      stable_handle: params.reviewer,
+      reviewed_at: params.reviewedAt,
+    },
+  });
+  return attestationSchema.parse({
+    ...unsigned,
+    attestation_digest_sha256: forgewingLabelAttestationDigest(unsigned),
+  });
 }
 
 export function validateForgewingLabelAttestation(params: {

@@ -41,7 +41,7 @@ describe('runForgewingPricingInterpretation', () => {
 
   it('runs once for one eligible unresolved row and reconstructs exact evidence', async () => {
     const provider = vi.fn(async (request: ForgewingProviderRequest) => {
-      expect(request.maxOutputTokens).toBe(800);
+      expect(request.maxOutputTokens).toBe(2_000);
       return output();
     });
     const result = await runForgewingPricingInterpretation(input(), { config, taskEnabled: true, provider });
@@ -224,5 +224,14 @@ describe('runForgewingPricingInterpretation', () => {
     if (a.status === 'applied' && b.status === 'applied') {
       expect(a.bundle.run.inputSnapshotHash).toBe(b.bundle.run.inputSnapshotHash);
     }
+  });
+
+  it('classifies token-exhausted output separately from timeout and schema failure', async () => {
+    const truncated = await runForgewingPricingInterpretation(input(), { config, taskEnabled: true,
+      provider: async () => { throw new Error('provider_truncated_output'); } });
+    expect(truncated.status).toBe('abstained');
+    expect(truncated.status === 'abstained' && truncated.warnings).toContain('truncated_output');
+    expect(truncated.status === 'abstained' && truncated.warnings).not.toContain('provider_timeout');
+    expect(truncated.status === 'abstained' && truncated.warnings).not.toContain('model_schema_rejected');
   });
 });

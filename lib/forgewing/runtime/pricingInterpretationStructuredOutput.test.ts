@@ -40,6 +40,28 @@ describe('pricing interpretation structured output', () => {
     })).rowInterpretationState).toBe('insufficient_evidence');
   });
 
+  it('enforces missingEvidence only for insufficient_evidence', () => {
+    const second = { ...valid.interpretations[0], sourceCellId: 'cell-unit',
+      sourceText: 'EA', semanticRole: 'unit_like_text', evidenceIds: ['cell-unit'] };
+    const ambiguous = { ...valid, rowInterpretationState: 'ambiguous',
+      interpretations: [valid.interpretations[0], second] };
+    expect(parsePricingInterpretationModelOutput(JSON.stringify(ambiguous))).toEqual(ambiguous);
+    expect(() => parsePricingInterpretationModelOutput(JSON.stringify({
+      ...ambiguous, missingEvidence: ['missing_column_context'],
+    }))).toThrow('model_schema_rejected');
+    expect(() => parsePricingInterpretationModelOutput(JSON.stringify({
+      ...valid, rowInterpretationState: 'conflicting',
+      interpretations: [valid.interpretations[0], second],
+      missingEvidence: ['conflicting_observations'],
+    }))).toThrow('model_schema_rejected');
+    expect(() => parsePricingInterpretationModelOutput(JSON.stringify({
+      ...valid, missingEvidence: ['missing_column_context'],
+    }))).toThrow('model_schema_rejected');
+    expect(() => parsePricingInterpretationModelOutput(JSON.stringify({
+      rowInterpretationState: 'insufficient_evidence', confidence: null, interpretations: [],
+    }))).toThrow('model_schema_rejected');
+  });
+
   it('keeps the provider schema structural and local Zod responsible for bounds', () => {
     const serialized = JSON.stringify(PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA);
     for (const unsupported of ['minimum', 'maximum', 'minItems', 'maxItems', 'uniqueItems', 'minLength', 'maxLength']) {

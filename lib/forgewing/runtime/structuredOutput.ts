@@ -61,6 +61,20 @@ export type PricingInterpretationModelOutput = z.infer<
   typeof PricingInterpretationModelOutputSchema
 >;
 
+/**
+ * Provider-facing conditional rules paired with the strict local union above.
+ * Keep this beside the schema so prompt wording cannot silently drift from the
+ * accepted field/state combinations.
+ */
+export const PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES = `OUTPUT FIELD RULES:
+- If rowInterpretationState is "insufficient_evidence", confidence MUST be null, interpretations MUST be [], and missingEvidence MUST be present with at least one allowed value.
+- If rowInterpretationState is "observed", "inferred", "ambiguous", or "conflicting", missingEvidence MUST NOT appear in the JSON object at all. Do not emit it as null, [], or an empty string. The property must be omitted.
+
+Compact structural examples:
+VALID: {"rowInterpretationState":"ambiguous","confidence":0.5,"interpretations":[...]} (no missingEvidence property)
+VALID: {"rowInterpretationState":"insufficient_evidence","confidence":null,"interpretations":[],"missingEvidence":["missing_column_context"]}
+INVALID: {"rowInterpretationState":"ambiguous","confidence":0.5,"interpretations":[...],"missingEvidence":["missing_column_context"]}` as const;
+
 export function parsePricingInterpretationModelOutput(
   raw: string,
 ): PricingInterpretationModelOutput {

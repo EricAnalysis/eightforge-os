@@ -27,8 +27,10 @@ type FrozenCandidate = Readonly<{
     expectedSemanticRole: string; expectedRawText: string; sourceObservationIds: readonly string[] }>[];
 }>;
 
+type A3AttemptKind = 'primary' | 'corrective_retry' | 'repeat';
+
 type MeasuredCase = Readonly<{
-  candidateId: string; rowObservationId: string; repetition: 'primary' | 'repeat';
+  candidateId: string; rowObservationId: string; repetition: A3AttemptKind;
   resultStatus: ForgewingPricingCorpusAttempt['resultStatus'];
   classification: LabelledPricingA3CaseClassification; semanticRoleCorrect: boolean | null;
   evidenceAnchorFidelity: 'valid' | 'invalid' | 'unverifiable'; abstained: boolean;
@@ -69,9 +71,12 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
     frozenCandidates: readonly FrozenCandidate[] }>;
   callBudget: Readonly<{ maximum: number; planned: number; callsAttempted: number;
     priorCalls: number; currentCallsAttempted: number; callsSucceeded: number;
-    providerFailures: number; schemaValidOutputs: number; retries: number }>;
+    providerFailures: number; truncatedOutputs: number; jsonParseFailures: number;
+    schemaFailures: number; schemaValidOutputs: number; retries: number }>;
   priorRuns: readonly Readonly<{ path: string; sha256: string; callsAttempted: number;
     providerFailures: number; schemaValidOutputs: number }> [];
+  historicalRuns: readonly Readonly<{ path: string; sha256: string; runId: string;
+    corpusStatus: ForgewingLabelledPricingA3Artifact['corpusStatus']; callsAttempted: number }> [];
   corpusStatus: 'labelled_a3_unmet_labels' | 'labelled_a3_incomplete'
     | 'labelled_a3_provider_unavailable' | 'labelled_a3_measured';
   measurementClassification: 'UNMET' | 'INCOMPLETE' | 'MEASURED';
@@ -99,13 +104,13 @@ function warningClassification(warnings: readonly string[]): LabelledPricingA3Ca
   if (warnings.some((w) => ['anthropic_not_configured', 'provider_timeout', 'provider_error'].includes(w))) {
     return 'provider_failure';
   }
-  if (warnings.some((w) => ['invalid_model_json', 'model_schema_rejected',
+  if (warnings.some((w) => ['truncated_output', 'invalid_model_json', 'model_schema_rejected',
     'unknown_evidence_reference', 'unsupported_source_text'].includes(w))) return 'schema_failure';
   return null;
 }
 
 function scoreAttempt(params: { attempt: ForgewingPricingCorpusAttempt; candidate: FrozenCandidate;
-  repetition: 'primary' | 'repeat'; rawOutput: string | null;
+  repetition: A3AttemptKind; rawOutput: string | null;
   allPersistedAnchorIds: ReadonlySet<string> }): MeasuredCase {
   const proposal = params.attempt.proposalBundle?.proposals[0] ?? null;
   const citations = [...new Set(proposal?.interpretations
@@ -152,6 +157,7 @@ export async function runForgewingLabelledPricingA3(params: {
   repeatEachCandidate?: boolean; expectedCandidateIds?: readonly string[]; provider?: ForgewingProvider;
   providerTimeoutMs?: number; priorAttemptArtifactPaths?: readonly string[];
   providerMaxOutputTokens?: number; finalizePriorRuns?: boolean;
+  historicalRunArtifactPaths?: readonly string[];
   onProviderReady?: (bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle']) => void;
   now?: () => Date;
 }): Promise<ForgewingLabelledPricingA3Artifact> {
@@ -159,11 +165,13 @@ export async function runForgewingLabelledPricingA3(params: {
   if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > HARD_CALL_BUDGET) {
     throw new Error('forgewing_labelled_a3_invalid_call_budget');
   }
-  const providerTimeoutMs = params.providerTimeoutMs ?? getForgewingRuntimeConfig().timeoutMs;
+  const providerTimeoutMs = params.providerTimeoutMs
+    ?? (params.executeProvider ? 30_000 : getForgewingRuntimeConfig().timeoutMs);
   if (!Number.isSafeInteger(providerTimeoutMs) || providerTimeoutMs < 100 || providerTimeoutMs > 30_000) {
     throw new Error('forgewing_labelled_a3_invalid_provider_timeout');
   }
-  const providerMaxOutputTokens = params.providerMaxOutputTokens ?? getForgewingRuntimeConfig().maxOutputTokens;
+  const providerMaxOutputTokens = params.providerMaxOutputTokens
+    ?? (params.executeProvider ? 2_000 : getForgewingRuntimeConfig().maxOutputTokens);
   if (!Number.isSafeInteger(providerMaxOutputTokens)
     || providerMaxOutputTokens < 128 || providerMaxOutputTokens > 2_000) {
     throw new Error('forgewing_labelled_a3_invalid_provider_output_budget');
@@ -240,6 +248,20 @@ export async function runForgewingLabelledPricingA3(params: {
     }
     return { path: absolutePath, sha256: sha256Hex(bytes), artifact };
   });
+  const historicalArtifacts = (params.historicalRunArtifactPaths ?? []).map((path) => {
+    const absolutePath = resolve(path);
+    const bytes = readFileSync(absolutePath);
+    const artifact = JSON.parse(bytes.toString('utf8')) as ForgewingLabelledPricingA3Artifact;
+    const historicalCandidateIds = artifact.candidateScope.frozenCandidates
+      .map((candidate) => candidate.candidateId).sort((a, b) => a.localeCompare(b, 'en-US'));
+    if (artifact.sourceIdentity.sha256 !== preparation.source.sourceSha256
+      || hashCanonical(historicalCandidateIds) !== hashCanonical(actualIds)
+      || artifact.modelIdentity.model !== preparation.runtime.model
+      || artifact.modelIdentity.schemaVersion !== preparation.runtime.proposalSchemaVersion) {
+      throw new Error('HISTORICAL_A3_RUN_IDENTITY_MISMATCH');
+    }
+    return { path: absolutePath, sha256: sha256Hex(bytes), artifact };
+  });
   const priorCalls = priorArtifacts.reduce((sum, item) => sum + item.artifact.callBudget.callsAttempted, 0);
   const priorRetries = priorArtifacts.reduce((sum, item) =>
     sum + item.artifact.callBudget.retries, 0);
@@ -264,23 +286,62 @@ export async function runForgewingLabelledPricingA3(params: {
   const runtime = getForgewingRuntimeConfig();
   const provider = params.provider ?? callClaudeForPricingInterpretation;
   if (params.executeProvider) {
-    const runRepetition = async (repetition: 'primary' | 'repeat'): Promise<void> => {
-      for (let index = 0; index < preparation.candidates.length; index += 1) {
-        let rawOutput: string | null = null;
-        const attempts = await runForgewingPricingCandidateAttempts([preparation.candidates[index]], {
-          config: { ...runtime, enabled: true, maxCalls: 1, timeoutMs: providerTimeoutMs }, taskEnabled: true,
-          provider: async (request) => {
-            const raw = await provider({ ...request, maxOutputTokens: providerMaxOutputTokens });
-            rawOutput = raw; return raw;
-          } });
-        currentCases.push(scoreAttempt({ attempt: attempts[0], candidate: frozenCandidates[index],
-          repetition, rawOutput, allPersistedAnchorIds }));
-      }
+    const runCandidate = async (index: number, repetition: A3AttemptKind,
+      correctiveDetail?: string): Promise<void> => {
+      if (priorCalls + currentCases.length >= maximum) throw new Error('PROVIDER_CALL_BUDGET_EXCEEDED');
+      let rawOutput: string | null = null;
+      const attempts = await runForgewingPricingCandidateAttempts([preparation.candidates[index]], {
+        config: { ...runtime, enabled: true, maxCalls: 1, timeoutMs: providerTimeoutMs,
+          maxOutputTokens: providerMaxOutputTokens }, taskEnabled: true,
+        provider: async (request) => {
+          const correctiveInstruction = repetition === 'corrective_retry'
+            ? `\n\nCORRECTIVE RETRY: The previous response failed strict validation: ${correctiveDetail ?? 'schema conformance failure'}. Return a complete replacement JSON object. missingEvidence is forbidden unless rowInterpretationState is exactly "insufficient_evidence"; otherwise omit the property entirely. Every sourceText must be an exact substring of its sourceCellId cell and every evidenceIds entry must be a supplied cell ID. Do not include or repair the prior output.`
+            : '';
+          try {
+            const raw = await provider({ ...request,
+              maxOutputTokens: providerMaxOutputTokens,
+              inputJson: `${request.inputJson}${correctiveInstruction}` });
+            rawOutput = raw;
+            return raw;
+          } catch (error) {
+            if (error && typeof error === 'object' && 'rawOutput' in error
+              && typeof error.rawOutput === 'string') rawOutput = error.rawOutput;
+            throw error;
+          }
+        } });
+      currentCases.push(scoreAttempt({ attempt: attempts[0], candidate: frozenCandidates[index],
+        repetition, rawOutput, allPersistedAnchorIds }));
     };
-    await runRepetition('primary');
-    const primariesSucceeded = currentCases.every((item) => item.repetition !== 'primary'
-      || !['provider_failure', 'schema_failure'].includes(item.classification));
-    if (params.repeatEachCandidate && primariesSucceeded) await runRepetition('repeat');
+    for (let index = 0; index < preparation.candidates.length; index += 1) {
+      const priorCandidateAttempts = priorArtifacts.flatMap((item) => item.artifact.cases)
+        .filter((item) => item.candidateId === frozenCandidates[index].candidateId);
+      if (priorCandidateAttempts.length === 0) await runCandidate(index, 'primary');
+    }
+    for (let index = 0; index < preparation.candidates.length; index += 1) {
+      const attempts = [...priorArtifacts.flatMap((item) => item.artifact.cases), ...currentCases]
+        .filter((item) => item.candidateId === frozenCandidates[index].candidateId
+          && item.repetition !== 'repeat');
+      const latest = attempts.at(-1);
+      const alreadyRetried = attempts.some((item) => item.repetition === 'corrective_retry');
+      const retryWarning = latest?.warnings.find((warning) => [
+        'invalid_model_json', 'model_schema_rejected', 'unknown_evidence_reference',
+        'unsupported_source_text',
+      ].includes(warning));
+      if (retryWarning && !alreadyRetried) {
+        await runCandidate(index, 'corrective_retry', retryWarning);
+      }
+    }
+    const allBaselineCases = [...priorArtifacts.flatMap((item) => item.artifact.cases), ...currentCases];
+    const latestByCandidate = frozenCandidates.map((candidate) => allBaselineCases
+      .filter((item) => item.candidateId === candidate.candidateId && item.repetition !== 'repeat').at(-1));
+    const primariesSucceeded = latestByCandidate.every((item) => item != null
+      && !['provider_failure', 'schema_failure'].includes(item.classification));
+    if (params.repeatEachCandidate && primariesSucceeded
+      && priorCalls + currentCases.length + frozenCandidates.length <= maximum) {
+      for (let index = 0; index < preparation.candidates.length; index += 1) {
+        await runCandidate(index, 'repeat');
+      }
+    }
   }
   const cases = [...priorArtifacts.flatMap((item) => item.artifact.cases), ...currentCases]
     .map((item) => ['provider_failure', 'schema_failure'].includes(item.classification)
@@ -288,6 +349,9 @@ export async function runForgewingLabelledPricingA3(params: {
   const currentCallsAttempted = currentCases.filter((item) => item.resultStatus !== 'skipped').length;
   const callsAttempted = priorCalls + currentCallsAttempted;
   const providerFailures = cases.filter((item) => item.classification === 'provider_failure').length;
+  const truncatedOutputs = cases.filter((item) => item.warnings.includes('truncated_output')).length;
+  const jsonParseFailures = cases.filter((item) => item.warnings.includes('invalid_model_json')).length;
+  const strictSchemaFailures = cases.filter((item) => item.warnings.includes('model_schema_rejected')).length;
   const schemaFailures = cases.filter((item) => item.classification === 'schema_failure').length;
   const callsSucceeded = callsAttempted - providerFailures;
   const schemaValidOutputs = callsAttempted - providerFailures - schemaFailures;
@@ -317,11 +381,15 @@ export async function runForgewingLabelledPricingA3(params: {
   const inappropriateAbstentionCount = cases.filter((item) => item.abstained
     && !['safe_abstention', 'provider_failure', 'schema_failure'].includes(item.classification)).length;
   const unsafeConfidentAnswerCount = cases.filter((item) => item.classification === 'unsafe_confident_answer').length;
-  const pairs = params.repeatEachCandidate ? frozenCandidates.map((candidate) => {
-    const pair = currentCases.filter((item) => item.candidateId === candidate.candidateId);
+  const pairs = params.repeatEachCandidate ? frozenCandidates.flatMap((candidate) => {
+    const attempts = cases.filter((item) => item.candidateId === candidate.candidateId);
+    const pair = [attempts.filter((item) => item.repetition !== 'repeat').at(-1),
+      attempts.find((item) => item.repetition === 'repeat')]
+      .filter((item): item is MeasuredCase => item != null);
     const comparable = (item: MeasuredCase) => ({ classification: item.classification,
       semanticRoleCorrect: item.semanticRoleCorrect, proposal: item.proposalBundle?.proposals[0] ?? null });
-    return pair.length === 2 && hashCanonical(comparable(pair[0])) === hashCanonical(comparable(pair[1]));
+    return pair.length === 2
+      ? [hashCanonical(comparable(pair[0])) === hashCanonical(comparable(pair[1]))] : [];
   }) : [];
   const validCandidateCount = new Set(validScoredCases.map((item) => item.candidateId)).size;
   const completed = validCandidateCount === frozenCandidates.length && frozenCandidates.length > 0;
@@ -360,7 +428,8 @@ export async function runForgewingLabelledPricingA3(params: {
       failureReasons: linkageValidation?.failureReasons ?? ['linkage_manifest_missing'],
       scoredLabelObservationIds: linkageValidation?.scoredLabelObservationIds ?? [], promotionAuthorized: false },
     modelIdentity: { provider: 'anthropic', providerConfigured: Boolean(params.provider
-      || process.env.ANTHROPIC_API_KEY?.trim() || priorArtifacts.length > 0), model: preparation.runtime.model,
+      || process.env.ANTHROPIC_API_KEY?.trim() || priorArtifacts.length > 0
+      || historicalArtifacts.length > 0), model: preparation.runtime.model,
       taskVersion: preparation.runtime.promptTemplateId, promptVersion: preparation.runtime.promptTemplateVersion,
       schemaVersion: preparation.runtime.proposalSchemaVersion, evaluationTimeoutMs: providerTimeoutMs,
       evaluationMaxOutputTokens: providerMaxOutputTokens }, frozenProviderBundle,
@@ -368,11 +437,16 @@ export async function runForgewingLabelledPricingA3(params: {
       a2EligibleRows: preparation.candidates.length, providerCallCandidateRows: linkageReady ? frozenCandidates.length : 0,
       a3ScoredOutputs: cases.length, orderingDeterministic: preparation.orderingDeterministic, frozenCandidates },
     callBudget: { maximum, planned, priorCalls, currentCallsAttempted, callsAttempted, callsSucceeded,
-      providerFailures, schemaValidOutputs, retries: priorRetries },
+      providerFailures, truncatedOutputs, jsonParseFailures, schemaFailures: strictSchemaFailures,
+      schemaValidOutputs, retries: priorRetries
+        + currentCases.filter((item) => item.repetition === 'corrective_retry').length },
     priorRuns: priorArtifacts.map((item) => ({ path: item.path, sha256: item.sha256,
       callsAttempted: item.artifact.callBudget.callsAttempted,
       providerFailures: item.artifact.callBudget.providerFailures,
       schemaValidOutputs: item.artifact.callBudget.schemaValidOutputs })), corpusStatus,
+    historicalRuns: historicalArtifacts.map((item) => ({ path: item.path, sha256: item.sha256,
+      runId: item.artifact.runIdentity.runId, corpusStatus: item.artifact.corpusStatus,
+      callsAttempted: item.artifact.callBudget.callsAttempted })),
     measurementClassification: !params.executeProvider && !params.finalizePriorRuns
       ? 'UNMET' : completed ? 'MEASURED' : 'INCOMPLETE',
     metrics: { providerCallSuccessCount: callsSucceeded, providerCallSuccessRate: ratio(callsSucceeded, callsAttempted),
@@ -403,7 +477,8 @@ export function parseForgewingLabelledPricingA3Cli(argv: readonly string[]): Rea
   linkageManifestPath?: string; outputPath: string; freezeOutputPath?: string; callBudget: number;
   executeProvider: boolean; repeatEachCandidate: boolean; expectedCandidateIds?: readonly string[];
   providerTimeoutMs?: number; providerMaxOutputTokens?: number;
-  priorAttemptArtifactPaths?: readonly string[]; finalizePriorRuns: boolean }> {
+  priorAttemptArtifactPaths?: readonly string[]; historicalRunArtifactPaths?: readonly string[];
+  finalizePriorRuns: boolean }> {
   const { values } = parseArgs({ args: [...argv], strict: true, options: {
     source: { type: 'string' }, labels: { type: 'string' }, attestation: { type: 'string' },
     linkage: { type: 'string' }, 'document-type': { type: 'string' }, 'expected-sha256': { type: 'string' },
@@ -411,7 +486,8 @@ export function parseForgewingLabelledPricingA3Cli(argv: readonly string[]): Rea
     'max-calls': { type: 'string' }, 'execute-provider': { type: 'boolean' }, repeat: { type: 'boolean' },
     'expected-candidates': { type: 'string' }, 'provider-timeout-ms': { type: 'string' },
     'provider-max-output-tokens': { type: 'string' },
-    'prior-run': { type: 'string', multiple: true }, 'finalize-prior-runs': { type: 'boolean' } } });
+    'prior-run': { type: 'string', multiple: true }, 'historical-run': { type: 'string', multiple: true },
+    'finalize-prior-runs': { type: 'boolean' } } });
   if (!values.source || !values.labels || !values['document-type'] || !values['expected-sha256']
     || !values['page-ranges'] || !values.output) throw new Error('forgewing_labelled_a3_missing_required_argument');
   if (values['execute-provider'] && !values['freeze-output']) throw new Error('forgewing_labelled_a3_freeze_output_required');
@@ -428,6 +504,7 @@ export function parseForgewingLabelledPricingA3Cli(argv: readonly string[]): Rea
     ...(values['provider-max-output-tokens']
       ? { providerMaxOutputTokens: Number(values['provider-max-output-tokens']) } : {}),
     ...(values['prior-run'] ? { priorAttemptArtifactPaths: values['prior-run'] } : {}),
+    ...(values['historical-run'] ? { historicalRunArtifactPaths: values['historical-run'] } : {}),
     finalizePriorRuns: values['finalize-prior-runs'] ?? false };
 }
 

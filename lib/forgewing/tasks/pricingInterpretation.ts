@@ -105,7 +105,7 @@ type BoundedInput = Readonly<{
 export type ForgewingPricingInterpretationWarning =
   | 'input_truncated' | 'input_contract_violation' | 'budget_exhausted'
   | 'anthropic_not_configured' | 'provider_timeout' | 'provider_error'
-  | 'invalid_model_json' | 'model_schema_rejected' | 'unknown_evidence_reference'
+  | 'truncated_output' | 'invalid_model_json' | 'model_schema_rejected' | 'unknown_evidence_reference'
   | 'unsupported_source_text';
 
 export type ForgewingPricingInterpretationMetadata = Readonly<{
@@ -277,6 +277,7 @@ function failureWarning(error: unknown): ForgewingPricingInterpretationWarning {
   const message = error instanceof Error ? error.message : '';
   const name = error && typeof error === 'object' ? error.constructor?.name ?? '' : '';
   if (message === 'provider_timeout' || message === 'Request timed out' || name === 'APIConnectionTimeoutError') return 'provider_timeout';
+  if (message === 'provider_truncated_output') return 'truncated_output';
   if (message === 'invalid_model_json') return 'invalid_model_json';
   if (message === 'model_schema_rejected') return 'model_schema_rejected';
   if (message === 'unknown_evidence_reference') return 'unknown_evidence_reference';
@@ -301,7 +302,7 @@ export async function runForgewingPricingInterpretation(
   if (!(dependencies.taskEnabled ?? isForgewingPricingInterpretationEnabled())) {
     return { status: 'skipped', reason: 'pricing_interpretation_disabled' };
   }
-  const taskConfig = { ...config, maxOutputTokens: Math.min(config.maxOutputTokens, 800) };
+  const taskConfig = { ...config, maxOutputTokens: Math.min(config.maxOutputTokens, 2_000) };
   const parsed = inputSchema.safeParse(rawInput);
   if (!parsed.success) return { status: 'failed', reason: 'input_contract_violation',
     warnings: ['input_contract_violation'], metadata: metadata(taskConfig, 0, false) };

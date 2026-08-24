@@ -9,8 +9,11 @@ vi.mock('@/lib/server/ai/claudeClient', () => ({
 import {
   callClaudeForColumnMapping,
   callClaudeForObservationArbitration,
+  callClaudeForPricingInterpretation,
   callClaudeForRegionClassification,
   callClaudeForTableContinuation,
+  ForgewingProviderOutputError,
+  loadPricingInterpretationPrompt,
   normalizeClaudeProviderError,
 } from '@/lib/forgewing/runtime/client';
 
@@ -44,6 +47,34 @@ describe('Forgewing Claude adapter', () => {
       new APIConnectionTimeoutError('Request timed out'),
       false,
     ).message).toBe('provider_timeout');
+  });
+
+  it('sends the schema-adjacent pricing field rule in the actual provider prompt', async () => {
+    messagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '{"rowInterpretationState":"insufficient_evidence"}' }],
+      stop_reason: 'end_turn',
+    });
+    await callClaudeForPricingInterpretation({ model: 'claude-test', timeoutMs: 500,
+      maxOutputTokens: 2_000, inputJson: '{"rowObservation":{}}' });
+    const prompt = loadPricingInterpretationPrompt();
+    expect(prompt).toContain('missingEvidence MUST NOT appear');
+    expect(prompt).toContain('The property must be omitted');
+    expect(prompt).toContain('rowInterpretationState":"ambiguous"');
+    expect(messagesCreate).toHaveBeenCalledWith(expect.objectContaining({
+      max_tokens: 2_000, system: prompt,
+    }), expect.objectContaining({ maxRetries: 0 }));
+  });
+
+  it('classifies pricing max-token termination as truncation and preserves raw output', async () => {
+    messagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '{"rowInterpretationState":"ambiguous"' }],
+      stop_reason: 'max_tokens',
+    });
+    const error = await callClaudeForPricingInterpretation({ model: 'claude-test', timeoutMs: 500,
+      maxOutputTokens: 2_000, inputJson: '{"rowObservation":{}}' }).catch((value) => value);
+    expect(error).toBeInstanceOf(ForgewingProviderOutputError);
+    expect(error).toMatchObject({ message: 'provider_truncated_output',
+      rawOutput: '{"rowInterpretationState":"ambiguous"' });
   });
 
   it('reuses the Claude adapter with the dedicated continuation prompt and schema', async () => {

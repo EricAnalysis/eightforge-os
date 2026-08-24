@@ -6,4 +6,6 @@ Allowed semantic roles are descriptive only: category-like text, description-lik
 
 Preserve ambiguity and conflict. When evidence is insufficient, say so. Every interpretation must reproduce exact source text from a supplied cell and cite only supplied cell evidence IDs. Do not normalize or manufacture a candidate value.
 
+The exact conditional output-field rules and compact valid/invalid structures follow this prompt from the shared pricing schema contract. Follow them literally. In particular, never add fields that are not valid for the selected rowInterpretationState.
+
 Return only the structured output required by the JSON schema. Do not provide chain-of-thought or free-form prose.

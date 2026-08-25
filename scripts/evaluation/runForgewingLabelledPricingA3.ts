@@ -1,5 +1,6 @@
 /** Evaluation-only, default-off, human-attested labelled A3 orchestrator. */
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -75,14 +76,36 @@ type MeasuredCase = Readonly<{
 type A3PlannedCall = Readonly<{ sequence: number; candidateId: string; rowId: string;
   repetition: 'primary' | 'repeat' }>;
 
-type A3PreCallReport = Readonly<{ attestationValid: boolean; linkageValid: boolean;
+export type A3RunIdentity = Readonly<{ runId: string; createdAt: string; runNonce: string }>;
+
+export type A3PreCallReport = Readonly<{ runIdentity: A3RunIdentity;
+  attestationValid: boolean; linkageValid: boolean;
   sourceValid: boolean; scoringContractValid: boolean; candidateCount: number;
   candidateIds: readonly string[]; candidateDigests: readonly string[]; candidateBundleDigest: string;
   provider: 'anthropic'; model: string; promptVersion: string; schemaVersion: string;
   outputTokenLimit: number; timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 1;
   plannedCalls: number; hardCallLimit: number }>;
 
-type A3ProviderCallRecord = Readonly<{ sequence: number; candidateId: string; rowId: string;
+export type A3FreezeArtifact = Readonly<{ runIdentity: A3RunIdentity;
+  implementationIdentity: ForgewingLabelledPricingA3Artifact['implementationIdentity'];
+  inputIdentities: Readonly<{ sourceSha256: string; sourceByteLength: number;
+    labelPackageSha256: string; attestationSha256: string; linkageSha256: string }>;
+  preCallReport: A3PreCallReport;
+  frozenProviderBundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle'];
+  callConfiguration: Readonly<{ executeProvider: boolean; repeatEachCandidate: boolean;
+    configuredCallBudget: number; plannedCalls: number; hardCallLimit: number;
+    provider: 'anthropic'; model: string; promptVersion: string; schemaVersion: string;
+    temperature: 0; structuredOutput: 'json_schema'; outputTokenLimit: number;
+    timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 1 }> }>;
+
+export type A3InterruptionArtifact = Readonly<{ runIdentity: A3RunIdentity;
+  implementationIdentity: ForgewingLabelledPricingA3Artifact['implementationIdentity'];
+  preCallReport: A3PreCallReport; frozenProviderBundleDigest: string;
+  interruption: Readonly<{ interruptedAt: string; reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE';
+    callsAttempted: number; completedCallRecords: number }> }>;
+
+type A3ProviderCallRecord = Readonly<{ runIdentity: A3RunIdentity;
+  sequence: number; candidateId: string; rowId: string;
   repetition: A3AttemptKind; startedAt: string; completedAt: string; durationMs: number;
   providerInvoked: boolean; resultStatus: ForgewingPricingCorpusAttempt['resultStatus'];
   warnings: readonly string[]; failureReason: string | null; outputByteLength: number | null;
@@ -91,7 +114,7 @@ type A3ProviderCallRecord = Readonly<{ sequence: number; candidateId: string; ro
 export type ForgewingLabelledPricingA3Artifact = Readonly<{
   reportVersion: typeof FORGEWING_LABELLED_PRICING_A3_VERSION;
   authority: 'non_authoritative_measurement'; promotionEvidence: false; promotionAuthorized: false;
-  runIdentity: Readonly<{ runId: string; createdAt: string }>;
+  runIdentity: A3RunIdentity;
   implementationIdentity: Readonly<{ commit: string | null; parentOrBase: string | null;
     worktreeDirty: boolean | null }>;
   sourceIdentity: Readonly<{ path: string; sha256: string; byteLength: number; pages: number;
@@ -263,6 +286,49 @@ function implementationIdentity(): ForgewingLabelledPricingA3Artifact['implement
   }
 }
 
+export function allocateA3RunIdentity(params: { createdAt: string; runNonce: string;
+  implementationIdentity: ForgewingLabelledPricingA3Artifact['implementationIdentity'];
+  sourceSha256: string; sourceByteLength: number; labelPackageSha256: string;
+  labelVersion: string; attestationSha256: string; linkageSha256: string;
+  frozenBundleDigest: string; model: string; taskVersion: string;
+  promptVersion: string; schemaVersion: string }): A3RunIdentity {
+  const runId = `forgewing-labelled-a3-${hashCanonical({
+    implementationCommit: params.implementationIdentity.commit,
+    implementationBase: params.implementationIdentity.parentOrBase,
+    sourceSha256: params.sourceSha256, sourceByteLength: params.sourceByteLength,
+    labelPackageSha256: params.labelPackageSha256, labelVersion: params.labelVersion,
+    attestationSha256: params.attestationSha256, linkageSha256: params.linkageSha256,
+    frozenBundleDigest: params.frozenBundleDigest, model: params.model,
+    taskVersion: params.taskVersion, promptVersion: params.promptVersion,
+    schemaVersion: params.schemaVersion, createdAt: params.createdAt,
+    runNonce: params.runNonce,
+  }).slice(0, 32)}`;
+  return { runId, createdAt: params.createdAt, runNonce: params.runNonce };
+}
+
+export type A3ArtifactPersistenceIo = Readonly<{
+  writeExclusive: (path: string, bytes: string) => void; read: (path: string) => string }>;
+
+function persistImmutableA3Artifact(path: string, artifact: unknown,
+  io?: A3ArtifactPersistenceIo): void {
+  const absolutePath = resolve(path);
+  const bytes = `${JSON.stringify(artifact, null, 2)}\n`;
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  const persistence = io ?? { writeExclusive: (target: string, content: string) =>
+    writeFileSync(target, content, { encoding: 'utf8', flag: 'wx' }),
+  read: (target: string) => readFileSync(target, 'utf8') };
+  persistence.writeExclusive(absolutePath, bytes);
+  const persisted = persistence.read(absolutePath);
+  if (persisted !== bytes || hashCanonical(JSON.parse(persisted)) !== hashCanonical(artifact)) {
+    throw new Error('A3_ARTIFACT_PERSISTENCE_VERIFICATION_FAILED');
+  }
+}
+
+export function persistA3FreezeArtifact(path: string, artifact: A3FreezeArtifact,
+  io?: A3ArtifactPersistenceIo): void {
+  persistImmutableA3Artifact(path, artifact, io);
+}
+
 function warningClassification(warnings: readonly string[]): LabelledPricingA3CaseClassification | null {
   if (warnings.some((w) => ['anthropic_not_configured', 'provider_timeout', 'provider_error'].includes(w))) {
     return 'provider_failure';
@@ -327,7 +393,8 @@ export function scoreAttempt(params: { attempt: ForgewingPricingCorpusAttempt; c
 
 export async function runForgewingLabelledPricingA3(params: {
   entry: ForgewingPricingCorpusEntry; labelLedgerPath: string; attestationPath?: string;
-  linkageManifestPath?: string; callBudget?: number; executeProvider?: boolean;
+  linkageManifestPath?: string; freezeOutputPath?: string; failureOutputPath?: string;
+  callBudget?: number; executeProvider?: boolean;
   repeatEachCandidate?: boolean; expectedCandidateIds?: readonly string[];
   expectedCandidateRowIds?: readonly string[]; provider?: ForgewingProvider;
   providerTimeoutMs?: number; priorAttemptArtifactPaths?: readonly string[];
@@ -335,7 +402,8 @@ export async function runForgewingLabelledPricingA3(params: {
   historicalRunArtifactPaths?: readonly string[];
   onProviderReady?: (bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle']) => void;
   onPreCallReport?: (report: A3PreCallReport,
-    bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle']) => void;
+    bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle'],
+    freezeArtifact: A3FreezeArtifact) => void;
   now?: () => Date;
 }): Promise<ForgewingLabelledPricingA3Artifact> {
   const maximum = params.callBudget ?? HARD_CALL_BUDGET;
@@ -353,6 +421,7 @@ export async function runForgewingLabelledPricingA3(params: {
   }
   const ledgerPath = resolve(params.labelLedgerPath);
   const ledgerBytes = readFileSync(ledgerPath);
+  const labelPackageSha256 = sha256Hex(ledgerBytes);
   const labelAudit = auditLabelledPricingA3Ledger(JSON.parse(ledgerBytes.toString('utf8')));
   if (params.entry.expectedSourceSha256 !== labelAudit.source.sha256) throw new Error('SOURCE_MISMATCH');
   const preparation = await prepareForgewingPricingCorpus(params.entry);
@@ -361,7 +430,8 @@ export async function runForgewingLabelledPricingA3(params: {
   if (!preparation.orderingDeterministic) throw new Error('NON_DETERMINISTIC_INPUT_ORDER');
 
   const attestationPath = params.attestationPath ? resolve(params.attestationPath) : null;
-  const attestationInput = attestationPath ? JSON.parse(readFileSync(attestationPath, 'utf8')) as unknown : null;
+  const attestationBytes = attestationPath ? readFileSync(attestationPath) : null;
+  const attestationInput = attestationBytes ? JSON.parse(attestationBytes.toString('utf8')) as unknown : null;
   const parsedAttestation = attestationInput as { reviewer?: { stable_handle?: string; reviewed_at?: string };
     scope?: unknown } | null;
   const attestationValidation = attestationPath
@@ -369,10 +439,12 @@ export async function runForgewingLabelledPricingA3(params: {
   const labelsReady = attestationValidation?.status === 'human_attestation_valid';
   const linkagePath = params.linkageManifestPath ? resolve(params.linkageManifestPath) : null;
   const linkageBytes = linkagePath ? readFileSync(linkagePath) : null;
+  const attestationSha256 = attestationBytes ? sha256Hex(attestationBytes) : null;
+  const linkageSha256 = linkageBytes ? sha256Hex(linkageBytes) : null;
   const linkageInput = linkageBytes ? JSON.parse(linkageBytes.toString('utf8')) as unknown : null;
   const linkageValidation = labelsReady && linkagePath ? validateForgewingLabelLinkage({
-    manifest: linkageInput, labelPackageSha256: sha256Hex(ledgerBytes),
-    sourcePdfSha256: preparation.source.sourceSha256, linkageManifestSha256: sha256Hex(linkageBytes!),
+    manifest: linkageInput, labelPackageSha256,
+    sourcePdfSha256: preparation.source.sourceSha256, linkageManifestSha256: linkageSha256!,
     attestedLinkageManifestSha256: attestationValidation.linkageManifestSha256!, audit: labelAudit,
     candidates: preparation.candidates, attestedLabelObservationIds: attestationValidation.attestedLabelObservationIds,
     attestationScope: (attestationInput as { scope?: { kind?: string } }).scope?.kind === 'SCORING_SUBSET'
@@ -444,6 +516,8 @@ export async function runForgewingLabelledPricingA3(params: {
     const absolutePath = resolve(path);
     const bytes = readFileSync(absolutePath);
     const artifact = JSON.parse(bytes.toString('utf8')) as ForgewingLabelledPricingA3Artifact;
+    if (!artifact.runIdentity?.runNonce || artifact.preCallReport?.runIdentity?.runId
+      !== artifact.runIdentity.runId) throw new Error('PRIOR_A3_RUN_IDENTITY_VERSION_UNSUPPORTED');
     if (artifact.sourceIdentity.sha256 !== preparation.source.sourceSha256
       || artifact.frozenProviderBundle.digestSha256 !== frozenProviderBundle.digestSha256
       || artifact.modelIdentity.model !== preparation.runtime.model) {
@@ -491,11 +565,31 @@ export async function runForgewingLabelledPricingA3(params: {
     if (!params.expectedCandidateIds || !params.expectedCandidateRowIds) {
       throw new Error('A3_EXPECTED_CANDIDATE_SET_REQUIRED');
     }
+    if (!params.freezeOutputPath) throw new Error('A3_FREEZE_PERSISTENCE_REQUIRED');
+    if (!params.failureOutputPath) throw new Error('A3_FAILURE_ARTIFACT_PATH_REQUIRED');
     if (!params.provider && !process.env.ANTHROPIC_API_KEY?.trim()) throw new Error('ANTHROPIC_API_KEY_REQUIRED');
+  }
+  if (params.freezeOutputPath && params.failureOutputPath
+    && resolve(params.freezeOutputPath) === resolve(params.failureOutputPath)) {
+    throw new Error('A3_ARTIFACT_PATH_COLLISION');
   }
 
   const runtime = getForgewingRuntimeConfig();
-  const preCallReport: A3PreCallReport = { attestationValid: true, linkageValid: true,
+  if (runtime.model !== preparation.runtime.model) throw new Error('A3_FROZEN_RUNTIME_IDENTITY_CHANGED');
+  const capturedImplementationIdentity = implementationIdentity();
+  const createdAt = (params.now ?? (() => new Date()))().toISOString();
+  const runIdentity = allocateA3RunIdentity({ createdAt,
+    runNonce: randomUUID(), implementationIdentity: capturedImplementationIdentity,
+    sourceSha256: preparation.source.sourceSha256,
+    sourceByteLength: preparation.source.sourceByteLength,
+    labelPackageSha256, labelVersion: labelAudit.package.ledgerVersion,
+    attestationSha256: attestationSha256!, linkageSha256: linkageSha256!,
+    frozenBundleDigest: frozenProviderBundle.digestSha256, model: preparation.runtime.model,
+    taskVersion: preparation.runtime.promptTemplateId,
+    promptVersion: preparation.runtime.promptTemplateVersion,
+    schemaVersion: preparation.runtime.proposalSchemaVersion });
+  const preCallReport: A3PreCallReport = { runIdentity,
+    attestationValid: true, linkageValid: true,
     sourceValid: true, scoringContractValid: true, candidateCount: frozenCandidates.length,
     candidateIds: actualRowIds, candidateDigests: actualIds,
     candidateBundleDigest: frozenProviderBundle.digestSha256, provider: 'anthropic',
@@ -503,12 +597,26 @@ export async function runForgewingLabelledPricingA3(params: {
     schemaVersion: preparation.runtime.proposalSchemaVersion, outputTokenLimit: providerMaxOutputTokens,
     timeoutMs: providerTimeoutMs, sdkRetries: 0, taskRetryLimitPerCandidate: 1,
     plannedCalls: planned, hardCallLimit: HARD_CALL_BUDGET };
-  params.onPreCallReport?.(preCallReport, frozenProviderBundle);
-  if (params.executeProvider) params.onProviderReady?.(frozenProviderBundle);
-
-  const currentCases: MeasuredCase[] = [];
+  const freezeArtifact: A3FreezeArtifact = { runIdentity,
+    implementationIdentity: capturedImplementationIdentity,
+    inputIdentities: { sourceSha256: preparation.source.sourceSha256,
+      sourceByteLength: preparation.source.sourceByteLength, labelPackageSha256,
+      attestationSha256: attestationSha256!, linkageSha256: linkageSha256! },
+    preCallReport, frozenProviderBundle,
+    callConfiguration: { executeProvider: params.executeProvider ?? false,
+      repeatEachCandidate: params.repeatEachCandidate ?? false, configuredCallBudget: maximum,
+      plannedCalls: planned, hardCallLimit: HARD_CALL_BUDGET, provider: 'anthropic',
+      model: preparation.runtime.model, promptVersion: preparation.runtime.promptTemplateVersion,
+      schemaVersion: preparation.runtime.proposalSchemaVersion, temperature: 0,
+      structuredOutput: 'json_schema', outputTokenLimit: providerMaxOutputTokens,
+      timeoutMs: providerTimeoutMs, sdkRetries: 0, taskRetryLimitPerCandidate: 1 } };
+  if (params.freezeOutputPath) persistA3FreezeArtifact(params.freezeOutputPath, freezeArtifact);
   const currentProviderCallSequence: A3ProviderCallRecord[] = [];
   let currentProviderInvocations = 0;
+  try {
+  params.onPreCallReport?.(preCallReport, frozenProviderBundle, freezeArtifact);
+  if (params.executeProvider) params.onProviderReady?.(frozenProviderBundle);
+  const currentCases: MeasuredCase[] = [];
   const allPersistedAnchorIds = new Set(preparation.pricingLayoutObservations.map((item) => item.id));
   const provider = params.provider ?? callClaudeForPricingInterpretation;
   if (params.executeProvider) {
@@ -543,7 +651,8 @@ export async function runForgewingLabelledPricingA3(params: {
         repetition, rawOutput, allPersistedAnchorIds });
       currentCases.push(measured);
       const completedAt = new Date();
-      currentProviderCallSequence.push({ sequence: currentProviderCallSequence.length + 1,
+      currentProviderCallSequence.push({ runIdentity,
+        sequence: currentProviderCallSequence.length + 1,
         candidateId: frozenCandidates[index].candidateId, rowId: frozenCandidates[index].rowId,
         repetition, startedAt: startedAt.toISOString(), completedAt: completedAt.toISOString(),
         durationMs: completedAt.getTime() - startedAt.getTime(), providerInvoked,
@@ -591,7 +700,8 @@ export async function runForgewingLabelledPricingA3(params: {
   const currentCallsAttempted = currentProviderInvocations;
   const callsAttempted = priorCalls + currentCallsAttempted;
   const priorProviderCallSequence = priorArtifacts.flatMap((item) =>
-    item.artifact.currentProviderCallSequence ?? item.artifact.providerCallSequence ?? []);
+    (item.artifact.currentProviderCallSequence ?? item.artifact.providerCallSequence ?? [])
+      .map((record) => ({ ...record, runIdentity: record.runIdentity ?? item.artifact.runIdentity })));
   const providerCallSequence = [...priorProviderCallSequence, ...currentProviderCallSequence]
     .map((item, index) => ({ ...item, sequence: index + 1 }));
   if (providerCallSequence.length !== callsAttempted) {
@@ -651,31 +761,27 @@ export async function runForgewingLabelledPricingA3(params: {
       item.classification === 'provider_failure').length === currentCallsAttempted
       ? 'labelled_a3_provider_unavailable'
     : completed ? 'labelled_a3_measured' : 'labelled_a3_incomplete';
-  const createdAt = (params.now ?? (() => new Date()))().toISOString();
-  const runId = `forgewing-labelled-a3-${hashCanonical({ sourceSha256: preparation.source.sourceSha256,
-    labelVersion: labelAudit.package.ledgerVersion, candidateIds: actualIds,
-    frozenBundleDigest: frozenProviderBundle.digestSha256, createdAt }).slice(0, 32)}`;
   const failureReasons = !labelsReady ? attestationValidation?.failureReasons ?? ['human_attestation_missing']
     : !linkageReady ? ['LABEL_LINKAGE_GAP', ...(linkageValidation?.failureReasons ?? [])]
     : !params.executeProvider && !params.finalizePriorRuns ? ['PROVIDER_DISABLED_PREFLIGHT']
     : [...new Set(cases.flatMap((item) => item.warnings))];
   return { reportVersion: FORGEWING_LABELLED_PRICING_A3_VERSION,
     authority: 'non_authoritative_measurement', promotionEvidence: false, promotionAuthorized: false,
-    runIdentity: { runId, createdAt }, implementationIdentity: implementationIdentity(),
+    runIdentity, implementationIdentity: capturedImplementationIdentity,
     sourceIdentity: { path: preparation.source.sourcePdfPath,
       sha256: preparation.source.sourceSha256, byteLength: preparation.source.sourceByteLength,
       pages: labelAudit.source.pages, sourceDocumentId: preparation.source.sourceDocumentId,
       sourceArtifactId: preparation.source.sourceArtifactId,
       extractionSnapshotId: preparation.source.extractionSnapshotId },
     labelPackage: { ledgerPath, audit: labelAudit, promotionSuitable: false },
-    humanAttestation: { path: attestationPath, sha256: attestationPath
-        ? sha256Hex(readFileSync(attestationPath)) : null, supplied: attestationPath != null,
+    humanAttestation: { path: attestationPath, sha256: attestationSha256,
+      supplied: attestationPath != null,
       reviewer: parsedAttestation?.reviewer?.stable_handle && parsedAttestation.reviewer.reviewed_at
         ? { stableHandle: parsedAttestation.reviewer.stable_handle,
           reviewedAt: parsedAttestation.reviewer.reviewed_at } : null,
       scope: parsedAttestation?.scope ?? null,
       validation: attestationValidation, authority: 'evaluation_ground_truth_only', promotionAuthorized: false },
-    exactLabelLinkage: { path: linkagePath, sha256: linkageBytes ? sha256Hex(linkageBytes) : null,
+    exactLabelLinkage: { path: linkagePath, sha256: linkageSha256,
       supplied: linkagePath != null,
       status: linkageValidation?.status ?? 'label_linkage_gap',
       failureReasons: linkageValidation?.failureReasons ?? ['linkage_manifest_missing'],
@@ -738,6 +844,18 @@ export async function runForgewingLabelledPricingA3(params: {
       'provider_native_token_usage_and_stop_reason_unavailable_to_evaluation_runner',
       'evaluation_only_non_authoritative_no_promotion',
     ] };
+  } catch (error) {
+    if (params.failureOutputPath) {
+      const interruptionArtifact: A3InterruptionArtifact = { runIdentity,
+        implementationIdentity: capturedImplementationIdentity, preCallReport,
+        frozenProviderBundleDigest: frozenProviderBundle.digestSha256,
+        interruption: { interruptedAt: new Date().toISOString(),
+          reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE', callsAttempted: currentProviderInvocations,
+          completedCallRecords: currentProviderCallSequence.length } };
+      persistImmutableA3Artifact(params.failureOutputPath, interruptionArtifact);
+    }
+    throw error;
+  }
 }
 
 export function parseForgewingLabelledPricingA3Cli(argv: readonly string[]): Readonly<{
@@ -782,13 +900,8 @@ export function parseForgewingLabelledPricingA3Cli(argv: readonly string[]): Rea
 
 export async function main(): Promise<void> {
   const cli = parseForgewingLabelledPricingA3Cli(process.argv.slice(2));
-  const artifact = await runForgewingLabelledPricingA3({ ...cli,
-    onPreCallReport: (report, bundle) => {
-      if (cli.freezeOutputPath) {
-        const freezePath = resolve(cli.freezeOutputPath); mkdirSync(dirname(freezePath), { recursive: true });
-        writeFileSync(freezePath, `${JSON.stringify({ preCallReport: report,
-          frozenProviderBundle: bundle }, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
-      }
+  const artifact = await runForgewingLabelledPricingA3({ ...cli, failureOutputPath: cli.outputPath,
+    onPreCallReport: (report) => {
       process.stdout.write(`A3_PRE_CALL_REPORT ${JSON.stringify(report)}\n`);
     } });
   const outputPath = resolve(cli.outputPath); mkdirSync(dirname(outputPath), { recursive: true });

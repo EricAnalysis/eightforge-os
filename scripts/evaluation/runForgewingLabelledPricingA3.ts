@@ -104,6 +104,13 @@ export type A3InterruptionArtifact = Readonly<{ runIdentity: A3RunIdentity;
   interruption: Readonly<{ interruptedAt: string; reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE';
     callsAttempted: number; completedCallRecords: number }> }>;
 
+export type A3InterruptionPersistenceFailureDiagnostic = Readonly<{
+  code: 'A3_INTERRUPTION_ARTIFACT_PERSISTENCE_FAILED'; runId: string; failureOutputPath: string;
+  callsAttempted: number; completedCallRecords: number;
+  primaryError: Readonly<{ name: string; message: string; code: string | null }>;
+  persistenceError: Readonly<{ name: string; message: string; code: string | null }>;
+}>;
+
 type A3ProviderCallRecord = Readonly<{ runIdentity: A3RunIdentity;
   sequence: number; candidateId: string; rowId: string;
   repetition: A3AttemptKind; startedAt: string; completedAt: string; durationMs: number;
@@ -327,6 +334,48 @@ function persistImmutableA3Artifact(path: string, artifact: unknown,
 export function persistA3FreezeArtifact(path: string, artifact: A3FreezeArtifact,
   io?: A3ArtifactPersistenceIo): void {
   persistImmutableA3Artifact(path, artifact, io);
+}
+
+function boundedErrorDiagnostic(error: unknown): Readonly<{
+  name: string; message: string; code: string | null }> {
+  const bounded = (value: string, maximum: number): string => value.slice(0, maximum);
+  try {
+    if (error instanceof Error) {
+      const code = 'code' in error && typeof error.code === 'string' ? error.code : null;
+      return { name: bounded(error.name, 128), message: bounded(error.message, 1_000),
+        code: code == null ? null : bounded(code, 128) };
+    }
+    return { name: typeof error, message: bounded(String(error), 1_000), code: null };
+  } catch {
+    return { name: 'unknown', message: 'uninspectable thrown value', code: null };
+  }
+}
+
+export function preserveA3InterruptionRootCause(params: {
+  originalError: unknown; failureOutputPath: string; interruptionArtifact: A3InterruptionArtifact;
+  persistenceIo?: A3ArtifactPersistenceIo;
+  reportSecondaryFailure?: (diagnostic: A3InterruptionPersistenceFailureDiagnostic) => void;
+}): never {
+  try {
+    persistImmutableA3Artifact(params.failureOutputPath, params.interruptionArtifact, params.persistenceIo);
+  } catch (persistenceError) {
+    const diagnostic: A3InterruptionPersistenceFailureDiagnostic = {
+      code: 'A3_INTERRUPTION_ARTIFACT_PERSISTENCE_FAILED',
+      runId: params.interruptionArtifact.runIdentity.runId,
+      failureOutputPath: resolve(params.failureOutputPath),
+      callsAttempted: params.interruptionArtifact.interruption.callsAttempted,
+      completedCallRecords: params.interruptionArtifact.interruption.completedCallRecords,
+      primaryError: boundedErrorDiagnostic(params.originalError),
+      persistenceError: boundedErrorDiagnostic(persistenceError),
+    };
+    try {
+      (params.reportSecondaryFailure ?? ((record) => process.stderr.write(
+        `A3_SECONDARY_DIAGNOSTIC ${JSON.stringify(record)}\n`)))(diagnostic);
+    } catch {
+      // Diagnostic reporting is best-effort and must never replace the run's primary failure.
+    }
+  }
+  throw params.originalError;
 }
 
 function warningClassification(warnings: readonly string[]): LabelledPricingA3CaseClassification | null {
@@ -852,7 +901,8 @@ export async function runForgewingLabelledPricingA3(params: {
         interruption: { interruptedAt: new Date().toISOString(),
           reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE', callsAttempted: currentProviderInvocations,
           completedCallRecords: currentProviderCallSequence.length } };
-      persistImmutableA3Artifact(params.failureOutputPath, interruptionArtifact);
+      preserveA3InterruptionRootCause({ originalError: error,
+        failureOutputPath: params.failureOutputPath, interruptionArtifact });
     }
     throw error;
   }

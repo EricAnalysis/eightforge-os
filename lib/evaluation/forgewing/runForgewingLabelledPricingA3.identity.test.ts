@@ -43,8 +43,10 @@ vi.mock('@/lib/forgewing/runtime/modelConfig', async (importOriginal) => ({
     maxCalls: 0, timeoutMs: 30_000, maxOutputTokens: 2_000 }),
 }));
 
-import { persistA3FreezeArtifact, runForgewingLabelledPricingA3, type A3FreezeArtifact,
-  type A3InterruptionArtifact, type A3PreCallReport } from '@/scripts/evaluation/runForgewingLabelledPricingA3';
+import { persistA3FreezeArtifact, preserveA3InterruptionRootCause,
+  runForgewingLabelledPricingA3, type A3FreezeArtifact, type A3InterruptionArtifact,
+  type A3InterruptionPersistenceFailureDiagnostic,
+  type A3PreCallReport } from '@/scripts/evaluation/runForgewingLabelledPricingA3';
 
 const SOURCE_SHA = '1'.repeat(64);
 const CELL_IDS = ['description-cell', 'unit-cell', 'rate-cell'] as const;
@@ -85,6 +87,16 @@ function runnerParams(overrides: Record<string, unknown> = {}) {
     expectedCandidateRowIds: ['row-1'], providerTimeoutMs: 30_000,
     providerMaxOutputTokens: 2_000, now: () => new Date(FIXED_TIME),
     ...overrides };
+}
+
+async function frozenInterruptionArtifact(freezePath: string): Promise<A3InterruptionArtifact> {
+  await runForgewingLabelledPricingA3(runnerParams({ freezeOutputPath: freezePath }));
+  const freeze = JSON.parse(readFileSync(freezePath, 'utf8')) as A3FreezeArtifact;
+  return { runIdentity: freeze.runIdentity, implementationIdentity: freeze.implementationIdentity,
+    preCallReport: freeze.preCallReport,
+    frozenProviderBundleDigest: freeze.frozenProviderBundle.digestSha256,
+    interruption: { interruptedAt: FIXED_TIME, reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE',
+      callsAttempted: 1, completedCallRecords: 0 } };
 }
 
 beforeEach(() => {
@@ -149,6 +161,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(temporaryDirectory, { recursive: true, force: true });
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -256,19 +269,116 @@ describe('SYNTHETIC: A3 immutable pre-call run identity', () => {
     const freezePath = join(temporaryDirectory, 'interrupted.freeze.json');
     const failurePath = join(temporaryDirectory, 'interrupted.json');
     const provider = vi.fn(async () => '{}');
+    const originalError = new Error('synthetic post-provider interruption');
+    const secondaryDiagnostic = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     harness.runAttempts.mockImplementationOnce(async (_candidates, options) => {
       await options.provider({ inputJson: '{}', maxOutputTokens: 2_000 });
-      throw new Error('synthetic post-provider interruption');
+      throw originalError;
     });
-    await expect(runForgewingLabelledPricingA3(runnerParams({ executeProvider: true,
-      freezeOutputPath: freezePath, failureOutputPath: failurePath, provider })))
-      .rejects.toThrow('synthetic post-provider interruption');
+    let caught: unknown;
+    try {
+      await runForgewingLabelledPricingA3(runnerParams({ executeProvider: true,
+        freezeOutputPath: freezePath, failureOutputPath: failurePath, provider }));
+    } catch (error) { caught = error; }
     const freeze = JSON.parse(readFileSync(freezePath, 'utf8')) as A3FreezeArtifact;
     const interrupted = JSON.parse(readFileSync(failurePath, 'utf8')) as A3InterruptionArtifact;
+    expect(caught).toBe(originalError);
     expect(provider).toHaveBeenCalledTimes(1);
     expect(interrupted.runIdentity).toEqual(freeze.runIdentity);
+    expect(interrupted.preCallReport.runIdentity).toEqual(freeze.runIdentity);
+    expect(interrupted.frozenProviderBundleDigest).toBe(freeze.frozenProviderBundle.digestSha256);
     expect(interrupted.interruption).toMatchObject({ reason: 'A3_RUN_INTERRUPTED_AFTER_FREEZE',
       callsAttempted: 1, completedCallRecords: 0 });
+    expect(secondaryDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it('preserves the provider root cause when an existing failure artifact blocks persistence', async () => {
+    const freezePath = join(temporaryDirectory, 'occupied-provider.freeze.json');
+    const failurePath = join(temporaryDirectory, 'occupied-provider.json');
+    const existingBytes = 'immutable existing interruption evidence\n';
+    writeFileSync(failurePath, existingBytes);
+    const originalError = Object.assign(new Error('ORIGINAL_PROVIDER_FAILURE'), { code: 'PROVIDER_SENTINEL' });
+    const provider = vi.fn(async () => { throw originalError; });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    harness.runAttempts.mockImplementationOnce(async (_candidates, options) => {
+      await options.provider({ inputJson: '{}', maxOutputTokens: 2_000 });
+      return [attempt('applied')];
+    });
+    let caught: unknown;
+    try {
+      await runForgewingLabelledPricingA3(runnerParams({ executeProvider: true,
+        freezeOutputPath: freezePath, failureOutputPath: failurePath, provider }));
+    } catch (error) { caught = error; }
+    const freeze = JSON.parse(readFileSync(freezePath, 'utf8')) as A3FreezeArtifact;
+    const diagnosticText = stderr.mock.calls.map(([value]) => String(value)).join('');
+    expect(caught).toBe(originalError);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(readFileSync(failurePath, 'utf8')).toBe(existingBytes);
+    expect(diagnosticText).toContain('A3_SECONDARY_DIAGNOSTIC');
+    expect(diagnosticText).toContain('A3_INTERRUPTION_ARTIFACT_PERSISTENCE_FAILED');
+    expect(diagnosticText).toContain(freeze.runIdentity.runId);
+    expect(diagnosticText).toContain('EEXIST');
+  });
+
+  it('preserves a non-provider root cause after freeze when diagnostic persistence fails', async () => {
+    const freezePath = join(temporaryDirectory, 'occupied-callback.freeze.json');
+    const failurePath = join(temporaryDirectory, 'occupied-callback.json');
+    writeFileSync(failurePath, 'existing\n');
+    const originalError = new Error('ORIGINAL_NON_PROVIDER_FAILURE');
+    const provider = vi.fn(async () => '{}');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let caught: unknown;
+    try {
+      await runForgewingLabelledPricingA3(runnerParams({ executeProvider: true,
+        freezeOutputPath: freezePath, failureOutputPath: failurePath, provider,
+        onPreCallReport: () => { throw originalError; } }));
+    } catch (error) { caught = error; }
+    expect(caught).toBe(originalError);
+    expect(existsSync(freezePath)).toBe(true);
+    expect(provider).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map(([value]) => String(value)).join(''))
+      .toContain('A3_INTERRUPTION_ARTIFACT_PERSISTENCE_FAILED');
+  });
+
+  it('keeps injected interruption write and readback failures secondary', async () => {
+    const artifact = await frozenInterruptionArtifact(join(temporaryDirectory, 'helper.freeze.json'));
+    const scenarios = [
+      { expected: 'FAILURE_ARTIFACT_WRITE_FAILED', io: {
+        writeExclusive: () => { throw new Error('FAILURE_ARTIFACT_WRITE_FAILED'); },
+        read: vi.fn(() => { throw new Error('unexpected read'); }) } },
+      { expected: 'A3_ARTIFACT_PERSISTENCE_VERIFICATION_FAILED', io: {
+        writeExclusive: vi.fn(), read: () => '{"corrupted":true}\n' } },
+    ];
+    for (const [index, scenario] of scenarios.entries()) {
+      const originalError = new Error(`ORIGINAL_RUN_FAILURE_${index}`);
+      const diagnostics: A3InterruptionPersistenceFailureDiagnostic[] = [];
+      let caught: unknown;
+      try {
+        preserveA3InterruptionRootCause({ originalError,
+          failureOutputPath: join(temporaryDirectory, `injected-${index}.json`),
+          interruptionArtifact: artifact, persistenceIo: scenario.io,
+          reportSecondaryFailure: (diagnostic) => diagnostics.push(diagnostic) });
+      } catch (error) { caught = error; }
+      expect(caught).toBe(originalError);
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({
+        code: 'A3_INTERRUPTION_ARTIFACT_PERSISTENCE_FAILED', runId: artifact.runIdentity.runId,
+        persistenceError: { message: scenario.expected } });
+    }
+    expect(scenarios[0].io.read).not.toHaveBeenCalled();
+  });
+
+  it('does not let secondary diagnostic reporting replace the original error', async () => {
+    const artifact = await frozenInterruptionArtifact(join(temporaryDirectory, 'reporter.freeze.json'));
+    const originalError = new Error('ORIGINAL_FAILURE_SURVIVES_REPORTER_FAILURE');
+    let caught: unknown;
+    try {
+      preserveA3InterruptionRootCause({ originalError,
+        failureOutputPath: join(temporaryDirectory, 'reporter.json'), interruptionArtifact: artifact,
+        persistenceIo: { writeExclusive: () => { throw new Error('WRITE_FAILED'); }, read: () => '' },
+        reportSecondaryFailure: () => { throw new Error('STDERR_FAILED'); } });
+    } catch (error) { caught = error; }
+    expect(caught).toBe(originalError);
   });
 
   it('rejects nonce-less legacy artifacts as resumable evidence', async () => {

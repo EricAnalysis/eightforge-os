@@ -22,6 +22,11 @@ import { prepareForgewingPricingCorpus, runForgewingPricingCandidateAttempts,
 
 const HARD_CALL_BUDGET = 6;
 
+export type A3EvaluationPromptVariant = Readonly<{
+  identifier: string;
+  promptSha256: string;
+}>;
+
 export type SourceCellGroup = NonNullable<
   ForgewingPricingInterpretationInput['rowObservation']['sourceCellGroups']
 >[number];
@@ -83,8 +88,10 @@ export type A3PreCallReport = Readonly<{ runIdentity: A3RunIdentity;
   sourceValid: boolean; scoringContractValid: boolean; candidateCount: number;
   candidateIds: readonly string[]; candidateDigests: readonly string[]; candidateBundleDigest: string;
   provider: 'anthropic'; model: string; promptVersion: string; schemaVersion: string;
-  outputTokenLimit: number; timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 1;
-  plannedCalls: number; hardCallLimit: number }>;
+  outputTokenLimit: number; timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 0 | 1;
+  plannedCalls: number; hardCallLimit: number;
+  evaluationPromptVariant?: Readonly<{ identifier: string; promptSha256: string;
+    effectiveCallContractDigestSha256: string }> }>;
 
 export type A3FreezeArtifact = Readonly<{ runIdentity: A3RunIdentity;
   implementationIdentity: ForgewingLabelledPricingA3Artifact['implementationIdentity'];
@@ -96,7 +103,9 @@ export type A3FreezeArtifact = Readonly<{ runIdentity: A3RunIdentity;
     configuredCallBudget: number; plannedCalls: number; hardCallLimit: number;
     provider: 'anthropic'; model: string; promptVersion: string; schemaVersion: string;
     temperature: 0; structuredOutput: 'json_schema'; outputTokenLimit: number;
-    timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 1 }> }>;
+    timeoutMs: number; sdkRetries: 0; taskRetryLimitPerCandidate: 0 | 1;
+    evaluationPromptVariant?: Readonly<{ identifier: string; promptSha256: string;
+      effectiveCallContractDigestSha256: string }> }> }>;
 
 export type A3InterruptionArtifact = Readonly<{ runIdentity: A3RunIdentity;
   implementationIdentity: ForgewingLabelledPricingA3Artifact['implementationIdentity'];
@@ -139,7 +148,7 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
   modelIdentity: Readonly<{ provider: 'anthropic'; providerConfigured: boolean; model: string;
     taskVersion: string; promptVersion: string; schemaVersion: string;
     evaluationTimeoutMs: number; evaluationMaxOutputTokens: number; temperature: 0;
-    structuredOutput: 'json_schema'; sdkRetries: 0; taskRetryLimitPerCandidate: 1 }>;
+    structuredOutput: 'json_schema'; sdkRetries: 0; taskRetryLimitPerCandidate: 0 | 1 }>;
   frozenProviderBundle: Readonly<{ frozenBeforeProviderCalls: true; digestSha256: string;
     taskVersion: string; promptVersion: string; schemaVersion: string;
     candidates: readonly FrozenCandidate[] }>;
@@ -166,8 +175,14 @@ export type ForgewingLabelledPricingA3Artifact = Readonly<{
     | 'labelled_a3_provider_unavailable' | 'labelled_a3_measured';
   measurementClassification: 'UNMET' | 'INCOMPLETE' | 'MEASURED';
   metrics: Readonly<{ providerCallSuccessCount: number; providerCallSuccessRate: number | null;
-    schemaValidOutputCount: number; schemaValidOutputRate: number | null; scoredLabelCount: number;
-    correctlyClassifiedLabelCount: number; fieldScoreCount: number; fieldScoringCoverage: number | null;
+    schemaValidOutputCount: number; schemaValidOutputRate: number | null;
+    humanLabelCount: number; scoredLabelCount: number; unscoredLabelCount: number;
+    correctLabelCount: number; correctlyClassifiedLabelCount: number;
+    fieldScoreCount: number; fieldScoringCoverage: number | null;
+    semanticAccuracyAmongScored: number | null; fixedDenominatorCorrectness: number | null;
+    roleLabelMetrics: Readonly<Record<string, Readonly<{ total: number; scored: number;
+      unscored: number; correct: number; fieldScoringCoverage: number | null;
+      semanticAccuracyAmongScored: number | null; fixedDenominatorCorrectness: number | null }>>>;
     labelLinkageRate: number | null;
     semanticRoleAccuracy: number | null; descriptionRoleAccuracy: number | null;
     unitRoleAccuracy: number | null; rateCostRoleAccuracy: number | null; amountAccuracy: null;
@@ -298,7 +313,7 @@ export function allocateA3RunIdentity(params: { createdAt: string; runNonce: str
   sourceSha256: string; sourceByteLength: number; labelPackageSha256: string;
   labelVersion: string; attestationSha256: string; linkageSha256: string;
   frozenBundleDigest: string; model: string; taskVersion: string;
-  promptVersion: string; schemaVersion: string }): A3RunIdentity {
+  promptVersion: string; promptSha256?: string; schemaVersion: string }): A3RunIdentity {
   const runId = `forgewing-labelled-a3-${hashCanonical({
     implementationCommit: params.implementationIdentity.commit,
     implementationBase: params.implementationIdentity.parentOrBase,
@@ -307,6 +322,7 @@ export function allocateA3RunIdentity(params: { createdAt: string; runNonce: str
     attestationSha256: params.attestationSha256, linkageSha256: params.linkageSha256,
     frozenBundleDigest: params.frozenBundleDigest, model: params.model,
     taskVersion: params.taskVersion, promptVersion: params.promptVersion,
+    promptSha256: params.promptSha256 ?? null,
     schemaVersion: params.schemaVersion, createdAt: params.createdAt,
     runNonce: params.runNonce,
   }).slice(0, 32)}`;
@@ -389,7 +405,7 @@ function warningClassification(warnings: readonly string[]): LabelledPricingA3Ca
 
 export function scoreAttempt(params: { attempt: ForgewingPricingCorpusAttempt; candidate: FrozenCandidate;
   repetition: A3AttemptKind; rawOutput: string | null;
-  allPersistedAnchorIds: ReadonlySet<string> }): MeasuredCase {
+  allPersistedAnchorIds: ReadonlySet<string>; effectivePromptVersion?: string }): MeasuredCase {
   const proposal = params.attempt.proposalBundle?.proposals[0] ?? null;
   const citations = [...new Set(proposal?.interpretations
     .flatMap((item) => item.evidenceArtifactIds) ?? [])].sort((a, b) => a.localeCompare(b, 'en-US'));
@@ -431,7 +447,7 @@ export function scoreAttempt(params: { attempt: ForgewingPricingCorpusAttempt; c
     failureReason: params.attempt.failureReason, fieldScores, labelScores: fieldScores,
     primitiveInterpretations,
     responseMetadata: { model: params.attempt.model,
-      promptVersion: params.attempt.promptTemplateVersion,
+      promptVersion: params.effectivePromptVersion ?? params.attempt.promptTemplateVersion,
       schemaVersion: params.attempt.proposalSchemaVersion,
       inputSnapshotHash: params.attempt.inputSnapshotHash, taskId: params.attempt.taskId,
       runId: params.attempt.runId, providerCallCount: params.attempt.providerCallCount,
@@ -449,14 +465,21 @@ export async function runForgewingLabelledPricingA3(params: {
   providerTimeoutMs?: number; priorAttemptArtifactPaths?: readonly string[];
   providerMaxOutputTokens?: number; finalizePriorRuns?: boolean;
   historicalRunArtifactPaths?: readonly string[];
+  evaluationPromptVariant?: A3EvaluationPromptVariant;
+  experimentHardCallLimit?: number; disableCorrectiveRetries?: boolean;
+  forcePlannedRepeats?: boolean;
   onProviderReady?: (bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle']) => void;
   onPreCallReport?: (report: A3PreCallReport,
     bundle: ForgewingLabelledPricingA3Artifact['frozenProviderBundle'],
     freezeArtifact: A3FreezeArtifact) => void;
   now?: () => Date;
 }): Promise<ForgewingLabelledPricingA3Artifact> {
-  const maximum = params.callBudget ?? HARD_CALL_BUDGET;
-  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > HARD_CALL_BUDGET) {
+  const hardCallLimit = params.experimentHardCallLimit ?? HARD_CALL_BUDGET;
+  if (!Number.isSafeInteger(hardCallLimit) || hardCallLimit < 1 || hardCallLimit > HARD_CALL_BUDGET) {
+    throw new Error('forgewing_labelled_a3_invalid_hard_call_limit');
+  }
+  const maximum = params.callBudget ?? hardCallLimit;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > hardCallLimit) {
     throw new Error('forgewing_labelled_a3_invalid_call_budget');
   }
   const providerTimeoutMs = params.providerTimeoutMs ?? 30_000;
@@ -561,6 +584,31 @@ export async function runForgewingLabelledPricingA3(params: {
     promptVersion: preparation.runtime.promptTemplateVersion,
     schemaVersion: preparation.runtime.proposalSchemaVersion,
     candidates: frozenCandidates };
+  const effectivePromptVersion = params.evaluationPromptVariant?.identifier
+    ?? preparation.runtime.promptTemplateVersion;
+  const evaluationPromptVariant = params.evaluationPromptVariant ? {
+    ...params.evaluationPromptVariant,
+    effectiveCallContractDigestSha256: hashCanonical({
+      frozenProviderBundleDigestSha256: frozenProviderBundle.digestSha256,
+      promptIdentifier: params.evaluationPromptVariant.identifier,
+      promptSha256: params.evaluationPromptVariant.promptSha256,
+      model: preparation.runtime.model,
+      schemaVersion: preparation.runtime.proposalSchemaVersion,
+      temperature: 0,
+      structuredOutput: 'json_schema',
+      outputTokenLimit: providerMaxOutputTokens,
+      timeoutMs: providerTimeoutMs,
+      sdkRetries: 0,
+      taskRetryLimitPerCandidate: params.disableCorrectiveRetries ? 0 : 1,
+      plannedSequence: [
+        ...frozenCandidates.map((candidate) => ({ rowId: candidate.rowId, repetition: 'primary' })),
+        ...(params.repeatEachCandidate ? frozenCandidates.map((candidate) => ({
+          rowId: candidate.rowId, repetition: 'repeat',
+        })) : []),
+      ],
+      hardCallLimit,
+    }),
+  } : undefined;
   const priorArtifacts = (params.priorAttemptArtifactPaths ?? []).map((path) => {
     const absolutePath = resolve(path);
     const bytes = readFileSync(absolutePath);
@@ -607,7 +655,7 @@ export async function runForgewingLabelledPricingA3(params: {
       rowId: candidate.rowId, repetition: 'repeat' as const })),
   ].map((item, index) => ({ sequence: index + 1, ...item }));
   const planned = plannedCallSequence.length;
-  if (priorCalls + planned > maximum || priorCalls + planned > HARD_CALL_BUDGET) {
+  if (priorCalls + planned > maximum || priorCalls + planned > hardCallLimit) {
     throw new Error('PROVIDER_CALL_BUDGET_EXCEEDED');
   }
   if (params.executeProvider) {
@@ -616,6 +664,9 @@ export async function runForgewingLabelledPricingA3(params: {
     }
     if (!params.freezeOutputPath) throw new Error('A3_FREEZE_PERSISTENCE_REQUIRED');
     if (!params.failureOutputPath) throw new Error('A3_FAILURE_ARTIFACT_PATH_REQUIRED');
+    if (params.evaluationPromptVariant && !params.provider) {
+      throw new Error('A3_EVALUATION_PROMPT_PROVIDER_REQUIRED');
+    }
     if (!params.provider && !process.env.ANTHROPIC_API_KEY?.trim()) throw new Error('ANTHROPIC_API_KEY_REQUIRED');
   }
   if (params.freezeOutputPath && params.failureOutputPath
@@ -635,17 +686,20 @@ export async function runForgewingLabelledPricingA3(params: {
     attestationSha256: attestationSha256!, linkageSha256: linkageSha256!,
     frozenBundleDigest: frozenProviderBundle.digestSha256, model: preparation.runtime.model,
     taskVersion: preparation.runtime.promptTemplateId,
-    promptVersion: preparation.runtime.promptTemplateVersion,
+    promptVersion: effectivePromptVersion,
+    ...(params.evaluationPromptVariant ? { promptSha256: params.evaluationPromptVariant.promptSha256 } : {}),
     schemaVersion: preparation.runtime.proposalSchemaVersion });
   const preCallReport: A3PreCallReport = { runIdentity,
     attestationValid: true, linkageValid: true,
     sourceValid: true, scoringContractValid: true, candidateCount: frozenCandidates.length,
     candidateIds: actualRowIds, candidateDigests: actualIds,
     candidateBundleDigest: frozenProviderBundle.digestSha256, provider: 'anthropic',
-    model: preparation.runtime.model, promptVersion: preparation.runtime.promptTemplateVersion,
+    model: preparation.runtime.model, promptVersion: effectivePromptVersion,
     schemaVersion: preparation.runtime.proposalSchemaVersion, outputTokenLimit: providerMaxOutputTokens,
-    timeoutMs: providerTimeoutMs, sdkRetries: 0, taskRetryLimitPerCandidate: 1,
-    plannedCalls: planned, hardCallLimit: HARD_CALL_BUDGET };
+    timeoutMs: providerTimeoutMs, sdkRetries: 0,
+    taskRetryLimitPerCandidate: params.disableCorrectiveRetries ? 0 : 1,
+    plannedCalls: planned, hardCallLimit,
+    ...(evaluationPromptVariant ? { evaluationPromptVariant } : {}) };
   const freezeArtifact: A3FreezeArtifact = { runIdentity,
     implementationIdentity: capturedImplementationIdentity,
     inputIdentities: { sourceSha256: preparation.source.sourceSha256,
@@ -654,11 +708,13 @@ export async function runForgewingLabelledPricingA3(params: {
     preCallReport, frozenProviderBundle,
     callConfiguration: { executeProvider: params.executeProvider ?? false,
       repeatEachCandidate: params.repeatEachCandidate ?? false, configuredCallBudget: maximum,
-      plannedCalls: planned, hardCallLimit: HARD_CALL_BUDGET, provider: 'anthropic',
-      model: preparation.runtime.model, promptVersion: preparation.runtime.promptTemplateVersion,
+      plannedCalls: planned, hardCallLimit, provider: 'anthropic',
+      model: preparation.runtime.model, promptVersion: effectivePromptVersion,
       schemaVersion: preparation.runtime.proposalSchemaVersion, temperature: 0,
       structuredOutput: 'json_schema', outputTokenLimit: providerMaxOutputTokens,
-      timeoutMs: providerTimeoutMs, sdkRetries: 0, taskRetryLimitPerCandidate: 1 } };
+      timeoutMs: providerTimeoutMs, sdkRetries: 0,
+      taskRetryLimitPerCandidate: params.disableCorrectiveRetries ? 0 : 1,
+      ...(evaluationPromptVariant ? { evaluationPromptVariant } : {}) } };
   if (params.freezeOutputPath) persistA3FreezeArtifact(params.freezeOutputPath, freezeArtifact);
   const currentProviderCallSequence: A3ProviderCallRecord[] = [];
   let currentProviderInvocations = 0;
@@ -697,7 +753,8 @@ export async function runForgewingLabelledPricingA3(params: {
           }
         } });
       const measured = scoreAttempt({ attempt: attempts[0], candidate: frozenCandidates[index],
-        repetition, rawOutput, allPersistedAnchorIds });
+        repetition, rawOutput, allPersistedAnchorIds,
+        ...(params.evaluationPromptVariant ? { effectivePromptVersion } : {}) });
       currentCases.push(measured);
       const completedAt = new Date();
       currentProviderCallSequence.push({ runIdentity,
@@ -726,7 +783,7 @@ export async function runForgewingLabelledPricingA3(params: {
         'invalid_model_json', 'model_schema_rejected', 'unknown_evidence_reference',
         'unsupported_source_text',
       ].includes(warning));
-      if (retryWarning && !alreadyRetried) {
+      if (!params.disableCorrectiveRetries && retryWarning && !alreadyRetried) {
         await runCandidate(index, 'corrective_retry', retryWarning);
       }
     }
@@ -735,7 +792,7 @@ export async function runForgewingLabelledPricingA3(params: {
       .filter((item) => item.candidateId === candidate.candidateId && item.repetition !== 'repeat').at(-1));
     const primariesSucceeded = latestByCandidate.every((item) => item != null
       && !['provider_failure', 'schema_failure'].includes(item.classification));
-    if (params.repeatEachCandidate && primariesSucceeded
+    if (params.repeatEachCandidate && (params.forcePlannedRepeats || primariesSucceeded)
       && priorCalls + currentProviderInvocations + pendingRepeatCandidates.length <= maximum) {
       for (let index = 0; index < preparation.candidates.length; index += 1) {
         if (!priorCases.some((item) => item.candidateId === frozenCandidates[index].candidateId
@@ -770,11 +827,26 @@ export async function runForgewingLabelledPricingA3(params: {
   });
   const validScoredCases = scoredCases.filter((item) =>
     !['provider_failure', 'schema_failure'].includes(item.classification));
-  const scoredLabelCount = countValidatedHumanLabels(frozenCandidates);
+  const humanLabelCount = countValidatedHumanLabels(frozenCandidates);
   const { fieldScoreCount, correctlyClassifiedLabelCount, fieldScoringCoverage }
-    = summarizeA3FieldScores(validScoredCases, scoredLabelCount);
+    = summarizeA3FieldScores(scoredCases, humanLabelCount);
+  const unscoredLabelCount = humanLabelCount - fieldScoreCount;
+  const roleLabelMetrics = Object.fromEntries([...new Set(frozenCandidates.flatMap((candidate) =>
+    candidate.linkedLabels.map((label) => label.labelRole)))].sort((a, b) => a.localeCompare(b, 'en-US'))
+    .map((role) => {
+      const total = frozenCandidates.reduce((sum, candidate) => sum
+        + candidate.linkedLabels.filter((label) => label.labelRole === role).length, 0);
+      const roleScores = scoredCases.flatMap((item) => item.labelScores)
+        .filter((item) => item.labelRole === role && item.state !== 'UNSCORED');
+      const scored = roleScores.length;
+      const correct = roleScores.filter((item) => item.correct).length;
+      return [role, { total, scored, unscored: total - scored, correct,
+        fieldScoringCoverage: ratio(scored, total),
+        semanticAccuracyAmongScored: ratio(correct, scored),
+        fixedDenominatorCorrectness: ratio(correct, total) }];
+    }));
   const roleAccuracy = (role: string): number | null => {
-    const scores = validScoredCases.flatMap((item) => item.labelScores)
+    const scores = scoredCases.flatMap((item) => item.labelScores)
       .filter((item) => item.labelRole === role && item.state !== 'UNSCORED');
     return ratio(scores.filter((item) => item.correct).length, scores.length);
   };
@@ -838,10 +910,11 @@ export async function runForgewingLabelledPricingA3(params: {
     modelIdentity: { provider: 'anthropic', providerConfigured: Boolean(params.provider
       || process.env.ANTHROPIC_API_KEY?.trim() || priorArtifacts.length > 0
       || historicalArtifacts.length > 0), model: preparation.runtime.model,
-      taskVersion: preparation.runtime.promptTemplateId, promptVersion: preparation.runtime.promptTemplateVersion,
+      taskVersion: preparation.runtime.promptTemplateId, promptVersion: effectivePromptVersion,
       schemaVersion: preparation.runtime.proposalSchemaVersion, evaluationTimeoutMs: providerTimeoutMs,
       evaluationMaxOutputTokens: providerMaxOutputTokens, temperature: 0,
-      structuredOutput: 'json_schema', sdkRetries: 0, taskRetryLimitPerCandidate: 1 }, frozenProviderBundle,
+      structuredOutput: 'json_schema', sdkRetries: 0,
+      taskRetryLimitPerCandidate: params.disableCorrectiveRetries ? 0 : 1 }, frozenProviderBundle,
     candidateScope: { totalLabelledRows: labelAudit.denominators.totalDistinctRows,
       a2EligibleRows: preparation.candidates.length, providerCallCandidateRows: linkageReady ? frozenCandidates.length : 0,
       a3ScoredOutputs: cases.length, orderingDeterministic: preparation.orderingDeterministic, frozenCandidates },
@@ -869,11 +942,15 @@ export async function runForgewingLabelledPricingA3(params: {
       ? 'UNMET' : completed ? 'MEASURED' : 'INCOMPLETE',
     metrics: { providerCallSuccessCount: callsSucceeded, providerCallSuccessRate: ratio(callsSucceeded, callsAttempted),
       schemaValidOutputCount: schemaValidOutputs, schemaValidOutputRate: ratio(schemaValidOutputs, callsAttempted),
-      scoredLabelCount, correctlyClassifiedLabelCount, fieldScoreCount,
-      fieldScoringCoverage,
+      humanLabelCount, scoredLabelCount: fieldScoreCount, unscoredLabelCount,
+      correctLabelCount: correctlyClassifiedLabelCount,
+      correctlyClassifiedLabelCount, fieldScoreCount, fieldScoringCoverage,
+      semanticAccuracyAmongScored: ratio(correctlyClassifiedLabelCount, fieldScoreCount),
+      fixedDenominatorCorrectness: ratio(correctlyClassifiedLabelCount, humanLabelCount),
+      roleLabelMetrics,
       labelLinkageRate: ratio(frozenCandidates.filter((item) => item.labelLinkage === 'exact_linkage_complete').length,
-        frozenCandidates.length), semanticRoleAccuracy: completed
-        ? ratio(correctlyClassifiedLabelCount, scoredLabelCount) : null,
+      frozenCandidates.length), semanticRoleAccuracy: completed
+        ? ratio(correctlyClassifiedLabelCount, humanLabelCount) : null,
       descriptionRoleAccuracy: roleAccuracy('description'), unitRoleAccuracy: roleAccuracy('unit'),
       rateCostRoleAccuracy: roleAccuracy('cost'), amountAccuracy: null,
       amountAccuracyStatus: 'NOT_MEASURED_SCHEMA_HAS_NO_NUMERIC_PROPOSAL', citedAnchorCount,

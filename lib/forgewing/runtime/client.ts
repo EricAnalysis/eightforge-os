@@ -174,3 +174,19 @@ export const callClaudeForPricingInterpretation: ForgewingProvider = async (requ
     PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
     true,
   );
+
+/**
+ * Evaluation-only seam for a frozen pricing prompt experiment. Production and
+ * shadow callers continue to use callClaudeForPricingInterpretation above.
+ */
+export async function callClaudeForPricingInterpretationWithEvaluationPrompt(
+  request: ForgewingProviderRequest,
+  evaluationPrompt: string,
+): Promise<string> {
+  return callClaudeWithStructuredOutput(
+    request,
+    evaluationPrompt,
+    PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+}

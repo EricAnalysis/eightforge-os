@@ -265,6 +265,40 @@ describe('SYNTHETIC: A3 immutable pre-call run identity', () => {
     expect(first.runIdentity.runNonce).not.toBe(second.runIdentity.runNonce);
   });
 
+  it('freezes an evaluation prompt contract and preserves its fixed calls after a rejected primary', async () => {
+    const control = await runForgewingLabelledPricingA3(runnerParams({
+      freezeOutputPath: join(temporaryDirectory, 'control.freeze.json') }));
+    const freezePath = join(temporaryDirectory, 'experiment.freeze.json');
+    const provider = vi.fn(async () => '{}');
+    harness.runAttempts.mockImplementation(async (_candidates, options) => {
+      await options.provider({ inputJson: '{"bounded":true}', maxOutputTokens: 2_000 });
+      return [attempt('failed')];
+    });
+    const treatment = await runForgewingLabelledPricingA3(runnerParams({ executeProvider: true,
+      repeatEachCandidate: true, freezeOutputPath: freezePath, provider, callBudget: 2,
+      experimentHardCallLimit: 4, disableCorrectiveRetries: true, forcePlannedRepeats: true,
+      evaluationPromptVariant: { identifier: 'v3+a3-primitive-coverage-experiment',
+        promptSha256: 'a'.repeat(64) } }));
+    const freeze = JSON.parse(readFileSync(freezePath, 'utf8')) as A3FreezeArtifact;
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(treatment.currentProviderCallSequence.map((item) => item.repetition))
+      .toEqual(['primary', 'repeat']);
+    expect(treatment.callBudget.retries).toBe(0);
+    expect(treatment.frozenProviderBundle.digestSha256).toBe(control.frozenProviderBundle.digestSha256);
+    expect(treatment.runIdentity.runId).not.toBe(control.runIdentity.runId);
+    expect(treatment.modelIdentity).toMatchObject({
+      promptVersion: 'v3+a3-primitive-coverage-experiment', taskRetryLimitPerCandidate: 0,
+    });
+    expect(treatment.cases.every((item) =>
+      item.responseMetadata.promptVersion === 'v3+a3-primitive-coverage-experiment')).toBe(true);
+    expect(freeze.callConfiguration).toMatchObject({ configuredCallBudget: 2,
+      plannedCalls: 2, hardCallLimit: 4, promptVersion: 'v3+a3-primitive-coverage-experiment',
+      taskRetryLimitPerCandidate: 0,
+      evaluationPromptVariant: { identifier: 'v3+a3-primitive-coverage-experiment',
+        promptSha256: 'a'.repeat(64),
+        effectiveCallContractDigestSha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+  });
+
   it('persists the same identity when execution is interrupted after provider invocation', async () => {
     const freezePath = join(temporaryDirectory, 'interrupted.freeze.json');
     const failurePath = join(temporaryDirectory, 'interrupted.json');

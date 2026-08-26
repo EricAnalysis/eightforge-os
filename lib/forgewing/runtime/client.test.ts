@@ -10,6 +10,7 @@ import {
   callClaudeForColumnMapping,
   callClaudeForObservationArbitration,
   callClaudeForPricingInterpretation,
+  callClaudeForPricingInterpretationWithEvaluationPrompt,
   callClaudeForRegionClassification,
   callClaudeForTableContinuation,
   ForgewingProviderOutputError,
@@ -69,6 +70,22 @@ describe('Forgewing Claude adapter', () => {
     expect(messagesCreate).toHaveBeenCalledWith(expect.objectContaining({
       max_tokens: 2_000, system: prompt,
     }), expect.objectContaining({ maxRetries: 0 }));
+  });
+
+  it('keeps an evaluation prompt isolated from the production pricing prompt', async () => {
+    messagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '{"rowInterpretationState":"insufficient_evidence"}' }],
+      stop_reason: 'end_turn',
+    });
+    const productionPrompt = loadPricingInterpretationPrompt();
+    const evaluationPrompt = `${productionPrompt.trim()}\n\nEVALUATION-ONLY SENTINEL\n`;
+    await callClaudeForPricingInterpretationWithEvaluationPrompt({ model: 'claude-test',
+      timeoutMs: 500, maxOutputTokens: 2_000, inputJson: '{"rowObservation":{}}' }, evaluationPrompt);
+    expect(messagesCreate).toHaveBeenCalledWith(expect.objectContaining({
+      system: evaluationPrompt,
+      messages: [{ role: 'user', content: '{"rowObservation":{}}' }],
+    }), expect.objectContaining({ maxRetries: 0 }));
+    expect(loadPricingInterpretationPrompt()).toBe(productionPrompt);
   });
 
   it('classifies pricing max-token termination as truncation and preserves raw output', async () => {

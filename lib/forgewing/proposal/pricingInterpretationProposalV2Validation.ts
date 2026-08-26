@@ -21,6 +21,7 @@ import {
   deriveSourceFieldId,
   ForgewingPricingInterpretationProposalV2Schema,
   ForgewingSourceFieldContextSchema,
+  ForgewingSourceFieldInputSchema,
   ForgewingSourceFieldRoleSchema,
   isValueBearingContributionRole,
   type ForgewingPricingInterpretationProposalV2,
@@ -145,19 +146,22 @@ export function evaluateForgewingV2FieldEligibility(
 }
 
 export type ForgewingV2ViolationCode =
+  | 'validation_input_contract_violation'
   | 'proposal_schema_rejected'
-  | 'proposal_version_mismatch'
   | 'candidate_identity_mismatch'
+  | 'source_field_identity_mismatch'
+  | 'source_field_context_mismatch'
+  | 'duplicate_source_field_identity'
+  | 'duplicate_source_observation_membership'
   | 'unknown_source_field_id'
   | 'duplicate_source_field_interpretation'
+  | 'missing_source_field_interpretation'
+  | 'row_confidence_state_mismatch'
   | 'contribution_membership_mismatch'
   | 'duplicate_contribution_observation'
   | 'foreign_contribution_observation'
   | 'cross_field_contribution_observation'
-  | 'incompatible_contribution_roles'
-  | 'abstention_must_not_carry_contributions'
-  | 'abstention_requires_missing_evidence'
-  | 'missing_evidence_forbidden_for_asserted_state';
+  | 'incompatible_contribution_roles';
 
 export type ForgewingV2ValidationResult =
   | Readonly<{ status: 'valid'; proposal: ForgewingPricingInterpretationProposalV2 }>
@@ -166,20 +170,44 @@ export type ForgewingV2ValidationResult =
 /** Structural validation of a V2 proposal against its frozen eligible fields. */
 export function validateForgewingPricingInterpretationProposalV2(params: {
   candidateId: string;
+  context: ForgewingSourceFieldContext;
   eligibleFields: readonly ForgewingSourceFieldInput[];
   proposal: unknown;
 }): ForgewingV2ValidationResult {
+  const parsedContext = ForgewingSourceFieldContextSchema.safeParse(params.context);
+  const parsedFields = z.array(ForgewingSourceFieldInputSchema).min(1).max(16)
+    .safeParse(params.eligibleFields);
+  if (!parsedContext.success || !parsedFields.success) {
+    return { status: 'rejected', violations: ['validation_input_contract_violation'] };
+  }
   const parsed = ForgewingPricingInterpretationProposalV2Schema.safeParse(params.proposal);
   if (!parsed.success) return { status: 'rejected', violations: ['proposal_schema_rejected'] };
   const proposal = parsed.data;
+  const context = parsedContext.data;
+  const eligibleFields = parsedFields.data;
   const violations = new Set<ForgewingV2ViolationCode>();
 
   if (proposal.candidateId !== params.candidateId) violations.add('candidate_identity_mismatch');
 
-  const fieldById = new Map(params.eligibleFields.map((field) => [field.sourceFieldId, field]));
+  const fieldById = new Map<string, ForgewingSourceFieldInput>();
   const membershipOwner = new Map<string, string>();
-  for (const field of params.eligibleFields) {
-    for (const id of field.sourceObservationIds) membershipOwner.set(id, field.sourceFieldId);
+  for (const field of eligibleFields) {
+    const expectedId = deriveSourceFieldId({ ...context, sourceFieldRole: field.sourceFieldRole,
+      sourceObservationIds: field.sourceObservationIds });
+    if (field.sourceFieldId !== expectedId) violations.add('source_field_identity_mismatch');
+    if (field.physicalPageNumber !== context.physicalPageNumber) {
+      violations.add('source_field_context_mismatch');
+    }
+    if (fieldById.has(field.sourceFieldId)) violations.add('duplicate_source_field_identity');
+    fieldById.set(field.sourceFieldId, field);
+    for (const id of field.sourceObservationIds) {
+      if (membershipOwner.has(id)) violations.add('duplicate_source_observation_membership');
+      membershipOwner.set(id, field.sourceFieldId);
+    }
+  }
+
+  if (proposal.rowInterpretationState === 'insufficient_evidence' && proposal.confidence !== null) {
+    violations.add('row_confidence_state_mismatch');
   }
 
   const seenFieldIds = new Set<string>();
@@ -197,19 +225,10 @@ export function validateForgewingPricingInterpretationProposalV2(params: {
     }
 
     if (interpretation.interpretationState === 'insufficient_evidence') {
-      // Schema already pins these; re-checked so the contract is enforced even
-      // if a future shape change relaxes the union.
-      if (interpretation.contributions.length > 0) {
-        violations.add('abstention_must_not_carry_contributions');
-      }
-      if (!('missingEvidence' in interpretation) || interpretation.missingEvidence.length === 0) {
-        violations.add('abstention_requires_missing_evidence');
-      }
+      // The discriminated-union schema owns abstention shape. Deterministic
+      // validation owns identity, exact eligible-field coverage, and evidence
+      // closure; it does not duplicate unreachable post-schema diagnostics.
       continue;
-    }
-
-    if ('missingEvidence' in interpretation) {
-      violations.add('missing_evidence_forbidden_for_asserted_state');
     }
 
     const contributionIds = interpretation.contributions.map((item) => item.observationId);
@@ -247,6 +266,10 @@ export function validateForgewingPricingInterpretationProposalV2(params: {
     }
   }
 
+  if ([...fieldById.keys()].some((id) => !seenFieldIds.has(id))) {
+    violations.add('missing_source_field_interpretation');
+  }
+
   return violations.size > 0
     ? { status: 'rejected', violations: [...violations].sort() }
     : { status: 'valid', proposal };
@@ -271,9 +294,10 @@ export type ForgewingV2JoinedFieldInterpretation = Readonly<{
  * nor shrink it.
  */
 export function joinForgewingPricingInterpretationProposalV2(params: {
+  candidateId: string;
   context: ForgewingSourceFieldContext;
   eligibleFields: readonly ForgewingSourceFieldInput[];
-  proposal: ForgewingPricingInterpretationProposalV2;
+  proposal: unknown;
 }): Readonly<{
   proposalVersion: ForgewingPricingInterpretationProposalV2['proposalVersion'];
   candidateId: string;
@@ -287,19 +311,24 @@ export function joinForgewingPricingInterpretationProposalV2(params: {
   confidence: number | null;
   fieldInterpretations: readonly ForgewingV2JoinedFieldInterpretation[];
 }> {
+  const validation = validateForgewingPricingInterpretationProposalV2(params);
+  if (validation.status !== 'valid') {
+    throw new Error(`forgewing_v2_join_requires_validated_proposal:${validation.violations.join(',')}`);
+  }
+  const proposal = validation.proposal;
   const fieldById = new Map(params.eligibleFields.map((field) => [field.sourceFieldId, field]));
   return {
-    proposalVersion: params.proposal.proposalVersion,
-    candidateId: params.proposal.candidateId,
+    proposalVersion: proposal.proposalVersion,
+    candidateId: proposal.candidateId,
     authority: 'non_authoritative',
     numericAmountStatus: 'NOT_MEASURED_SCHEMA_HAS_NO_NUMERIC_PROPOSAL',
     sourceDocumentId: params.context.sourceDocumentId,
     sourceArtifactId: params.context.sourceArtifactId,
     rowObservationId: params.context.rowObservationId,
     physicalPageNumber: params.context.physicalPageNumber,
-    rowInterpretationState: params.proposal.rowInterpretationState,
-    confidence: params.proposal.confidence,
-    fieldInterpretations: params.proposal.fieldInterpretations.map((interpretation) => {
+    rowInterpretationState: proposal.rowInterpretationState,
+    confidence: proposal.confidence,
+    fieldInterpretations: proposal.fieldInterpretations.map((interpretation) => {
       const field = fieldById.get(interpretation.sourceFieldId);
       if (!field) throw new Error('forgewing_v2_join_requires_validated_proposal');
       return {

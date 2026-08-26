@@ -67,7 +67,7 @@ function proposalFor(fieldInterpretations: readonly unknown[]) {
 
 function validate(fields: readonly ForgewingSourceFieldInput[], proposal: unknown) {
   return validateForgewingPricingInterpretationProposalV2({
-    candidateId: CANDIDATE, eligibleFields: fields, proposal });
+    candidateId: CANDIDATE, context: CONTEXT, eligibleFields: fields, proposal });
 }
 
 describe('SYNTHETIC: V2 accepts well-formed authored-field assertions', () => {
@@ -220,7 +220,7 @@ describe('SYNTHETIC: V2 structural validation fails closed', () => {
 
   it('rejects a candidate identity mismatch', () => {
     const result = validateForgewingPricingInterpretationProposalV2({
-      candidateId: 'synthetic-candidate-other', eligibleFields: [rate],
+      candidateId: 'synthetic-candidate-other', context: CONTEXT, eligibleFields: [rate],
       proposal: proposalFor([interpretation(rate, 'rate_like_amount', [
         ['obs-A', 'type_marker'], ['obs-B', 'value_token']])]) });
     expect(result.status === 'rejected' && result.violations)
@@ -237,6 +237,82 @@ describe('SYNTHETIC: V2 structural validation fails closed', () => {
     ]) {
       expect(validate([rate], malformed)).toMatchObject({ status: 'rejected',
         violations: ['proposal_schema_rejected'] });
+    }
+  });
+
+  it('re-derives every source field identity from immutable validation context', () => {
+    const rate = field('rate', ['obs-A', 'obs-B']);
+    const forged = { ...rate, sourceFieldId: 'forgewing-source-field-forged' };
+    const result = validate([forged], proposalFor([{
+      ...interpretation(forged, 'rate_like_amount', [
+        ['obs-A', 'type_marker'], ['obs-B', 'value_token'],
+      ]), sourceFieldId: forged.sourceFieldId,
+    }]));
+    expect(result.status === 'rejected' && result.violations)
+      .toContain('source_field_identity_mismatch');
+  });
+
+  it('rejects eligible fields bound to a different physical-page context', () => {
+    const rate = { ...field('rate', ['obs-A', 'obs-B']),
+      physicalPageNumber: CONTEXT.physicalPageNumber + 1 };
+    const result = validate([rate], proposalFor([interpretation(rate, 'rate_like_amount', [
+      ['obs-A', 'type_marker'], ['obs-B', 'value_token'],
+    ])]));
+    expect(result.status === 'rejected' && result.violations)
+      .toContain('source_field_context_mismatch');
+  });
+
+  it('requires every eligible field exactly once and explicit abstention for unresolved fields', () => {
+    const rate = field('rate', ['obs-A', 'obs-B']);
+    const unit = field('unit', ['obs-D']);
+    const omitted = validate([rate, unit], proposalFor([
+      interpretation(rate, 'rate_like_amount', [['obs-A', 'type_marker'], ['obs-B', 'value_token']]),
+    ]));
+    expect(omitted.status === 'rejected' && omitted.violations)
+      .toContain('missing_source_field_interpretation');
+
+    const explicit = validate([rate, unit], proposalFor([
+      interpretation(rate, 'rate_like_amount', [['obs-A', 'type_marker'], ['obs-B', 'value_token']]),
+      { sourceFieldId: unit.sourceFieldId, semanticRole: 'unknown',
+        interpretationState: 'insufficient_evidence', confidence: null, contributions: [],
+        rationaleCodes: ['missing_semantic_context'],
+        missingEvidence: [{ code: 'missing_column_context' }] },
+    ]));
+    expect(explicit).toMatchObject({ status: 'valid' });
+  });
+
+  it('rejects duplicate field identities and overlapping eligible membership', () => {
+    const rate = field('rate', ['obs-A', 'obs-B']);
+    const duplicate = validate([rate, rate], proposalFor([interpretation(rate, 'rate_like_amount', [
+      ['obs-A', 'type_marker'], ['obs-B', 'value_token'],
+    ])]));
+    expect(duplicate.status === 'rejected' && duplicate.violations)
+      .toEqual(expect.arrayContaining(['duplicate_source_field_identity',
+        'duplicate_source_observation_membership']));
+
+    const overlap = field('unit', ['obs-B', 'obs-D']);
+    const overlapping = validate([rate, overlap], proposalFor([
+      interpretation(rate, 'rate_like_amount', [['obs-A', 'type_marker'], ['obs-B', 'value_token']]),
+      interpretation(overlap, 'unit_like_text', [['obs-B', 'semantic_modifier'],
+        ['obs-D', 'semantic_head']]),
+    ]));
+    expect(overlapping.status === 'rejected' && overlapping.violations)
+      .toContain('duplicate_source_observation_membership');
+  });
+
+  it('requires null confidence when the row declares insufficient evidence', () => {
+    const rate = field('rate', ['obs-A', 'obs-B']);
+    const base = proposalFor([interpretation(rate, 'rate_like_amount', [
+      ['obs-A', 'type_marker'], ['obs-B', 'value_token'],
+    ])]);
+    expect(validate([rate], { ...base, rowInterpretationState: 'insufficient_evidence',
+      confidence: 0.85 })).toMatchObject({ status: 'rejected',
+      violations: ['row_confidence_state_mismatch'] });
+    expect(validate([rate], { ...base, rowInterpretationState: 'insufficient_evidence',
+      confidence: null })).toMatchObject({ status: 'valid' });
+    for (const rowInterpretationState of ['observed', 'ambiguous', 'conflicting'] as const) {
+      expect(validate([rate], { ...base, rowInterpretationState, confidence: 0.85 }))
+        .toMatchObject({ status: 'valid' });
     }
   });
 });
@@ -348,7 +424,7 @@ describe('SYNTHETIC: V2 runtime join supplies deterministic source metadata', ()
     if (result.status !== 'valid') return;
 
     const joined = joinForgewingPricingInterpretationProposalV2({
-      context: CONTEXT, eligibleFields: [rate], proposal: result.proposal });
+      candidateId: CANDIDATE, context: CONTEXT, eligibleFields: [rate], proposal: result.proposal });
     expect(joined).toMatchObject({
       authority: 'non_authoritative',
       numericAmountStatus: 'NOT_MEASURED_SCHEMA_HAS_NO_NUMERIC_PROPOSAL',
@@ -364,6 +440,17 @@ describe('SYNTHETIC: V2 runtime join supplies deterministic source metadata', ()
     // Membership is runtime-owned: the asserted proposal never carried it.
     expect(JSON.stringify(result.proposal)).not.toContain('evidenceObservationIds');
     expect(JSON.stringify(result.proposal)).not.toContain('authoredRawText');
+  });
+
+  it('refuses to join a forged field identity even when the proposal repeats it', () => {
+    const forged = { ...field('rate', ['obs-A', 'obs-B']),
+      sourceFieldId: 'forgewing-source-field-forged' };
+    expect(() => joinForgewingPricingInterpretationProposalV2({
+      candidateId: CANDIDATE, context: CONTEXT, eligibleFields: [forged],
+      proposal: proposalFor([interpretation(forged, 'rate_like_amount', [
+        ['obs-A', 'type_marker'], ['obs-B', 'value_token'],
+      ])]),
+    })).toThrow('source_field_identity_mismatch');
   });
 });
 
@@ -381,7 +468,7 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
     });
   }
 
-  it('is referenced only by the V2 contract, its validator, and their tests', () => {
+  it('is referenced only by the V2 contract, provider-free evaluation, validator, and tests', () => {
     const referencing = sourceFiles(join(process.cwd(), 'lib'))
       .concat(sourceFiles(join(process.cwd(), 'scripts')))
       .filter((file) => {
@@ -390,9 +477,13 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
       })
         .map((file) => file.split(/[/\\]/).pop()!);
     expect([...new Set(referencing)].sort()).toEqual([
+      'forgewingPricingProposalV2PhaseB.real.test.ts',
+      'forgewingPricingProposalV2Preparation.test.ts',
+      'prepareForgewingPricingProposalV2.ts',
       'pricingInterpretationProposalV2.test.ts',
       'pricingInterpretationProposalV2Validation.test.ts',
       'pricingInterpretationProposalV2Validation.ts',
+      'runForgewingPricingProposalV2PhaseB.ts',
     ]);
   });
 

@@ -17,6 +17,9 @@ import {
   isPdfLayoutTokenObservation,
   type PdfLayoutTokenObservation,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
+import { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+  type PagePricedScheduleReconstruction } from
+  '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import { parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
@@ -341,8 +344,16 @@ export type ForgewingPricingCorpusPreparation = Readonly<{
   candidates: readonly ForgewingPricingInterpretationInput[];
   /** Exact persisted layout observations used by the evaluation-only A2 handoff. */
   pricingLayoutObservations: readonly PdfLayoutTokenObservation[];
+  /** Provider-free source structure from the same extraction execution. */
+  pricedScheduleReconstruction: PagePricedScheduleReconstruction;
+  sourcePhysicalPageCount: number;
   orderingDeterministic: boolean;
 }>;
+
+function pricingCorpusRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
 
 /**
  * Extracts and freezes the evidence-admitted A2 call set without invoking a
@@ -401,6 +412,20 @@ export async function prepareForgewingPricingCorpus(
     rateSchedulePageRanges: [...entry.authoritativeRatePageRanges],
   });
   const pricingSourceEligibility = pipeline.contractAnalysis?.pricing_source_eligibility;
+  const pdfLayer = pricingCorpusRecord(pipeline.primaryDocument?.content_layers?.pdf);
+  const rawReconstruction = pricingCorpusRecord(pdfLayer?.priced_schedule_reconstruction_v1);
+  const authorizedPages = new Set(entry.authoritativeRatePageRanges.flatMap((range) =>
+    Array.from({ length: range.end - range.start + 1 }, (_, index) => range.start + index)));
+  const pricedScheduleReconstruction: PagePricedScheduleReconstruction = {
+    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    pages: rawReconstruction?.parser_version === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
+      && Array.isArray(rawReconstruction.pages)
+      ? (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
+        .filter((page) => authorizedPages.has(page.physical_page_number))
+      : [],
+  };
+  const sourcePhysicalPageCount =
+    payload.extraction.physical_page_provenance_v1?.total_physical_pages ?? 0;
   const pricingLayoutObservations = pricingSourceEligibility
     ? pricingLayoutSourceObservations(
       pipeline.primaryDocument,
@@ -445,6 +470,8 @@ export async function prepareForgewingPricingCorpus(
     candidates,
     pricingLayoutObservations: pricingLayoutObservations
       .filter(isPdfLayoutTokenObservation),
+    pricedScheduleReconstruction,
+    sourcePhysicalPageCount,
     orderingDeterministic: canonicalJson(candidates) === canonicalJson(reversedCandidates),
   };
 }

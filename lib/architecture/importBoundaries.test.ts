@@ -86,6 +86,11 @@ const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/api/evaluation/forgewing/a3-linkage/attestation/route.ts',
   'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
   'components/evaluation/forgewing/A3LinkageReviewWorkspace.tsx',
+  'app/evaluation/forgewing/v2-field-labels/page.tsx',
+  'app/api/evaluation/forgewing/v2-field-labels/source/route.ts',
+  'app/api/evaluation/forgewing/v2-field-labels/validate/route.ts',
+  'app/api/evaluation/forgewing/v2-field-labels/finalize/route.ts',
+  'components/evaluation/forgewing/V2FieldLabelReviewWorkspace.tsx',
 ]);
 const FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES = [
   'lib/contracts',

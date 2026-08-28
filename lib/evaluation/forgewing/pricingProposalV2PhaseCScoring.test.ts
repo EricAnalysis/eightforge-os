@@ -62,12 +62,13 @@ describe('SYNTHETIC: Phase C fixed-denominator scoring', () => {
     expect(r.membership.exact).toBe(3);
     expect(r.interpretationState.correct).toBe(3);
     expect(r.placeholderSafety).toMatchObject({ denominator: 1,
-      predictedPlaceholderAbsence: 1, predictedValueBearing: 0, criticalFailures: 0 });
+      correctPlaceholderAbsence: 1, predictedValueToken: 0, predictedComponentPart: 0,
+      criticalFailuresTotal: 0 });
   });
 
   it('preserves both denominators when every provider output is unavailable', () => {
     const none = new Map<string, PhaseCObservation>(FIELDS.map((f) =>
-      [f.sourceFieldId, { status: 'unavailable', reason: 'provider_rejected' }]));
+      [f.sourceFieldId, { status: 'unavailable', reason: 'provider_error' }]));
     const r = scoreForgewingV2PhaseC({ humanFields: FIELDS, observations: none });
     expect(r.fixedDenominators).toEqual({ field: 3, contribution: 5 });
     expect(r.semanticRole).toMatchObject({ denominator: 3, correct: 0, unavailable: 3,
@@ -75,7 +76,7 @@ describe('SYNTHETIC: Phase C fixed-denominator scoring', () => {
     expect(r.contributionRole).toMatchObject({ denominator: 5, correct: 0, unavailable: 5,
       accuracyFixedDenominator: 0 });
     expect(r.contributionRole.accuracyAmongScoredSecondaryDiagnostic).toBeNull();
-    expect(r.unavailability.byReason).toEqual({ provider_rejected: 3 });
+    expect(r.unavailability.byReason).toEqual({ provider_error: 3 });
   });
 
   it('treats a field the provider never returned as unavailable, not absent', () => {
@@ -94,7 +95,8 @@ describe('SYNTHETIC: Phase C fixed-denominator scoring', () => {
       [['obs-c', 'type_marker'], ['obs-d', 'value_token']]));
     const r = scoreForgewingV2PhaseC({ humanFields: FIELDS, observations: collapsed });
     expect(r.placeholderSafety).toMatchObject({ denominator: 1,
-      predictedPlaceholderAbsence: 0, predictedValueBearing: 1, criticalFailures: 1 });
+      correctPlaceholderAbsence: 0, predictedValueToken: 1, predictedComponentPart: 0,
+      criticalFailuresTotal: 1 });
     expect(r.contributionRole.confusion.placeholder_absence!.value_token).toBe(1);
   });
 

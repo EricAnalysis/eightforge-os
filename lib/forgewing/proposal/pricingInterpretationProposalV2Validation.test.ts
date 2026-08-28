@@ -483,6 +483,7 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
     expect([...new Set(referencing)].sort()).toEqual([
       'forgewingPricingProposalV2PhaseB.real.test.ts',
       'forgewingPricingProposalV2Preparation.test.ts',
+      'forgewingPricingV2PhaseCExecution.real.test.ts',
       'prepareForgewingPricingProposalV2.ts',
       'pricingInterpretationProposalV2.test.ts',
       'pricingInterpretationProposalV2StructuredOutput.test.ts',

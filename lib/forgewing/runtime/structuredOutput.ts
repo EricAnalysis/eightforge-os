@@ -216,10 +216,15 @@ export const PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA = {
 } as const;
 
 export const PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES = `V2 OUTPUT FIELD RULES:
-- Emit exactly one fieldInterpretations entry for every supplied sourceFieldId. Never add, omit, or repeat one.
+- proposalVersion MUST be exactly "forgewing-pricing-interpretation-proposal-v2".
+- candidateId MUST be the supplied candidate identifier.
+- ROW RULE: if rowInterpretationState is "insufficient_evidence", the row-level confidence MUST be null. Otherwise row-level confidence MUST be a number between 0 and 1, or null.
+- Emit exactly one fieldInterpretations entry for every supplied sourceFieldId. Never add, omit, or repeat one. At least 1 and at most 16 entries.
 - sourceFieldId MUST be copied exactly from a supplied field. Never invent or edit one.
-- If a field's interpretationState is "insufficient_evidence": semanticRole MUST be "unknown", confidence MUST be null, contributions MUST be [], and missingEvidence MUST be present with at least one allowed code.
-- Otherwise: missingEvidence MUST NOT appear in that field object at all (not null, not [], omit the property), and contributions MUST contain exactly one entry per supplied member observationId of that field — same set, no duplicates, no omissions, no extras, no member from another field.
+- If a field's interpretationState is "insufficient_evidence": semanticRole MUST be exactly "unknown", confidence MUST be null, contributions MUST be [], and missingEvidence MUST be present with 1 to 6 allowed codes.
+- Otherwise: interpretationState MUST be one of "observed", "inferred", "ambiguous", "conflicting"; missingEvidence MUST NOT appear in that field object at all (not null, not [], omit the property); confidence MUST be a number between 0 and 1, or null; and contributions MUST contain exactly one entry per supplied member observationId of that field — same set, 1 to 16 entries, no duplicates, no omissions, no extras, no member from another field.
+- rationaleCodes MUST contain 1 to 4 distinct allowed codes on every field, abstaining or not.
+- One observation MUST NOT be given both placeholder_absence and a value-bearing role (value_token or component_part).
 - Never return authoredRawText, sourceObservationIds, sourceFieldRole, or primitive raw text.` as const;
 
 const common = {

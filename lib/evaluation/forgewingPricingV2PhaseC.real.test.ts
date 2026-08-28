@@ -52,7 +52,7 @@ describe.skipIf(!configured)('REAL SCOPE: Forgewing V2 Phase C provider-disabled
     expect(result.scope.rows).toHaveLength(5);
     expect(result.scope.fieldDenominator).toBe(17);
     expect(result.scope.contributionDenominator).toBe(19);
-    expect(result.scope.rows.reduce((n, row) => n + row.fields.length, 0)).toBe(17);
+    expect(result.scope.rows.reduce((n, row) => n + row.providerFields.length, 0)).toBe(17);
 
     // deterministic ordering
     expect(result.scope.rows.map((row) => row.rowObservationId))
@@ -103,6 +103,7 @@ describe.skipIf(!configured)('REAL SCOPE: Forgewing V2 Phase C provider-disabled
     expect(result.measurement.scoring.contributionRole.majorityClassBaseline)
       .toMatchObject({ role: 'semantic_head', matches: 10, denominator: 19 });
     expect(result.measurement.scoring.placeholderSafety.denominator).toBe(3);
+    expect(result.measurement.scoring.placeholderSafety.criticalFailuresTotal).toBe(0);
 
     // --- warnings present ---
     expect(result.measurement.scoring.semanticRole.interpretation)

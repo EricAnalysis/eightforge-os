@@ -1,8 +1,11 @@
 /**
  * Evaluation-only Forgewing V2 Phase C provider measurement runner.
  *
- * Provider-free by default. Every integrity gate, the run identity, and the
- * write-once freeze artifact complete BEFORE any provider request is possible.
+ * Every integrity gate, the run identity, and the write-once freeze artifact
+ * complete BEFORE any provider request is possible. Provider output is routed
+ * through the authoritative V2 schema, validator, and join; this module never
+ * re-implements identity or membership authority.
+ *
  * Non-authoritative: creates no CanonicalFact, VerifiedField, canonical pricing,
  * or Project Truth, and never mutates human labels or accepted artifacts.
  */
@@ -12,24 +15,33 @@ import { dirname, resolve } from 'node:path';
 
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
-  validateForgewingPricingV2AcceptedPhaseBArtifact,
-  validateForgewingPricingV2HumanLabelPackage,
-} from '@/lib/evaluation/forgewing/pricingProposalV2HumanLabels';
+  authenticateForgewingV2PhaseCInputs,
+  FORGEWING_V2_PHASE_C_ACCEPTED_PINS,
+  type ForgewingV2PhaseCAcceptedPins,
+} from '@/lib/evaluation/forgewing/pricingProposalV2PhaseCAcceptedInputs';
 import {
   scoreForgewingV2PhaseC,
   FORGEWING_V2_PHASE_C_SCORING_VERSION,
+  type PhaseCFieldUnavailableReason,
   type PhaseCHumanField,
   type PhaseCObservation,
 } from '@/lib/evaluation/forgewing/pricingProposalV2PhaseCScoring';
 import {
   FORGEWING_PRICING_INTERPRETATION_PROPOSAL_V2_SCHEMA_VERSION,
+  ForgewingPricingInterpretationProposalV2Schema,
+  type ForgewingSourceFieldContext,
+  type ForgewingSourceFieldInput,
 } from '@/lib/forgewing/proposal/pricingInterpretationProposalV2';
+import {
+  joinForgewingPricingInterpretationProposalV2,
+  validateForgewingPricingInterpretationProposalV2,
+} from '@/lib/forgewing/proposal/pricingInterpretationProposalV2Validation';
 import type { ForgewingProvider } from '@/lib/forgewing/runtime/client';
 
 export const FORGEWING_V2_PHASE_C_MEASUREMENT_VERSION =
-  'forgewing-pricing-v2-phase-c-measurement-v1' as const;
+  'forgewing-pricing-v2-phase-c-measurement-v2' as const;
 
-/** Hard ceiling: one call per reasoning row, no retries, for the first measurement. */
+/** Hard ceiling: one call per reasoning row, no retries, for the frozen run. */
 export const FORGEWING_V2_PHASE_C_HARD_CALL_LIMIT = 5;
 
 type JsonRecord = Record<string, unknown>;
@@ -45,6 +57,7 @@ export type PhaseCRunIdentity = Readonly<{
   runId: string; createdAt: string; runNonce: string;
 }>;
 
+/** The provider-facing view of one field: no expected label, no scoring input. */
 export type PhaseCProviderField = Readonly<{
   sourceFieldId: string;
   sourceFieldRole: string;
@@ -55,11 +68,9 @@ export type PhaseCProviderField = Readonly<{
 export type PhaseCRow = Readonly<{
   candidateId: string;
   rowObservationId: string;
-  sourceDocumentId: string;
-  sourceArtifactId: string;
-  physicalPageNumber: number;
-  rowRawText: string;
-  fields: readonly PhaseCProviderField[];
+  context: ForgewingSourceFieldContext;
+  eligibleFields: readonly ForgewingSourceFieldInput[];
+  providerFields: readonly PhaseCProviderField[];
 }>;
 
 export type PhaseCScope = Readonly<{
@@ -72,54 +83,38 @@ export type PhaseCScope = Readonly<{
   contributionDenominator: number;
 }>;
 
-/** Deterministic ordering: rows by rowObservationId, fields by sourceFieldId. */
+/** Provider-facing payload for one row. Runtime-owned identity only. */
+export function forgewingV2PhaseCProviderInput(row: PhaseCRow): JsonRecord {
+  return {
+    proposalVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_V2_SCHEMA_VERSION,
+    candidateId: row.candidateId,
+    rowObservationId: row.context.rowObservationId,
+    sourceDocumentId: row.context.sourceDocumentId,
+    sourceArtifactId: row.context.sourceArtifactId,
+    physicalPageNumber: row.context.physicalPageNumber,
+    fields: row.providerFields,
+  };
+}
+
+/**
+ * Authenticates every accepted input against independent pins, then derives the
+ * frozen scope. Deterministic ordering: rows by rowObservationId, fields by
+ * sourceFieldId, members in frozen packet order.
+ */
 export function buildForgewingV2PhaseCScope(params: {
   humanLabelPackageBytes: Buffer;
   phaseBArtifactBytes: Buffer;
   reviewPacketBytes: Buffer;
+  pins?: ForgewingV2PhaseCAcceptedPins;
 }): PhaseCScope {
-  const pkg = record(JSON.parse(params.humanLabelPackageBytes.toString('utf8')));
-  const packet = record(JSON.parse(params.reviewPacketBytes.toString('utf8')));
-  if (!pkg || !packet) throw new Error('forgewing_v2_phase_c_input_contract_violation');
-
-  const artifact = record(JSON.parse(params.phaseBArtifactBytes.toString('utf8')));
-  const preparations = (artifact?.sources as JsonRecord[] ?? [])
-    .map((source) => record(source.preparation)!);
-  const preparedRows = preparations.flatMap((value) => value.rows as JsonRecord[]);
-  const preparedFields = preparedRows.flatMap((row) => row.fields as JsonRecord[])
-    .map((wrapper) => record(wrapper.field)!);
-
-  const phaseB = validateForgewingPricingV2AcceptedPhaseBArtifact({
-    artifactBytes: params.phaseBArtifactBytes,
-    expected: {
-      preparationArtifactSha256: pkg.preparationArtifactSha256 as string,
-      reportDigestSha256: pkg.preparationReportDigestSha256 as string,
-      preparationImplementationCommit: pkg.preparationImplementationCommit as string,
-      expectedPreparationDigests: preparations
-        .map((value) => value.preparationDigestSha256 as string),
-      expectedRowCount: preparedRows.length,
-      expectedFieldCount: preparedFields.length,
-      expectedMemberObservationCount: preparedFields
-        .reduce((sum, field) => sum + (field.sourceObservationIds as string[]).length, 0),
-      expectedSourceFieldIds: preparedFields.map((field) => field.sourceFieldId as string),
-    },
+  const authenticated = authenticateForgewingV2PhaseCInputs({
+    humanLabelPackageBytes: params.humanLabelPackageBytes,
+    phaseBArtifactBytes: params.phaseBArtifactBytes,
+    reviewPacketBytes: params.reviewPacketBytes,
+    pins: params.pins,
   });
-  if (phaseB.status !== 'valid') throw new Error('forgewing_v2_phase_c_phase_b_invalid');
-
-  const validated = validateForgewingPricingV2HumanLabelPackage({
-    package: pkg, phaseB: phaseB.value,
-    expectedLabelWorkflowImplementationCommit: pkg.implementationCommit as string,
-  });
-  if (validated.status !== 'valid') throw new Error('forgewing_v2_phase_c_human_package_invalid');
-
-  if (sha256Hex(params.reviewPacketBytes).length !== 64) {
-    throw new Error('forgewing_v2_phase_c_packet_unreadable');
-  }
-  for (const source of packet.sources as JsonRecord[]) {
-    if (source.orderingDeterministic !== true) {
-      throw new Error('forgewing_v2_phase_c_ordering_nondeterministic');
-    }
-  }
+  const pkg = authenticated.humanLabelPackage;
+  const packet = authenticated.reviewPacket;
 
   const humanFields = (pkg.fields as JsonRecord[]).map((field): PhaseCHumanField => ({
     sourceFieldId: field.sourceFieldId as string,
@@ -135,8 +130,21 @@ export function buildForgewingV2PhaseCScope(params: {
   const rows: PhaseCRow[] = [];
   for (const sourceValue of packet.sources as JsonRecord[]) {
     for (const rowValue of sourceValue.rows as JsonRecord[]) {
-      const context = record(rowValue.context)!;
-      const fields = (rowValue.fields as JsonRecord[]).map((wrapper): PhaseCProviderField => {
+      const context = record(rowValue.context)! as unknown as ForgewingSourceFieldContext;
+      const wrappers = [...(rowValue.fields as JsonRecord[])].sort((left, right) =>
+        (record(left.field)!.sourceFieldId as string)
+          .localeCompare(record(right.field)!.sourceFieldId as string, 'en-US'));
+      const eligibleFields = wrappers.map((wrapper) => {
+        const field = record(wrapper.field)!;
+        return {
+          sourceFieldId: field.sourceFieldId as string,
+          sourceFieldRole: field.sourceFieldRole,
+          authoredRawText: wrapper.authoredRawTextDisplayOnly as string,
+          sourceObservationIds: field.sourceObservationIds as string[],
+          physicalPageNumber: context.physicalPageNumber,
+        } as ForgewingSourceFieldInput;
+      });
+      const providerFields = wrappers.map((wrapper): PhaseCProviderField => {
         const field = record(wrapper.field)!;
         const evidence = wrapper.primitiveEvidence as JsonRecord[];
         const byId = new Map(evidence.map((item) => [item.observationId as string, item]));
@@ -148,17 +156,11 @@ export function buildForgewingV2PhaseCScope(params: {
             observationId, rawText: byId.get(observationId)?.rawText as string,
           })),
         };
-      }).sort((left, right) =>
-        left.sourceFieldId.localeCompare(right.sourceFieldId, 'en-US'));
+      });
       rows.push({
-        candidateId: rowValue.candidateId as string
-          ?? (context.rowObservationId as string),
-        rowObservationId: context.rowObservationId as string,
-        sourceDocumentId: context.sourceDocumentId as string,
-        sourceArtifactId: context.sourceArtifactId as string,
-        physicalPageNumber: context.physicalPageNumber as number,
-        rowRawText: (rowValue.rowRawText as string) ?? '',
-        fields,
+        candidateId: (rowValue.candidateId as string) ?? context.rowObservationId,
+        rowObservationId: context.rowObservationId,
+        context, eligibleFields, providerFields,
       });
     }
   }
@@ -220,21 +222,48 @@ export type PhaseCPlannedCall = Readonly<{
   sequence: number; rowObservationId: string; fieldCount: number;
 }>;
 
+export type PhaseCCallOutcome = 'accepted' | 'provider_error' | 'timeout'
+  | 'malformed_json' | 'schema_rejected' | 'validator_rejected';
+
 export type PhaseCCallRecord = Readonly<{
-  runIdentity: PhaseCRunIdentity; sequence: number; rowObservationId: string;
-  startedAt: string; completedAt: string; durationMs: number; providerInvoked: boolean;
-  rawOutput: string | null; rawOutputSha256: string | null; outputByteLength: number | null;
-  outcome: 'accepted' | 'provider_error' | 'provider_timeout' | 'malformed_output'
-    | 'schema_rejected' | 'validation_rejected';
+  runIdentity: PhaseCRunIdentity;
+  sequence: number;
+  rowObservationId: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  providerInvoked: boolean;
+  outcome: PhaseCCallOutcome;
+  rawOutput: string | null;
+  rawOutputSha256: string | null;
+  outputByteLength: number | null;
+  usage: unknown | null;
+  schemaValidationStatus: 'not_reached' | 'valid' | 'rejected';
+  validatorStatus: 'not_reached' | 'valid' | 'rejected';
+  violationCodes: readonly string[];
   failureDetail: string | null;
 }>;
+
+/** Providers may optionally expose usage observationally; never affects scoring. */
+export type PhaseCUsageProvider = ForgewingProvider & {
+  lastUsage?: () => unknown | null;
+};
+
+function classifyProviderError(error: unknown): { outcome: PhaseCCallOutcome; detail: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === 'provider_timeout' || message === 'Request timed out') {
+    return { outcome: 'timeout', detail: message };
+  }
+  return { outcome: 'provider_error', detail: message };
+}
 
 export async function runForgewingPricingV2PhaseCMeasurement(params: {
   humanLabelPackagePath: string; phaseBArtifactPath: string; reviewPacketPath: string;
   prompt: PhaseCPromptIdentity; model: string; codeCommit: string | null;
   freezeOutputPath: string; measurementOutputPath?: string;
-  executeProvider?: boolean; provider?: ForgewingProvider;
+  executeProvider?: boolean; provider?: PhaseCUsageProvider;
   callBudget?: number; providerTimeoutMs?: number; providerMaxOutputTokens?: number;
+  pins?: ForgewingV2PhaseCAcceptedPins;
   now?: () => Date; runNonce?: string;
 }) {
   const humanLabelPackageBytes = readFileSync(resolve(params.humanLabelPackagePath));
@@ -242,12 +271,12 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
   const reviewPacketBytes = readFileSync(resolve(params.reviewPacketPath));
 
   const scope = buildForgewingV2PhaseCScope({
-    humanLabelPackageBytes, phaseBArtifactBytes, reviewPacketBytes,
+    humanLabelPackageBytes, phaseBArtifactBytes, reviewPacketBytes, pins: params.pins,
   });
 
   const plannedCallSequence: PhaseCPlannedCall[] = scope.rows.map((row, index) => ({
     sequence: index + 1, rowObservationId: row.rowObservationId,
-    fieldCount: row.fields.length,
+    fieldCount: row.providerFields.length,
   }));
   const hardCallLimit = FORGEWING_V2_PHASE_C_HARD_CALL_LIMIT;
   const callBudget = params.callBudget ?? hardCallLimit;
@@ -257,7 +286,7 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
   if (plannedCallSequence.length > callBudget) {
     throw new Error('FORGEWING_V2_PHASE_C_CALL_BUDGET_EXCEEDED');
   }
-  if (params.executeProvider && !params.provider) {
+  if (params.executeProvider && typeof params.provider !== 'function') {
     throw new Error('FORGEWING_V2_PHASE_C_PROVIDER_REQUIRED');
   }
   if (params.freezeOutputPath && params.measurementOutputPath
@@ -265,12 +294,11 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
     throw new Error('FORGEWING_V2_PHASE_C_ARTIFACT_PATH_COLLISION');
   }
 
+  const pins = params.pins ?? FORGEWING_V2_PHASE_C_ACCEPTED_PINS;
   const humanLabelPackageSha256 = sha256Hex(humanLabelPackageBytes);
   const phaseBArtifactSha256 = sha256Hex(phaseBArtifactBytes);
   const reviewPacketSha256 = sha256Hex(reviewPacketBytes);
-  const labelWorkflowImplementationCommit = (record(
-    JSON.parse(humanLabelPackageBytes.toString('utf8')))!.implementationCommit) as string;
-  const orderedSourceFieldIds = [...scope.humanFields]
+  const orderedSourceFieldIds = scope.humanFields
     .map((field) => field.sourceFieldId)
     .sort((a, b) => a.localeCompare(b, 'en-US'));
 
@@ -278,8 +306,9 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
   const runIdentity = allocateForgewingV2PhaseCRunIdentity({
     createdAt, runNonce: params.runNonce ?? randomUUID(), codeCommit: params.codeCommit,
     humanLabelPackageSha256, phaseBArtifactSha256, reviewPacketSha256,
-    labelWorkflowImplementationCommit, model: params.model, prompt: params.prompt,
-    orderedSourceFieldIds, fieldDenominator: scope.fieldDenominator,
+    labelWorkflowImplementationCommit: pins.labelWorkflowImplementationCommit,
+    model: params.model, prompt: params.prompt, orderedSourceFieldIds,
+    fieldDenominator: scope.fieldDenominator,
     contributionDenominator: scope.contributionDenominator,
   });
 
@@ -287,7 +316,7 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
   const providerMaxOutputTokens = params.providerMaxOutputTokens ?? 2_000;
 
   const freezeArtifact = {
-    freezeVersion: 'forgewing-pricing-v2-phase-c-freeze-v1' as const,
+    freezeVersion: 'forgewing-pricing-v2-phase-c-freeze-v2' as const,
     measurementVersion: FORGEWING_V2_PHASE_C_MEASUREMENT_VERSION,
     scoringVersion: FORGEWING_V2_PHASE_C_SCORING_VERSION,
     proposalVersion: FORGEWING_PRICING_INTERPRETATION_PROPOSAL_V2_SCHEMA_VERSION,
@@ -299,9 +328,12 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
     outputTokenLimit: providerMaxOutputTokens, timeoutMs: providerTimeoutMs,
     sdkRetries: 0 as const, taskRetryLimitPerCandidate: 0 as const,
     prompt: params.prompt,
+    acceptedPins: pins,
     bindings: {
       humanLabelPackageSha256, phaseBArtifactSha256, reviewPacketSha256,
-      labelWorkflowImplementationCommit, codeCommit: params.codeCommit,
+      labelWorkflowImplementationCommit: pins.labelWorkflowImplementationCommit,
+      phaseBPreparationCommit: pins.phaseBPreparationCommit,
+      codeCommit: params.codeCommit,
     },
     sourceIdentities: scope.sources,
     scope: {
@@ -321,20 +353,116 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
       plannedCalls: plannedCallSequence.length, callBudget, hardCallLimit,
       plannedCallSequence,
     },
-    providerInput: scope.rows,
+    providerInput: scope.rows.map(forgewingV2PhaseCProviderInput),
   };
   const freezeSha256 = persistImmutable(params.freezeOutputPath, freezeArtifact);
   const freezeDigest = hashCanonical(freezeArtifact);
 
-  // ---- provider boundary: nothing above this line may issue a request ----
+  // ==== provider boundary: the freeze is written and byte-verified above ====
   const callRecords: PhaseCCallRecord[] = [];
   const observations = new Map<string, PhaseCObservation>();
   let providerCallsExecuted = 0;
 
+  const markRow = (row: PhaseCRow, reason: PhaseCFieldUnavailableReason,
+    violationCodes: readonly string[] = []): void => {
+    for (const field of row.eligibleFields) {
+      observations.set(field.sourceFieldId, { status: 'unavailable', reason, violationCodes });
+    }
+  };
+
   if (!params.executeProvider) {
-    for (const field of scope.humanFields) {
-      observations.set(field.sourceFieldId,
-        { status: 'unavailable', reason: 'provider_disabled' });
+    for (const row of scope.rows) markRow(row, 'provider_disabled');
+  } else {
+    const provider = params.provider!;
+    for (const [index, row] of scope.rows.entries()) {
+      if (providerCallsExecuted >= callBudget || providerCallsExecuted >= hardCallLimit) {
+        throw new Error('FORGEWING_V2_PHASE_C_CALL_BUDGET_EXCEEDED');
+      }
+      const sequence = index + 1;
+      const startedAt = new Date();
+      let rawOutput: string | null = null;
+      let providerInvoked = false;
+      let outcome: PhaseCCallOutcome = 'provider_error';
+      let failureDetail: string | null = null;
+      let schemaValidationStatus: PhaseCCallRecord['schemaValidationStatus'] = 'not_reached';
+      let validatorStatus: PhaseCCallRecord['validatorStatus'] = 'not_reached';
+      let violationCodes: readonly string[] = [];
+      let usage: unknown | null = null;
+
+      // A failed attempt still consumes its planned call. No retries.
+      providerCallsExecuted += 1;
+      try {
+        providerInvoked = true;
+        rawOutput = await provider({
+          model: params.model, timeoutMs: providerTimeoutMs,
+          maxOutputTokens: providerMaxOutputTokens,
+          inputJson: JSON.stringify(forgewingV2PhaseCProviderInput(row)),
+        });
+      } catch (error) {
+        const classified = classifyProviderError(error);
+        outcome = classified.outcome; failureDetail = classified.detail;
+      }
+      try { usage = provider.lastUsage?.() ?? null; } catch { usage = null; }
+
+      if (rawOutput !== null) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(rawOutput);
+        } catch {
+          outcome = 'malformed_json'; failureDetail = 'invalid_model_json';
+          schemaValidationStatus = 'rejected';
+        }
+        if (schemaValidationStatus !== 'rejected') {
+          const schema = ForgewingPricingInterpretationProposalV2Schema.safeParse(parsed);
+          if (!schema.success) {
+            outcome = 'schema_rejected'; schemaValidationStatus = 'rejected';
+            failureDetail = 'proposal_schema_rejected';
+          } else {
+            schemaValidationStatus = 'valid';
+            const validation = validateForgewingPricingInterpretationProposalV2({
+              candidateId: row.candidateId, context: row.context,
+              eligibleFields: row.eligibleFields, proposal: parsed,
+            });
+            if (validation.status !== 'valid') {
+              outcome = 'validator_rejected'; validatorStatus = 'rejected';
+              violationCodes = validation.violations;
+              failureDetail = validation.violations.join(',');
+            } else {
+              validatorStatus = 'valid';
+              const joined = joinForgewingPricingInterpretationProposalV2({
+                candidateId: row.candidateId, context: row.context,
+                eligibleFields: row.eligibleFields, proposal: parsed,
+              });
+              outcome = 'accepted';
+              for (const field of joined.fieldInterpretations) {
+                observations.set(field.sourceFieldId, { status: 'observed', field: {
+                  sourceFieldId: field.sourceFieldId, semanticRole: field.semanticRole,
+                  interpretationState: field.interpretationState,
+                  contributions: field.contributions,
+                } });
+              }
+            }
+          }
+        }
+      }
+
+      if (outcome !== 'accepted') {
+        markRow(row, outcome as PhaseCFieldUnavailableReason, violationCodes);
+      }
+
+      const finishedAt = new Date();
+      callRecords.push({
+        runIdentity, sequence, rowObservationId: row.rowObservationId,
+        startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString(),
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        providerInvoked, outcome, rawOutput,
+        rawOutputSha256: rawOutput === null ? null : sha256Hex(rawOutput),
+        outputByteLength: rawOutput === null ? null : Buffer.byteLength(rawOutput, 'utf8'),
+        usage, schemaValidationStatus, validatorStatus, violationCodes, failureDetail,
+      });
+    }
+    if (providerCallsExecuted > hardCallLimit) {
+      throw new Error('FORGEWING_V2_PHASE_C_CALL_BUDGET_EXCEEDED');
     }
   }
 
@@ -353,12 +481,14 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
     providerAccounting: {
       plannedCalls: plannedCallSequence.length, callBudget, hardCallLimit,
       providerCallsExecuted, sdkRetries: 0 as const, taskRetryLimitPerCandidate: 0 as const,
+      outcomeCounts: callRecords.reduce<Record<string, number>>((acc, entry) =>
+        ({ ...acc, [entry.outcome]: (acc[entry.outcome] ?? 0) + 1 }), {}),
       callRecords,
     },
     rawResponses: callRecords.map((entry) => ({
       sequence: entry.sequence, rowObservationId: entry.rowObservationId,
-      rawOutputSha256: entry.rawOutputSha256, outputByteLength: entry.outputByteLength,
-      rawOutput: entry.rawOutput,
+      outcome: entry.outcome, rawOutputSha256: entry.rawOutputSha256,
+      outputByteLength: entry.outputByteLength, rawOutput: entry.rawOutput,
     })),
     scoring,
     limitations: [
@@ -373,5 +503,5 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
     ? persistImmutable(params.measurementOutputPath, measurement) : null;
 
   return { scope, runIdentity, freezeArtifact, freezeSha256, freezeDigest,
-    measurement, measurementSha256, providerCallsExecuted };
+    measurement, measurementSha256, providerCallsExecuted, callRecords };
 }

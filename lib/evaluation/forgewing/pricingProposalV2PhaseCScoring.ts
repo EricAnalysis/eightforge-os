@@ -27,7 +27,6 @@ export const FORGEWING_V2_ABSTENTION_LIMITATION =
   + 'from this run in either direction.';
 
 const CONTRIBUTION_ROLES = ForgewingContributionRoleSchema.options;
-const VALUE_BEARING: ReadonlySet<string> = new Set(['value_token', 'component_part']);
 
 export type PhaseCHumanContribution = Readonly<{
   observationId: string; contributionRole: string;
@@ -50,13 +49,20 @@ export type PhaseCObservedField = Readonly<{
   contributions: readonly PhaseCHumanContribution[];
 }>;
 
+/**
+ * Explicit failure classification. Never collapse these into a generic
+ * `not_returned`: each names a materially different cause and all of them
+ * consume fixed denominator without contributing to any numerator.
+ */
 export type PhaseCFieldUnavailableReason =
-  | 'provider_rejected' | 'schema_rejected' | 'validation_rejected'
-  | 'malformed_output' | 'provider_timeout' | 'not_returned' | 'provider_disabled';
+  | 'provider_error' | 'timeout' | 'malformed_json' | 'schema_rejected'
+  | 'validator_rejected' | 'not_returned' | 'provider_disabled';
 
 export type PhaseCObservation =
+  /** Produced ONLY from a join that already passed the authoritative V2 validator. */
   | Readonly<{ status: 'observed'; field: PhaseCObservedField }>
-  | Readonly<{ status: 'unavailable'; reason: PhaseCFieldUnavailableReason }>;
+  | Readonly<{ status: 'unavailable'; reason: PhaseCFieldUnavailableReason;
+      violationCodes?: readonly string[] }>;
 
 type Counted = Readonly<{
   denominator: number; correct: number; incorrect: number; unavailable: number;
@@ -116,9 +122,11 @@ export function scoreForgewingV2PhaseC(params: {
   let foreignMember = 0; let membershipUnavailable = 0;
   // --- placeholder safety ---
   let placeholderTotal = 0; let placeholderCorrect = 0;
-  let placeholderAsValue = 0; let placeholderAsOther = 0; let placeholderUnavailable = 0;
+  let placeholderAsValueToken = 0; let placeholderAsComponentPart = 0;
+  let placeholderAsOther = 0; let placeholderUnavailable = 0;
 
   const unavailableReasons: string[] = [];
+  const authoritativeViolationCodes: string[] = [];
   const allMemberIds = new Set(humanFields.flatMap((field) => field.sourceObservationIds));
   const perField: Record<string, unknown>[] = [];
 
@@ -130,6 +138,7 @@ export function scoreForgewingV2PhaseC(params: {
 
     if (observation.status === 'unavailable') {
       unavailableReasons.push(observation.reason);
+      for (const code of observation.violationCodes ?? []) authoritativeViolationCodes.push(code);
       roleUnavailable += 1; stateUnavailable += 1; membershipUnavailable += 1;
       contributionUnavailable += field.expectedContributions.length;
       for (const [, expectedRole] of expectedByObservation) {
@@ -187,7 +196,9 @@ export function scoreForgewingV2PhaseC(params: {
       } else {
         contributionIncorrect += 1;
         if (isPlaceholder) {
-          if (VALUE_BEARING.has(predicted)) placeholderAsValue += 1; else placeholderAsOther += 1;
+          if (predicted === 'value_token') placeholderAsValueToken += 1;
+          else if (predicted === 'component_part') placeholderAsComponentPart += 1;
+          else placeholderAsOther += 1;
         }
       }
     }
@@ -238,13 +249,15 @@ export function scoreForgewingV2PhaseC(params: {
     },
     placeholderSafety: {
       denominator: placeholderTotal,
-      predictedPlaceholderAbsence: placeholderCorrect,
-      predictedValueBearing: placeholderAsValue,
+      correctPlaceholderAbsence: placeholderCorrect,
+      predictedValueToken: placeholderAsValueToken,
+      predictedComponentPart: placeholderAsComponentPart,
       predictedOther: placeholderAsOther,
       unavailable: placeholderUnavailable,
       accuracyFixedDenominator: placeholderTotal === 0 ? null : placeholderCorrect / placeholderTotal,
-      criticalFailures: placeholderAsValue,
+      criticalFailuresTotal: placeholderAsValueToken + placeholderAsComponentPart,
       criticalFailureDescription: 'absence collapsed into a value-bearing contribution role',
+      zeroCoercionPerformed: false as const,
     },
     interpretationState: {
       ...counted(fieldDenominator, stateCorrect, stateIncorrect, stateUnavailable),
@@ -257,8 +270,11 @@ export function scoreForgewingV2PhaseC(params: {
       missingMemberReferences: missingMember, extraMemberReferences: extraMember,
       foreignMemberReferences: foreignMember, duplicateMemberReferences: duplicateMember,
       accuracyFixedDenominator: fieldDenominator === 0 ? null : membershipExact / fieldDenominator,
+      authoritativeViolationCodes: tally(authoritativeViolationCodes),
+      authority: 'validateForgewingPricingInterpretationProposalV2',
     },
-    unavailability: { count: unavailableReasons.length, byReason: tally(unavailableReasons) },
+    unavailability: { count: unavailableReasons.length, byReason: tally(unavailableReasons),
+      authoritativeViolationCodes: tally(authoritativeViolationCodes) },
     perField,
   };
 }

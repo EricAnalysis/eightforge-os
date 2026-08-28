@@ -739,6 +739,48 @@ describe('production architecture import boundaries', () => {
     expect(rulePackAuthorityViolations()).toEqual([]);
   }, 30_000);
 
+  /**
+   * The Forgewing V2 evaluation seam and the V2 structured-output schema are a
+   * deliberate narrow additive runtime change for Phase C measurement. They must
+   * never become a production execution path. This guard fails if any file
+   * outside the approved evaluation allowlist imports either symbol -- including
+   * files that do not exist yet.
+   */
+  it('confines the Forgewing V2 provider seam to approved evaluation infrastructure', () => {
+    const V2_SEAM_SYMBOLS = [
+      'callClaudeForPricingInterpretationV2WithEvaluationPrompt',
+      'PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA',
+      'PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES',
+    ];
+    const ALLOWED = new Set([
+      // definition site
+      'lib/forgewing/runtime/client.ts',
+      'lib/forgewing/runtime/structuredOutput.ts',
+      // approved evaluation infrastructure
+      'scripts/evaluation/forgewingPricingV2PhaseCPrompt.ts',
+    ]);
+    const walkAll = (directory: string): string[] => {
+      if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
+      return readdirSync(directory).flatMap((entry) => {
+        const absolute = path.join(directory, entry);
+        if (['node_modules', '.next', '.git', '.claude'].includes(entry)) return [];
+        if (statSync(absolute).isDirectory()) return walkAll(absolute);
+        return SOURCE_EXTENSION.test(entry) ? [absolute] : [];
+      });
+    };
+    const offenders = ['app', 'components', 'lib', 'scripts']
+      .flatMap((root) => walkAll(path.join(ROOT, root)))
+      .map((absolute) => ({
+        relative: path.relative(ROOT, absolute).split(path.sep).join('/'),
+        text: readFileSync(absolute, 'utf8'),
+      }))
+      .filter(({ relative, text }) =>
+        !TEST_FILE.test(relative)
+        && !ALLOWED.has(relative)
+        && V2_SEAM_SYMBOLS.some((symbol) => text.includes(symbol)));
+    expect(offenders.map(({ relative }) => relative)).toEqual([]);
+  });
+
   it('keeps exactly one canonical-to-validator projection module', () => {
     expect(canonicalProjectionModules())
       .toEqual(['lib/canonical/authority/canonicalValidatorProjection.ts']);

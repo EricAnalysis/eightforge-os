@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import {
   authenticateForgewingV2PhaseCInputs,
+  authenticateForgewingV2PhaseCInputsForMutationTests,
   ForgewingV2PhaseCAuthenticationError,
   FORGEWING_V2_PHASE_C_ACCEPTED_PINS,
 } from '@/lib/evaluation/forgewing/pricingProposalV2PhaseCAcceptedInputs';
@@ -86,9 +87,10 @@ describe.skipIf(!configured)('REAL: Phase C accepted-input authentication', () =
 
   it('rejects pin drift on every pinned identity', () => {
     const base = bytes();
+    // Pin injection is only reachable through the internal mutation-test seam.
     const drift = (patch: Record<string, unknown>) => failureOf(() =>
-      authenticateForgewingV2PhaseCInputs({ ...base,
-        pins: { ...FORGEWING_V2_PHASE_C_ACCEPTED_PINS, ...patch } as never }));
+      authenticateForgewingV2PhaseCInputsForMutationTests(base,
+        { ...FORGEWING_V2_PHASE_C_ACCEPTED_PINS, ...patch } as never));
     expect(drift({ phaseBReportDigestSha256: 'f'.repeat(64) }))
       .toBe('phase_b_report_digest_mismatch');
     expect(drift({ phaseBPreparationCommit: 'a'.repeat(40) }))

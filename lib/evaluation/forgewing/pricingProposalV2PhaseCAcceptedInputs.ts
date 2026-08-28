@@ -8,6 +8,9 @@
  */
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
+  deriveSourceFieldId,
+} from '@/lib/forgewing/proposal/pricingInterpretationProposalV2';
+import {
   validateForgewingPricingV2AcceptedPhaseBArtifact,
   validateForgewingPricingV2HumanLabelPackage,
 } from '@/lib/evaluation/forgewing/pricingProposalV2HumanLabels';
@@ -45,6 +48,12 @@ export type ForgewingV2PhaseCAuthenticationFailure =
   | 'review_packet_ordering_nondeterministic'
   | 'review_packet_field_identity_mismatch'
   | 'review_packet_member_membership_mismatch'
+  | 'review_packet_field_id_not_derivable'
+  | 'review_packet_field_absent_from_phase_b'
+  | 'review_packet_context_mismatch'
+  | 'review_packet_candidate_mismatch'
+  | 'review_packet_role_mismatch'
+  | 'review_packet_evidence_identity_mismatch'
   | 'field_count_mismatch'
   | 'member_count_mismatch'
   | 'input_contract_violation';
@@ -76,18 +85,36 @@ export type ForgewingV2AuthenticatedInputs = Readonly<{
   memberObservationCount: number;
 }>;
 
-/**
- * Fail-closed authentication of every accepted Phase C input. Reuses the shipped
- * B-prime validators for structure, then compares identity against the pins
- * above so a self-consistent alternate package cannot authenticate.
- */
-export function authenticateForgewingV2PhaseCInputs(params: {
+type AuthenticationInputs = Readonly<{
   humanLabelPackageBytes: Buffer;
   phaseBArtifactBytes: Buffer;
   reviewPacketBytes: Buffer;
-  pins?: ForgewingV2PhaseCAcceptedPins;
-}): ForgewingV2AuthenticatedInputs {
-  const pins = params.pins ?? FORGEWING_V2_PHASE_C_ACCEPTED_PINS;
+}>;
+
+/**
+ * Fail-closed authentication of every accepted Phase C input, ALWAYS against the
+ * frozen accepted pins. There is deliberately no caller-supplied pin override on
+ * this path: trust anchors are frozen evaluation identity, not configuration.
+ */
+export function authenticateForgewingV2PhaseCInputs(
+  params: AuthenticationInputs,
+): ForgewingV2AuthenticatedInputs {
+  return authenticateWithPins(params, FORGEWING_V2_PHASE_C_ACCEPTED_PINS);
+}
+
+/**
+ * INTERNAL / TEST ONLY. Allows a mutated pin set so exploit regressions can
+ * exercise drift paths. Never reachable from the live runner API.
+ */
+export function authenticateForgewingV2PhaseCInputsForMutationTests(
+  params: AuthenticationInputs, pins: ForgewingV2PhaseCAcceptedPins,
+): ForgewingV2AuthenticatedInputs {
+  return authenticateWithPins(params, pins);
+}
+
+function authenticateWithPins(
+  params: AuthenticationInputs, pins: ForgewingV2PhaseCAcceptedPins,
+): ForgewingV2AuthenticatedInputs {
 
   const humanLabelPackageSha256 = sha256Hex(params.humanLabelPackageBytes);
   const phaseBArtifactSha256 = sha256Hex(params.phaseBArtifactBytes);
@@ -200,6 +227,93 @@ export function authenticateForgewingV2PhaseCInputs(params: {
     .flatMap((field) => (field.sourceObservationIds as string[]) ?? []))].sort();
   if (hashCanonical(packetMembers) !== hashCanonical(humanMembers)) {
     fail('review_packet_member_membership_mismatch');
+  }
+
+  // ---- packet SEMANTIC closure against validated Phase B preparation ----
+  // Exact packet bytes are not the only protection: every packet row/field/member
+  // must close against the accepted Phase B preparation, so a locally recomputed
+  // packet digest cannot smuggle artifact, page, row, candidate, role, context,
+  // or member drift.
+  type Closure = Readonly<{
+    context: string; candidateId: unknown; role: unknown;
+    members: readonly string[]; evidence: string;
+  }>;
+  const contextKey = (context: JsonRecord): string => hashCanonical({
+    sourceDocumentId: context.sourceDocumentId,
+    sourceArtifactId: context.sourceArtifactId,
+    physicalPageNumber: context.physicalPageNumber,
+    rowObservationId: context.rowObservationId,
+  });
+  const evidenceKey = (evidence: JsonRecord[]): string => hashCanonical(
+    [...evidence].map((item) => ({
+      observationId: item.observationId,
+      sourceDocumentId: item.sourceDocumentId,
+      sourceArtifactId: item.sourceArtifactId,
+      physicalPageNumber: item.physicalPageNumber,
+    })).sort((left, right) =>
+      String(left.observationId).localeCompare(String(right.observationId), 'en-US')));
+
+  const phaseBClosure = new Map<string, Closure>();
+  for (const preparation of preparations) {
+    for (const rowValue of (preparation.rows as JsonRecord[]) ?? []) {
+      const rowContext = record(rowValue.context);
+      if (!rowContext) fail('review_packet_context_mismatch');
+      for (const wrapper of (rowValue.fields as JsonRecord[]) ?? []) {
+        const field = record(wrapper.field);
+        if (!field) fail('input_contract_violation');
+        phaseBClosure.set(field.sourceFieldId as string, {
+          context: contextKey(rowContext),
+          candidateId: rowValue.candidateId,
+          role: field.sourceFieldRole,
+          members: [...((field.sourceObservationIds as string[]) ?? [])]
+            .sort((a, b) => a.localeCompare(b, 'en-US')),
+          evidence: evidenceKey((wrapper.primitiveEvidence as JsonRecord[]) ?? []),
+        });
+      }
+    }
+  }
+
+  for (const sourceValue of packetSources) {
+    for (const rowValue of (sourceValue.rows as JsonRecord[]) ?? []) {
+      const rowContext = record(rowValue.context);
+      if (!rowContext) fail('review_packet_context_mismatch');
+      for (const wrapper of (rowValue.fields as JsonRecord[]) ?? []) {
+        const field = record(wrapper.field);
+        if (!field) fail('input_contract_violation');
+        const members = [...((field.sourceObservationIds as string[]) ?? [])];
+
+        // (a) identity must be derivable from the packet's OWN immutable context.
+        let derived: string;
+        try {
+          derived = deriveSourceFieldId({
+            sourceDocumentId: rowContext.sourceDocumentId as string,
+            sourceArtifactId: rowContext.sourceArtifactId as string,
+            physicalPageNumber: rowContext.physicalPageNumber as number,
+            rowObservationId: rowContext.rowObservationId as string,
+            sourceFieldRole: field.sourceFieldRole as never,
+            sourceObservationIds: members,
+          });
+        } catch { fail('review_packet_field_id_not_derivable'); }
+        if (derived !== field.sourceFieldId) fail('review_packet_field_id_not_derivable');
+
+        // (b) that identity and its context must close against accepted Phase B.
+        const authority = phaseBClosure.get(field.sourceFieldId as string);
+        if (!authority) fail('review_packet_field_absent_from_phase_b');
+        if (authority.context !== contextKey(rowContext)) fail('review_packet_context_mismatch');
+        if (authority.candidateId !== rowValue.candidateId) {
+          fail('review_packet_candidate_mismatch');
+        }
+        if (authority.role !== field.sourceFieldRole) fail('review_packet_role_mismatch');
+        if (hashCanonical(authority.members)
+          !== hashCanonical([...members].sort((a, b) => a.localeCompare(b, 'en-US')))) {
+          fail('review_packet_member_membership_mismatch');
+        }
+        if (authority.evidence
+          !== evidenceKey((wrapper.primitiveEvidence as JsonRecord[]) ?? [])) {
+          fail('review_packet_evidence_identity_mismatch');
+        }
+      }
+    }
   }
 
   return {

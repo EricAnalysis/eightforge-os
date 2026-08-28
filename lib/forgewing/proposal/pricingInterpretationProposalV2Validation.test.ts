@@ -492,6 +492,7 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
       'pricingProposalV2HumanLabelWorkspace.ts',
       'pricingProposalV2HumanLabels.test.ts',
       'pricingProposalV2HumanLabels.ts',
+      'pricingProposalV2PhaseCAcceptedInputs.ts',
       'pricingProposalV2PhaseCScoring.ts',
       'runForgewingPricingProposalV2PhaseB.ts',
       'runForgewingPricingV2PhaseCMeasurement.ts',

@@ -16,6 +16,7 @@ import { dirname, resolve } from 'node:path';
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import {
   authenticateForgewingV2PhaseCInputs,
+  authenticateForgewingV2PhaseCInputsForMutationTests,
   FORGEWING_V2_PHASE_C_ACCEPTED_PINS,
   type ForgewingV2PhaseCAcceptedPins,
 } from '@/lib/evaluation/forgewing/pricingProposalV2PhaseCAcceptedInputs';
@@ -105,14 +106,24 @@ export function buildForgewingV2PhaseCScope(params: {
   humanLabelPackageBytes: Buffer;
   phaseBArtifactBytes: Buffer;
   reviewPacketBytes: Buffer;
-  pins?: ForgewingV2PhaseCAcceptedPins;
 }): PhaseCScope {
-  const authenticated = authenticateForgewingV2PhaseCInputs({
-    humanLabelPackageBytes: params.humanLabelPackageBytes,
-    phaseBArtifactBytes: params.phaseBArtifactBytes,
-    reviewPacketBytes: params.reviewPacketBytes,
-    pins: params.pins,
-  });
+  return buildScope(authenticateForgewingV2PhaseCInputs(params));
+}
+
+/** INTERNAL / TEST ONLY. Not reachable from the live runner API. */
+export function buildForgewingV2PhaseCScopeForMutationTests(params: {
+  humanLabelPackageBytes: Buffer;
+  phaseBArtifactBytes: Buffer;
+  reviewPacketBytes: Buffer;
+  pins: ForgewingV2PhaseCAcceptedPins;
+}): PhaseCScope {
+  const { pins, ...inputs } = params;
+  return buildScope(authenticateForgewingV2PhaseCInputsForMutationTests(inputs, pins));
+}
+
+function buildScope(
+  authenticated: ReturnType<typeof authenticateForgewingV2PhaseCInputs>,
+): PhaseCScope {
   const pkg = authenticated.humanLabelPackage;
   const packet = authenticated.reviewPacket;
 
@@ -263,15 +274,15 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
   freezeOutputPath: string; measurementOutputPath?: string;
   executeProvider?: boolean; provider?: PhaseCUsageProvider;
   callBudget?: number; providerTimeoutMs?: number; providerMaxOutputTokens?: number;
-  pins?: ForgewingV2PhaseCAcceptedPins;
   now?: () => Date; runNonce?: string;
 }) {
   const humanLabelPackageBytes = readFileSync(resolve(params.humanLabelPackagePath));
   const phaseBArtifactBytes = readFileSync(resolve(params.phaseBArtifactPath));
   const reviewPacketBytes = readFileSync(resolve(params.reviewPacketPath));
 
+  // Trust anchors are frozen: the live runner has no accepted-pin override.
   const scope = buildForgewingV2PhaseCScope({
-    humanLabelPackageBytes, phaseBArtifactBytes, reviewPacketBytes, pins: params.pins,
+    humanLabelPackageBytes, phaseBArtifactBytes, reviewPacketBytes,
   });
 
   const plannedCallSequence: PhaseCPlannedCall[] = scope.rows.map((row, index) => ({
@@ -294,7 +305,7 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
     throw new Error('FORGEWING_V2_PHASE_C_ARTIFACT_PATH_COLLISION');
   }
 
-  const pins = params.pins ?? FORGEWING_V2_PHASE_C_ACCEPTED_PINS;
+  const pins = FORGEWING_V2_PHASE_C_ACCEPTED_PINS;
   const humanLabelPackageSha256 = sha256Hex(humanLabelPackageBytes);
   const phaseBArtifactSha256 = sha256Hex(phaseBArtifactBytes);
   const reviewPacketSha256 = sha256Hex(reviewPacketBytes);
@@ -388,6 +399,7 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
       let validatorStatus: PhaseCCallRecord['validatorStatus'] = 'not_reached';
       let violationCodes: readonly string[] = [];
       let usage: unknown | null = null;
+      let providerThrew = false;
 
       // A failed attempt still consumes its planned call. No retries.
       providerCallsExecuted += 1;
@@ -399,12 +411,20 @@ export async function runForgewingPricingV2PhaseCMeasurement(params: {
           inputJson: JSON.stringify(forgewingV2PhaseCProviderInput(row)),
         });
       } catch (error) {
+        providerThrew = true;
+        // Some adapter errors (e.g. ForgewingProviderOutputError on
+        // stop_reason === 'max_tokens') carry partial raw output. Preserve those
+        // bytes BEFORE classification so rejected evidence is never lost.
+        const carried = (error as { rawOutput?: unknown }).rawOutput;
+        if (typeof carried === 'string') rawOutput = carried;
         const classified = classifyProviderError(error);
         outcome = classified.outcome; failureDetail = classified.detail;
       }
       try { usage = provider.lastUsage?.() ?? null; } catch { usage = null; }
 
-      if (rawOutput !== null) {
+      // A thrown call is terminal: its carried bytes are preserved but never
+      // reinterpreted as a successful response, and it is never retried.
+      if (!providerThrew && rawOutput !== null) {
         let parsed: unknown;
         try {
           parsed = JSON.parse(rawOutput);

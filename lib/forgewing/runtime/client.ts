@@ -6,6 +6,7 @@ import {
   OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
   PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
   PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES,
+  PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
@@ -101,7 +102,8 @@ async function callClaudeWithStructuredOutput(
     | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
     | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
     | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+    | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
+    | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
 ): Promise<string> {
   const controller = new AbortController();
@@ -187,6 +189,24 @@ export async function callClaudeForPricingInterpretationWithEvaluationPrompt(
     request,
     evaluationPrompt,
     PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+}
+
+/**
+ * Evaluation-only seam for the V2 field-grain measurement. Takes the prompt from
+ * the caller and uses the V2 structured-output contract. Production and shadow
+ * callers continue to use callClaudeForPricingInterpretation above, which is
+ * unchanged and still bound to the V1 schema.
+ */
+export async function callClaudeForPricingInterpretationV2WithEvaluationPrompt(
+  request: ForgewingProviderRequest,
+  evaluationPrompt: string,
+): Promise<string> {
+  return callClaudeWithStructuredOutput(
+    request,
+    evaluationPrompt,
+    PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
     true,
   );
 }

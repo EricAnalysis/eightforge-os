@@ -10,6 +10,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+} from '@/lib/forgewing/runtime/structuredOutput';
+
+import {
   deriveSourceFieldId,
   FORGEWING_PRICING_INTERPRETATION_PROPOSAL_V2_SCHEMA_VERSION,
   type ForgewingContributionRole,
@@ -481,23 +485,64 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
       'forgewingPricingProposalV2Preparation.test.ts',
       'prepareForgewingPricingProposalV2.ts',
       'pricingInterpretationProposalV2.test.ts',
+      'pricingInterpretationProposalV2StructuredOutput.test.ts',
       'pricingInterpretationProposalV2Validation.test.ts',
       'pricingInterpretationProposalV2Validation.ts',
       'pricingProposalV2HumanLabelWorkspace.ts',
       'pricingProposalV2HumanLabels.test.ts',
       'pricingProposalV2HumanLabels.ts',
+      'pricingProposalV2PhaseCScoring.ts',
       'runForgewingPricingProposalV2PhaseB.ts',
+      'runForgewingPricingV2PhaseCMeasurement.ts',
     ]);
   });
 
   it('leaves the V1 task and prompt untouched by V2 symbols', () => {
     for (const file of ['lib/forgewing/tasks/pricingInterpretation.ts',
-      'lib/forgewing/runtime/client.ts', 'lib/forgewing/runtime/structuredOutput.ts',
       'lib/forgewing/prompts/pricingInterpretation.md']) {
       const text = readFileSync(join(process.cwd(), file), 'utf8');
       expect(text).not.toContain('ProposalV2');
       expect(text).not.toContain('proposal-v2');
       expect(text).not.toContain('contributionRole');
     }
+  });
+
+  /**
+   * Phase C adds a V2 structured-output schema and an explicitly named evaluation
+   * seam to the runtime adapter. String absence is therefore no longer the right
+   * assertion for those two files; these checks are strictly stronger — they pin
+   * the DEFAULT production path rather than the mere absence of a substring.
+   */
+  it('keeps the default production pricing path bound to the V1 contract', () => {
+    const client = readFileSync(
+      join(process.cwd(), 'lib/forgewing/runtime/client.ts'), 'utf8');
+    // The default production export still selects the V1 schema.
+    expect(client).toContain(`export const callClaudeForPricingInterpretation: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadPricingInterpretationPrompt(),
+    PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+    true,
+  );`);
+    // V2 is reachable only through an explicitly named evaluation export that
+    // requires the caller to supply the prompt.
+    expect(client).toContain(
+      'export async function callClaudeForPricingInterpretationV2WithEvaluationPrompt(');
+    expect(client).toContain('  evaluationPrompt: string,');
+    // The production prompt loader is untouched and still uses V1 rules.
+    expect(client).toContain('${PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES}');
+    expect(client).not.toContain('PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES');
+  });
+
+  it('keeps the V1 structured-output constant separate from the V2 constant', () => {
+    const structured = readFileSync(
+      join(process.cwd(), 'lib/forgewing/runtime/structuredOutput.ts'), 'utf8');
+    expect(structured).toContain('export const PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA');
+    expect(structured).toContain('export const PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA');
+    // The V1 constant keeps its primitive-grain shape.
+    expect(PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA.properties)
+      .not.toHaveProperty('fieldInterpretations');
+    expect(PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA.properties.interpretations.items.properties)
+      .not.toHaveProperty('contributions');
   });
 });

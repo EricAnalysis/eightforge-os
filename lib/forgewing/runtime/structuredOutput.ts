@@ -139,6 +139,89 @@ export const PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA = {
   },
 } as const;
 
+const PRICING_INTERPRETATION_V2_CONTRIBUTION_ROLE_VALUES = [
+  'type_marker', 'value_token', 'component_part', 'semantic_head', 'semantic_modifier',
+  'placeholder_absence', 'connector', 'structural_noise', 'unknown_contribution',
+] as const;
+
+const PRICING_INTERPRETATION_MISSING_EVIDENCE_VALUES = [
+  'missing_source_observation', 'missing_physical_page_proof',
+  'insufficient_table_context', 'conflicting_observations',
+  'missing_column_context', 'truncated_input',
+] as const;
+
+/**
+ * Evaluation-only V2 field-grain output contract. Mirrors
+ * `ForgewingPricingInterpretationProposalV2Schema`. The V1 constant above is
+ * untouched and remains the only schema any production caller uses.
+ *
+ * Conditional shape (abstention) is expressed in
+ * `PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES` rather than a JSON Schema
+ * union, matching the proven V1 approach.
+ */
+export const PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['proposalVersion', 'candidateId', 'rowInterpretationState', 'confidence',
+    'fieldInterpretations'],
+  properties: {
+    proposalVersion: { type: 'string',
+      enum: ['forgewing-pricing-interpretation-proposal-v2'] },
+    candidateId: { type: 'string' },
+    rowInterpretationState: { type: 'string',
+      enum: ['observed', 'inferred', 'ambiguous', 'conflicting', 'insufficient_evidence'] },
+    confidence: { type: ['number', 'null'] },
+    fieldInterpretations: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['sourceFieldId', 'semanticRole', 'interpretationState', 'confidence',
+          'contributions', 'rationaleCodes'],
+        properties: {
+          sourceFieldId: { type: 'string' },
+          semanticRole: { type: 'string', enum: PRICING_INTERPRETATION_ROLE_VALUES },
+          interpretationState: { type: 'string',
+            enum: ['observed', 'inferred', 'ambiguous', 'conflicting', 'insufficient_evidence'] },
+          confidence: { type: ['number', 'null'] },
+          contributions: {
+            type: 'array',
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['observationId', 'contributionRole'],
+              properties: {
+                observationId: { type: 'string' },
+                contributionRole: { type: 'string',
+                  enum: PRICING_INTERPRETATION_V2_CONTRIBUTION_ROLE_VALUES },
+              },
+            },
+          },
+          rationaleCodes: { type: 'array',
+            items: { type: 'string', enum: PRICING_INTERPRETATION_RATIONALE_VALUES } },
+          missingEvidence: {
+            type: 'array',
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['code'],
+              properties: {
+                code: { type: 'string',
+                  enum: PRICING_INTERPRETATION_MISSING_EVIDENCE_VALUES },
+                description: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export const PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES = `V2 OUTPUT FIELD RULES:
+- Emit exactly one fieldInterpretations entry for every supplied sourceFieldId. Never add, omit, or repeat one.
+- sourceFieldId MUST be copied exactly from a supplied field. Never invent or edit one.
+- If a field's interpretationState is "insufficient_evidence": semanticRole MUST be "unknown", confidence MUST be null, contributions MUST be [], and missingEvidence MUST be present with at least one allowed code.
+- Otherwise: missingEvidence MUST NOT appear in that field object at all (not null, not [], omit the property), and contributions MUST contain exactly one entry per supplied member observationId of that field — same set, no duplicates, no omissions, no extras, no member from another field.
+- Never return authoredRawText, sourceObservationIds, sourceFieldRole, or primitive raw text.` as const;
+
 const common = {
   confidence: z.number().min(0).max(1).nullable(),
   rationale: z.string().min(1).max(400).optional(),

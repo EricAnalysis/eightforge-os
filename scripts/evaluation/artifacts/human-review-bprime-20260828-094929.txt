@@ -1,0 +1,47 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260828094930
+Username: TCS-001604\ADMS Thompson
+RunAs User: TCS-001604\ADMS Thompson
+Configuration Name: 
+Machine: TCS-001604 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 13432
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Dev\eightforge-os\scripts\evaluation\artifacts\human-review-bprime-20260828-094929.txt
+PS C:\Dev\eightforge-os> git branch --show-current
+codex/feat/forgewing-proposal-seal
+PS C:\Dev\eightforge-os> git rev-parse HEAD
+fc7433a98194b49efd09430d8a27e63d3f1f1984
+PS C:\Dev\eightforge-os> git status --short
+?? scripts/evaluation/artifacts/human-review-bprime-20260828-093949.txt
+?? scripts/evaluation/artifacts/human-review-bprime-20260828-094620.txt
+?? scripts/evaluation/artifacts/human-review-bprime-20260828-094929.txt
+?? scripts/evaluation/artifacts/local-a3-review/
+?? scripts/evaluation/artifacts/local-v2-bprime-review-20260827T1102Z/
+?? scripts/evaluation/artifacts/local-v2-phase-b/
+PS C:\Dev\eightforge-os> git show -s --format="%H %s" HEAD
+fc7433a98194b49efd09430d8a27e63d3f1f1984 feat(forgewing): add v2 field label review workflow
+PS C:\Dev\eightforge-os> $phaseB = "C:\Dev\eightforge-os\scripts\evaluation\artifacts\local-v2-phase-b\phase-b-f13c815.json"
+PS C:\Dev\eightforge-os> Test-Path $phaseB
+True
+PS C:\Dev\eightforge-os> Get-FileHash $phaseB -Algorithm SHA256
+
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          641B52F5ED55152B22C6338D283EECF0AD41671F066E2BDAB0835B37733C798A       C:\Dev\eightforge-os\scripts\...
+
+
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE="1"
+PS C:\Dev\eightforge-os> cd C:\Dev\eightforge-os
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE="1"
+PS C:\Dev\eightforge-os> npm run dev -- --hostname 127.0.0.1 --port 3017
+^C

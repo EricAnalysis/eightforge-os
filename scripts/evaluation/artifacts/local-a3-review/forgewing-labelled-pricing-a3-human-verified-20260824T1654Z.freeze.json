@@ -1,0 +1,121 @@
+{
+  "frozenBeforeProviderCalls": true,
+  "digestSha256": "e4a5bb03c4f3d47c50738ae4d800abe7fd468cc5c21ee79c4851e6e5a6648729",
+  "taskVersion": "forgewing-pricing-interpretation",
+  "promptVersion": "v1",
+  "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+  "candidates": [
+    {
+      "candidateId": "cf93065ab8fb7606661d6f8a98aed22dac25437aa0b97d26f78e7a0ce93eb1b3",
+      "candidateDigestSha256": "cf93065ab8fb7606661d6f8a98aed22dac25437aa0b97d26f78e7a0ce93eb1b3",
+      "rowId": "page_priced_schedule:p46:r24",
+      "physicalPage": 46,
+      "sourceAnchorIds": [
+        "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+        "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+        "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+        "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+        "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+      ],
+      "resolutionState": "unresolved",
+      "eligibilityReason": "authoritative_scope_match",
+      "labelLinkage": "exact_linkage_complete",
+      "labelObservationIds": [
+        "tdot-appendix-b:p46:r025:f01:description",
+        "tdot-appendix-b:p46:r025:f02:unit",
+        "tdot-appendix-b:p46:r025:f04:cost"
+      ],
+      "linkedRoles": [
+        "cost",
+        "description",
+        "unit"
+      ],
+      "linkedLabels": [
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Disposal / Tipping Fees",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+          ]
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Actual Costs",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+          ]
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ -",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+            "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be"
+          ]
+        }
+      ]
+    },
+    {
+      "candidateId": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
+      "candidateDigestSha256": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
+      "rowId": "page_priced_schedule:p46:r31",
+      "physicalPage": 46,
+      "sourceAnchorIds": [
+        "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+        "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+        "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+        "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+        "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+      ],
+      "resolutionState": "unresolved",
+      "eligibilityReason": "authoritative_scope_match",
+      "labelLinkage": "exact_linkage_complete",
+      "labelObservationIds": [
+        "tdot-appendix-b:p46:r032:f01:description",
+        "tdot-appendix-b:p46:r032:f02:unit",
+        "tdot-appendix-b:p46:r032:f04:cost"
+      ],
+      "linkedRoles": [
+        "cost",
+        "description",
+        "unit"
+      ],
+      "linkedLabels": [
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Sweeping",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+          ]
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Linear Mile",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+          ]
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "sourceObservationIds": [
+            "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+            "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "linkage_version": "forgewing-label-linkage-v1",
+  "authority": "evaluation_linkage_only",
+  "label_package_sha256": "6123274bc9817e3ee5e02c35102df6e33ba953228e3a5785edbd3146eefcbf73",
+  "source": {
+    "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+    "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+    "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+    "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77"
+  },
+  "records": [
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f01:description",
+      "label_row_identity": "source:p46:geometric-row:025",
+      "label_role": "description",
+      "label_raw_text_sha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+      ],
+      "linkage_record_digest_sha256": "05a40be123ed36e16b41a50b274f611836db3af7f4931830efc8ad15507554e7"
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f02:unit",
+      "label_row_identity": "source:p46:geometric-row:025",
+      "label_role": "unit",
+      "label_raw_text_sha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+      ],
+      "linkage_record_digest_sha256": "c60ab1fd0cd77d4e2fdbb819e67ae1d83ec2d385f3089e59340e8159b80ece99"
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f04:cost",
+      "label_row_identity": "source:p46:geometric-row:025",
+      "label_role": "cost",
+      "label_raw_text_sha256": "99a34def433d7c957555d70157dbe2ea4bae7004a66a7ed267d7f8fbaf7f441e",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+        "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be"
+      ],
+      "linkage_record_digest_sha256": "f2e6f5fa5db8f23f4ab8145a2d77206128341ea1ecea09ed98d8ae3daca0691a"
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f01:description",
+      "label_row_identity": "source:p46:geometric-row:032",
+      "label_role": "description",
+      "label_raw_text_sha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+      ],
+      "linkage_record_digest_sha256": "521b34d3fbba51cbf0794151903986474b67f32b01680656246fcd2301c513a4"
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f02:unit",
+      "label_row_identity": "source:p46:geometric-row:032",
+      "label_role": "unit",
+      "label_raw_text_sha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+      ],
+      "linkage_record_digest_sha256": "b89e11d5f26d520dda0e5e3915f955bf3456576af9be9206fb63f6ec05d0281a"
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f04:cost",
+      "label_row_identity": "source:p46:geometric-row:032",
+      "label_role": "cost",
+      "label_raw_text_sha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4",
+      "physical_page": 46,
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "source_observation_ids": [
+        "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+        "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+      ],
+      "linkage_record_digest_sha256": "efa930fda18ddb4d3e074b944a388868d3c3171ba89ec1e392057721184bd735"
+    }
+  ],
+  "manifest_digest_sha256": "6588970526ebc995b02bdc7b4ba488cc2b6a4e2b75a011eee0cf9378e6f76cdc"
+}

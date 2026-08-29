@@ -1,0 +1,518 @@
+{
+  "runIdentity": {
+    "runId": "forgewing-labelled-a3-2eb414353f4e0512e0d7b5f93ef9ac92",
+    "createdAt": "2026-08-25T18:45:42.049Z",
+    "runNonce": "6e8767fa-0e08-4338-812e-14d0ef7242c0"
+  },
+  "implementationIdentity": {
+    "commit": "a3ec39c2f859f820ffeedcec40813811983ad236",
+    "parentOrBase": "2950afe01816bd36660fcfcd8f22e808c41300ac",
+    "worktreeDirty": true
+  },
+  "inputIdentities": {
+    "sourceSha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+    "sourceByteLength": 1063619,
+    "labelPackageSha256": "6123274bc9817e3ee5e02c35102df6e33ba953228e3a5785edbd3146eefcbf73",
+    "attestationSha256": "83e10fec4993949f1680a69232ab8ed07e11d74d09275bd1bc70784be084e63e",
+    "linkageSha256": "811381100880f1c4b4ec0f9e54ac28d1176065493abe07aa3658fa042f2f9e60"
+  },
+  "preCallReport": {
+    "runIdentity": {
+      "runId": "forgewing-labelled-a3-2eb414353f4e0512e0d7b5f93ef9ac92",
+      "createdAt": "2026-08-25T18:45:42.049Z",
+      "runNonce": "6e8767fa-0e08-4338-812e-14d0ef7242c0"
+    },
+    "attestationValid": true,
+    "linkageValid": true,
+    "sourceValid": true,
+    "scoringContractValid": true,
+    "candidateCount": 2,
+    "candidateIds": [
+      "page_priced_schedule:p46:r24",
+      "page_priced_schedule:p46:r31"
+    ],
+    "candidateDigests": [
+      "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+      "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be"
+    ],
+    "candidateBundleDigest": "ad7c6df803b6da2c89bac6020c77ee4fb9598ca7d496141e96d0bbf562915448",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "outputTokenLimit": 2000,
+    "timeoutMs": 30000,
+    "sdkRetries": 0,
+    "taskRetryLimitPerCandidate": 1,
+    "plannedCalls": 4,
+    "hardCallLimit": 6
+  },
+  "frozenProviderBundle": {
+    "frozenBeforeProviderCalls": true,
+    "digestSha256": "ad7c6df803b6da2c89bac6020c77ee4fb9598ca7d496141e96d0bbf562915448",
+    "taskVersion": "forgewing-pricing-interpretation",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "candidates": [
+      {
+        "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "candidateDigestSha256": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "rowId": "page_priced_schedule:p46:r24",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "3f490d38f079b39bc562396f0aca918fb1a21e213f28ff2c11b334063eff3c8f"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r24",
+            "rawText": "-\nActual Costs\n$\nN/A\nDisposal / Tipping Fees",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+                "rawText": "-",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+                "rawText": "Actual Costs",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+                "rawText": "Disposal / Tipping Fees",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+                ],
+                "authoredRawText": "Disposal / Tipping Fees"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+                ],
+                "authoredRawText": "Actual Costs"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                  "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+                ],
+                "authoredRawText": "$ -"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "authoredRawText": "Disposal / Tipping Fees"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "authoredRawText": "Actual Costs"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+            ],
+            "authoredRawText": "$ -"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r025:f01:description",
+          "tdot-appendix-b:p46:r025:f02:unit",
+          "tdot-appendix-b:p46:r025:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Disposal / Tipping Fees",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+              ],
+              "authoredRawText": "Disposal / Tipping Fees"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Actual Costs",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+              ],
+              "authoredRawText": "Actual Costs"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ -",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+              ],
+              "authoredRawText": "$ -"
+            }
+          }
+        ]
+      },
+      {
+        "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "candidateDigestSha256": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "rowId": "page_priced_schedule:p46:r31",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "4327c9ac1e557d947e1e80dbef6f5a0f5383fdf147bd67e1bfce0d3e1c74f354"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r31",
+            "rawText": "Linear Mile\n$\nN/A\nSweeping\n1.00",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+                "rawText": "Linear Mile",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+                "rawText": "Sweeping",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+                "rawText": "1.00",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+                ],
+                "authoredRawText": "Sweeping"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+                ],
+                "authoredRawText": "Linear Mile"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                  "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+                ],
+                "authoredRawText": "$ 1.00"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "authoredRawText": "Sweeping"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "authoredRawText": "Linear Mile"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "authoredRawText": "$ 1.00"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r032:f01:description",
+          "tdot-appendix-b:p46:r032:f02:unit",
+          "tdot-appendix-b:p46:r032:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Sweeping",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+              ],
+              "authoredRawText": "Sweeping"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Linear Mile",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+              ],
+              "authoredRawText": "Linear Mile"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+              ],
+              "authoredRawText": "$ 1.00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "callConfiguration": {
+    "executeProvider": false,
+    "repeatEachCandidate": true,
+    "configuredCallBudget": 6,
+    "plannedCalls": 4,
+    "hardCallLimit": 6,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "temperature": 0,
+    "structuredOutput": "json_schema",
+    "outputTokenLimit": 2000,
+    "timeoutMs": 30000,
+    "sdkRetries": 0,
+    "taskRetryLimitPerCandidate": 1
+  }
+}

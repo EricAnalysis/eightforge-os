@@ -1,0 +1,394 @@
+{
+  "freezeVersion": "forgewing-pricing-v2-phase-c-freeze-v2",
+  "measurementVersion": "forgewing-pricing-v2-phase-c-measurement-v2",
+  "scoringVersion": "forgewing-pricing-v2-phase-c-scoring-v1",
+  "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+  "runIdentity": {
+    "runId": "forgewing-v2-phase-c-7142393363b384f0ed0dcb2cf5408730",
+    "createdAt": "2026-08-28T21:27:06.870Z",
+    "runNonce": "77192c68-7cf7-404e-8734-88d9210083ef"
+  },
+  "authority": "non_authoritative_measurement",
+  "promotionEvidence": false,
+  "promotionAuthorized": false,
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "temperature": 0,
+  "structuredOutput": "json_schema",
+  "outputTokenLimit": 2000,
+  "timeoutMs": 30000,
+  "sdkRetries": 0,
+  "taskRetryLimitPerCandidate": 0,
+  "prompt": {
+    "identifier": "forgewing-pricing-interpretation-v2-phase-c",
+    "version": "v2c-1",
+    "promptSha256": "8dbc8b9a448edb7870bfcfc9fcb2ca1e51ba8860cd41ec209f870cceddc85843"
+  },
+  "acceptedPins": {
+    "humanLabelPackageSha256": "0dd8c1eb726e42c496108c0e7e9692546b640fe6deeab3726ec1665a5344a24b",
+    "phaseBArtifactSha256": "641b52f5ed55152b22c6338d283eecf0ad41671f066e2bdab0835b37733c798a",
+    "phaseBReportDigestSha256": "4b2c48410b5656457ae5d9f806e6f216bd52c8d3d4aab80753170a6bf198f936",
+    "reviewPacketSha256": "0e815b0c2cf7db58a12ebd430025dda4c8e9fb213273aa07f5020881027285a9",
+    "labelWorkflowImplementationCommit": "fc7433a98194b49efd09430d8a27e63d3f1f1984",
+    "phaseBPreparationCommit": "f13c815b2bdb386353f008f8d56c5622407d8aec",
+    "packetVersion": "forgewing-pricing-v2-human-review-packet-v1",
+    "fieldCount": 17,
+    "memberObservationCount": 19
+  },
+  "bindings": {
+    "humanLabelPackageSha256": "0dd8c1eb726e42c496108c0e7e9692546b640fe6deeab3726ec1665a5344a24b",
+    "phaseBArtifactSha256": "641b52f5ed55152b22c6338d283eecf0ad41671f066e2bdab0835b37733c798a",
+    "reviewPacketSha256": "0e815b0c2cf7db58a12ebd430025dda4c8e9fb213273aa07f5020881027285a9",
+    "labelWorkflowImplementationCommit": "fc7433a98194b49efd09430d8a27e63d3f1f1984",
+    "phaseBPreparationCommit": "f13c815b2bdb386353f008f8d56c5622407d8aec",
+    "codeCommit": "746c6864bbe168500461abbde39efaf36692e814"
+  },
+  "sourceIdentities": [
+    {
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceSha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+      "sourceByteLength": 1063619
+    },
+    {
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceSha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+      "sourceByteLength": 3895497
+    }
+  ],
+  "scope": {
+    "rowCount": 5,
+    "fieldCount": 17,
+    "contributionCount": 19,
+    "orderedRowObservationIds": [
+      "page_priced_schedule:p106:r4",
+      "page_priced_schedule:p106:r6",
+      "page_priced_schedule:p106:r8",
+      "page_priced_schedule:p46:r24",
+      "page_priced_schedule:p46:r31"
+    ],
+    "orderedSourceFieldIds": [
+      "forgewing-source-field-0af18d4091e5eeb28858f096b23e3a9fd93d60b8490bd170353b866959bf09fc",
+      "forgewing-source-field-1c653eb23ce993897c70b0e87b8bf40cab5a067cc7853ac3f08ca8bf7c310b3f",
+      "forgewing-source-field-203fbd7666953eaf00a3bef33e147e690797f8e16850134f17d7e960f1edd156",
+      "forgewing-source-field-345fe892b549374db4eef2f8f8c8771699d6c2f823613e672b7210dbdd324b20",
+      "forgewing-source-field-4f3db582786039c95b7372ac30437cefd54057cb535f3f3081d4970d1dd6498c",
+      "forgewing-source-field-52a644c4344b3709311da25be28d6676352591929f84451fd20af76cd5b39853",
+      "forgewing-source-field-55e351b0c69317e8d6aff29c03418f59724d774e89ac5e1d1334caecefcef696",
+      "forgewing-source-field-5c4c70185b42ccb37331733e2f0e441d423ae46eb288f1afb30384c90abafb69",
+      "forgewing-source-field-7278691863ec214c3184d5d8f758a83e6ee9286b0c8e4297f575e54d029d8c71",
+      "forgewing-source-field-918c4d3679ac359b80254ff1bfbb3767c666b3ba86addf079db9f3e89c8ae570",
+      "forgewing-source-field-9fcfe29517e080ff0bd33edc9e3edf0c0f8bb5085ceeb39e4f51b7c71de265f6",
+      "forgewing-source-field-ac8469ccb3655801b171716117a87388cd215255ab55205b7a83718443605b9f",
+      "forgewing-source-field-b5e35087425447202fd81091285fb43ee172131be8b9e3463a1a83d3f61896d3",
+      "forgewing-source-field-b8d581a6df7f10985d44fae98f98b58bd8ef478d3865e350e03cc4defcbfaf13",
+      "forgewing-source-field-c487d5b2776f6ed4e860d7538441170469aa4369227ae8d37f6e62bb2e8537b2",
+      "forgewing-source-field-c7155f5ba2845d2a088c4cad2f2dfaee43718ed145c222d30b4da19f4f4ed460",
+      "forgewing-source-field-e27fe666577d8662c96ea250c8ee556469e3a66a344553bf06ab47658abe0ef6"
+    ],
+    "orderedSourceObservationIds": [
+      "pdf:layout-token:v1:05a6fcbc8e1171a7c453e8b2b7e895c1a15c8f50a4e6226951ca5e13664fa078",
+      "pdf:layout-token:v1:06e4dffa89b7cf742f79e081635ac7684ccc7cc4024ff05df85714629f32b06d",
+      "pdf:layout-token:v1:0b923d5b4b8ad2b09f1cbdcfa4e5c4f8ce106c840d42b6eb3b234ce2025a5e07",
+      "pdf:layout-token:v1:115625f17473019de23f3c29001007e24487fd00c15b3bafd0b4db8cd6e4c8ec",
+      "pdf:layout-token:v1:20eb7de6ca6aefa6f35c078b9a428b6bf330f0fc8ba807e3536de2247cfe5bd1",
+      "pdf:layout-token:v1:471435e2a9233373f2b133a2cef3451e417204c091c35054140f5b5cf258e49e",
+      "pdf:layout-token:v1:4bd9f922ab08031c138cfb86c7a84cd7c1aed4d48f93f1840233a02264f63671",
+      "pdf:layout-token:v1:4bf40d92c0b280249e990242aad481d1c75b504a9e82187981068134a8e1282d",
+      "pdf:layout-token:v1:64651347b6d1cdfcc5b6071eb1c227fae9dbeff01bd08b9b745c06a0c9f00250",
+      "pdf:layout-token:v1:70a08491007c9f8b7f4c3eb7dcb97be3483edaff778fe94e2253f3f16dd77de9",
+      "pdf:layout-token:v1:74aa4d961a5276ac1e466e484912f715c8701d2f4c0f577754b2bf3dc06bef30",
+      "pdf:layout-token:v1:784643bfba80fdef54858924613360967d906f7b98938bfbfc9c2785c56e4972",
+      "pdf:layout-token:v1:8073b5fee6f33e663438f557e841178fd399b70fe6acbd76e62afe86ad2c63ab",
+      "pdf:layout-token:v1:84fd2885de67592f849e9c0da78847ab193a901e9c201777000248c4d96902bd",
+      "pdf:layout-token:v1:8c7a4b4241d743631c4d7299e131edcbae05c5bde502a8bbf78cf19ff75cb797",
+      "pdf:layout-token:v1:c13897f756f062f59d965012668af7b5c60850833cadf40dc69fbd89143bf886",
+      "pdf:layout-token:v1:c1c41e90293081c6fca79a47dba6f36f56328cd8ae7fc7f5a38890462446f624",
+      "pdf:layout-token:v1:c54222519a627b01ea343a3810fab3254805d547eceee41f5a8f51bf6cbea584",
+      "pdf:layout-token:v1:f07aa0eef32a8a42367bca9a86ff08aaa388ea38ba0a4395bc59b8f36df47ecb"
+    ]
+  },
+  "fixedDenominators": {
+    "field": 17,
+    "contribution": 19
+  },
+  "callPlan": {
+    "grain": "one_provider_call_per_reasoning_row",
+    "plannedCalls": 5,
+    "callBudget": 5,
+    "hardCallLimit": 5,
+    "plannedCallSequence": [
+      {
+        "sequence": 1,
+        "rowObservationId": "page_priced_schedule:p106:r4",
+        "fieldCount": 3
+      },
+      {
+        "sequence": 2,
+        "rowObservationId": "page_priced_schedule:p106:r6",
+        "fieldCount": 3
+      },
+      {
+        "sequence": 3,
+        "rowObservationId": "page_priced_schedule:p106:r8",
+        "fieldCount": 3
+      },
+      {
+        "sequence": 4,
+        "rowObservationId": "page_priced_schedule:p46:r24",
+        "fieldCount": 4
+      },
+      {
+        "sequence": 5,
+        "rowObservationId": "page_priced_schedule:p46:r31",
+        "fieldCount": 4
+      }
+    ]
+  },
+  "providerInput": [
+    {
+      "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+      "candidateId": "582b5d307460658420428a5445a667e5850c68761c166d3c13158b997407bfae",
+      "rowObservationId": "page_priced_schedule:p106:r4",
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "fields": [
+        {
+          "sourceFieldId": "forgewing-source-field-0af18d4091e5eeb28858f096b23e3a9fd93d60b8490bd170353b866959bf09fc",
+          "sourceFieldRole": "unit",
+          "authoredRawText": "TON",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:c1c41e90293081c6fca79a47dba6f36f56328cd8ae7fc7f5a38890462446f624",
+              "rawText": "TON"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-1c653eb23ce993897c70b0e87b8bf40cab5a067cc7853ac3f08ca8bf7c310b3f",
+          "sourceFieldRole": "description",
+          "authoredRawText": "Inert Debris Removal and",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:4bf40d92c0b280249e990242aad481d1c75b504a9e82187981068134a8e1282d",
+              "rawText": "Inert Debris Removal and"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-345fe892b549374db4eef2f8f8c8771699d6c2f823613e672b7210dbdd324b20",
+          "sourceFieldRole": "rate",
+          "authoredRawText": "$90.00",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:784643bfba80fdef54858924613360967d906f7b98938bfbfc9c2785c56e4972",
+              "rawText": "$90.00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+      "candidateId": "fdb0a63af4bf4a6b2ab4bb1ffe0d610670f38cb4649ea588e273c2bd3865bdf7",
+      "rowObservationId": "page_priced_schedule:p106:r6",
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "fields": [
+        {
+          "sourceFieldId": "forgewing-source-field-55e351b0c69317e8d6aff29c03418f59724d774e89ac5e1d1334caecefcef696",
+          "sourceFieldRole": "unit",
+          "authoredRawText": "TON",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:471435e2a9233373f2b133a2cef3451e417204c091c35054140f5b5cf258e49e",
+              "rawText": "TON"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-ac8469ccb3655801b171716117a87388cd215255ab55205b7a83718443605b9f",
+          "sourceFieldRole": "description",
+          "authoredRawText": "Household Hazardous Waste",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:05a6fcbc8e1171a7c453e8b2b7e895c1a15c8f50a4e6226951ca5e13664fa078",
+              "rawText": "Household Hazardous Waste"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-b8d581a6df7f10985d44fae98f98b58bd8ef478d3865e350e03cc4defcbfaf13",
+          "sourceFieldRole": "rate",
+          "authoredRawText": "$120.00",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:20eb7de6ca6aefa6f35c078b9a428b6bf330f0fc8ba807e3536de2247cfe5bd1",
+              "rawText": "$120.00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+      "candidateId": "78eb52a2fdbd9a5b3f6ad6c62fae4b73c63c68edb039218a3388c888c2703cad",
+      "rowObservationId": "page_priced_schedule:p106:r8",
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "fields": [
+        {
+          "sourceFieldId": "forgewing-source-field-52a644c4344b3709311da25be28d6676352591929f84451fd20af76cd5b39853",
+          "sourceFieldRole": "unit",
+          "authoredRawText": "DOL",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:4bd9f922ab08031c138cfb86c7a84cd7c1aed4d48f93f1840233a02264f63671",
+              "rawText": "DOL"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-5c4c70185b42ccb37331733e2f0e441d423ae46eb288f1afb30384c90abafb69",
+          "sourceFieldRole": "rate",
+          "authoredRawText": "$1.00",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:c54222519a627b01ea343a3810fab3254805d547eceee41f5a8f51bf6cbea584",
+              "rawText": "$1.00"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-7278691863ec214c3184d5d8f758a83e6ee9286b0c8e4297f575e54d029d8c71",
+          "sourceFieldRole": "description",
+          "authoredRawText": "Landfill Tipping Fee",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:115625f17473019de23f3c29001007e24487fd00c15b3bafd0b4db8cd6e4c8ec",
+              "rawText": "Landfill Tipping Fee"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+      "candidateId": "95d8a895ca417de95c68c4724fee012eee1f1a053e908a80498cd8ac4d46ea4f",
+      "rowObservationId": "page_priced_schedule:p46:r24",
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "fields": [
+        {
+          "sourceFieldId": "forgewing-source-field-4f3db582786039c95b7372ac30437cefd54057cb535f3f3081d4970d1dd6498c",
+          "sourceFieldRole": "rate",
+          "authoredRawText": "$ -",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:0b923d5b4b8ad2b09f1cbdcfa4e5c4f8ce106c840d42b6eb3b234ce2025a5e07",
+              "rawText": "$"
+            },
+            {
+              "observationId": "pdf:layout-token:v1:70a08491007c9f8b7f4c3eb7dcb97be3483edaff778fe94e2253f3f16dd77de9",
+              "rawText": "-"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-918c4d3679ac359b80254ff1bfbb3767c666b3ba86addf079db9f3e89c8ae570",
+          "sourceFieldRole": "origin_destination",
+          "authoredRawText": "N/A",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:c13897f756f062f59d965012668af7b5c60850833cadf40dc69fbd89143bf886",
+              "rawText": "N/A"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-c7155f5ba2845d2a088c4cad2f2dfaee43718ed145c222d30b4da19f4f4ed460",
+          "sourceFieldRole": "unit",
+          "authoredRawText": "Actual Costs",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:74aa4d961a5276ac1e466e484912f715c8701d2f4c0f577754b2bf3dc06bef30",
+              "rawText": "Actual Costs"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-e27fe666577d8662c96ea250c8ee556469e3a66a344553bf06ab47658abe0ef6",
+          "sourceFieldRole": "description",
+          "authoredRawText": "Disposal / Tipping Fees",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:64651347b6d1cdfcc5b6071eb1c227fae9dbeff01bd08b9b745c06a0c9f00250",
+              "rawText": "Disposal / Tipping Fees"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+      "candidateId": "466a1fbec81b2a3ad59a6621a4e60790da250a9b8cc334c6e590a47f15fc3671",
+      "rowObservationId": "page_priced_schedule:p46:r31",
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "fields": [
+        {
+          "sourceFieldId": "forgewing-source-field-203fbd7666953eaf00a3bef33e147e690797f8e16850134f17d7e960f1edd156",
+          "sourceFieldRole": "rate",
+          "authoredRawText": "$ 1.00",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:8073b5fee6f33e663438f557e841178fd399b70fe6acbd76e62afe86ad2c63ab",
+              "rawText": "$"
+            },
+            {
+              "observationId": "pdf:layout-token:v1:f07aa0eef32a8a42367bca9a86ff08aaa388ea38ba0a4395bc59b8f36df47ecb",
+              "rawText": "1.00"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-9fcfe29517e080ff0bd33edc9e3edf0c0f8bb5085ceeb39e4f51b7c71de265f6",
+          "sourceFieldRole": "description",
+          "authoredRawText": "Sweeping",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:8c7a4b4241d743631c4d7299e131edcbae05c5bde502a8bbf78cf19ff75cb797",
+              "rawText": "Sweeping"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-b5e35087425447202fd81091285fb43ee172131be8b9e3463a1a83d3f61896d3",
+          "sourceFieldRole": "origin_destination",
+          "authoredRawText": "N/A",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:84fd2885de67592f849e9c0da78847ab193a901e9c201777000248c4d96902bd",
+              "rawText": "N/A"
+            }
+          ]
+        },
+        {
+          "sourceFieldId": "forgewing-source-field-c487d5b2776f6ed4e860d7538441170469aa4369227ae8d37f6e62bb2e8537b2",
+          "sourceFieldRole": "unit",
+          "authoredRawText": "Linear Mile",
+          "members": [
+            {
+              "observationId": "pdf:layout-token:v1:06e4dffa89b7cf742f79e081635ac7684ccc7cc4024ff05df85714629f32b06d",
+              "rawText": "Linear Mile"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

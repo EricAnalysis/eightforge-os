@@ -1,0 +1,19 @@
+
+> eightforge-os@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3017
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://127.0.0.1:3017
+- Network:       http://127.0.0.1:3017
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 7.9s
+○ Compiling /evaluation/forgewing/v2-field-labels ...
+ GET /evaluation/forgewing/v2-field-labels 200 in 3.1s (compile: 1984ms, render: 1136ms)
+ GET /evaluation/forgewing/v2-field-labels 200 in 719ms (compile: 83ms, render: 636ms)
+○ Compiling /api/evaluation/forgewing/v2-field-labels/source ...
+ GET /api/evaluation/forgewing/v2-field-labels/source?sourceDocumentId=local-pricing-document-69247bff02744276b75f2cb0 200 in 5.4s (compile: 5.3s, render: 93ms)
+ GET /evaluation/forgewing/v2-field-labels 200 in 193ms (compile: 24ms, render: 169ms)
+ GET /api/evaluation/forgewing/v2-field-labels/source?sourceDocumentId=local-pricing-document-69247bff02744276b75f2cb0 200 in 38ms (compile: 9ms, render: 29ms)
+[?25h

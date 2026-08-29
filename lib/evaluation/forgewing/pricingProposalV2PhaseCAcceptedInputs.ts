@@ -54,6 +54,17 @@ export type ForgewingV2PhaseCAuthenticationFailure =
   | 'review_packet_candidate_mismatch'
   | 'review_packet_role_mismatch'
   | 'review_packet_evidence_identity_mismatch'
+  | 'review_packet_source_count_mismatch'
+  | 'review_packet_source_absent_from_phase_b'
+  | 'review_packet_source_match_ambiguous'
+  | 'review_packet_preparation_digest_mismatch'
+  | 'review_packet_source_document_mismatch'
+  | 'review_packet_source_artifact_mismatch'
+  | 'review_packet_source_sha_mismatch'
+  | 'review_packet_source_byte_length_mismatch'
+  | 'review_packet_physical_page_count_mismatch'
+  | 'review_packet_extraction_snapshot_mismatch'
+  | 'review_packet_row_source_membership_mismatch'
   | 'field_count_mismatch'
   | 'member_count_mismatch'
   | 'input_contract_violation';
@@ -193,6 +204,119 @@ function authenticateWithPins(
   const packetSources = (packet.sources as JsonRecord[]) ?? [];
   if (packetSources.some((source) => source.orderingDeterministic !== true)) {
     fail('review_packet_ordering_nondeterministic');
+  }
+
+  // ---- packet SOURCE-LEVEL semantic closure against accepted Phase B ----
+  // The packet must not authenticate its own source identity. Every immutable
+  // source/preparation identity carried by a packet source wrapper is compared
+  // field-by-field against the corresponding ACCEPTED Phase B preparation, so a
+  // locally recomputed packet digest and file SHA cannot smuggle source drift.
+  //
+  // Matching uses immutable source identity ONLY - never display names,
+  // filenames, project names, row text, OCR text, or page content, and never
+  // fuzzy matching. A packet source resolves through two independent exact
+  // identity indices (sourceArtifactId and preparationDigestSha256) so that
+  // mutating either one is still matched by the other and reported as the
+  // specific drift it is. If both keys resolve to nothing, or resolve to
+  // different Phase B sources, or reuse a Phase B source already claimed, the
+  // match is not unique and authentication fails closed.
+  type PhaseBSourceAuthority = Readonly<{
+    index: number;
+    preparationDigestSha256: unknown;
+    sourceDocumentId: unknown;
+    sourceArtifactId: unknown;
+    sourceSha256: unknown;
+    sourceByteLength: unknown;
+    physicalPageCount: unknown;
+    extractionSnapshotId: unknown;
+  }>;
+
+  const phaseBSources: PhaseBSourceAuthority[] = preparations.map((preparation, index) => {
+    const identity = record(preparation.source);
+    if (!identity) fail('input_contract_violation');
+    return {
+      index,
+      preparationDigestSha256: preparation.preparationDigestSha256,
+      sourceDocumentId: identity.sourceDocumentId,
+      sourceArtifactId: identity.sourceArtifactId,
+      sourceSha256: identity.sourceSha256,
+      sourceByteLength: identity.sourceByteLength,
+      physicalPageCount: identity.physicalPageCount,
+      extractionSnapshotId: identity.extractionSnapshotId,
+    };
+  });
+
+  const byArtifactId = new Map<string, PhaseBSourceAuthority>();
+  const byPreparationDigest = new Map<string, PhaseBSourceAuthority>();
+  for (const authority of phaseBSources) {
+    const artifactId = authority.sourceArtifactId;
+    const digest = authority.preparationDigestSha256;
+    if (typeof artifactId !== 'string' || typeof digest !== 'string') {
+      fail('input_contract_violation');
+    }
+    // Phase B itself must present unambiguous source identity.
+    if (byArtifactId.has(artifactId) || byPreparationDigest.has(digest)) {
+      fail('review_packet_source_match_ambiguous');
+    }
+    byArtifactId.set(artifactId, authority);
+    byPreparationDigest.set(digest, authority);
+  }
+
+  if (packetSources.length !== phaseBSources.length) fail('review_packet_source_count_mismatch');
+
+  const claimedPhaseBSources = new Set<number>();
+  for (const sourceValue of packetSources) {
+    const identity = record(sourceValue.source);
+    if (!identity) fail('input_contract_violation');
+    const packetArtifactId = identity.sourceArtifactId;
+    const packetPreparationDigest = sourceValue.preparationDigestSha256;
+
+    const viaArtifactId = typeof packetArtifactId === 'string'
+      ? byArtifactId.get(packetArtifactId) : undefined;
+    const viaPreparationDigest = typeof packetPreparationDigest === 'string'
+      ? byPreparationDigest.get(packetPreparationDigest) : undefined;
+
+    if (!viaArtifactId && !viaPreparationDigest) fail('review_packet_source_absent_from_phase_b');
+    if (viaArtifactId && viaPreparationDigest && viaArtifactId.index !== viaPreparationDigest.index) {
+      fail('review_packet_source_match_ambiguous');
+    }
+    const authority = (viaArtifactId ?? viaPreparationDigest)!;
+    if (claimedPhaseBSources.has(authority.index)) fail('review_packet_source_match_ambiguous');
+    claimedPhaseBSources.add(authority.index);
+
+    // Exact equality of every immutable identity represented in both structures.
+    if (packetPreparationDigest !== authority.preparationDigestSha256) {
+      fail('review_packet_preparation_digest_mismatch');
+    }
+    if (identity.sourceDocumentId !== authority.sourceDocumentId) {
+      fail('review_packet_source_document_mismatch');
+    }
+    if (packetArtifactId !== authority.sourceArtifactId) {
+      fail('review_packet_source_artifact_mismatch');
+    }
+    if (identity.sourceSha256 !== authority.sourceSha256) fail('review_packet_source_sha_mismatch');
+    if (identity.sourceByteLength !== authority.sourceByteLength) {
+      fail('review_packet_source_byte_length_mismatch');
+    }
+    if (identity.physicalPageCount !== authority.physicalPageCount) {
+      fail('review_packet_physical_page_count_mismatch');
+    }
+    if (identity.extractionSnapshotId !== authority.extractionSnapshotId) {
+      fail('review_packet_extraction_snapshot_mismatch');
+    }
+
+    // The wrapper is not decorative: every row it carries must belong to it.
+    for (const rowValue of (sourceValue.rows as JsonRecord[]) ?? []) {
+      const rowContext = record(rowValue.context);
+      if (!rowContext) fail('review_packet_context_mismatch');
+      if (rowContext.sourceDocumentId !== authority.sourceDocumentId
+        || rowContext.sourceArtifactId !== authority.sourceArtifactId) {
+        fail('review_packet_row_source_membership_mismatch');
+      }
+    }
+  }
+  if (claimedPhaseBSources.size !== phaseBSources.length) {
+    fail('review_packet_source_count_mismatch');
   }
 
   const packetFields = packetSources

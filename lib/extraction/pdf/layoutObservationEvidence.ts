@@ -62,6 +62,14 @@ export type PdfLayoutObservationBindingContext = Readonly<{
   totalPhysicalPages: number;
 }>;
 
+export type ResolvedPdfLayoutDiagnosticEvidence = Readonly<{
+  reason: string;
+  physicalPageNumber: number;
+  rawText: string;
+  sourceRefs: readonly PricedScheduleCellSourceRef[];
+  observations: readonly PdfLayoutTokenObservation[];
+}>;
+
 type LocatedRef = Readonly<{
   page: number;
   ref: PricedScheduleCellSourceRef;
@@ -427,6 +435,92 @@ export function resolvePdfLayoutObservationEvidenceByRow(params: {
   }
   return Object.freeze([...byId.values()].sort((left, right) =>
     left.id.localeCompare(right.id, 'en-US')));
+}
+
+/**
+ * Resolves rejected reconstruction diagnostics without making them accepted
+ * pricing rows. Every referenced primitive must close exactly against the
+ * persisted layout-observation layer; one malformed diagnostic fails the
+ * requested diagnostic set closed.
+ */
+export function resolvePdfLayoutDiagnosticEvidence(params: {
+  reconstruction: PagePricedScheduleReconstruction;
+  persistedLayer: unknown;
+  context: PdfLayoutObservationBindingContext | null;
+  reason: string;
+}): readonly ResolvedPdfLayoutDiagnosticEvidence[] {
+  if (!params.context || !isRecord(params.persistedLayer)) return [];
+  const layer = params.persistedLayer;
+  if (
+    params.reconstruction.parser_version !== 'priced_schedule_reconstruction_v1'
+    || layer.parser_version !== PDF_LAYOUT_OBSERVATIONS_LAYER_VERSION
+    || layer.observation_version !== PDF_LAYOUT_OBSERVATION_VERSION
+    || layer.source_kind !== 'pdf'
+    || layer.materialization_scope !== 'priced_schedule_reconstruction_refs'
+    || layer.source_document_id !== params.context.sourceDocumentId
+    || layer.source_artifact_id !== params.context.sourceArtifactId
+    || layer.total_physical_pages !== params.context.totalPhysicalPages
+    || !Array.isArray(layer.observations)
+  ) return [];
+
+  const identityContext: PdfLayoutObservationIdentityContext = {
+    sourceDocumentId: params.context.sourceDocumentId,
+    sourceArtifactId: params.context.sourceArtifactId,
+  };
+  const definitions = new Map<string, unknown[]>();
+  for (const observation of layer.observations) {
+    const id = isRecord(observation) && typeof observation.id === 'string'
+      ? observation.id
+      : null;
+    if (id) definitions.set(id, [...(definitions.get(id) ?? []), observation]);
+  }
+
+  const diagnostics = params.reconstruction.pages.flatMap((page) =>
+    page.rejected_spines
+      .filter((entry) => entry.reason === params.reason)
+      .map((entry) => ({ page: page.physical_page_number, entry })));
+  const claimedIds = new Set<string>();
+  const resolved: ResolvedPdfLayoutDiagnosticEvidence[] = [];
+  for (const { page, entry } of diagnostics) {
+    if (entry.physical_page_number !== page || entry.source_refs.length === 0) return [];
+    const ids = entry.source_refs.map((ref) => ref.observation_id);
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) return [];
+    const observations: PdfLayoutTokenObservation[] = [];
+    for (const ref of entry.source_refs) {
+      const id = ref.observation_id!;
+      if (claimedIds.has(id)) return [];
+      const candidates = definitions.get(id) ?? [];
+      const observation = candidates[0];
+      if (
+        candidates.length !== 1
+        || !isPdfLayoutTokenObservation(observation)
+        || observation.source_document_id !== params.context.sourceDocumentId
+        || observation.source_artifact_id !== params.context.sourceArtifactId
+        || !refMatchesObservation(
+          { page, ref },
+          observation,
+          identityContext,
+          params.context.totalPhysicalPages,
+        )
+      ) return [];
+      claimedIds.add(id);
+      observations.push(observation);
+    }
+    observations.sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
+    resolved.push(Object.freeze({
+      reason: entry.reason,
+      physicalPageNumber: page,
+      rawText: entry.raw_text,
+      sourceRefs: Object.freeze([...entry.source_refs]),
+      observations: Object.freeze(observations),
+    }));
+  }
+  resolved.sort((left, right) => {
+    const pageOrder = left.physicalPageNumber - right.physicalPageNumber;
+    return pageOrder || left.observations.map((entry) => entry.id).join(':')
+      .localeCompare(right.observations.map((entry) => entry.id).join(':'), 'en-US');
+  });
+  return Object.freeze(resolved);
 }
 
 export function buildPdfLayoutObservationsLayer(params: {

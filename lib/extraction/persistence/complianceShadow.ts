@@ -31,6 +31,10 @@ import {
   type ForgewingPricingInterpretationInput,
 } from '@/lib/forgewing/tasks/pricingInterpretation';
 import {
+  runForgewingPricingRateClusterRecovery,
+  type ForgewingPricingRateClusterRecoveryInput,
+} from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
+import {
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingShadowEnabled,
@@ -517,6 +521,8 @@ export type ForgewingPricingInterpretationShadowInput = Readonly<{
   sourceObservations: readonly unknown[];
   /** Structural copy of PricingSourceEligibilityDiagnostics; no authority import. */
   pricingSourceEligibility: unknown;
+  /** Exact, independently closed rejected-spine diagnostics; never accepted pricing rows. */
+  pricingRecoveryDiagnostics?: readonly unknown[];
   env?: Readonly<Record<string, string | undefined>>;
 }>;
 
@@ -969,9 +975,174 @@ export function scheduleForgewingPricingInterpretationShadow(
   }
 }
 
+export function buildEligiblePricingRateClusterRecoveryCandidates(
+  input: ForgewingPricingInterpretationShadowInput,
+): readonly ForgewingPricingRateClusterRecoveryInput[] {
+  const scopeDiagnostics = neutralPricingDiagnostics(input.pricingSourceEligibility);
+  if (!pricingIdentifier(input.organizationId)
+    || !pricingIdentifier(input.sourceDocumentId)
+    || !pricingIdentifier(input.sourceArtifactId)
+    || !pricingIdentifier(input.extractionSnapshotId)
+    || !scopeDiagnostics
+    || !scopeDiagnostics.pageScopeApplicable
+    || scopeDiagnostics.scope.kind !== 'authoritative'
+    || scopeDiagnostics.sourceDocumentId !== input.sourceDocumentId
+    || scopeDiagnostics.sourceArtifactId !== input.sourceArtifactId
+    || !Array.isArray(input.pricingRecoveryDiagnostics)) return [];
+  const authoritativePages = new Set(scopeDiagnostics.scope.authoritativePages);
+  let invalid = false;
+  const candidates = input.pricingRecoveryDiagnostics.flatMap((rawDiagnostic) => {
+    const diagnostic = pricingRecord(rawDiagnostic);
+    const physicalPageNumber = pricingInteger(diagnostic?.physicalPageNumber);
+    if (diagnostic?.reason !== 'ambiguous_rate_clusters'
+      || physicalPageNumber == null || physicalPageNumber < 1
+      || !authoritativePages.has(physicalPageNumber)
+      || !Array.isArray(diagnostic.observations)
+      || diagnostic.observations.length < 2 || diagnostic.observations.length > 32) return [];
+    const observations = diagnostic.observations.flatMap((rawObservation) => {
+      const observation = pricingRecord(rawObservation);
+      const coordinate = pricingRecord(observation?.physical_page_coordinate);
+      const location = pricingRecord(observation?.location);
+      const box = pricingRecord(location?.bounding_box);
+      const observationId = pricingIdentifier(observation?.id);
+      const sourceDocumentId = pricingIdentifier(observation?.source_document_id);
+      const sourceArtifactId = pricingIdentifier(observation?.source_artifact_id);
+      const rawText = pricingString(observation?.raw_text);
+      const page = pricingInteger(observation?.physical_page_number);
+      const artifactLocalIndex = pricingInteger(coordinate?.artifactLocalIndex);
+      const sourceLayer = observation?.source_method === 'pdfjs'
+        ? 'pdf_native_text' as const
+        : observation?.source_method === 'ocr_fallback'
+          ? 'ocr' as const
+          : null;
+      if (!observationId || !sourceDocumentId || !sourceArtifactId || !rawText
+        || page !== physicalPageNumber || !sourceLayer || artifactLocalIndex !== physicalPageNumber - 1
+        || sourceDocumentId !== input.sourceDocumentId
+        || sourceArtifactId !== input.sourceArtifactId
+        || coordinate?.mappingState !== 'resolved_physical_page'
+        || coordinate.sourceDocumentId !== input.sourceDocumentId
+        || coordinate.sourceArtifactId !== input.sourceArtifactId
+        || coordinate.physicalPageNumber !== physicalPageNumber
+        || !box
+        || !['x_min', 'x_max', 'y_min', 'y_max'].every((key) =>
+          typeof box[key] === 'number' && Number.isFinite(box[key]))) {
+        invalid = true;
+        return [];
+      }
+      const boundingBox = {
+        xMin: box.x_min as number, xMax: box.x_max as number,
+        yMin: box.y_min as number, yMax: box.y_max as number,
+      };
+      if (boundingBox.xMin >= boundingBox.xMax || boundingBox.yMin >= boundingBox.yMax) {
+        invalid = true;
+        return [];
+      }
+      return [{ observationId, sourceDocumentId, sourceArtifactId,
+        physicalPageNumber, artifactLocalIndex, sourceLayer, rawText, boundingBox }];
+    });
+    if (invalid || observations.length !== diagnostic.observations.length
+      || new Set(observations.map((entry) => entry.observationId)).size !== observations.length) {
+      invalid = true;
+      return [];
+    }
+    observations.sort((left, right) => left.observationId.localeCompare(right.observationId, 'en-US'));
+    return [{
+      stableKey: `${physicalPageNumber}:${observations.map((entry) => entry.observationId).join(':')}`,
+      input: {
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        physicalPageNumber,
+        recoveryTaskType: 'pricing_rate_cluster_recovery' as const,
+        eligibilityReason: 'ambiguous_relationship' as const,
+        diagnosticReason: 'ambiguous_rate_clusters' as const,
+        observations,
+      },
+    }];
+  });
+  candidates.sort((left, right) => left.stableKey.localeCompare(right.stableKey, 'en-US'));
+  if (invalid || new Set(candidates.map((entry) => entry.stableKey)).size !== candidates.length) return [];
+  return Object.freeze(candidates.map((entry) => Object.freeze(entry.input)));
+}
+
+export function scheduleForgewingPricingRateClusterRecoveryShadow(
+  input: ForgewingPricingInterpretationShadowInput,
+  dependencies: Readonly<{
+    register?: (task: () => Promise<void>) => void;
+    run?: typeof runForgewingPricingRateClusterRecovery;
+    persist?: (params: { input: ReasoningShadowPersistenceInput }) => Promise<ReasoningShadowPersistenceResult>;
+  }> = {},
+): void {
+  const env = input.env ?? process.env;
+  if (env.FORGEWING_SHADOW_ENABLED !== '1'
+    || env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED !== '1') return;
+  const candidate = buildEligiblePricingRateClusterRecoveryCandidates(input)[0];
+  if (!candidate) {
+    console.info('[forgewingRecovery] pricing recovery outcome', {
+      mode: 'shadow', resultState: 'not_needed', eligibilityReason: null,
+      providerInvoked: false, taskType: 'pricing_rate_cluster_recovery',
+    });
+    return;
+  }
+  const task = async (): Promise<void> => {
+    try {
+      const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(candidate);
+      console.info('[forgewingRecovery] pricing recovery outcome', {
+        mode: 'shadow', resultState: result.status, eligibilityReason: 'ambiguous_relationship',
+        providerInvoked: 'metadata' in result ? result.metadata.providerInvoked : false,
+        deterministicValidationSuccessful: 'metadata' in result
+          ? result.metadata.deterministicValidationSuccessful : false,
+        humanReviewRequired: 'metadata' in result ? result.metadata.humanReviewRequired : false,
+        taskType: 'pricing_rate_cluster_recovery', physicalPageNumber: candidate.physicalPageNumber,
+        evidenceObservationCount: candidate.observations.length,
+      });
+      if (result.status !== 'requires_human_review') return;
+      const persisted = await (dependencies.persist ?? persistReasoningShadowArtifact)({ input: {
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+        resultStatus: 'applied',
+        run: result.bundle.run,
+        schemaVersion: result.bundle.schemaVersion,
+        runtime: {
+          model: result.metadata.model,
+          promptTemplateId: result.metadata.promptTemplateId,
+          promptTemplateVersion: result.metadata.promptTemplateVersion,
+          warningCodes: ['requires_human_review'],
+          calls: result.metadata.calls,
+          inputTruncated: false,
+        },
+        validatedBundle: result.bundle,
+      } });
+      if (persisted.status !== 'persisted') {
+        console.warn('[forgewingRecovery] non-fatal pricing recovery persistence outcome', {
+          mode: 'shadow', status: persisted.status, reason: persisted.reason,
+          ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
+        });
+      }
+    } catch (error) {
+      console.error('[forgewingRecovery] non-fatal pricing recovery failure', {
+        mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  try {
+    (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+  } catch (error) {
+    console.error('[forgewingRecovery] pricing recovery registration failed', {
+      mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /** Neutral production-facing name; Forgewing remains private to this sole consumer. */
-export const scheduleEligiblePricingReasoningShadow =
-  scheduleForgewingPricingInterpretationShadow;
+export function scheduleEligiblePricingReasoningShadow(
+  input: ForgewingPricingInterpretationShadowInput,
+): void {
+  scheduleForgewingPricingInterpretationShadow(input);
+  scheduleForgewingPricingRateClusterRecoveryShadow(input);
+}
 
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,

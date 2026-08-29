@@ -52,6 +52,12 @@ export function isForgewingPricingInterpretationEnabled(): boolean {
     && process.env.FORGEWING_PRICING_INTERPRETATION_ENABLED === '1';
 }
 
+/** Ambiguous rate-cluster recovery is separately default-off beneath the shadow gate. */
+export function isForgewingPricingRateClusterRecoveryEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

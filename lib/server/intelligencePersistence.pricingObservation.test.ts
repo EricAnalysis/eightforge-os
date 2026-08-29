@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { pricingLayoutSourceObservations } from '@/lib/server/intelligencePersistence';
+import {
+  pricingLayoutSourceObservations,
+  pricingRateClusterRecoveryDiagnostics,
+} from '@/lib/server/intelligencePersistence';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
 import { buildPdfLayoutObservationsLayer } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import {
@@ -63,6 +66,68 @@ function pricedPage(pageNumber: number) {
 }
 
 describe('pricing layout observation scheduling handoff', () => {
+  it('hands off only exact authoritative ambiguous-rate diagnostics', () => {
+    const source = pricedPage(2);
+    const row = source.page.rows[0]!;
+    const secondRate = source.tokens[1]!;
+    const duplicateRate = {
+      ...secondRate,
+      text: '120', x: 130,
+      observation_identity: createPdfLayoutObservationIdentity({
+        context: { sourceDocumentId: DOCUMENT_ID, sourceArtifactId: ARTIFACT_ID },
+        physicalPageNumber: 2, sourceMethod: 'pdfjs', parser: 'pdfjs_text_content',
+        parserObservationKey: 'page:2:rate-alternative',
+        pageRepresentationDigest: pdfLayoutPageRepresentationDigest(['page-2']),
+      }),
+    };
+    duplicateRate.observation_id = duplicateRate.observation_identity.id;
+    const ref = (token: PdfToken) => ({
+      observation_id: token.observation_id, text: token.text,
+      x_min: token.x, x_max: token.x + token.width,
+      y_min: token.y, y_max: token.y + token.height, source: token.source,
+    });
+    const diagnosticPage: PricedSchedulePage = {
+      ...source.page,
+      status: 'failed_closed', rows: [],
+      rejected_spines: [{
+        reason: 'ambiguous_rate_clusters', physical_page_number: 2,
+        raw_text: `${row.raw_text} 120`,
+        source_refs: [...row.cells.flatMap((cell) => cell.source_refs), ref(duplicateRate)],
+        y: 100,
+      }],
+    };
+    const reconstruction: PagePricedScheduleReconstruction = {
+      parser_version: 'priced_schedule_reconstruction_v1', pages: [diagnosticPage],
+    };
+    const layout: PdfLayout = {
+      page_count: TOTAL_PAGES, gaps: [], pages: [{
+        page_number: 2, lines: [{
+          id: 'line-2', page_number: 2, text: `${row.raw_text} 120`,
+          tokens: [...source.tokens, duplicateRate], kind: 'table_candidate',
+          x_min: 10, x_max: 140, y: 100, source: 'pdfjs',
+        }],
+      }],
+    };
+    const layer = buildPdfLayoutObservationsLayer({
+      layout, reconstruction,
+      context: { sourceDocumentId: DOCUMENT_ID, sourceArtifactId: ARTIFACT_ID },
+    });
+    const document = {
+      document_id: DOCUMENT_ID,
+      extraction_data: { extraction: { physical_page_provenance_v1: {
+        capture_state: 'captured', source_artifact_id: ARTIFACT_ID,
+        total_physical_pages: TOTAL_PAGES,
+      } } },
+      content_layers: { pdf: {
+        priced_schedule_reconstruction_v1: reconstruction,
+        layout_observations_v1: layer,
+      } },
+    } as unknown as NormalizedNodeDocument;
+
+    expect(pricingRateClusterRecoveryDiagnostics(document, [2])).toHaveLength(1);
+    expect(pricingRateClusterRecoveryDiagnostics(document, [5])).toEqual([]);
+  });
+
   it('keeps complete row evidence when neighboring and out-of-scope rows are incomplete', () => {
     const eligible = pricedPage(2);
     const outOfScope = pricedPage(5);

@@ -20,6 +20,14 @@ const runForgewingPricingInterpretation = vi.hoisted(() => vi.fn(async () => ({
   status: 'skipped' as const,
   reason: 'no_candidate_rows' as const,
 })));
+const runForgewingPricingRateClusterRecovery = vi.hoisted(() => vi.fn(async () => ({
+  status: 'eligible_not_executed' as const,
+  reason: 'recovery_disabled' as const,
+  metadata: {
+    providerInvoked: false, calls: 0, deterministicValidationSuccessful: false,
+    humanReviewRequired: false,
+  },
+})));
 
 vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
   runForgewingRegionClassification,
@@ -36,6 +44,9 @@ vi.mock('@/lib/forgewing/tasks/observationArbitration', () => ({
 vi.mock('@/lib/forgewing/tasks/pricingInterpretation', () => ({
   runForgewingPricingInterpretation,
 }));
+vi.mock('@/lib/forgewing/tasks/pricingRateClusterRecovery', () => ({
+  runForgewingPricingRateClusterRecovery,
+}));
 
 vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
   isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
@@ -45,14 +56,18 @@ vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
     && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
   isForgewingObservationArbitrationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
     && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1',
+  isForgewingPricingRateClusterRecoveryEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED === '1',
 }));
 
 import {
   buildEligiblePricingReasoningShadowCandidates,
+  buildEligiblePricingRateClusterRecoveryCandidates,
   captureStorageObjectVersion,
   persistExtractionComplianceShadow,
   publishExtractionComplianceShadowNonBlocking,
   scheduleForgewingPricingInterpretationShadow,
+  scheduleForgewingPricingRateClusterRecoveryShadow,
   scheduleExtractionComplianceShadow,
   withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
@@ -103,6 +118,7 @@ describe('compliance shadow dual-write isolation', () => {
     runForgewingColumnMapping.mockClear();
     runForgewingObservationArbitration.mockClear();
     runForgewingPricingInterpretation.mockClear();
+    runForgewingPricingRateClusterRecovery.mockClear();
   });
 
   function pricingShadowInput(overrides: Record<string, unknown> = {}) {
@@ -181,6 +197,116 @@ describe('compliance shadow dual-write isolation', () => {
       },
     };
   }
+
+  function pricingRecoveryInput() {
+    const base = pricingShadowInput();
+    const observation = (id: string, rawText: string, x: number) => ({
+      id,
+      source_document_id: 'document-1', source_artifact_id: 'artifact-1',
+      physical_page_number: 2, source_method: 'pdfjs', raw_text: rawText,
+      physical_page_coordinate: {
+        mappingState: 'resolved_physical_page', sourceDocumentId: 'document-1',
+        sourceArtifactId: 'artifact-1', physicalPageNumber: 2, artifactLocalIndex: 1,
+      },
+      location: { page: 2, bounding_box: {
+        x_min: x, x_max: x + 10, y_min: 100, y_max: 110,
+      } },
+    });
+    return {
+      ...base,
+      pricingRecoveryDiagnostics: [{
+        reason: 'ambiguous_rate_clusters', physicalPageNumber: 2,
+        observations: [
+          observation('description-1', 'Candidate service', 10),
+          observation('rate-1', '$12.00', 50),
+          observation('rate-2', '120', 70),
+        ],
+      }],
+      env: {
+        FORGEWING_SHADOW_ENABLED: '1',
+        FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED: '1',
+      },
+    };
+  }
+
+  it('builds and schedules one exact ambiguous-rate recovery candidate', async () => {
+    const input = pricingRecoveryInput();
+    const candidates = buildEligiblePricingRateClusterRecoveryCandidates(input);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      recoveryTaskType: 'pricing_rate_cluster_recovery',
+      eligibilityReason: 'ambiguous_relationship',
+      diagnosticReason: 'ambiguous_rate_clusters',
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+      extractionSnapshotId: 'snapshot-1', physicalPageNumber: 2,
+    });
+    const registered: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingRateClusterRecoveryShadow(input, {
+      register: (task) => registered.push(task),
+    });
+    expect(registered).toHaveLength(1);
+    await registered[0]!();
+    expect(runForgewingPricingRateClusterRecovery).toHaveBeenCalledOnce();
+  });
+
+  it('persists only a validated review-required recovery bundle', async () => {
+    const input = pricingRecoveryInput();
+    const candidates = buildEligiblePricingRateClusterRecoveryCandidates(input);
+    const candidate = candidates[0]!;
+    const bundle = {
+      schemaVersion: 'forgewing-pricing-rate-cluster-recovery-v1',
+      authority: 'non_authoritative',
+      run: {
+        runId: 'recovery-run-1', organizationId: 'organization-1',
+        extractionSnapshotId: 'snapshot-1', inputSnapshotHash: 'a'.repeat(64),
+      },
+      taskId: 'recovery-task-1', taskType: 'pricing_rate_cluster_recovery',
+      proposals: [{
+        proposalId: 'recovery-proposal-1', taskId: 'recovery-task-1',
+        taskType: 'pricing_rate_cluster_recovery', status: 'recovered_candidate',
+        authority: 'non_authoritative', proposedField: 'rate',
+        proposedValue: '$12.00', normalizedValue: '12.00',
+        sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+        extractionSnapshotId: 'snapshot-1', physicalPageNumber: 2,
+        selectedObservationIds: ['rate-1'], alternativeObservationIds: ['rate-2'],
+        evidence: candidate.observations, certainty: 0.5,
+        reasonCategory: 'explicit_currency_marker', requiresHumanReview: true,
+      }],
+      abstentions: [],
+    };
+    const run = vi.fn(async () => ({
+      status: 'requires_human_review', bundle,
+      metadata: {
+        considered: true, eligibilityReason: 'ambiguous_relationship', providerInvoked: true,
+        calls: 1, model: 'fake-local-model',
+        promptTemplateId: 'forgewing-pricing-rate-cluster-recovery',
+        promptTemplateVersion: 'v1', timeoutMs: 100, maxOutputTokens: 100,
+        deterministicValidationSuccessful: true, humanReviewRequired: true,
+      },
+    }));
+    const persist = vi.fn(async () => ({
+      status: 'persisted' as const, artifactId: 'artifact-shadow-1', expiresAt: '2026-09-01',
+    }));
+    const registered: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingRateClusterRecoveryShadow(input, {
+      register: (task) => registered.push(task), run: run as never, persist: persist as never,
+    });
+    await registered[0]!();
+    expect(persist).toHaveBeenCalledWith({ input: expect.objectContaining({
+      resultStatus: 'applied', schemaVersion: bundle.schemaVersion,
+      validatedBundle: bundle,
+      runtime: expect.objectContaining({ warningCodes: ['requires_human_review'], calls: 1 }),
+    }) });
+  });
+
+  it('fails the recovery candidate set closed on foreign primitive identity', () => {
+    const input = pricingRecoveryInput();
+    const diagnostics = structuredClone(input.pricingRecoveryDiagnostics);
+    diagnostics[0]!.observations[1]!.source_artifact_id = 'foreign-artifact';
+    expect(buildEligiblePricingRateClusterRecoveryCandidates({
+      ...input, pricingRecoveryDiagnostics: diagnostics,
+    })).toEqual([]);
+  });
 
   it('returns before pricing input construction when either feature flag is disabled', () => {
     const register = vi.fn();

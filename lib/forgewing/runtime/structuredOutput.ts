@@ -17,6 +17,67 @@ const evidenceIds = (minimum: number, maximum?: number) => z.array(z.string().mi
   .max(maximum ?? 200)
   .refine((ids) => new Set(ids).size === ids.length, 'evidence IDs must be distinct');
 
+const pricingRateClusterRationale = z.enum([
+  'explicit_currency_marker',
+  'numeric_rate_pattern',
+  'row_structure_support',
+  'competing_monetary_cluster',
+  'insufficient_semantic_context',
+]);
+
+export const PricingRateClusterRecoveryModelOutputSchema = z.object({
+  candidateId: z.string().min(1).max(200),
+  proposedRawValue: z.string().min(1).max(200),
+  proposedNormalizedValue: z.string().min(1).max(200),
+  selectedObservationIds: evidenceIds(1, 8),
+  alternativeObservationIds: evidenceIds(1, 8),
+  confidence: z.number().min(0).max(1),
+  rationaleCode: pricingRateClusterRationale,
+}).strict().superRefine((output, context) => {
+  const selected = new Set(output.selectedObservationIds);
+  if (output.alternativeObservationIds.some((id) => selected.has(id))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['alternativeObservationIds'],
+      message: 'selected and alternative observations must be disjoint' });
+  }
+});
+
+export type PricingRateClusterRecoveryModelOutput = z.infer<
+  typeof PricingRateClusterRecoveryModelOutputSchema
+>;
+
+export function parsePricingRateClusterRecoveryModelOutput(
+  raw: string,
+): PricingRateClusterRecoveryModelOutput {
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { throw new Error('invalid_model_json'); }
+  const parsed = PricingRateClusterRecoveryModelOutputSchema.safeParse(value);
+  if (!parsed.success) throw new Error('model_schema_rejected');
+  return parsed.data;
+}
+
+export const PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'candidateId', 'proposedRawValue', 'proposedNormalizedValue',
+    'selectedObservationIds', 'alternativeObservationIds', 'confidence', 'rationaleCode',
+  ],
+  properties: {
+    candidateId: { type: 'string' },
+    proposedRawValue: { type: 'string' },
+    proposedNormalizedValue: { type: 'string' },
+    selectedObservationIds: { type: 'array', minItems: 1, maxItems: 8,
+      items: { type: 'string' } },
+    alternativeObservationIds: { type: 'array', minItems: 1, maxItems: 8,
+      items: { type: 'string' } },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    rationaleCode: { type: 'string', enum: [
+      'explicit_currency_marker', 'numeric_rate_pattern', 'row_structure_support',
+      'competing_monetary_cluster', 'insufficient_semantic_context',
+    ] },
+  },
+} as const;
+
 const pricingInterpretationItemSchema = z.object({
   sourceCellId: z.string().min(1).max(200),
   semanticRole: ForgewingPricingSemanticRoleSchema,

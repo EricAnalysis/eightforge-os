@@ -5,6 +5,7 @@ import {
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingPricingInterpretationEnabled,
+  isForgewingPricingRateClusterRecoveryEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 
@@ -95,5 +96,18 @@ describe('Forgewing runtime configuration', () => {
 
     vi.stubEnv('FORGEWING_PRICING_INTERPRETATION_ENABLED', '1');
     expect(isForgewingPricingInterpretationEnabled()).toBe(true);
+  });
+
+  it('keeps pricing rate-cluster recovery default-off behind both gates', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED', '1');
+    expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED', '');
+    expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(false);
+
+    vi.stubEnv('FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED', '1');
+    expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(true);
   });
 });

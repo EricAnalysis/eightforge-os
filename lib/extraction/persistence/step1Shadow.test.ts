@@ -7,6 +7,7 @@ import {
 } from '@/lib/extraction/persistence/step1Shadow';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { hashParserManifest, type ParserManifest } from '@/lib/extraction/domain/parserManifest';
+import type { Step3InterpretationBridgeInput } from '@/lib/extraction/domain/step3InterpretationBridge';
 
 const SOURCE_ID = '10000000-0000-4000-8000-000000000001';
 const DOCUMENT_ID = '20000000-0000-4000-8000-000000000001';
@@ -121,6 +122,66 @@ afterEach(() => {
 });
 
 describe('Step 1 shadow persistence', () => {
+  it('forwards deterministic continuation and arbitration artifacts through the Step 3 bridge unchanged', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
+    const mock = client();
+    const baseInput = input(mock.admin);
+    const enginePages = (['native', 'ocr'] as const).map((engine) => ({
+      ...baseInput.locatedObservations.pages[0],
+      words: [{
+        ...baseInput.locatedObservations.pages[0]!.words[0]!,
+        text: engine === 'native' ? 'Observed' : 'Obserwed',
+      }],
+      physical_page_provenance: { state: 'iterated' as const, seed: {
+        physical_page_number: 1,
+        total_physical_pages: 7,
+        source_layer: engine === 'native' ? 'pdf_native_text' as const : 'ocr' as const,
+        artifact_local_index: 0,
+      } },
+      engine,
+      parser: {
+        stage: engine === 'native' ? 'native_text' as const : 'ocr' as const,
+        name: engine,
+        version: 'v1',
+        configuration_hash: `${engine}-configuration`,
+      },
+    }));
+    const enginePagesBefore = JSON.stringify(enginePages);
+    const bridge = vi.fn(async (bridgeInput: Step3InterpretationBridgeInput) => {
+      expect(bridgeInput).toBeDefined();
+      return {
+        interpretation_snapshot: null,
+        semantic_column_mappings: [],
+        interpretation_records: [],
+      };
+    });
+    await persistExtractionStep1Shadow({
+      ...baseInput,
+      locatedObservations: { ...baseInput.locatedObservations, engine_pages: enginePages },
+      step3InterpretationBridge: bridge,
+    });
+    const publishPayload = mock.calls.find(
+      (call) => call.name === 'publish_extraction_step1_shadow',
+    )?.payload;
+    expect(bridge).toHaveBeenCalledOnce();
+    expect(bridge.mock.calls[0]?.[0]).toHaveProperty('continuation_links');
+    expect(bridge.mock.calls[0]?.[0].continuation_links).toBe(
+      publishPayload?.continuation_links,
+    );
+    expect(bridge.mock.calls[0]?.[0].arbitration_decisions).toBe(
+      publishPayload?.arbitration_decisions,
+    );
+    const bridgeCandidates = bridge.mock.calls[0]?.[0].region_candidates ?? [];
+    const persistedFragments = publishPayload?.fragments as readonly unknown[];
+    expect(bridgeCandidates.length).toBeGreaterThan(0);
+    for (const candidate of bridgeCandidates) {
+      expect(persistedFragments).toContain(candidate);
+    }
+    expect(JSON.stringify(enginePages)).toBe(enginePagesBefore);
+    expect(bridge.mock.calls[0]?.[0].arbitration_decisions)
+      .toEqual([expect.objectContaining({ decision: 'conflict' })]);
+  });
+
   it('protects the shared shadow assignment from stale Step 0 or Step 1 writers', () => {
     const migration = fs.readFileSync(
       path.join(

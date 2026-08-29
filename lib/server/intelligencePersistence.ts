@@ -20,6 +20,17 @@ import {
 import {
   pickPreferredExtractionBlob,
 } from '@/lib/blobExtractionSelection';
+import {
+  scheduleEligiblePricingReasoningShadow,
+} from '@/lib/extraction/persistence/complianceShadow';
+import {
+  resolvePdfLayoutObservationEvidenceByRow,
+} from '@/lib/extraction/pdf/layoutObservationEvidence';
+import type { EvidenceObject } from '@/lib/extraction/types';
+import type {
+  PagePricedScheduleReconstruction,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import type { NormalizedNodeDocument } from '@/lib/pipeline/types';
 import type {
   DocumentExecutionTrace,
   DocumentFamily,
@@ -173,6 +184,45 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+export function pricingLayoutSourceObservations(
+  document: NormalizedNodeDocument,
+  authoritativePages: readonly number[],
+): readonly EvidenceObject[] {
+  const extraction = asRecord(document.extraction_data?.extraction);
+  const provenance = asRecord(extraction?.physical_page_provenance_v1);
+  const sourceArtifactId = typeof provenance?.source_artifact_id === 'string'
+    ? provenance.source_artifact_id.trim()
+    : '';
+  const totalPhysicalPages = typeof provenance?.total_physical_pages === 'number'
+    && Number.isSafeInteger(provenance.total_physical_pages)
+    && provenance.total_physical_pages > 0
+    ? provenance.total_physical_pages
+    : null;
+  const pdf = asRecord(document.content_layers?.pdf);
+  const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
+  if (
+    rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+    || !Array.isArray(rawReconstruction.pages)
+  ) return [];
+  const authorizedPageSet = new Set(authoritativePages);
+  const scopedReconstruction: PagePricedScheduleReconstruction = {
+    parser_version: 'priced_schedule_reconstruction_v1',
+    pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
+      .filter((page) => authorizedPageSet.has(page.physical_page_number)),
+  };
+  return resolvePdfLayoutObservationEvidenceByRow({
+    reconstruction: scopedReconstruction,
+    persistedLayer: pdf?.layout_observations_v1,
+    context: sourceArtifactId && totalPhysicalPages != null
+      ? {
+          sourceDocumentId: document.document_id,
+          sourceArtifactId,
+          totalPhysicalPages,
+        }
+      : null,
+  });
 }
 
 function asString(value: unknown): string | null {
@@ -1305,7 +1355,35 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     relatedDocs: buildContext.buildParams.relatedDocs,
     confirmedFactReviews,
     rateSchedulePageHints: rateSchedulePageHintsFromGuidance(uploadGuidance),
+    rateSchedulePageRanges: uploadGuidance?.rate_schedule_page_ranges ?? null,
   });
+
+  const pricingSourceEligibility = pipelineResult.contractAnalysis
+    ?.pricing_source_eligibility;
+  const pricingSourceArtifactId = pricingSourceEligibility?.sourceArtifactId;
+  if (
+    buildContext.extractionSnapshotId
+    && typeof pricingSourceArtifactId === 'string'
+    && pricingSourceArtifactId.trim().length > 0
+  ) {
+    const pricingLayoutObservations = pricingLayoutSourceObservations(
+      pipelineResult.primaryDocument,
+      pricingSourceEligibility!.scope.authoritativePages,
+    );
+    const sourceObservations = [...new Map([
+      ...pipelineResult.evidence,
+      ...pricingLayoutObservations,
+    ].map((entry) => [entry.id, entry])).values()];
+    scheduleEligiblePricingReasoningShadow({
+      organizationId: params.organizationId,
+      sourceDocumentId: params.documentId,
+      sourceArtifactId: pricingSourceArtifactId,
+      extractionSnapshotId: buildContext.extractionSnapshotId,
+      pricingRows: pipelineResult.contractAnalysis?.rate_schedule_rows ?? [],
+      sourceObservations,
+      pricingSourceEligibility,
+    });
+  }
 
   await persistExtractionInspectionSnapshots(params.admin, {
     documentId: params.documentId,

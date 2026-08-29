@@ -51,6 +51,10 @@ describe('extract node family routing', () => {
             pdf: {
               confidence: 0.82,
               evidence: [],
+              layout_observations_v1: {
+                parser_version: 'pdf_layout_observations_v1',
+                observations: [{ id: 'pdf:layout-token:v1:test', kind: 'pdf_layout_token' }],
+              },
               text: {
                 confidence: 0.82,
                 combined_text: 'Master services agreement\nCompensation and term provisions',

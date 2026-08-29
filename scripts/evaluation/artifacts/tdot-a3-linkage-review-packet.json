@@ -1,0 +1,902 @@
+{
+  "packet_version": "forgewing-label-linkage-review-packet-v1",
+  "authority": "evaluation_ground_truth_only",
+  "presentation_only": true,
+  "machine_selection_prohibited": true,
+  "label_package": {
+    "ledger_version": "1.0.0-draft",
+    "ledger_sha256": "6123274bc9817e3ee5e02c35102df6e33ba953228e3a5785edbd3146eefcbf73",
+    "ledger_byte_length": 286514
+  },
+  "source": {
+    "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+    "source_byte_length": 1063619,
+    "source_pages": 46,
+    "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+    "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+    "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77"
+  },
+  "review_scope": {
+    "kind": "SCORING_SUBSET",
+    "candidate_row_ids": [
+      "page_priced_schedule:p46:r24",
+      "page_priced_schedule:p46:r31"
+    ],
+    "label_observation_ids": [
+      "tdot-appendix-b:p46:r025:f01:description",
+      "tdot-appendix-b:p46:r025:f02:unit",
+      "tdot-appendix-b:p46:r025:f04:cost",
+      "tdot-appendix-b:p46:r032:f01:description",
+      "tdot-appendix-b:p46:r032:f02:unit",
+      "tdot-appendix-b:p46:r032:f04:cost"
+    ],
+    "label_observation_ids_sha256": "0253cd7a7d82e4e43812864d9fddc328e232331f4bd507bd7ab3ca4bbde9e210"
+  },
+  "labels": [
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f01:description",
+      "field_identifier": "tdot-appendix-b:p46:r025:f01:description",
+      "role": "description",
+      "legacy_labelled_value": "Disposal / Tipping Fees",
+      "legacy_raw_text_sha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7",
+      "legacy_row_identity": "source:p46:geometric-row:025",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 51.253846,
+          "x_max": 210,
+          "y_min": 573.675,
+          "y_max": 584.715
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "candidate_id": "cf93065ab8fb7606661d6f8a98aed22dac25437aa0b97d26f78e7a0ce93eb1b3",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+        "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+        "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+        "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+        "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "evidence_object_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "kind": "pdf_layout_token",
+          "raw_text": "-",
+          "bbox": {
+            "x_min": 504.335,
+            "x_max": 506.57599999999996,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:248",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "evidence_object_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "kind": "pdf_layout_token",
+          "raw_text": "Actual Costs",
+          "bbox": {
+            "x_min": 231.788,
+            "x_max": 271.37,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:242",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "evidence_object_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 467.782,
+            "x_max": 471.763,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:246",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "evidence_object_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.111,
+            "x_max": 383.319,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:244",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "evidence_object_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "kind": "pdf_layout_token",
+          "raw_text": "Disposal / Tipping Fees",
+          "bbox": {
+            "x_min": 93.301,
+            "x_max": 167.571,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:240",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f02:unit",
+      "field_identifier": "tdot-appendix-b:p46:r025:f02:unit",
+      "role": "unit",
+      "legacy_labelled_value": "Actual Costs",
+      "legacy_raw_text_sha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4",
+      "legacy_row_identity": "source:p46:geometric-row:025",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 210,
+          "x_max": 292.92,
+          "y_min": 573.675,
+          "y_max": 584.715
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "candidate_id": "cf93065ab8fb7606661d6f8a98aed22dac25437aa0b97d26f78e7a0ce93eb1b3",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+        "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+        "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+        "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+        "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "evidence_object_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "kind": "pdf_layout_token",
+          "raw_text": "-",
+          "bbox": {
+            "x_min": 504.335,
+            "x_max": 506.57599999999996,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:248",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "evidence_object_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "kind": "pdf_layout_token",
+          "raw_text": "Actual Costs",
+          "bbox": {
+            "x_min": 231.788,
+            "x_max": 271.37,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:242",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "evidence_object_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 467.782,
+            "x_max": 471.763,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:246",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "evidence_object_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.111,
+            "x_max": 383.319,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:244",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "evidence_object_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "kind": "pdf_layout_token",
+          "raw_text": "Disposal / Tipping Fees",
+          "bbox": {
+            "x_min": 93.301,
+            "x_max": 167.571,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:240",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f04:cost",
+      "field_identifier": "tdot-appendix-b:p46:r025:f04:cost",
+      "role": "cost",
+      "legacy_labelled_value": "$ -",
+      "legacy_raw_text_sha256": "99a34def433d7c957555d70157dbe2ea4bae7004a66a7ed267d7f8fbaf7f441e",
+      "legacy_row_identity": "source:p46:geometric-row:025",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 461.34,
+          "x_max": 511.224507,
+          "y_min": 573.675,
+          "y_max": 584.715
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "candidate_id": "cf93065ab8fb7606661d6f8a98aed22dac25437aa0b97d26f78e7a0ce93eb1b3",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+        "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+        "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+        "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+        "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "evidence_object_id": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "kind": "pdf_layout_token",
+          "raw_text": "-",
+          "bbox": {
+            "x_min": 504.335,
+            "x_max": 506.57599999999996,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:248",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "evidence_object_id": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "kind": "pdf_layout_token",
+          "raw_text": "Actual Costs",
+          "bbox": {
+            "x_min": 231.788,
+            "x_max": 271.37,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:242",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "evidence_object_id": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 467.782,
+            "x_max": 471.763,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:246",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "evidence_object_id": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.111,
+            "x_max": 383.319,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:244",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "evidence_object_id": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+          "kind": "pdf_layout_token",
+          "raw_text": "Disposal / Tipping Fees",
+          "bbox": {
+            "x_min": 93.301,
+            "x_max": 167.571,
+            "y_min": 210.363,
+            "y_max": 217.323
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r24",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:240",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f01:description",
+      "field_identifier": "tdot-appendix-b:p46:r032:f01:description",
+      "role": "description",
+      "legacy_labelled_value": "Sweeping",
+      "legacy_raw_text_sha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3",
+      "legacy_row_identity": "source:p46:geometric-row:032",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 51.253846,
+          "x_max": 210,
+          "y_min": 724.875,
+          "y_max": 736.2825
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "candidate_id": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+        "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+        "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+        "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+        "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "evidence_object_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "kind": "pdf_layout_token",
+          "raw_text": "Linear Mile",
+          "bbox": {
+            "x_min": 233.647,
+            "x_max": 269.428,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:308",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "evidence_object_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 465.62,
+            "x_max": 469.601,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:312",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "evidence_object_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.11,
+            "x_max": 383.31800000000004,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:310",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "evidence_object_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "kind": "pdf_layout_token",
+          "raw_text": "Sweeping",
+          "bbox": {
+            "x_min": 114.84,
+            "x_max": 146,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:306",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "evidence_object_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "kind": "pdf_layout_token",
+          "raw_text": "1.00",
+          "bbox": {
+            "x_min": 494.936,
+            "x_max": 508.731,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:314",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f02:unit",
+      "field_identifier": "tdot-appendix-b:p46:r032:f02:unit",
+      "role": "unit",
+      "legacy_labelled_value": "Linear Mile",
+      "legacy_raw_text_sha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225",
+      "legacy_row_identity": "source:p46:geometric-row:032",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 210,
+          "x_max": 292.92,
+          "y_min": 724.875,
+          "y_max": 736.2825
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "candidate_id": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+        "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+        "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+        "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+        "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "evidence_object_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "kind": "pdf_layout_token",
+          "raw_text": "Linear Mile",
+          "bbox": {
+            "x_min": 233.647,
+            "x_max": 269.428,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:308",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "evidence_object_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 465.62,
+            "x_max": 469.601,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:312",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "evidence_object_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.11,
+            "x_max": 383.31800000000004,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:310",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "evidence_object_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "kind": "pdf_layout_token",
+          "raw_text": "Sweeping",
+          "bbox": {
+            "x_min": 114.84,
+            "x_max": 146,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:306",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "evidence_object_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "kind": "pdf_layout_token",
+          "raw_text": "1.00",
+          "bbox": {
+            "x_min": 494.936,
+            "x_max": 508.731,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:314",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f04:cost",
+      "field_identifier": "tdot-appendix-b:p46:r032:f04:cost",
+      "role": "cost",
+      "legacy_labelled_value": "$ 1.00",
+      "legacy_raw_text_sha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4",
+      "legacy_row_identity": "source:p46:geometric-row:032",
+      "physical_page": 46,
+      "legacy_source_evidence": {
+        "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "coordinate_space": "pdf_points_top_left",
+        "bbox": {
+          "x_min": 461.34,
+          "x_max": 511.224507,
+          "y_min": 724.875,
+          "y_max": 736.2825
+        },
+        "page_width_points": 612,
+        "page_height_points": 792,
+        "generation_method_id": "native-pdf-ruled-table-v1",
+        "evidence_status": "machine_generated_from_verified_source"
+      },
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "candidate_id": "bec6dc51504f51c74f49ce61ed3873c346b3f81e384683dcf852dedd77e19d4b",
+      "modern_candidate_source_anchor_ids": [
+        "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+        "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+        "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+        "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+        "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+      ],
+      "modern_pdf_layout_token_observations": [
+        {
+          "observation_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "evidence_object_id": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "kind": "pdf_layout_token",
+          "raw_text": "Linear Mile",
+          "bbox": {
+            "x_min": 233.647,
+            "x_max": 269.428,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:308",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "evidence_object_id": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "kind": "pdf_layout_token",
+          "raw_text": "$",
+          "bbox": {
+            "x_min": 465.62,
+            "x_max": 469.601,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:312",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "evidence_object_id": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "kind": "pdf_layout_token",
+          "raw_text": "N/A",
+          "bbox": {
+            "x_min": 371.11,
+            "x_max": 383.31800000000004,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:310",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "evidence_object_id": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "kind": "pdf_layout_token",
+          "raw_text": "Sweeping",
+          "bbox": {
+            "x_min": 114.84,
+            "x_max": 146,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:306",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        },
+        {
+          "observation_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "evidence_object_id": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+          "kind": "pdf_layout_token",
+          "raw_text": "1.00",
+          "bbox": {
+            "x_min": 494.936,
+            "x_max": 508.731,
+            "y_min": 59.162,
+            "y_max": 66.122
+          },
+          "source_method": "pdfjs",
+          "physical_page": 46,
+          "source_document_id": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "source_artifact_id": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "candidate_row_id": "page_priced_schedule:p46:r31",
+          "candidate_admitted": true,
+          "parser": "pdfjs_text_content",
+          "parser_observation_key": "item:314",
+          "page_representation_digest": "b1720fdc8763c53550ce80aa2db6dd64dea42b0cbf987d9c35a1c8187ca54ce0"
+        }
+      ]
+    }
+  ],
+  "packet_digest_sha256": "7b2f48862d6c33634ddf103e9a50526007b88c585ef048d0eb8fa86b257dfbdb"
+}

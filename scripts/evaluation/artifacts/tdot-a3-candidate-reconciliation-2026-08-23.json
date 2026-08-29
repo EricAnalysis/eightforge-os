@@ -1,0 +1,79 @@
+{
+  "authority": "non_authoritative_evaluation_diagnostic",
+  "source_pdf_sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+  "source_byte_length": 1063619,
+  "current_base": "5477fb687a1be3f1856d72b592e0efa776d14437",
+  "prior_claim": {
+    "candidate_rows": [
+      "page_priced_schedule:p46:r4",
+      "page_priced_schedule:p46:r6",
+      "page_priced_schedule:p46:r8"
+    ],
+    "measurement_status": "PRIOR_INPUT_STATE_UNAVAILABLE",
+    "reason": "No preserved source-backed run, extraction snapshot, anchor set, or eligibility diagnostics were found. The older committed corpus runner supplied pipeline evidence only and could not admit the later layout-observation anchors."
+  },
+  "current_measurement": {
+    "extraction_snapshot_id": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+    "reconstruction_rows": 32,
+    "authoritative_pages": [46],
+    "ordering_deterministic_under_reversal": true,
+    "candidate_rows": [
+      "page_priced_schedule:p46:r24",
+      "page_priced_schedule:p46:r31"
+    ]
+  },
+  "rows": [
+    {
+      "row_id": "page_priced_schedule:p46:r4",
+      "prior_state": "claimed_included_without_preserved_inputs",
+      "current_state": "resolved",
+      "prior_eligibility_reason": "unavailable",
+      "current_eligibility_reason": "deterministic_category_resolution",
+      "anchor_closure": "complete_modern_binding",
+      "resolution_state": "pricingDeterministicState_null",
+      "included_or_excluded_reason": "excluded_does_not_require_shadow_reasoning"
+    },
+    {
+      "row_id": "page_priced_schedule:p46:r6",
+      "prior_state": "claimed_included_without_preserved_inputs",
+      "current_state": "resolved",
+      "prior_eligibility_reason": "unavailable",
+      "current_eligibility_reason": "deterministic_category_resolution",
+      "anchor_closure": "complete_modern_binding",
+      "resolution_state": "pricingDeterministicState_null",
+      "included_or_excluded_reason": "excluded_does_not_require_shadow_reasoning"
+    },
+    {
+      "row_id": "page_priced_schedule:p46:r8",
+      "prior_state": "claimed_included_without_preserved_inputs",
+      "current_state": "resolved",
+      "prior_eligibility_reason": "unavailable",
+      "current_eligibility_reason": "deterministic_category_resolution",
+      "anchor_closure": "complete_modern_binding",
+      "resolution_state": "pricingDeterministicState_null",
+      "included_or_excluded_reason": "excluded_does_not_require_shadow_reasoning"
+    },
+    {
+      "row_id": "page_priced_schedule:p46:r24",
+      "prior_state": "no_preserved_prior_record",
+      "current_state": "included",
+      "prior_eligibility_reason": "unavailable",
+      "current_eligibility_reason": "authoritative_scope_match",
+      "anchor_closure": "5_of_5_exact_anchors",
+      "resolution_state": "unresolved",
+      "included_or_excluded_reason": "authored_nonnumeric_rate_requires_review"
+    },
+    {
+      "row_id": "page_priced_schedule:p46:r31",
+      "prior_state": "no_preserved_prior_record",
+      "current_state": "included",
+      "prior_eligibility_reason": "unavailable",
+      "current_eligibility_reason": "authoritative_scope_match",
+      "anchor_closure": "5_of_5_exact_anchors",
+      "resolution_state": "unresolved",
+      "included_or_excluded_reason": "category_resolution_requires_review"
+    }
+  ],
+  "root_cause": "The comparison conflated an unpersisted prior assertion with the first committed exact-pipeline preflight. Current exact inputs deterministically yield two candidates; no count cap, task-region filter, or A2 eligibility change is implicated.",
+  "promotion_evidence": false
+}

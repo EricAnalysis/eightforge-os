@@ -5,11 +5,10 @@
  * the uploaded source artifact. This module turns persisted guidance, artifact
  * metadata, and page provenance into an explicit scope decision.
  *
- * It is pure and is NOT yet wired into pricing eligibility. Today the operator
- * range reaches pricing as `rateSchedulePagePreferencePages` and is used only
- * to sort candidates, while the sole page filter keys off machine-detected
- * pages and self-disables when detection is empty. Nothing here changes that;
- * enforcement is a later, separately reviewed phase.
+ * Phase 3A wires this pure decision into pricing observation eligibility at the
+ * per-document/source-artifact boundary. Operator hints may still sort legacy
+ * compatibility inputs, but provenance-aware canonical eligibility is governed
+ * only by this resolver and the coordinate-aware classifier below.
  *
  * The one thing this module refuses to express is a whole-document fallback.
  * "No scope" is returned as its own state rather than as "everything", because
@@ -25,7 +24,11 @@ import {
   isResolvedPhysicalPage,
   type PhysicalPageCoordinate,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
-import type { SourceArtifact } from '@/lib/extraction/domain/types';
+import type { ResolvedProvenanceCaptureState } from '@/lib/extraction/provenance/provenanceCaptureState';
+export type PricingSourceArtifactContext = Readonly<{
+  id: string;
+  source_document_id: string;
+}>;
 
 export type PricingSourceScopeKind =
   /** Operator guidance resolved; these pages govern pricing extraction scope. */
@@ -76,7 +79,7 @@ export type PricingSourceScopeResult = Readonly<{
 
 export type PricingSourceScopeInput = Readonly<{
   /** Immutable artifact, already bound to its owning source document. */
-  sourceArtifact: Pick<SourceArtifact, 'id' | 'source_document_id'>;
+  sourceArtifact: PricingSourceArtifactContext;
   /** Persisted operator ranges for THIS document. Null/empty means absent. */
   operatorPageRanges?: readonly RatePageRange[] | null;
   /** From the artifact's own parser output, never a constant or layer count. */
@@ -100,6 +103,12 @@ function normalizePageList(pages: readonly number[] | null | undefined): number[
   );
 }
 
+function nonEmptyId(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function rangesAreWellFormed(ranges: readonly unknown[]): ranges is readonly RatePageRange[] {
   return ranges.every((range) => {
     if (typeof range !== 'object' || range == null) return false;
@@ -114,7 +123,7 @@ function rangesAreWellFormed(ranges: readonly unknown[]): ranges is readonly Rat
 /** Physical pages this document has actually proven, from provenance alone. */
 function resolvedPhysicalPages(
   coordinates: readonly PhysicalPageCoordinate[] | null | undefined,
-  sourceArtifact: Pick<SourceArtifact, 'id' | 'source_document_id'>,
+  sourceArtifact: PricingSourceArtifactContext,
 ): Set<number> {
   const resolved = new Set<number>();
   for (const coordinate of coordinates ?? []) {
@@ -220,7 +229,12 @@ export function resolvePricingSourceScope(
   input: PricingSourceScopeInput,
 ): PricingSourceScopeResult {
   const machinePages = normalizePageList(input.machineDetectedPages);
-  const ranges: readonly unknown[] = [...(input.operatorPageRanges ?? [])];
+  const rawRanges: unknown = input.operatorPageRanges;
+  const ranges: readonly unknown[] = rawRanges == null
+    ? []
+    : Array.isArray(rawRanges)
+      ? rawRanges
+      : [null];
 
   if (ranges.length === 0) {
     return freezeResult({
@@ -313,24 +327,230 @@ export function resolvePricingSourceScope(
 
 export type PricingPageEligibility = 'canonical_eligible' | 'diagnostic_only';
 
+export type PricingPageEligibilityReason =
+  | 'authoritative_scope_match'
+  | 'authoritative_scope_miss'
+  | 'scope_provisional'
+  | 'scope_absent'
+  | 'scope_blocked'
+  | 'provenance_unresolved'
+  | 'provenance_conflict'
+  /** Both identities are known and they disagree. A genuine binding violation. */
+  | 'provenance_source_mismatch'
+  /**
+   * One side never recorded a source-artifact identity, so no comparison is
+   * possible. Distinct from a mismatch: nothing disagrees, something is missing.
+   */
+  | 'provenance_source_identity_unavailable'
+  /** Paginated source whose page proof could not be established. Fail-closed. */
+  | 'provenance_capture_failed'
+  /** Source has no page topology; page-range scope is inapplicable, not unmet. */
+  | 'non_paginated_source'
+  /**
+   * Writer never declared a capture state. Behaviour is preserved for these
+   * pre-existing records, but the record does NOT claim they are historical.
+   */
+  | 'provenance_capture_unknown'
+  /** Positively marked pre-provenance evidence. Requires a durable marker. */
+  | 'legacy_compatibility';
+
+export type PricingObservationEligibility = Readonly<{
+  eligibility: PricingPageEligibility;
+  reason: PricingPageEligibilityReason;
+}>;
+
+export type PricingObservationEligibilityInput = Readonly<{
+  scope: PricingSourceScopeResult;
+  coordinate: PhysicalPageCoordinate | null | undefined;
+  sourceArtifact: PricingSourceArtifactContext;
+  /**
+   * Declared capture outcome for the owning extraction. Callers must pass the
+   * resolved state; they must not translate container absence into a disposition
+   * of their own.
+   */
+  captureState: ResolvedProvenanceCaptureState;
+}>;
+
+export type PricingObservationEligibilityDiagnostic = Readonly<{
+  observationId: string;
+  sourceDocumentId: string;
+  sourceArtifactId: string | null;
+  physicalPageNumber: number | null;
+  scopeKind: PricingSourceScopeKind;
+  eligibility: PricingPageEligibility;
+  reason: PricingPageEligibilityReason;
+}>;
+
+/**
+ * Why canonical assembly received the input set it did.
+ *
+ * Zero canonical rows is a legitimate outcome under several states, so the
+ * record names the cause instead of leaving consumers to infer that emptiness
+ * is itself a defect.
+ */
+export type PricingCanonicalOutcome =
+  | 'canonical_rows_present'
+  | 'zero_rows_scope_absent'
+  | 'zero_rows_scope_provisional'
+  | 'zero_rows_scope_blocked'
+  | 'zero_rows_all_observations_out_of_scope'
+  | 'zero_rows_provenance_unproven'
+  | 'zero_rows_no_assembled_rows'
+  | 'zero_rows_capture_failed'
+  | 'zero_rows_no_observations';
+
+export type PricingSourceEligibilityDiagnostics = Readonly<{
+  sourceDocumentId: string;
+  sourceArtifactId: string | null;
+  /** The declared capture state, verbatim. Never inferred from absence. */
+  provenanceDisposition: ResolvedProvenanceCaptureState;
+  /** True only when page-range scope is a meaningful question for this source. */
+  pageScopeApplicable: boolean;
+  canonicalOutcome: PricingCanonicalOutcome;
+  scope: PricingSourceScopeResult;
+  observationCount: number;
+  canonicalEligibleCount: number;
+  diagnosticOnlyCount: number;
+  legacyCompatibilityCount: number;
+  observations: readonly PricingObservationEligibilityDiagnostic[];
+}>;
+
+/**
+ * Names why canonical assembly saw no eligible input. Deterministic and ordered
+ * most-specific-first so one cause is reported rather than a set.
+ */
+export function resolvePricingCanonicalOutcome(params: {
+  readonly captureState: ResolvedProvenanceCaptureState;
+  readonly scope: PricingSourceScopeResult;
+  readonly observationReasons: readonly PricingPageEligibilityReason[];
+  readonly rowCount: number;
+}): PricingCanonicalOutcome {
+  if (params.rowCount > 0) return 'canonical_rows_present';
+  if (params.captureState === 'capture_failed') return 'zero_rows_capture_failed';
+  if (params.observationReasons.length === 0) return 'zero_rows_no_observations';
+  if (params.scope.kind === 'blocked') return 'zero_rows_scope_blocked';
+  if (params.scope.kind === 'no_scope') return 'zero_rows_scope_absent';
+  if (params.scope.kind === 'provisional') return 'zero_rows_scope_provisional';
+  if (params.observationReasons.every((reason) => reason === 'authoritative_scope_miss')) {
+    return 'zero_rows_all_observations_out_of_scope';
+  }
+  const provenanceFailureReasons = new Set<PricingPageEligibilityReason>([
+    'provenance_unresolved',
+    'provenance_conflict',
+    'provenance_source_mismatch',
+    'provenance_source_identity_unavailable',
+    'provenance_capture_failed',
+  ]);
+  if (params.observationReasons.some((reason) => provenanceFailureReasons.has(reason))) {
+    return 'zero_rows_provenance_unproven';
+  }
+  return 'zero_rows_no_assembled_rows';
+}
+
 /**
  * Classifies one physical page against a resolved scope.
  *
  * Supports the intended future split — authoritative pages feed canonical
  * assembly while out-of-scope pricing-like material is retained as
  * diagnostic-only for repeated-schedule detection, corroboration, and conflict
- * reporting. Nothing consumes this yet; it exists so the result type is not so
- * narrow that the diagnostic class becomes impossible to express later.
+ * reporting. Source identity and runtime-branded proof are required here so a
+ * bare compatibility page can never authorize modern evidence.
  */
 export function classifyPageEligibility(
-  scope: PricingSourceScopeResult,
-  physicalPageNumber: number | null,
-): PricingPageEligibility {
-  if (scope.kind !== 'authoritative') return 'diagnostic_only';
-  if (!Number.isSafeInteger(physicalPageNumber) || physicalPageNumber == null || physicalPageNumber < 1) {
-    return 'diagnostic_only';
+  input: PricingObservationEligibilityInput,
+): PricingObservationEligibility {
+  // Branch on the declared state first. Each non-`captured` state has its own
+  // reason so the persisted record never asserts a provenance claim the writer
+  // did not actually make.
+  switch (input.captureState) {
+    case 'legacy_pre_provenance':
+      return Object.freeze({
+        eligibility: 'canonical_eligible' as const,
+        reason: 'legacy_compatibility' as const,
+      });
+    case 'not_applicable_non_paginated':
+      // Page-range scope cannot apply to a source without pages. Eligibility is
+      // preserved unchanged pending an explicit source-level authority rule;
+      // this is deliberately NOT the legacy path and is labelled separately.
+      return Object.freeze({
+        eligibility: 'canonical_eligible' as const,
+        reason: 'non_paginated_source' as const,
+      });
+    case 'capture_failed':
+      return Object.freeze({
+        eligibility: 'diagnostic_only' as const,
+        reason: 'provenance_capture_failed' as const,
+      });
+    case 'unknown':
+      // Pre-declaration record. Behaviour preserved, claim withheld.
+      return Object.freeze({
+        eligibility: 'canonical_eligible' as const,
+        reason: 'provenance_capture_unknown' as const,
+      });
+    case 'captured':
+      break;
   }
-  return scope.authoritativePages.includes(physicalPageNumber)
-    ? 'canonical_eligible'
-    : 'diagnostic_only';
+  const coordinate = input.coordinate;
+  if (coordinate?.mappingState === 'conflicting_physical_page_mapping') {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'provenance_conflict' as const,
+    });
+  }
+  if (!coordinate || !isResolvedPhysicalPage(coordinate)) {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'provenance_unresolved' as const,
+    });
+  }
+  // Identity that was never recorded is not identity that disagrees. Both fail
+  // closed, but conflating them made "mismatch" the reported cause whenever the
+  // artifact binding simply never got persisted, sending review down the wrong path.
+  const expectedDocumentId = nonEmptyId(input.sourceArtifact.source_document_id);
+  const expectedArtifactId = nonEmptyId(input.sourceArtifact.id);
+  const observedDocumentId = nonEmptyId(coordinate.sourceDocumentId);
+  const observedArtifactId = nonEmptyId(coordinate.sourceArtifactId);
+  if (
+    expectedDocumentId == null
+    || expectedArtifactId == null
+    || observedDocumentId == null
+    || observedArtifactId == null
+  ) {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'provenance_source_identity_unavailable' as const,
+    });
+  }
+  if (
+    observedDocumentId !== expectedDocumentId
+    || observedArtifactId !== expectedArtifactId
+  ) {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'provenance_source_mismatch' as const,
+    });
+  }
+  if (input.scope.kind === 'blocked') {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'scope_blocked' as const,
+    });
+  }
+  if (input.scope.kind === 'provisional') {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'scope_provisional' as const,
+    });
+  }
+  if (input.scope.kind === 'no_scope') {
+    return Object.freeze({
+      eligibility: 'diagnostic_only' as const,
+      reason: 'scope_absent' as const,
+    });
+  }
+  const match = input.scope.authoritativePages.includes(coordinate.physicalPageNumber);
+  return Object.freeze({
+    eligibility: match ? 'canonical_eligible' as const : 'diagnostic_only' as const,
+    reason: match ? 'authoritative_scope_match' as const : 'authoritative_scope_miss' as const,
+  });
 }

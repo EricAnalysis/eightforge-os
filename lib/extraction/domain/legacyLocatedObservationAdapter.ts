@@ -584,6 +584,7 @@ export interface AdaptLegacyExtractionToStep1ShadowResult {
   readonly tableSections: readonly TableSectionArtifact[];
   readonly tableReconstructionDiagnostics:
     GenericTableArtifactsResult['reconstruction_diagnostics'];
+  readonly regionCandidates: readonly ProvenanceRequiredSourceFragmentArtifact<RegionCandidate>[];
   readonly arbitrationDecisions: readonly (ArbitrationDecision & {
     readonly processing_gap_id?: string | null;
   })[];
@@ -1286,6 +1287,7 @@ export async function adaptLegacyExtractionToStep1Shadow(
     tableSegments: tableResult.segments,
     tableSections,
     tableReconstructionDiagnostics: tableResult.reconstruction_diagnostics,
+    regionCandidates: arbitration.regions,
     arbitrationDecisions,
     snapshot,
     members,

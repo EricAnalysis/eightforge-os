@@ -1,0 +1,57 @@
+{
+  "template_only": true,
+  "template_instructions": [
+    "Inspect the row-wide modern observations presented for each legacy label.",
+    "Set reviewer_decision to linked, not_linkable, or needs_follow_up.",
+    "Only explicitly entered selected_observation_ids can become linkage.",
+    "Do not infer selections from text, value, row number, geometry, role, or anchor order.",
+    "Remove template_only and template_instructions before manifest generation."
+  ],
+  "review_input_version": "forgewing-label-linkage-review-input-v1",
+  "authority": "evaluation_ground_truth_only",
+  "review_packet_digest_sha256": "7b2f48862d6c33634ddf103e9a50526007b88c585ef048d0eb8fa86b257dfbdb",
+  "records": [
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f01:description",
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f02:unit",
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r025:f04:cost",
+      "candidate_row_id": "page_priced_schedule:p46:r24",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f01:description",
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f02:unit",
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    },
+    {
+      "label_observation_id": "tdot-appendix-b:p46:r032:f04:cost",
+      "candidate_row_id": "page_priced_schedule:p46:r31",
+      "reviewer_decision": "",
+      "selected_observation_ids": [],
+      "notes": ""
+    }
+  ]
+}

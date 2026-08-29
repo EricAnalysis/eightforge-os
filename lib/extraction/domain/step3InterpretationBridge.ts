@@ -1,5 +1,8 @@
 import type {
+  ArbitrationDecision,
   GridCellArtifact,
+  ProvenanceRequiredSourceFragmentArtifact,
+  RegionCandidate,
   TableChainArtifact,
   TableContinuationLink,
   TableSegmentArtifact,
@@ -17,6 +20,10 @@ export interface Step3InterpretationBridgeInput {
   readonly continuation_links?: readonly TableContinuationLink[];
   readonly segments: readonly TableSegmentArtifact[];
   readonly cells: readonly GridCellArtifact[];
+  readonly region_candidates: readonly ProvenanceRequiredSourceFragmentArtifact<RegionCandidate>[];
+  readonly arbitration_decisions: readonly (ArbitrationDecision & {
+    readonly processing_gap_id?: string | null;
+  })[];
   readonly verified_field_handles: readonly VerifiedFieldHandle[];
   readonly published_at: string;
 }

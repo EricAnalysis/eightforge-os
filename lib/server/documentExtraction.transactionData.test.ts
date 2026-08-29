@@ -283,3 +283,32 @@ describe('extractDocument transaction_data routing', () => {
     assert.equal(payload.summary, 'Workbook parsed with transaction-data normalization.');
   });
 });
+
+describe('extractDocument unsupported binary provenance', () => {
+  it('fails capture instead of claiming page scope is inapplicable', async () => {
+    const payload = await extractDocument(
+      {
+        id: 'doc-unsupported-binary',
+        title: 'Unsupported source',
+        name: 'source.bin',
+        document_type: 'contract',
+        storage_path: 'org/doc-unsupported-binary/source.bin',
+      },
+      new Uint8Array([1, 2, 3]).buffer,
+      'application/octet-stream',
+      'source.bin',
+      {
+        sourceDocumentId: 'doc-unsupported-binary',
+        sourceArtifactId: 'artifact-unsupported-binary',
+      },
+    );
+
+    assert.equal(payload.extraction.mode, 'binary_fallback');
+    assert.deepEqual(payload.extraction.physical_page_provenance_v1, {
+      capture_state: 'capture_failed',
+      source_artifact_id: 'artifact-unsupported-binary',
+      total_physical_pages: null,
+      pages: [],
+    });
+  });
+});

@@ -1,15 +1,925 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const runForgewingRegionClassification = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'forgewing_disabled' as const,
+})));
+const runForgewingTableContinuation = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_pairs' as const,
+})));
+const runForgewingColumnMapping = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_tables' as const,
+})));
+const runForgewingObservationArbitration = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_targets' as const,
+})));
+const runForgewingPricingInterpretation = vi.hoisted(() => vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'no_candidate_rows' as const,
+})));
+
+vi.mock('@/lib/forgewing/tasks/regionClassification', () => ({
+  runForgewingRegionClassification,
+}));
+vi.mock('@/lib/forgewing/tasks/tableContinuation', () => ({
+  runForgewingTableContinuation,
+}));
+vi.mock('@/lib/forgewing/tasks/columnMapping', () => ({
+  runForgewingColumnMapping,
+}));
+vi.mock('@/lib/forgewing/tasks/observationArbitration', () => ({
+  runForgewingObservationArbitration,
+}));
+vi.mock('@/lib/forgewing/tasks/pricingInterpretation', () => ({
+  runForgewingPricingInterpretation,
+}));
+
+vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
+  isForgewingShadowEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1',
+  isForgewingColumnMappingEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_COLUMN_MAPPING_ENABLED === '1',
+  isForgewingTableContinuationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
+  isForgewingObservationArbitrationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1',
+}));
+
 import {
+  buildEligiblePricingReasoningShadowCandidates,
   captureStorageObjectVersion,
   persistExtractionComplianceShadow,
   publishExtractionComplianceShadowNonBlocking,
+  scheduleForgewingPricingInterpretationShadow,
   scheduleExtractionComplianceShadow,
+  withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
+
+function actionableResult(
+  status: 'applied' | 'abstained' = 'applied',
+  warnings: readonly string[] = [],
+) {
+  return {
+    status,
+    warnings,
+    metadata: {
+      model: 'claude-test',
+      promptTemplateId: 'forgewing-region-classification',
+      promptTemplateVersion: '1',
+      timeoutMs: 100,
+      maxOutputTokens: 100,
+      calls: 1,
+      inputTruncated: false,
+    },
+    bundle: {
+      schemaVersion: 'forgewing-proposal-v1',
+      authority: 'non_authoritative',
+      run: {
+        runId: 'forgewing-run-1',
+        organizationId: 'organization-1',
+        extractionSnapshotId: 'snapshot-1',
+        inputSnapshotHash: 'a'.repeat(64),
+      },
+      taskId: 'task-1',
+      taskType: 'region_classification',
+      proposals: status === 'applied' ? [{
+        sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+      }] : [],
+      abstentions: status === 'abstained' ? [{
+        sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+      }] : [],
+    },
+  };
+}
 
 describe('compliance shadow dual-write isolation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.useRealTimers();
+    runForgewingRegionClassification.mockClear();
+    runForgewingTableContinuation.mockClear();
+    runForgewingColumnMapping.mockClear();
+    runForgewingObservationArbitration.mockClear();
+    runForgewingPricingInterpretation.mockClear();
+  });
+
+  function pricingShadowInput(overrides: Record<string, unknown> = {}) {
+    const row = {
+      row_id: 'row-1',
+      page: 2,
+      source_anchor_ids: ['evidence-1'],
+      raw_text: 'Debris removal | CY | $12.50',
+      confidence: 'needs_review',
+    };
+    return {
+      organizationId: 'organization-1',
+      sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1',
+      extractionSnapshotId: 'snapshot-1',
+      pricingRows: [row],
+      sourceObservations: [{
+        id: 'evidence-1', kind: 'table_row', source_type: 'pdf',
+        description: 'Source rate row', text: 'Debris removal | CY | $12.50',
+        value: null, location: { page: 2 }, confidence: 0.8, weak: false,
+        source_document_id: 'document-1',
+        physical_page_coordinate: {
+          sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+          sourceLayer: 'pdf_native_text', artifactLocalIndex: 1,
+          physicalPageNumber: 2, mappingState: 'resolved_physical_page',
+          mappingBasis: 'extractor_iterated_physical_page', legacyPageValue: null,
+          totalPhysicalPages: 3,
+        },
+      }],
+      pricingSourceEligibility: {
+        sourceDocumentId: 'document-1',
+        sourceArtifactId: 'artifact-1',
+        pageScopeApplicable: true,
+        scope: { kind: 'authoritative', authoritativePages: [2] },
+        observations: [{
+          observationId: 'evidence-1', sourceDocumentId: 'document-1',
+          sourceArtifactId: 'artifact-1', physicalPageNumber: 2,
+          eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+        }],
+      },
+      env: {
+        FORGEWING_SHADOW_ENABLED: '1',
+        FORGEWING_PRICING_INTERPRETATION_ENABLED: '1',
+      },
+      ...overrides,
+    };
+  }
+
+  function multiplePricingShadowInput() {
+    const base = pricingShadowInput();
+    const secondRow = {
+      ...(base.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-2', source_anchor_ids: ['evidence-2'],
+      raw_text: 'Second unresolved row | TON | $25.00',
+    };
+    const secondEvidence = {
+      ...(base.sourceObservations[0] as Record<string, unknown>),
+      id: 'evidence-2', text: 'Second unresolved row | TON | $25.00',
+      physical_page_coordinate: {
+        ...((base.sourceObservations[0] as Record<string, unknown>)
+          .physical_page_coordinate as Record<string, unknown>),
+        artifactLocalIndex: 2,
+      },
+    };
+    const eligibility = base.pricingSourceEligibility as {
+      observations: Array<Record<string, unknown>>;
+    };
+    return {
+      ...base,
+      pricingRows: [secondRow, base.pricingRows[0]],
+      sourceObservations: [secondEvidence, base.sourceObservations[0]],
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [{ ...eligibility.observations[0], observationId: 'evidence-2' },
+          eligibility.observations[0]],
+      },
+    };
+  }
+
+  it('returns before pricing input construction when either feature flag is disabled', () => {
+    const register = vi.fn();
+    const input = {
+      organizationId: 'organization-1', sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1', extractionSnapshotId: 'snapshot-1',
+      env: { FORGEWING_SHADOW_ENABLED: '1' },
+      get pricingRows() { throw new Error('must not construct candidate'); },
+      get pricingSourceEligibility() { throw new Error('must not inspect scope'); },
+    };
+    expect(() => scheduleForgewingPricingInterpretationShadow(input as never, {
+      register,
+      run: runForgewingPricingInterpretation as never,
+    })).not.toThrow();
+    expect(register).not.toHaveBeenCalled();
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+  });
+
+  it('registers one detached pricing task only for a coherent authoritative unresolved row', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => ({ status: 'persisted' as const, path: 'p', sha256: 'a', expiresAt: 'later', idempotent: false }));
+    const result = actionableResult('applied');
+    result.metadata.promptTemplateId = 'forgewing-pricing-interpretation';
+    result.bundle.schemaVersion = 'forgewing-pricing-interpretation-proposal-v1';
+    result.bundle.taskType = 'pricing_interpretation';
+    runForgewingPricingInterpretation.mockResolvedValueOnce(result as never);
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist,
+    });
+    expect(tasks).toHaveLength(1);
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingPricingInterpretation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceDocumentId: 'document-1',
+      sourceArtifactId: 'artifact-1',
+      pricingScope: {
+        scopeKind: 'authoritative', eligibility: 'canonical_eligible',
+        eligibilityReason: 'authoritative_scope_match',
+        scopeIdentity: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      rowObservation: expect.objectContaining({
+        observationId: 'row-1', rawText: 'Debris removal | CY | $12.50',
+        deterministicState: 'unresolved', physicalPageNumber: 2,
+        cells: [expect.objectContaining({
+          observationId: 'evidence-1', rawText: 'Debris removal | CY | $12.50',
+          columnIndex: 0, readingOrder: 0,
+        })],
+      }),
+    }));
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('enumerates all admitted candidates deterministically while production still schedules one', async () => {
+    const input = multiplePricingShadowInput();
+    const sourceBeforeShadowProjection = structuredClone(input);
+    const candidates = buildEligiblePricingReasoningShadowCandidates(input as never);
+    const reversed = buildEligiblePricingReasoningShadowCandidates({
+      ...input,
+      pricingRows: [...input.pricingRows].reverse(),
+      sourceObservations: [...input.sourceObservations].reverse(),
+      pricingSourceEligibility: {
+        ...input.pricingSourceEligibility,
+        observations: [...input.pricingSourceEligibility.observations].reverse(),
+      },
+    } as never);
+    expect(candidates.map((candidate) => candidate.rowObservation.observationId))
+      .toEqual(['row-1', 'row-2']);
+    expect(reversed).toEqual(candidates);
+    expect(input).toEqual(sourceBeforeShadowProjection);
+
+    const tasks: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingInterpretationShadow(input as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+    });
+    expect(tasks).toHaveLength(1);
+    expect(runForgewingPricingInterpretation).not.toHaveBeenCalled();
+    await tasks[0]!();
+    expect(runForgewingPricingInterpretation).toHaveBeenCalledTimes(1);
+    expect((runForgewingPricingInterpretation.mock.calls as unknown as Array<[{
+      rowObservation: { observationId: string };
+    }]>)[0]?.[0].rowObservation.observationId).toBe('row-1');
+    expect(input).toEqual(sourceBeforeShadowProjection);
+    expect(input.pricingRows).toEqual(sourceBeforeShadowProjection.pricingRows);
+    expect(input.pricingSourceEligibility)
+      .toEqual(sourceBeforeShadowProjection.pricingSourceEligibility);
+    expect(Object.isFrozen(candidates)).toBe(true);
+    expect(Object.isFrozen(candidates[0])).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.pricingScope)).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.rowObservation)).toBe(true);
+    expect(Object.isFrozen(candidates[0]?.rowObservation.cells)).toBe(true);
+  });
+
+  it('preserves explicit cross-column separation and never groups from same-row proximity', () => {
+    const multiple = multiplePricingShadowInput();
+    const observations = multiple.sourceObservations.map((entry, index) => ({
+      ...(entry as Record<string, unknown>),
+      location: { page: 2, column_index: index + 2 },
+    }));
+    const row = {
+      ...(multiple.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-separated-columns',
+      source_anchor_ids: ['evidence-1', 'evidence-2'],
+      pricing_cell_evidence: [
+        { source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' },
+        { source_cell_role: 'quantity', source_observation_ids: ['evidence-2'], authored_raw_text: '1.00' },
+      ],
+    };
+    const candidates = buildEligiblePricingReasoningShadowCandidates({
+      ...multiple, pricingRows: [row], sourceObservations: observations,
+    } as never);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.rowObservation.cells.map((cell) => cell.columnIndex)).toEqual([2, 3]);
+    expect(candidates[0]!.rowObservation.sourceCellGroups).toEqual([
+      { sourceCellRole: 'rate', sourceObservationIds: ['evidence-1'], authoredRawText: '$' },
+      { sourceCellRole: 'quantity', sourceObservationIds: ['evidence-2'], authoredRawText: '1.00' },
+    ]);
+  });
+
+  it('keeps exact source groups row-local and never combines observations across reconstructed rows', () => {
+    const multiple = multiplePricingShadowInput();
+    const pricingRows = multiple.pricingRows.map((entry, index) => ({
+      ...(entry as Record<string, unknown>),
+      pricing_cell_evidence: [{ source_cell_role: 'rate',
+        source_observation_ids: [index === 0 ? 'evidence-2' : 'evidence-1'],
+        authored_raw_text: index === 0 ? '$25.00' : '$12.50' }],
+    }));
+    const candidates = buildEligiblePricingReasoningShadowCandidates({
+      ...multiple, pricingRows,
+    } as never);
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.rowObservation.sourceCellGroups?.[0]
+      ?.sourceObservationIds)).toEqual([['evidence-1'], ['evidence-2']]);
+  });
+
+  it('fails closed on incomplete, duplicate, or foreign persisted cell membership', () => {
+    const multiple = multiplePricingShadowInput();
+    const baseRow = {
+      ...(multiple.pricingRows[0] as Record<string, unknown>),
+      row_id: 'row-malformed-groups',
+      source_anchor_ids: ['evidence-1', 'evidence-2'],
+    };
+    for (const pricing_cell_evidence of [
+      [{ source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' }],
+      [
+        { source_cell_role: 'rate', source_observation_ids: ['evidence-1'], authored_raw_text: '$' },
+        { source_cell_role: 'quantity', source_observation_ids: ['evidence-1'], authored_raw_text: '1.00' },
+      ],
+      [{ source_cell_role: 'rate', source_observation_ids: ['foreign'], authored_raw_text: '$ 1.00' }],
+    ]) {
+      expect(buildEligiblePricingReasoningShadowCandidates({
+        ...multiple, pricingRows: [{ ...baseRow, pricing_cell_evidence }],
+      } as never)).toEqual([]);
+    }
+  });
+
+  it('fails the candidate set closed on malformed scope members or task identity', () => {
+    const base = pricingShadowInput();
+    const eligibility = base.pricingSourceEligibility as {
+      scope: { kind: string; authoritativePages: unknown[] };
+      observations: unknown[];
+    };
+    const malformedPage = {
+      ...base,
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        scope: { ...eligibility.scope, authoritativePages: [2, 'bad'] },
+      },
+    };
+    const malformedObservation = {
+      ...base,
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [...eligibility.observations, { observationId: 'broken' }],
+      },
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(malformedPage as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates(malformedObservation as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base, organizationId: ' organization-1',
+    } as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base, extractionSnapshotId: ' ',
+    } as never)).toEqual([]);
+  });
+
+  it('requires every admitted row anchor to have exact resolved source evidence', () => {
+    const base = pricingShadowInput();
+    const secondObservation = {
+      ...(base.sourceObservations[0] as Record<string, unknown>),
+      id: 'evidence-2',
+      text: '$12.50',
+      physical_page_coordinate: {
+        ...((base.sourceObservations[0] as Record<string, unknown>)
+          .physical_page_coordinate as Record<string, unknown>),
+        artifactLocalIndex: 2,
+      },
+    };
+    const eligibility = base.pricingSourceEligibility as {
+      observations: Array<Record<string, unknown>>;
+    };
+    const twoAnchor = {
+      ...base,
+      pricingRows: [{
+        ...(base.pricingRows[0] as Record<string, unknown>),
+        source_anchor_ids: ['evidence-1', 'evidence-2'],
+      }],
+      pricingSourceEligibility: {
+        ...base.pricingSourceEligibility,
+        observations: [eligibility.observations[0], {
+          ...eligibility.observations[0], observationId: 'evidence-2',
+        }],
+      },
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(twoAnchor as never)).toEqual([]);
+    const complete = buildEligiblePricingReasoningShadowCandidates({
+      ...twoAnchor,
+      sourceObservations: [base.sourceObservations[0], secondObservation],
+    } as never);
+    expect(complete).toHaveLength(1);
+    expect(complete[0]?.rowObservation.cells.map((cell) => cell.observationId))
+      .toEqual(['evidence-1', 'evidence-2']);
+  });
+
+  it('matches the runnable task identifier contract for every identity field', () => {
+    const base = pricingShadowInput();
+    const tooLong = 'x'.repeat(201);
+    const invalidInputs = [
+      { ...base, organizationId: tooLong },
+      { ...base, extractionSnapshotId: tooLong },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), row_id: tooLong }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), row_id: ' row-1' }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: tooLong }] },
+      { ...base, pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: ' page-1' }] },
+      {
+        ...base,
+        sourceObservations: [{
+          ...(base.sourceObservations[0] as object), id: tooLong,
+        }],
+      },
+    ];
+    for (const input of invalidInputs) {
+      expect(buildEligiblePricingReasoningShadowCandidates(input as never)).toEqual([]);
+    }
+  });
+
+  it('matches task page-artifact coherence and outer source-size limits', () => {
+    const base = pricingShadowInput();
+    const withPageArtifacts = {
+      ...base,
+      pricingRows: [{ ...(base.pricingRows[0] as object), pageArtifactId: 'page-1' }],
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object),
+        metadata: { pageArtifactId: 'page-2' },
+      }],
+    };
+    expect(buildEligiblePricingReasoningShadowCandidates(withPageArtifacts as never)).toEqual([]);
+    const coherent = buildEligiblePricingReasoningShadowCandidates({
+      ...withPageArtifacts,
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object),
+        metadata: { pageArtifactId: 'page-1' },
+      }],
+    } as never);
+    expect(coherent).toHaveLength(1);
+
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base,
+      sourceObservations: [{
+        ...(base.sourceObservations[0] as object), text: 'x'.repeat(1_000_001),
+      }],
+    } as never)).toEqual([]);
+    expect(buildEligiblePricingReasoningShadowCandidates({
+      ...base,
+      pricingRows: [{
+        ...(base.pricingRows[0] as object),
+        source_anchor_ids: Array.from({ length: 10_001 }, (_, index) => `evidence-${index}`),
+      }],
+    } as never)).toEqual([]);
+  });
+
+  it('preserves one authored span verbatim and never promotes evidence metadata to source text', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const input = pricingShadowInput({
+      sourceObservations: [{
+        ...(pricingShadowInput().sourceObservations[0] as object),
+        text: 'Debris  removal\n| CY | $12.50',
+        description: 'NOT AUTHORED PRICING EVIDENCE',
+        location: { page: 2, label: 'METADATA LABEL' },
+      }],
+    });
+    scheduleForgewingPricingInterpretationShadow(input as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+    });
+    await tasks[0]!();
+    const calls = runForgewingPricingInterpretation.mock.calls as unknown as Array<[{
+      rowObservation: { rawText: string; cells: Array<{ rawText: string }> };
+    }]>;
+    const candidate = calls.at(-1)![0];
+    expect(candidate.rowObservation.rawText).toBe('Debris  removal\n| CY | $12.50');
+    expect(candidate.rowObservation.cells[0]?.rawText).toBe('Debris  removal\n| CY | $12.50');
+    expect(candidate.rowObservation.rawText).not.toContain('NOT AUTHORED');
+    expect(candidate.rowObservation.rawText).not.toContain('METADATA LABEL');
+  });
+
+  it.each([
+    ['no scope', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'no_scope' }, observations: [],
+    } }],
+    ['foreign observation', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'authoritative', authoritativePages: [2] }, observations: [{
+        observationId: 'evidence-1', sourceDocumentId: 'document-1', sourceArtifactId: 'foreign-artifact',
+        physicalPageNumber: 2, eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+      }],
+    } }],
+    ['foreign authoritative page set', { pricingSourceEligibility: {
+      sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1', pageScopeApplicable: true,
+      scope: { kind: 'authoritative', authoritativePages: [3] }, observations: [{
+        observationId: 'evidence-1', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+        physicalPageNumber: 2, eligibility: 'canonical_eligible', reason: 'authoritative_scope_match',
+      }],
+    } }],
+    ['missing source observation', { sourceObservations: [] }],
+    ['cross-row source observation', { sourceObservations: [{
+      id: 'neighbor-evidence', kind: 'text', source_type: 'pdf', description: 'Neighbor',
+      text: '$99.00', location: { page: 2 }, confidence: 1, weak: false,
+      source_document_id: 'document-1',
+    }] }],
+    ['resolved row', { pricingRows: [{
+      ...pricingShadowInput().pricingRows[0] as object,
+      confidence: 'high', category_resolution_status: 'resolved',
+    }] }],
+  ])('does not register pricing for %s', (_label, override) => {
+    const register = vi.fn();
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput(override) as never, {
+      register,
+      run: runForgewingPricingInterpretation as never,
+    });
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('contains pricing provider and persistence failures', async () => {
+    const tasks: Array<() => Promise<void>> = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    runForgewingPricingInterpretation.mockRejectedValueOnce(new Error('provider unavailable'));
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist: vi.fn(async () => { throw new Error('must not persist'); }),
+    });
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal pricing interpretation failure',
+      expect.objectContaining({ error: 'provider unavailable' }),
+    );
+    runForgewingPricingInterpretation.mockResolvedValueOnce(actionableResult('applied') as never);
+    scheduleForgewingPricingInterpretationShadow(pricingShadowInput() as never, {
+      register: (task) => tasks.push(task),
+      run: runForgewingPricingInterpretation as never,
+      persist: vi.fn(async () => { throw new Error('storage unavailable'); }),
+    });
+    await expect(tasks[1]!()).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal pricing interpretation failure',
+      expect.objectContaining({ error: 'storage unavailable' }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it('keeps observation arbitration default-off before candidate construction or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [],
+      get region_candidates() { throw new Error('must not map candidates when disabled'); },
+      get arbitration_decisions() { throw new Error('must not map decisions when disabled'); },
+      verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(runForgewingObservationArbitration).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('maps existing arbitration artifacts only inside a detached task and isolates persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_OBSERVATION_ARBITRATION_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const result = actionableResult('applied');
+    result.metadata.promptTemplateId = 'forgewing-observation-arbitration';
+    result.bundle.schemaVersion = 'forgewing-observation-arbitration-proposal-v1';
+    result.bundle.taskType = 'observation_arbitration';
+    runForgewingObservationArbitration.mockResolvedValueOnce(result as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const signal = { value: 0.8, basis_artifact_ids: ['token-a'], calculator: {}, diagnostics: [] };
+    const candidate = (id: string, text: string, stage: string, order: number) => ({
+      id, organization_id: 'organization-1', source_document_id: 'document-1',
+      source_artifact_id: 'artifact-1', extraction_run_id: 'run-1',
+      page_artifact_id: 'page-1', source_sha256: 'a'.repeat(64), parser_manifest_hash: 'manifest-1',
+      kind: 'region', page: 1,
+      bounding_box: { coordinate_space: 'page_normalized', origin: 'top_left', x0: .1, y0: .1, x1: .9, y1: .2, rotation: 0 },
+      raw_text: text, parser: { stage, name: stage, version: 'v1', configuration_hash: 'config-1' },
+      recognition_confidence: 0.8, reading_order: order, region_role: 'unknown',
+      child_fragment_ids: [`token-${id}`], ordered_token_ids: [`token-${id}`],
+      engine_reported_confidence: 0.8,
+      quality_signals: { glyph_validity: signal, geometry_coverage: signal, reading_order_consistency: signal, image_text_coverage: null },
+      physical_page_coordinate: {
+        mappingState: 'resolved_physical_page', sourceDocumentId: 'document-1', sourceArtifactId: 'artifact-1',
+        physicalPageNumber: 1, artifactLocalIndex: 0, sourceLayer: stage === 'native_text' ? 'pdf_native_text' : 'ocr',
+      },
+    });
+    const candidates = [candidate('candidate-a', '12.50', 'native_text', 1), candidate('candidate-b', '125.00', 'ocr', 2)];
+    const decision = {
+      id: 'decision-1', organization_id: 'organization-1', source_document_id: 'document-1',
+      source_artifact_id: 'artifact-1', extraction_run_id: 'run-1', source_sha256: 'a'.repeat(64),
+      parser_manifest_hash: 'manifest-1', page_artifact_id: 'page-1', parser: {},
+      physical_region_id: 'candidate-a', candidate_ids: ['candidate-a', 'candidate-b'],
+      accepted_candidate_ids: [], rejected_candidate_ids: ['candidate-a', 'candidate-b'],
+      agreement: null, decision: 'conflict', diagnostics: ['Conflicting high-quality candidates remain.'],
+    };
+    const input = {
+      extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [],
+      region_candidates: candidates, arbitration_decisions: [decision], verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    };
+    const inputBefore = JSON.stringify(input);
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingObservationArbitration).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(JSON.stringify(input)).toBe(inputBefore);
+    expect(runForgewingObservationArbitration).toHaveBeenCalledWith(expect.objectContaining({
+      regionCandidates: expect.arrayContaining([
+        expect.objectContaining({ candidateId: 'candidate-a', rawText: '12.50' }),
+        expect.objectContaining({ candidateId: 'candidate-b', rawText: '125.00' }),
+      ]),
+      arbitrationDecisions: [expect.objectContaining({ targetId: 'decision-1', deterministicState: 'conflict' })],
+    }));
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('keeps column mapping default-off before candidate mapping, provider, or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload), 'organization-1', 'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingColumnMapping).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('maps only ambiguous deterministic column signals in a detached task and contains persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_COLUMN_MAPPING_ENABLED', '1');
+    const deterministicPayload = {
+      interpretation_snapshot: { status: 'partial' },
+      semantic_column_mappings: [{
+        id: 'mapping-1', table_segment_id: 'segment-1', column_index: 0,
+        domain_role: 'other', status: 'ambiguous',
+        assessment: {
+          candidate_roles: [{ role: 'rate', score: .6 }],
+          resolution_policy: { observed_top_score: .6, observed_margin: .05, minimum_score: .7, minimum_margin: .2 },
+          decision_evidence: { ambiguity_reason: 'below_minimum_margin' },
+        },
+      }, {
+        id: 'mapping-resolved', table_segment_id: 'segment-1', column_index: 1,
+        domain_role: 'description', status: 'resolved', assessment: {},
+      }],
+      interpretation_records: [],
+    };
+    const columnResult = actionableResult('applied');
+    columnResult.metadata.promptTemplateId = 'forgewing-column-mapping';
+    columnResult.bundle.schemaVersion = 'forgewing-column-mapping-proposal-v1';
+    columnResult.bundle.taskType = 'column_mapping';
+    runForgewingColumnMapping.mockResolvedValueOnce(columnResult as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => deterministicPayload), 'organization-1', 'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(deterministicPayload);
+    expect(runForgewingColumnMapping).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingColumnMapping).toHaveBeenCalledWith(expect.objectContaining({
+      mappingSignals: [expect.objectContaining({ mappingId: 'mapping-1', columnIndex: 0 })],
+    }));
+    const columnTaskCalls = (runForgewingColumnMapping as unknown as {
+      mock: { calls: Array<[unknown]> };
+    }).mock.calls;
+    expect(JSON.stringify(columnTaskCalls[0]?.[0])).not.toContain('description');
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('keeps table continuation default-off before mapping, provider, or persistence', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const register = vi.fn();
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload),
+      'organization-1',
+      'document-1',
+      { register, persist: vi.fn(async () => { throw new Error('must not persist'); }) },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingTableContinuation).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('runs table continuation only in the detached registration and contains persistence failure', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');
+    const payload = { interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] };
+    const continuation = actionableResult('applied') as ReturnType<typeof actionableResult> & { bundle: ReturnType<typeof actionableResult>['bundle'] };
+    continuation.metadata.promptTemplateId = 'forgewing-table-continuation';
+    continuation.bundle.schemaVersion = 'forgewing-table-continuation-proposal-v1';
+    continuation.bundle.taskType = 'table_continuation';
+    runForgewingTableContinuation.mockResolvedValueOnce(continuation as never);
+    const tasks: Array<() => Promise<void>> = [];
+    const persist = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const bridge = withForgewingRegionClassificationShadow(
+      vi.fn(async () => payload),
+      'organization-1',
+      'document-1',
+      { register: (task) => tasks.push(task), persist },
+    );
+    const input = { extraction_snapshot_id: 'snapshot-1', chains: [], continuation_links: [], segments: [], cells: [], verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z' };
+    await expect(bridge?.(input as never)).resolves.toBe(payload);
+    expect(runForgewingTableContinuation).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect(runForgewingTableContinuation).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('returns the deterministic Step 3 payload unchanged while Forgewing observes shadow input', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = {
+      interpretation_snapshot: { id: 'interpretation-1' },
+      semantic_column_mappings: [{ id: 'mapping-1' }],
+      interpretation_records: [{ id: 'record-1' }],
+    };
+    const deterministicBridge = vi.fn(async () => payload);
+    const bridge = withForgewingRegionClassificationShadow(
+      deterministicBridge,
+      'organization-1',
+      'document-1',
+    );
+    const bridgeInput = {
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    };
+
+    await expect(bridge?.(bridgeInput as never)).resolves.toBe(payload);
+    expect(deterministicBridge).toHaveBeenCalledWith(bridgeInput);
+    expect(runForgewingRegionClassification).toHaveBeenCalledOnce();
+  });
+
+  it('does no Forgewing input work or provider orchestration when default-off', async () => {
+    const payload = {
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: () => undefined },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      get chains() { throw new Error('must not slice when disabled'); },
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(runForgewingRegionClassification).not.toHaveBeenCalled();
+  });
+
+  it('contains Forgewing failure after deterministic Step 3 succeeds', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = {
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    runForgewingRegionClassification.mockRejectedValueOnce(new Error('provider failed'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: () => undefined },
+    );
+
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] non-fatal region classification failure',
+      expect.objectContaining({ mode: 'shadow', error: 'provider failed' }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    ['success', actionableResult('applied')],
+    ['timeout', actionableResult('abstained', ['provider_timeout'])],
+    ['schema rejection', actionableResult('abstained', ['model_schema_rejected'])],
+  ])('keeps deterministic Step 3 identical on Forgewing %s', async (_case, outcome) => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    runForgewingRegionClassification.mockResolvedValueOnce(outcome as never);
+    const payload = {
+      interpretation_snapshot: { id: 'deterministic' },
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: () => undefined },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+  });
+
+  it('returns deterministic Step 3 without waiting for a never-settling persistence task', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
+    const payload = {
+      interpretation_snapshot: { id: 'deterministic' },
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const registered: Array<() => Promise<void>> = [];
+    const persist = vi.fn(() => new Promise<never>(() => undefined));
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: (task) => registered.push(task), persist },
+    );
+
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1',
+      chains: [],
+      segments: [],
+      cells: [],
+      verified_field_handles: [],
+      published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBe(payload);
+    expect(registered).toHaveLength(1);
+    expect(persist).not.toHaveBeenCalled();
+    void registered[0]!();
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it('does not register persistence for skipped or pre-bundle failed results', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const register = vi.fn();
+    for (const result of [
+      { status: 'skipped', reason: 'no_candidate_regions' },
+      {
+        status: 'failed', reason: 'input_contract_violation', warnings: ['input_contract_violation'],
+        metadata: actionableResult().metadata,
+      },
+    ]) {
+      runForgewingRegionClassification.mockResolvedValueOnce(result as never);
+      const bridge = withForgewingRegionClassificationShadow(
+        async () => ({ interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] }),
+        'organization-1',
+        'document-1',
+        { register },
+      );
+      await bridge?.({
+        extraction_snapshot_id: 'snapshot-1', chains: [], segments: [], cells: [],
+        verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+      } as never);
+    }
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('contains persistence registration and task failures', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => ({ interpretation_snapshot: null, semantic_column_mappings: [], interpretation_records: [] }),
+      'organization-1',
+      'document-1',
+      { register: () => { throw new Error('lifecycle unavailable'); } },
+    );
+    await expect(bridge?.({
+      extraction_snapshot_id: 'snapshot-1', chains: [], segments: [], cells: [],
+      verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+    } as never)).resolves.toBeDefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[forgewingShadow] persistence registration failed',
+      expect.objectContaining({ error: 'lifecycle unavailable' }),
+    );
+    consoleError.mockRestore();
   });
   it('is non-fatal and never mutates the legacy extraction payload', async () => {
     const payload = {

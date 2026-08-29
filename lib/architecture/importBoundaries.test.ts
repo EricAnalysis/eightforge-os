@@ -67,6 +67,177 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 ]);
 
 const COMPARISON_ROOT = 'lib/canonical/comparison';
+const FORGEWING_ROOT = 'lib/forgewing';
+const FORGEWING_EVALUATION_ROOT = 'lib/evaluation/forgewing';
+const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
+  'zod',
+  'node:fs',
+  '@/lib/extraction/domain/hash',
+  '@/lib/server/ai/claudeClient',
+]);
+const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
+  'lib/extraction/persistence/complianceShadow.ts',
+]);
+const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
+  'app/evaluation/forgewing/a3-linkage/page.tsx',
+  'app/api/evaluation/forgewing/a3-linkage/source/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/validate/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/manifest/route.ts',
+  'app/api/evaluation/forgewing/a3-linkage/attestation/route.ts',
+  'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
+  'components/evaluation/forgewing/A3LinkageReviewWorkspace.tsx',
+  'app/evaluation/forgewing/v2-field-labels/page.tsx',
+  'app/api/evaluation/forgewing/v2-field-labels/source/route.ts',
+  'app/api/evaluation/forgewing/v2-field-labels/validate/route.ts',
+  'app/api/evaluation/forgewing/v2-field-labels/finalize/route.ts',
+  'components/evaluation/forgewing/V2FieldLabelReviewWorkspace.tsx',
+]);
+const FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES = [
+  'lib/contracts',
+  'lib/validator',
+  'lib/canonical',
+  'lib/projectFacts',
+  'lib/truthQuery',
+  'lib/effectiveFacts',
+] as const;
+const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b|\bcolumn_mapping\b|\bobservation_arbitration\b|\bpricing_interpretation\b/;
+const FORGEWING_FORBIDDEN_AUTHORITY_MENTION_PATTERN =
+  /\bCanonicalFact\b|\bVerifiedField\b|\bCanonicalContractPricingRow\b|\bpricingResolution\b|\bcontractPricingAssembly\b/;
+
+function productionFilesIn(workspaceRoot: string): string[] {
+  return PRODUCTION_ROOTS
+    .flatMap((root) => walk(path.join(workspaceRoot, root)));
+}
+
+function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
+  return productionFilesIn(workspaceRoot)
+    .flatMap((file) => importsInFile(file, workspaceRoot));
+}
+
+function nonLiteralModuleLoadsInFile(
+  absolutePath: string,
+  workspaceRoot: string,
+): string[] {
+  const source = path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
+  const sourceFile = ts.createSourceFile(
+    absolutePath,
+    readFileSync(absolutePath, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    absolutePath.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const violations: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? 'import'
+        : ts.isIdentifier(node.expression) && node.expression.text === 'require'
+          ? 'require'
+          : null;
+      if (
+        kind != null
+        && (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]!))
+      ) {
+        violations.push(`${source} -> non-literal ${kind}() (Forgewing outbound import is not statically allowlisted)`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return violations;
+}
+
+/**
+ * Forgewing may describe evidence, but Commit 1 has no authorized production
+ * consumer and no authority-producing dependency. Both directions are sealed so
+ * future nested files cannot turn proposals into serving truth by import alone.
+ */
+function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
+  const violations: string[] = [];
+  const importConsumers = new Set<string>();
+  for (const edge of productionEdgesIn(workspaceRoot)) {
+    const target = resolveImportTarget(edge);
+    const sourceIsForgewing = isWithin(edge.source, FORGEWING_ROOT);
+    const targetIsForgewing = isWithin(target, FORGEWING_ROOT);
+    const sourceIsForgewingEvaluation = isWithin(edge.source, FORGEWING_EVALUATION_ROOT);
+    const targetIsForgewingEvaluation = isWithin(target, FORGEWING_EVALUATION_ROOT);
+
+    if (FORGEWING_AUTHORIZED_CONSUMERS.has(edge.source)
+      && FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES.some((root) =>
+        isWithin(target, root))) {
+      violations.push(
+        `${edge.source} -> ${edge.specifier} (Forgewing shadow consumer imports canonical, pricing, or validator authority)`,
+      );
+    }
+
+    if (
+      targetIsForgewing
+      && !sourceIsForgewing
+      && !sourceIsForgewingEvaluation
+      && !FORGEWING_AUTHORIZED_CONSUMERS.has(edge.source)
+    ) {
+      importConsumers.add(edge.source);
+      violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing consumer)`);
+    }
+    if (
+      sourceIsForgewing
+      && !targetIsForgewing
+      && !FORGEWING_ALLOWED_OUTBOUND_MODULES.has(edge.specifier)
+    ) {
+      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing outbound import is not allowlisted)`);
+    }
+    if (targetIsForgewingEvaluation && !sourceIsForgewingEvaluation && !sourceIsForgewing
+      && !FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS.has(edge.source)) {
+      importConsumers.add(edge.source);
+      violations.push(`${edge.source} -> ${edge.specifier} (unauthorized Forgewing evaluation consumer)`);
+    }
+    if (sourceIsForgewingEvaluation && (
+      isWithin(target, 'app')
+      || isWithin(target, 'components')
+      || isWithin(target, 'lib/server')
+      || isWithin(target, 'lib/pipeline')
+      || isWithin(target, 'lib/canonical')
+      || isWithin(target, 'lib/validator')
+      || isWithin(target, 'lib/contracts')
+    )) {
+      violations.push(`${edge.source} -> ${edge.specifier} (Forgewing evaluation imports serving or authority code)`);
+    }
+  }
+
+  for (const file of walk(path.join(workspaceRoot, FORGEWING_ROOT))) {
+    violations.push(...nonLiteralModuleLoadsInFile(file, workspaceRoot));
+    const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+    if (FORGEWING_FORBIDDEN_AUTHORITY_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
+      violations.push(`${source} -> references pricing or canonical authority vocabulary`);
+    }
+  }
+
+  for (const file of productionFilesIn(workspaceRoot)) {
+    const source = path.relative(workspaceRoot, file).replaceAll('\\', '/');
+    if (
+      isWithin(source, FORGEWING_ROOT)
+      || isWithin(source, FORGEWING_EVALUATION_ROOT)
+      || FORGEWING_AUTHORIZED_CONSUMERS.has(source)
+      || FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS.has(source)
+    ) continue;
+    if (importConsumers.has(source)) continue;
+    if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
+      violations.push(`${source} -> references Forgewing outside its module boundary`);
+    }
+  }
+  return violations.sort();
+}
+
+function forgewingProductionConsumers(workspaceRoot = ROOT): string[] {
+  return [...new Set(productionEdgesIn(workspaceRoot).flatMap((edge) => {
+    const target = resolveImportTarget(edge);
+    return isWithin(target, FORGEWING_ROOT)
+      && !isWithin(edge.source, FORGEWING_ROOT)
+      && !isWithin(edge.source, FORGEWING_EVALUATION_ROOT)
+      ? [edge.source]
+      : [];
+  }))].sort();
+}
 
 /**
  * The comparison layer may call authority orchestration; nothing in the
@@ -203,6 +374,12 @@ function moduleSpecifiers(text: string, fileName: string): string[] {
       && ts.isStringLiteralLike(node.moduleSpecifier)
     ) {
       specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportTypeNode(node)
+      && ts.isLiteralTypeNode(node.argument)
+      && ts.isStringLiteralLike(node.argument.literal)
+    ) {
+      specifiers.push(node.argument.literal.text);
     } else if (
       ts.isImportEqualsDeclaration(node)
       && ts.isExternalModuleReference(node.moduleReference)
@@ -562,6 +739,48 @@ describe('production architecture import boundaries', () => {
     expect(rulePackAuthorityViolations()).toEqual([]);
   }, 30_000);
 
+  /**
+   * The Forgewing V2 evaluation seam and the V2 structured-output schema are a
+   * deliberate narrow additive runtime change for Phase C measurement. They must
+   * never become a production execution path. This guard fails if any file
+   * outside the approved evaluation allowlist imports either symbol -- including
+   * files that do not exist yet.
+   */
+  it('confines the Forgewing V2 provider seam to approved evaluation infrastructure', () => {
+    const V2_SEAM_SYMBOLS = [
+      'callClaudeForPricingInterpretationV2WithEvaluationPrompt',
+      'PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA',
+      'PRICING_INTERPRETATION_V2_CONDITIONAL_FIELD_RULES',
+    ];
+    const ALLOWED = new Set([
+      // definition site
+      'lib/forgewing/runtime/client.ts',
+      'lib/forgewing/runtime/structuredOutput.ts',
+      // approved evaluation infrastructure
+      'scripts/evaluation/forgewingPricingV2PhaseCPrompt.ts',
+    ]);
+    const walkAll = (directory: string): string[] => {
+      if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
+      return readdirSync(directory).flatMap((entry) => {
+        const absolute = path.join(directory, entry);
+        if (['node_modules', '.next', '.git', '.claude'].includes(entry)) return [];
+        if (statSync(absolute).isDirectory()) return walkAll(absolute);
+        return SOURCE_EXTENSION.test(entry) ? [absolute] : [];
+      });
+    };
+    const offenders = ['app', 'components', 'lib', 'scripts']
+      .flatMap((root) => walkAll(path.join(ROOT, root)))
+      .map((absolute) => ({
+        relative: path.relative(ROOT, absolute).split(path.sep).join('/'),
+        text: readFileSync(absolute, 'utf8'),
+      }))
+      .filter(({ relative, text }) =>
+        !TEST_FILE.test(relative)
+        && !ALLOWED.has(relative)
+        && V2_SEAM_SYMBOLS.some((symbol) => text.includes(symbol)));
+    expect(offenders.map(({ relative }) => relative)).toEqual([]);
+  });
+
   it('keeps exactly one canonical-to-validator projection module', () => {
     expect(canonicalProjectionModules())
       .toEqual(['lib/canonical/authority/canonicalValidatorProjection.ts']);
@@ -569,6 +788,13 @@ describe('production architecture import boundaries', () => {
 
   it('keeps the authority comparison layer out of every truth-producing path', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
+  }, 30_000);
+
+  it('keeps Forgewing non-authoritative with one shadow consumer and an isolated evaluator', () => {
+    expect(forgewingBoundaryViolations()).toEqual([]);
+    expect(forgewingProductionConsumers()).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts',
+    ]);
   }, 30_000);
 
   it('prevents a comparison outcome from becoming a serving validation result', () => {
@@ -699,5 +925,300 @@ describe('shadow Project Truth reader-cutover guard', () => {
       'lib/canonical/publication/reassemble.ts -> forbidden pricing reassembly',
       'lib/canonical/publication/sourceRead.ts -> forbidden mutable source read',
     ]);
+  });
+});
+
+describe('Forgewing proposal authority seal', () => {
+  const temporaryRoots: string[] = [];
+  const fixtureRoot = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'eightforge-forgewing-guard-'));
+    temporaryRoots.push(root);
+    return root;
+  };
+  const source = (root: string, relativePath: string, contents: string): void => {
+    const absolute = path.join(root, relativePath);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, contents);
+  };
+
+  afterEach(() => {
+    for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('forbids extraction and canonical imports of Forgewing recursively', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/nested/consumer.ts', "import { schema } from '@/lib/forgewing/proposal/schema';");
+    source(root, 'lib/canonical/authority/nested/consumer.ts', "export { schema } from '../../../forgewing/proposal/schema';");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/canonical/authority/nested/consumer.ts -> ../../../forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/extraction/nested/consumer.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('forbids every production consumer including dynamic and require forms', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/validator/consumer.ts', "import type { Proposal } from '@/lib/forgewing/proposal/schema';");
+    source(root, 'lib/contracts/consumer.ts', "export { schema } from '../forgewing/proposal/schema';");
+    source(root, 'app/dynamic.ts', "const schema = import('@/lib/forgewing/proposal/schema');");
+    source(root, 'components/required.ts', "const schema = require('../lib/forgewing/proposal/schema');");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'app/dynamic.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'components/required.ts -> ../lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/contracts/consumer.ts -> ../forgewing/proposal/schema (unauthorized Forgewing consumer)',
+      'lib/validator/consumer.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('allows only the exact dependencies used by current Forgewing production files', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/allowed.ts', [
+      "import { z } from 'zod';",
+      "import { readFileSync } from 'node:fs';",
+      "import { hashCanonical } from '@/lib/extraction/domain/hash';",
+      "import { getClaudeClient } from '@/lib/server/ai/claudeClient';",
+      "export { VERSION } from './version';",
+      "const schema = import('@/lib/forgewing/proposal/schema');",
+      "const guards = require('./guards');",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
+  });
+
+  it('allows only complianceShadow to consume Forgewing in production', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/extraction/persistence/complianceShadow.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/extraction/persistence/secondConsumer.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/extraction/persistence/secondConsumer.ts -> @/lib/forgewing/tasks/regionClassification (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('keeps the sole Forgewing shadow consumer out of canonical, pricing, and validator authority', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/persistence/complianceShadow.ts', [
+      "import '@/lib/contracts/pricing';",
+      "import '@/lib/validator/projectValidator';",
+      "import '@/lib/canonical/publication/publishProjectTruthShadow';",
+      "import '@/lib/projectFacts';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/canonical/publication/publishProjectTruthShadow (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/contracts/pricing (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/projectFacts (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+      'lib/extraction/persistence/complianceShadow.ts -> @/lib/validator/projectValidator (Forgewing shadow consumer imports canonical, pricing, or validator authority)',
+    ]);
+  });
+
+  it('allows only the isolated evaluation subtree to measure Forgewing', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/evaluation/forgewing/measure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    source(
+      root,
+      'lib/evaluation/otherMeasure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/otherMeasure.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('forbids Forgewing from importing evaluation and serving code from consuming evaluation', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/forgewing/tasks/contaminated.ts',
+      "import { evaluate } from '@/lib/evaluation/forgewing/regionClassificationEvaluation';",
+    );
+    source(
+      root,
+      'lib/validator/evaluationReader.ts',
+      "import { evaluate } from '@/lib/evaluation/forgewing/regionClassificationEvaluation';",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/tasks/contaminated.ts -> @/lib/evaluation/forgewing/regionClassificationEvaluation (Forgewing outbound import is not allowlisted)',
+      'lib/validator/evaluationReader.ts -> @/lib/evaluation/forgewing/regionClassificationEvaluation (unauthorized Forgewing evaluation consumer)',
+    ]);
+  });
+
+  it('forbids evaluation from reaching serving, authority, validator, and contract code', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/evaluation/forgewing/leak.ts', [
+      "import '@/lib/canonical/publication/publishProjectTruthShadow';",
+      "import '@/lib/validator/projectValidator';",
+      "import '@/lib/contracts/analyzeContractIntelligence';",
+      "import '@/lib/server/documentExtraction';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/forgewing/leak.ts -> @/lib/canonical/publication/publishProjectTruthShadow (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/contracts/analyzeContractIntelligence (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/server/documentExtraction (Forgewing evaluation imports serving or authority code)',
+      'lib/evaluation/forgewing/leak.ts -> @/lib/validator/projectValidator (Forgewing evaluation imports serving or authority code)',
+    ]);
+  });
+
+  it('rejects truth, semantic, evaluation, pipeline, serving, and UI modules by default', () => {
+    const root = fixtureRoot();
+    const forbiddenSpecifiers = [
+      '@/lib/projectFacts',
+      '@/lib/truthQuery',
+      '@/lib/effectiveFacts',
+      '@/lib/ask/retrieval',
+      '@/lib/interpretation/semanticColumnMapping',
+      '@/lib/interpretation/step3ShadowBridge',
+      '@/lib/evaluation/syntheticGeneralizationHarness',
+      '@/lib/pipeline/documentPipeline',
+      '@/lib/documentIntelligence',
+      '@/lib/contracts/pricing',
+      '@/lib/validator/projectValidator',
+      '@/lib/canonical/authority/resolveProjectTruthAuthority',
+      '@/lib/server/documentExtraction',
+      '@/app/reader',
+      '@/components/reader',
+    ];
+    source(root, 'lib/forgewing/proposal/outbound.ts', [
+      `import '${forbiddenSpecifiers[0]}';`,
+      `export { value } from '${forbiddenSpecifiers[1]}';`,
+      `const effective = import('${forbiddenSpecifiers[2]}');`,
+      `const retrieval = require('${forbiddenSpecifiers[3]}');`,
+      ...forbiddenSpecifiers.slice(4).map((specifier) => `import '${specifier}';`),
+    ].join('\n'));
+    const violations = forgewingBoundaryViolations(root);
+    expect(violations).toHaveLength(forbiddenSpecifiers.length);
+    for (const specifier of forbiddenSpecifiers) {
+      expect(violations.some((violation) => violation.includes(`-> ${specifier} (`))).toBe(true);
+    }
+  });
+
+  it('rejects neutral-looking, arbitrary future, and unlisted external modules', () => {
+    const root = fixtureRoot();
+    const forbiddenSpecifiers = [
+      '@/lib/extraction/domain/types',
+      '@/lib/futureNeutralLookingModule',
+      'zod/v4',
+      'unreviewed-package',
+    ];
+    source(root, 'lib/forgewing/proposal/defaultDenied.ts', forbiddenSpecifiers
+      .map((specifier) => `import '${specifier}';`)
+      .join('\n'));
+    const violations = forgewingBoundaryViolations(root);
+    expect(violations).toHaveLength(forbiddenSpecifiers.length);
+    for (const specifier of forbiddenSpecifiers) {
+      expect(violations.some((violation) => violation.includes(`-> ${specifier} (`))).toBe(true);
+    }
+  });
+
+  it('rejects type-position imports outside the Forgewing allowlist', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/forgewing/proposal/typeImport.ts',
+      "type Facts = import('@/lib/projectFacts').ProjectFacts;",
+    );
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/proposal/typeImport.ts -> @/lib/projectFacts (Forgewing outbound import is not allowlisted)',
+    ]);
+  });
+
+  it('rejects non-literal dynamic module loading inside Forgewing', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/computed.ts', [
+      "const target = '@/lib/projectFacts';",
+      'const dynamic = import(target);',
+      'const required = require(target);',
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/proposal/computed.ts -> non-literal import() (Forgewing outbound import is not statically allowlisted)',
+      'lib/forgewing/proposal/computed.ts -> non-literal require() (Forgewing outbound import is not statically allowlisted)',
+    ]);
+  });
+
+  it('forbids textual Forgewing backdoors across production modules', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/extraction/mention.ts', "const moduleName = 'lib/forgewing/proposal/schema';");
+    source(root, 'lib/contracts/mention.ts', 'type Candidate = ForgewingProposal;');
+    source(root, 'lib/validator/mention.ts', 'type Bundle = ForgewingProposalBundle;');
+    source(root, 'lib/canonical/mention.ts', 'type Result = ForgewingAbstention;');
+    source(root, 'lib/projectFacts.ts', 'type Run = ForgewingRunIdentity;');
+    source(root, 'lib/extraction/relativeMention.ts', [
+      "const target = '../forgewing/proposal/schema';",
+      'const dynamic = import(target);',
+    ].join('\n'));
+    source(root, 'lib/contracts/windowsMention.ts', "const target = '..\\forgewing\\proposal\\schema';");
+    source(root, 'lib/validator/rawTaskDiscriminator.ts', "const taskType = 'table_continuation';");
+    source(root, 'lib/canonical/rawColumnTaskDiscriminator.ts', "const taskType = 'column_mapping';");
+    source(root, 'lib/validator/rawArbitrationTaskDiscriminator.ts', "const taskType = 'observation_arbitration';");
+    source(root, 'lib/contracts/rawPricingTaskDiscriminator.ts', "const taskType = 'pricing_interpretation';");
+    source(root, 'lib/interpretation/deterministicMappingVocabulary.ts', "const recordType = 'semantic_column_mapping';");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/canonical/mention.ts -> references Forgewing outside its module boundary',
+      'lib/canonical/rawColumnTaskDiscriminator.ts -> references Forgewing outside its module boundary',
+      'lib/contracts/mention.ts -> references Forgewing outside its module boundary',
+      'lib/contracts/rawPricingTaskDiscriminator.ts -> references Forgewing outside its module boundary',
+      'lib/contracts/windowsMention.ts -> references Forgewing outside its module boundary',
+      'lib/extraction/mention.ts -> references Forgewing outside its module boundary',
+      'lib/extraction/relativeMention.ts -> references Forgewing outside its module boundary',
+      'lib/projectFacts.ts -> references Forgewing outside its module boundary',
+      'lib/validator/mention.ts -> references Forgewing outside its module boundary',
+      'lib/validator/rawArbitrationTaskDiscriminator.ts -> references Forgewing outside its module boundary',
+      'lib/validator/rawTaskDiscriminator.ts -> references Forgewing outside its module boundary',
+    ]);
+  });
+
+  it('forbids Forgewing production code from naming pricing or canonical authority types', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/tasks/authorityLeak.ts', [
+      'type Fact = CanonicalFact;',
+      'type Field = VerifiedField;',
+      'type Row = CanonicalContractPricingRow;',
+      "const resolver = 'pricingResolution';",
+      "const assembler = 'contractPricingAssembly';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/forgewing/tasks/authorityLeak.ts -> references pricing or canonical authority vocabulary',
+    ]);
+  });
+
+  it('enumerates the exact production Forgewing consumer set', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/extraction/persistence/complianceShadow.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/extraction/persistence/secondConsumer.ts',
+      "import { runForgewingRegionClassification } from '@/lib/forgewing/tasks/regionClassification';",
+    );
+    source(
+      root,
+      'lib/evaluation/forgewing/measure.ts',
+      "import type { ForgewingProposalBundle } from '@/lib/forgewing/proposal/schema';",
+    );
+    expect(forgewingProductionConsumers(root)).toEqual([
+      'lib/extraction/persistence/complianceShadow.ts',
+      'lib/extraction/persistence/secondConsumer.ts',
+    ]);
+  });
+
+  it('allows Forgewing-internal imports and test-only consumers', () => {
+    const root = fixtureRoot();
+    source(root, 'lib/forgewing/proposal/guards.ts', "import type { Proposal } from './schema';");
+    source(root, 'lib/extraction/consumer.test.ts', [
+      "import { schema } from '@/lib/forgewing/proposal/schema';",
+      "const label = 'ForgewingProposalBundle';",
+    ].join('\n'));
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
   });
 });

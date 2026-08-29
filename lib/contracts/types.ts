@@ -1,4 +1,5 @@
 import type { GeometryCellRef } from '@/lib/extraction/tableGeometry';
+import type { PricingSourceEligibilityDiagnostics } from '@/lib/contracts/pricingSourceScope';
 
 export const LANGUAGE_ENGINE_FIELDS_VERSION_V1 = 'language_engine_fields:v1';
 export const CLAUSE_PATTERN_LIBRARY_VERSION_V1 = 'clause_pattern_library:v1';
@@ -218,10 +219,19 @@ export interface ContractRateScheduleRow {
   material_type: string | null;
   unit_type: string | null;
   rate_amount: number | null;
-  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery' | 'structural_table' | 'professional_services_table' | 'tdot_appendix_b_stitched_table' | 'mdot_section_905_bid_schedule';
+  source_kind?: 'exhibit_a_table' | 'exhibit_a_text_recovery' | 'structural_table' | 'professional_services_table' | 'tdot_appendix_b_stitched_table' | 'mdot_section_905_bid_schedule' | 'page_priced_schedule';
   confidence?: 'high' | 'medium' | 'needs_review';
   raw_cells?: string[];
   raw_text?: string;
+  /**
+   * Exact accepted reconstruction-cell membership for non-authoritative
+   * reasoning presentation. This is source structure, not a semantic result.
+   */
+  pricing_cell_evidence?: Array<{
+    source_cell_role: 'description' | 'unit' | 'origin_destination' | 'rate';
+    source_observation_ids: string[];
+    authored_raw_text: string;
+  }>;
   geometry_refs?: GeometryCellRef[];
   // OCR engine recognition confidence (0-1) for the rate cell specifically,
   // when the rate was extracted from an ocr_fallback (Tesseract) table cell.
@@ -307,6 +317,14 @@ export interface ContractAnalysisResult {
   compliance_model: ContractFieldAnalysisMap;
   payment_model: ContractFieldAnalysisMap;
   rate_schedule_rows?: ContractRateScheduleRow[];
+  /** Deterministic Phase 3A pricing-source scope and observation classifications. */
+  pricing_source_eligibility?: PricingSourceEligibilityDiagnostics;
+  /** Non-blocking comparison when persisted and independently reconstructed modern rows coexist. */
+  pricing_reconstruction_parity?: {
+    status: 'match' | 'mismatch';
+    persisted_row_count: number;
+    reconstructed_row_count: number;
+  };
   clause_patterns_detected: DetectedClausePattern[];
   coverage_status: ContractCoverageResult[];
   issues: ContractIssue[];

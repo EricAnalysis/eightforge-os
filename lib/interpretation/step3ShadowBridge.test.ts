@@ -106,6 +106,8 @@ async function interpret(input: {
     continuation_links: input.continuationLinks ?? [],
     segments: input.segments,
     cells: [],
+    region_candidates: [],
+    arbitration_decisions: [],
     verified_field_handles: [await descriptionHandle()],
     published_at: '2026-07-30T00:00:00.000Z',
   });

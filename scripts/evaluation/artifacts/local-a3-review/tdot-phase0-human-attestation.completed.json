@@ -1,0 +1,37 @@
+{
+  "attestation_version": "forgewing-label-attestation-v1",
+  "authority": "evaluation_ground_truth_only",
+  "status": "human_verified",
+  "statement": "I verified every in-scope label against the bound source artifact for evaluation use only.",
+  "label_package": {
+    "ledger_version": "1.0.0-draft",
+    "ledger_sha256": "6123274bc9817e3ee5e02c35102df6e33ba953228e3a5785edbd3146eefcbf73",
+    "ledger_byte_length": 286514,
+    "deterministic_package_digest": "f4f171d972ca606ce6cab20c70d798a34106b22ee6e971735002c963f4a0cdf0"
+  },
+  "source_artifact": {
+    "sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+    "byte_length": 1063619,
+    "pages": 46
+  },
+  "linkage_manifest_sha256": "811381100880f1c4b4ec0f9e54ac28d1176065493abe07aa3658fa042f2f9e60",
+  "reviewer": {
+    "stable_handle": "Eric M",
+    "reviewed_at": "2026-08-24T16:24:33.963Z"
+  },
+  "scope": {
+    "kind": "SCORING_SUBSET",
+    "every_scored_label_reviewed": true,
+    "label_observation_ids": [
+      "tdot-appendix-b:p46:r025:f01:description",
+      "tdot-appendix-b:p46:r025:f02:unit",
+      "tdot-appendix-b:p46:r025:f04:cost",
+      "tdot-appendix-b:p46:r032:f01:description",
+      "tdot-appendix-b:p46:r032:f02:unit",
+      "tdot-appendix-b:p46:r032:f04:cost"
+    ],
+    "label_observation_ids_sha256": "0253cd7a7d82e4e43812864d9fddc328e232331f4bd507bd7ab3ca4bbde9e210"
+  },
+  "notes": "",
+  "attestation_digest_sha256": "90b4c4844f71a4a131a82485dc309eeada12d9b0bf58442d74910897eed976d8"
+}

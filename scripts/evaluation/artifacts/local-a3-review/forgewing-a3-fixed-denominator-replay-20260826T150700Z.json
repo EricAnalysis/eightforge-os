@@ -1,0 +1,311 @@
+{
+  "reportVersion": "forgewing-a3-fixed-denominator-replay-v1",
+  "authority": "non_authoritative_measurement",
+  "promotionEvidence": false,
+  "promotionAuthorized": false,
+  "providerCalls": 0,
+  "sourceExperimentArtifactIdentity": {
+    "path": "C:\\Dev\\eightforge-os\\scripts\\evaluation\\artifacts\\local-a3-review\\forgewing-a3-primitive-coverage-ab-20260826T143943Z.json",
+    "sha256": "6d1d2edeb806f8313adf987de7280ccba37e0a141cb78e354de6c9731d2f38ad",
+    "experimentVersion": "forgewing-a3-primitive-coverage-ab-v1",
+    "runId": "forgewing-labelled-a3-145b8d691d7885e4b90d5f049e95f591"
+  },
+  "baselineArtifactIdentity": {
+    "path": "C:\\Dev\\eightforge-os\\scripts\\evaluation\\artifacts\\local-a3-review\\forgewing-labelled-pricing-a3-live-final-20260826T134555Z.json",
+    "sha256": "84f8c0cc242f9a07e85708e9889629d1a2b5c8289cab38a5000962e27b1e4b5a",
+    "runId": "forgewing-labelled-a3-60f22eb88306c2e5dc4e898ed8ede1dc"
+  },
+  "denominatorSource": "validated_frozen_candidate_linked_labels",
+  "fieldOutcomeContract": [
+    "CORRECT",
+    "INCORRECT_CONTRADICTORY_ROLE",
+    "INSUFFICIENT_SEMANTIC_SUPPORT",
+    "UNSCORED"
+  ],
+  "controlVsTreatment": {
+    "baseline": {
+      "humanLabelCount": 6,
+      "scoredLabelCount": 6,
+      "unscoredLabelCount": 0,
+      "correctLabelCount": 4,
+      "fieldScoringCoverage": 1,
+      "semanticAccuracyAmongScored": 0.6666666666666666,
+      "fixedDenominatorCorrectness": 0.6666666666666666,
+      "stateCounts": {
+        "CORRECT": 4,
+        "INCORRECT_CONTRADICTORY_ROLE": 0,
+        "INSUFFICIENT_SEMANTIC_SUPPORT": 2,
+        "UNSCORED": 0
+      },
+      "unscoredByCaseClassification": {},
+      "roles": {
+        "cost": {
+          "correct": 0,
+          "scored": 2,
+          "unscored": 0,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 2,
+          "fieldScoringCoverage": 1,
+          "semanticAccuracyAmongScored": 0,
+          "fixedDenominatorCorrectness": 0
+        },
+        "description": {
+          "correct": 2,
+          "scored": 2,
+          "unscored": 0,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 0,
+          "fieldScoringCoverage": 1,
+          "semanticAccuracyAmongScored": 1,
+          "fixedDenominatorCorrectness": 1
+        },
+        "unit": {
+          "correct": 2,
+          "scored": 2,
+          "unscored": 0,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 0,
+          "fieldScoringCoverage": 1,
+          "semanticAccuracyAmongScored": 1,
+          "fixedDenominatorCorrectness": 1
+        }
+      },
+      "descriptionScore": {
+        "correct": 2,
+        "scored": 2,
+        "unscored": 0,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 1,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 1
+      },
+      "unitScore": {
+        "correct": 2,
+        "scored": 2,
+        "unscored": 0,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 1,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 1
+      },
+      "rateScore": {
+        "correct": 0,
+        "scored": 2,
+        "unscored": 0,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 2,
+        "fieldScoringCoverage": 1,
+        "semanticAccuracyAmongScored": 0,
+        "fixedDenominatorCorrectness": 0
+      },
+      "totalScore": {
+        "correct": 4,
+        "scored": 6,
+        "unscored": 0,
+        "total": 6,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 2,
+        "fieldScoringCoverage": 1,
+        "semanticAccuracyAmongScored": 0.6666666666666666,
+        "fixedDenominatorCorrectness": 0.6666666666666666
+      },
+      "candidateAcceptance": {
+        "accepted": 2,
+        "total": 2,
+        "rate": 1
+      },
+      "repeatAcceptance": {
+        "accepted": 0,
+        "total": 2,
+        "rate": 0
+      },
+      "primaryAcceptedOutputs": 2,
+      "repeatAcceptedOutputs": 0,
+      "contradictoryRoles": 0,
+      "missingPrimitiveInterpretations": 2,
+      "unknownRoles": 2,
+      "anchorFailures": 1,
+      "sourceTextFailures": 1,
+      "evidenceFidelity": {
+        "valid": 10,
+        "cited": 10
+      },
+      "confidence": [
+        {
+          "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+          "confidence": 0.52
+        },
+        {
+          "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+          "confidence": 0.88
+        }
+      ],
+      "rowStates": [
+        {
+          "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+          "state": "ambiguous"
+        },
+        {
+          "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+          "state": "observed"
+        }
+      ],
+      "repeatStableCount": 0,
+      "repeatComparableCount": 2
+    },
+    "treatment": {
+      "humanLabelCount": 6,
+      "scoredLabelCount": 3,
+      "unscoredLabelCount": 3,
+      "correctLabelCount": 3,
+      "fieldScoringCoverage": 0.5,
+      "semanticAccuracyAmongScored": 1,
+      "fixedDenominatorCorrectness": 0.5,
+      "stateCounts": {
+        "CORRECT": 3,
+        "INCORRECT_CONTRADICTORY_ROLE": 0,
+        "INSUFFICIENT_SEMANTIC_SUPPORT": 0,
+        "UNSCORED": 3
+      },
+      "unscoredByCaseClassification": {
+        "schema_failure": 3
+      },
+      "roles": {
+        "cost": {
+          "correct": 1,
+          "scored": 1,
+          "unscored": 1,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 0,
+          "fieldScoringCoverage": 0.5,
+          "semanticAccuracyAmongScored": 1,
+          "fixedDenominatorCorrectness": 0.5
+        },
+        "description": {
+          "correct": 1,
+          "scored": 1,
+          "unscored": 1,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 0,
+          "fieldScoringCoverage": 0.5,
+          "semanticAccuracyAmongScored": 1,
+          "fixedDenominatorCorrectness": 0.5
+        },
+        "unit": {
+          "correct": 1,
+          "scored": 1,
+          "unscored": 1,
+          "total": 2,
+          "incorrectContradictoryRole": 0,
+          "insufficientSemanticSupport": 0,
+          "fieldScoringCoverage": 0.5,
+          "semanticAccuracyAmongScored": 1,
+          "fixedDenominatorCorrectness": 0.5
+        }
+      },
+      "descriptionScore": {
+        "correct": 1,
+        "scored": 1,
+        "unscored": 1,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 0.5,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 0.5
+      },
+      "unitScore": {
+        "correct": 1,
+        "scored": 1,
+        "unscored": 1,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 0.5,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 0.5
+      },
+      "rateScore": {
+        "correct": 1,
+        "scored": 1,
+        "unscored": 1,
+        "total": 2,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 0.5,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 0.5
+      },
+      "totalScore": {
+        "correct": 3,
+        "scored": 3,
+        "unscored": 3,
+        "total": 6,
+        "incorrectContradictoryRole": 0,
+        "insufficientSemanticSupport": 0,
+        "fieldScoringCoverage": 0.5,
+        "semanticAccuracyAmongScored": 1,
+        "fixedDenominatorCorrectness": 0.5
+      },
+      "candidateAcceptance": {
+        "accepted": 1,
+        "total": 2,
+        "rate": 0.5
+      },
+      "repeatAcceptance": {
+        "accepted": 1,
+        "total": 2,
+        "rate": 0.5
+      },
+      "primaryAcceptedOutputs": 1,
+      "repeatAcceptedOutputs": 1,
+      "contradictoryRoles": 0,
+      "missingPrimitiveInterpretations": 0,
+      "unknownRoles": 2,
+      "anchorFailures": 0,
+      "sourceTextFailures": 0,
+      "evidenceFidelity": {
+        "valid": 5,
+        "cited": 5
+      },
+      "confidence": [
+        {
+          "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+          "confidence": null
+        },
+        {
+          "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+          "confidence": 0.85
+        }
+      ],
+      "rowStates": [
+        {
+          "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+          "state": null
+        },
+        {
+          "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+          "state": "observed"
+        }
+      ],
+      "repeatStableCount": 1,
+      "repeatComparableCount": 2
+    }
+  },
+  "historicalArtifactPreserved": true,
+  "limitations": [
+    "reporting_replay_only",
+    "no_provider_calls",
+    "two_candidate_experiment_does_not_authorize_production_prompt_change"
+  ]
+}

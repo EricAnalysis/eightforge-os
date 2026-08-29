@@ -1,0 +1,454 @@
+{
+  "packageVersion": "forgewing-pricing-v2-human-label-package-v1",
+  "proposalVersion": "forgewing-pricing-interpretation-proposal-v2",
+  "preparationArtifactSha256": "641b52f5ed55152b22c6338d283eecf0ad41671f066e2bdab0835b37733c798a",
+  "preparationReportDigestSha256": "4b2c48410b5656457ae5d9f806e6f216bd52c8d3d4aab80753170a6bf198f936",
+  "preparationImplementationCommit": "f13c815b2bdb386353f008f8d56c5622407d8aec",
+  "implementationCommit": "fc7433a98194b49efd09430d8a27e63d3f1f1984",
+  "scope": {
+    "rowCount": 5,
+    "fieldCount": 17,
+    "memberObservationCount": 19,
+    "labelledContributionCount": 19,
+    "sourceFieldIdsSha256": "bde035e4202543601af188fb9ad48387cac715589991ca610c4e038b21c1be8e"
+  },
+  "fields": [
+    {
+      "sourceFieldId": "forgewing-source-field-0af18d4091e5eeb28858f096b23e3a9fd93d60b8490bd170353b866959bf09fc",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:c1c41e90293081c6fca79a47dba6f36f56328cd8ae7fc7f5a38890462446f624"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r4",
+      "sourceFieldRole": "unit",
+      "expectedSemanticRole": "unit_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:c1c41e90293081c6fca79a47dba6f36f56328cd8ae7fc7f5a38890462446f624",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-1c653eb23ce993897c70b0e87b8bf40cab5a067cc7853ac3f08ca8bf7c310b3f",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:4bf40d92c0b280249e990242aad481d1c75b504a9e82187981068134a8e1282d"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r4",
+      "sourceFieldRole": "description",
+      "expectedSemanticRole": "description_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:4bf40d92c0b280249e990242aad481d1c75b504a9e82187981068134a8e1282d",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-203fbd7666953eaf00a3bef33e147e690797f8e16850134f17d7e960f1edd156",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:8073b5fee6f33e663438f557e841178fd399b70fe6acbd76e62afe86ad2c63ab",
+        "pdf:layout-token:v1:f07aa0eef32a8a42367bca9a86ff08aaa388ea38ba0a4395bc59b8f36df47ecb"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r31",
+      "sourceFieldRole": "rate",
+      "expectedSemanticRole": "rate_like_amount",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:8073b5fee6f33e663438f557e841178fd399b70fe6acbd76e62afe86ad2c63ab",
+          "contributionRole": "type_marker"
+        },
+        {
+          "observationId": "pdf:layout-token:v1:f07aa0eef32a8a42367bca9a86ff08aaa388ea38ba0a4395bc59b8f36df47ecb",
+          "contributionRole": "value_token"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-345fe892b549374db4eef2f8f8c8771699d6c2f823613e672b7210dbdd324b20",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:784643bfba80fdef54858924613360967d906f7b98938bfbfc9c2785c56e4972"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r4",
+      "sourceFieldRole": "rate",
+      "expectedSemanticRole": "rate_like_amount",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:784643bfba80fdef54858924613360967d906f7b98938bfbfc9c2785c56e4972",
+          "contributionRole": "value_token"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-4f3db582786039c95b7372ac30437cefd54057cb535f3f3081d4970d1dd6498c",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:0b923d5b4b8ad2b09f1cbdcfa4e5c4f8ce106c840d42b6eb3b234ce2025a5e07",
+        "pdf:layout-token:v1:70a08491007c9f8b7f4c3eb7dcb97be3483edaff778fe94e2253f3f16dd77de9"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r24",
+      "sourceFieldRole": "rate",
+      "expectedSemanticRole": "rate_like_amount",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:0b923d5b4b8ad2b09f1cbdcfa4e5c4f8ce106c840d42b6eb3b234ce2025a5e07",
+          "contributionRole": "type_marker"
+        },
+        {
+          "observationId": "pdf:layout-token:v1:70a08491007c9f8b7f4c3eb7dcb97be3483edaff778fe94e2253f3f16dd77de9",
+          "contributionRole": "placeholder_absence"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-52a644c4344b3709311da25be28d6676352591929f84451fd20af76cd5b39853",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:4bd9f922ab08031c138cfb86c7a84cd7c1aed4d48f93f1840233a02264f63671"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r8",
+      "sourceFieldRole": "unit",
+      "expectedSemanticRole": "unit_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:4bd9f922ab08031c138cfb86c7a84cd7c1aed4d48f93f1840233a02264f63671",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-55e351b0c69317e8d6aff29c03418f59724d774e89ac5e1d1334caecefcef696",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:471435e2a9233373f2b133a2cef3451e417204c091c35054140f5b5cf258e49e"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r6",
+      "sourceFieldRole": "unit",
+      "expectedSemanticRole": "unit_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:471435e2a9233373f2b133a2cef3451e417204c091c35054140f5b5cf258e49e",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-5c4c70185b42ccb37331733e2f0e441d423ae46eb288f1afb30384c90abafb69",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:c54222519a627b01ea343a3810fab3254805d547eceee41f5a8f51bf6cbea584"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r8",
+      "sourceFieldRole": "rate",
+      "expectedSemanticRole": "rate_like_amount",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:c54222519a627b01ea343a3810fab3254805d547eceee41f5a8f51bf6cbea584",
+          "contributionRole": "value_token"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-7278691863ec214c3184d5d8f758a83e6ee9286b0c8e4297f575e54d029d8c71",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:115625f17473019de23f3c29001007e24487fd00c15b3bafd0b4db8cd6e4c8ec"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r8",
+      "sourceFieldRole": "description",
+      "expectedSemanticRole": "description_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:115625f17473019de23f3c29001007e24487fd00c15b3bafd0b4db8cd6e4c8ec",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-918c4d3679ac359b80254ff1bfbb3767c666b3ba86addf079db9f3e89c8ae570",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:c13897f756f062f59d965012668af7b5c60850833cadf40dc69fbd89143bf886"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r24",
+      "sourceFieldRole": "origin_destination",
+      "expectedSemanticRole": "unknown",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:c13897f756f062f59d965012668af7b5c60850833cadf40dc69fbd89143bf886",
+          "contributionRole": "placeholder_absence"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-9fcfe29517e080ff0bd33edc9e3edf0c0f8bb5085ceeb39e4f51b7c71de265f6",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:8c7a4b4241d743631c4d7299e131edcbae05c5bde502a8bbf78cf19ff75cb797"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r31",
+      "sourceFieldRole": "description",
+      "expectedSemanticRole": "description_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:8c7a4b4241d743631c4d7299e131edcbae05c5bde502a8bbf78cf19ff75cb797",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-ac8469ccb3655801b171716117a87388cd215255ab55205b7a83718443605b9f",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:05a6fcbc8e1171a7c453e8b2b7e895c1a15c8f50a4e6226951ca5e13664fa078"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r6",
+      "sourceFieldRole": "description",
+      "expectedSemanticRole": "description_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:05a6fcbc8e1171a7c453e8b2b7e895c1a15c8f50a4e6226951ca5e13664fa078",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-b5e35087425447202fd81091285fb43ee172131be8b9e3463a1a83d3f61896d3",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:84fd2885de67592f849e9c0da78847ab193a901e9c201777000248c4d96902bd"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r31",
+      "sourceFieldRole": "origin_destination",
+      "expectedSemanticRole": "unknown",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:84fd2885de67592f849e9c0da78847ab193a901e9c201777000248c4d96902bd",
+          "contributionRole": "placeholder_absence"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-b8d581a6df7f10985d44fae98f98b58bd8ef478d3865e350e03cc4defcbfaf13",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:20eb7de6ca6aefa6f35c078b9a428b6bf330f0fc8ba807e3536de2247cfe5bd1"
+      ],
+      "sourceDocumentId": "local-pricing-document-69247bff02744276b75f2cb0",
+      "sourceArtifactId": "89351d8a-2e94-5d96-9c8a-6930d0c466ad",
+      "physicalPageNumber": 106,
+      "rowObservationId": "page_priced_schedule:p106:r6",
+      "sourceFieldRole": "rate",
+      "expectedSemanticRole": "rate_like_amount",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:20eb7de6ca6aefa6f35c078b9a428b6bf330f0fc8ba807e3536de2247cfe5bd1",
+          "contributionRole": "value_token"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-c487d5b2776f6ed4e860d7538441170469aa4369227ae8d37f6e62bb2e8537b2",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:06e4dffa89b7cf742f79e081635ac7684ccc7cc4024ff05df85714629f32b06d"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r31",
+      "sourceFieldRole": "unit",
+      "expectedSemanticRole": "unit_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:06e4dffa89b7cf742f79e081635ac7684ccc7cc4024ff05df85714629f32b06d",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-c7155f5ba2845d2a088c4cad2f2dfaee43718ed145c222d30b4da19f4f4ed460",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:74aa4d961a5276ac1e466e484912f715c8701d2f4c0f577754b2bf3dc06bef30"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r24",
+      "sourceFieldRole": "unit",
+      "expectedSemanticRole": "unit_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:74aa4d961a5276ac1e466e484912f715c8701d2f4c0f577754b2bf3dc06bef30",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    },
+    {
+      "sourceFieldId": "forgewing-source-field-e27fe666577d8662c96ea250c8ee556469e3a66a344553bf06ab47658abe0ef6",
+      "sourceObservationIds": [
+        "pdf:layout-token:v1:64651347b6d1cdfcc5b6071eb1c227fae9dbeff01bd08b9b745c06a0c9f00250"
+      ],
+      "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+      "sourceArtifactId": "7e99caf2-0e1e-56a1-9034-9243e845c268",
+      "physicalPageNumber": 46,
+      "rowObservationId": "page_priced_schedule:p46:r24",
+      "sourceFieldRole": "description",
+      "expectedSemanticRole": "description_like_text",
+      "expectedInterpretationState": "observed",
+      "expectedContributions": [
+        {
+          "observationId": "pdf:layout-token:v1:64651347b6d1cdfcc5b6071eb1c227fae9dbeff01bd08b9b745c06a0c9f00250",
+          "contributionRole": "semantic_head"
+        }
+      ],
+      "reviewStatus": "confirmed",
+      "semanticRoleConfirmed": true,
+      "explicitlyConfirmed": true,
+      "reviewer": "Eric M",
+      "reviewedAt": "2026-08-28T16:09:00.375Z"
+    }
+  ],
+  "authority": "evaluation_ground_truth_only",
+  "promotionAuthorized": false,
+  "promotionEvidence": false,
+  "packageDigestSha256": "b9a8548d72dfa425f5f6ca46b152f9a9ed1aa62d993b63c9ceb41fc0459cbdf8",
+  "attestation": {
+    "statementVersion": "forgewing-pricing-v2-human-attestation-v1",
+    "statement": "I verified every in-scope V2 field label and contribution against the bound source artifact for evaluation use only.",
+    "reviewer": "Eric M",
+    "reviewedAt": "2026-08-28T16:09:00.375Z",
+    "confirmed": true,
+    "packageDigestSha256": "b9a8548d72dfa425f5f6ca46b152f9a9ed1aa62d993b63c9ceb41fc0459cbdf8",
+    "preparationArtifactSha256": "641b52f5ed55152b22c6338d283eecf0ad41671f066e2bdab0835b37733c798a",
+    "preparationReportDigestSha256": "4b2c48410b5656457ae5d9f806e6f216bd52c8d3d4aab80753170a6bf198f936",
+    "implementationCommit": "fc7433a98194b49efd09430d8a27e63d3f1f1984",
+    "authority": "evaluation_ground_truth_only",
+    "promotionAuthorized": false,
+    "promotionEvidence": false,
+    "attestationDigestSha256": "5a6b24ae9bb31138b6562971bc7b4b5c48a72ff77cfcffafbc035663367e1828"
+  }
+}

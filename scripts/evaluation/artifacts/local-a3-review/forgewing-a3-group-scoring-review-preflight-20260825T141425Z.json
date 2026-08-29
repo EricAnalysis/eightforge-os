@@ -1,0 +1,4121 @@
+{
+  "reportVersion": "forgewing-labelled-pricing-a3-v1",
+  "authority": "non_authoritative_measurement",
+  "promotionEvidence": false,
+  "promotionAuthorized": false,
+  "runIdentity": {
+    "runId": "forgewing-labelled-a3-a1d4518717e2a2f5dbf7c5dfab4d3659",
+    "createdAt": "2026-08-25T14:14:42.832Z"
+  },
+  "implementationIdentity": {
+    "commit": "2950afe01816bd36660fcfcd8f22e808c41300ac",
+    "parentOrBase": "714916804ac0194019e5ad8ff6d87efe76c0c519",
+    "worktreeDirty": true
+  },
+  "sourceIdentity": {
+    "path": "C:\\Users\\ADMS Thompson\\Desktop\\EightForgeDocTrainning\\Training Projects\\TDOT\\SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf",
+    "sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+    "byteLength": 1063619,
+    "pages": 46,
+    "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+    "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+    "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77"
+  },
+  "labelPackage": {
+    "ledgerPath": "C:\\Users\\ADMS Thompson\\Desktop\\EightForgeDocTrainning\\Training Projects\\TDOT\\phase3-step4-artifacts\\tdot-89633\\v1.0.0-draft\\annotation\\tdot-appendix-b-ledger.v1.0.0-draft.json",
+    "audit": {
+      "evaluationVersion": "forgewing-labelled-pricing-a3-v1",
+      "corpusStatus": "labelled_a3_unmet_labels",
+      "unmetReasons": [
+        "human_attestation_missing",
+        "label_provenance_machine_generated"
+      ],
+      "warnings": [
+        "label_package_draft"
+      ],
+      "package": {
+        "ledgerVersion": "1.0.0-draft",
+        "status": "draft",
+        "provenanceMethod": "machine_generated",
+        "humanAttested": false,
+        "promotionSuitable": false
+      },
+      "source": {
+        "sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+        "byteLength": 1063619,
+        "pages": 46
+      },
+      "denominators": {
+        "totalObservations": 256,
+        "totalDistinctRows": 64,
+        "scoredObservations": 160,
+        "scoredDistinctRows": 64,
+        "byRole": {
+          "description": {
+            "labelRole": "description",
+            "semanticRole": "description_like_text",
+            "observationCount": 64,
+            "distinctRowCount": 64
+          },
+          "unit": {
+            "labelRole": "unit",
+            "semanticRole": "unit_like_text",
+            "observationCount": 64,
+            "distinctRowCount": 64
+          },
+          "cost": {
+            "labelRole": "cost",
+            "semanticRole": "rate_like_amount",
+            "observationCount": 32,
+            "distinctRowCount": 32
+          }
+        },
+        "excludedByRole": {
+          "origin_destination": 64,
+          "row_label": 32
+        }
+      },
+      "roleMapping": {
+        "description": "description_like_text",
+        "unit": "unit_like_text",
+        "cost": "rate_like_amount"
+      },
+      "expectedLabels": [
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r001:f02:description",
+          "rowIdentity": "source:p43:observed-label:1",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling\nVegetative Debris",
+          "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r001:f03:unit",
+          "rowIdentity": "source:p43:observed-label:1",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r002:f02:description",
+          "rowIdentity": "source:p43:observed-label:2",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling\nVegetative Debris",
+          "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r002:f03:unit",
+          "rowIdentity": "source:p43:observed-label:2",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r003:f02:description",
+          "rowIdentity": "source:p43:observed-label:3",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling\nVegetative Debris",
+          "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r003:f03:unit",
+          "rowIdentity": "source:p43:observed-label:3",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r004:f02:description",
+          "rowIdentity": "source:p43:observed-label:4",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling\nVegetative Debris",
+          "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r004:f03:unit",
+          "rowIdentity": "source:p43:observed-label:4",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r005:f02:description",
+          "rowIdentity": "source:p43:observed-label:5",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling\nVegetative Debris",
+          "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r005:f03:unit",
+          "rowIdentity": "source:p43:observed-label:5",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r006:f02:description",
+          "rowIdentity": "source:p43:observed-label:6",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Debris Mgmt. Site\nManagement",
+          "rawTextSha256": "10ff64b776d3812efa374105cee18d3de0f7a040a8ad62e57bcad56d54e941b7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r006:f03:unit",
+          "rowIdentity": "source:p43:observed-label:6",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r007:f02:description",
+          "rowIdentity": "source:p43:observed-label:7",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Reduction and\nCompaction of C&D",
+          "rawTextSha256": "70a96fdb36371ddc14fee815da7b0f3e094eff3f62286af59846b156e0a04f3c"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r007:f03:unit",
+          "rowIdentity": "source:p43:observed-label:7",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r008:f02:description",
+          "rowIdentity": "source:p43:observed-label:8",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Reduction of Vegetative\nDebris",
+          "rawTextSha256": "13d0db0a7353c0b8a605e1b0c459a5d2c6a43ed93f922a5d7f4d0f4c79f37dba"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r008:f03:unit",
+          "rowIdentity": "source:p43:observed-label:8",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r009:f02:description",
+          "rowIdentity": "source:p43:observed-label:9",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+          "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r009:f03:unit",
+          "rowIdentity": "source:p43:observed-label:9",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r010:f02:description",
+          "rowIdentity": "source:p43:observed-label:10",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+          "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r010:f03:unit",
+          "rowIdentity": "source:p43:observed-label:10",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r011:f02:description",
+          "rowIdentity": "source:p43:observed-label:11",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+          "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r011:f03:unit",
+          "rowIdentity": "source:p43:observed-label:11",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r012:f02:description",
+          "rowIdentity": "source:p43:observed-label:12",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading & Hauling to\nFinal Disposal of\nReduced Vegetative\nDebris",
+          "rawTextSha256": "be9d1ade55ebae2aa343729759635b3313edb3814c33f9370eb96685c158fa00"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r012:f03:unit",
+          "rowIdentity": "source:p43:observed-label:12",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r013:f02:description",
+          "rowIdentity": "source:p43:observed-label:13",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r013:f03:unit",
+          "rowIdentity": "source:p43:observed-label:13",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r014:f02:description",
+          "rowIdentity": "source:p43:observed-label:14",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r014:f03:unit",
+          "rowIdentity": "source:p43:observed-label:14",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r015:f02:description",
+          "rowIdentity": "source:p43:observed-label:15",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r015:f03:unit",
+          "rowIdentity": "source:p43:observed-label:15",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r016:f02:description",
+          "rowIdentity": "source:p43:observed-label:16",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Household Hazardous\nWaste (HHW)/Hazardous\nWaste",
+          "rawTextSha256": "e28ad6d6194fbe35e5632952a215b765b725df0fec7a34348d56305396cd4327"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r016:f03:unit",
+          "rowIdentity": "source:p43:observed-label:16",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r017:f02:description",
+          "rowIdentity": "source:p43:observed-label:17",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Household Hazardous\nWaste (HHW)/Hazardous\nWaste",
+          "rawTextSha256": "e28ad6d6194fbe35e5632952a215b765b725df0fec7a34348d56305396cd4327"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r017:f03:unit",
+          "rowIdentity": "source:p43:observed-label:17",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r018:f02:description",
+          "rowIdentity": "source:p43:observed-label:18",
+          "sourcePage": 43,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p43:r018:f03:unit",
+          "rowIdentity": "source:p43:observed-label:18",
+          "sourcePage": 43,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r001:f02:description",
+          "rowIdentity": "source:p44:observed-label:19",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r001:f03:unit",
+          "rowIdentity": "source:p44:observed-label:19",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r002:f02:description",
+          "rowIdentity": "source:p44:observed-label:20",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r002:f03:unit",
+          "rowIdentity": "source:p44:observed-label:20",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r003:f02:description",
+          "rowIdentity": "source:p44:observed-label:21",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Trailers, Vessels, and\nVehicles",
+          "rawTextSha256": "0224759b61f38d3277d729137926006bd8d1e0560f0cd6e7224be89e5a852ef1"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r003:f03:unit",
+          "rowIdentity": "source:p44:observed-label:21",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each Vehicle\n(Cars,\ntrucks, tractor\ntrailers, boats, etc.)",
+          "rawTextSha256": "58f6afd31a3753252186c04f2f06a2774524a09ec4cfc82f8e1107f309c525d7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r004:f02:description",
+          "rowIdentity": "source:p44:observed-label:22",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Putrescent Debris",
+          "rawTextSha256": "7cd008580fd2c1ef95b7fd628faf83376c2053ddbd5adff00e22ce7dcf225fde"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r004:f03:unit",
+          "rowIdentity": "source:p44:observed-label:22",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r005:f02:description",
+          "rowIdentity": "source:p44:observed-label:23",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Removal Rock, Sand,\nSoil, Silt & Sediment",
+          "rawTextSha256": "67e04543ec67884ecbcc09da47bb0c1da8f6985bb08ebe583fd7c9c5a25bb068"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r005:f03:unit",
+          "rowIdentity": "source:p44:observed-label:23",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r006:f02:description",
+          "rowIdentity": "source:p44:observed-label:24",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Removal Rock, Sand,\nSoil, Silt & Sediment",
+          "rawTextSha256": "67e04543ec67884ecbcc09da47bb0c1da8f6985bb08ebe583fd7c9c5a25bb068"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r006:f03:unit",
+          "rowIdentity": "source:p44:observed-label:24",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r007:f02:description",
+          "rowIdentity": "source:p44:observed-label:25",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Disposal / Tipping Fees",
+          "rawTextSha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r007:f03:unit",
+          "rowIdentity": "source:p44:observed-label:25",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Actual Costs",
+          "rawTextSha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r008:f02:description",
+          "rowIdentity": "source:p44:observed-label:26",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Tires",
+          "rawTextSha256": "41171d0d57a61f55eb2f635ac7ded9f7f53acfe5260c41366174d5d9d6fde4ec"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r008:f03:unit",
+          "rowIdentity": "source:p44:observed-label:26",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r009:f02:description",
+          "rowIdentity": "source:p44:observed-label:27",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Limb\n(Hangers) Cutting\n(greater than 2\" diameter)",
+          "rawTextSha256": "1cdd290b8d2edca33d00adf6b0280140cbc6aea1033491b60ad87f1c9d4710ae"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r009:f03:unit",
+          "rowIdentity": "source:p44:observed-label:27",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Unit",
+          "rawTextSha256": "4e545960f1bffc134026127ef92963e136ec84b24bb2a6103c0731a64843a40b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r010:f02:description",
+          "rowIdentity": "source:p44:observed-label:28",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners)\nCutting (6\" to 11.99\")",
+          "rawTextSha256": "3369901bdeaa685bd11ee0649907b1df9319c78d2008ad7a3a5d64807acff6ff"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r010:f03:unit",
+          "rowIdentity": "source:p44:observed-label:28",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r011:f02:description",
+          "rowIdentity": "source:p44:observed-label:29",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners)\nCutting (12\" to 23.99\")",
+          "rawTextSha256": "747920fadb34b370cc23a3d40c3516951df2913ebfc6f32f162873d61b99c0ee"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r011:f03:unit",
+          "rowIdentity": "source:p44:observed-label:29",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r012:f02:description",
+          "rowIdentity": "source:p44:observed-label:30",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners)\nCutting (24\" to 35.99\")",
+          "rawTextSha256": "8185bb4765f6389bd0c5fddc89c8ff83d243666f27f5ff8568ce3b66283a3a00"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r012:f03:unit",
+          "rowIdentity": "source:p44:observed-label:30",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r013:f02:description",
+          "rowIdentity": "source:p44:observed-label:31",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners)\nCutting (36\" and greater)",
+          "rawTextSha256": "a353ec6669ba358eb53e6ad3cf0763746fca790464141395c4275eeb46965c66"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r013:f03:unit",
+          "rowIdentity": "source:p44:observed-label:31",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r014:f02:description",
+          "rowIdentity": "source:p44:observed-label:32",
+          "sourcePage": 44,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Sweeping",
+          "rawTextSha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p44:r014:f03:unit",
+          "rowIdentity": "source:p44:observed-label:32",
+          "sourcePage": 44,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Linear Mile",
+          "rawTextSha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r001:f01:description",
+          "rowIdentity": "source:p46:geometric-row:001",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling Vegetative Debris",
+          "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r001:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:001",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r001:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:001",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 29.00",
+          "rawTextSha256": "f50cd888c095005241ad48fe65e150e304a644f4edd20e08ac2bc5ef9ed96443"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r002:f01:description",
+          "rowIdentity": "source:p46:geometric-row:002",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling Vegetative Debris",
+          "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r002:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:002",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r002:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:002",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 40.00",
+          "rawTextSha256": "d3fe09fc619865cee2445c1ad7f8eae720ffb7ddfd34c145f7efad265b736f35"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r003:f01:description",
+          "rowIdentity": "source:p46:geometric-row:003",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling Vegetative. Debris",
+          "rawTextSha256": "a63112dbc9cfff7b60b4210158d23b7572fe26289297d1e67920873fb5b32cb9"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r003:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:003",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r003:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:003",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r004:f01:description",
+          "rowIdentity": "source:p46:geometric-row:004",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling Vegetative Debris",
+          "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r004:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:004",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r004:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:004",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 27.00",
+          "rawTextSha256": "a8629e0d5c83ce90280990051e311bb4eeff64e9d91b1e4de6a03682f9b4a765"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r005:f01:description",
+          "rowIdentity": "source:p46:geometric-row:005",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading and Hauling Vegetative Debris",
+          "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r005:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:005",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r005:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:005",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 29.00",
+          "rawTextSha256": "f50cd888c095005241ad48fe65e150e304a644f4edd20e08ac2bc5ef9ed96443"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r006:f01:description",
+          "rowIdentity": "source:p46:geometric-row:006",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Debris Mgmt. Site Management",
+          "rawTextSha256": "fa77a1bf3df9bfb950e7d122811f0792f228d1249a99c37fec8c86ffc14f833a"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r006:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:006",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r006:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:006",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 5.00",
+          "rawTextSha256": "b7492c79d8fc74b3d97b48bcbf54a1d17f73f30d3fc2bfb515e82f601bee41d8"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r007:f01:description",
+          "rowIdentity": "source:p46:geometric-row:007",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Reduction and Compaction of C&D",
+          "rawTextSha256": "7e3fe6fe3ee02453cc5746155a6413ba5a2f5f88512c2268850f9f861ad799a3"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r007:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:007",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r007:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:007",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.50",
+          "rawTextSha256": "fe4f9a0b76d007e4b8f9553858b6f39f793bb9b91df03fa330ff6cbb561ed692"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r008:f01:description",
+          "rowIdentity": "source:p46:geometric-row:008",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Reduction of Vegetative Debris",
+          "rawTextSha256": "edba14a7ec35e352e76b35588407c5a922cde251958a6ea6b88ff37b707abab4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r008:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:008",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r008:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:008",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 9.24",
+          "rawTextSha256": "a343494dec28b1f3a168eb57878610ad6b2b85d13ff88cc3cb022109456a38ad"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r009:f01:description",
+          "rowIdentity": "source:p46:geometric-row:009",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading & Hauling to Final Disposal of Reduced\nVegetative Debris",
+          "rawTextSha256": "4f1aaaa4b599d07cd87fec981b42e9a185a790e2782edf1cf5f78ac73914e4c8"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r009:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:009",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r009:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:009",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r010:f01:description",
+          "rowIdentity": "source:p46:geometric-row:010",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, and Unloading C&D Debris",
+          "rawTextSha256": "df6f8d7b1a4219f8a5da374e81123d008f28c97c9fa8870651ea164b16f5b08d"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r010:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:010",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r010:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:010",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 35.00",
+          "rawTextSha256": "0b86b3de847634d1e0617431a897299bd10556672f990cefdb1f2801cce6b972"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r011:f01:description",
+          "rowIdentity": "source:p46:geometric-row:011",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, & Unloading C&D Debris",
+          "rawTextSha256": "784340dc4acc32bd5b6dedd96749aab534e0321f98a983a4f478a37c4dad9ccc"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r011:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:011",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r011:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:011",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 10.00",
+          "rawTextSha256": "1039eb97dae5632fd14d27a182b0753a7d5dc93cab85880a19fd7bd2f182db5a"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r012:f01:description",
+          "rowIdentity": "source:p46:geometric-row:012",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Loading, Hauling, and Unloading C& D Debris",
+          "rawTextSha256": "f9f837c2d4803b79213db403bca57f11879d523c446d7b81a18e2f249c5947ab"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r012:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:012",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r012:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:012",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 35.00",
+          "rawTextSha256": "0b86b3de847634d1e0617431a897299bd10556672f990cefdb1f2801cce6b972"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r013:f01:description",
+          "rowIdentity": "source:p46:geometric-row:013",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r013:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:013",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r013:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:013",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r014:f01:description",
+          "rowIdentity": "source:p46:geometric-row:014",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r014:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:014",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r014:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:014",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r015:f01:description",
+          "rowIdentity": "source:p46:geometric-row:015",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+          "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r015:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:015",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r015:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:015",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r016:f01:description",
+          "rowIdentity": "source:p46:geometric-row:016",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Household Hazardous Waste (HHW)/Hazardous\nWaste",
+          "rawTextSha256": "19342e563100dfc2709799bf5ebb6bb5df6bb4be5cb79d7d30c48b03c3b6a988"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r016:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:016",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r016:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:016",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r017:f01:description",
+          "rowIdentity": "source:p46:geometric-row:017",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Household Hazardous Waste (HHW)/Hazardous\nWaste",
+          "rawTextSha256": "19342e563100dfc2709799bf5ebb6bb5df6bb4be5cb79d7d30c48b03c3b6a988"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r017:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:017",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r017:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:017",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r018:f01:description",
+          "rowIdentity": "source:p46:geometric-row:018",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r018:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:018",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r018:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:018",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r019:f01:description",
+          "rowIdentity": "source:p46:geometric-row:019",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r019:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:019",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r019:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:019",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r020:f01:description",
+          "rowIdentity": "source:p46:geometric-row:020",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Electronic Waste",
+          "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r020:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:020",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r020:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:020",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r021:f01:description",
+          "rowIdentity": "source:p46:geometric-row:021",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Trailers, Vessels, and Vehicles",
+          "rawTextSha256": "540ad4d9eb416f876c5c8e82198b249c0963108a42665acd32ce3cedf76b0e3d"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r021:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:021",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each Vehicle (Cars,\ntrucks, tractor trailers,\nboats, etc.)",
+          "rawTextSha256": "c58d17dd60325ba1e4838a16370a198e0b41bb7d9fae76fb257ea0c6d99f9312"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r021:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:021",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r022:f01:description",
+          "rowIdentity": "source:p46:geometric-row:022",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Putrescent Debris",
+          "rawTextSha256": "7cd008580fd2c1ef95b7fd628faf83376c2053ddbd5adff00e22ce7dcf225fde"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r022:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:022",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Per Pound",
+          "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r022:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:022",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r023:f01:description",
+          "rowIdentity": "source:p46:geometric-row:023",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Removal Rock, Sand, Soil, Silt & Sediment",
+          "rawTextSha256": "4c52aed9a544d927537a15585448a055a7e0b533a9845f0130404dde3353b4b2"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r023:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:023",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r023:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:023",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r024:f01:description",
+          "rowIdentity": "source:p46:geometric-row:024",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Removal Rock, Sand, Soil, Silt & Sediment",
+          "rawTextSha256": "4c52aed9a544d927537a15585448a055a7e0b533a9845f0130404dde3353b4b2"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r024:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:024",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Cubic Yard (CY)",
+          "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r024:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:024",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+          "rowIdentity": "source:p46:geometric-row:025",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Disposal / Tipping Fees",
+          "rawTextSha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:025",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Actual Costs",
+          "rawTextSha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:025",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ -",
+          "rawTextSha256": "99a34def433d7c957555d70157dbe2ea4bae7004a66a7ed267d7f8fbaf7f441e"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r026:f01:description",
+          "rowIdentity": "source:p46:geometric-row:026",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Tires",
+          "rawTextSha256": "41171d0d57a61f55eb2f635ac7ded9f7f53acfe5260c41366174d5d9d6fde4ec"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r026:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:026",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r026:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:026",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r027:f01:description",
+          "rowIdentity": "source:p46:geometric-row:027",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Limb (Hangers) Cutting (greater than\n2\" diameter)",
+          "rawTextSha256": "60f326f02ade6079f5f35bd288534a0245b3c5b990482b3d2275bf0790b7c540"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r027:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:027",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Unit",
+          "rawTextSha256": "4e545960f1bffc134026127ef92963e136ec84b24bb2a6103c0731a64843a40b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r027:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:027",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 135.00",
+          "rawTextSha256": "2381acd2c8e050f5d016c72538affc7ebb0b86ed072ed2d77237baaef765f2bd"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r028:f01:description",
+          "rowIdentity": "source:p46:geometric-row:028",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners) Cutting (6\" to 11.99\")",
+          "rawTextSha256": "c76437e49859b734fea4d6f911af153780388c78a5ee00409faf77a5d9b4290b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r028:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:028",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r028:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:028",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r029:f01:description",
+          "rowIdentity": "source:p46:geometric-row:029",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners) Cutting (12\" to 23.99\")",
+          "rawTextSha256": "30e29b7f3ff61f027197c3eb1586d52f4f6e6a4bf23e498ea0ff045ce445311b"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r029:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:029",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r029:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:029",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r030:f01:description",
+          "rowIdentity": "source:p46:geometric-row:030",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners) Cutting (24\" to 35.99\")",
+          "rawTextSha256": "f4e72e5aa6511efd4c9c69a0ef275964e3f75375faaf5096e0f8a0ac9cd373e4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r030:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:030",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r030:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:030",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r031:f01:description",
+          "rowIdentity": "source:p46:geometric-row:031",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Hazardous Tree (Leaners) Cutting (36\" and\ngreater)",
+          "rawTextSha256": "27909a069318da7203b5b5f246e5184c9ebfe3e202d77f2e6906ead5d12ef41a"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r031:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:031",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Each",
+          "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r031:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:031",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+          "rowIdentity": "source:p46:geometric-row:032",
+          "sourcePage": 46,
+          "labelRole": "description",
+          "expectedSemanticRole": "description_like_text",
+          "expectedRawText": "Sweeping",
+          "rawTextSha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+          "rowIdentity": "source:p46:geometric-row:032",
+          "sourcePage": 46,
+          "labelRole": "unit",
+          "expectedSemanticRole": "unit_like_text",
+          "expectedRawText": "Linear Mile",
+          "rawTextSha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225"
+        },
+        {
+          "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+          "rowIdentity": "source:p46:geometric-row:032",
+          "sourcePage": 46,
+          "labelRole": "cost",
+          "expectedSemanticRole": "rate_like_amount",
+          "expectedRawText": "$ 1.00",
+          "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+        }
+      ]
+    },
+    "promotionSuitable": false
+  },
+  "humanAttestation": {
+    "path": "C:\\Dev\\eightforge-os\\scripts\\evaluation\\artifacts\\local-a3-review\\tdot-phase0-human-attestation.completed.json",
+    "sha256": "83e10fec4993949f1680a69232ab8ed07e11d74d09275bd1bc70784be084e63e",
+    "supplied": true,
+    "reviewer": {
+      "stableHandle": "Eric M",
+      "reviewedAt": "2026-08-24T16:24:33.963Z"
+    },
+    "scope": {
+      "kind": "SCORING_SUBSET",
+      "every_scored_label_reviewed": true,
+      "label_observation_ids": [
+        "tdot-appendix-b:p46:r025:f01:description",
+        "tdot-appendix-b:p46:r025:f02:unit",
+        "tdot-appendix-b:p46:r025:f04:cost",
+        "tdot-appendix-b:p46:r032:f01:description",
+        "tdot-appendix-b:p46:r032:f02:unit",
+        "tdot-appendix-b:p46:r032:f04:cost"
+      ],
+      "label_observation_ids_sha256": "0253cd7a7d82e4e43812864d9fddc328e232331f4bd507bd7ab3ca4bbde9e210"
+    },
+    "validation": {
+      "status": "human_attestation_valid",
+      "failureReasons": [],
+      "authority": "evaluation_ground_truth_only",
+      "promotionAuthorized": false,
+      "attestedLabelObservationIds": [
+        "tdot-appendix-b:p46:r025:f01:description",
+        "tdot-appendix-b:p46:r025:f02:unit",
+        "tdot-appendix-b:p46:r025:f04:cost",
+        "tdot-appendix-b:p46:r032:f01:description",
+        "tdot-appendix-b:p46:r032:f02:unit",
+        "tdot-appendix-b:p46:r032:f04:cost"
+      ],
+      "linkageManifestSha256": "811381100880f1c4b4ec0f9e54ac28d1176065493abe07aa3658fa042f2f9e60",
+      "audit": {
+        "evaluationVersion": "forgewing-labelled-pricing-a3-v1",
+        "corpusStatus": "labelled_a3_unmet_labels",
+        "unmetReasons": [
+          "human_attestation_missing",
+          "label_provenance_machine_generated"
+        ],
+        "warnings": [
+          "label_package_draft"
+        ],
+        "package": {
+          "ledgerVersion": "1.0.0-draft",
+          "status": "draft",
+          "provenanceMethod": "machine_generated",
+          "humanAttested": false,
+          "promotionSuitable": false
+        },
+        "source": {
+          "sha256": "7e60675c7c1f6d41f58fd3d9e372f8abb2dd800896d1af266e2312250895e58a",
+          "byteLength": 1063619,
+          "pages": 46
+        },
+        "denominators": {
+          "totalObservations": 256,
+          "totalDistinctRows": 64,
+          "scoredObservations": 160,
+          "scoredDistinctRows": 64,
+          "byRole": {
+            "description": {
+              "labelRole": "description",
+              "semanticRole": "description_like_text",
+              "observationCount": 64,
+              "distinctRowCount": 64
+            },
+            "unit": {
+              "labelRole": "unit",
+              "semanticRole": "unit_like_text",
+              "observationCount": 64,
+              "distinctRowCount": 64
+            },
+            "cost": {
+              "labelRole": "cost",
+              "semanticRole": "rate_like_amount",
+              "observationCount": 32,
+              "distinctRowCount": 32
+            }
+          },
+          "excludedByRole": {
+            "origin_destination": 64,
+            "row_label": 32
+          }
+        },
+        "roleMapping": {
+          "description": "description_like_text",
+          "unit": "unit_like_text",
+          "cost": "rate_like_amount"
+        },
+        "expectedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r001:f02:description",
+            "rowIdentity": "source:p43:observed-label:1",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling\nVegetative Debris",
+            "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r001:f03:unit",
+            "rowIdentity": "source:p43:observed-label:1",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r002:f02:description",
+            "rowIdentity": "source:p43:observed-label:2",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling\nVegetative Debris",
+            "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r002:f03:unit",
+            "rowIdentity": "source:p43:observed-label:2",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r003:f02:description",
+            "rowIdentity": "source:p43:observed-label:3",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling\nVegetative Debris",
+            "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r003:f03:unit",
+            "rowIdentity": "source:p43:observed-label:3",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r004:f02:description",
+            "rowIdentity": "source:p43:observed-label:4",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling\nVegetative Debris",
+            "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r004:f03:unit",
+            "rowIdentity": "source:p43:observed-label:4",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r005:f02:description",
+            "rowIdentity": "source:p43:observed-label:5",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling\nVegetative Debris",
+            "rawTextSha256": "df86bd8825ced7c7d2b5418608ee262b1098cc611e80d2a6acff3ca9747ca945"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r005:f03:unit",
+            "rowIdentity": "source:p43:observed-label:5",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r006:f02:description",
+            "rowIdentity": "source:p43:observed-label:6",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Debris Mgmt. Site\nManagement",
+            "rawTextSha256": "10ff64b776d3812efa374105cee18d3de0f7a040a8ad62e57bcad56d54e941b7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r006:f03:unit",
+            "rowIdentity": "source:p43:observed-label:6",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r007:f02:description",
+            "rowIdentity": "source:p43:observed-label:7",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Reduction and\nCompaction of C&D",
+            "rawTextSha256": "70a96fdb36371ddc14fee815da7b0f3e094eff3f62286af59846b156e0a04f3c"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r007:f03:unit",
+            "rowIdentity": "source:p43:observed-label:7",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r008:f02:description",
+            "rowIdentity": "source:p43:observed-label:8",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Reduction of Vegetative\nDebris",
+            "rawTextSha256": "13d0db0a7353c0b8a605e1b0c459a5d2c6a43ed93f922a5d7f4d0f4c79f37dba"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r008:f03:unit",
+            "rowIdentity": "source:p43:observed-label:8",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r009:f02:description",
+            "rowIdentity": "source:p43:observed-label:9",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+            "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r009:f03:unit",
+            "rowIdentity": "source:p43:observed-label:9",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r010:f02:description",
+            "rowIdentity": "source:p43:observed-label:10",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+            "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r010:f03:unit",
+            "rowIdentity": "source:p43:observed-label:10",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r011:f02:description",
+            "rowIdentity": "source:p43:observed-label:11",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, and\nUnloading C&D Debris",
+            "rawTextSha256": "e4b31e12a5c3309883343a33c96e1c3e161b23abe4dbd4edb68c0ed435604db5"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r011:f03:unit",
+            "rowIdentity": "source:p43:observed-label:11",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r012:f02:description",
+            "rowIdentity": "source:p43:observed-label:12",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading & Hauling to\nFinal Disposal of\nReduced Vegetative\nDebris",
+            "rawTextSha256": "be9d1ade55ebae2aa343729759635b3313edb3814c33f9370eb96685c158fa00"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r012:f03:unit",
+            "rowIdentity": "source:p43:observed-label:12",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r013:f02:description",
+            "rowIdentity": "source:p43:observed-label:13",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r013:f03:unit",
+            "rowIdentity": "source:p43:observed-label:13",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r014:f02:description",
+            "rowIdentity": "source:p43:observed-label:14",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r014:f03:unit",
+            "rowIdentity": "source:p43:observed-label:14",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r015:f02:description",
+            "rowIdentity": "source:p43:observed-label:15",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling,\nevacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "d0bb0301e3c62909b648ab2c342359a4e426c4430a589b20798c041e8c96dd34"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r015:f03:unit",
+            "rowIdentity": "source:p43:observed-label:15",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r016:f02:description",
+            "rowIdentity": "source:p43:observed-label:16",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Household Hazardous\nWaste (HHW)/Hazardous\nWaste",
+            "rawTextSha256": "e28ad6d6194fbe35e5632952a215b765b725df0fec7a34348d56305396cd4327"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r016:f03:unit",
+            "rowIdentity": "source:p43:observed-label:16",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r017:f02:description",
+            "rowIdentity": "source:p43:observed-label:17",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Household Hazardous\nWaste (HHW)/Hazardous\nWaste",
+            "rawTextSha256": "e28ad6d6194fbe35e5632952a215b765b725df0fec7a34348d56305396cd4327"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r017:f03:unit",
+            "rowIdentity": "source:p43:observed-label:17",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r018:f02:description",
+            "rowIdentity": "source:p43:observed-label:18",
+            "sourcePage": 43,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p43:r018:f03:unit",
+            "rowIdentity": "source:p43:observed-label:18",
+            "sourcePage": 43,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r001:f02:description",
+            "rowIdentity": "source:p44:observed-label:19",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r001:f03:unit",
+            "rowIdentity": "source:p44:observed-label:19",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r002:f02:description",
+            "rowIdentity": "source:p44:observed-label:20",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r002:f03:unit",
+            "rowIdentity": "source:p44:observed-label:20",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r003:f02:description",
+            "rowIdentity": "source:p44:observed-label:21",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Trailers, Vessels, and\nVehicles",
+            "rawTextSha256": "0224759b61f38d3277d729137926006bd8d1e0560f0cd6e7224be89e5a852ef1"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r003:f03:unit",
+            "rowIdentity": "source:p44:observed-label:21",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each Vehicle\n(Cars,\ntrucks, tractor\ntrailers, boats, etc.)",
+            "rawTextSha256": "58f6afd31a3753252186c04f2f06a2774524a09ec4cfc82f8e1107f309c525d7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r004:f02:description",
+            "rowIdentity": "source:p44:observed-label:22",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Putrescent Debris",
+            "rawTextSha256": "7cd008580fd2c1ef95b7fd628faf83376c2053ddbd5adff00e22ce7dcf225fde"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r004:f03:unit",
+            "rowIdentity": "source:p44:observed-label:22",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r005:f02:description",
+            "rowIdentity": "source:p44:observed-label:23",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Removal Rock, Sand,\nSoil, Silt & Sediment",
+            "rawTextSha256": "67e04543ec67884ecbcc09da47bb0c1da8f6985bb08ebe583fd7c9c5a25bb068"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r005:f03:unit",
+            "rowIdentity": "source:p44:observed-label:23",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r006:f02:description",
+            "rowIdentity": "source:p44:observed-label:24",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Removal Rock, Sand,\nSoil, Silt & Sediment",
+            "rawTextSha256": "67e04543ec67884ecbcc09da47bb0c1da8f6985bb08ebe583fd7c9c5a25bb068"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r006:f03:unit",
+            "rowIdentity": "source:p44:observed-label:24",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r007:f02:description",
+            "rowIdentity": "source:p44:observed-label:25",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Disposal / Tipping Fees",
+            "rawTextSha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r007:f03:unit",
+            "rowIdentity": "source:p44:observed-label:25",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Actual Costs",
+            "rawTextSha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r008:f02:description",
+            "rowIdentity": "source:p44:observed-label:26",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Tires",
+            "rawTextSha256": "41171d0d57a61f55eb2f635ac7ded9f7f53acfe5260c41366174d5d9d6fde4ec"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r008:f03:unit",
+            "rowIdentity": "source:p44:observed-label:26",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r009:f02:description",
+            "rowIdentity": "source:p44:observed-label:27",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Limb\n(Hangers) Cutting\n(greater than 2\" diameter)",
+            "rawTextSha256": "1cdd290b8d2edca33d00adf6b0280140cbc6aea1033491b60ad87f1c9d4710ae"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r009:f03:unit",
+            "rowIdentity": "source:p44:observed-label:27",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Unit",
+            "rawTextSha256": "4e545960f1bffc134026127ef92963e136ec84b24bb2a6103c0731a64843a40b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r010:f02:description",
+            "rowIdentity": "source:p44:observed-label:28",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners)\nCutting (6\" to 11.99\")",
+            "rawTextSha256": "3369901bdeaa685bd11ee0649907b1df9319c78d2008ad7a3a5d64807acff6ff"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r010:f03:unit",
+            "rowIdentity": "source:p44:observed-label:28",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r011:f02:description",
+            "rowIdentity": "source:p44:observed-label:29",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners)\nCutting (12\" to 23.99\")",
+            "rawTextSha256": "747920fadb34b370cc23a3d40c3516951df2913ebfc6f32f162873d61b99c0ee"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r011:f03:unit",
+            "rowIdentity": "source:p44:observed-label:29",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r012:f02:description",
+            "rowIdentity": "source:p44:observed-label:30",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners)\nCutting (24\" to 35.99\")",
+            "rawTextSha256": "8185bb4765f6389bd0c5fddc89c8ff83d243666f27f5ff8568ce3b66283a3a00"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r012:f03:unit",
+            "rowIdentity": "source:p44:observed-label:30",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r013:f02:description",
+            "rowIdentity": "source:p44:observed-label:31",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners)\nCutting (36\" and greater)",
+            "rawTextSha256": "a353ec6669ba358eb53e6ad3cf0763746fca790464141395c4275eeb46965c66"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r013:f03:unit",
+            "rowIdentity": "source:p44:observed-label:31",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r014:f02:description",
+            "rowIdentity": "source:p44:observed-label:32",
+            "sourcePage": 44,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Sweeping",
+            "rawTextSha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p44:r014:f03:unit",
+            "rowIdentity": "source:p44:observed-label:32",
+            "sourcePage": 44,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Linear Mile",
+            "rawTextSha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r001:f01:description",
+            "rowIdentity": "source:p46:geometric-row:001",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling Vegetative Debris",
+            "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r001:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:001",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r001:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:001",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 29.00",
+            "rawTextSha256": "f50cd888c095005241ad48fe65e150e304a644f4edd20e08ac2bc5ef9ed96443"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r002:f01:description",
+            "rowIdentity": "source:p46:geometric-row:002",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling Vegetative Debris",
+            "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r002:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:002",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r002:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:002",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 40.00",
+            "rawTextSha256": "d3fe09fc619865cee2445c1ad7f8eae720ffb7ddfd34c145f7efad265b736f35"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r003:f01:description",
+            "rowIdentity": "source:p46:geometric-row:003",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling Vegetative. Debris",
+            "rawTextSha256": "a63112dbc9cfff7b60b4210158d23b7572fe26289297d1e67920873fb5b32cb9"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r003:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:003",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r003:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:003",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r004:f01:description",
+            "rowIdentity": "source:p46:geometric-row:004",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling Vegetative Debris",
+            "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r004:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:004",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r004:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:004",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 27.00",
+            "rawTextSha256": "a8629e0d5c83ce90280990051e311bb4eeff64e9d91b1e4de6a03682f9b4a765"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r005:f01:description",
+            "rowIdentity": "source:p46:geometric-row:005",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading and Hauling Vegetative Debris",
+            "rawTextSha256": "bd650d6f0e153feee4922b77735c2c1b2de45edaa92017db539d91a21d20b238"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r005:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:005",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r005:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:005",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 29.00",
+            "rawTextSha256": "f50cd888c095005241ad48fe65e150e304a644f4edd20e08ac2bc5ef9ed96443"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r006:f01:description",
+            "rowIdentity": "source:p46:geometric-row:006",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Debris Mgmt. Site Management",
+            "rawTextSha256": "fa77a1bf3df9bfb950e7d122811f0792f228d1249a99c37fec8c86ffc14f833a"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r006:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:006",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r006:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:006",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 5.00",
+            "rawTextSha256": "b7492c79d8fc74b3d97b48bcbf54a1d17f73f30d3fc2bfb515e82f601bee41d8"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r007:f01:description",
+            "rowIdentity": "source:p46:geometric-row:007",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Reduction and Compaction of C&D",
+            "rawTextSha256": "7e3fe6fe3ee02453cc5746155a6413ba5a2f5f88512c2268850f9f861ad799a3"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r007:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:007",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r007:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:007",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.50",
+            "rawTextSha256": "fe4f9a0b76d007e4b8f9553858b6f39f793bb9b91df03fa330ff6cbb561ed692"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r008:f01:description",
+            "rowIdentity": "source:p46:geometric-row:008",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Reduction of Vegetative Debris",
+            "rawTextSha256": "edba14a7ec35e352e76b35588407c5a922cde251958a6ea6b88ff37b707abab4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r008:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:008",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r008:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:008",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 9.24",
+            "rawTextSha256": "a343494dec28b1f3a168eb57878610ad6b2b85d13ff88cc3cb022109456a38ad"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r009:f01:description",
+            "rowIdentity": "source:p46:geometric-row:009",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading & Hauling to Final Disposal of Reduced\nVegetative Debris",
+            "rawTextSha256": "4f1aaaa4b599d07cd87fec981b42e9a185a790e2782edf1cf5f78ac73914e4c8"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r009:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:009",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r009:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:009",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r010:f01:description",
+            "rowIdentity": "source:p46:geometric-row:010",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, and Unloading C&D Debris",
+            "rawTextSha256": "df6f8d7b1a4219f8a5da374e81123d008f28c97c9fa8870651ea164b16f5b08d"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r010:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:010",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r010:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:010",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 35.00",
+            "rawTextSha256": "0b86b3de847634d1e0617431a897299bd10556672f990cefdb1f2801cce6b972"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r011:f01:description",
+            "rowIdentity": "source:p46:geometric-row:011",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, & Unloading C&D Debris",
+            "rawTextSha256": "784340dc4acc32bd5b6dedd96749aab534e0321f98a983a4f478a37c4dad9ccc"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r011:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:011",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r011:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:011",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 10.00",
+            "rawTextSha256": "1039eb97dae5632fd14d27a182b0753a7d5dc93cab85880a19fd7bd2f182db5a"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r012:f01:description",
+            "rowIdentity": "source:p46:geometric-row:012",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Loading, Hauling, and Unloading C& D Debris",
+            "rawTextSha256": "f9f837c2d4803b79213db403bca57f11879d523c446d7b81a18e2f249c5947ab"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r012:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:012",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r012:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:012",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 35.00",
+            "rawTextSha256": "0b86b3de847634d1e0617431a897299bd10556672f990cefdb1f2801cce6b972"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r013:f01:description",
+            "rowIdentity": "source:p46:geometric-row:013",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r013:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:013",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r013:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:013",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r014:f01:description",
+            "rowIdentity": "source:p46:geometric-row:014",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r014:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:014",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r014:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:014",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r015:f01:description",
+            "rowIdentity": "source:p46:geometric-row:015",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "White Goods Hauling, evacuation of\nFreon/Refrigerants",
+            "rawTextSha256": "1947b20d5e46aa1cb44708da9009b28ed64abb2acec129bbe1827d0b27409fbe"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r015:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:015",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r015:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:015",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r016:f01:description",
+            "rowIdentity": "source:p46:geometric-row:016",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Household Hazardous Waste (HHW)/Hazardous\nWaste",
+            "rawTextSha256": "19342e563100dfc2709799bf5ebb6bb5df6bb4be5cb79d7d30c48b03c3b6a988"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r016:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:016",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r016:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:016",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r017:f01:description",
+            "rowIdentity": "source:p46:geometric-row:017",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Household Hazardous Waste (HHW)/Hazardous\nWaste",
+            "rawTextSha256": "19342e563100dfc2709799bf5ebb6bb5df6bb4be5cb79d7d30c48b03c3b6a988"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r017:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:017",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r017:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:017",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r018:f01:description",
+            "rowIdentity": "source:p46:geometric-row:018",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r018:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:018",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r018:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:018",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r019:f01:description",
+            "rowIdentity": "source:p46:geometric-row:019",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r019:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:019",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r019:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:019",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r020:f01:description",
+            "rowIdentity": "source:p46:geometric-row:020",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Electronic Waste",
+            "rawTextSha256": "806c0f15df13c99969761a0522c790020f0094e88efe73ccb4de22f3524b2f32"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r020:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:020",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r020:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:020",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r021:f01:description",
+            "rowIdentity": "source:p46:geometric-row:021",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Trailers, Vessels, and Vehicles",
+            "rawTextSha256": "540ad4d9eb416f876c5c8e82198b249c0963108a42665acd32ce3cedf76b0e3d"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r021:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:021",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each Vehicle (Cars,\ntrucks, tractor trailers,\nboats, etc.)",
+            "rawTextSha256": "c58d17dd60325ba1e4838a16370a198e0b41bb7d9fae76fb257ea0c6d99f9312"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r021:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:021",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r022:f01:description",
+            "rowIdentity": "source:p46:geometric-row:022",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Putrescent Debris",
+            "rawTextSha256": "7cd008580fd2c1ef95b7fd628faf83376c2053ddbd5adff00e22ce7dcf225fde"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r022:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:022",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Per Pound",
+            "rawTextSha256": "9c0ea1fe63eee8eacc12d3f666987bfd7f2cc1793015afbdfad95840d457f8c7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r022:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:022",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r023:f01:description",
+            "rowIdentity": "source:p46:geometric-row:023",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Removal Rock, Sand, Soil, Silt & Sediment",
+            "rawTextSha256": "4c52aed9a544d927537a15585448a055a7e0b533a9845f0130404dde3353b4b2"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r023:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:023",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r023:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:023",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r024:f01:description",
+            "rowIdentity": "source:p46:geometric-row:024",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Removal Rock, Sand, Soil, Silt & Sediment",
+            "rawTextSha256": "4c52aed9a544d927537a15585448a055a7e0b533a9845f0130404dde3353b4b2"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r024:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:024",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Cubic Yard (CY)",
+            "rawTextSha256": "303a623d6a6bd1b172519161ea369d60f8829f7528a282d47babe6e1dddde41b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r024:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:024",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+            "rowIdentity": "source:p46:geometric-row:025",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Disposal / Tipping Fees",
+            "rawTextSha256": "a24b8aeb482939a757aacd5f1dac44ad6c9f78a3b790fa8042ef7ad63e2d9be7"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:025",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Actual Costs",
+            "rawTextSha256": "4303ee045757a2168fb8b12603476904c01ee1709010b1f700a2e216759959c4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:025",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ -",
+            "rawTextSha256": "99a34def433d7c957555d70157dbe2ea4bae7004a66a7ed267d7f8fbaf7f441e"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r026:f01:description",
+            "rowIdentity": "source:p46:geometric-row:026",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Tires",
+            "rawTextSha256": "41171d0d57a61f55eb2f635ac7ded9f7f53acfe5260c41366174d5d9d6fde4ec"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r026:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:026",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r026:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:026",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r027:f01:description",
+            "rowIdentity": "source:p46:geometric-row:027",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Limb (Hangers) Cutting (greater than\n2\" diameter)",
+            "rawTextSha256": "60f326f02ade6079f5f35bd288534a0245b3c5b990482b3d2275bf0790b7c540"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r027:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:027",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Unit",
+            "rawTextSha256": "4e545960f1bffc134026127ef92963e136ec84b24bb2a6103c0731a64843a40b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r027:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:027",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 135.00",
+            "rawTextSha256": "2381acd2c8e050f5d016c72538affc7ebb0b86ed072ed2d77237baaef765f2bd"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r028:f01:description",
+            "rowIdentity": "source:p46:geometric-row:028",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners) Cutting (6\" to 11.99\")",
+            "rawTextSha256": "c76437e49859b734fea4d6f911af153780388c78a5ee00409faf77a5d9b4290b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r028:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:028",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r028:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:028",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r029:f01:description",
+            "rowIdentity": "source:p46:geometric-row:029",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners) Cutting (12\" to 23.99\")",
+            "rawTextSha256": "30e29b7f3ff61f027197c3eb1586d52f4f6e6a4bf23e498ea0ff045ce445311b"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r029:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:029",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r029:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:029",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r030:f01:description",
+            "rowIdentity": "source:p46:geometric-row:030",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners) Cutting (24\" to 35.99\")",
+            "rawTextSha256": "f4e72e5aa6511efd4c9c69a0ef275964e3f75375faaf5096e0f8a0ac9cd373e4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r030:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:030",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r030:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:030",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r031:f01:description",
+            "rowIdentity": "source:p46:geometric-row:031",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Hazardous Tree (Leaners) Cutting (36\" and\ngreater)",
+            "rawTextSha256": "27909a069318da7203b5b5f246e5184c9ebfe3e202d77f2e6906ead5d12ef41a"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r031:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:031",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Each",
+            "rawTextSha256": "a9531f64027967a038d348e7a9cd626d4938661f425667f88c1b7cc9d1b69b15"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r031:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:031",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+            "rowIdentity": "source:p46:geometric-row:032",
+            "sourcePage": 46,
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Sweeping",
+            "rawTextSha256": "17d1f00d744e1535db1f967d46a8cc0eeb5a79227ab8ffe4cf2ae45ccda887f3"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+            "rowIdentity": "source:p46:geometric-row:032",
+            "sourcePage": 46,
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Linear Mile",
+            "rawTextSha256": "e3ce0eab5b8d6c7ae4be36c8adc2ee7817bb45743b6b4366ef1c450367720225"
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+            "rowIdentity": "source:p46:geometric-row:032",
+            "sourcePage": 46,
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "rawTextSha256": "39f7118143e05dced342648f97943a745dc56d2c126676381eedc460ea48c9f4"
+          }
+        ]
+      }
+    },
+    "authority": "evaluation_ground_truth_only",
+    "promotionAuthorized": false
+  },
+  "exactLabelLinkage": {
+    "path": "C:\\Dev\\eightforge-os\\scripts\\evaluation\\artifacts\\local-a3-review\\forgewing-label-linkage.reviewed.json",
+    "sha256": "811381100880f1c4b4ec0f9e54ac28d1176065493abe07aa3658fa042f2f9e60",
+    "supplied": true,
+    "status": "label_linkage_ready",
+    "failureReasons": [],
+    "scoredLabelObservationIds": [
+      "tdot-appendix-b:p46:r025:f01:description",
+      "tdot-appendix-b:p46:r025:f02:unit",
+      "tdot-appendix-b:p46:r025:f04:cost",
+      "tdot-appendix-b:p46:r032:f01:description",
+      "tdot-appendix-b:p46:r032:f02:unit",
+      "tdot-appendix-b:p46:r032:f04:cost"
+    ],
+    "promotionAuthorized": false
+  },
+  "modelIdentity": {
+    "provider": "anthropic",
+    "providerConfigured": true,
+    "model": "claude-sonnet-4-6",
+    "taskVersion": "forgewing-pricing-interpretation",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "evaluationTimeoutMs": 30000,
+    "evaluationMaxOutputTokens": 2000,
+    "temperature": 0,
+    "structuredOutput": "json_schema",
+    "sdkRetries": 0,
+    "taskRetryLimitPerCandidate": 1
+  },
+  "frozenProviderBundle": {
+    "frozenBeforeProviderCalls": true,
+    "digestSha256": "ad7c6df803b6da2c89bac6020c77ee4fb9598ca7d496141e96d0bbf562915448",
+    "taskVersion": "forgewing-pricing-interpretation",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "candidates": [
+      {
+        "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "candidateDigestSha256": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "rowId": "page_priced_schedule:p46:r24",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "3f490d38f079b39bc562396f0aca918fb1a21e213f28ff2c11b334063eff3c8f"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r24",
+            "rawText": "-\nActual Costs\n$\nN/A\nDisposal / Tipping Fees",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+                "rawText": "-",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+                "rawText": "Actual Costs",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+                "rawText": "Disposal / Tipping Fees",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+                ],
+                "authoredRawText": "Disposal / Tipping Fees"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+                ],
+                "authoredRawText": "Actual Costs"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                  "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+                ],
+                "authoredRawText": "$ -"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "authoredRawText": "Disposal / Tipping Fees"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "authoredRawText": "Actual Costs"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+            ],
+            "authoredRawText": "$ -"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r025:f01:description",
+          "tdot-appendix-b:p46:r025:f02:unit",
+          "tdot-appendix-b:p46:r025:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Disposal / Tipping Fees",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+              ],
+              "authoredRawText": "Disposal / Tipping Fees"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Actual Costs",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+              ],
+              "authoredRawText": "Actual Costs"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ -",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+              ],
+              "authoredRawText": "$ -"
+            }
+          }
+        ]
+      },
+      {
+        "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "candidateDigestSha256": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "rowId": "page_priced_schedule:p46:r31",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "4327c9ac1e557d947e1e80dbef6f5a0f5383fdf147bd67e1bfce0d3e1c74f354"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r31",
+            "rawText": "Linear Mile\n$\nN/A\nSweeping\n1.00",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+                "rawText": "Linear Mile",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+                "rawText": "Sweeping",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+                "rawText": "1.00",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+                ],
+                "authoredRawText": "Sweeping"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+                ],
+                "authoredRawText": "Linear Mile"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                  "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+                ],
+                "authoredRawText": "$ 1.00"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "authoredRawText": "Sweeping"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "authoredRawText": "Linear Mile"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "authoredRawText": "$ 1.00"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r032:f01:description",
+          "tdot-appendix-b:p46:r032:f02:unit",
+          "tdot-appendix-b:p46:r032:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Sweeping",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+              ],
+              "authoredRawText": "Sweeping"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Linear Mile",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+              ],
+              "authoredRawText": "Linear Mile"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+              ],
+              "authoredRawText": "$ 1.00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "candidateScope": {
+    "totalLabelledRows": 64,
+    "a2EligibleRows": 2,
+    "providerCallCandidateRows": 2,
+    "a3ScoredOutputs": 0,
+    "orderingDeterministic": true,
+    "frozenCandidates": [
+      {
+        "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "candidateDigestSha256": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+        "rowId": "page_priced_schedule:p46:r24",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "3f490d38f079b39bc562396f0aca918fb1a21e213f28ff2c11b334063eff3c8f"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r24",
+            "rawText": "-\nActual Costs\n$\nN/A\nDisposal / Tipping Fees",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+                "rawText": "-",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+                "rawText": "Actual Costs",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810",
+                "rawText": "Disposal / Tipping Fees",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+                ],
+                "authoredRawText": "Disposal / Tipping Fees"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+                ],
+                "authoredRawText": "Actual Costs"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                  "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+                ],
+                "authoredRawText": "$ -"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "authoredRawText": "Disposal / Tipping Fees"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "authoredRawText": "Actual Costs"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+            ],
+            "authoredRawText": "$ -"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+          "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c",
+          "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+          "pdf:layout-token:v1:e8d3afde09ec17fe58236ed7d302c0f40f14cc1ea784d3363286b0917059e21a",
+          "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r025:f01:description",
+          "tdot-appendix-b:p46:r025:f02:unit",
+          "tdot-appendix-b:p46:r025:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Disposal / Tipping Fees",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:f13c867f67e564235c7619ba32393dac681581ad111398e1669e0f55cf104810"
+              ],
+              "authoredRawText": "Disposal / Tipping Fees"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Actual Costs",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:df54c86fb8e2dbc5e537273b0877cb2a0c6e41221bc07082cd57691f6167520c"
+              ],
+              "authoredRawText": "Actual Costs"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r025:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ -",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9",
+              "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:e54d96304b03b1e30ed299cf44a0dc6d4cd7ecffa4726fa68a07e7e5c309b4be",
+                "pdf:layout-token:v1:12f8fd6d251f65185b77b7d476761882b544e8fd3a0a4213f0ab56f059d02ea9"
+              ],
+              "authoredRawText": "$ -"
+            }
+          }
+        ]
+      },
+      {
+        "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "candidateDigestSha256": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+        "rowId": "page_priced_schedule:p46:r31",
+        "physicalPage": 46,
+        "candidateInput": {
+          "organizationId": "local-evaluation-organization",
+          "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+          "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+          "extractionSnapshotId": "94beb06e-1610-5b12-bfd1-b6dfc49b0e77",
+          "pricingScope": {
+            "scopeKind": "authoritative",
+            "eligibility": "canonical_eligible",
+            "eligibilityReason": "authoritative_scope_match",
+            "scopeIdentity": "4327c9ac1e557d947e1e80dbef6f5a0f5383fdf147bd67e1bfce0d3e1c74f354"
+          },
+          "rowObservation": {
+            "observationId": "page_priced_schedule:p46:r31",
+            "rawText": "Linear Mile\n$\nN/A\nSweeping\n1.00",
+            "deterministicState": "unresolved",
+            "physicalPageNumber": 46,
+            "cells": [
+              {
+                "observationId": "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+                "rawText": "Linear Mile",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "unit_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "rawText": "$",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+                "rawText": "N/A",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              },
+              {
+                "observationId": "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+                "rawText": "Sweeping",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45,
+                "semanticHints": [
+                  "description_like_text"
+                ]
+              },
+              {
+                "observationId": "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e",
+                "rawText": "1.00",
+                "columnIndex": 0,
+                "readingOrder": 0,
+                "sourceDocumentId": "local-pricing-document-7e60675c7c1f6d41f58fd3d9",
+                "sourceArtifactId": "13e8b070-f53a-5398-bed6-b339dbfe097e",
+                "physicalPageNumber": 46,
+                "sourceLayer": "pdf_native_text",
+                "artifactLocalIndex": 45
+              }
+            ],
+            "sourceCellGroups": [
+              {
+                "sourceCellRole": "description",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+                ],
+                "authoredRawText": "Sweeping"
+              },
+              {
+                "sourceCellRole": "unit",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+                ],
+                "authoredRawText": "Linear Mile"
+              },
+              {
+                "sourceCellRole": "origin_destination",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+                ],
+                "authoredRawText": "N/A"
+              },
+              {
+                "sourceCellRole": "rate",
+                "sourceObservationIds": [
+                  "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                  "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+                ],
+                "authoredRawText": "$ 1.00"
+              }
+            ]
+          }
+        },
+        "sourceCellGroups": [
+          {
+            "sourceCellRole": "description",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "authoredRawText": "Sweeping"
+          },
+          {
+            "sourceCellRole": "unit",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "authoredRawText": "Linear Mile"
+          },
+          {
+            "sourceCellRole": "origin_destination",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d"
+            ],
+            "authoredRawText": "N/A"
+          },
+          {
+            "sourceCellRole": "rate",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "authoredRawText": "$ 1.00"
+          }
+        ],
+        "sourceAnchorIds": [
+          "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6",
+          "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+          "pdf:layout-token:v1:a9300c1550de3c29c411bca9f9892e94e1e2678fb60367c6148999186a6dca1d",
+          "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824",
+          "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+        ],
+        "resolutionState": "unresolved",
+        "eligibilityReason": "authoritative_scope_match",
+        "labelLinkage": "exact_linkage_complete",
+        "labelObservationIds": [
+          "tdot-appendix-b:p46:r032:f01:description",
+          "tdot-appendix-b:p46:r032:f02:unit",
+          "tdot-appendix-b:p46:r032:f04:cost"
+        ],
+        "linkedRoles": [
+          "cost",
+          "description",
+          "unit"
+        ],
+        "linkedLabels": [
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f01:description",
+            "labelRole": "description",
+            "expectedSemanticRole": "description_like_text",
+            "expectedRawText": "Sweeping",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "description",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:c0dc7e77ef227fe751e8c0bc4e295f2d19cb1731fed53d980ec90294d620a824"
+              ],
+              "authoredRawText": "Sweeping"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f02:unit",
+            "labelRole": "unit",
+            "expectedSemanticRole": "unit_like_text",
+            "expectedRawText": "Linear Mile",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "unit",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:1dc762474f5fd666d6de1f9cd4288d0b9739a170d5c3ab3a520307bdc6272df6"
+              ],
+              "authoredRawText": "Linear Mile"
+            }
+          },
+          {
+            "labelObservationId": "tdot-appendix-b:p46:r032:f04:cost",
+            "labelRole": "cost",
+            "expectedSemanticRole": "rate_like_amount",
+            "expectedRawText": "$ 1.00",
+            "sourceObservationIds": [
+              "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+              "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+            ],
+            "sourceCellGroup": {
+              "sourceCellRole": "rate",
+              "sourceObservationIds": [
+                "pdf:layout-token:v1:2fdc894381de1226cd2d80afc5ecb73fae7aa5b6717805e2c2e878e063e95efb",
+                "pdf:layout-token:v1:ddabb360aab58546bc59bdffc01e634b8aebb71c85acd24ff0ce0b838ec05d0e"
+              ],
+              "authoredRawText": "$ 1.00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "callBudget": {
+    "maximum": 6,
+    "planned": 4,
+    "priorCalls": 0,
+    "currentCallsAttempted": 0,
+    "callsAttempted": 0,
+    "callsSucceeded": 0,
+    "providerFailures": 0,
+    "truncatedOutputs": 0,
+    "jsonParseFailures": 0,
+    "schemaFailures": 0,
+    "schemaValidOutputs": 0,
+    "retries": 0
+  },
+  "preCallReport": {
+    "attestationValid": true,
+    "linkageValid": true,
+    "sourceValid": true,
+    "scoringContractValid": true,
+    "candidateCount": 2,
+    "candidateIds": [
+      "page_priced_schedule:p46:r24",
+      "page_priced_schedule:p46:r31"
+    ],
+    "candidateDigests": [
+      "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+      "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be"
+    ],
+    "candidateBundleDigest": "ad7c6df803b6da2c89bac6020c77ee4fb9598ca7d496141e96d0bbf562915448",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "promptVersion": "v3",
+    "schemaVersion": "forgewing-pricing-interpretation-proposal-v1",
+    "outputTokenLimit": 2000,
+    "timeoutMs": 30000,
+    "sdkRetries": 0,
+    "taskRetryLimitPerCandidate": 1,
+    "plannedCalls": 4,
+    "hardCallLimit": 6
+  },
+  "plannedCallSequence": [
+    {
+      "sequence": 1,
+      "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+      "rowId": "page_priced_schedule:p46:r24",
+      "repetition": "primary"
+    },
+    {
+      "sequence": 2,
+      "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+      "rowId": "page_priced_schedule:p46:r31",
+      "repetition": "primary"
+    },
+    {
+      "sequence": 3,
+      "candidateId": "a0fbe456fe901155fa17b03ef7d7c01461b119170e18f9492bd7d627976c87db",
+      "rowId": "page_priced_schedule:p46:r24",
+      "repetition": "repeat"
+    },
+    {
+      "sequence": 4,
+      "candidateId": "f31237f8b556942fd0cdd1dc5cd02b0216c4372187397be371b8fdc1978ad2be",
+      "rowId": "page_priced_schedule:p46:r31",
+      "repetition": "repeat"
+    }
+  ],
+  "priorProviderCallSequence": [],
+  "currentProviderCallSequence": [],
+  "providerCallSequence": [],
+  "outputs": {
+    "acceptedRawOutputs": [],
+    "rejectedRawDiagnostics": []
+  },
+  "priorRuns": [],
+  "corpusStatus": "labelled_a3_incomplete",
+  "historicalRuns": [],
+  "measurementClassification": "UNMET",
+  "metrics": {
+    "providerCallSuccessCount": 0,
+    "providerCallSuccessRate": null,
+    "schemaValidOutputCount": 0,
+    "schemaValidOutputRate": null,
+    "scoredLabelCount": 6,
+    "correctlyClassifiedLabelCount": 0,
+    "fieldScoreCount": 0,
+    "fieldScoringCoverage": 0,
+    "labelLinkageRate": 1,
+    "semanticRoleAccuracy": null,
+    "descriptionRoleAccuracy": null,
+    "unitRoleAccuracy": null,
+    "rateCostRoleAccuracy": null,
+    "amountAccuracy": null,
+    "amountAccuracyStatus": "NOT_MEASURED_SCHEMA_HAS_NO_NUMERIC_PROPOSAL",
+    "citedAnchorCount": 0,
+    "validCitedAnchorCount": 0,
+    "hallucinatedAnchorCount": 0,
+    "foreignCandidateAnchorCount": 0,
+    "foreignDocumentOrPageAnchorCount": 0,
+    "diagnosticOnlyAnchorCount": 0,
+    "evidenceAnchorFidelity": null,
+    "hallucinatedAnchorRate": null,
+    "abstentionCount": 0,
+    "safeAbstentionCount": 0,
+    "inappropriateAbstentionCount": 0,
+    "unsafeConfidentAnswerCount": 0,
+    "abstentionRate": null,
+    "appropriateAbstentionRate": null,
+    "inappropriateConfidentAnswerRate": null,
+    "confidenceCalibration": "NOT_MEASURED",
+    "repeatedRunStableCount": 0,
+    "repeatedRunComparableCount": 0,
+    "repeatedRunStability": "NOT_MEASURED"
+  },
+  "cases": [],
+  "failureReasons": [
+    "PROVIDER_DISABLED_PREFLIGHT"
+  ],
+  "limitations": [
+    "numeric_amount_not_measured_schema_has_no_numeric_proposal",
+    "provider_native_token_usage_and_stop_reason_unavailable_to_evaluation_runner",
+    "evaluation_only_non_authoritative_no_promotion"
+  ]
+}

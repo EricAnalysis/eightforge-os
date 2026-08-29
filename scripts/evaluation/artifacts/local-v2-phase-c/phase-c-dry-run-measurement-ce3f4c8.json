@@ -1,0 +1,320 @@
+{
+  "reportVersion": "forgewing-pricing-v2-phase-c-measurement-v2",
+  "authority": "non_authoritative_measurement",
+  "promotionEvidence": false,
+  "promotionAuthorized": false,
+  "runIdentity": {
+    "runId": "forgewing-v2-phase-c-30b7d5b975574306ac09dc313a4e6ae9",
+    "createdAt": "2026-08-29T10:48:58.945Z",
+    "runNonce": "c175973c-90b2-47b9-9952-acb8581e7a64"
+  },
+  "freeze": {
+    "path": "C:\\Dev\\eightforge-os\\scripts\\evaluation\\artifacts\\local-v2-phase-c\\phase-c-dry-run-freeze-ce3f4c8.json",
+    "sha256": "1a71ff8bf6900226ba04beb8cd3594d27d8a928bf077925b1d160d719f74a066",
+    "digestSha256": "cc5a57cb931aaa9d528cd26e1fa83074ef28198ce695f27a35af2de2bfc5641b"
+  },
+  "executionMode": "provider_disabled_dry_run",
+  "providerAccounting": {
+    "plannedCalls": 5,
+    "callBudget": 5,
+    "hardCallLimit": 5,
+    "providerCallsExecuted": 0,
+    "sdkRetries": 0,
+    "taskRetryLimitPerCandidate": 0,
+    "outcomeCounts": {},
+    "callRecords": []
+  },
+  "rawResponses": [],
+  "scoring": {
+    "scoringVersion": "forgewing-pricing-v2-phase-c-scoring-v1",
+    "fixedDenominators": {
+      "field": 17,
+      "contribution": 19
+    },
+    "semanticRole": {
+      "denominator": 17,
+      "correct": 0,
+      "incorrect": 0,
+      "unavailable": 17,
+      "accuracyFixedDenominator": 0,
+      "accuracyAmongScoredSecondaryDiagnostic": null,
+      "interpretation": "STRUCTURALLY_CONFOUNDED",
+      "warning": "STRUCTURALLY_CONFOUNDED: the provider receives sourceFieldRole as input and the human labels map structure to semantic role 1:1 wherever a matching role exists. Compare against structuralMapperBaseline. This metric is descriptive only and is not evidence of semantic reasoning capability.",
+      "structuralMapperBaseline": {
+        "matches": 15,
+        "denominator": 17,
+        "accuracy": 0.8823529411764706,
+        "description": "score of a mapper that copies sourceFieldRole into semanticRole"
+      }
+    },
+    "contributionRole": {
+      "denominator": 19,
+      "correct": 0,
+      "incorrect": 0,
+      "unavailable": 19,
+      "accuracyFixedDenominator": 0,
+      "accuracyAmongScoredSecondaryDiagnostic": null,
+      "interpretation": "PRIMARY_SEMANTIC_DISCRIMINATION_METRIC",
+      "confusion": {
+        "type_marker": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 2
+        },
+        "value_token": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 4
+        },
+        "component_part": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 0
+        },
+        "semantic_head": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 10
+        },
+        "semantic_modifier": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 0
+        },
+        "placeholder_absence": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 3
+        },
+        "connector": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 0
+        },
+        "structural_noise": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 0
+        },
+        "unknown_contribution": {
+          "type_marker": 0,
+          "value_token": 0,
+          "component_part": 0,
+          "semantic_head": 0,
+          "semantic_modifier": 0,
+          "placeholder_absence": 0,
+          "connector": 0,
+          "structural_noise": 0,
+          "unknown_contribution": 0,
+          "UNAVAILABLE": 0
+        }
+      },
+      "humanRoleDistribution": {
+        "semantic_head": 10,
+        "type_marker": 2,
+        "value_token": 4,
+        "placeholder_absence": 3
+      },
+      "majorityClassBaseline": {
+        "role": "semantic_head",
+        "matches": 10,
+        "denominator": 19,
+        "accuracy": 0.5263157894736842,
+        "description": "score of predicting the most frequent human contribution role everywhere"
+      }
+    },
+    "placeholderSafety": {
+      "denominator": 3,
+      "correctPlaceholderAbsence": 0,
+      "predictedValueToken": 0,
+      "predictedComponentPart": 0,
+      "predictedOther": 0,
+      "unavailable": 3,
+      "accuracyFixedDenominator": 0,
+      "criticalFailuresTotal": 0,
+      "criticalFailureDescription": "absence collapsed into a value-bearing contribution role",
+      "zeroCoercionPerformed": false
+    },
+    "interpretationState": {
+      "denominator": 17,
+      "correct": 0,
+      "incorrect": 0,
+      "unavailable": 17,
+      "accuracyFixedDenominator": 0,
+      "accuracyAmongScoredSecondaryDiagnostic": null,
+      "abstentionAppropriateness": "NOT_MEASURABLE_FROM_THIS_PACKAGE",
+      "limitation": "NOT_MEASURABLE_FROM_THIS_PACKAGE: every human interpretation-state label in this package is \"observed\". No conclusion about abstention capability may be drawn from this run in either direction.",
+      "humanStateDistribution": {
+        "observed": 17
+      }
+    },
+    "membership": {
+      "denominator": 17,
+      "exact": 0,
+      "unavailable": 17,
+      "missingMemberReferences": 0,
+      "extraMemberReferences": 0,
+      "foreignMemberReferences": 0,
+      "duplicateMemberReferences": 0,
+      "accuracyFixedDenominator": 0,
+      "authoritativeViolationCodes": {},
+      "authority": "validateForgewingPricingInterpretationProposalV2"
+    },
+    "unavailability": {
+      "count": 17,
+      "byReason": {
+        "provider_disabled": 17
+      },
+      "authoritativeViolationCodes": {}
+    },
+    "perField": [
+      {
+        "sourceFieldId": "forgewing-source-field-0af18d4091e5eeb28858f096b23e3a9fd93d60b8490bd170353b866959bf09fc",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-1c653eb23ce993897c70b0e87b8bf40cab5a067cc7853ac3f08ca8bf7c310b3f",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-203fbd7666953eaf00a3bef33e147e690797f8e16850134f17d7e960f1edd156",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-345fe892b549374db4eef2f8f8c8771699d6c2f823613e672b7210dbdd324b20",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-4f3db582786039c95b7372ac30437cefd54057cb535f3f3081d4970d1dd6498c",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-52a644c4344b3709311da25be28d6676352591929f84451fd20af76cd5b39853",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-55e351b0c69317e8d6aff29c03418f59724d774e89ac5e1d1334caecefcef696",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-5c4c70185b42ccb37331733e2f0e441d423ae46eb288f1afb30384c90abafb69",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-7278691863ec214c3184d5d8f758a83e6ee9286b0c8e4297f575e54d029d8c71",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-918c4d3679ac359b80254ff1bfbb3767c666b3ba86addf079db9f3e89c8ae570",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-9fcfe29517e080ff0bd33edc9e3edf0c0f8bb5085ceeb39e4f51b7c71de265f6",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-ac8469ccb3655801b171716117a87388cd215255ab55205b7a83718443605b9f",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-b5e35087425447202fd81091285fb43ee172131be8b9e3463a1a83d3f61896d3",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-b8d581a6df7f10985d44fae98f98b58bd8ef478d3865e350e03cc4defcbfaf13",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-c487d5b2776f6ed4e860d7538441170469aa4369227ae8d37f6e62bb2e8537b2",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-c7155f5ba2845d2a088c4cad2f2dfaee43718ed145c222d30b4da19f4f4ed460",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      },
+      {
+        "sourceFieldId": "forgewing-source-field-e27fe666577d8662c96ea250c8ee556469e3a66a344553bf06ab47658abe0ef6",
+        "status": "unavailable",
+        "reason": "provider_disabled"
+      }
+    ]
+  },
+  "limitations": [
+    "semantic_role_structurally_confounded",
+    "abstention_appropriateness_not_measurable_from_this_package",
+    "scope_is_a_capability_probe_not_a_general_capability_claim",
+    "provider_disabled_dry_run_no_measurement"
+  ]
+}

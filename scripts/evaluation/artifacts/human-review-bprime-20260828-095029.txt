@@ -1,0 +1,118 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260828095030
+Username: TCS-001604\ADMS Thompson
+RunAs User: TCS-001604\ADMS Thompson
+Configuration Name: 
+Machine: TCS-001604 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 22940
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Dev\eightforge-os\scripts\evaluation\artifacts\human-review-bprime-20260828-095029.txt
+PS C:\Dev\eightforge-os> cd C:\Dev\eightforge-os
+PS C:\Dev\eightforge-os> $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+PS C:\Dev\eightforge-os> $transcript = "C:\Dev\eightforge-os\scripts\evaluation\artifacts\human-review-bprime-$stamp.txt"
+PS C:\Dev\eightforge-os> Start-Transcript -Path $transcript
+Transcript started, output file is C:\Dev\eightforge-os\scripts\evaluation\artifacts\human-review-bprime-20260828-095033.txt
+PS C:\Dev\eightforge-os> $phaseB = "C:\Dev\eightforge-os\scripts\evaluation\artifacts\local-v2-phase-b\phase-b-f13c815.json"
+PS C:\Dev\eightforge-os> Test-Path $phaseB
+True
+PS C:\Dev\eightforge-os> Get-FileHash $phaseB -Algorithm SHA256
+
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          641B52F5ED55152B22C6338D283EECF0AD41671F066E2BDAB0835B37733C798A       C:\Dev\eightforge-os\scripts\...
+
+
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE="1"
+PS C:\Dev\eightforge-os> Invoke-WebRequest `
+  -Uri "http://127.0.0.1:3017/evaluation/forgewing/v2-field-labels" `
+  -UseBasicParsing |
+  Select-Object StatusCode
+
+StatusCode
+----------
+       200
+
+
+PS C:\Dev\eightforge-os> Invoke-WebRequest `
+  -Uri "http://127.0.0.1:3017/evaluation/forgewing/v2-field-labels" `
+  -UseBasicParsing |
+  Select-Object StatusCode
+
+StatusCode
+----------
+       200
+
+
+PS C:\Dev\eightforge-os> Start-Process "http://127.0.0.1:3017/evaluation/forgewing/v2-field-labels"
+PS C:\Dev\eightforge-os> cd C:\Dev\eightforge-os
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE="1"
+PS C:\Dev\eightforge-os> $env:TDOT_PHASE1_SOURCE_PDF="C:\Users\ADMS Thompson\Desktop\EightForgeDocTrainning\Training Projects\TDOT\SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf"
+PS C:\Dev\eightforge-os> $env:DN_PRICED_SCHEDULE_SOURCE_PDF="C:\Users\ADMS Thompson\Desktop\EightForgeDocTrainning\Contract and Rates\DN12189513 CONTRACT.pdf"
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE
+1
+PS C:\Dev\eightforge-os> Test-Path $env:TDOT_PHASE1_SOURCE_PDF
+True
+PS C:\Dev\eightforge-os> Test-Path $env:DN_PRICED_SCHEDULE_SOURCE_PDF
+True
+PS C:\Dev\eightforge-os> $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE
+1
+PS C:\Dev\eightforge-os> Test-Path $env:TDOT_PHASE1_SOURCE_PDF
+True
+PS C:\Dev\eightforge-os> Test-Path $env:DN_PRICED_SCHEDULE_SOURCE_PDF
+True
+PS C:\Dev\eightforge-os> Get-FileHash $env:TDOT_PHASE1_SOURCE_PDF -Algorithm SHA256
+
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          7E60675C7C1F6D41F58FD3D9E372F8ABB2DD800896D1AF266E2312250895E58A       C:\Users\ADMS Thompson\Deskto...
+
+
+PS C:\Dev\eightforge-os> Get-FileHash $env:DN_PRICED_SCHEDULE_SOURCE_PDF -Algorithm SHA256
+
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          69247BFF02744276B75F2CB0D4C00610E8614BD5822D2D10AE2AD35564C3B272       C:\Users\ADMS Thompson\Deskto...
+
+
+PS C:\Dev\eightforge-os> Invoke-WebRequest `
+  -Uri "http://127.0.0.1:3017/evaluation/forgewing/v2-field-labels" `
+  -UseBasicParsing |
+  Select-Object StatusCode
+
+StatusCode
+----------
+       200
+
+
+PS C:\Dev\eightforge-os> Write-Host "Workspace:" $env:ENABLE_V2_PHASE_B_PRIME_REVIEW_WORKSPACE
+Workspace: 1
+PS C:\Dev\eightforge-os> Write-Host "TDOT exists:" (Test-Path $env:TDOT_PHASE1_SOURCE_PDF)
+TDOT exists: True
+PS C:\Dev\eightforge-os> Write-Host "DN exists:" (Test-Path $env:DN_PRICED_SCHEDULE_SOURCE_PDF)
+DN exists: True
+PS C:\Dev\eightforge-os> Write-Host "TDOT:" $env:TDOT_PHASE1_SOURCE_PDF
+TDOT: C:\Users\ADMS Thompson\Desktop\EightForgeDocTrainning\Training Projects\TDOT\SWC 820 - Fern - Contract #89633 PHILLIPS HEAVY INC- PJ.pdf
+PS C:\Dev\eightforge-os> Write-Host "DN:" $env:DN_PRICED_SCHEDULE_SOURCE_PDF
+DN: C:\Users\ADMS Thompson\Desktop\EightForgeDocTrainning\Contract and Rates\DN12189513 CONTRACT.pdf
+PS C:\Dev\eightforge-os> npm run dev -- --hostname 127.0.0.1 --port 3017
+
+PS C:\Dev\eightforge-os> Invoke-WebRequest `
+  -Uri "http://127.0.0.1:3017/evaluation/forgewing/v2-field-labels" `
+  -UseBasicParsing |
+  Select-Object StatusCode
+
+StatusCode
+----------
+       200
+
+

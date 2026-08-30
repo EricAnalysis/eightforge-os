@@ -22,6 +22,15 @@ export const WORKFLOW_RULE_CONDITION_TYPES = [
   'identity_match', 'duplicate_detection', 'precedence',
 ] as const;
 
+export const WORKFLOW_DETERMINISM_CONDITIONS = [
+  'objectiveInputs',
+  'explicitComparisonOrCalculation',
+  'stableEvidenceSource',
+  'deterministicOutput',
+  'definedExceptionBehavior',
+  'noUnresolvedSubjectiveJudgment',
+] as const;
+
 const identifier = z.string().min(1).max(120)
   .refine((value) => value.trim() === value, 'identifier whitespace');
 const prose = (max: number) => z.string().min(1).max(max)
@@ -39,6 +48,18 @@ const determinismBasisSchema = z.object({
   deterministicOutput: z.boolean(),
   definedExceptionBehavior: z.boolean(),
   noUnresolvedSubjectiveJudgment: z.boolean(),
+}).strict();
+
+const determinismGapSchema = z.object({
+  condition: z.enum(WORKFLOW_DETERMINISM_CONDITIONS),
+  explanation: prose(400),
+}).strict();
+
+const determinismSupportSchema = z.object({
+  condition: z.enum(WORKFLOW_DETERMINISM_CONDITIONS),
+  sourceQuestion: z.enum(WORKFLOW_INTAKE_QUESTIONS),
+  sourceExcerpt: prose(500),
+  rationale: prose(400),
 }).strict();
 
 /**
@@ -76,6 +97,10 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
     unresolvedAssumptions: z.array(prose(300)).max(12),
     /** Required for RULE and VERIFY; rejected on every other class. */
     determinismBasis: determinismBasisSchema.nullable(),
+    /** One exact keyed gap for each false determinism condition. */
+    determinismGaps: z.array(determinismGapSchema).max(6),
+    /** Intake-grounded support used by EightForge qualification, never authority. */
+    determinismSupport: z.array(determinismSupportSchema).max(6),
   }).strict()).min(1).max(40),
   extractionRequirements: z.array(z.object({
     requirementId: identifier, stepId: identifier,
@@ -169,7 +194,7 @@ export const WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA = {
         required: ['stepId', 'sourceQuestions', 'description', 'classification',
           'rationale', 'requiredInputs', 'evidenceRequirements', 'proposedOutput',
           'dependencies', 'failureConsequence', 'unresolvedAssumptions',
-          'determinismBasis'],
+          'determinismBasis', 'determinismGaps', 'determinismSupport'],
         properties: {
           stepId: { type: 'string' },
           sourceQuestions: {
@@ -197,6 +222,30 @@ export const WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA = {
               deterministicOutput: { type: 'boolean' },
               definedExceptionBehavior: { type: 'boolean' },
               noUnresolvedSubjectiveJudgment: { type: 'boolean' },
+            },
+          },
+          determinismGaps: {
+            type: 'array',
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['condition', 'explanation'],
+              properties: {
+                condition: { type: 'string', enum: WORKFLOW_DETERMINISM_CONDITIONS },
+                explanation: { type: 'string' },
+              },
+            },
+          },
+          determinismSupport: {
+            type: 'array',
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['condition', 'sourceQuestion', 'sourceExcerpt', 'rationale'],
+              properties: {
+                condition: { type: 'string', enum: WORKFLOW_DETERMINISM_CONDITIONS },
+                sourceQuestion: { type: 'string', enum: WORKFLOW_INTAKE_QUESTIONS },
+                sourceExcerpt: { type: 'string' },
+                rationale: { type: 'string' },
+              },
             },
           },
         },

@@ -1,6 +1,19 @@
 import { readFileSync } from 'node:fs';
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+
+const dependencyMocks = vi.hoisted(() => ({
+  admin: null as unknown,
+  run: vi.fn(),
+}));
+
+vi.mock('@/lib/server/supabaseAdmin', () => ({
+  getSupabaseAdmin: () => dependencyMocks.admin,
+}));
+
+vi.mock('@/lib/forgewing/tasks/workflowAssessment', () => ({
+  runForgewingWorkflowAssessment: (...args: unknown[]) => dependencyMocks.run(...args),
+}));
 
 import {
   loadWorkflowIntakeSubmission,
@@ -45,6 +58,11 @@ const metadata = {
   promptTemplateVersion: 'v1',
   calls: 1,
 } as never;
+
+beforeEach(() => {
+  dependencyMocks.admin = null;
+  dependencyMocks.run.mockReset();
+});
 
 /** Records every table touched so intake immutability can be asserted. */
 function fakeAdmin(options: { latestVersion?: number | null; insertError?: string } = {}) {
@@ -108,10 +126,9 @@ describe('workflow intake read seam', () => {
 describe('workflow assessment recording', () => {
   it('records a non-authoritative assessment at version 1 without touching intake', async () => {
     const fake = fakeAdmin({ latestVersion: null });
-    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID, {
-      admin: fake.admin,
-      run: async () => ({ status: 'requires_human_review', assessment, metadata }),
-    });
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockResolvedValue({ status: 'requires_human_review', assessment, metadata });
+    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID);
 
     expect(result).toMatchObject({
       status: 'assessment_recorded',
@@ -135,21 +152,20 @@ describe('workflow assessment recording', () => {
 
   it('appends a new version rather than overwriting a prior assessment', async () => {
     const fake = fakeAdmin({ latestVersion: 3 });
-    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID, {
-      admin: fake.admin,
-      run: async () => ({ status: 'requires_human_review', assessment, metadata }),
-    });
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockResolvedValue({ status: 'requires_human_review', assessment, metadata });
+    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID);
     expect(result).toMatchObject({ status: 'assessment_recorded', assessmentVersion: 4 });
     const row = fake.insert.mock.calls[0]![0] as Record<string, unknown>;
     expect(row.assessment_version).toBe(4);
   });
 
   it('reports a missing submission without calling the assessment task', async () => {
-    const run = vi.fn();
     const admin = { rpc: vi.fn(async () => ({ data: [], error: null })), from: vi.fn() } as never;
-    await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID, { admin, run: run as never }))
+    dependencyMocks.admin = admin;
+    await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID))
       .resolves.toEqual({ status: 'submission_not_found' });
-    expect(run).not.toHaveBeenCalled();
+    expect(dependencyMocks.run).not.toHaveBeenCalled();
   });
 
   it('persists nothing when the assessment is not produced', async () => {
@@ -158,10 +174,9 @@ describe('workflow assessment recording', () => {
       'structured_output_invalid', 'deterministic_validation_failed',
     ] as const) {
       const fake = fakeAdmin();
-      const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID, {
-        admin: fake.admin,
-        run: async () => ({ status, reason: 'x' }) as never,
-      });
+      dependencyMocks.admin = fake.admin;
+      dependencyMocks.run.mockResolvedValueOnce({ status, reason: 'x' });
+      const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID);
       expect(result).toEqual({ status: 'assessment_not_produced', reason: status });
       expect(fake.insert).not.toHaveBeenCalled();
     }
@@ -169,17 +184,45 @@ describe('workflow assessment recording', () => {
 
   it('contains a persistence failure without altering intake', async () => {
     const fake = fakeAdmin({ insertError: 'permission denied' });
-    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID, {
-      admin: fake.admin,
-      run: async () => ({ status: 'requires_human_review', assessment, metadata }),
-    });
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockResolvedValue({ status: 'requires_human_review', assessment, metadata });
+    const result = await runAndRecordWorkflowAssessment(SUBMISSION_ID);
     expect(result).toMatchObject({ status: 'persist_failed' });
     expect(fake.from).not.toHaveBeenCalledWith('workflow_intake_submissions');
   });
 
   it('reports unconfigured storage instead of throwing', async () => {
-    await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID, { admin: null }))
+    await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID))
       .resolves.toEqual({ status: 'not_configured' });
+  });
+
+  it('does not expose or honor production dependency overrides', async () => {
+    expectTypeOf(runAndRecordWorkflowAssessment)
+      .parameters.toEqualTypeOf<[submissionId: string]>();
+
+    const fake = fakeAdmin();
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockResolvedValue({ status: 'requires_human_review', assessment, metadata });
+    const injectedAdmin = { from: vi.fn(), rpc: vi.fn() };
+    const injectedLoad = vi.fn();
+    const injectedRun = vi.fn();
+    const widened = runAndRecordWorkflowAssessment as unknown as (
+      submissionId: string,
+      overrides: unknown,
+    ) => ReturnType<typeof runAndRecordWorkflowAssessment>;
+
+    await widened(SUBMISSION_ID, {
+      admin: injectedAdmin,
+      load: injectedLoad,
+      run: injectedRun,
+    });
+
+    expect(injectedAdmin.from).not.toHaveBeenCalled();
+    expect(injectedAdmin.rpc).not.toHaveBeenCalled();
+    expect(injectedLoad).not.toHaveBeenCalled();
+    expect(injectedRun).not.toHaveBeenCalled();
+    expect(fake.rpc).toHaveBeenCalled();
+    expect(dependencyMocks.run).toHaveBeenCalledOnce();
   });
 });
 

@@ -15,6 +15,7 @@ import {
 } from '@/lib/forgewing/runtime/modelConfig';
 import {
   parseWorkflowAssessmentModelOutput,
+  WORKFLOW_DETERMINISM_CONDITIONS,
   WORKFLOW_INTAKE_QUESTIONS,
   WORKFLOW_STEP_CLASSIFICATIONS,
   type WorkflowAssessmentModelOutput,
@@ -34,6 +35,19 @@ const identifier = z.string().min(1).max(120)
 export type WorkflowDeterminismBasis =
   NonNullable<WorkflowAssessmentModelOutput['workflowSteps'][number]['determinismBasis']>;
 
+export type WorkflowDeterminismQualificationState =
+  | 'qualified'
+  | 'qualified_with_gaps'
+  | 'unqualified';
+
+export type WorkflowDeterminismQualification = Readonly<{
+  stepId: string;
+  proposedClassification: (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number];
+  basis: 'eightforge_source_grounded_v1';
+  state: WorkflowDeterminismQualificationState;
+  reasons: readonly string[];
+}>;
+
 
 /**
  * The persisted assessment. Authority markers are literals, not provider
@@ -48,6 +62,7 @@ export type ForgewingWorkflowAssessment = Readonly<{
   sourceSubmissionDigestSha256: string;
   authority: 'non_authoritative';
   requiresHumanReview: true;
+  determinismQualifications: readonly WorkflowDeterminismQualification[];
   automationAssessment: WorkflowAutomationAssessment;
 }> & WorkflowAssessmentModelOutput;
 
@@ -56,7 +71,7 @@ export type ForgewingWorkflowAssessment = Readonly<{
  * explicitly. A percentage without its basis is false precision.
  */
 export type WorkflowAutomationAssessment = Readonly<{
-  basis: 'classified_workflow_steps';
+  basis: 'eightforge_qualified_workflow_steps';
   totalSteps: number;
   countsByClassification: Readonly<Record<
     (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number
@@ -64,10 +79,11 @@ export type WorkflowAutomationAssessment = Readonly<{
   percentagesByClassification: Readonly<Record<
     (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number
   >>;
-  /** RULE + VERIFY over total steps: candidate deterministic execution only. */
+  proposedDeterministicSteps: number;
+  /** Only EightForge-qualified RULE/VERIFY steps over total workflow steps. */
   deterministicCandidateSteps: number;
   deterministicCandidatePercentage: number;
-  stepsWithUnresolvedAssumptions: number;
+  stepsWithUnresolvedDeterminismGaps: number;
 }>;
 
 export type ForgewingWorkflowAssessmentInput = Readonly<{
@@ -153,17 +169,42 @@ function determinismViolations(
       if (step.determinismBasis !== null) {
         violations.push(`${step.stepId}:determinism_basis_on_non_deterministic_step`);
       }
+      if (step.determinismGaps.length > 0) {
+        violations.push(`${step.stepId}:determinism_gap_on_non_deterministic_step`);
+      }
+      if (step.determinismSupport.length > 0) {
+        violations.push(`${step.stepId}:determinism_support_on_non_deterministic_step`);
+      }
       continue;
     }
     if (step.determinismBasis === null) {
       violations.push(`${step.stepId}:missing_determinism_basis`);
       continue;
     }
-    const unmet = Object.entries(step.determinismBasis)
-      .filter(([, met]) => !met)
-      .map(([condition]) => condition);
-    if (unmet.length > 0 && step.unresolvedAssumptions.length === 0) {
-      violations.push(`${step.stepId}:unmet_determinism_without_recorded_assumption`);
+    const gapCounts = new Map<string, number>();
+    for (const gap of step.determinismGaps) {
+      gapCounts.set(gap.condition, (gapCounts.get(gap.condition) ?? 0) + 1);
+    }
+    const supportCounts = new Map<string, number>();
+    for (const support of step.determinismSupport) {
+      supportCounts.set(support.condition, (supportCounts.get(support.condition) ?? 0) + 1);
+    }
+    for (const condition of WORKFLOW_DETERMINISM_CONDITIONS) {
+      const met = step.determinismBasis[condition];
+      const gaps = gapCounts.get(condition) ?? 0;
+      const supports = supportCounts.get(condition) ?? 0;
+      if (!met && gaps !== 1) {
+        violations.push(`${step.stepId}:${condition}:expected_exactly_one_gap`);
+      }
+      if (met && gaps !== 0) {
+        violations.push(`${step.stepId}:${condition}:gap_for_true_condition`);
+      }
+      if (!met && supports !== 0) {
+        violations.push(`${step.stepId}:${condition}:support_for_false_condition`);
+      }
+      if (supports > 1) {
+        violations.push(`${step.stepId}:${condition}:duplicate_support`);
+      }
     }
   }
   return violations;
@@ -199,6 +240,58 @@ function referenceViolations(output: WorkflowAssessmentModelOutput): string[] {
       violations.push(`verificationProposalClassification:${proposal.ruleId}`);
     }
   }
+  for (const requirement of output.extractionRequirements) {
+    const classification = byId.get(requirement.stepId)?.classification;
+    if (classification !== 'EXTRACT' && classification !== 'RECOVER') {
+      violations.push(`extractionRequirementClassification:${requirement.requirementId}`);
+    }
+  }
+  for (const task of output.forgewingRecoveryTasks) {
+    if (byId.get(task.stepId)?.classification !== 'RECOVER') {
+      violations.push(`recoveryTaskClassification:${task.taskId}`);
+    }
+  }
+  for (const point of output.humanDecisionPoints) {
+    if (byId.get(point.stepId)?.classification !== 'HUMAN') {
+      violations.push(`humanDecisionClassification:${point.decisionId}`);
+    }
+  }
+  for (const advisory of output.advisorySteps) {
+    if (byId.get(advisory.stepId)?.classification !== 'ADVISORY') {
+      violations.push(`advisoryStepClassification:${advisory.advisoryId}`);
+    }
+  }
+
+  const countFor = (ids: readonly string[], stepId: string): number =>
+    ids.filter((id) => id === stepId).length;
+  for (const step of output.workflowSteps) {
+    const ruleCount = countFor(output.deterministicRuleProposals.map((p) => p.stepId), step.stepId);
+    const verificationCount = countFor(output.verificationRuleProposals.map((p) => p.stepId), step.stepId);
+    const extractionCount = countFor(output.extractionRequirements.map((r) => r.stepId), step.stepId);
+    const recoveryCount = countFor(output.forgewingRecoveryTasks.map((r) => r.stepId), step.stepId);
+    const humanCount = countFor(output.humanDecisionPoints.map((p) => p.stepId), step.stepId);
+    const advisoryCount = countFor(output.advisorySteps.map((a) => a.stepId), step.stepId);
+    if (step.classification === 'RULE' && ruleCount === 0) {
+      violations.push(`${step.stepId}:missing_rule_proposal`);
+    }
+    if (step.classification === 'VERIFY' && verificationCount === 0) {
+      violations.push(`${step.stepId}:missing_verification_proposal`);
+    }
+    if (step.classification === 'EXTRACT' && extractionCount === 0) {
+      violations.push(`${step.stepId}:missing_extraction_requirement`);
+    }
+    if (step.classification === 'RECOVER') {
+      if (extractionCount === 0) violations.push(`${step.stepId}:missing_recovery_extraction_requirement`);
+      if (recoveryCount === 0) violations.push(`${step.stepId}:missing_recovery_task`);
+    }
+    if (step.classification === 'HUMAN' && humanCount === 0) {
+      violations.push(`${step.stepId}:missing_human_decision`);
+    }
+    if (step.classification === 'ADVISORY' && advisoryCount === 0) {
+      violations.push(`${step.stepId}:missing_advisory_detail`);
+    }
+  }
+
   // RECOVER is only justified where deterministic extraction is insufficient.
   for (const requirement of output.extractionRequirements) {
     const step = byId.get(requirement.stepId);
@@ -209,9 +302,84 @@ function referenceViolations(output: WorkflowAssessmentModelOutput): string[] {
   return violations;
 }
 
+const SUBJECTIVE_LANGUAGE = /\b(?:seems?|subjective|judg(?:e|ment)|discretion(?:ary)?|waiv(?:e|er)|approv(?:e|al)|ambiguous|conflicting evidence|policy exception|reasonab(?:le|leness)|appropriate|choos(?:e|es|ing)|best)\b/i;
+const DETERMINISTIC_OPERATION_LANGUAGE = /\b(?:compar(?:e|es|ing)|calculat(?:e|es|ing)|equal(?:s|ity)?|match(?:es|ing)?|sum(?:s|ming)?|difference|duplicate|presence|date range|verify|checks?|flag(?:s|ged|ging)?|reject(?:s|ed|ing)?|hold(?:s|ing)?|escalat(?:e|es|ed|ing))\b/i;
+
+function determinismQualifications(
+  output: WorkflowAssessmentModelOutput,
+  answers: ForgewingWorkflowAssessmentInput['answers'],
+): readonly WorkflowDeterminismQualification[] {
+  return output.workflowSteps.map((step) => {
+    if (!DETERMINISTIC_CLASSIFICATIONS.has(step.classification) || step.determinismBasis === null) {
+      return Object.freeze({
+        stepId: step.stepId,
+        proposedClassification: step.classification,
+        basis: 'eightforge_source_grounded_v1' as const,
+        state: 'unqualified' as const,
+        reasons: Object.freeze(['classification_not_rule_or_verify']),
+      });
+    }
+
+    const falseConditions = WORKFLOW_DETERMINISM_CONDITIONS
+      .filter((condition) => !step.determinismBasis![condition]);
+    if (falseConditions.length > 0) {
+      return Object.freeze({
+        stepId: step.stepId,
+        proposedClassification: step.classification,
+        basis: 'eightforge_source_grounded_v1' as const,
+        state: 'qualified_with_gaps' as const,
+        reasons: Object.freeze(falseConditions.map((condition) => `condition_gap:${condition}`)),
+      });
+    }
+
+    const reasons: string[] = [];
+    for (const condition of WORKFLOW_DETERMINISM_CONDITIONS) {
+      const support = step.determinismSupport.find((entry) => entry.condition === condition);
+      if (!support) {
+        reasons.push(`missing_grounded_support:${condition}`);
+        continue;
+      }
+      if (!step.sourceQuestions.includes(support.sourceQuestion)) {
+        reasons.push(`support_question_not_linked:${condition}`);
+      }
+      if (!answers[support.sourceQuestion].includes(support.sourceExcerpt)) {
+        reasons.push(`support_excerpt_not_in_intake:${condition}`);
+      }
+    }
+    const subjectiveText = [
+      step.description, step.rationale, step.proposedOutput,
+      ...step.determinismSupport.map((support) => support.sourceExcerpt),
+    ].join(' ');
+    if (SUBJECTIVE_LANGUAGE.test(subjectiveText)) {
+      reasons.push('subjective_language_requires_human_control');
+    }
+    const proposedOperationText = [
+      step.description, step.rationale, step.proposedOutput,
+    ].join(' ');
+    if (!DETERMINISTIC_OPERATION_LANGUAGE.test(proposedOperationText)) {
+      reasons.push('deterministic_operation_not_supported');
+    }
+    if (step.determinismSupport.some((support) => support.sourceQuestion === 'humanDecisions')) {
+      reasons.push('human_decision_source_requires_human_control');
+    }
+    if (step.unresolvedAssumptions.length > 0) {
+      reasons.push('unresolved_assumptions_present');
+    }
+
+    return Object.freeze({
+      stepId: step.stepId,
+      proposedClassification: step.classification,
+      basis: 'eightforge_source_grounded_v1' as const,
+      state: reasons.length === 0 ? 'qualified' as const : 'unqualified' as const,
+      reasons: Object.freeze(reasons),
+    });
+  });
+}
+
 /** Counts drive the percentages; nothing here is estimated. */
 function automationAssessment(
   steps: WorkflowAssessmentModelOutput['workflowSteps'],
+  qualifications: readonly WorkflowDeterminismQualification[],
 ): WorkflowAutomationAssessment {
   const counts = Object.fromEntries(
     WORKFLOW_STEP_CLASSIFICATIONS.map((classification) => [
@@ -222,18 +390,21 @@ function automationAssessment(
   const total = steps.length;
   const percent = (count: number): number =>
     total === 0 ? 0 : Math.round((count / total) * 1000) / 10;
-  const deterministicCandidateSteps = counts.RULE + counts.VERIFY;
+  const proposedDeterministicSteps = counts.RULE + counts.VERIFY;
+  const deterministicCandidateSteps = qualifications
+    .filter((qualification) => qualification.state === 'qualified').length;
   return Object.freeze({
-    basis: 'classified_workflow_steps' as const,
+    basis: 'eightforge_qualified_workflow_steps' as const,
     totalSteps: total,
     countsByClassification: Object.freeze(counts),
     percentagesByClassification: Object.freeze(Object.fromEntries(
       WORKFLOW_STEP_CLASSIFICATIONS.map((c) => [c, percent(counts[c])]),
     ) as Record<(typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number>),
+    proposedDeterministicSteps,
     deterministicCandidateSteps,
     deterministicCandidatePercentage: percent(deterministicCandidateSteps),
-    stepsWithUnresolvedAssumptions:
-      steps.filter((step) => step.unresolvedAssumptions.length > 0).length,
+    stepsWithUnresolvedDeterminismGaps:
+      qualifications.filter((qualification) => qualification.state === 'qualified_with_gaps').length,
   });
 }
 
@@ -299,6 +470,8 @@ export async function runForgewingWorkflowAssessment(
     return { status: 'deterministic_validation_failed', reason: violations.slice(0, 8).join(',') };
   }
 
+  const qualifications = determinismQualifications(output, parsed.data.answers);
+
   const assessment: ForgewingWorkflowAssessment = Object.freeze({
     ...output,
     schemaVersion: FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION,
@@ -308,7 +481,8 @@ export async function runForgewingWorkflowAssessment(
     sourceSubmissionDigestSha256,
     authority: 'non_authoritative' as const,
     requiresHumanReview: true as const,
-    automationAssessment: automationAssessment(output.workflowSteps),
+    determinismQualifications: qualifications,
+    automationAssessment: automationAssessment(output.workflowSteps, qualifications),
   });
 
   return {

@@ -4,6 +4,7 @@ import {
   runForgewingWorkflowAssessment,
   type ForgewingWorkflowAssessmentInput,
 } from '@/lib/forgewing/tasks/workflowAssessment';
+import { WORKFLOW_DETERMINISM_CONDITIONS } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 
 const config = {
   enabled: true,
@@ -37,12 +38,25 @@ const FULL_BASIS = {
   noUnresolvedSubjectiveJudgment: true,
 };
 
+const FULL_SUPPORT = WORKFLOW_DETERMINISM_CONDITIONS.map((condition) => ({
+  condition,
+  sourceQuestion: 'manualChecks',
+  sourceExcerpt: 'compares billed rates to the contract rate',
+  rationale: `The persisted intake supports ${condition}.`,
+}));
+
+function supportWithout(condition: string) {
+  return FULL_SUPPORT.filter((support) => support.condition !== condition);
+}
+
 function step(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const classification = String(overrides.classification ?? 'RULE');
+  const deterministic = classification === 'RULE' || classification === 'VERIFY';
   return {
     stepId: 'step-1',
     sourceQuestions: ['manualChecks'],
     description: 'Compare each billed rate to the contract rate schedule.',
-    classification: 'RULE',
+    classification,
     rationale: 'The description states an explicit rate comparison.',
     requiredInputs: ['Invoice line rate'],
     evidenceRequirements: ['Rate schedule row'],
@@ -50,7 +64,9 @@ function step(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     dependencies: [],
     failureConsequence: 'Overbilling is paid.',
     unresolvedAssumptions: [],
-    determinismBasis: FULL_BASIS,
+    determinismBasis: deterministic ? FULL_BASIS : null,
+    determinismGaps: [],
+    determinismSupport: deterministic ? FULL_SUPPORT : [],
     ...overrides,
   };
 }
@@ -158,10 +174,11 @@ describe('Forgewing workflow assessment V1', () => {
     });
     if (result.status !== 'requires_human_review') throw new Error('expected assessment');
     const automation = result.assessment.automationAssessment;
-    expect(automation.basis).toBe('classified_workflow_steps');
+    expect(automation.basis).toBe('eightforge_qualified_workflow_steps');
     expect(automation.totalSteps).toBe(2);
     expect(automation.countsByClassification.RULE).toBe(1);
     expect(automation.countsByClassification.HUMAN).toBe(1);
+    expect(automation.proposedDeterministicSteps).toBe(1);
     expect(automation.deterministicCandidateSteps).toBe(1);
     expect(automation.deterministicCandidatePercentage).toBe(50);
     const summed = Object.values(automation.countsByClassification)
@@ -202,29 +219,276 @@ describe('Forgewing workflow assessment V1', () => {
     });
     expect(missing.status).toBe('deterministic_validation_failed');
 
-    // Unmet condition with no assumption recorded: uncertainty must be preserved.
+    // Unmet condition with no keyed gap: uncertainty must be preserved.
     const unmet = await runForgewingWorkflowAssessment(input(), {
       config, taskEnabled: true,
       provider: provider(output({
         workflowSteps: [step({
           determinismBasis: { ...FULL_BASIS, noUnresolvedSubjectiveJudgment: false },
+          determinismSupport: supportWithout('noUnresolvedSubjectiveJudgment'),
         })],
       })),
     });
     expect(unmet.status).toBe('deterministic_validation_failed');
 
-    // Same unmet condition, but the gap is recorded: allowed as a proposal.
+    // Same unmet condition with its exact keyed gap: allowed as an unqualified proposal.
     const recorded = await runForgewingWorkflowAssessment(input(), {
       config, taskEnabled: true,
       provider: provider(output({
         workflowSteps: [step({
           determinismBasis: { ...FULL_BASIS, definedExceptionBehavior: false },
-          unresolvedAssumptions: ['The intake did not describe the exception path.'],
+          determinismSupport: supportWithout('definedExceptionBehavior'),
+          determinismGaps: [{
+            condition: 'definedExceptionBehavior',
+            explanation: 'The intake did not describe the exception path.',
+          }],
         })],
         humanDecisionPoints: [],
       })),
     });
     expect(recorded.status).toBe('requires_human_review');
+    if (recorded.status === 'requires_human_review') {
+      expect(recorded.assessment.determinismQualifications[0]?.state)
+        .toBe('qualified_with_gaps');
+      expect(recorded.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+      expect(recorded.assessment.automationAssessment.stepsWithUnresolvedDeterminismGaps).toBe(1);
+    }
+  });
+
+  it.each(WORKFLOW_DETERMINISM_CONDITIONS)(
+    'requires the exact keyed gap for false condition %s',
+    async (condition) => {
+      const falseBasis = { ...FULL_BASIS, [condition]: false };
+      const withoutGap = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true,
+        provider: provider(output({
+          workflowSteps: [step({
+            determinismBasis: falseBasis,
+            determinismSupport: supportWithout(condition),
+          })],
+          humanDecisionPoints: [],
+        })),
+      });
+      expect(withoutGap.status).toBe('deterministic_validation_failed');
+
+      const withGap = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true,
+        provider: provider(output({
+          workflowSteps: [step({
+            determinismBasis: falseBasis,
+            determinismSupport: supportWithout(condition),
+            determinismGaps: [{
+              condition,
+              explanation: `The persisted intake does not establish ${condition}.`,
+            }],
+          })],
+          humanDecisionPoints: [],
+        })),
+      });
+      expect(withGap.status).toBe('requires_human_review');
+      if (withGap.status === 'requires_human_review') {
+        expect(withGap.assessment.determinismQualifications[0]?.state)
+          .toBe('qualified_with_gaps');
+        expect(withGap.assessment.automationAssessment.proposedDeterministicSteps).toBe(1);
+        expect(withGap.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+      }
+    },
+  );
+
+  it('rejects an unrelated, duplicate, true-condition, or unknown determinism gap', async () => {
+    const base = {
+      determinismBasis: { ...FULL_BASIS, stableEvidenceSource: false },
+      determinismSupport: supportWithout('stableEvidenceSource'),
+    };
+    const cases = [
+      step({ ...base, determinismGaps: [{
+        condition: 'objectiveInputs', explanation: 'Unrelated gap.',
+      }] }),
+      step({ ...base, determinismGaps: [
+        { condition: 'stableEvidenceSource', explanation: 'First gap.' },
+        { condition: 'stableEvidenceSource', explanation: 'Duplicate gap.' },
+      ] }),
+      step({ determinismGaps: [{
+        condition: 'stableEvidenceSource', explanation: 'Gap on a true condition.',
+      }] }),
+    ];
+    for (const candidate of cases) {
+      const result = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true,
+        provider: provider(output({ workflowSteps: [candidate], humanDecisionPoints: [] })),
+      });
+      expect(result.status).toBe('deterministic_validation_failed');
+    }
+
+    const unknown = await runForgewingWorkflowAssessment(input(), {
+      config, taskEnabled: true,
+      provider: provider(output({
+        workflowSteps: [step({ determinismGaps: [{
+          condition: 'genericGap', explanation: 'Unknown gap.',
+        }] })],
+      })),
+    });
+    expect(unknown.status).toBe('structured_output_invalid');
+  });
+
+  it('does not qualify all-true self-attestation without exact intake-grounded support', async () => {
+    const naked = await runForgewingWorkflowAssessment(input(), {
+      config, taskEnabled: true,
+      provider: provider(output({
+        workflowSteps: [step({ determinismSupport: [] })],
+        humanDecisionPoints: [],
+      })),
+    });
+    expect(naked.status).toBe('requires_human_review');
+    if (naked.status === 'requires_human_review') {
+      expect(naked.assessment.determinismQualifications[0]?.state).toBe('unqualified');
+      expect(naked.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+    }
+
+    const subjectiveSupport = WORKFLOW_DETERMINISM_CONDITIONS.map((condition) => ({
+      condition,
+      sourceQuestion: 'humanDecisions',
+      sourceExcerpt: 'Final approval of any payment adjustment.',
+      rationale: `The provider claims ${condition}.`,
+    }));
+    const subjective = await runForgewingWorkflowAssessment(input(), {
+      config, taskEnabled: true,
+      provider: provider(output({
+        workflowSteps: [step({
+          sourceQuestions: ['humanDecisions'],
+          description: 'A manager decides whether an invoice seems reasonable.',
+          rationale: 'The provider proposes automating the approval judgment.',
+          proposedOutput: 'Approve the adjustment.',
+          determinismSupport: subjectiveSupport,
+        })],
+        humanDecisionPoints: [],
+      })),
+    });
+    expect(subjective.status).toBe('requires_human_review');
+    if (subjective.status === 'requires_human_review') {
+      expect(subjective.assessment.determinismQualifications[0]?.state).toBe('unqualified');
+      expect(subjective.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+    }
+  });
+
+  it('derives qualification only from exact support linked to the persisted intake', async () => {
+    const fabricatedSupport = FULL_SUPPORT.map((support) => support.condition === 'stableEvidenceSource'
+      ? { ...support, sourceExcerpt: 'a source that does not exist in the persisted intake' }
+      : support);
+    const fabricated = await runForgewingWorkflowAssessment(input(), {
+      config, taskEnabled: true,
+      provider: provider(output({
+        workflowSteps: [step({ determinismSupport: fabricatedSupport })],
+        humanDecisionPoints: [],
+      })),
+    });
+    expect(fabricated.status).toBe('requires_human_review');
+    if (fabricated.status === 'requires_human_review') {
+      expect(fabricated.assessment.determinismQualifications[0]).toMatchObject({
+        state: 'unqualified',
+        reasons: expect.arrayContaining(['support_excerpt_not_in_intake:stableEvidenceSource']),
+      });
+    }
+
+    const unlinkedSupport = FULL_SUPPORT.map((support) => support.condition === 'objectiveInputs'
+      ? {
+          ...support,
+          sourceQuestion: 'documentsInvolved',
+          sourceExcerpt: 'Invoices, rate schedules, approved work orders.',
+        }
+      : support);
+    const unlinked = await runForgewingWorkflowAssessment(input(), {
+      config, taskEnabled: true,
+      provider: provider(output({
+        workflowSteps: [step({ determinismSupport: unlinkedSupport })],
+        humanDecisionPoints: [],
+      })),
+    });
+    expect(unlinked.status).toBe('requires_human_review');
+    if (unlinked.status === 'requires_human_review') {
+      expect(unlinked.assessment.determinismQualifications[0]).toMatchObject({
+        state: 'unqualified',
+        reasons: expect.arrayContaining(['support_question_not_linked:objectiveInputs']),
+      });
+    }
+  });
+
+  it('requires classification-to-detail closure in both directions', async () => {
+    const cases: Record<string, unknown>[] = [
+      output({ deterministicRuleProposals: [] }),
+      output({
+        workflowSteps: [step({ classification: 'VERIFY' })],
+        deterministicRuleProposals: [], verificationRuleProposals: [], humanDecisionPoints: [],
+      }),
+      output({
+        workflowSteps: [step({ classification: 'EXTRACT' })],
+        deterministicRuleProposals: [], extractionRequirements: [], humanDecisionPoints: [],
+      }),
+      output({ humanDecisionPoints: [] }),
+      output({
+        workflowSteps: [step({ classification: 'ADVISORY' })],
+        deterministicRuleProposals: [], humanDecisionPoints: [], advisorySteps: [],
+      }),
+      output({ forgewingRecoveryTasks: [{
+        taskId: 'recovery-orphan', stepId: 'step-1',
+        description: 'Recover a value.', deterministicShortfall: 'Not stated.',
+      }] }),
+    ];
+    for (const body of cases) {
+      const result = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true, provider: provider(body),
+      });
+      expect(result.status).toBe('deterministic_validation_failed');
+    }
+  });
+
+  it('requires complete deterministic-first RECOVER closure', async () => {
+    const recoverStep = step({ classification: 'RECOVER' });
+    const extraction = {
+      requirementId: 'req-1', stepId: 'step-1',
+      describedFact: 'Billed rate', sourceDocument: 'Invoice',
+      deterministicExtractionPlausible: false,
+    };
+    const recovery = {
+      taskId: 'recover-1', stepId: 'step-1',
+      description: 'Recover the billed rate.',
+      deterministicShortfall: 'The intake says the field is unreliable.',
+    };
+    const cases = [
+      output({
+        workflowSteps: [recoverStep], deterministicRuleProposals: [],
+        humanDecisionPoints: [], extractionRequirements: [], forgewingRecoveryTasks: [recovery],
+      }),
+      output({
+        workflowSteps: [recoverStep], deterministicRuleProposals: [], humanDecisionPoints: [],
+        extractionRequirements: [{ ...extraction, deterministicExtractionPlausible: true }],
+        forgewingRecoveryTasks: [recovery],
+      }),
+      output({
+        workflowSteps: [recoverStep], deterministicRuleProposals: [], humanDecisionPoints: [],
+        extractionRequirements: [extraction], forgewingRecoveryTasks: [],
+      }),
+    ];
+    for (const body of cases) {
+      const result = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true, provider: provider(body),
+      });
+      expect(result.status).toBe('deterministic_validation_failed');
+    }
+  });
+
+  it('keeps provider-supplied percentages and qualification fields schema-invalid', async () => {
+    for (const extra of [
+      { automatablePercentage: 100 },
+      { deterministicPercentage: 100 },
+      { automationScore: 1 },
+      { determinismQualifications: [{ stepId: 'step-1', state: 'qualified' }] },
+    ]) {
+      const result = await runForgewingWorkflowAssessment(input(), {
+        config, taskEnabled: true, provider: provider(output(extra)),
+      });
+      expect(result.status).toBe('structured_output_invalid');
+    }
   });
 
   it('refuses a determinism basis attached to a HUMAN or ADVISORY step', async () => {

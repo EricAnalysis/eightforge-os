@@ -10,6 +10,7 @@
 // no read path in V1, public or otherwise.
 
 import { timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
 
 import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';
 
@@ -23,6 +24,9 @@ function authorized(request: Request, secret: string): boolean {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const requestSchema = z.object({
+  submissionId: z.string().trim().regex(UUID),
+}).strict();
 
 export async function POST(request: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -33,15 +37,14 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => null) as { submissionId?: unknown } | null;
-  const submissionId = typeof body?.submissionId === 'string' ? body.submissionId.trim() : '';
+  const body = requestSchema.safeParse(await request.json().catch(() => null));
   // Only an id is accepted. Prose supplied by a caller is never assessed: the
   // persisted submission is the input authority.
-  if (!UUID.test(submissionId)) {
-    return Response.json({ ok: false, error: 'submissionId must be a uuid' }, { status: 400 });
+  if (!body.success) {
+    return Response.json({ ok: false, error: 'invalid assessment request' }, { status: 400 });
   }
 
-  const result = await runAndRecordWorkflowAssessment(submissionId);
+  const result = await runAndRecordWorkflowAssessment(body.data.submissionId);
 
   switch (result.status) {
     case 'assessment_recorded':

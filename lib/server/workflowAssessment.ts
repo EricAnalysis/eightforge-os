@@ -19,7 +19,6 @@ import { randomUUID } from 'node:crypto';
 import {
   runForgewingWorkflowAssessment,
   type ForgewingWorkflowAssessment,
-  type ForgewingWorkflowAssessmentResult,
 } from '@/lib/forgewing/tasks/workflowAssessment';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -151,23 +150,14 @@ async function appendAssessment(
  */
 export async function runAndRecordWorkflowAssessment(
   submissionId: string,
-  dependencies: Readonly<{
-    admin?: AdminClient | null;
-    load?: typeof loadWorkflowIntakeSubmission;
-    run?: (
-      input: Parameters<typeof runForgewingWorkflowAssessment>[0],
-    ) => Promise<ForgewingWorkflowAssessmentResult>;
-  }> = {},
 ): Promise<WorkflowAssessmentRunResult> {
-  const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
+  const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
 
-  const submission = await (dependencies.load ?? loadWorkflowIntakeSubmission)(
-    submissionId, admin,
-  );
+  const submission = await loadWorkflowIntakeSubmission(submissionId, admin);
   if (!submission) return { status: 'submission_not_found' };
 
-  const result = await (dependencies.run ?? runForgewingWorkflowAssessment)({
+  const result = await runForgewingWorkflowAssessment({
     submissionId: submission.submissionId,
     submissionSchemaVersion: submission.submissionSchemaVersion,
     answers: submission.answers,

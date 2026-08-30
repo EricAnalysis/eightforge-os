@@ -467,7 +467,10 @@ function specifierSegments(specifier: string): string[] {
 function resolveImportTarget(edge: ImportEdge): string {
   const specifier = edge.specifier.replaceAll('\\', '/');
   if (specifier.startsWith('@/')) {
-    return specifier.slice(2);
+    // Normalized, not sliced: tsconfig maps `@/*` to `./*`, so a traversal
+    // segment resolves for the compiler and would otherwise reach a guarded
+    // module under a target string no allowlist matches.
+    return path.posix.normalize(specifier.slice(2));
   }
   if (specifier.startsWith('.')) {
     return path.posix.normalize(path.posix.join(path.posix.dirname(edge.source), specifier));
@@ -1020,6 +1023,32 @@ describe('Forgewing proposal authority seal', () => {
     source(root, relativePath, contents);
     expect(workflowAssessmentConsumerViolations(root)).toEqual([
       `${relativePath} -> ${specifier} (unauthorized workflow assessment server consumer)`,
+    ]);
+  });
+
+  // `@/lib/x/../forgewing/...` compiles: tsconfig maps `@/*` to `./*`, so the
+  // traversal resolves. An unnormalized target string would not match any
+  // guarded root, letting a real import slip past every `@/` boundary check.
+  it.each([
+    ['workflow assessment seam', 'lib/validator/aliasTraversal.ts',
+      "import { run } from '@/lib/canonical/../server/workflowAssessment';",
+      () => workflowAssessmentConsumerViolations,
+    ],
+  ])('rejects an alias-traversal import of the %s', (_label, relativePath, contents, guard) => {
+    const root = fixtureRoot();
+    source(root, relativePath, contents);
+    expect(guard()(root)).not.toEqual([]);
+  });
+
+  it('rejects an alias-traversal Forgewing import from canonical', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/canonical/authority/aliasTraversal.ts',
+      "import { schema } from '@/lib/x/../forgewing/proposal/schema';",
+    );
+    expect(forgewingProductionConsumers(root)).toEqual([
+      'lib/canonical/authority/aliasTraversal.ts',
     ]);
   });
 

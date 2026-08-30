@@ -24,6 +24,7 @@ import {
   scheduleEligiblePricingReasoningShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 import {
+  resolvePdfLayoutDiagnosticEvidence,
   resolvePdfLayoutObservationEvidenceByRow,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import type { EvidenceObject } from '@/lib/extraction/types';
@@ -222,6 +223,44 @@ export function pricingLayoutSourceObservations(
           totalPhysicalPages,
         }
       : null,
+  });
+}
+
+export function pricingRateClusterRecoveryDiagnostics(
+  document: NormalizedNodeDocument,
+  authoritativePages: readonly number[],
+) {
+  const extraction = asRecord(document.extraction_data?.extraction);
+  const provenance = asRecord(extraction?.physical_page_provenance_v1);
+  const sourceArtifactId = typeof provenance?.source_artifact_id === 'string'
+    ? provenance.source_artifact_id.trim()
+    : '';
+  const totalPhysicalPages = typeof provenance?.total_physical_pages === 'number'
+    && Number.isSafeInteger(provenance.total_physical_pages)
+    && provenance.total_physical_pages > 0
+    ? provenance.total_physical_pages
+    : null;
+  const pdf = asRecord(document.content_layers?.pdf);
+  const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
+  if (rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+    || !Array.isArray(rawReconstruction.pages)) return [];
+  const authorizedPageSet = new Set(authoritativePages);
+  const scopedReconstruction: PagePricedScheduleReconstruction = {
+    parser_version: 'priced_schedule_reconstruction_v1',
+    pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
+      .filter((page) => authorizedPageSet.has(page.physical_page_number)),
+  };
+  return resolvePdfLayoutDiagnosticEvidence({
+    reconstruction: scopedReconstruction,
+    persistedLayer: pdf?.layout_observations_v1,
+    context: sourceArtifactId && totalPhysicalPages != null
+      ? {
+          sourceDocumentId: document.document_id,
+          sourceArtifactId,
+          totalPhysicalPages,
+        }
+      : null,
+    reason: 'ambiguous_rate_clusters',
   });
 }
 
@@ -1374,6 +1413,10 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       ...pipelineResult.evidence,
       ...pricingLayoutObservations,
     ].map((entry) => [entry.id, entry])).values()];
+    const pricingRecoveryDiagnostics = pricingRateClusterRecoveryDiagnostics(
+      pipelineResult.primaryDocument,
+      pricingSourceEligibility!.scope.authoritativePages,
+    );
     scheduleEligiblePricingReasoningShadow({
       organizationId: params.organizationId,
       sourceDocumentId: params.documentId,
@@ -1382,6 +1425,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       pricingRows: pipelineResult.contractAnalysis?.rate_schedule_rows ?? [],
       sourceObservations,
       pricingSourceEligibility,
+      pricingRecoveryDiagnostics,
     });
   }
 

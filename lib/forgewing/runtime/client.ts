@@ -7,6 +7,7 @@ import {
   PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
   PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES,
   PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
+  PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
@@ -21,6 +22,9 @@ export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_ID = 'forgewing-observatio
 export const FORGEWING_OBSERVATION_ARBITRATION_PROMPT_VERSION = 'v1';
 export const FORGEWING_PRICING_INTERPRETATION_PROMPT_ID = 'forgewing-pricing-interpretation';
 export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v3';
+export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_ID =
+  'forgewing-pricing-rate-cluster-recovery';
+export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -95,6 +99,13 @@ export function loadPricingInterpretationPrompt(): string {
   return `${base.trim()}\n\n${PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES}\n`;
 }
 
+function loadPricingRateClusterRecoveryPrompt(): string {
+  return readFileSync(
+    new URL('../prompts/pricingRateClusterRecovery.md', import.meta.url),
+    'utf8',
+  );
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
@@ -103,7 +114,8 @@ async function callClaudeWithStructuredOutput(
     | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
     | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
     | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
+    | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
+    | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
 ): Promise<string> {
   const controller = new AbortController();
@@ -174,6 +186,14 @@ export const callClaudeForPricingInterpretation: ForgewingProvider = async (requ
     request,
     loadPricingInterpretationPrompt(),
     PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+
+export const callClaudeForPricingRateClusterRecovery: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadPricingRateClusterRecoveryPrompt(),
+    PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
     true,
   );
 

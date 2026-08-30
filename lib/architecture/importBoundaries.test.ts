@@ -100,7 +100,7 @@ const FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES = [
   'lib/truthQuery',
   'lib/effectiveFacts',
 ] as const;
-const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b|\bcolumn_mapping\b|\bobservation_arbitration\b|\bpricing_interpretation\b/;
+const FORGEWING_MENTION_PATTERN = /(?:@\/)?lib[\\/]forgewing(?:[\\/]|\b)|(?:^|[\\/])forgewing[\\/]|\bForgewing[A-Z][A-Za-z0-9_]*\b|\btable_continuation\b|\bcolumn_mapping\b|\bobservation_arbitration\b|\bpricing_interpretation\b|\bpricing_rate_cluster_recovery\b/;
 const FORGEWING_FORBIDDEN_AUTHORITY_MENTION_PATTERN =
   /\bCanonicalFact\b|\bVerifiedField\b|\bCanonicalContractPricingRow\b|\bpricingResolution\b|\bcontractPricingAssembly\b/;
 

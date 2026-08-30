@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
 import {
   buildPdfLayoutObservationsLayer,
+  resolvePdfLayoutDiagnosticEvidence,
   validatePdfLayoutObservationClosure,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import {
@@ -101,6 +102,55 @@ function reconstruction(accepted: PricedScheduleCellSourceRef[], diagnostic: Pri
 }
 
 describe('selective PDF layout observation evidence', () => {
+  it('resolves an ambiguous-rate diagnostic only when every primitive closes exactly', () => {
+    const description = identifiedToken('item:description', 'Candidate service', 10, 100);
+    const firstRate = identifiedToken('item:rate-a', '$12.00', 50, 100);
+    const secondRate = identifiedToken('item:rate-b', '120', 80, 100);
+    const diagnosticReconstruction: PagePricedScheduleReconstruction = {
+      parser_version: 'priced_schedule_reconstruction_v1',
+      pages: [{
+        status: 'failed_closed', physical_page_number: 7,
+        header_raw_text: 'Description Cost', header_y: 120, columns: [], rows: [],
+        rejected_spines: [{
+          reason: 'ambiguous_rate_clusters', physical_page_number: 7,
+          raw_text: 'Candidate service $12.00 120',
+          source_refs: [ref(description), ref(firstRate), ref(secondRate)], y: 100,
+        }],
+        unassigned_lines: [],
+      }],
+    };
+    const built = buildPdfLayoutObservationsLayer({
+      layout: layout([secondRate, description, firstRate]),
+      reconstruction: diagnosticReconstruction,
+      context: CONTEXT,
+    });
+
+    const resolved = resolvePdfLayoutDiagnosticEvidence({
+      reconstruction: diagnosticReconstruction,
+      persistedLayer: JSON.parse(JSON.stringify(built)),
+      context: { ...CONTEXT, totalPhysicalPages: 7 },
+      reason: 'ambiguous_rate_clusters',
+    });
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({
+      reason: 'ambiguous_rate_clusters', physicalPageNumber: 7,
+      rawText: 'Candidate service $12.00 120',
+    });
+    expect(resolved[0]!.observations.map((entry) => entry.id)).toEqual(
+      resolved[0]!.observations.map((entry) => entry.id).sort(),
+    );
+
+    const mismatched = JSON.parse(JSON.stringify(built));
+    mismatched.observations[0].raw_text = 'forged';
+    expect(resolvePdfLayoutDiagnosticEvidence({
+      reconstruction: diagnosticReconstruction,
+      persistedLayer: mismatched,
+      context: { ...CONTEXT, totalPhysicalPages: 7 },
+      reason: 'ambiguous_rate_clusters',
+    })).toEqual([]);
+  });
+
   it('materializes exact accepted observations with complete closure and deterministic order', () => {
     const a = identifiedToken('item:4', 'Alpha', 10, 100);
     const b = identifiedToken('item:5', 'Alpha', 10, 100);

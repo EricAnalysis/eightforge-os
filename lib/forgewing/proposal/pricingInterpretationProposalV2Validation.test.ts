@@ -518,7 +518,7 @@ describe('SYNTHETIC: V2 is additive and sealed from V1 runtime paths', () => {
    */
   it('keeps the default production pricing path bound to the V1 contract', () => {
     const client = readFileSync(
-      join(process.cwd(), 'lib/forgewing/runtime/client.ts'), 'utf8');
+      join(process.cwd(), 'lib/forgewing/runtime/client.ts'), 'utf8').replace(/\r\n/g, '\n');
     // The default production export still selects the V1 schema.
     expect(client).toContain(`export const callClaudeForPricingInterpretation: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(

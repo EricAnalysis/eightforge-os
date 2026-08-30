@@ -58,6 +58,12 @@ export function isForgewingPricingRateClusterRecoveryEnabled(): boolean {
     && process.env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED === '1';
 }
 
+/** Workflow assessment is separately default-off beneath the shadow gate. */
+export function isForgewingWorkflowAssessmentEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_WORKFLOW_ASSESSMENT_ENABLED === '1';
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   return {
     enabled: isForgewingShadowEnabled(),

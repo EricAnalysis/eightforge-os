@@ -69,6 +69,10 @@ const CANONICAL_PRODUCTION_EDGES = new Set([
 const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
 const FORGEWING_EVALUATION_ROOT = 'lib/evaluation/forgewing';
+const WORKFLOW_ASSESSMENT_SERVER_SEAM = 'lib/server/workflowAssessment';
+const WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS = new Set([
+  'app/api/internal/workflow-assessment/route.ts',
+]);
 const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   'zod',
   'node:fs',
@@ -77,6 +81,12 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 ]);
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
+  // The workflow assessment task is pure: Forgewing may not import a database
+  // client, so this seam loads the immutable intake and appends the derived
+  // proposal. It is authorized to reach Forgewing and, like the shadow
+  // consumer, forbidden from reaching canonical, pricing, or validator
+  // authority by FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES below.
+  'lib/server/workflowAssessment.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -237,6 +247,25 @@ function forgewingProductionConsumers(workspaceRoot = ROOT): string[] {
       ? [edge.source]
       : [];
   }))].sort();
+}
+
+function isWorkflowAssessmentServerSeamTarget(edge: ImportEdge): boolean {
+  return resolveImportTarget(edge).replace(SOURCE_EXTENSION, '')
+    === WORKFLOW_ASSESSMENT_SERVER_SEAM;
+}
+
+function workflowAssessmentProductionConsumers(workspaceRoot = ROOT): string[] {
+  return [...new Set(productionEdgesIn(workspaceRoot)
+    .filter(isWorkflowAssessmentServerSeamTarget)
+    .map((edge) => edge.source))].sort();
+}
+
+function workflowAssessmentConsumerViolations(workspaceRoot = ROOT): string[] {
+  return productionEdgesIn(workspaceRoot)
+    .filter(isWorkflowAssessmentServerSeamTarget)
+    .filter((edge) => !WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS.has(edge.source))
+    .map((edge) => `${edge.source} -> ${edge.specifier} (unauthorized workflow assessment server consumer)`)
+    .sort();
 }
 
 /**
@@ -790,10 +819,21 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with one shadow consumer and an isolated evaluator', () => {
+  it('keeps Forgewing non-authoritative with two named consumers and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
+    // Exactly these two, sorted. Each is a seam that carries a Forgewing
+    // proposal to non-authoritative storage and nowhere else; a third entry
+    // appearing here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
       'lib/extraction/persistence/complianceShadow.ts',
+      'lib/server/workflowAssessment.ts',
+    ]);
+  }, 30_000);
+
+  it('allows only the exact internal route to consume the workflow assessment server seam', () => {
+    expect(workflowAssessmentConsumerViolations()).toEqual([]);
+    expect(workflowAssessmentProductionConsumers()).toEqual([
+      'app/api/internal/workflow-assessment/route.ts',
     ]);
   }, 30_000);
 
@@ -943,6 +983,44 @@ describe('Forgewing proposal authority seal', () => {
 
   afterEach(() => {
     for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('allows only the exact internal route to consume the workflow assessment seam', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'app/api/internal/workflow-assessment/route.ts',
+      "import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';",
+    );
+    expect(workflowAssessmentConsumerViolations(root)).toEqual([]);
+    expect(workflowAssessmentProductionConsumers(root)).toEqual([
+      'app/api/internal/workflow-assessment/route.ts',
+    ]);
+  });
+
+  it.each([
+    ['Validator', 'lib/validator/workflowAssessmentConsumer.ts', '@/lib/server/workflowAssessment',
+      "import type { WorkflowAssessmentRunResult } from '@/lib/server/workflowAssessment';"],
+    ['canonical', 'lib/canonical/authority/workflowAssessmentConsumer.ts', '../../server/workflowAssessment',
+      "export { runAndRecordWorkflowAssessment } from '../../server/workflowAssessment';"],
+    ['Project Truth', 'lib/projectFacts.ts', '@/lib/server/workflowAssessment',
+      "const assessment = require('@/lib/server/workflowAssessment');"],
+    ['decisions', 'lib/decisions/workflowAssessmentConsumer.ts', '@/lib/server/workflowAssessment',
+      "const assessment = import('@/lib/server/workflowAssessment');"],
+    ['actions', 'lib/actions/workflowAssessmentConsumer.ts', '@/lib/server/workflowAssessment',
+      "import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';"],
+    ['another app route', 'app/api/other/route.ts', '@/lib/server/workflowAssessment',
+      "import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';"],
+    ['generic server module', 'lib/server/workflowAssessmentRelay.ts', './workflowAssessment',
+      "export { runAndRecordWorkflowAssessment } from './workflowAssessment';"],
+  ])('rejects %s as a workflow assessment server consumer', (
+    _label, relativePath, specifier, contents,
+  ) => {
+    const root = fixtureRoot();
+    source(root, relativePath, contents);
+    expect(workflowAssessmentConsumerViolations(root)).toEqual([
+      `${relativePath} -> ${specifier} (unauthorized workflow assessment server consumer)`,
+    ]);
   });
 
   it('forbids extraction and canonical imports of Forgewing recursively', () => {

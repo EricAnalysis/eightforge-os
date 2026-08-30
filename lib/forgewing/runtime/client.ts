@@ -11,6 +11,9 @@ import {
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
+import {
+  WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
+} from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_ID = 'forgewing-region-classification';
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_VERSION = 'v1';
@@ -25,6 +28,8 @@ export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v3';
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_ID =
   'forgewing-pricing-rate-cluster-recovery';
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_VERSION = 'v1';
+export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID = 'forgewing-workflow-assessment';
+export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -106,6 +111,13 @@ function loadPricingRateClusterRecoveryPrompt(): string {
   );
 }
 
+function loadWorkflowAssessmentPrompt(): string {
+  return readFileSync(
+    new URL('../prompts/workflowAssessment.md', import.meta.url),
+    'utf8',
+  );
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
@@ -115,7 +127,8 @@ async function callClaudeWithStructuredOutput(
     | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
     | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
     | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
+    | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
+    | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
 ): Promise<string> {
   const controller = new AbortController();
@@ -194,6 +207,14 @@ export const callClaudeForPricingRateClusterRecovery: ForgewingProvider = async 
     request,
     loadPricingRateClusterRecoveryPrompt(),
     PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+
+export const callClaudeForWorkflowAssessment: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadWorkflowAssessmentPrompt(),
+    WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
     true,
   );
 

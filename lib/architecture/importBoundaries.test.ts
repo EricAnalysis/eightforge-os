@@ -77,6 +77,12 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
 ]);
 const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'lib/extraction/persistence/complianceShadow.ts',
+  // The workflow assessment task is pure: Forgewing may not import a database
+  // client, so this seam loads the immutable intake and appends the derived
+  // proposal. It is authorized to reach Forgewing and, like the shadow
+  // consumer, forbidden from reaching canonical, pricing, or validator
+  // authority by FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES below.
+  'lib/server/workflowAssessment.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -790,10 +796,14 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with one shadow consumer and an isolated evaluator', () => {
+  it('keeps Forgewing non-authoritative with two named consumers and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
+    // Exactly these two, sorted. Each is a seam that carries a Forgewing
+    // proposal to non-authoritative storage and nowhere else; a third entry
+    // appearing here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
       'lib/extraction/persistence/complianceShadow.ts',
+      'lib/server/workflowAssessment.ts',
     ]);
   }, 30_000);
 

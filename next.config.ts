@@ -1,3 +1,4 @@
+import { withBotId } from 'botid/next/config';
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -16,4 +17,6 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// withBotId adds the first-party proxy rewrites the BotID challenge is served
+// through, so ad blockers and third-party script blockers cannot weaken it.
+export default withBotId(nextConfig);

@@ -342,6 +342,19 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- Exactly once, not merely the right number of times. Without this, four
+  -- entries covering three distinct steps would satisfy the count check and
+  -- reach the unique index, which fails closed but only as an opaque
+  -- constraint abort. The authority boundary states its own rule.
+  IF (SELECT count(DISTINCT entry->>'assessment_step_id')
+      FROM jsonb_array_elements("p_step_reviews") AS entry) <> v_expected THEN
+    RAISE EXCEPTION
+      'review must disposition every proposed step exactly once: % distinct of % expected',
+      (SELECT count(DISTINCT entry->>'assessment_step_id')
+       FROM jsonb_array_elements("p_step_reviews") AS entry), v_expected
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
   -- Every referenced step must exist in THIS assessment version, and the
   -- caller's proposed_classification must match what Forgewing proposed.
   IF EXISTS (

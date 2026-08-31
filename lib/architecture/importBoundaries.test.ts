@@ -73,6 +73,10 @@ const WORKFLOW_ASSESSMENT_SERVER_SEAM = 'lib/server/workflowAssessment';
 const WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS = new Set([
   'app/api/internal/workflow-assessment/route.ts',
 ]);
+const WORKFLOW_ASSESSMENT_REVIEW_SERVER_SEAM = 'lib/server/workflowAssessmentReview';
+const WORKFLOW_ASSESSMENT_REVIEW_AUTHORIZED_CONSUMERS = new Set([
+  'app/api/internal/workflow-assessment-review/route.ts',
+]);
 const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   'zod',
   'node:fs',
@@ -119,7 +123,19 @@ function productionFilesIn(workspaceRoot: string): string[] {
     .flatMap((root) => walk(path.join(workspaceRoot, root)));
 }
 
+// The repository tree cannot change while the suite runs, but each guard used
+// to re-walk and re-parse all of it. Memoizing only the ROOT case keeps the
+// exact edge semantics (same importsInFile) while letting guards be added
+// without multiplying the cost. Fixture roots stay uncached: a test may write
+// more files into one between assertions.
+let rootProductionEdges: ImportEdge[] | null = null;
+
 function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
+  if (workspaceRoot === ROOT) {
+    rootProductionEdges ??= productionFilesIn(ROOT)
+      .flatMap((file) => importsInFile(file, ROOT));
+    return rootProductionEdges;
+  }
   return productionFilesIn(workspaceRoot)
     .flatMap((file) => importsInFile(file, workspaceRoot));
 }
@@ -265,6 +281,25 @@ function workflowAssessmentConsumerViolations(workspaceRoot = ROOT): string[] {
     .filter(isWorkflowAssessmentServerSeamTarget)
     .filter((edge) => !WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS.has(edge.source))
     .map((edge) => `${edge.source} -> ${edge.specifier} (unauthorized workflow assessment server consumer)`)
+    .sort();
+}
+
+function isWorkflowAssessmentReviewSeamTarget(edge: ImportEdge): boolean {
+  return resolveImportTarget(edge).replace(SOURCE_EXTENSION, '')
+    === WORKFLOW_ASSESSMENT_REVIEW_SERVER_SEAM;
+}
+
+function workflowAssessmentReviewConsumers(workspaceRoot = ROOT): string[] {
+  return [...new Set(productionEdgesIn(workspaceRoot)
+    .filter(isWorkflowAssessmentReviewSeamTarget)
+    .map((edge) => edge.source))].sort();
+}
+
+function workflowAssessmentReviewConsumerViolations(workspaceRoot = ROOT): string[] {
+  return productionEdgesIn(workspaceRoot)
+    .filter(isWorkflowAssessmentReviewSeamTarget)
+    .filter((edge) => !WORKFLOW_ASSESSMENT_REVIEW_AUTHORIZED_CONSUMERS.has(edge.source))
+    .map((edge) => `${edge.source} -> ${edge.specifier} (unauthorized workflow assessment review consumer)`)
     .sort();
 }
 
@@ -840,6 +875,16 @@ describe('production architecture import boundaries', () => {
     ]);
   }, 30_000);
 
+  // A review is specification/review data. If a truth-producing path ever
+  // imported this seam, "accepted as system specification" would have started
+  // meaning "deployed", which is exactly what V1 must not do.
+  it('allows only the exact internal route to consume the review server seam', () => {
+    expect(workflowAssessmentReviewConsumerViolations()).toEqual([]);
+    expect(workflowAssessmentReviewConsumers()).toEqual([
+      'app/api/internal/workflow-assessment-review/route.ts',
+    ]);
+  }, 30_000);
+
   it('prevents a comparison outcome from becoming a serving validation result', () => {
     expect(comparisonServingLeakViolations()).toEqual([]);
   });
@@ -1038,6 +1083,38 @@ describe('Forgewing proposal authority seal', () => {
     const root = fixtureRoot();
     source(root, relativePath, contents);
     expect(guard()(root)).not.toEqual([]);
+  });
+
+  it.each([
+    ['Validator', 'lib/validator/reviewConsumer.ts', '@/lib/server/workflowAssessmentReview'],
+    ['canonical', 'lib/canonical/authority/reviewConsumer.ts', '@/lib/server/workflowAssessmentReview'],
+    ['Project Truth', 'lib/projectFacts.ts', '@/lib/server/workflowAssessmentReview'],
+    ['decisions', 'lib/decisions/reviewConsumer.ts', '@/lib/server/workflowAssessmentReview'],
+    ['actions', 'lib/actions/reviewConsumer.ts', '@/lib/server/workflowAssessmentReview'],
+    ['rule execution', 'lib/rules/reviewConsumer.ts', '@/lib/server/workflowAssessmentReview'],
+    ['another app route', 'app/api/other/route.ts', '@/lib/server/workflowAssessmentReview'],
+    ['a UI component', 'components/ReviewPanel.tsx', '@/lib/server/workflowAssessmentReview'],
+    ['an explicit .js specifier', 'lib/validator/reviewJs.ts', '@/lib/server/workflowAssessmentReview.js'],
+    ['an alias traversal', 'lib/validator/reviewTraversal.ts', '@/lib/x/../server/workflowAssessmentReview'],
+  ])('rejects %s as a workflow assessment review consumer', (_label, relativePath, specifier) => {
+    const root = fixtureRoot();
+    source(root, relativePath, `import { record } from '${specifier}';`);
+    expect(workflowAssessmentReviewConsumerViolations(root)).toEqual([
+      `${relativePath} -> ${specifier} (unauthorized workflow assessment review consumer)`,
+    ]);
+  });
+
+  it('does not confuse the review seam with the assessment seam', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'app/api/internal/workflow-assessment-review/route.ts',
+      "import { record } from '@/lib/server/workflowAssessmentReview';",
+    );
+    // The review route is authorized for the review seam and must not register
+    // as an unauthorized consumer of the assessment seam it does not import.
+    expect(workflowAssessmentReviewConsumerViolations(root)).toEqual([]);
+    expect(workflowAssessmentConsumerViolations(root)).toEqual([]);
   });
 
   it('rejects an alias-traversal Forgewing import from canonical', () => {

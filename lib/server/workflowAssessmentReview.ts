@@ -110,14 +110,33 @@ const stepReviewSchema = z.discriminatedUnion('disposition', [
   }
 });
 
+/**
+ * The review request carries the decision, never the identity of the person
+ * making it.
+ *
+ * There is deliberately no reviewer field. `.strict()` means supplying one is
+ * rejected rather than ignored: a row saying "user X approved this
+ * specification" must mean X was authenticated, not that a caller typed X's
+ * uuid. Reviewer identity arrives separately, resolved from the operator's
+ * session — see SessionDerivedReviewer.
+ */
 export const workflowAssessmentReviewInputSchema = z.object({
   assessmentId: z.string().uuid(),
   assessmentVersion: z.number().int().min(1),
-  reviewerActorId: z.string().uuid(),
   reviewerSummary: z.string().trim().min(1).max(4000).optional(),
   // Bounded to the assessment's own step ceiling.
   stepReviews: z.array(stepReviewSchema).min(1).max(40),
 }).strict();
+
+/**
+ * A reviewer resolved from an authenticated session, never from a payload.
+ *
+ * The only correct way to obtain one is from `getActorContext`, which validates
+ * the caller's JWT through Supabase Auth and loads the matching user_profiles
+ * row. This is a distinct argument rather than a request field so that reviewer
+ * identity cannot travel through the same channel a caller controls.
+ */
+export type SessionDerivedReviewer = Readonly<{ actorId: string }>;
 
 export type WorkflowAssessmentReviewInput =
   z.infer<typeof workflowAssessmentReviewInputSchema>;
@@ -125,6 +144,7 @@ export type WorkflowAssessmentReviewInput =
 export type WorkflowAssessmentReviewResult =
   | Readonly<{ status: 'not_configured' }>
   | Readonly<{ status: 'input_invalid'; reason: string }>
+  | Readonly<{ status: 'reviewer_unresolved' }>
   | Readonly<{ status: 'duplicate_step_review'; reason: string }>
   | Readonly<{ status: 'assessment_not_found' }>
   | Readonly<{ status: 'review_rejected'; reason: string }>
@@ -149,15 +169,31 @@ const ASSESSMENT_MISSING = /no workflow assessment/i;
 const REVIEW_REJECTED =
   /must disposition every proposed step|absent from assessment|must be a json array/i;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Records one review of one pinned assessment version.
  *
- * Takes only the review payload: there is no loader, writer, or admin-client
- * override, so a production caller cannot substitute the validated write path.
+ * `reviewer` must come from the authenticated session, not the request body.
+ * There is no loader, writer, or admin-client override, so a production caller
+ * cannot substitute the validated write path.
+ *
+ * `service_role` remains the database execution mechanism, but it is never the
+ * identity: the recorded reviewer is the authenticated human, and if one cannot
+ * be established this fails closed rather than attributing the review to the
+ * service account.
  */
 export async function recordWorkflowAssessmentReview(
   input: WorkflowAssessmentReviewInput,
+  reviewer: SessionDerivedReviewer,
 ): Promise<WorkflowAssessmentReviewResult> {
+  // Defence in depth: the route resolves this from the session, so a malformed
+  // value means the identity path itself is broken. Recording the review anyway
+  // would preserve a false attribution immutably.
+  if (!reviewer || typeof reviewer.actorId !== 'string' || !UUID.test(reviewer.actorId)) {
+    return { status: 'reviewer_unresolved' };
+  }
+
   const parsed = workflowAssessmentReviewInputSchema.safeParse(input);
   if (!parsed.success) {
     // Issue paths only. Reviewer prose describes a visitor's business process
@@ -182,7 +218,8 @@ export async function recordWorkflowAssessmentReview(
   const { data, error } = await admin.rpc(WORKFLOW_ASSESSMENT_REVIEW_WRITE_FUNCTION, {
     p_assessment_id: parsed.data.assessmentId,
     p_assessment_version: parsed.data.assessmentVersion,
-    p_reviewer_actor_id: parsed.data.reviewerActorId,
+    // Session-derived, never from the request body.
+    p_reviewer_actor_id: reviewer.actorId,
     p_reviewer_summary: parsed.data.reviewerSummary ?? null,
     p_step_reviews: parsed.data.stepReviews.map((step) => ({
       assessment_step_id: step.assessmentStepId,

@@ -12,6 +12,7 @@ import {
 
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
+const REVIEWER = { actorId: REVIEWER_ID } as const;
 
 type RpcArgs = Record<string, unknown>;
 
@@ -27,7 +28,6 @@ function input(
   return {
     assessmentId: ASSESSMENT_ID,
     assessmentVersion: 1,
-    reviewerActorId: REVIEWER_ID,
     stepReviews: [{
       disposition: 'accepted',
       assessmentStepId: 'step-1',
@@ -54,7 +54,7 @@ describe('workflow assessment review seam', () => {
 
   it('writes only through the validated SECURITY DEFINER function', async () => {
     const rpc = rpcClient(recorded);
-    const result = await recordWorkflowAssessmentReview(input());
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
 
     expect(result).toEqual({
       status: 'review_recorded',
@@ -70,7 +70,7 @@ describe('workflow assessment review seam', () => {
 
   it('never sends an overall disposition: it is derived in the database', async () => {
     const rpc = rpcClient(recorded);
-    await recordWorkflowAssessmentReview(input());
+    await recordWorkflowAssessmentReview(input(), REVIEWER);
     const payload = JSON.stringify(rpc.mock.calls[0]![1]);
     expect(payload).not.toMatch(/overall/i);
   });
@@ -79,7 +79,7 @@ describe('workflow assessment review seam', () => {
     const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
     const from = vi.fn();
     getAdmin.mockReturnValue({ rpc, from });
-    await recordWorkflowAssessmentReview(input());
+    await recordWorkflowAssessmentReview(input(), REVIEWER);
     // The tables grant INSERT to nobody; the seam must not even attempt one.
     expect(from).not.toHaveBeenCalled();
   });
@@ -88,11 +88,13 @@ describe('workflow assessment review seam', () => {
     ['a caller-supplied overall disposition', { overallDisposition: 'accepted' }],
     ['a caller-supplied review version', { reviewVersion: 9 }],
     ['a caller-supplied source submission', { sourceSubmissionId: ASSESSMENT_ID }],
+    ['a caller-asserted reviewer identity', { reviewerActorId: REVIEWER_ID }],
+    ['a caller-asserted reviewer alias', { reviewer: REVIEWER_ID }],
     ['an arbitrary extra field', { deploy: true }],
   ])('rejects %s', async (_label, extra) => {
     const rpc = rpcClient(recorded);
     const result = await recordWorkflowAssessmentReview(
-      { ...input(), ...extra } as WorkflowAssessmentReviewInput,
+      { ...input(), ...extra } as WorkflowAssessmentReviewInput, REVIEWER,
     );
     expect(result.status).toBe('input_invalid');
     expect(rpc).not.toHaveBeenCalled();
@@ -134,7 +136,7 @@ describe('workflow assessment review seam', () => {
   ])('rejects an incoherent step review: %s', async (_label, step) => {
     const rpc = rpcClient(recorded);
     const result = await recordWorkflowAssessmentReview(
-      input({ stepReviews: [step] as never }),
+      input({ stepReviews: [step] as never }), REVIEWER,
     );
     expect(result.status).toBe('input_invalid');
     expect(rpc).not.toHaveBeenCalled();
@@ -154,7 +156,7 @@ describe('workflow assessment review seam', () => {
         proposedClassification: 'RULE', reviewedClassification: 'HUMAN',
         reviewerNotes: 'Approval authority is not delegable.',
       }],
-    }));
+    }), REVIEWER);
     const sent = rpc.mock.calls[0]![1] as unknown as { p_step_reviews: RpcArgs[] };
     expect(sent.p_step_reviews[0]).toMatchObject({
       proposed_classification: 'RULE',
@@ -172,7 +174,7 @@ describe('workflow assessment review seam', () => {
         { disposition: 'accepted', assessmentStepId: 'step-1',
           proposedClassification: 'RULE', reviewedClassification: 'RULE' },
       ],
-    }));
+    }), REVIEWER);
     expect(result.status).toBe('duplicate_step_review');
     expect(rpc).not.toHaveBeenCalled();
   });
@@ -185,19 +187,19 @@ describe('workflow assessment review seam', () => {
     ['some unrelated database failure', 'persist_failed'],
   ])('maps database failure %j to %s', async (message, expected) => {
     rpcClient({ data: null, error: { message } });
-    const result = await recordWorkflowAssessmentReview(input());
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
     expect(result.status).toBe(expected);
   });
 
   it('reports not_configured without a service client', async () => {
     getAdmin.mockReturnValue(null);
-    await expect(recordWorkflowAssessmentReview(input()))
+    await expect(recordWorkflowAssessmentReview(input(), REVIEWER))
       .resolves.toEqual({ status: 'not_configured' });
   });
 
   it('fails closed when the write returns no row', async () => {
     rpcClient({ data: [], error: null });
-    const result = await recordWorkflowAssessmentReview(input());
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
     expect(result.status).toBe('persist_failed');
   });
 
@@ -205,8 +207,40 @@ describe('workflow assessment review seam', () => {
     const secret = 'reviewer typed a confidential business detail here';
     const result = await recordWorkflowAssessmentReview(input({
       reviewerSummary: secret, stepReviews: [] as never,
-    }));
+    }), REVIEWER);
     expect(result.status).toBe('input_invalid');
     expect(JSON.stringify(result)).not.toContain(secret);
+  });
+  it.each([
+    ['a missing reviewer', undefined],
+    ['an empty reviewer', {}],
+    ['a non-uuid reviewer', { actorId: 'not-a-uuid' }],
+    ['a role name instead of a person', { actorId: 'service_role' }],
+    ['a null actorId', { actorId: null }],
+  ])('fails closed on %s rather than attributing the review', async (_label, reviewer) => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(
+      input(), reviewer as never,
+    );
+    expect(result.status).toBe('reviewer_unresolved');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('records the session reviewer, not anything from the payload', async () => {
+    const rpc = rpcClient(recorded);
+    await recordWorkflowAssessmentReview(
+      { ...input(), reviewerActorId: '99999999-9999-4999-8999-999999999999' } as never,
+      REVIEWER,
+    );
+    // The payload identity is rejected outright by the strict schema, so the
+    // call never happens; identity can only arrive through the session.
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('sends the session actor id to the database', async () => {
+    const rpc = rpcClient(recorded);
+    await recordWorkflowAssessmentReview(input(), REVIEWER);
+    const sent = rpc.mock.calls[0]![1] as unknown as Record<string, unknown>;
+    expect(sent.p_reviewer_actor_id).toBe(REVIEWER_ID);
   });
 });

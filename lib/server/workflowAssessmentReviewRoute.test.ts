@@ -1,22 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recordReview = vi.hoisted(() => vi.fn());
+const actorContext = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/server/workflowAssessmentReview', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/server/workflowAssessmentReview')>()),
   recordWorkflowAssessmentReview: recordReview,
 }));
+vi.mock('@/lib/server/getActorContext', () => ({ getActorContext: actorContext }));
 
 import { POST } from '@/app/api/internal/workflow-assessment-review/route';
 
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
-const SECRET = 'workflow-assessment-review-route-secret';
+const OTHER_ID = '99999999-9999-4999-8999-999999999999';
 
 const body = (overrides: Record<string, unknown> = {}) => ({
   assessmentId: ASSESSMENT_ID,
   assessmentVersion: 1,
-  reviewerActorId: REVIEWER_ID,
   stepReviews: [{
     disposition: 'accepted',
     assessmentStepId: 'step-1',
@@ -26,18 +27,22 @@ const body = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function request(payload: unknown, authorization = `Bearer ${SECRET}`): Request {
+function request(payload: unknown): Request {
   return new Request('http://localhost/api/internal/workflow-assessment-review', {
     method: 'POST',
-    headers: { authorization, 'content-type': 'application/json' },
+    headers: { authorization: 'Bearer operator-session-jwt', 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
 }
 
-describe('internal workflow assessment review route', () => {
+describe('workflow assessment review route', () => {
   beforeEach(() => {
-    process.env.CRON_SECRET = SECRET;
     recordReview.mockReset();
+    actorContext.mockReset();
+    actorContext.mockResolvedValue({
+      ok: true,
+      actor: { actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op', role: 'admin' },
+    });
     recordReview.mockResolvedValue({
       status: 'review_recorded',
       reviewId: '44444444-4444-4444-8444-444444444444',
@@ -48,9 +53,7 @@ describe('internal workflow assessment review route', () => {
     });
   });
 
-  afterEach(() => { delete process.env.CRON_SECRET; });
-
-  it('records a review for an authorized caller', async () => {
+  it('records a review for an authenticated operator', async () => {
     const response = await POST(request(body()));
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
@@ -58,27 +61,55 @@ describe('internal workflow assessment review route', () => {
     });
   });
 
-  it('returns 503 without a configured secret', async () => {
-    delete process.env.CRON_SECRET;
-    const response = await POST(request(body()));
-    expect(response.status).toBe(503);
+  it('passes the session actor as the reviewer, never the payload', async () => {
+    await POST(request(body()));
+    expect(recordReview).toHaveBeenCalledTimes(1);
+    expect(recordReview.mock.calls[0]![1]).toEqual({ actorId: REVIEWER_ID });
+  });
+
+  it('never forwards a payload-asserted identity', async () => {
+    // The strict schema rejects it outright, so the write never happens.
+    const response = await POST(request(body({ reviewerActorId: OTHER_ID })));
+    expect(response.status).toBe(400);
     expect(recordReview).not.toHaveBeenCalled();
   });
 
+  it('cannot be driven by the internal cron secret', async () => {
+    // CRON_SECRET must not stand in for a human review. With no valid session,
+    // the route refuses regardless of any shared secret being configured.
+    process.env.CRON_SECRET = 'shared-machine-secret';
+    actorContext.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' });
+    try {
+      const response = await POST(request(body()));
+      expect(response.status).toBe(401);
+      expect(recordReview).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CRON_SECRET;
+    }
+  });
+
   it.each([
-    ['a wrong secret', 'Bearer nope'],
-    ['no authorization header', ''],
-    ['a bare secret without the scheme', SECRET],
-  ])('rejects %s before doing any work', async (_label, authorization) => {
-    const response = await POST(request(body(), authorization));
-    expect(response.status).toBe(401);
+    ['no session', { ok: false, status: 401, error: 'Unauthorized' }, 401],
+    ['no user_profiles row', { ok: false, status: 403, error: 'User profile not found' }, 403],
+    ['no organization', { ok: false, status: 403, error: 'No organization' }, 403],
+    ['auth not configured', { ok: false, status: 503, error: 'Server not configured' }, 503],
+  ])('refuses when there is %s', async (_label, resolution, expected) => {
+    actorContext.mockResolvedValue(resolution);
+    const response = await POST(request(body()));
+    expect(response.status).toBe(expected);
     expect(recordReview).not.toHaveBeenCalled();
+  });
+
+  it('resolves identity before parsing the body', async () => {
+    actorContext.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' });
+    const response = await POST(request({ total: 'garbage' }));
+    // Unauthenticated callers learn nothing about payload validity.
+    expect(response.status).toBe(401);
   });
 
   it.each([
     ['a caller-supplied overall disposition', { overallDisposition: 'accepted' }],
     ['a caller-supplied review version', { reviewVersion: 4 }],
-    ['a caller-supplied reviewer identity override', { reviewer: 'someone else' }],
     ['an execution request', { execute: true }],
     ['a deployment request', { deploy: true }],
     ['an arbitrary extra property', { unexpected: 'value' }],
@@ -92,7 +123,6 @@ describe('internal workflow assessment review route', () => {
     ['a non-uuid assessment id', { assessmentId: 'not-a-uuid' }],
     ['a zero assessment version', { assessmentVersion: 0 }],
     ['an empty step review list', { stepReviews: [] }],
-    ['a missing reviewer', { reviewerActorId: undefined }],
   ])('rejects %s with 400', async (_label, override) => {
     const response = await POST(request(body(override)));
     expect(response.status).toBe(400);
@@ -102,7 +132,7 @@ describe('internal workflow assessment review route', () => {
   it('rejects a malformed body without reaching the seam', async () => {
     const response = await POST(new Request(
       'http://localhost/api/internal/workflow-assessment-review',
-      { method: 'POST', headers: { authorization: `Bearer ${SECRET}` }, body: 'not json' },
+      { method: 'POST', headers: { authorization: 'Bearer jwt' }, body: 'not json' },
     ));
     expect(response.status).toBe(400);
     expect(recordReview).not.toHaveBeenCalled();
@@ -111,6 +141,7 @@ describe('internal workflow assessment review route', () => {
   it.each([
     ['assessment_not_found', 404],
     ['not_configured', 503],
+    ['reviewer_unresolved', 403],
     ['duplicate_step_review', 422],
     ['review_rejected', 422],
     ['persist_failed', 500],

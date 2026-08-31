@@ -123,21 +123,38 @@ function productionFilesIn(workspaceRoot: string): string[] {
     .flatMap((root) => walk(path.join(workspaceRoot, root)));
 }
 
-// The repository tree cannot change while the suite runs, but each guard used
-// to re-walk and re-parse all of it. Memoizing only the ROOT case keeps the
-// exact edge semantics (same importsInFile) while letting guards be added
-// without multiplying the cost. Fixture roots stay uncached: a test may write
-// more files into one between assertions.
-let rootProductionEdges: ImportEdge[] | null = null;
+/**
+ * Identity of the source tree: every path, size, and mtime.
+ *
+ * A guard cache keyed on nothing at all would go stale the moment a test writes
+ * a file into the real tree, silently turning "no unauthorized import exists"
+ * into "no unauthorized import existed the first time anyone looked". A guard
+ * that cannot fail is worse than no guard, so the cache is keyed on this
+ * instead of being held forever.
+ */
+function treeFingerprint(files: readonly string[]): string {
+  return files.map((file) => {
+    const stat = statSync(file);
+    return `${file}:${stat.mtimeMs}:${stat.size}`;
+  }).join('|');
+}
+
+// Re-walking is cheap; re-reading and re-parsing every production file for
+// every guard is not. Caching on the fingerprint skips the parse while still
+// rescanning whenever the tree actually changes. Fixture roots are never
+// cached: a test may write more files into one between assertions.
+let rootEdgeCache: Readonly<{ fingerprint: string; edges: ImportEdge[] }> | null = null;
 
 function productionEdgesIn(workspaceRoot: string): ImportEdge[] {
-  if (workspaceRoot === ROOT) {
-    rootProductionEdges ??= productionFilesIn(ROOT)
-      .flatMap((file) => importsInFile(file, ROOT));
-    return rootProductionEdges;
+  const files = productionFilesIn(workspaceRoot);
+  if (workspaceRoot !== ROOT) {
+    return files.flatMap((file) => importsInFile(file, workspaceRoot));
   }
-  return productionFilesIn(workspaceRoot)
-    .flatMap((file) => importsInFile(file, workspaceRoot));
+  const fingerprint = treeFingerprint(files);
+  if (rootEdgeCache?.fingerprint === fingerprint) return rootEdgeCache.edges;
+  const edges = files.flatMap((file) => importsInFile(file, ROOT));
+  rootEdgeCache = Object.freeze({ fingerprint, edges });
+  return edges;
 }
 
 function nonLiteralModuleLoadsInFile(
@@ -483,13 +500,18 @@ function importsInFileFast(absolutePath: string, workspaceRoot = ROOT): ImportEd
   return [...text.matchAll(IMPORT_PATTERN)].map((match) => ({ source, specifier: match[1]! }));
 }
 
-let productionEdges: ImportEdge[] | null = null;
+// Same fingerprint discipline as productionEdgesIn: this cache previously held
+// the first scan forever, so a guard rerun after a test wrote into the real
+// tree could not observe the new file.
+let fastEdgeCache: Readonly<{ fingerprint: string; edges: ImportEdge[] }> | null = null;
 
 function allEdges(): ImportEdge[] {
-  productionEdges ??= PRODUCTION_ROOTS
-    .flatMap((root) => walk(path.join(ROOT, root)))
-    .flatMap((file) => importsInFileFast(file));
-  return productionEdges;
+  const files = PRODUCTION_ROOTS.flatMap((root) => walk(path.join(ROOT, root)));
+  const fingerprint = treeFingerprint(files);
+  if (fastEdgeCache?.fingerprint === fingerprint) return fastEdgeCache.edges;
+  const edges = files.flatMap((file) => importsInFileFast(file));
+  fastEdgeCache = Object.freeze({ fingerprint, edges });
+  return edges;
 }
 
 function specifierSegments(specifier: string): string[] {
@@ -884,6 +906,38 @@ describe('production architecture import boundaries', () => {
       'app/api/internal/workflow-assessment-review/route.ts',
     ]);
   }, 30_000);
+
+  // Guard caches are keyed on a tree fingerprint rather than held for the life
+  // of the process. Without that, the first scan would answer every later
+  // question, and a guard that cannot observe a new import is not a guard --
+  // every assertion after the first would be vacuous. This proves a rescan
+  // happens for both cache paths: productionEdgesIn and allEdges.
+  it('rescans the real tree when a production file changes after the first scan', () => {
+    const probe = path.join(ROOT, 'lib', 'validator', '__import_boundary_cache_probe__.ts');
+    expect(workflowAssessmentReviewConsumerViolations()).toEqual([]);
+    try {
+      // A file that did not exist during the first scan.
+      writeFileSync(probe, "import { r } from '@/lib/server/workflowAssessmentReview';\n");
+      expect(workflowAssessmentReviewConsumerViolations()).toEqual([
+        'lib/validator/__import_boundary_cache_probe__.ts -> @/lib/server/workflowAssessmentReview'
+        + ' (unauthorized workflow assessment review consumer)',
+      ]);
+
+      // Same path, different content: the allEdges-backed guards must see the
+      // edit, not just the file's first appearance.
+      writeFileSync(probe, "import { s } from '@/lib/forgewing/proposal/schema';\n");
+      expect(forgewingProductionConsumers())
+        .toContain('lib/validator/__import_boundary_cache_probe__.ts');
+      expect(workflowAssessmentReviewConsumerViolations()).toEqual([]);
+    } finally {
+      rmSync(probe, { force: true });
+    }
+
+    // Removal is observed too, so the probe cannot leak into later assertions.
+    expect(workflowAssessmentReviewConsumerViolations()).toEqual([]);
+    expect(forgewingProductionConsumers())
+      .not.toContain('lib/validator/__import_boundary_cache_probe__.ts');
+  }, 120_000);
 
   it('prevents a comparison outcome from becoming a serving validation result', () => {
     expect(comparisonServingLeakViolations()).toEqual([]);

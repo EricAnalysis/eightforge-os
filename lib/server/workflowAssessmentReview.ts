@@ -17,6 +17,11 @@
 import { z } from 'zod';
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import {
+  buildReviewedSpecification,
+  type ReviewedClassification,
+} from '@/lib/server/workflowReviewedSpecification';
+import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
 
 export const WORKFLOW_ASSESSMENT_REVIEW_TABLE = 'workflow_assessment_reviews' as const;
 export const WORKFLOW_ASSESSMENT_STEP_REVIEW_TABLE =
@@ -65,6 +70,8 @@ const stepReviewSchema = z.discriminatedUnion('disposition', [
     proposedClassification: classification,
     reviewedClassification: classification,
     reviewerNotes: notes,
+    // Shape is validated against the REVIEWED classification below, not here:
+    // which schema applies depends on what the operator settled on.
     acceptedSpecification: z.record(z.unknown()).optional(),
   }).strict(),
   z.object({
@@ -136,7 +143,11 @@ export const workflowAssessmentReviewInputSchema = z.object({
  * row. This is a distinct argument rather than a request field so that reviewer
  * identity cannot travel through the same channel a caller controls.
  */
-export type SessionDerivedReviewer = Readonly<{ actorId: string }>;
+export type SessionDerivedReviewer = Readonly<{
+  actorId: string;
+  /** The role on the reviewer's user_profiles row, for the eligibility recheck. */
+  role: string | null;
+}>;
 
 export type WorkflowAssessmentReviewInput =
   z.infer<typeof workflowAssessmentReviewInputSchema>;
@@ -145,6 +156,8 @@ export type WorkflowAssessmentReviewResult =
   | Readonly<{ status: 'not_configured' }>
   | Readonly<{ status: 'input_invalid'; reason: string }>
   | Readonly<{ status: 'reviewer_unresolved' }>
+  | Readonly<{ status: 'reviewer_not_eligible'; reason: string }>
+  | Readonly<{ status: 'specification_invalid'; reason: string }>
   | Readonly<{ status: 'duplicate_step_review'; reason: string }>
   | Readonly<{ status: 'assessment_not_found' }>
   | Readonly<{ status: 'review_rejected'; reason: string }>
@@ -165,6 +178,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Postgres surfaces the pinned-version failure as no_data_found. */
 const ASSESSMENT_MISSING = /no workflow assessment/i;
+/** The reviewer FK: a reviewer id with no user_profiles row. */
+const REVIEWER_UNKNOWN = /reviewer_actor_id_fkey|workflow assessment reviewer/i;
 /** Coverage, step identity, and proposed-classification mismatches. */
 const REVIEW_REJECTED =
   /must disposition every proposed step|absent from assessment|must be a json array/i;
@@ -194,6 +209,14 @@ export async function recordWorkflowAssessmentReview(
     return { status: 'reviewer_unresolved' };
   }
 
+  // Authorization is rechecked here, not only at the route. Hiding an action in
+  // a UI is convenience; this is the server-side authority, and it holds for
+  // any caller the architecture guard permits.
+  const eligibility = resolveWorkflowReviewEligibility(reviewer.role);
+  if (!eligibility.eligible) {
+    return { status: 'reviewer_not_eligible', reason: eligibility.reason };
+  }
+
   const parsed = workflowAssessmentReviewInputSchema.safeParse(input);
   if (!parsed.success) {
     // Issue paths only. Reviewer prose describes a visitor's business process
@@ -212,6 +235,27 @@ export async function recordWorkflowAssessmentReview(
     return { status: 'duplicate_step_review', reason: 'assessmentStepId repeated' };
   }
 
+  // Reviewed specifications are rebuilt from typed schemas, never passed
+  // through. Which schema applies is decided by the REVIEWED classification:
+  // a RULE downgraded to HUMAN must carry a human-decision specification, or a
+  // rejected automation could survive in the rule shape that was refused.
+  const specifications = new Map<string, Record<string, unknown>>();
+  for (const step of parsed.data.stepReviews) {
+    if (step.disposition !== 'modified' && step.disposition !== 'reclassified') continue;
+    if (step.acceptedSpecification === undefined) continue;
+    const built = buildReviewedSpecification(
+      step.reviewedClassification as ReviewedClassification,
+      step.acceptedSpecification,
+    );
+    if (!built.ok) {
+      return {
+        status: 'specification_invalid',
+        reason: `${step.assessmentStepId}:${built.reason}`,
+      };
+    }
+    specifications.set(step.assessmentStepId, built.specification);
+  }
+
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
 
@@ -228,15 +272,16 @@ export async function recordWorkflowAssessmentReview(
         step.disposition === 'rejected' ? null : step.reviewedClassification,
       disposition: step.disposition,
       reviewer_notes: step.reviewerNotes ?? null,
-      accepted_specification:
-        step.disposition === 'modified' || step.disposition === 'reclassified'
-          ? step.acceptedSpecification ?? null
-          : null,
+      // Only the deterministically constructed object reaches the database.
+      accepted_specification: specifications.get(step.assessmentStepId) ?? null,
     })),
   });
 
   if (error) {
     if (ASSESSMENT_MISSING.test(error.message)) return { status: 'assessment_not_found' };
+    // A reviewer the database does not recognise is an identity failure, not a
+    // generic persistence failure.
+    if (REVIEWER_UNKNOWN.test(error.message)) return { status: 'reviewer_unresolved' };
     if (REVIEW_REJECTED.test(error.message)) {
       return { status: 'review_rejected', reason: error.message };
     }

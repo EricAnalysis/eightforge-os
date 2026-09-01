@@ -22,6 +22,7 @@
 // specification, not a deployed rule.
 
 import { getActorContext } from '@/lib/server/getActorContext';
+import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
 import {
   recordWorkflowAssessmentReview,
   workflowAssessmentReviewInputSchema,
@@ -40,6 +41,17 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: actor.status });
   }
 
+  // Authentication proves who the actor is; this proves they were allowed to
+  // review. Checked before the body is parsed, and again inside the seam: a
+  // hidden button in a UI is convenience, this is the authority.
+  const eligibility = resolveWorkflowReviewEligibility(actor.actor.role);
+  if (!eligibility.eligible) {
+    return Response.json(
+      { ok: false, error: 'reviewer_not_eligible', reason: eligibility.reason },
+      { status: 403 },
+    );
+  }
+
   const body = workflowAssessmentReviewInputSchema.safeParse(
     await request.json().catch(() => null),
   );
@@ -49,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await recordWorkflowAssessmentReview(
     body.data,
-    { actorId: actor.actor.actorId },
+    { actorId: actor.actor.actorId, role: actor.actor.role },
   );
 
   switch (result.status) {
@@ -71,6 +83,19 @@ export async function POST(request: Request): Promise<Response> {
       // would preserve a false attribution, so refuse.
       console.error('[workflowAssessmentReview] reviewer identity unresolved');
       return Response.json({ ok: false, error: 'reviewer_unresolved' }, { status: 403 });
+    case 'reviewer_not_eligible':
+      // The seam recheck disagreed with the route check. That should be
+      // unreachable, so it is worth a log line rather than a silent 403.
+      console.error('[workflowAssessmentReview] eligibility recheck failed', {
+        reason: result.reason,
+      });
+      return Response.json({ ok: false, error: 'reviewer_not_eligible' }, { status: 403 });
+    case 'specification_invalid':
+      // Field paths only; never the reviewer's prose.
+      return Response.json(
+        { ok: false, error: 'specification_invalid', reason: result.reason },
+        { status: 422 },
+      );
     case 'input_invalid':
       return Response.json({ ok: false, error: 'invalid review request' }, { status: 400 });
     case 'duplicate_step_review':

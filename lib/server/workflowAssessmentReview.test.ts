@@ -12,7 +12,7 @@ import {
 
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
-const REVIEWER = { actorId: REVIEWER_ID } as const;
+const REVIEWER = { actorId: REVIEWER_ID, role: 'admin' } as const;
 
 type RpcArgs = Record<string, unknown>;
 
@@ -214,9 +214,9 @@ describe('workflow assessment review seam', () => {
   it.each([
     ['a missing reviewer', undefined],
     ['an empty reviewer', {}],
-    ['a non-uuid reviewer', { actorId: 'not-a-uuid' }],
-    ['a role name instead of a person', { actorId: 'service_role' }],
-    ['a null actorId', { actorId: null }],
+    ['a non-uuid reviewer', { actorId: 'not-a-uuid', role: 'admin' }],
+    ['a role name instead of a person', { actorId: 'service_role', role: 'admin' }],
+    ['a null actorId', { actorId: null, role: 'admin' }],
   ])('fails closed on %s rather than attributing the review', async (_label, reviewer) => {
     const rpc = rpcClient(recorded);
     const result = await recordWorkflowAssessmentReview(
@@ -242,5 +242,103 @@ describe('workflow assessment review seam', () => {
     await recordWorkflowAssessmentReview(input(), REVIEWER);
     const sent = rpc.mock.calls[0]![1] as unknown as Record<string, unknown>;
     expect(sent.p_reviewer_actor_id).toBe(REVIEWER_ID);
+  });
+  it.each([
+    ['viewer', 'viewer'],
+    ['member', 'member'],
+    ['analyst', 'analyst'],
+    ['empty string', ''],
+    ['null role', null],
+    ['service_role', 'service_role'],
+  ])('refuses an ineligible reviewer role: %s', async (_label, role) => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(
+      input(), { actorId: REVIEWER_ID, role } as never,
+    );
+    expect(result.status).toBe('reviewer_not_eligible');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([['owner'], ['admin'], ['Admin'], ['  OWNER  ']])(
+    'allows eligible role %s', async (role) => {
+      const rpc = rpcClient(recorded);
+      const result = await recordWorkflowAssessmentReview(
+        input(), { actorId: REVIEWER_ID, role } as never,
+      );
+      expect(result.status).toBe('review_recorded');
+      expect(rpc).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('rebuilds the reviewed specification instead of passing it through', async () => {
+    const rpc = rpcClient(recorded);
+    await recordWorkflowAssessmentReview(input({
+      stepReviews: [{
+        disposition: 'modified', assessmentStepId: 'step-1',
+        proposedClassification: 'RULE', reviewedClassification: 'RULE',
+        reviewerNotes: 'Tightened the tolerance wording.',
+        acceptedSpecification: {
+          plainLanguageRule: 'Billed rate must equal the contract rate.',
+          requiredFacts: ['Billed rate'], conditionType: 'comparison',
+          expectedEvidence: ['Invoice line'], expectedOutcome: 'Flag a mismatch.',
+          userDescribedExceptions: [], unresolvedAssumptions: [],
+        },
+      }],
+    }), REVIEWER);
+    const sent = rpc.mock.calls[0]![1] as unknown as { p_step_reviews: RpcArgs[] };
+    const spec = sent.p_step_reviews[0]!.accepted_specification as Record<string, unknown>;
+    expect(Object.keys(spec).sort()).toEqual([
+      'conditionType', 'expectedEvidence', 'expectedOutcome', 'plainLanguageRule',
+      'requiredFacts', 'unresolvedAssumptions', 'userDescribedExceptions',
+    ]);
+  });
+
+  it.each([
+    ['an unknown field', { plainLanguageRule: 'x', requiredFacts: ['a'],
+      conditionType: 'comparison', expectedEvidence: ['e'], expectedOutcome: 'o',
+      userDescribedExceptions: [], unresolvedAssumptions: [], sqlToRun: 'DROP TABLE x' }],
+    ['arbitrary json', { anything: 'goes' }],
+    ['an executable expression field', { expression: '1 = 1' }],
+    ['a missing required field', { requiredFacts: ['a'] }],
+  ])('rejects a reviewed specification with %s', async (_label, spec) => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(input({
+      stepReviews: [{
+        disposition: 'modified', assessmentStepId: 'step-1',
+        proposedClassification: 'RULE', reviewedClassification: 'RULE',
+        reviewerNotes: 'note', acceptedSpecification: spec,
+      }],
+    }), REVIEWER);
+    expect(result.status).toBe('specification_invalid');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('validates a reclassified step against its REVIEWED classification', async () => {
+    const rpc = rpcClient(recorded);
+    // RULE downgraded to HUMAN must carry a human-decision specification; the
+    // rule shape it was downgraded away from must not survive.
+    const result = await recordWorkflowAssessmentReview(input({
+      stepReviews: [{
+        disposition: 'reclassified', assessmentStepId: 'step-1',
+        proposedClassification: 'RULE', reviewedClassification: 'HUMAN',
+        reviewerNotes: 'Approval authority is not delegable.',
+        acceptedSpecification: {
+          plainLanguageRule: 'Billed rate must equal the contract rate.',
+          requiredFacts: ['Billed rate'], conditionType: 'comparison',
+          expectedEvidence: ['Invoice line'], expectedOutcome: 'Flag a mismatch.',
+          userDescribedExceptions: [], unresolvedAssumptions: [],
+        },
+      }],
+    }), REVIEWER);
+    expect(result.status).toBe('specification_invalid');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('maps an unknown reviewer from the database to reviewer_unresolved', async () => {
+    rpcClient({ data: null, error: {
+      message: 'workflow assessment reviewer 333 is not a known user profile',
+    } });
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('reviewer_unresolved');
   });
 });

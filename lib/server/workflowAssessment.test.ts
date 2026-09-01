@@ -228,16 +228,26 @@ describe('workflow assessment recording', () => {
 
 describe('workflow assessment boundaries', () => {
   it('never writes canonical, Validator, or Project Truth state', () => {
-    const source = readFileSync('lib/server/workflowAssessment.ts', 'utf8');
-    for (const forbidden of [
-      'lib/canonical', 'lib/validator', 'lib/projectFacts', 'lib/truthQuery',
-      'lib/effectiveFacts', 'CanonicalFact', 'VerifiedField',
-    ]) {
-      expect(source).not.toContain(forbidden);
+    // The intake read now lives in a neutral module so the review read seam can
+    // share it without importing this guarded one. Both files are checked, so
+    // relocating the code did not relocate the property out of the test.
+    const sources = [
+      'lib/server/workflowAssessment.ts',
+      'lib/server/workflowIntakeRead.ts',
+    ].map((file) => readFileSync(file, 'utf8'));
+
+    for (const source of sources) {
+      for (const forbidden of [
+        'lib/canonical', 'lib/validator', 'lib/projectFacts', 'lib/truthQuery',
+        'lib/effectiveFacts', 'CanonicalFact', 'VerifiedField',
+      ]) {
+        expect(source).not.toContain(forbidden);
+      }
+      // The intake table is only ever reached through the read-only RPC seam.
+      expect(source).not.toContain("from('workflow_intake_submissions')");
     }
-    // The intake table is only ever reached through the read-only RPC seam.
-    expect(source).not.toContain("from('workflow_intake_submissions')");
-    expect(source).toContain(WORKFLOW_INTAKE_READ_FUNCTION);
+
+    expect(sources.join(' ')).toContain(WORKFLOW_INTAKE_READ_FUNCTION);
   });
 
   it('exposes no anonymous read path for assessments', () => {

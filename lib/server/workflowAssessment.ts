@@ -24,23 +24,16 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const WORKFLOW_ASSESSMENT_TABLE = 'workflow_assessments' as const;
-export const WORKFLOW_INTAKE_READ_FUNCTION = 'read_workflow_intake_submission' as const;
+import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
 
-/** Request/column pairs, mirroring the intake contract exactly. */
-const ANSWER_COLUMNS = [
-  ['workflowDescription', 'workflow_description'],
-  ['documentsInvolved', 'documents_involved'],
-  ['manualChecks', 'manual_checks'],
-  ['frequencyAndVolume', 'frequency_and_volume'],
-  ['exceptions', 'exceptions'],
-  ['humanDecisions', 'human_decisions'],
-] as const;
-
-export type LoadedWorkflowIntakeSubmission = Readonly<{
-  submissionId: string;
-  submissionSchemaVersion: string;
-  answers: Readonly<Record<(typeof ANSWER_COLUMNS)[number][0], string>>;
-}>;
+// Re-exported so this module's public surface is unchanged. The
+// implementation lives in a neutral module the review read seam also uses,
+// so neither guarded seam has to import the other.
+export {
+  WORKFLOW_INTAKE_READ_FUNCTION,
+  type LoadedWorkflowIntakeSubmission,
+} from '@/lib/server/workflowIntakeRead';
+export { loadWorkflowIntakeSubmission };
 
 export type WorkflowAssessmentRunResult =
   | Readonly<{ status: 'submission_not_found' }>
@@ -62,39 +55,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * Reads one immutable submission through the SECURITY DEFINER seam.
- *
- * The intake table grants INSERT only, so this RPC is the single auditable read
- * path. It requires a known id, so it cannot be used to enumerate submissions.
- */
-export async function loadWorkflowIntakeSubmission(
-  submissionId: string,
-  admin: AdminClient,
-): Promise<LoadedWorkflowIntakeSubmission | null> {
-  const { data, error } = await admin.rpc(WORKFLOW_INTAKE_READ_FUNCTION, {
-    submission_id: submissionId,
-  });
-  if (error) throw new Error(error.message);
-
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!isRecord(row)) return null;
-  if (typeof row.id !== 'string' || row.id !== submissionId) return null;
-  if (typeof row.schema_version !== 'string') return null;
-
-  const answers: Partial<Record<(typeof ANSWER_COLUMNS)[number][0], string>> = {};
-  for (const [field, column] of ANSWER_COLUMNS) {
-    const value = row[column];
-    if (typeof value !== 'string' || value.trim().length === 0) return null;
-    answers[field] = value;
-  }
-
-  return Object.freeze({
-    submissionId: row.id,
-    submissionSchemaVersion: row.schema_version,
-    answers: Object.freeze(answers as LoadedWorkflowIntakeSubmission['answers']),
-  });
-}
 
 /**
  * Appends one assessment at the next version for its submission.

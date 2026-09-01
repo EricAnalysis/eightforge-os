@@ -8,6 +8,7 @@ const ROOT = process.cwd();
 const SURFACE_FILES = [
   'app/platform/workflows/reviews/page.tsx',
   'app/platform/workflows/reviews/[assessmentId]/page.tsx',
+  'components/platform/WorkflowReviewsCard.tsx',
 ];
 
 const READ_ROUTES = [
@@ -105,5 +106,21 @@ describe('workflow review surface has no execution affordance', () => {
   it('keeps review state in the browser with no draft persistence', () => {
     const detail = read(SURFACE_FILES[1]!);
     expect(detail).not.toMatch(/localStorage|sessionStorage|indexedDB|draftId/i);
+  });
+  it('keeps the workflows hub intact rather than replacing it', () => {
+    // The hub is an existing operational surface for tasks. Reviews are a
+    // different object and get an entry point, not a takeover.
+    const hub = read('app/platform/workflows/page.tsx');
+    expect(hub).toContain('WorkflowReviewsCard');
+    expect(hub).toContain('My Actions');
+    // The queue itself must not be inlined into the task page.
+    expect(hub).not.toContain('review-queue');
+  });
+
+  it('links to the nested review queue rather than nesting it in the hub', () => {
+    const card = read('components/platform/WorkflowReviewsCard.tsx');
+    expect(card).toContain('/platform/workflows/reviews');
+    // The card reads the queue but records nothing.
+    expect(card).not.toMatch(/method:\s*'POST'/);
   });
 });

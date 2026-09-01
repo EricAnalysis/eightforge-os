@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { useOrgMembers } from '@/lib/useOrgMembers';
 import { OverdueBadge, TASK_OPEN_STATUSES, isTaskOverdue } from '@/lib/overdue';
+import { WorkflowReviewsCard } from '@/components/platform/WorkflowReviewsCard';
 
 type DocumentRef = { id: string; title: string | null; name: string } | null;
 type AssigneeRef = { id: string; display_name: string | null } | null;
@@ -272,6 +273,10 @@ export default function WorkflowsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Reviews are a distinct object from tasks, so they get their own entry
+          rather than rows mixed into the action list below. */}
+      <WorkflowReviewsCard />
+
       <section className="flex items-start justify-between gap-4">
         <div>
           <h2 className="mb-1 text-sm font-semibold text-[var(--ef-text-primary)]">My Actions</h2>

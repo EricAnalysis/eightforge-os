@@ -20,7 +20,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import {
   buildReviewedSpecification,
   type ReviewedClassification,
-} from '@/lib/server/workflowReviewedSpecification';
+} from '@/lib/workflowReviewedSpecification';
 import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
 
 export const WORKFLOW_ASSESSMENT_REVIEW_TABLE = 'workflow_assessment_reviews' as const;

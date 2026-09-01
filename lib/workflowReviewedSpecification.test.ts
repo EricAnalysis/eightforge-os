@@ -4,10 +4,11 @@ import { WORKFLOW_RULE_CONDITION_TYPES }
   from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 import {
   buildReviewedSpecification,
+  REVIEWED_SPECIFICATION_FIELDS,
   REVIEWED_SPECIFICATION_SCHEMAS,
   WORKFLOW_REVIEWED_CONDITION_TYPES,
   type ReviewedClassification,
-} from '@/lib/server/workflowReviewedSpecification';
+} from '@/lib/workflowReviewedSpecification';
 
 const RULE_SPEC = {
   plainLanguageRule: 'Billed rate must equal the contract rate for the same code.',
@@ -109,5 +110,40 @@ describe('reviewed specification contract', () => {
   it('rejects an unknown classification', () => {
     const built = buildReviewedSpecification('DEPLOY' as ReviewedClassification, {});
     expect(built.ok).toBe(false);
+  });
+  // The form and the validator must describe the same shape. Deriving the
+  // expected names from the schema itself means a field added to one and not
+  // the other fails here rather than surfacing as a rejected submission.
+  it.each(Object.keys(REVIEWED_SPECIFICATION_SCHEMAS))(
+    'renders exactly the %s schema fields', (classification) => {
+      const schema = REVIEWED_SPECIFICATION_SCHEMAS[
+        classification as ReviewedClassification];
+      const schemaKeys = Object.keys(schema.shape).sort();
+      const fieldNames = REVIEWED_SPECIFICATION_FIELDS[
+        classification as ReviewedClassification].map((f) => f.name).sort();
+      expect(fieldNames).toEqual(schemaKeys);
+    },
+  );
+
+  it('offers no control for code, sql, or an expression', () => {
+    // Exact names, not substrings: "description" legitimately contains
+    // "script", and a substring rule would forbid a field the contract needs.
+    const forbidden = new Set([
+      'sql', 'expression', 'code', 'query', 'script', 'dsl', 'formula',
+      'pseudocode', 'runtime', 'deploy', 'enabled', 'execute',
+    ]);
+    for (const fields of Object.values(REVIEWED_SPECIFICATION_FIELDS)) {
+      for (const field of fields) {
+        expect(forbidden.has(field.name.toLowerCase())).toBe(false);
+      }
+    }
+  });
+
+  it('gives every choice field its options', () => {
+    for (const fields of Object.values(REVIEWED_SPECIFICATION_FIELDS)) {
+      for (const field of fields) {
+        if (field.kind === 'choice') expect(field.options?.length).toBeGreaterThan(0);
+      }
+    }
   });
 });

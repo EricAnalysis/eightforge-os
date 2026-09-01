@@ -64,7 +64,7 @@ describe('workflow assessment review route', () => {
   it('passes the session actor as the reviewer, never the payload', async () => {
     await POST(request(body()));
     expect(recordReview).toHaveBeenCalledTimes(1);
-    expect(recordReview.mock.calls[0]![1]).toEqual({ actorId: REVIEWER_ID });
+    expect(recordReview.mock.calls[0]![1]).toEqual({ actorId: REVIEWER_ID, role: 'admin' });
   });
 
   it('never forwards a payload-asserted identity', async () => {
@@ -163,5 +163,48 @@ describe('workflow assessment review route', () => {
   it('exposes no read path', async () => {
     const route = await import('@/app/api/internal/workflow-assessment-review/route');
     expect(Object.keys(route)).not.toContain('GET');
+  });
+  it.each([
+    ['viewer', 'viewer'],
+    ['member', 'member'],
+    ['no role at all', null],
+    ['service_role', 'service_role'],
+  ])('refuses an ineligible role (%s) with 403 before parsing', async (_label, role) => {
+    actorContext.mockResolvedValue({
+      ok: true,
+      actor: { actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op', role },
+    });
+    const response = await POST(request({ total: 'garbage' }));
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: 'reviewer_not_eligible' });
+    expect(recordReview).not.toHaveBeenCalled();
+  });
+
+  it.each([['owner'], ['admin']])('allows an eligible role (%s)', async (role) => {
+    actorContext.mockResolvedValue({
+      ok: true,
+      actor: { actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op', role },
+    });
+    const response = await POST(request(body()));
+    expect(response.status).toBe(201);
+  });
+
+  it('maps specification_invalid to 422 with field paths only', async () => {
+    recordReview.mockResolvedValue({
+      status: 'specification_invalid', reason: 'step-1:plainLanguageRule',
+    });
+    const response = await POST(request(body()));
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'specification_invalid', reason: 'step-1:plainLanguageRule',
+    });
+  });
+
+  it('maps a seam eligibility disagreement to 403', async () => {
+    recordReview.mockResolvedValue({
+      status: 'reviewer_not_eligible', reason: 'role_not_permitted',
+    });
+    const response = await POST(request(body()));
+    expect(response.status).toBe(403);
   });
 });

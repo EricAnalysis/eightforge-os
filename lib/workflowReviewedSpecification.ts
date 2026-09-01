@@ -1,5 +1,10 @@
-// lib/server/workflowReviewedSpecification.ts
+// lib/workflowReviewedSpecification.ts
 // Typed reviewed-specification shapes, one per classification.
+//
+// Pure by construction: this imports zod and nothing else, so the review UI can
+// render typed forms from the same schemas the server validates against. It
+// lived under lib/server until a UI actually needed it; nothing was made
+// "shared" before there was a second consumer.
 //
 // `accepted_specification` is jsonb in the database, which keeps the column
 // versionable — but an operator must never hand the server an arbitrary object.
@@ -103,6 +108,69 @@ export type ReviewedSpecification =
   | z.infer<typeof reviewedRecoverySpecification>
   | z.infer<typeof reviewedHumanSpecification>
   | z.infer<typeof reviewedAdvisorySpecification>;
+
+/**
+ * How the review UI renders each field.
+ *
+ * Kept beside the schemas rather than in the UI so the form and the validator
+ * cannot describe different shapes. The companion test asserts these descriptor
+ * names match each schema's keys exactly, so adding a schema field without a
+ * form control — or the reverse — fails loudly.
+ *
+ * There is no descriptor kind for code, SQL, or an expression, because no
+ * schema has such a field. The form cannot offer what the contract refuses.
+ */
+export type ReviewedFieldKind = 'text' | 'paragraph' | 'list' | 'choice' | 'boolean';
+
+export type ReviewedFieldDescriptor = Readonly<{
+  name: string;
+  label: string;
+  kind: ReviewedFieldKind;
+  /** Present only for 'choice'. */
+  options?: readonly string[];
+  optional?: boolean;
+}>;
+
+const RULE_FIELDS: readonly ReviewedFieldDescriptor[] = [
+  { name: 'plainLanguageRule', label: 'Rule in plain language', kind: 'paragraph' },
+  { name: 'requiredFacts', label: 'Required facts', kind: 'list' },
+  { name: 'conditionType', label: 'Condition type', kind: 'choice',
+    options: WORKFLOW_REVIEWED_CONDITION_TYPES },
+  { name: 'expectedEvidence', label: 'Expected evidence', kind: 'list' },
+  { name: 'expectedOutcome', label: 'Expected outcome', kind: 'paragraph' },
+  { name: 'userDescribedExceptions', label: 'Exceptions described by the user',
+    kind: 'list', optional: true },
+  { name: 'unresolvedAssumptions', label: 'Unresolved assumptions',
+    kind: 'list', optional: true },
+];
+
+export const REVIEWED_SPECIFICATION_FIELDS: Readonly<
+  Record<ReviewedClassification, readonly ReviewedFieldDescriptor[]>
+> = {
+  RULE: RULE_FIELDS,
+  VERIFY: RULE_FIELDS,
+  EXTRACT: [
+    { name: 'describedFact', label: 'Fact to extract', kind: 'paragraph' },
+    { name: 'sourceDocument', label: 'Source document', kind: 'text' },
+    { name: 'deterministicExtractionPlausible',
+      label: 'Deterministic extraction plausible', kind: 'boolean' },
+  ],
+  RECOVER: [
+    { name: 'describedFact', label: 'Fact to recover', kind: 'paragraph' },
+    { name: 'sourceDocument', label: 'Source document', kind: 'text' },
+    { name: 'description', label: 'Recovery need', kind: 'paragraph' },
+    { name: 'deterministicShortfall', label: 'Why deterministic extraction is insufficient',
+      kind: 'paragraph' },
+  ],
+  HUMAN: [
+    { name: 'description', label: 'Decision required', kind: 'paragraph' },
+    { name: 'whyHumanControlled', label: 'Why human authority is required',
+      kind: 'paragraph' },
+  ],
+  ADVISORY: [
+    { name: 'description', label: 'Advisory purpose', kind: 'paragraph' },
+  ],
+};
 
 export type ReviewedSpecificationResult =
   | Readonly<{ ok: true; specification: Record<string, unknown> }>

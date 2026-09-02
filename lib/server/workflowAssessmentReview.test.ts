@@ -488,4 +488,54 @@ describe('workflow assessment review seam', () => {
     expect(result.status).toBe('review_recorded');
     expect(rpc).toHaveBeenCalledTimes(1);
   });
+  // The closure check must run against the EXACT assessment version under
+  // review, not the latest for that submission. A version mismatch would let a
+  // newer compatible assessment vouch for an older incompatible one, and the
+  // effective specification would then be composed from proposals nobody
+  // checked.
+  it('checks closure against the exact assessment id and version under review', async () => {
+    const filters: Array<[string, unknown]> = [];
+    const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
+    const chain = {
+      select: () => chain,
+      eq: (column: string, value: unknown) => { filters.push([column, value]); return chain; },
+      maybeSingle: async () => ({
+        data: {
+          assessment: {
+            workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+            deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+            verificationRuleProposals: [], extractionRequirements: [],
+            forgewingRecoveryTasks: [], humanDecisionPoints: [],
+            advisorySteps: [], failureConsequences: [],
+          },
+        },
+        error: null,
+      }),
+    } as Record<string, unknown>;
+    getAdmin.mockReturnValue({ rpc, from: () => chain });
+
+    await recordWorkflowAssessmentReview(
+      input({ assessmentId: ASSESSMENT_ID, assessmentVersion: 7 }), REVIEWER,
+    );
+
+    expect(filters).toEqual([
+      ['id', ASSESSMENT_ID],
+      ['assessment_version', 7],
+    ]);
+  });
+
+  it('does not fall back to the latest version when the pinned one is absent', async () => {
+    const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      // No row at that exact version.
+      maybeSingle: async () => ({ data: null, error: null }),
+    } as Record<string, unknown>;
+    getAdmin.mockReturnValue({ rpc, from: () => chain });
+
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_not_found');
+    expect(rpc).not.toHaveBeenCalled();
+  });
 });

@@ -52,11 +52,27 @@ describe('public intake cannot cause provider work', () => {
       'app/api/internal/workflow-assessment/route.ts',
     ]) {
       const source = code(file);
-      expect(source).toContain('executeClaimedWorkflowAssessment');
+      // Both entry points reach the provider only through the claim seam. The
+      // sweep goes via sweepWorkflowAssessments, which itself claims once per
+      // attempt; the manual trigger claims directly.
+      expect(source).toMatch(/from '@\/lib\/server\/workflowAssessmentClaim'/);
+      expect(source).toMatch(
+        /sweepWorkflowAssessments|executeClaimedWorkflowAssessment/,
+      );
       // Calling the runner directly would bypass the claim, and with it the
       // double-spend and exhaustion protections.
       expect(source).not.toContain('runAndRecordWorkflowAssessment');
     }
+  });
+
+  it('the batch sweep itself claims rather than calling the runner', () => {
+    const claim = code('lib/server/workflowAssessmentClaim.ts');
+    // sweepWorkflowAssessments must delegate to the claiming executor, not
+    // reach the assessment runner on its own.
+    const sweepAt = claim.indexOf('export async function sweepWorkflowAssessments');
+    const sweepBody = claim.slice(sweepAt);
+    expect(sweepBody).toContain('executeClaimedWorkflowAssessment(');
+    expect(sweepBody).not.toContain('runAndRecordWorkflowAssessment');
   });
 
   it('the sweep assesses one claimed submission per invocation, not a loop', () => {

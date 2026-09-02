@@ -190,9 +190,9 @@ $$;
 
 -- Ownership restated so SECURITY DEFINER continues to run as postgres.
 ALTER FUNCTION "public"."record_workflow_assessment_review"(
-  "uuid", integer, "uuid", "text", "jsonb") OWNER TO "postgres";
+  "uuid", integer, "uuid", "jsonb", "text") OWNER TO "postgres";
 
 REVOKE ALL ON FUNCTION "public"."record_workflow_assessment_review"(
-  "uuid", integer, "uuid", "text", "jsonb") FROM PUBLIC, "anon", "authenticated";
+  "uuid", integer, "uuid", "jsonb", "text") FROM PUBLIC, "anon", "authenticated";
 GRANT EXECUTE ON FUNCTION "public"."record_workflow_assessment_review"(
-  "uuid", integer, "uuid", "text", "jsonb") TO "service_role";
+  "uuid", integer, "uuid", "jsonb", "text") TO "service_role";

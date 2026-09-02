@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const pendingRead = vi.hoisted(() => vi.fn());
-const runAssessment = vi.hoisted(() => vi.fn());
-const enabled = vi.hoisted(() => vi.fn());
+const execute = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/server/workflowAssessmentPending', () => ({
-  readPendingWorkflowAssessments: pendingRead,
-}));
-vi.mock('@/lib/server/workflowAssessment', () => ({
-  runAndRecordWorkflowAssessment: runAssessment,
-  isWorkflowAssessmentEnabled: enabled,
+vi.mock('@/lib/server/workflowAssessmentClaim', () => ({
+  executeClaimedWorkflowAssessment: execute,
 }));
 
-import { POST } from '@/app/api/internal/workflow-assessment-sweep/route';
+import { GET, POST } from '@/app/api/internal/workflow-assessment-sweep/route';
 
 const SECRET = 'sweep-secret';
 const SUBMISSION = '11111111-1111-4111-8111-111111111111';
@@ -29,70 +23,82 @@ describe('workflow assessment sweep', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = SECRET;
-    enabled.mockReturnValue(true);
-    pendingRead.mockResolvedValue({
-      status: 'ok',
-      pending: [{ submissionId: SUBMISSION, schemaVersion: 'workflow_intake_v1', submittedAt: '' }],
-    });
-    runAssessment.mockResolvedValue({
-      status: 'assessment_recorded', assessmentId: 'a1', sourceSubmissionId: SUBMISSION,
-      assessmentVersion: 1, requiresHumanReview: true, authority: 'non_authoritative',
+    execute.mockResolvedValue({
+      status: 'attempt_completed', attemptId: 'att-1', submissionId: SUBMISSION,
+      attemptNumber: 1, outcome: 'assessment_recorded', recorded: true,
     });
   });
 
-  it('assesses exactly one pending submission per invocation', async () => {
-    const response = await POST(request());
+  // Vercel Cron invokes scheduled paths with GET. A POST-only handler returned
+  // 405 on every scheduled run, so the sweep never actually executed.
+  it('GET is the cron method and reaches the claim path', async () => {
+    const response = await GET(request());
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ ok: true, assessed: 1 });
-    expect(pendingRead).toHaveBeenCalledWith(1);
-    expect(runAssessment).toHaveBeenCalledTimes(1);
-    expect(runAssessment).toHaveBeenCalledWith(SUBMISSION);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST is retained for manual invocation and behaves identically', async () => {
+    const get = await GET(request());
+    execute.mockClear();
+    const post = await POST(request());
+    expect(post.status).toBe(get.status);
+    await expect(post.json()).resolves.toEqual(await get.json());
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it.each([
-    ['no authorization header', null],
-    ['a wrong secret', 'Bearer not-the-secret'],
-    ['a bare token', SECRET],
-  ])('refuses %s and assesses nothing', async (_label, auth) => {
-    const response = await POST(request(auth));
+    ['GET', GET],
+    ['POST', POST],
+  ])('%s with no authorization never claims', async (_label, handler) => {
+    const response = await handler(request(null));
     expect(response.status).toBe(401);
-    expect(pendingRead).not.toHaveBeenCalled();
-    expect(runAssessment).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 
-  it('does not even look at pending work while the feature is disabled', async () => {
-    enabled.mockReturnValue(false);
-    const response = await POST(request());
+  it.each([
+    ['GET', GET],
+    ['POST', POST],
+  ])('%s with a wrong secret never claims', async (_label, handler) => {
+    const response = await handler(request('Bearer not-the-secret'));
+    expect(response.status).toBe(401);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing_claimable without claiming to have assessed', async () => {
+    execute.mockResolvedValue({ status: 'nothing_claimable' });
+    const response = await GET(request());
     await expect(response.json()).resolves.toMatchObject({
+      assessed: 0, reason: 'nothing_claimable',
+    });
+  });
+
+  it('reports a disabled deployment without error', async () => {
+    execute.mockResolvedValue({ status: 'assessment_disabled' });
+    await expect((await GET(request())).json()).resolves.toMatchObject({
       assessed: 0, reason: 'assessment_disabled',
     });
-    expect(pendingRead).not.toHaveBeenCalled();
-    expect(runAssessment).not.toHaveBeenCalled();
   });
 
-  it('does nothing when no submission is pending', async () => {
-    pendingRead.mockResolvedValue({ status: 'ok', pending: [] });
-    const response = await POST(request());
-    await expect(response.json()).resolves.toMatchObject({
-      assessed: 0, reason: 'nothing_pending',
+  it('does not claim success when the attempt failed', async () => {
+    execute.mockResolvedValue({
+      status: 'attempt_completed', attemptId: 'att-1', submissionId: SUBMISSION,
+      attemptNumber: 2, outcome: 'provider_failed', recorded: false,
     });
-    expect(runAssessment).not.toHaveBeenCalled();
+    await expect((await GET(request())).json()).resolves.toMatchObject({
+      ok: false, assessed: 0, attemptNumber: 2,
+    });
   });
 
   it('never returns the intake answers', async () => {
-    const response = await POST(request());
-    const body = await response.text();
+    const body = await (await GET(request())).text();
     expect(body).not.toMatch(/workflowDescription|manualChecks|humanDecisions/);
   });
 
-  it('exposes no GET: discovery and execution are separate surfaces', async () => {
-    const route = await import('@/app/api/internal/workflow-assessment-sweep/route');
-    expect(Object.keys(route)).not.toContain('GET');
-  });
-
-  it('reports a failed assessment without claiming success', async () => {
-    runAssessment.mockResolvedValue({ status: 'assessment_not_produced', reason: 'x' });
-    const response = await POST(request());
-    await expect(response.json()).resolves.toMatchObject({ ok: false, assessed: 0 });
+  it('surfaces a claim failure as unavailable rather than success', async () => {
+    execute.mockResolvedValue({ status: 'claim_failed', reason: 'deadlock' });
+    const response = await GET(request());
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('deadlock');
   });
 });

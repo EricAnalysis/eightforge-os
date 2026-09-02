@@ -38,23 +38,38 @@ describe('public intake cannot cause provider work', () => {
     expect(source).not.toMatch(/\bfetch\s*\(/);
   });
 
-  it('the sweep is secret gated and checks the feature flag before reading', () => {
+  it('the sweep is secret gated on every method', () => {
     const sweep = code('app/api/internal/workflow-assessment-sweep/route.ts');
     expect(sweep).toContain('CRON_SECRET');
     expect(sweep).toContain('timingSafeEqual');
-    // The flag check must precede the pending read, so a disabled deployment
-    // does not even enumerate submitted work.
-    const flagAt = sweep.indexOf('isWorkflowAssessmentEnabled(');
-    const readAt = sweep.indexOf('readPendingWorkflowAssessments(');
-    expect(flagAt).toBeGreaterThan(-1);
-    expect(flagAt).toBeLessThan(readAt);
+    // GET is what Vercel Cron actually invokes.
+    expect(sweep).toMatch(/export async function GET/);
   });
 
-  it('the sweep assesses one submission per invocation, not a loop', () => {
+  it('neither route reaches the provider without acquiring a claim first', () => {
+    for (const file of [
+      'app/api/internal/workflow-assessment-sweep/route.ts',
+      'app/api/internal/workflow-assessment/route.ts',
+    ]) {
+      const source = code(file);
+      expect(source).toContain('executeClaimedWorkflowAssessment');
+      // Calling the runner directly would bypass the claim, and with it the
+      // double-spend and exhaustion protections.
+      expect(source).not.toContain('runAndRecordWorkflowAssessment');
+    }
+  });
+
+  it('the sweep assesses one claimed submission per invocation, not a loop', () => {
     const sweep = code('app/api/internal/workflow-assessment-sweep/route.ts');
-    expect(sweep).toContain('readPendingWorkflowAssessments(1)');
-    // No iteration over pending work: a backlog drains at the cron rate.
     expect(sweep).not.toMatch(/for\s*\(|\.map\(|\.forEach\(|while\s*\(/);
+  });
+
+  it('the attempt cap is server-side only and not client configurable', () => {
+    const claim = code('lib/server/workflowAssessmentClaim.ts');
+    expect(claim).toContain('WORKFLOW_ASSESSMENT_MAX_ATTEMPTS = 2');
+    // Never read from a request or from provider output.
+    expect(claim).not.toMatch(/process\.env\.[A-Z_]*MAX_ATTEMPTS/);
+    expect(claim).not.toMatch(/request\.|body\./);
   });
 
   it('pending discovery is platform gated and read-only', () => {

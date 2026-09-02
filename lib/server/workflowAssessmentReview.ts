@@ -21,7 +21,7 @@ import {
   buildReviewedSpecification,
   type ReviewedClassification,
 } from '@/lib/workflowReviewedSpecification';
-import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
+import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 
 export const WORKFLOW_ASSESSMENT_REVIEW_TABLE = 'workflow_assessment_reviews' as const;
 export const WORKFLOW_ASSESSMENT_STEP_REVIEW_TABLE =
@@ -70,9 +70,12 @@ const stepReviewSchema = z.discriminatedUnion('disposition', [
     proposedClassification: classification,
     reviewedClassification: classification,
     reviewerNotes: notes,
-    // Shape is validated against the REVIEWED classification below, not here:
-    // which schema applies depends on what the operator settled on.
-    acceptedSpecification: z.record(z.unknown()).optional(),
+    // REQUIRED, not optional. A reclassification that records no specification
+    // leaves the reviewed classification asserted but undescribed: the operator
+    // said "this is really a HUMAN decision" and left nothing saying what the
+    // decision is. Shape is validated against the REVIEWED classification
+    // below; presence is enforced here.
+    acceptedSpecification: z.record(z.unknown()),
   }).strict(),
   z.object({
     disposition: z.literal('modified'),
@@ -147,6 +150,14 @@ export type SessionDerivedReviewer = Readonly<{
   actorId: string;
   /** The role on the reviewer's user_profiles row, for the eligibility recheck. */
   role: string | null;
+  /**
+   * The authenticated account's email, for the platform allowlist recheck.
+   *
+   * Workflow assessments belong to no organization, so eligibility is
+   * platform-wide rather than a tenant role. Both fields come from the verified
+   * session; neither is accepted from the request body.
+   */
+  email: string | null;
 }>;
 
 export type WorkflowAssessmentReviewInput =
@@ -212,9 +223,9 @@ export async function recordWorkflowAssessmentReview(
   // Authorization is rechecked here, not only at the route. Hiding an action in
   // a UI is convenience; this is the server-side authority, and it holds for
   // any caller the architecture guard permits.
-  const eligibility = resolveWorkflowReviewEligibility(reviewer.role);
-  if (!eligibility.eligible) {
-    return { status: 'reviewer_not_eligible', reason: eligibility.reason };
+  const access = resolveWorkflowPlatformReviewAccess(reviewer);
+  if (!access.allowed) {
+    return { status: 'reviewer_not_eligible', reason: access.reason };
   }
 
   const parsed = workflowAssessmentReviewInputSchema.safeParse(input);
@@ -242,7 +253,16 @@ export async function recordWorkflowAssessmentReview(
   const specifications = new Map<string, Record<string, unknown>>();
   for (const step of parsed.data.stepReviews) {
     if (step.disposition !== 'modified' && step.disposition !== 'reclassified') continue;
-    if (step.acceptedSpecification === undefined) continue;
+    // No `continue` on an absent specification. Skipping validation when the
+    // field was missing is exactly how a reclassified step reached the database
+    // with a NULL specification; the schema now requires it, and this refuses
+    // it a second time rather than trusting that.
+    if (step.acceptedSpecification === undefined) {
+      return {
+        status: 'specification_invalid',
+        reason: `${step.assessmentStepId}:specification_required_for_${step.disposition}`,
+      };
+    }
     const built = buildReviewedSpecification(
       step.reviewedClassification as ReviewedClassification,
       step.acceptedSpecification,

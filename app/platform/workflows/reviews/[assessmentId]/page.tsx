@@ -55,6 +55,44 @@ type ProposedStep = {
 
 type Qualification = { stepId: string; state: string; reasons: string[] };
 
+/** Any classification-specific proposal record, keyed to a step. */
+type DetailRecord = { stepId: string } & Record<string, unknown>;
+
+/** Keys that identify a record rather than describe the proposal. */
+const IDENTITY_KEYS = new Set([
+  'stepId', 'ruleId', 'requirementId', 'taskId', 'decisionId', 'advisoryId',
+]);
+
+function humanizeKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+/** Renders a proposal or specification object without inventing structure. */
+function FieldList({ record }: { record: Record<string, unknown> }) {
+  const entries = Object.entries(record).filter(([key]) => !IDENTITY_KEYS.has(key));
+  if (entries.length === 0) return null;
+  return (
+    <dl className="mt-2 space-y-1.5">
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          <dt className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+            {humanizeKey(key)}
+          </dt>
+          <dd className="whitespace-pre-wrap text-[11px] text-[var(--ef-text-secondary)]">
+            {Array.isArray(value)
+              ? (value.length === 0 ? '—' : value.map(String).join(' · '))
+              : typeof value === 'boolean'
+                ? (value ? 'Yes' : 'No')
+                : String(value ?? '—')}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 type Packet = {
   assessmentId: string;
   assessmentVersion: number;
@@ -66,6 +104,14 @@ type Packet = {
     summary?: string;
     workflowSteps?: ProposedStep[];
     determinismQualifications?: Qualification[];
+    // The classification-specific proposal for each step. The operator cannot
+    // judge a RULE without seeing the rule Forgewing actually proposed.
+    deterministicRuleProposals?: DetailRecord[];
+    verificationRuleProposals?: DetailRecord[];
+    extractionRequirements?: DetailRecord[];
+    forgewingRecoveryTasks?: DetailRecord[];
+    humanDecisionPoints?: DetailRecord[];
+    advisorySteps?: DetailRecord[];
   };
   existingReview: {
     reviewId: string;
@@ -298,6 +344,21 @@ export default function WorkflowReviewDetailPage() {
               const recorded = state.packet.existingReview?.stepReviews
                 .find((s) => s.assessmentStepId === step.stepId);
               const qualification = qualifications.find((q) => q.stepId === step.stepId);
+              const a = state.packet.assessment;
+              const detailsFor: Record<string, DetailRecord[] | undefined> = {
+                RULE: a.deterministicRuleProposals,
+                VERIFY: a.verificationRuleProposals,
+                EXTRACT: a.extractionRequirements,
+                RECOVER: a.forgewingRecoveryTasks,
+                HUMAN: a.humanDecisionPoints,
+                ADVISORY: a.advisorySteps,
+              };
+              const proposalDetail = (detailsFor[step.classification] ?? [])
+                .find((entry) => entry.stepId === step.stepId);
+              // RECOVER carries an extraction requirement as well as a task.
+              const recoverExtraction = step.classification === 'RECOVER'
+                ? (a.extractionRequirements ?? []).find((e) => e.stepId === step.stepId)
+                : undefined;
               const reviewedClass = effectiveClassification(draft, step.classification);
               const fields = REVIEWED_SPECIFICATION_FIELDS[reviewedClass];
 
@@ -321,6 +382,24 @@ export default function WorkflowReviewDetailPage() {
                       <p className="mt-2 text-xs text-[var(--ef-text-muted)]">
                         {step.rationale}
                       </p>
+
+                      {proposalDetail && (
+                        <div className="mt-3 rounded border border-[var(--ef-border-subtle)] p-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+                            Proposed {step.classification} specification
+                          </p>
+                          <FieldList record={proposalDetail} />
+                        </div>
+                      )}
+
+                      {recoverExtraction && (
+                        <div className="mt-2 rounded border border-[var(--ef-border-subtle)] p-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+                            Extraction requirement
+                          </p>
+                          <FieldList record={recoverExtraction} />
+                        </div>
+                      )}
 
                       {qualification && (
                         <p className="mt-3 text-[11px] text-[var(--ef-text-secondary)]">
@@ -375,7 +454,9 @@ export default function WorkflowReviewDetailPage() {
                       {recorded ? (
                         <div className="mt-2 space-y-2">
                           <p className="text-sm text-[var(--ef-text-primary)]">
-                            {recorded.disposition}
+                            {recorded.disposition === 'rejected'
+                              ? 'Rejected — not part of the approved specification'
+                              : recorded.disposition}
                             {recorded.reviewedClassification
                               && recorded.reviewedClassification !== recorded.proposedClassification
                               && ` → ${recorded.reviewedClassification}`}
@@ -383,6 +464,25 @@ export default function WorkflowReviewDetailPage() {
                           {recorded.reviewerNotes && (
                             <p className="text-xs text-[var(--ef-text-muted)]">
                               {recorded.reviewerNotes}
+                            </p>
+                          )}
+
+                          {/* The immutable artifact the operator actually
+                              recorded. Without this a completed review shows a
+                              verdict but not what was approved. */}
+                          {recorded.acceptedSpecification && (
+                            <div className="rounded border border-[var(--ef-border-subtle)] p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+                                Recorded {recorded.reviewedClassification ?? ''} specification
+                              </p>
+                              <FieldList record={recorded.acceptedSpecification} />
+                            </div>
+                          )}
+
+                          {recorded.disposition === 'accepted' && !recorded.acceptedSpecification && (
+                            <p className="text-[11px] text-[var(--ef-text-faint)]">
+                              Accepted as proposed — the effective specification is the
+                              proposal shown alongside.
                             </p>
                           )}
                         </div>

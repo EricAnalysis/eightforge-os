@@ -10,6 +10,14 @@ export type ActorContext = {
   organizationId: string;
   displayName: string | null;
   role: string | null;
+  /**
+   * The authenticated account's email, straight from Supabase Auth.
+   *
+   * Present so callers can evaluate explicit internal-operator allowlists,
+   * which identify people rather than organization roles. It is never taken
+   * from a request body.
+   */
+  email: string | null;
 };
 
 export type ActorContextResult =
@@ -92,6 +100,7 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
       organizationId,
       displayName: (profile.display_name as string) ?? null,
       role: typeof profile.role === 'string' ? profile.role : null,
+      email: typeof user.email === 'string' ? user.email : null,
     },
   };
 }

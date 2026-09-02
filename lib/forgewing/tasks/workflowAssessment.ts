@@ -35,15 +35,33 @@ const identifier = z.string().min(1).max(120)
 export type WorkflowDeterminismBasis =
   NonNullable<WorkflowAssessmentModelOutput['workflowSteps'][number]['determinismBasis']>;
 
+/**
+ * What EightForge knows about a step's determinism BEFORE an operator reviews it.
+ *
+ * There is deliberately no pre-review state meaning "trusted deterministic".
+ * The provider asserts the six conditions and cites intake excerpts; excerpt
+ * citation proves provenance -- that the words exist in the persisted answer --
+ * but not entailment, that they actually establish the condition. An irrelevant
+ * verbatim excerpt ("40 packages each week") can be cited for all six, so any
+ * state derived from provider self-attestation alone is a claim, not a
+ * qualification.
+ *
+ * Trusted determinism therefore requires an authority outside the provider: an
+ * operator confirming it through the review chain. Until then the strongest
+ * available state is "grounded but unverified".
+ */
 export type WorkflowDeterminismQualificationState =
-  | 'qualified'
-  | 'qualified_with_gaps'
-  | 'unqualified';
+  /** Classified RULE/VERIFY, but grounding is absent, incomplete or unusable. */
+  | 'proposed'
+  /** Every condition asserted true and every citation traced to the intake. */
+  | 'grounded_unverified'
+  /** At least one condition the provider itself marked false. */
+  | 'proposed_with_gaps';
 
 export type WorkflowDeterminismQualification = Readonly<{
   stepId: string;
   proposedClassification: (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number];
-  basis: 'eightforge_source_grounded_v1';
+  basis: 'eightforge_source_grounded_v2';
   state: WorkflowDeterminismQualificationState;
   reasons: readonly string[];
 }>;
@@ -71,7 +89,12 @@ export type ForgewingWorkflowAssessment = Readonly<{
  * explicitly. A percentage without its basis is false precision.
  */
 export type WorkflowAutomationAssessment = Readonly<{
-  basis: 'eightforge_qualified_workflow_steps';
+  /**
+   * Renamed from "qualified": nothing here is operator-confirmed. These counts
+   * describe what the provider PROPOSED and how far its grounding traced, not
+   * what EightForge trusts as deterministic.
+   */
+  basis: 'eightforge_proposed_workflow_steps';
   totalSteps: number;
   countsByClassification: Readonly<Record<
     (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number
@@ -80,10 +103,21 @@ export type WorkflowAutomationAssessment = Readonly<{
     (typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number
   >>;
   proposedDeterministicSteps: number;
-  /** Only EightForge-qualified RULE/VERIFY steps over total workflow steps. */
-  deterministicCandidateSteps: number;
-  deterministicCandidatePercentage: number;
+  /**
+   * Steps whose grounding traced to the intake and whose conditions were all
+   * asserted true. NOT a trusted-determinism count: grounding is provenance,
+   * and only an operator review can confirm entailment.
+   */
+  groundedUnverifiedSteps: number;
+  groundedUnverifiedPercentage: number;
   stepsWithUnresolvedDeterminismGaps: number;
+  /**
+   * Steps carrying an unresolved assumption anywhere -- on the step or on its
+   * own rule/verification proposal. A proposal that says "no tolerance was
+   * stated" is an open question about the rule regardless of how the step's
+   * six booleans were answered.
+   */
+  stepsWithUnresolvedAssumptions: number;
 }>;
 
 export type ForgewingWorkflowAssessmentInput = Readonly<{
@@ -271,26 +305,43 @@ function referenceViolations(output: WorkflowAssessmentModelOutput): string[] {
     const recoveryCount = countFor(output.forgewingRecoveryTasks.map((r) => r.stepId), step.stepId);
     const humanCount = countFor(output.humanDecisionPoints.map((p) => p.stepId), step.stepId);
     const advisoryCount = countFor(output.advisorySteps.map((a) => a.stepId), step.stepId);
-    if (step.classification === 'RULE' && ruleCount === 0) {
-      violations.push(`${step.stepId}:missing_rule_proposal`);
-    }
-    if (step.classification === 'VERIFY' && verificationCount === 0) {
-      violations.push(`${step.stepId}:missing_verification_proposal`);
-    }
-    if (step.classification === 'EXTRACT' && extractionCount === 0) {
-      violations.push(`${step.stepId}:missing_extraction_requirement`);
-    }
-    if (step.classification === 'RECOVER') {
-      if (extractionCount === 0) violations.push(`${step.stepId}:missing_recovery_extraction_requirement`);
-      if (recoveryCount === 0) violations.push(`${step.stepId}:missing_recovery_task`);
-    }
-    if (step.classification === 'HUMAN' && humanCount === 0) {
-      violations.push(`${step.stepId}:missing_human_decision`);
-    }
-    if (step.classification === 'ADVISORY' && advisoryCount === 0) {
-      violations.push(`${step.stepId}:missing_advisory_detail`);
-    }
+    // Exactly one, not "at least one". Two rule proposals for a single step
+    // leave the specification ambiguous -- a later resolver composing the
+    // effective reviewed specification would have to pick, and any choice would
+    // be arbitrary. Missing and duplicate are both closure failures.
+    const expectExactlyOne = (
+      count: number, classifications: readonly string[], label: string,
+    ): void => {
+      if (!classifications.includes(step.classification)) return;
+      if (count === 0) violations.push(`${step.stepId}:missing_${label}`);
+      else if (count > 1) violations.push(`${step.stepId}:duplicate_${label}:${count}`);
+    };
+
+    expectExactlyOne(ruleCount, ['RULE'], 'rule_proposal');
+    expectExactlyOne(verificationCount, ['VERIFY'], 'verification_proposal');
+    expectExactlyOne(extractionCount, ['EXTRACT', 'RECOVER'], 'extraction_requirement');
+    expectExactlyOne(recoveryCount, ['RECOVER'], 'recovery_task');
+    expectExactlyOne(humanCount, ['HUMAN'], 'human_decision');
+    expectExactlyOne(advisoryCount, ['ADVISORY'], 'advisory_detail');
   }
+
+  // Detail identifiers must be globally unique within their own collection.
+  // Two records sharing an id make provenance ambiguous even when each step's
+  // count is correct.
+  const duplicateIds = (ids: readonly string[], label: string): void => {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) violations.push(`duplicate_${label}_id:${id}`);
+      seen.add(id);
+    }
+  };
+  duplicateIds(output.deterministicRuleProposals.map((p) => p.ruleId), 'rule_proposal');
+  duplicateIds(output.verificationRuleProposals.map((p) => p.ruleId), 'verification_proposal');
+  duplicateIds(output.extractionRequirements.map((r) => r.requirementId), 'extraction_requirement');
+  duplicateIds(output.forgewingRecoveryTasks.map((t) => t.taskId), 'recovery_task');
+  duplicateIds(output.humanDecisionPoints.map((p) => p.decisionId), 'human_decision');
+  duplicateIds(output.advisorySteps.map((a) => a.advisoryId), 'advisory_detail');
+  // Step ids are already checked elsewhere; not repeated here.
 
   // RECOVER is only justified where deterministic extraction is insufficient.
   for (const requirement of output.extractionRequirements) {
@@ -305,17 +356,42 @@ function referenceViolations(output: WorkflowAssessmentModelOutput): string[] {
 const SUBJECTIVE_LANGUAGE = /\b(?:seems?|subjective|judg(?:e|ment)|discretion(?:ary)?|waiv(?:e|er)|approv(?:e|al)|ambiguous|conflicting evidence|policy exception|reasonab(?:le|leness)|appropriate|choos(?:e|es|ing)|best)\b/i;
 const DETERMINISTIC_OPERATION_LANGUAGE = /\b(?:compar(?:e|es|ing)|calculat(?:e|es|ing)|equal(?:s|ity)?|match(?:es|ing)?|sum(?:s|ming)?|difference|duplicate|presence|date range|verify|checks?|flag(?:s|ged|ging)?|reject(?:s|ed|ing)?|hold(?:s|ing)?|escalat(?:e|es|ed|ing))\b/i;
 
+/**
+ * Steps with an open assumption anywhere: on the step, or on the rule or
+ * verification proposal that describes it.
+ *
+ * A proposal saying "no tolerance for rounding was stated" is an unanswered
+ * question about the rule itself. Reading only the step's own list let that
+ * sit beside a fully-grounded claim, which is how an assessment could present
+ * an unresolved rule as though nothing were outstanding.
+ */
+function stepsWithOpenAssumptions(
+  output: WorkflowAssessmentModelOutput,
+): ReadonlySet<string> {
+  const open = new Set<string>();
+  for (const step of output.workflowSteps) {
+    if (step.unresolvedAssumptions.length > 0) open.add(step.stepId);
+  }
+  for (const proposal of [
+    ...output.deterministicRuleProposals, ...output.verificationRuleProposals,
+  ]) {
+    if (proposal.unresolvedAssumptions.length > 0) open.add(proposal.stepId);
+  }
+  return open;
+}
+
 function determinismQualifications(
   output: WorkflowAssessmentModelOutput,
   answers: ForgewingWorkflowAssessmentInput['answers'],
+  openAssumptions: ReadonlySet<string>,
 ): readonly WorkflowDeterminismQualification[] {
   return output.workflowSteps.map((step) => {
     if (!DETERMINISTIC_CLASSIFICATIONS.has(step.classification) || step.determinismBasis === null) {
       return Object.freeze({
         stepId: step.stepId,
         proposedClassification: step.classification,
-        basis: 'eightforge_source_grounded_v1' as const,
-        state: 'unqualified' as const,
+        basis: 'eightforge_source_grounded_v2' as const,
+        state: 'proposed' as const,
         reasons: Object.freeze(['classification_not_rule_or_verify']),
       });
     }
@@ -326,8 +402,8 @@ function determinismQualifications(
       return Object.freeze({
         stepId: step.stepId,
         proposedClassification: step.classification,
-        basis: 'eightforge_source_grounded_v1' as const,
-        state: 'qualified_with_gaps' as const,
+        basis: 'eightforge_source_grounded_v2' as const,
+        state: 'proposed_with_gaps' as const,
         reasons: Object.freeze(falseConditions.map((condition) => `condition_gap:${condition}`)),
       });
     }
@@ -362,15 +438,19 @@ function determinismQualifications(
     if (step.determinismSupport.some((support) => support.sourceQuestion === 'humanDecisions')) {
       reasons.push('human_decision_source_requires_human_control');
     }
-    if (step.unresolvedAssumptions.length > 0) {
+    // Includes assumptions recorded on the step's own proposal, not just the
+    // step: an open question about the rule is an open question about the step.
+    if (openAssumptions.has(step.stepId)) {
       reasons.push('unresolved_assumptions_present');
     }
 
     return Object.freeze({
       stepId: step.stepId,
       proposedClassification: step.classification,
-      basis: 'eightforge_source_grounded_v1' as const,
-      state: reasons.length === 0 ? 'qualified' as const : 'unqualified' as const,
+      basis: 'eightforge_source_grounded_v2' as const,
+      state: reasons.length === 0
+        ? 'grounded_unverified' as const
+        : 'proposed' as const,
       reasons: Object.freeze(reasons),
     });
   });
@@ -380,6 +460,7 @@ function determinismQualifications(
 function automationAssessment(
   steps: WorkflowAssessmentModelOutput['workflowSteps'],
   qualifications: readonly WorkflowDeterminismQualification[],
+  stepsWithOpenAssumptions: ReadonlySet<string>,
 ): WorkflowAutomationAssessment {
   const counts = Object.fromEntries(
     WORKFLOW_STEP_CLASSIFICATIONS.map((classification) => [
@@ -391,20 +472,21 @@ function automationAssessment(
   const percent = (count: number): number =>
     total === 0 ? 0 : Math.round((count / total) * 1000) / 10;
   const proposedDeterministicSteps = counts.RULE + counts.VERIFY;
-  const deterministicCandidateSteps = qualifications
-    .filter((qualification) => qualification.state === 'qualified').length;
+  const groundedUnverifiedSteps = qualifications
+    .filter((qualification) => qualification.state === 'grounded_unverified').length;
   return Object.freeze({
-    basis: 'eightforge_qualified_workflow_steps' as const,
+    basis: 'eightforge_proposed_workflow_steps' as const,
     totalSteps: total,
     countsByClassification: Object.freeze(counts),
     percentagesByClassification: Object.freeze(Object.fromEntries(
       WORKFLOW_STEP_CLASSIFICATIONS.map((c) => [c, percent(counts[c])]),
     ) as Record<(typeof WORKFLOW_STEP_CLASSIFICATIONS)[number], number>),
     proposedDeterministicSteps,
-    deterministicCandidateSteps,
-    deterministicCandidatePercentage: percent(deterministicCandidateSteps),
+    groundedUnverifiedSteps,
+    groundedUnverifiedPercentage: percent(groundedUnverifiedSteps),
     stepsWithUnresolvedDeterminismGaps:
-      qualifications.filter((qualification) => qualification.state === 'qualified_with_gaps').length,
+      qualifications.filter((q) => q.state === 'proposed_with_gaps').length,
+    stepsWithUnresolvedAssumptions: stepsWithOpenAssumptions.size,
   });
 }
 
@@ -470,7 +552,10 @@ export async function runForgewingWorkflowAssessment(
     return { status: 'deterministic_validation_failed', reason: violations.slice(0, 8).join(',') };
   }
 
-  const qualifications = determinismQualifications(output, parsed.data.answers);
+  const openAssumptions = stepsWithOpenAssumptions(output);
+  const qualifications = determinismQualifications(
+    output, parsed.data.answers, openAssumptions,
+  );
 
   const assessment: ForgewingWorkflowAssessment = Object.freeze({
     ...output,
@@ -482,7 +567,9 @@ export async function runForgewingWorkflowAssessment(
     authority: 'non_authoritative' as const,
     requiresHumanReview: true as const,
     determinismQualifications: qualifications,
-    automationAssessment: automationAssessment(output.workflowSteps, qualifications),
+    automationAssessment: automationAssessment(
+      output.workflowSteps, qualifications, openAssumptions,
+    ),
   });
 
   return {

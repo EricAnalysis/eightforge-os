@@ -174,13 +174,13 @@ describe('Forgewing workflow assessment V1', () => {
     });
     if (result.status !== 'requires_human_review') throw new Error('expected assessment');
     const automation = result.assessment.automationAssessment;
-    expect(automation.basis).toBe('eightforge_qualified_workflow_steps');
+    expect(automation.basis).toBe('eightforge_proposed_workflow_steps');
     expect(automation.totalSteps).toBe(2);
     expect(automation.countsByClassification.RULE).toBe(1);
     expect(automation.countsByClassification.HUMAN).toBe(1);
     expect(automation.proposedDeterministicSteps).toBe(1);
-    expect(automation.deterministicCandidateSteps).toBe(1);
-    expect(automation.deterministicCandidatePercentage).toBe(50);
+    expect(automation.groundedUnverifiedSteps).toBe(1);
+    expect(automation.groundedUnverifiedPercentage).toBe(50);
     const summed = Object.values(automation.countsByClassification)
       .reduce((total, count) => total + count, 0);
     expect(summed).toBe(automation.totalSteps);
@@ -249,8 +249,8 @@ describe('Forgewing workflow assessment V1', () => {
     expect(recorded.status).toBe('requires_human_review');
     if (recorded.status === 'requires_human_review') {
       expect(recorded.assessment.determinismQualifications[0]?.state)
-        .toBe('qualified_with_gaps');
-      expect(recorded.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+        .toBe('proposed_with_gaps');
+      expect(recorded.assessment.automationAssessment.groundedUnverifiedSteps).toBe(0);
       expect(recorded.assessment.automationAssessment.stepsWithUnresolvedDeterminismGaps).toBe(1);
     }
   });
@@ -288,9 +288,9 @@ describe('Forgewing workflow assessment V1', () => {
       expect(withGap.status).toBe('requires_human_review');
       if (withGap.status === 'requires_human_review') {
         expect(withGap.assessment.determinismQualifications[0]?.state)
-          .toBe('qualified_with_gaps');
+          .toBe('proposed_with_gaps');
         expect(withGap.assessment.automationAssessment.proposedDeterministicSteps).toBe(1);
-        expect(withGap.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+        expect(withGap.assessment.automationAssessment.groundedUnverifiedSteps).toBe(0);
       }
     },
   );
@@ -341,8 +341,8 @@ describe('Forgewing workflow assessment V1', () => {
     });
     expect(naked.status).toBe('requires_human_review');
     if (naked.status === 'requires_human_review') {
-      expect(naked.assessment.determinismQualifications[0]?.state).toBe('unqualified');
-      expect(naked.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+      expect(naked.assessment.determinismQualifications[0]?.state).toBe('proposed');
+      expect(naked.assessment.automationAssessment.groundedUnverifiedSteps).toBe(0);
     }
 
     const subjectiveSupport = WORKFLOW_DETERMINISM_CONDITIONS.map((condition) => ({
@@ -366,8 +366,8 @@ describe('Forgewing workflow assessment V1', () => {
     });
     expect(subjective.status).toBe('requires_human_review');
     if (subjective.status === 'requires_human_review') {
-      expect(subjective.assessment.determinismQualifications[0]?.state).toBe('unqualified');
-      expect(subjective.assessment.automationAssessment.deterministicCandidateSteps).toBe(0);
+      expect(subjective.assessment.determinismQualifications[0]?.state).toBe('proposed');
+      expect(subjective.assessment.automationAssessment.groundedUnverifiedSteps).toBe(0);
     }
   });
 
@@ -385,7 +385,7 @@ describe('Forgewing workflow assessment V1', () => {
     expect(fabricated.status).toBe('requires_human_review');
     if (fabricated.status === 'requires_human_review') {
       expect(fabricated.assessment.determinismQualifications[0]).toMatchObject({
-        state: 'unqualified',
+        state: 'proposed',
         reasons: expect.arrayContaining(['support_excerpt_not_in_intake:stableEvidenceSource']),
       });
     }
@@ -407,7 +407,7 @@ describe('Forgewing workflow assessment V1', () => {
     expect(unlinked.status).toBe('requires_human_review');
     if (unlinked.status === 'requires_human_review') {
       expect(unlinked.assessment.determinismQualifications[0]).toMatchObject({
-        state: 'unqualified',
+        state: 'proposed',
         reasons: expect.arrayContaining(['support_question_not_linked:objectiveInputs']),
       });
     }

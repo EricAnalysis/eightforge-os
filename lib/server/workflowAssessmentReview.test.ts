@@ -12,7 +12,13 @@ import {
 
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
-const REVIEWER = { actorId: REVIEWER_ID, role: 'admin' } as const;
+const REVIEWER_EMAIL = 'platform.reviewer@example.test';
+// Authorization is now platform-wide and allowlist-driven. An organization
+// role such as 'admin' no longer grants review access on its own, so tests that
+// exercise an authorized path must configure the allowlist explicitly.
+const REVIEWER = {
+  actorId: REVIEWER_ID, role: 'admin', email: REVIEWER_EMAIL,
+} as const;
 
 type RpcArgs = Record<string, unknown>;
 
@@ -49,8 +55,16 @@ const recorded = {
 };
 
 describe('workflow assessment review seam', () => {
-  beforeEach(() => { getAdmin.mockReset(); });
-  afterEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    getAdmin.mockReset();
+    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = REVIEWER_EMAIL;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+  });
 
   it('writes only through the validated SECURITY DEFINER function', async () => {
     const rpc = rpcClient(recorded);
@@ -155,6 +169,10 @@ describe('workflow assessment review seam', () => {
         disposition: 'reclassified', assessmentStepId: 'step-1',
         proposedClassification: 'RULE', reviewedClassification: 'HUMAN',
         reviewerNotes: 'Approval authority is not delegable.',
+        acceptedSpecification: {
+          description: 'Approve a payment adjustment.',
+          whyHumanControlled: 'Approval authority is not delegable.',
+        },
       }],
     }), REVIEWER);
     const sent = rpc.mock.calls[0]![1] as unknown as { p_step_reviews: RpcArgs[] };
@@ -259,16 +277,48 @@ describe('workflow assessment review seam', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  // These roles used to grant review access on their own. They must not: a
+  // workflow assessment belongs to no organization, so an organization
+  // administrator has no claim on another tenant's submitted business process.
   it.each([['owner'], ['admin'], ['Admin'], ['  OWNER  ']])(
-    'allows eligible role %s', async (role) => {
+    'refuses organization role %s when it is not allowlisted', async (role) => {
       const rpc = rpcClient(recorded);
       const result = await recordWorkflowAssessmentReview(
-        input(), { actorId: REVIEWER_ID, role } as never,
+        input(), { actorId: REVIEWER_ID, role, email: 'someone@other.test' } as never,
       );
-      expect(result.status).toBe('review_recorded');
-      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe('reviewer_not_eligible');
+      expect(rpc).not.toHaveBeenCalled();
     },
   );
+
+  it('allows an allowlisted platform reviewer email', async () => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows an allowlisted platform role', async () => {
+    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES = 'platform_reviewer';
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(
+      input(), { actorId: REVIEWER_ID, role: 'platform_reviewer', email: null } as never,
+    );
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when no allowlist is configured at all', async () => {
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result).toMatchObject({
+      status: 'reviewer_not_eligible', reason: 'not_configured',
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
 
   it('rebuilds the reviewed specification instead of passing it through', async () => {
     const rpc = rpcClient(recorded);

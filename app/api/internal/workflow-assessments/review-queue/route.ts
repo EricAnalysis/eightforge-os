@@ -10,7 +10,7 @@
 
 import { getActorContext } from '@/lib/server/getActorContext';
 import { readWorkflowReviewQueue } from '@/lib/server/workflowAssessmentReviewRead';
-import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
+import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,9 +21,16 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: actor.status });
   }
 
-  const eligibility = resolveWorkflowReviewEligibility(actor.actor.role);
-  if (!eligibility.eligible) {
-    return Response.json({ ok: false, error: 'reviewer_not_eligible' }, { status: 403 });
+  // Platform-wide, not organization-scoped: these assessments belong to no
+  // tenant, so a tenant administrator has no claim on them.
+  const access = resolveWorkflowPlatformReviewAccess(actor.actor);
+  if (!access.allowed) {
+    // The reason is a stable code, not prose: it tells an operator whether the
+    // deployment has no allowlist configured or they are simply not on it.
+    return Response.json(
+      { ok: false, error: 'reviewer_not_eligible', reason: access.reason },
+      { status: 403 },
+    );
   }
 
   const result = await readWorkflowReviewQueue();

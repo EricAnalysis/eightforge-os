@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { utimesSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -70,8 +71,15 @@ const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
 const FORGEWING_EVALUATION_ROOT = 'lib/evaluation/forgewing';
 const WORKFLOW_ASSESSMENT_SERVER_SEAM = 'lib/server/workflowAssessment';
+// Two named consumers, both secret-gated internal routes:
+//   - the manual trigger, for assessing one known submission;
+//   - the scheduled sweep, which is the production caller that previously did
+//     not exist at all, leaving intake persisted and never assessed.
+// This list is exact rather than a directory allowlist, so a third consumer is
+// a deliberate decision and not a side effect.
 const WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS = new Set([
   'app/api/internal/workflow-assessment/route.ts',
+  'app/api/internal/workflow-assessment-sweep/route.ts',
 ]);
 const WORKFLOW_ASSESSMENT_REVIEW_SERVER_SEAM = 'lib/server/workflowAssessmentReview';
 const WORKFLOW_ASSESSMENT_REVIEW_AUTHORIZED_CONSUMERS = new Set([
@@ -134,8 +142,13 @@ function productionFilesIn(workspaceRoot: string): string[] {
  */
 function treeFingerprint(files: readonly string[]): string {
   return files.map((file) => {
-    const stat = statSync(file);
-    return `${file}:${stat.mtimeMs}:${stat.size}`;
+    // Content digest, not metadata. Size and mtime can both be preserved across
+    // a real edit -- swapping two characters keeps the size, and a fast write or
+    // a coarse filesystem clock keeps the mtime -- so a metadata fingerprint can
+    // declare a changed tree unchanged and serve a stale scan. Reading the bytes
+    // costs what the scan would have cost anyway on a genuine change, and on an
+    // unchanged tree it still saves the parse.
+    return `${file}:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
   }).join('|');
 }
 
@@ -903,9 +916,11 @@ describe('production architecture import boundaries', () => {
     ]);
   }, 30_000);
 
-  it('allows only the exact internal route to consume the workflow assessment server seam', () => {
+  it('allows only the two named internal routes to consume the assessment seam', () => {
     expect(workflowAssessmentConsumerViolations()).toEqual([]);
+    // Enumerated, so a new consumer fails here rather than appearing quietly.
     expect(workflowAssessmentProductionConsumers()).toEqual([
+      'app/api/internal/workflow-assessment-sweep/route.ts',
       'app/api/internal/workflow-assessment/route.ts',
     ]);
   }, 30_000);
@@ -962,6 +977,52 @@ describe('production architecture import boundaries', () => {
     // The real repository must be byte-for-byte untouched by this test. If a
     // future edit reintroduces a real-tree probe, this fails rather than
     // quietly reopening the contamination window.
+    expect(treeFingerprint(productionFilesIn(ROOT))).toBe(repoBefore);
+  }, 60_000);
+
+  // Metadata identity could not see this. Both writes are the same byte length,
+  // and the mtime is forced identical afterwards, so a path+size+mtime
+  // fingerprint is unchanged while the content -- and the import edge it
+  // declares -- is completely different.
+  it.each([
+    ['resolved scan', (root: string) => forgewingProductionConsumers(root).length],
+    ['fast scan', (root: string) => allEdges(root).length],
+  ])('invalidates the %s cache on same-size same-mtime mutation', (_label, scan) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'eightforge-collision-'));
+    const probe = path.join(root, 'lib', 'validator', 'collision.ts');
+    const repoBefore = treeFingerprint(productionFilesIn(ROOT));
+
+    try {
+      mkdirSync(path.dirname(probe), { recursive: true });
+
+      // Equal length by construction: 'alpha' and 'forge' are both five chars.
+      const benign = "import { x } from '@/lib/alpha/thing';";
+      const guarded = "import { x } from '@/lib/forge/thing';";
+      const forbidden = "import { x } from '@/lib/forgewing/schema';";
+      expect(benign.length).toBe(guarded.length);
+
+      writeFileSync(probe, benign);
+      const stamp = statSync(probe).mtime;
+      const baseline = scan(root);
+
+      // Same length, same mtime, different content.
+      writeFileSync(probe, guarded);
+      utimesSync(probe, stamp, stamp);
+      expect(statSync(probe).mtimeMs).toBe(stamp.getTime());
+      expect(statSync(probe).size).toBe(benign.length);
+      expect(scan(root)).toBe(baseline);
+
+      // Now a same-mtime mutation that DOES change the guard outcome. Padded to
+      // the same size so only the content differs.
+      const padded = forbidden.padEnd(benign.length, ' ').slice(0, benign.length);
+      writeFileSync(probe, padded.length === benign.length ? padded : forbidden);
+      utimesSync(probe, stamp, stamp);
+      const after = scan(root);
+      expect(after).not.toBe(baseline);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+
     expect(treeFingerprint(productionFilesIn(ROOT))).toBe(repoBefore);
   }, 60_000);
 

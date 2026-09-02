@@ -285,7 +285,7 @@ export default function WorkflowReviewDetailPage() {
 
       {state.kind === 'forbidden' && (
         <p className="text-sm text-[var(--ef-text-muted)]">
-          Reviewing workflow assessments is limited to owner and admin roles.
+          Reviewing workflow assessments requires platform review access.
         </p>
       )}
 
@@ -421,6 +421,39 @@ export default function WorkflowReviewDetailPage() {
                                 <span className="font-medium">{gap.condition}</span>:{' '}
                                 {gap.explanation}
                               </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {(step.unresolvedAssumptions?.length ?? 0) > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+                            Unresolved assumptions
+                          </p>
+                          {/* Assumptions embedded in the proposed step itself:
+                              things the intake did not say and Forgewing did
+                              not invent. Distinct from the qualification
+                              reasons below, which explain EightForge's state. */}
+                          <ul className="mt-1 list-disc pl-4 text-[11px] text-[var(--ef-text-muted)]">
+                            {step.unresolvedAssumptions?.map((assumption) => (
+                              <li key={assumption}>{assumption}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {(qualification?.reasons.length ?? 0) > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] uppercase tracking-wide text-[var(--ef-text-faint)]">
+                            Why this state
+                          </p>
+                          {/* Why EightForge assigned the current non-trusted
+                              state. Kept separate from the step's own
+                              assumptions: they are different evidence. */}
+                          <ul className="mt-1 list-disc pl-4 text-[11px] text-[var(--ef-text-muted)]">
+                            {qualification?.reasons.map((reason) => (
+                              <li key={reason}>{reason.replace(/[:_]/g, ' ')}</li>
                             ))}
                           </ul>
                         </div>

@@ -164,7 +164,7 @@ describe('exactly-one classification/detail closure', () => {
     }));
     expect(result.status).toBe('deterministic_validation_failed');
     if (result.status !== 'deterministic_validation_failed') return;
-    expect(result.reason).toContain('duplicate_rule_proposal_id');
+    expect(result.reason).toContain('duplicate_detail_id:same');
   });
 
   it('rejects duplicate workflow step identifiers', async () => {
@@ -175,5 +175,68 @@ describe('exactly-one classification/detail closure', () => {
     expect(result.status).toBe('deterministic_validation_failed');
     if (result.status !== 'deterministic_validation_failed') return;
     expect(result.reason).toContain('duplicate_step_id');
+  });
+  // Identifiers must be unique across the WHOLE assessment. Per-collection
+  // uniqueness left a rule proposal and an extraction requirement free to share
+  // an id, which makes provenance ambiguous the moment anything references the
+  // id alone.
+  it('rejects a RULE id reused as a VERIFY id', async () => {
+    const result = await run(out({
+      workflowSteps: [step(), step({ stepId: 's2', classification: 'VERIFY' })],
+      deterministicRuleProposals: [rule('shared')],
+      verificationRuleProposals: [rule('shared', 's2')],
+    }));
+    expect(result.status).toBe('deterministic_validation_failed');
+    if (result.status !== 'deterministic_validation_failed') return;
+    expect(result.reason).toContain('duplicate_detail_id:shared');
+  });
+
+  it('rejects a RULE id reused as an extraction requirement id', async () => {
+    const result = await run(out({
+      workflowSteps: [step(), step({
+        stepId: 's2', classification: 'EXTRACT', determinismBasis: null,
+        determinismSupport: [], determinismGaps: [],
+      })],
+      deterministicRuleProposals: [rule('shared')],
+      extractionRequirements: [extraction('shared', true, 's2')],
+    }));
+    expect(result.status).toBe('deterministic_validation_failed');
+    if (result.status !== 'deterministic_validation_failed') return;
+    expect(result.reason).toContain('duplicate_detail_id:shared');
+  });
+
+  it('rejects a recovery task id reused as a human decision id', async () => {
+    const result = await run(out({
+      workflowSteps: [
+        step({ classification: 'RECOVER', determinismBasis: null,
+          determinismSupport: [], determinismGaps: [] }),
+        step({ stepId: 's2', classification: 'HUMAN', determinismBasis: null,
+          determinismSupport: [], determinismGaps: [] }),
+      ],
+      deterministicRuleProposals: [],
+      extractionRequirements: [extraction('e1', false)],
+      forgewingRecoveryTasks: [recovery('shared')],
+      humanDecisionPoints: [{
+        decisionId: 'shared', stepId: 's2',
+        description: 'Waive.', whyHumanControlled: 'Not delegable.',
+      }],
+    }));
+    expect(result.status).toBe('deterministic_validation_failed');
+    if (result.status !== 'deterministic_validation_failed') return;
+    expect(result.reason).toContain('duplicate_detail_id:shared');
+  });
+
+  it('rejects an advisory id reused as a rule proposal id', async () => {
+    const result = await run(out({
+      workflowSteps: [step(), step({
+        stepId: 's2', classification: 'ADVISORY', determinismBasis: null,
+        determinismSupport: [], determinismGaps: [],
+      })],
+      deterministicRuleProposals: [rule('shared')],
+      advisorySteps: [{ advisoryId: 'shared', stepId: 's2', description: 'Note.' }],
+    }));
+    expect(result.status).toBe('deterministic_validation_failed');
+    if (result.status !== 'deterministic_validation_failed') return;
+    expect(result.reason).toContain('duplicate_detail_id:shared');
   });
 });

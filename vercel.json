@@ -8,7 +8,7 @@
     },
     {
       "path": "/api/internal/workflow-assessment-sweep",
-      "schedule": "23 * * * *"
+      "schedule": "41 4 * * *"
     }
   ]
 }

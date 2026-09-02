@@ -16,7 +16,7 @@
 
 import { timingSafeEqual } from 'node:crypto';
 
-import { executeClaimedWorkflowAssessment } from '@/lib/server/workflowAssessmentClaim';
+import { sweepWorkflowAssessments } from '@/lib/server/workflowAssessmentClaim';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -39,30 +39,26 @@ async function sweep(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  // Exactly one claimed submission per invocation. A backlog drains at the
-  // cron's rate rather than in one unbounded burst.
-  const result = await executeClaimedWorkflowAssessment();
+  // At most WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE attempts, claimed one at a
+  // time. A backlog drains at the batch cap per day rather than in one burst.
+  const result = await sweepWorkflowAssessments();
 
-  switch (result.status) {
-    case 'attempt_completed':
-      return Response.json({
-        ok: result.recorded,
-        assessed: result.recorded ? 1 : 0,
-        attemptNumber: result.attemptNumber,
-        // Reason codes only; intake answers are never returned from here.
-        reason: result.outcome,
-      });
-    case 'nothing_claimable':
-      // Already assessed, already claimed, or out of attempts.
-      return Response.json({ ok: true, assessed: 0, reason: 'nothing_claimable' });
-    case 'assessment_disabled':
-      return Response.json({ ok: true, assessed: 0, reason: 'assessment_disabled' });
-    case 'not_configured':
-      return Response.json({ ok: false, error: 'not_configured' }, { status: 503 });
-    case 'claim_failed':
-      console.error('[workflowAssessmentSweep] claim failed', { reason: result.reason });
-      return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });
+  if (result.stoppedBecause === 'not_configured') {
+    return Response.json({ ok: false, error: 'not_configured' }, { status: 503 });
   }
+  if (result.stoppedBecause === 'claim_failed') {
+    console.error('[workflowAssessmentSweep] claim failed');
+    return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });
+  }
+
+  return Response.json({
+    ok: true,
+    // Attempts made, and how many produced a recorded assessment. Reason codes
+    // only; intake answers are never returned from here.
+    attempted: result.attempted,
+    assessed: result.recorded,
+    reason: result.stoppedBecause,
+  });
 }
 
 export async function GET(request: Request): Promise<Response> {

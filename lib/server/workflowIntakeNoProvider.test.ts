@@ -105,6 +105,11 @@ describe('public intake cannot cause provider work', () => {
       (cron) => cron.path === '/api/internal/workflow-assessment-sweep',
     );
     expect(sweep).toBeDefined();
-    expect(sweep?.schedule).toMatch(/\S/);
+    // Daily granularity. The Hobby plan rejects any schedule running more than
+    // once per day, and an invalid cron expression fails the deployment
+    // outright -- so an hourly sweep would take the whole app down with it.
+    const [minute, hour] = (sweep?.schedule ?? '').split(' ');
+    expect(minute).toMatch(/^\d+$/);
+    expect(hour).toMatch(/^\d+$/);
   });
 });

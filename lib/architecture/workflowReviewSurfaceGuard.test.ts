@@ -167,4 +167,23 @@ describe('workflow review surface has no execution affordance', () => {
     expect(code(SURFACE_FILES[1]!))
       .toContain('not part of the approved specification');
   });
+  // Both are material to how a proposal should be reviewed, and they are
+  // different evidence: assumptions are embedded in the proposed step, reasons
+  // explain the state EightForge assigned. Neither may be collapsed into the
+  // other or into a generic "gaps" list.
+  it('renders unresolved assumptions and state reasons separately', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    expect(detail).toContain('Unresolved assumptions');
+    expect(detail).toMatch(/step\.unresolvedAssumptions\?\.map/);
+    expect(detail).toContain('Why this state');
+    expect(detail).toMatch(/qualification\?\.reasons\.map/);
+  });
+
+  it('has no owner/admin review eligibility copy anywhere in the UI', () => {
+    // Authority is the explicit platform allowlist; telling an operator it is
+    // an organization role would be simply false.
+    for (const file of [...SURFACE_FILES, 'app/platform/workflows/page.tsx']) {
+      expect(read(file)).not.toMatch(/owner and admin|owner\/admin/i);
+    }
+  });
 });

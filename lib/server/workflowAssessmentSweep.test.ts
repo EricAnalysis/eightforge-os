@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const execute = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/server/workflowAssessmentClaim', () => ({
-  executeClaimedWorkflowAssessment: execute,
+  sweepWorkflowAssessments: execute,
 }));
 
 import { GET, POST } from '@/app/api/internal/workflow-assessment-sweep/route';
@@ -24,8 +24,7 @@ describe('workflow assessment sweep', () => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = SECRET;
     execute.mockResolvedValue({
-      status: 'attempt_completed', attemptId: 'att-1', submissionId: SUBMISSION,
-      attemptNumber: 1, outcome: 'assessment_recorded', recorded: true,
+      attempted: 1, recorded: 1, outcomes: [], stoppedBecause: 'nothing_claimable',
     });
   });
 
@@ -34,7 +33,9 @@ describe('workflow assessment sweep', () => {
   it('GET is the cron method and reaches the claim path', async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ ok: true, assessed: 1 });
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true, attempted: 1, assessed: 1,
+    });
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
@@ -65,28 +66,31 @@ describe('workflow assessment sweep', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('reports nothing_claimable without claiming to have assessed', async () => {
-    execute.mockResolvedValue({ status: 'nothing_claimable' });
-    const response = await GET(request());
-    await expect(response.json()).resolves.toMatchObject({
-      assessed: 0, reason: 'nothing_claimable',
+  it('reports nothing claimable without claiming to have assessed', async () => {
+    execute.mockResolvedValue({
+      attempted: 0, recorded: 0, outcomes: [], stoppedBecause: 'nothing_claimable',
+    });
+    await expect((await GET(request())).json()).resolves.toMatchObject({
+      attempted: 0, assessed: 0, reason: 'nothing_claimable',
     });
   });
 
   it('reports a disabled deployment without error', async () => {
-    execute.mockResolvedValue({ status: 'assessment_disabled' });
+    execute.mockResolvedValue({
+      attempted: 0, recorded: 0, outcomes: [], stoppedBecause: 'disabled',
+    });
     await expect((await GET(request())).json()).resolves.toMatchObject({
-      assessed: 0, reason: 'assessment_disabled',
+      attempted: 0, assessed: 0, reason: 'disabled',
     });
   });
 
-  it('does not claim success when the attempt failed', async () => {
+  it('distinguishes attempts made from assessments recorded', async () => {
+    // Three attempts, one of which produced an assessment.
     execute.mockResolvedValue({
-      status: 'attempt_completed', attemptId: 'att-1', submissionId: SUBMISSION,
-      attemptNumber: 2, outcome: 'provider_failed', recorded: false,
+      attempted: 3, recorded: 1, outcomes: [], stoppedBecause: 'batch_full',
     });
     await expect((await GET(request())).json()).resolves.toMatchObject({
-      ok: false, assessed: 0, attemptNumber: 2,
+      attempted: 3, assessed: 1, reason: 'batch_full',
     });
   });
 
@@ -96,7 +100,9 @@ describe('workflow assessment sweep', () => {
   });
 
   it('surfaces a claim failure as unavailable rather than success', async () => {
-    execute.mockResolvedValue({ status: 'claim_failed', reason: 'deadlock' });
+    execute.mockResolvedValue({
+      attempted: 0, recorded: 0, outcomes: [], stoppedBecause: 'claim_failed',
+    });
     const response = await GET(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain('deadlock');

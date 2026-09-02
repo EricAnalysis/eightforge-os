@@ -22,9 +22,31 @@ const REVIEWER = {
 
 type RpcArgs = Record<string, unknown>;
 
-function rpcClient(response: unknown) {
+/**
+ * A client whose stored assessment is structurally composable.
+ *
+ * The seam re-checks proposal closure against the persisted payload before
+ * allowing "accepted as proposed", so tests exercising that path need a stored
+ * assessment to check. `closure` overrides it to model a historical assessment
+ * that predates the current contract.
+ */
+function rpcClient(response: unknown, closure?: unknown) {
   const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => response);
-  getAdmin.mockReturnValue({ rpc });
+  const assessment = closure ?? {
+    workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+    deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+    verificationRuleProposals: [], extractionRequirements: [],
+    forgewingRecoveryTasks: [], humanDecisionPoints: [], advisorySteps: [],
+    failureConsequences: [],
+  };
+  getAdmin.mockReturnValue({
+    rpc,
+    from: () => ({
+      select: () => ({
+        eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { assessment }, error: null }) }) }),
+      }),
+    }),
+  });
   return rpc;
 }
 
@@ -91,11 +113,46 @@ describe('workflow assessment review seam', () => {
 
   it('never issues a direct table write', async () => {
     const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
-    const from = vi.fn();
+    // The closure gate legitimately READS the stored assessment before allowing
+    // "accepted as proposed". What must never happen is a write: the review
+    // tables grant INSERT to nobody, and the RPC is the only writer.
+    const builder = {
+      select: vi.fn(() => ({
+        eq: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: {
+                assessment: {
+                  workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+                  deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+                  verificationRuleProposals: [], extractionRequirements: [],
+                  forgewingRecoveryTasks: [], humanDecisionPoints: [],
+                  advisorySteps: [], failureConsequences: [],
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      })),
+    } as Record<string, unknown>;
+    const from = vi.fn((table: string) => {
+      // Only the assessment table, and only to read it.
+      expect(table).toBe('workflow_assessments');
+      return builder;
+    });
     getAdmin.mockReturnValue({ rpc, from });
+
     await recordWorkflowAssessmentReview(input(), REVIEWER);
-    // The tables grant INSERT to nobody; the seam must not even attempt one.
-    expect(from).not.toHaveBeenCalled();
+
+    expect(builder.insert).toBeUndefined();
+    expect(builder.update).toBeUndefined();
+    expect(builder.delete).toBeUndefined();
+    expect(builder.select).toHaveBeenCalled();
+    // The review tables themselves are never touched directly.
+    for (const call of from.mock.calls) {
+      expect(call[0]).not.toContain('review');
+    }
   });
 
   it.each([
@@ -390,5 +447,45 @@ describe('workflow assessment review seam', () => {
     } });
     const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
     expect(result.status).toBe('reviewer_unresolved');
+  });
+  // A historical assessment stored before the closure rules existed was never
+  // validated against them, and it is immutable. It stays readable; what it
+  // loses is the right to be approved as proposed.
+  it('refuses accepted-as-proposed against an incompatible historical assessment', async () => {
+    const rpc = rpcClient(recorded, {
+      // Two rule proposals for one step: a resolver composing the effective
+      // specification would have no rule for choosing between them.
+      workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+      deterministicRuleProposals: [
+        { ruleId: 'r1', stepId: 'step-1' }, { ruleId: 'r2', stepId: 'step-1' },
+      ],
+      verificationRuleProposals: [], extractionRequirements: [],
+      forgewingRecoveryTasks: [], humanDecisionPoints: [], advisorySteps: [],
+      failureConsequences: [],
+    });
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+    // Nothing was written, and the assessment was not repaired.
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('does not gate a review that accepts nothing as proposed', async () => {
+    // Only modified/reclassified/rejected steps: the effective specification
+    // comes from typed reviewed artifacts, not from the original proposal, so
+    // historical proposal closure is not load-bearing here.
+    const rpc = rpcClient(recorded, { workflowSteps: 'malformed' });
+    const result = await recordWorkflowAssessmentReview(input({
+      stepReviews: [{
+        disposition: 'modified', assessmentStepId: 'step-1',
+        proposedClassification: 'HUMAN', reviewedClassification: 'HUMAN',
+        reviewerNotes: 'tightened',
+        acceptedSpecification: {
+          description: 'Approve an adjustment.',
+          whyHumanControlled: 'Not delegable.',
+        },
+      }],
+    }), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 });

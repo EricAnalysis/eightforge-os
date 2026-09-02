@@ -96,6 +96,13 @@ export async function POST(request: Request): Promise<Response> {
         { ok: false, error: 'specification_invalid', reason: result.reason },
         { status: 422 },
       );
+    case 'assessment_incompatible_with_current_review_contract':
+      // The proposal cannot be composed into an effective specification, so it
+      // may not be approved as proposed. It is not repaired and not hidden.
+      return Response.json({
+        ok: false,
+        error: 'assessment_incompatible_with_current_review_contract',
+      }, { status: 409 });
     case 'input_invalid':
       return Response.json({ ok: false, error: 'invalid review request' }, { status: 400 });
     case 'duplicate_step_review':

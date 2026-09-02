@@ -22,6 +22,8 @@ import {
   type ReviewedClassification,
 } from '@/lib/workflowReviewedSpecification';
 import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
+import { resolveWorkflowAssessmentProposalClosure }
+  from '@/lib/workflowAssessmentProposalClosure';
 
 export const WORKFLOW_ASSESSMENT_REVIEW_TABLE = 'workflow_assessment_reviews' as const;
 export const WORKFLOW_ASSESSMENT_STEP_REVIEW_TABLE =
@@ -169,6 +171,10 @@ export type WorkflowAssessmentReviewResult =
   | Readonly<{ status: 'reviewer_unresolved' }>
   | Readonly<{ status: 'reviewer_not_eligible'; reason: string }>
   | Readonly<{ status: 'specification_invalid'; reason: string }>
+  | Readonly<{
+      status: 'assessment_incompatible_with_current_review_contract';
+      reason: string;
+    }>
   | Readonly<{ status: 'duplicate_step_review'; reason: string }>
   | Readonly<{ status: 'assessment_not_found' }>
   | Readonly<{ status: 'review_rejected'; reason: string }>
@@ -278,6 +284,42 @@ export async function recordWorkflowAssessmentReview(
 
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
+
+  // Historical closure gate.
+  //
+  // "Accepted as proposed" means the effective specification IS the original
+  // proposal, so it is only sound when that proposal is structurally
+  // composable: exactly one detail of the right kind per step, no reused
+  // identifier, RECOVER carrying its requirement and task. New assessments are
+  // validated against exactly these rules before persistence, but assessments
+  // stored before the rules existed were never checked, and they are immutable.
+  //
+  // So the same canonical validator is asked again here, of the persisted
+  // payload. A failure is reported, never repaired: the assessment stays
+  // readable and immutable, and what it loses is the right to be approved as
+  // proposed.
+  if (parsed.data.stepReviews.some((step) => step.disposition === 'accepted')) {
+    const stored = await admin
+      .from('workflow_assessments')
+      .select('assessment')
+      .eq('id', parsed.data.assessmentId)
+      .eq('assessment_version', parsed.data.assessmentVersion)
+      .maybeSingle();
+    if (stored.error) {
+      return { status: 'persist_failed', reason: stored.error.message };
+    }
+    if (!isRecord(stored.data) || !isRecord(stored.data.assessment)) {
+      return { status: 'assessment_not_found' };
+    }
+    const closure = resolveWorkflowAssessmentProposalClosure(stored.data.assessment);
+    if (!closure.compatible) {
+      return {
+        status: 'assessment_incompatible_with_current_review_contract',
+        // Structural reason codes only; never proposal or intake prose.
+        reason: closure.violations.slice(0, 8).join(','),
+      };
+    }
+  }
 
   const { data, error } = await admin.rpc(WORKFLOW_ASSESSMENT_REVIEW_WRITE_FUNCTION, {
     p_assessment_id: parsed.data.assessmentId,

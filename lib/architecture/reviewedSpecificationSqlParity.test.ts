@@ -81,3 +81,95 @@ describe('reviewed specification SQL key parity', () => {
     expect(assertAt).toBeLessThan(insertAt);
   });
 });
+
+describe('queue projection reads live assessment metrics', () => {
+  const QUEUE = path.join(
+    process.cwd(), 'supabase', 'migrations',
+    '20260904000300_review_queue_terminology.sql',
+  );
+
+  // The queue previously read automationAssessment.deterministicCandidateSteps,
+  // a property renamed when trusted qualification was removed. The SQL kept
+  // compiling and silently returned 0 for every row, so a rename verified only
+  // in TypeScript is not verified at all.
+  it('reads only metric properties the task actually emits', () => {
+    const sql = readFileSync(QUEUE, 'utf8');
+    const referenced = [...sql.matchAll(/automationAssessment'->>'([A-Za-z]+)'/g)]
+      .map((match) => match[1]!);
+    expect(referenced.length).toBeGreaterThan(0);
+
+    const task = readFileSync(
+      path.join(process.cwd(), 'lib', 'forgewing', 'tasks', 'workflowAssessment.ts'),
+      'utf8',
+    );
+    for (const property of referenced) {
+      // Each referenced property must appear as a field of the emitted metrics.
+      expect(task).toContain(`${property}:`);
+    }
+  });
+
+  it('no longer names a trusted-qualification metric anywhere', () => {
+    const sql = readFileSync(QUEUE, 'utf8');
+    // Comments explain the removed name; the SQL body must not use it.
+    const body = sql.replace(/^\s*--.*$/gm, ' ');
+    expect(body).not.toContain('deterministicCandidateSteps');
+    expect(body).not.toContain('qualified_deterministic_count');
+  });
+});
+
+describe('reviewed specification structural validation', () => {
+  const STRUCTURAL = path.join(
+    process.cwd(), 'supabase', 'migrations',
+    '20260904000400_reviewed_specification_structural_validation.sql',
+  );
+
+  it('declares a JSON type for every field the schemas define', () => {
+    const sql = readFileSync(STRUCTURAL, 'utf8');
+    const declared = new Set(
+      [...sql.matchAll(/WHEN '([A-Za-z]+)' THEN '(?:string|boolean|string_array)'/g)]
+        .map((match) => match[1]!),
+    );
+    for (const fields of Object.values(REVIEWED_SPECIFICATION_FIELDS)) {
+      for (const field of fields) {
+        expect(declared).toContain(field.name);
+      }
+    }
+  });
+
+  it('maps list fields to string arrays and booleans to boolean', () => {
+    const sql = readFileSync(STRUCTURAL, 'utf8');
+    for (const fields of Object.values(REVIEWED_SPECIFICATION_FIELDS)) {
+      for (const field of fields) {
+        if (field.kind === 'list') {
+          expect(sql).toContain(`WHEN '${field.name}' THEN 'string_array'`);
+        }
+        if (field.kind === 'boolean') {
+          expect(sql).toContain(`WHEN '${field.name}' THEN 'boolean'`);
+        }
+      }
+    }
+  });
+
+  it('rejects executable-shaped keys recursively, not just at the top level', () => {
+    const sql = readFileSync(STRUCTURAL, 'utf8');
+    // Nesting was the obvious way around a top-level check.
+    expect(sql).toMatch(/workflow_specification_has_executable_key\("p_value" -> v_key\)/);
+    expect(sql).toMatch(/workflow_specification_has_executable_key\(v_child\)/);
+    expect(sql).toContain('jsonb_array_elements');
+  });
+
+  it('refuses a non-object specification instead of normalizing it to NULL', () => {
+    const sql = readFileSync(STRUCTURAL, 'utf8');
+    expect(sql).toMatch(/jsonb_typeof\("p_specification"\) <> 'object'/);
+    // The old CASE that silently turned a scalar into NULL must be gone.
+    expect(sql).not.toMatch(/THEN "p_specification" ELSE NULL END/);
+  });
+
+  it('stays structural and does not encode business meaning', () => {
+    const sql = readFileSync(STRUCTURAL, 'utf8').toLowerCase();
+    // No semantic vocabulary: SQL must not judge whether a rule reads sensibly.
+    for (const semantic of ['deterministic_enough', 'reasonable', 'quality', 'similar']) {
+      expect(sql).not.toContain(semantic);
+    }
+  });
+});

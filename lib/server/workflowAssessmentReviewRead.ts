@@ -41,7 +41,13 @@ export type WorkflowReviewQueueRow = Readonly<{
   createdAt: string;
   summary: string | null;
   stepCount: number;
-  qualifiedDeterministicCount: number;
+  /**
+   * Grounding traced to the persisted intake; entailment not confirmed. This is
+   * deliberately not called a qualified or trusted count: only an operator
+   * review can establish that, and the queue is what precedes review.
+   */
+  groundedUnverifiedCount: number;
+  stepsWithGapsCount: number;
   humanDecisionCount: number;
   reviewState: 'pending_review';
 }>;
@@ -132,7 +138,8 @@ export async function readWorkflowReviewQueue(
       createdAt,
       summary: str(row.summary),
       stepCount: num(row.step_count),
-      qualifiedDeterministicCount: num(row.qualified_deterministic_count),
+      groundedUnverifiedCount: num(row.grounded_unverified_count),
+      stepsWithGapsCount: num(row.steps_with_gaps_count),
       humanDecisionCount: num(row.human_decision_count),
       reviewState: 'pending_review',
     }];

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const ROOT = process.cwd();
 const CORE = 'lib/workflowEffectiveReviewedSpecification.ts';
 const READ = 'lib/server/workflowEffectiveReviewedSpecificationRead.ts';
+const PLAN = 'lib/workflowImplementationPlan.ts';
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
@@ -15,16 +16,22 @@ function source(file: string): string {
 
 // The repository's existing AST scanner is private to another test suite.
 // Keep this extractor local: importing that suite would run unrelated tests.
-function imports(text: string, file: string): string[] {
+function imports(text: string, file: string, runtimeOnly = false): string[] {
   const ast = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
     file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const found: string[] = [];
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
       && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      if (runtimeOnly && ts.isImportDeclaration(node) && node.importClause
+        && (node.importClause.isTypeOnly || (!node.importClause.name
+          && node.importClause.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
+          && node.importClause.namedBindings.elements.length > 0
+          && node.importClause.namedBindings.elements.every((element) => element.isTypeOnly)))) return;
       found.push(node.moduleSpecifier.text);
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
       && ts.isStringLiteralLike(node.argument.literal)) {
+      if (runtimeOnly) return;
       found.push(node.argument.literal.text);
     } else if (ts.isImportEqualsDeclaration(node)
       && ts.isExternalModuleReference(node.moduleReference)
@@ -54,6 +61,8 @@ function target(file: string, specifier: string): string {
 function consumerViolations(file: string, text: string): string[] {
   return imports(text, file).flatMap((specifier) => {
     const resolved = target(file, specifier);
+    if (file === PLAN && resolved === CORE.replace(EXTENSION, '')
+      && !imports(text, file, true).some((runtime) => target(file, runtime) === resolved)) return [];
     return resolved === READ.replace(EXTENSION, '')
       || (resolved === CORE.replace(EXTENSION, '') && file !== READ)
       ? [`${file} -> ${specifier}`] : [];
@@ -86,7 +95,7 @@ describe('effective reviewed specification remains a read-only non-authority art
     expect(code(file)).not.toMatch(/\brequire\s*\(|\bimport\s*\(/);
   });
 
-  it('has exactly the read seam as its core consumer and no server-seam consumers', () => {
+  it('has exactly the read seam as its runtime core consumer and no server-seam consumers', () => {
     const violations: string[] = [];
     const coreConsumers: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types']
@@ -98,7 +107,7 @@ describe('effective reviewed specification remains a read-only non-authority art
       if (!text.includes('workflowEffectiveReviewedSpecification')
         && !/\\[ux]/.test(text)) continue;
       violations.push(...consumerViolations(file, text));
-      if (imports(text, file).some((specifier) =>
+      if (imports(text, file, true).some((specifier) =>
         target(file, specifier) === CORE.replace(EXTENSION, ''))) coreConsumers.push(file);
     }
     expect(violations).toEqual([]);
@@ -182,5 +191,18 @@ describe('effective reviewed specification consumer guard recognizes import form
       "import { x } from '@/lib/workflowEffectiveReviewedSpecification';")).toEqual([]);
     expect(consumerViolations('lib/validator/comment.ts',
       "// import { x } from '@/lib/workflowEffectiveReviewedSpecification';")).toEqual([]);
+  });
+
+  it('allows only erased resolver type imports in the implementation plan', () => {
+    expect(consumerViolations(PLAN,
+      "import type { EffectiveReviewedSpecificationArtifact } from '@/lib/workflowEffectiveReviewedSpecification';")).toEqual([]);
+    for (const text of [
+      "import { resolveEffectiveReviewedSpecification } from '@/lib/workflowEffectiveReviewedSpecification';",
+      "import { type EffectiveReviewedSpecificationArtifact, resolveEffectiveReviewedSpecification } from '@/lib/workflowEffectiveReviewedSpecification';",
+      "export * from '@/lib/workflowEffectiveReviewedSpecification';",
+      "const x = import('@/lib/workflowEffectiveReviewedSpecification');",
+      "const x = require('@/lib/workflowEffectiveReviewedSpecification');",
+      "import type { X } from '@/lib/server/workflowEffectiveReviewedSpecificationRead';",
+    ]) expect(consumerViolations(PLAN, text)).toHaveLength(1);
   });
 });

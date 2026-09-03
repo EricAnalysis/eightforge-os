@@ -290,3 +290,66 @@ export function resolveWorkflowAssessmentProposalClosure(
     ? { compatible: true }
     : { compatible: false, violations };
 }
+
+export type AcceptedWorkflowProposalSource = Readonly<{
+  collection: string;
+  identityField: string;
+  detailId: string;
+}>;
+
+export type AcceptedWorkflowProposal = Readonly<{
+  stepId: string;
+  specification: Record<string, unknown>;
+  sources: readonly AcceptedWorkflowProposalSource[];
+}>;
+
+/**
+ * Compose only closure-validated originals, using the projection contract of
+ * workflow_accepted_proposal_specification. No values are parsed back, repaired,
+ * or inferred. RECOVER consumes both details; all other classes strip only the
+ * detail identity and step link. Keep this beside closure so callers cannot
+ * accidentally select an arbitrary first match from ambiguous evidence.
+ */
+export function composeAcceptedWorkflowProposals(
+  assessment: unknown,
+  acceptedStepIds: readonly string[],
+): Readonly<{ ok: true; proposals: readonly AcceptedWorkflowProposal[] }>
+  | Readonly<{ ok: false; violations: readonly string[] }> {
+  const closure = resolveWorkflowAssessmentProposalClosure(assessment, { acceptedStepIds });
+  if (!closure.compatible) return { ok: false, violations: closure.violations };
+  const output = toClosureInput(assessment as Record<string, unknown>);
+  const selected = new Set(acceptedStepIds);
+  const collections = {
+    RULE: ['deterministicRuleProposals', 'ruleId'],
+    VERIFY: ['verificationRuleProposals', 'ruleId'],
+    EXTRACT: ['extractionRequirements', 'requirementId'],
+    RECOVER: ['extractionRequirements', 'requirementId'],
+    HUMAN: ['humanDecisionPoints', 'decisionId'],
+    ADVISORY: ['advisorySteps', 'advisoryId'],
+  } as const;
+  const proposals = output.workflowSteps.filter((step) => selected.has(step.stepId))
+    .map((step): AcceptedWorkflowProposal => {
+      const [collection, identityField] = collections[step.classification as keyof typeof collections];
+      // Closure proved exactly one matching, schema-valid detail.
+      const detail = output[collection].find((item) => item.stepId === step.stepId)!;
+      const sources: AcceptedWorkflowProposalSource[] = [{
+        collection, identityField, detailId: detail[identityField] as string,
+      }];
+      let specification: Record<string, unknown>;
+      if (step.classification === 'RECOVER') {
+        const task = output.forgewingRecoveryTasks.find((item) => item.stepId === step.stepId)!;
+        sources.push({ collection: 'forgewingRecoveryTasks', identityField: 'taskId', detailId: task.taskId as string });
+        specification = {
+          describedFact: detail.describedFact,
+          sourceDocument: detail.sourceDocument,
+          description: task.description,
+          deterministicShortfall: task.deterministicShortfall,
+        };
+      } else {
+        specification = Object.fromEntries(Object.entries(detail)
+          .filter(([key]) => key !== 'stepId' && key !== identityField));
+      }
+      return { stepId: step.stepId, specification, sources };
+    });
+  return { ok: true, proposals };
+}

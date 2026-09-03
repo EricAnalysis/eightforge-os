@@ -89,4 +89,19 @@ describe('internal workflow assessment route', () => {
     expect(response.status).toBe(401);
     expect(runAssessment).not.toHaveBeenCalled();
   });
+
+  it('reports finalization failure even when the assessment was recorded', async () => {
+    runAssessment.mockResolvedValue({
+      status: 'attempt_finalization_failed', attemptId: 'att-1', submissionId: SUBMISSION_ID,
+      attemptNumber: 1, outcome: 'assessment_recorded', recorded: true,
+      reason: 'finalization_rpc_error',
+    });
+    const response = await POST(request({ submissionId: SUBMISSION_ID }));
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false, error: 'attempt_finalization_failed', attemptId: 'att-1',
+      assessmentRecorded: true,
+    });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+  });
 });

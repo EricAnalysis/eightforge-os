@@ -107,4 +107,15 @@ describe('workflow assessment sweep', () => {
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain('deadlock');
   });
+
+  it('surfaces finalization failure with accurate attempted and recorded counts', async () => {
+    execute.mockResolvedValue({
+      attempted: 2, recorded: 1, outcomes: [], stoppedBecause: 'attempt_finalization_failed',
+    });
+    const response = await GET(request());
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      ok: false, error: 'attempt_finalization_failed', attempted: 2, assessed: 1,
+    });
+  });
 });

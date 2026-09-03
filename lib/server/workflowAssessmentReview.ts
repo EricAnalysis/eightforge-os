@@ -285,7 +285,8 @@ export async function recordWorkflowAssessmentReview(
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
 
-  // Historical closure gate.
+  // Historical closure and identity gate. Every review pins valid step identity;
+  // only accepted steps depend on the original class-specific specification.
   //
   // "Accepted as proposed" means the effective specification IS the original
   // proposal, so it is only sound when that proposal is structurally
@@ -298,7 +299,7 @@ export async function recordWorkflowAssessmentReview(
   // payload. A failure is reported, never repaired: the assessment stays
   // readable and immutable, and what it loses is the right to be approved as
   // proposed.
-  if (parsed.data.stepReviews.some((step) => step.disposition === 'accepted')) {
+  {
     const stored = await admin
       .from('workflow_assessments')
       .select('assessment')
@@ -311,7 +312,11 @@ export async function recordWorkflowAssessmentReview(
     if (!isRecord(stored.data) || !isRecord(stored.data.assessment)) {
       return { status: 'assessment_not_found' };
     }
-    const closure = resolveWorkflowAssessmentProposalClosure(stored.data.assessment);
+    const closure = resolveWorkflowAssessmentProposalClosure(stored.data.assessment, {
+      acceptedStepIds: parsed.data.stepReviews
+        .filter((step) => step.disposition === 'accepted')
+        .map((step) => step.assessmentStepId),
+    });
     if (!closure.compatible) {
       return {
         status: 'assessment_incompatible_with_current_review_contract',
@@ -335,7 +340,9 @@ export async function recordWorkflowAssessmentReview(
       disposition: step.disposition,
       reviewer_notes: step.reviewerNotes ?? null,
       // Only the deterministically constructed object reaches the database.
-      accepted_specification: specifications.get(step.assessmentStepId) ?? null,
+      ...(specifications.has(step.assessmentStepId)
+        ? { accepted_specification: specifications.get(step.assessmentStepId) }
+        : {}),
     })),
   });
 

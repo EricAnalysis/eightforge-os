@@ -90,9 +90,11 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   // implementation that later decides whether a historical assessment may be
   // accepted as proposed: a second copy would eventually disagree, and the
   // disagreement would surface as an operator approving something no resolver
-  // can compose. The module is pure -- it imports nothing at all -- so this
+  // can compose. Its only dependency is the Zod-only canonical schema, so this
   // grants Forgewing no reach it did not have.
   '@/lib/workflowAssessmentProposalClosure',
+  // Pure canonical schemas shared by new output and historical compatibility.
+  '@/lib/workflowAssessmentSchema',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',

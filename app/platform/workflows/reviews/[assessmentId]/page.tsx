@@ -22,6 +22,7 @@ import { useParams, useRouter } from 'next/navigation';
 
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
+import { workflowQualificationLabel } from '@/lib/workflowAssessmentPresentation';
 import {
   buildStepReviewPayload,
   effectiveClassification,
@@ -405,7 +406,7 @@ export default function WorkflowReviewDetailPage() {
                         <p className="mt-3 text-[11px] text-[var(--ef-text-secondary)]">
                           Determinism qualification:{' '}
                           <span className="font-medium">
-                            {qualification.state.replace(/_/g, ' ')}
+                            {workflowQualificationLabel(qualification.state)}
                           </span>
                         </p>
                       )}

@@ -17,8 +17,10 @@
 // would eventually disagree with the first, and the disagreement would surface
 // as an operator approving a specification that cannot be composed.
 //
-// Pure and framework-free: it reads a plain object, so it works equally on a
+// Pure: the only dependency is the canonical Zod-only schema. It reads a plain object, so it works equally on a
 // freshly parsed model output and on a row read back out of the database.
+
+import { WorkflowAssessmentModelOutputSchema } from '@/lib/workflowAssessmentSchema';
 
 /** The subset of an assessment this validator needs. Deliberately loose: a
  *  historical payload may predate fields the current schema requires. */
@@ -69,7 +71,7 @@ function ids(details: readonly LooseDetail[], key: string): string[] {
     .filter((value): value is string => typeof value === 'string');
 }
 
-function closureViolations(output: ClosureInput): string[] {
+function closureViolations(output: ClosureInput, acceptedStepIds?: ReadonlySet<string>): string[] {
   const stepIds = new Set(output.workflowSteps.map((step) => step.stepId));
   if (stepIds.size !== output.workflowSteps.length) return ['duplicate_step_id'];
   const violations: string[] = [];
@@ -84,6 +86,7 @@ function closureViolations(output: ClosureInput): string[] {
   check('advisoryStep', output.advisorySteps.map((e) => e.stepId));
   check('failureConsequence', output.failureConsequences.map((e) => e.stepId));
   for (const step of output.workflowSteps) {
+    if (acceptedStepIds && !acceptedStepIds.has(step.stepId)) continue;
     const dependencies = Array.isArray(step.dependencies)
       ? step.dependencies.filter((value): value is string => typeof value === 'string')
       : [];
@@ -128,6 +131,7 @@ function closureViolations(output: ClosureInput): string[] {
   const countFor = (ids: readonly string[], stepId: string): number =>
     ids.filter((id) => id === stepId).length;
   for (const step of output.workflowSteps) {
+    if (acceptedStepIds && !acceptedStepIds.has(step.stepId)) continue;
     const ruleCount = countFor(output.deterministicRuleProposals.map((p) => p.stepId), step.stepId);
     const verificationCount = countFor(output.verificationRuleProposals.map((p) => p.stepId), step.stepId);
     const extractionCount = countFor(output.extractionRequirements.map((r) => r.stepId), step.stepId);
@@ -229,11 +233,59 @@ function toClosureInput(assessment: Record<string, unknown>): ClosureInput {
  */
 export function resolveWorkflowAssessmentProposalClosure(
   assessment: unknown,
+  options: Readonly<{ acceptedStepIds?: readonly string[] }> = {},
 ): WorkflowAssessmentProposalClosure {
   if (!isRecord(assessment)) {
     return { compatible: false, violations: ['assessment_not_an_object'] };
   }
-  const violations = closureViolations(toClosureInput(assessment));
+  // Identity remains load-bearing even when every proposal is replaced: the
+  // review still pins which step/classification in which immutable version was
+  // replaced. Never coerce historical numeric identifiers into string links.
+  const stepIdentitySchema = WorkflowAssessmentModelOutputSchema.shape.workflowSteps.element
+    .pick({ stepId: true, classification: true });
+  if (!Array.isArray(assessment.workflowSteps) || assessment.workflowSteps.length === 0) {
+    return { compatible: false, violations: ['invalid_workflow_steps'] };
+  }
+  const violations: string[] = [];
+  for (const [index, step] of assessment.workflowSteps.entries()) {
+    const identity = isRecord(step) ? { stepId: step.stepId, classification: step.classification } : step;
+    if (!stepIdentitySchema.safeParse(identity).success) violations.push(`invalid_step_identity:${index}`);
+  }
+  if (violations.length > 0) return { compatible: false, violations };
+
+  const acceptedStepIds = options.acceptedStepIds === undefined
+    ? undefined : new Set(options.acceptedStepIds);
+  const output = toClosureInput(assessment);
+  const knownIds = new Set(output.workflowSteps.map((step) => step.stepId));
+  for (const id of acceptedStepIds ?? []) {
+    if (!knownIds.has(id)) violations.push(`unknown_accepted_step:${id}`);
+  }
+
+  // Validate the exact canonical proposal schemas, including IDs, required
+  // arrays, their items, and strict object fields. A complete typed replacement
+  // does not depend on unused historical detail; accepted steps still do.
+  for (const key of [
+    'extractionRequirements', 'deterministicRuleProposals', 'verificationRuleProposals',
+    'forgewingRecoveryTasks', 'humanDecisionPoints', 'advisorySteps', 'failureConsequences',
+  ] as const) {
+    const raw = assessment[key];
+    const selected = acceptedStepIds === undefined
+      ? raw ?? []
+      : Array.isArray(raw)
+        ? raw.filter((detail) => isRecord(detail)
+          && typeof detail.stepId === 'string' && acceptedStepIds.has(detail.stepId))
+        : [];
+    const parsed = WorkflowAssessmentModelOutputSchema.shape[key].safeParse(selected);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        violations.push(`invalid_proposal_specification:${key}:${issue.path.join('.')}`);
+      }
+    }
+    if (acceptedStepIds !== undefined) {
+      output[key] = output[key].filter((detail) => acceptedStepIds.has(detail.stepId));
+    }
+  }
+  violations.push(...closureViolations(output, acceptedStepIds));
   return violations.length === 0
     ? { compatible: true }
     : { compatible: false, violations };

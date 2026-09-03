@@ -64,6 +64,15 @@ export type WorkflowAssessmentExecutionResult =
   | Readonly<{ status: 'nothing_claimable' }>
   | Readonly<{ status: 'claim_failed'; reason: string }>
   | Readonly<{
+      status: 'attempt_finalization_failed';
+      attemptId: string;
+      submissionId: string;
+      attemptNumber: number;
+      outcome: WorkflowAssessmentRunResult['status'];
+      recorded: boolean;
+      reason: 'finalization_rpc_error' | 'finalization_rpc_threw';
+    }>
+  | Readonly<{
       status: 'attempt_completed';
       attemptId: string;
       submissionId: string;
@@ -120,41 +129,43 @@ export async function executeClaimedWorkflowAssessment(
 
   // The provider call happens here, and only here, while the claim is held.
   let outcome: WorkflowAssessmentRunResult;
+  let executionThrew = false;
   try {
     outcome = await runAndRecordWorkflowAssessment(claimedSubmission);
   } catch {
-    await admin.rpc(WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION, {
-      p_attempt_id: attemptId,
-      p_status: 'failed',
-      p_failure_class: 'execution_threw',
-    });
-    return {
-      status: 'attempt_completed',
-      attemptId,
-      submissionId: claimedSubmission,
-      attemptNumber: typeof attemptNumber === 'number' ? attemptNumber : 0,
-      outcome: 'assessment_not_produced',
-      // The error itself is never surfaced: it may quote provider output.
-      recorded: false,
-    };
+    // The error itself is never surfaced: it may quote provider output.
+    executionThrew = true;
+    outcome = { status: 'assessment_not_produced', reason: 'execution_threw' };
   }
 
   const recorded = outcome.status === 'assessment_recorded';
-  await admin.rpc(WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION, {
-    p_attempt_id: attemptId,
-    p_status: recorded ? 'succeeded' : 'failed',
-    // Reason code only, never provider or intake prose.
-    p_failure_class: recorded ? null : outcome.status,
-  });
-
-  return {
-    status: 'attempt_completed',
+  const attempt = {
     attemptId,
     submissionId: claimedSubmission,
     attemptNumber: typeof attemptNumber === 'number' ? attemptNumber : 0,
     outcome: outcome.status,
     recorded,
   };
+  try {
+    const finalized = await admin.rpc(WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION, {
+      p_attempt_id: attemptId,
+      p_status: recorded ? 'succeeded' : 'failed',
+      // Reason code only, never provider or intake prose.
+      p_failure_class: recorded ? null : executionThrew ? 'execution_threw' : outcome.status,
+    });
+    // This void RPC raises for missing rows and already-terminal attempts.
+    // NULL data is a successful void result, not a row-count receipt.
+    if (finalized.error) {
+      return { status: 'attempt_finalization_failed', ...attempt, reason: 'finalization_rpc_error' };
+    }
+  } catch {
+    // The database state cannot be inferred after a transport failure. Preserve
+    // the known assessment outcome without asserting a terminal attempt state.
+    // Never retry either finalization or provider execution implicitly.
+    return { status: 'attempt_finalization_failed', ...attempt, reason: 'finalization_rpc_threw' };
+  }
+
+  return { status: 'attempt_completed', ...attempt };
 }
 
 export type WorkflowAssessmentSweepResult = Readonly<{
@@ -162,7 +173,7 @@ export type WorkflowAssessmentSweepResult = Readonly<{
   recorded: number;
   outcomes: readonly WorkflowAssessmentExecutionResult[];
   stoppedBecause: 'batch_full' | 'nothing_claimable' | 'disabled' | 'not_configured'
-    | 'claim_failed';
+    | 'claim_failed' | 'attempt_finalization_failed';
 }>;
 
 /**
@@ -180,7 +191,8 @@ export type WorkflowAssessmentSweepResult = Readonly<{
  *
  * A failing submission does not abort the batch. Its attempt is recorded as
  * failed and the sweep moves to the next eligible submission, so one bad row
- * cannot starve everything behind it.
+ * cannot starve everything behind it. If finalization fails, the sweep stops
+ * with the known assessment outcomes and leaves attempt state to the database.
  */
 export async function sweepWorkflowAssessments(): Promise<WorkflowAssessmentSweepResult> {
   const outcomes: WorkflowAssessmentExecutionResult[] = [];
@@ -188,6 +200,16 @@ export async function sweepWorkflowAssessments(): Promise<WorkflowAssessmentSwee
 
   for (let index = 0; index < WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE; index += 1) {
     const result = await executeClaimedWorkflowAssessment(undefined, attemptedSubmissions);
+
+    if (result.status === 'attempt_finalization_failed') {
+      outcomes.push(result);
+      return {
+        attempted: outcomes.length,
+        recorded: outcomes.filter((entry) => 'recorded' in entry && entry.recorded).length,
+        outcomes,
+        stoppedBecause: 'attempt_finalization_failed',
+      };
+    }
 
     if (result.status !== 'attempt_completed') {
       // Nothing left to claim, or a condition that applies to the whole sweep.

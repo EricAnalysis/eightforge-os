@@ -32,6 +32,8 @@ const ATTEMPT = '22222222-2222-4222-8222-222222222222';
 function claimingDatabase(options: {
   attemptsUsed?: number;
   alreadyAssessed?: boolean;
+  finalizeError?: { code: string; message: string };
+  finalizeThrows?: boolean;
 } = {}) {
   const state = {
     live: false,
@@ -59,6 +61,8 @@ function claimingDatabase(options: {
       };
     }
     if (name === WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION) {
+      if (options.finalizeThrows) throw new Error('transport error with private details');
+      if (options.finalizeError) return { data: null, error: options.finalizeError };
       if (!state.live) throw new Error('finalizing an attempt that is not live');
       state.live = false;
       state.finalized.push({
@@ -153,6 +157,74 @@ describe('workflow assessment claim', () => {
       { status: 'failed', failureClass: 'execution_threw' },
     ]);
     expect(JSON.stringify(result)).not.toContain('quotable');
+  });
+
+  it.each([
+    ['RPC error', 'XX000'],
+    ['zero rows affected', 'P0002'],
+    ['attempt already terminal', 'P0001'],
+  ])('reports finalization failure for %s, never completion', async (_label, code) => {
+    const { rpc } = claimingDatabase({
+      finalizeError: { code, message: 'database error containing private details' },
+    });
+    const result = await executeClaimedWorkflowAssessment();
+    expect(result).toEqual({
+      status: 'attempt_finalization_failed', attemptId: ATTEMPT,
+      submissionId: SUBMISSION, attemptNumber: 1,
+      outcome: 'assessment_recorded', recorded: true, reason: 'finalization_rpc_error',
+    });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls.filter(([name]) => name === WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION))
+      .toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain('private details');
+  });
+
+  it('keeps a rejected finalization claim live without implicitly retrying', async () => {
+    const { state } = claimingDatabase({
+      finalizeError: { code: 'XX000', message: 'update rejected' },
+    });
+    runAssessment.mockResolvedValue({ status: 'persist_failed', reason: 'insert failed' });
+    expect(await executeClaimedWorkflowAssessment()).toMatchObject({
+      status: 'attempt_finalization_failed', recorded: false, outcome: 'persist_failed',
+    });
+    expect(state.live).toBe(true);
+    expect(state.finalized).toEqual([]);
+    expect(await executeClaimedWorkflowAssessment()).toEqual({ status: 'nothing_claimable' });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('handles finalization transport failure after runner threw=%s', async (threw) => {
+    claimingDatabase({ finalizeThrows: true });
+    if (threw) runAssessment.mockRejectedValue(new Error('private provider text'));
+    const result = await executeClaimedWorkflowAssessment();
+    expect(result).toMatchObject({
+      status: 'attempt_finalization_failed', reason: 'finalization_rpc_threw', recorded: !threw,
+    });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+
+  it('reports finalization RPC error after a thrown runner instead of completion', async () => {
+    claimingDatabase({ finalizeError: { code: 'XX000', message: 'failed update' } });
+    runAssessment.mockRejectedValue(new Error('private provider text'));
+    expect(await executeClaimedWorkflowAssessment()).toMatchObject({
+      status: 'attempt_finalization_failed', reason: 'finalization_rpc_error',
+      outcome: 'assessment_not_produced', recorded: false,
+    });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+  });
+
+  it('records persistence failure as auditable attempt failure with one remaining retry', async () => {
+    const { state } = claimingDatabase();
+    runAssessment.mockResolvedValue({ status: 'persist_failed', reason: 'insert failed' });
+    await executeClaimedWorkflowAssessment();
+    await executeClaimedWorkflowAssessment();
+    expect(await executeClaimedWorkflowAssessment()).toEqual({ status: 'nothing_claimable' });
+    expect(state.finalized).toEqual([
+      { status: 'failed', failureClass: 'persist_failed' },
+      { status: 'failed', failureClass: 'persist_failed' },
+    ]);
+    expect(runAssessment).toHaveBeenCalledTimes(2);
   });
 
   // 8/9. bounded retry, then exhaustion

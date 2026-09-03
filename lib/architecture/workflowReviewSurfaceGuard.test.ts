@@ -179,6 +179,13 @@ describe('workflow review surface has no execution affordance', () => {
     expect(detail).toMatch(/qualification\?\.reasons\.map/);
   });
 
+  it('normalizes legacy qualification through the presentation layer', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    expect(detail).toContain("from '@/lib/workflowAssessmentPresentation'");
+    expect(detail).toContain('{workflowQualificationLabel(qualification.state)}');
+    expect(detail).not.toMatch(/\{qualification\.state(?:\.|\})/);
+  });
+
   it('has no owner/admin review eligibility copy anywhere in the UI', () => {
     // Authority is the explicit platform allowlist; telling an operator it is
     // an organization role would be simply false.

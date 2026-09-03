@@ -37,7 +37,9 @@ function database(submissions: Submission[]) {
   const providerCalls: string[] = [];
   const finalized: Array<{ id: string; status: string }> = [];
 
-  const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+  const rpc = vi.fn(async (
+    name: string, args: Record<string, unknown>,
+  ): Promise<{ data: unknown; error: { message: string } | null }> => {
     if (name === WORKFLOW_ASSESSMENT_CLAIM_FUNCTION) {
       const max = args.p_max_attempts as number;
       const only = args.p_submission_id as string | null;
@@ -216,6 +218,62 @@ describe('bounded daily sweep batch', () => {
     const result = await sweepWorkflowAssessments();
     expect(result).toMatchObject({ attempted: 0, stoppedBecause: 'claim_failed' });
     expect(runAssessment).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('stops after finalization failure and preserves recorded=%s', async (recorded) => {
+    const submissions = pending('a', 'b', 'c');
+    const { rpc } = database(submissions);
+    const normalRpc = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name, args) => {
+      if (name === WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION) {
+        return { data: null, error: { message: 'finalization failed' } };
+      }
+      return normalRpc(name, args);
+    });
+    if (!recorded) runAssessment.mockResolvedValue({ status: 'persist_failed', reason: 'insert failed' });
+    const result = await sweepWorkflowAssessments();
+    expect(result).toMatchObject({
+      attempted: 1, recorded: recorded ? 1 : 0, stoppedBecause: 'attempt_finalization_failed',
+      outcomes: [{ status: 'attempt_finalization_failed', submissionId: 'a', recorded }],
+    });
+    expect(runAssessment).toHaveBeenCalledTimes(1);
+    expect(submissions[0]!.live).toBe(true);
+    expect(submissions[1]!.attempts).toBe(0);
+  });
+
+  it.each([true, false])('preserves earlier outcomes when second finalization fails, recorded=%s', async (recorded) => {
+    const submissions = pending('a', 'b', 'c');
+    const { rpc, finalized } = database(submissions);
+    const normalRpc = rpc.getMockImplementation()!;
+    const normalRunner = runAssessment.getMockImplementation()!;
+    rpc.mockImplementation(async (name, args) => {
+      if (name === WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION && args.p_attempt_id === 'att-b-1') {
+        throw new Error('private transport details');
+      }
+      return normalRpc(name, args);
+    });
+    runAssessment.mockImplementation(async (submissionId: string) => {
+      if (submissionId === 'b' && !recorded) {
+        return { status: 'persist_failed', reason: 'private persistence details' };
+      }
+      return normalRunner(submissionId);
+    });
+
+    const result = await sweepWorkflowAssessments();
+    expect(result).toMatchObject({
+      attempted: 2, recorded: recorded ? 2 : 1, stoppedBecause: 'attempt_finalization_failed',
+      outcomes: [
+        { status: 'attempt_completed', submissionId: 'a', recorded: true },
+        { status: 'attempt_finalization_failed', submissionId: 'b', recorded,
+          outcome: recorded ? 'assessment_recorded' : 'persist_failed',
+          reason: 'finalization_rpc_threw' },
+      ],
+    });
+    expect(finalized).toEqual([{ id: 'a', status: 'succeeded' }]);
+    expect(runAssessment).toHaveBeenCalledTimes(2);
+    expect(submissions[1]!.live).toBe(true);
+    expect(submissions[2]!.attempts).toBe(0);
+    expect(JSON.stringify(result)).not.toContain('private');
   });
 
   it('processes sequentially rather than in parallel', async () => {

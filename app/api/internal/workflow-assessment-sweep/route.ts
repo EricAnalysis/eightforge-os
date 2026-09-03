@@ -50,6 +50,15 @@ async function sweep(request: Request): Promise<Response> {
     console.error('[workflowAssessmentSweep] claim failed');
     return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });
   }
+  if (result.stoppedBecause === 'attempt_finalization_failed') {
+    console.error('[workflowAssessmentSweep] attempt finalization failed');
+    return Response.json({
+      ok: false,
+      error: 'attempt_finalization_failed',
+      attempted: result.attempted,
+      assessed: result.recorded,
+    }, { status: 503 });
+  }
 
   return Response.json({
     ok: true,

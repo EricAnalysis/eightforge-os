@@ -16,8 +16,8 @@ const step = (stepId: string, classification: string) => ({
   dependencies: [], failureConsequence: 'c', unresolvedAssumptions: [],
 });
 const rule = (ruleId: string, stepId: string) => ({
-  ruleId, stepId, plainLanguageRule: 'r', requiredFacts: [],
-  conditionType: 'comparison', expectedEvidence: [], expectedOutcome: 'o',
+  ruleId, stepId, plainLanguageRule: 'r', requiredFacts: ['fact'],
+  conditionType: 'comparison', expectedEvidence: ['evidence'], expectedOutcome: 'o',
   userDescribedExceptions: [], unresolvedAssumptions: [],
 });
 
@@ -36,6 +36,70 @@ describe('workflow assessment proposal closure', () => {
   it('accepts a structurally complete assessment', () => {
     expect(resolveWorkflowAssessmentProposalClosure(compatible))
       .toEqual({ compatible: true });
+  });
+
+  it.each([
+    ['RULE', {
+      deterministicRuleProposals: [rule('r1', 's1')],
+    }],
+    ['VERIFY', {
+      verificationRuleProposals: [rule('v1', 's1')],
+    }],
+    ['EXTRACT', {
+      extractionRequirements: [{
+        requirementId: 'e1', stepId: 's1', describedFact: 'fact',
+        sourceDocument: 'document', deterministicExtractionPlausible: true,
+      }],
+    }],
+    ['RECOVER', {
+      extractionRequirements: [{
+        requirementId: 'e1', stepId: 's1', describedFact: 'fact',
+        sourceDocument: 'document', deterministicExtractionPlausible: false,
+      }],
+      forgewingRecoveryTasks: [{
+        taskId: 't1', stepId: 's1', description: 'recover',
+        deterministicShortfall: 'not deterministic',
+      }],
+    }],
+    ['HUMAN', {
+      humanDecisionPoints: [{
+        decisionId: 'h1', stepId: 's1', description: 'decide',
+        whyHumanControlled: 'authority remains human',
+      }],
+    }],
+    ['ADVISORY', {
+      advisorySteps: [{ advisoryId: 'a1', stepId: 's1', description: 'advise' }],
+    }],
+  ] as const)('requires a complete %s class specification', (classification, details) => {
+    const assessment = {
+      workflowSteps: [step('s1', classification)],
+      extractionRequirements: [], deterministicRuleProposals: [],
+      verificationRuleProposals: [], forgewingRecoveryTasks: [],
+      humanDecisionPoints: [], advisorySteps: [], failureConsequences: [],
+      ...details,
+    };
+    expect(resolveWorkflowAssessmentProposalClosure(assessment))
+      .toEqual({ compatible: true });
+
+    for (const [detailKey, records] of Object.entries(details)) {
+      const first = records[0] as Record<string, unknown>;
+      for (const field of Object.keys(first)) {
+        const missing = { ...first };
+        delete missing[field];
+        expect(resolveWorkflowAssessmentProposalClosure({
+          ...assessment, [detailKey]: [missing],
+        }).compatible, `${classification}.${detailKey}.${field} is required`).toBe(false);
+        expect(resolveWorkflowAssessmentProposalClosure({
+          ...assessment, [detailKey]: [{ ...first, [field]: {} }],
+        }).compatible, `${classification}.${detailKey}.${field} has the correct type`).toBe(false);
+      }
+      const identifierKey = Object.keys(first).find((field) => field !== 'stepId' && field.endsWith('Id'))!;
+      for (const id of [42, '']) {
+        expect(resolveWorkflowAssessmentProposalClosure({
+          ...assessment, [detailKey]: [{ ...first, [identifierKey]: id }],
+        }).compatible, `${classification} detail ID must be a nonempty string`).toBe(false);
+      }
+    }
   });
 
   it.each([
@@ -81,9 +145,59 @@ describe('workflow assessment proposal closure', () => {
     }],
   ])('fails closed on %s rather than throwing', (_label, assessment) => {
     const result = resolveWorkflowAssessmentProposalClosure(assessment);
-    // An empty assessment has no steps needing details, so it is vacuously
-    // composable; what matters is that nothing throws and nothing is repaired.
-    expect(typeof result.compatible).toBe('boolean');
+    expect(result.compatible).toBe(false);
+  });
+
+  it.each([undefined, 42, '', ' r1', 'r1 '])('rejects malformed detail identity %s', (ruleId) => {
+    expect(resolveWorkflowAssessmentProposalClosure({
+      ...compatible,
+      deterministicRuleProposals: [{ ...rule('r1', 's1'), ruleId }],
+    }, { acceptedStepIds: ['s1'] }).compatible).toBe(false);
+  });
+
+  it.each([
+    { requiredFacts: [] }, { requiredFacts: [42] },
+    { expectedEvidence: [{}] }, { userDescribedExceptions: undefined },
+    { unresolvedAssumptions: undefined }, { conditionType: 'unknown' },
+    { plainLanguageRule: null },
+  ])('rejects an incomplete or mistyped rule specification %j', (fields) => {
+    expect(resolveWorkflowAssessmentProposalClosure({
+      ...compatible,
+      deterministicRuleProposals: [{ ...rule('r1', 's1'), ...fields }],
+    }, { acceptedStepIds: ['s1'] }).compatible).toBe(false);
+  });
+
+  it.each([undefined, 42, '', ' s1', 's1 '])(
+    'rejects malformed step identity %s even when every proposal is replaced', (stepId) => {
+      expect(resolveWorkflowAssessmentProposalClosure({
+        ...compatible,
+        workflowSteps: [{ ...step('s1', 'RULE'), stepId }],
+      }, { acceptedStepIds: [] }).compatible).toBe(false);
+    },
+  );
+
+  it('preserves known unique step and classification identities for complete replacements', () => {
+    for (const workflowSteps of [
+      [step('s1', 'UNKNOWN')],
+      [step('s1', 'RULE'), step('s1', 'HUMAN')],
+    ]) {
+      expect(resolveWorkflowAssessmentProposalClosure({ workflowSteps }, {
+        acceptedStepIds: [],
+      }).compatible).toBe(false);
+    }
+  });
+
+  it('checks accepted details while allowing unused malformed historical details to be replaced', () => {
+    const mixed = {
+      ...compatible,
+      workflowSteps: [step('s1', 'RULE'), step('s2', 'HUMAN')],
+      humanDecisionPoints: [{ stepId: 's2', decisionId: 42 }],
+    };
+    expect(resolveWorkflowAssessmentProposalClosure(mixed).compatible).toBe(false);
+    expect(resolveWorkflowAssessmentProposalClosure(mixed, { acceptedStepIds: ['s1'] }))
+      .toEqual({ compatible: true });
+    expect(resolveWorkflowAssessmentProposalClosure(mixed, { acceptedStepIds: ['ghost'] })
+      .compatible).toBe(false);
   });
 
   it('never mutates the assessment it inspects', () => {

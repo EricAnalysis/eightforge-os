@@ -34,7 +34,12 @@ function rpcClient(response: unknown, closure?: unknown) {
   const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => response);
   const assessment = closure ?? {
     workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
-    deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+    deterministicRuleProposals: [{
+      ruleId: 'r1', stepId: 'step-1', plainLanguageRule: 'Compare the facts',
+      requiredFacts: ['fact'], conditionType: 'comparison',
+      expectedEvidence: ['evidence'], expectedOutcome: 'match',
+      userDescribedExceptions: [], unresolvedAssumptions: [],
+    }],
     verificationRuleProposals: [], extractionRequirements: [],
     forgewingRecoveryTasks: [], humanDecisionPoints: [], advisorySteps: [],
     failureConsequences: [],
@@ -111,6 +116,20 @@ describe('workflow assessment review seam', () => {
     expect(payload).not.toMatch(/overall/i);
   });
 
+  it.each(['accepted', 'rejected'] as const)(
+    'omits the specification key for %s, preserving SQL NULL rather than JSON null', async (disposition) => {
+      const rpc = rpcClient(recorded);
+      const stepReview = disposition === 'accepted'
+        ? input().stepReviews[0]!
+        : { disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+          reviewerNotes: 'The proposal is not suitable.' };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [stepReview] }), REVIEWER);
+      expect(result.status).toBe('review_recorded');
+      const payload = rpc.mock.calls[0]![1] as { p_step_reviews: Record<string, unknown>[] };
+      expect(payload.p_step_reviews[0]).not.toHaveProperty('accepted_specification');
+    },
+  );
+
   it('never issues a direct table write', async () => {
     const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
     // The closure gate legitimately READS the stored assessment before allowing
@@ -124,7 +143,12 @@ describe('workflow assessment review seam', () => {
               data: {
                 assessment: {
                   workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
-                  deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+                  deterministicRuleProposals: [{
+                    ruleId: 'r1', stepId: 'step-1', plainLanguageRule: 'Compare facts.',
+                    requiredFacts: ['fact'], conditionType: 'comparison',
+                    expectedEvidence: ['source'], expectedOutcome: 'match',
+                    userDescribedExceptions: [], unresolvedAssumptions: [],
+                  }],
                   verificationRuleProposals: [], extractionRequirements: [],
                   forgewingRecoveryTasks: [], humanDecisionPoints: [],
                   advisorySteps: [], failureConsequences: [],
@@ -143,8 +167,9 @@ describe('workflow assessment review seam', () => {
     });
     getAdmin.mockReturnValue({ rpc, from });
 
-    await recordWorkflowAssessmentReview(input(), REVIEWER);
-
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(builder.insert).toBeUndefined();
     expect(builder.update).toBeUndefined();
     expect(builder.delete).toBeUndefined();
@@ -469,11 +494,16 @@ describe('workflow assessment review seam', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('does not gate a review that accepts nothing as proposed', async () => {
+  it('allows complete replacements of unused malformed historical details with valid step identity', async () => {
     // Only modified/reclassified/rejected steps: the effective specification
     // comes from typed reviewed artifacts, not from the original proposal, so
     // historical proposal closure is not load-bearing here.
-    const rpc = rpcClient(recorded, { workflowSteps: 'malformed' });
+    const rpc = rpcClient(recorded, {
+      // Step identity remains pinned, while the unused historical HUMAN detail
+      // is intentionally incomplete and may be superseded by the replacement.
+      workflowSteps: [{ stepId: 'step-1', classification: 'HUMAN' }],
+      humanDecisionPoints: [{ stepId: 'step-1' }],
+    });
     const result = await recordWorkflowAssessmentReview(input({
       stepReviews: [{
         disposition: 'modified', assessmentStepId: 'step-1',
@@ -488,6 +518,66 @@ describe('workflow assessment review seam', () => {
     expect(result.status).toBe('review_recorded');
     expect(rpc).toHaveBeenCalledTimes(1);
   });
+
+  it.each([undefined, 42, ''])('rejects a historical RULE with detail ID %s when accepted', async (ruleId) => {
+    const rpc = rpcClient(recorded, {
+      workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+      deterministicRuleProposals: [{ stepId: 'step-1', ruleId }],
+    });
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(['modified', 'reclassified'] as const)(
+    'allows a complete %s replacement of a malformed historical RULE', async (disposition) => {
+      const rpc = rpcClient(recorded, {
+        workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+        deterministicRuleProposals: [{ stepId: 'step-1', ruleId: 42 }],
+      });
+      const acceptedSpecification = disposition === 'modified' ? {
+        plainLanguageRule: 'Compare the supplied facts.', requiredFacts: ['fact'],
+        conditionType: 'comparison', expectedEvidence: ['source record'],
+        expectedOutcome: 'Report whether the facts match.',
+        userDescribedExceptions: [], unresolvedAssumptions: [],
+      } : {
+        description: 'Review the supplied facts.', whyHumanControlled: 'Requires human judgment.',
+      };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [{
+        disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE',
+        reviewedClassification: disposition === 'modified' ? 'RULE' : 'HUMAN',
+        reviewerNotes: 'Replace the incomplete historical proposal.', acceptedSpecification,
+      }] }), REVIEWER);
+      expect(result.status).toBe('review_recorded');
+      const payload = rpc.mock.calls[0]![1] as { p_step_reviews: Record<string, unknown>[] };
+      expect(payload.p_step_reviews[0]!.accepted_specification).toEqual(acceptedSpecification);
+    },
+  );
+
+  it.each(['accepted', 'modified', 'reclassified', 'rejected'] as const)(
+    'rejects malformed stored step identity for %s', async (disposition) => {
+      const rpc = rpcClient(recorded, {
+        workflowSteps: [{ stepId: 42, classification: 'RULE' }],
+      });
+      const stepReview = disposition === 'accepted' ? input().stepReviews[0]!
+        : disposition === 'rejected'
+          ? { disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+            reviewerNotes: 'The proposal is not suitable.' }
+          : {
+            disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+            reviewedClassification: disposition === 'modified' ? 'RULE' as const : 'HUMAN' as const,
+            reviewerNotes: 'Replace the original.',
+            acceptedSpecification: disposition === 'modified' ? {
+              plainLanguageRule: 'Compare facts.', requiredFacts: ['fact'],
+              conditionType: 'comparison', expectedEvidence: ['source'], expectedOutcome: 'match',
+              userDescribedExceptions: [], unresolvedAssumptions: [],
+            } : { description: 'Review facts.', whyHumanControlled: 'Judgment.' },
+          };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [stepReview] }), REVIEWER);
+      expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+      expect(rpc).not.toHaveBeenCalled();
+    },
+  );
   // The closure check must run against the EXACT assessment version under
   // review, not the latest for that submission. A version mismatch would let a
   // newer compatible assessment vouch for an older incompatible one, and the

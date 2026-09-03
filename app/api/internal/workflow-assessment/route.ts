@@ -76,5 +76,17 @@ export async function POST(request: Request): Promise<Response> {
     case 'claim_failed':
       console.error('[workflowAssessment] claim failed', { reason: result.reason });
       return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });
+    case 'attempt_finalization_failed':
+      console.error('[workflowAssessment] attempt finalization failed', {
+        attemptId: result.attemptId, reason: result.reason,
+      });
+      return Response.json({
+        ok: false,
+        error: 'attempt_finalization_failed',
+        attemptId: result.attemptId,
+        sourceSubmissionId: result.submissionId,
+        attemptNumber: result.attemptNumber,
+        assessmentRecorded: result.recorded,
+      }, { status: 503 });
   }
 }

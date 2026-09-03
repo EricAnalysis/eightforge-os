@@ -127,15 +127,21 @@ describe('migration function signature integrity', () => {
 describe('canonical closure validator stays pure', () => {
   // It is on the Forgewing outbound allowlist solely because one closure
   // implementation must serve both new output and historical review. That is
-  // only safe while the module reaches nothing: an import here would extend
-  // Forgewing's reach through a module admitted for a different reason.
-  it('imports nothing at all', () => {
-    const source = readFileSync(
-      path.join(process.cwd(), 'lib', 'workflowAssessmentProposalClosure.ts'), 'utf8',
-    );
-    expect(source).not.toMatch(/^\s*import\s/m);
-    expect(source).not.toMatch(/require\s*\(/);
-    expect(source).not.toMatch(/await\s+import\s*\(/);
+  // only safe with an explicit closed dependency graph: closure -> canonical
+  // schema -> Zod. No server, provider, environment, or authority dependencies.
+  it('has only the exact canonical schema and Zod dependency graph', () => {
+    for (const [file, dependencies] of [
+      ['workflowAssessmentProposalClosure.ts', ['@/lib/workflowAssessmentSchema']],
+      ['workflowAssessmentSchema.ts', ['zod']],
+    ] as const) {
+      const source = readFileSync(path.join(process.cwd(), 'lib', file), 'utf8');
+      const imports = [...source.matchAll(/\b(?:import|export)\s+(?:[^;]*?\s+from\s+)?['"]([^'"]+)['"]/g)]
+        .map((match) => match[1]);
+      expect(imports).toEqual(dependencies);
+      expect(source).not.toMatch(/require\s*\(/);
+      expect(source).not.toMatch(/\bimport\s*\(/);
+      expect(source).not.toMatch(/\bprocess\s*\./);
+    }
   });
 
   it('names no authority-bearing module even in prose', () => {

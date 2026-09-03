@@ -221,6 +221,82 @@ function fail(inputValue: unknown, code: string) {
 }
 
 describe('resolveEffectiveReviewedSpecification', () => {
+  it.each(['caller', 'artifact'] as const)(
+    'detaches nested JSON values when the %s is mutated after resolution',
+    (mutatedSide) => {
+      const proposedFacts = ['persisted proposed fact'];
+      const modifiedFacts = ['\t persisted modified fact  '];
+      const reclassifiedFacts = ['  persisted reclassified fact\n '];
+      const payload = assessment();
+      Object.assign(payload.deterministicRuleProposals[0]!, { requiredFacts: proposedFacts });
+      const rows = CLASSES.map((kind, index) => child(kind,
+        kind === 'RULE' ? 'accepted' : kind === 'VERIFY' ? 'modified'
+          : kind === 'ADVISORY' ? 'reclassified' : 'rejected', index + 1));
+      rows[1]!.accepted_specification!.requiredFacts = modifiedFacts;
+      rows[5]!.accepted_specification!.requiredFacts = reclassifiedFacts;
+      rows[0]!.reviewer_notes = '  persisted reviewer note\t ';
+      const source = input(rows, payload);
+      const sourceBefore = structuredClone(source);
+      const artifact = ok(source);
+      const artifactBefore = structuredClone(artifact);
+      const digestBefore = artifact.digest.value;
+      const resolvedFacts = ['RULE', 'VERIFY', 'ADVISORY'].map((kind) => {
+        const step = artifact.steps.find((entry) => entry.stepId === stepId(kind as Class))!;
+        return (step.effectiveSpecification as { requiredFacts: string[] }).requiredFacts;
+      });
+      const evidencePayload = artifact.evidence.assessment.assessment as typeof payload;
+      const evidenceQuestions = evidencePayload.workflowSteps[0]!.sourceQuestions;
+      const evidenceModifiedFacts = artifact.evidence.stepReviews[1]!
+        .accepted_specification!.requiredFacts as string[];
+      const provenance = artifact.steps[0]!.provenance as { reviewerNotes: string | null };
+
+      expect(resolvedFacts).toEqual([proposedFacts, modifiedFacts, reclassifiedFacts]);
+      expect(artifact.evidence.assessment).toEqual(source.assessmentRow);
+      expect(artifact.evidence.stepReviews).toEqual(rows);
+      expect(provenance.reviewerNotes).toBe('  persisted reviewer note\t ');
+
+      if (mutatedSide === 'caller') {
+        proposedFacts[0] = 'changed caller proposal';
+        modifiedFacts.push('changed caller replacement');
+        reclassifiedFacts[0] = 'changed caller reclassification';
+        payload.workflowSteps[0]!.sourceQuestions.push('changed caller evidence');
+        rows[0]!.reviewer_notes = 'changed caller note';
+        expect(artifact).toEqual(artifactBefore);
+        expect(artifact.digest.value).toBe(digestBefore);
+      } else {
+        resolvedFacts.forEach((facts) => facts.push('changed artifact specification'));
+        evidenceQuestions.push('changed artifact evidence');
+        evidenceModifiedFacts.push('changed artifact review evidence');
+        provenance.reviewerNotes = 'changed artifact provenance';
+        artifact.evidence.stepReviews[0]!.reviewer_notes = 'changed artifact note';
+        expect(source).toEqual(sourceBefore);
+      }
+
+      expect(resolvedFacts[0]).not.toBe(proposedFacts);
+      expect(resolvedFacts[1]).not.toBe(modifiedFacts);
+      expect(resolvedFacts[2]).not.toBe(reclassifiedFacts);
+      expect(evidencePayload).not.toBe(payload);
+      expect(evidenceQuestions).not.toBe(payload.workflowSteps[0]!.sourceQuestions);
+      expect(evidenceModifiedFacts).not.toBe(modifiedFacts);
+      expect(artifact.evidence.stepReviews[0]).not.toBe(rows[0]);
+    },
+  );
+
+  it.each(['accepted', 'modified', 'reclassified', 'rejected'] as const)(
+    'preserves exact stepReviewId by workflow step for shuffled %s child rows',
+    (disposition) => {
+      const rows = CLASSES.map((kind, index) => child(kind, disposition, index + 11));
+      const shuffled = [...rows].reverse();
+      const artifact = ok(input(shuffled));
+      expect(artifact.steps.map((step) => step.stepId)).toEqual(CLASSES.map(stepId));
+      artifact.steps.forEach((step, index) => {
+        const correspondingRow = rows.find((row) => row.assessment_step_id === step.stepId)!;
+        expect(step.provenance.stepReviewId).toBe(correspondingRow.id);
+        expect(step.provenance.stepReviewId).not.toBe(shuffled[index]!.id);
+      });
+    },
+  );
+
   it.each(CLASSES.flatMap((kind) =>
     (['accepted', 'modified', 'reclassified', 'rejected'] as const)
       .map((disposition) => [kind, disposition] as const)))(

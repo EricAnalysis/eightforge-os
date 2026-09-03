@@ -71,6 +71,115 @@ SELECT 1 / CASE WHEN
   THEN 1 ELSE 0 END AS migration_ledger_complete;
 SQL
 
+# Execute the effective workflow RPCs. Replay alone cannot catch PL/pgSQL
+# ambiguity or a lifetime-cap race because those function bodies are analyzed
+# on execution and concurrency spans transactions.
+"${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
+
+workflow_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000023'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
+
+run_claim_race() {
+  local first_sql="$1"
+  local second_sql="$2"
+  local expected_attempt="${3:-1}"
+  # Keep the first real PostgreSQL session's intake lock open until the second
+  # session has executed. Observing PgSleep proves the overlap; starting two
+  # short processes alone could accidentally test only serial execution.
+  "${psql[@]}" --command "SET application_name = 'workflow_claim_race_a'; SET ROLE service_role; BEGIN; CREATE TEMP TABLE workflow_race_result AS ${first_sql} SELECT 1 / CASE WHEN count(*) = 1 AND min(attempt_number) = ${expected_attempt} THEN 1 ELSE 0 END AS winning_claim_correct, count(*) AS returned_claims, min(attempt_number) AS returned_attempt FROM workflow_race_result; SELECT pg_sleep(3); COMMIT;" &
+  local first_pid=$!
+  local overlap_seen=false
+  for _ in {1..100}; do
+    if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'workflow_claim_race_a' AND wait_event = 'PgSleep'")" == "1" ]]; then
+      overlap_seen=true
+      break
+    fi
+    sleep 0.02
+  done
+  if [[ "${overlap_seen}" != true ]]; then
+    echo "WORKFLOW CLAIM RACE: FAILED (no concurrent lock-holding session observed)"
+    wait "${first_pid}"
+    return 1
+  fi
+  "${psql[@]}" --command "SET ROLE service_role; CREATE TEMP TABLE workflow_race_result AS ${second_sql} SELECT 1 / CASE WHEN count(*) = 0 THEN 1 ELSE 0 END AS losing_claim_unavailable, count(*) AS returned_claims FROM workflow_race_result;" &
+  local second_pid=$!
+  wait "${first_pid}"
+  wait "${second_pid}"
+}
+
+# concurrent retry after attempt 1 failed: exactly one attempt 2, never 3
+run_claim_race \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL);" 2
+
+# manual/manual first-claim race
+run_claim_race \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL);"
+
+# sweep/sweep race, narrowed only by same-sweep exclusions
+run_claim_race \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions});" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions});"
+
+# sweep/manual race on a separate submission
+mixed_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000022'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
+run_claim_race \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${mixed_exclusions});" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000023'::uuid, NULL);"
+
+"${psql[@]}" <<'SQL'
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.workflow_assessment_attempts
+      WHERE source_submission_id = '93000000-0000-4000-8000-000000000020') <> 2
+    OR (SELECT max(attempt_number) FROM public.workflow_assessment_attempts
+      WHERE source_submission_id = '93000000-0000-4000-8000-000000000020') <> 2 THEN
+    RAISE EXCEPTION 'concurrent retry did not produce exactly attempts 1 and 2';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.workflow_assessment_attempts WHERE attempt_number > 2) THEN
+    RAISE EXCEPTION 'attempt 3 exists';
+  END IF;
+  IF EXISTS (
+    SELECT source_submission_id FROM public.workflow_assessment_attempts
+    WHERE source_submission_id IN (
+      '93000000-0000-4000-8000-000000000021',
+      '93000000-0000-4000-8000-000000000022',
+      '93000000-0000-4000-8000-000000000023'
+    )
+    GROUP BY source_submission_id HAVING count(*) <> 1 OR max(attempt_number) <> 1
+  ) OR (SELECT count(DISTINCT source_submission_id) FROM public.workflow_assessment_attempts
+    WHERE source_submission_id IN (
+      '93000000-0000-4000-8000-000000000021',
+      '93000000-0000-4000-8000-000000000022',
+      '93000000-0000-4000-8000-000000000023'
+    )) <> 3 THEN
+    RAISE EXCEPTION 'first-claim concurrency matrix failed';
+  END IF;
+END $$;
+SET ROLE service_role;
+DO $$
+DECLARE retry_attempt uuid;
+BEGIN
+  SELECT attempt.id INTO STRICT retry_attempt
+  FROM public.workflow_assessment_attempts AS attempt
+  WHERE attempt.source_submission_id = '93000000-0000-4000-8000-000000000020'
+    AND attempt.attempt_number = 2;
+  PERFORM public.finalize_workflow_assessment_attempt(retry_attempt, 'failed', 'persist_failed');
+  IF (SELECT count(*) FROM public.workflow_assessment_attempts AS attempt
+      WHERE attempt.source_submission_id = '93000000-0000-4000-8000-000000000020'
+        AND attempt.status = 'failed' AND attempt.failure_class = 'persist_failed'
+        AND attempt.completed_at IS NOT NULL) <> 2 THEN
+    RAISE EXCEPTION 'both persistence failures must remain auditable';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(
+      2, '93000000-0000-4000-8000-000000000020', NULL)) THEN
+    RAISE EXCEPTION 'exhausted persistence failures incorrectly allowed attempt 3';
+  END IF;
+END $$;
+RESET ROLE;
+SELECT 'WORKFLOW DATABASE AUTHORITY CONCURRENCY MATRIX: PASS' AS result;
+SQL
+
 "${psql[@]}" --file scripts/sql/verify-phase1b-physical-page-provenance.sql
 
 phase1b_migration='supabase/migrations/20260812192944_phase1b_physical_page_provenance.sql'

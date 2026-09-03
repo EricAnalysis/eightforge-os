@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { utimesSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -70,14 +71,30 @@ const COMPARISON_ROOT = 'lib/canonical/comparison';
 const FORGEWING_ROOT = 'lib/forgewing';
 const FORGEWING_EVALUATION_ROOT = 'lib/evaluation/forgewing';
 const WORKFLOW_ASSESSMENT_SERVER_SEAM = 'lib/server/workflowAssessment';
+// Exactly one consumer: the claim seam.
+//
+// Both the sweep and the manual trigger reach assessment THROUGH
+// workflowAssessmentClaim, which acquires a durable claim before any provider
+// access. Narrowing this to the claim seam is what makes the double-spend
+// protection structural -- a route that imported the runner directly would
+// bypass the claim, and this list is what stops that appearing quietly.
 const WORKFLOW_ASSESSMENT_AUTHORIZED_CONSUMERS = new Set([
-  'app/api/internal/workflow-assessment/route.ts',
+  'lib/server/workflowAssessmentClaim.ts',
 ]);
 const WORKFLOW_ASSESSMENT_REVIEW_SERVER_SEAM = 'lib/server/workflowAssessmentReview';
 const WORKFLOW_ASSESSMENT_REVIEW_AUTHORIZED_CONSUMERS = new Set([
   'app/api/internal/workflow-assessment-review/route.ts',
 ]);
 const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
+  // The canonical proposal-closure validator. Forgewing must use the SAME
+  // implementation that later decides whether a historical assessment may be
+  // accepted as proposed: a second copy would eventually disagree, and the
+  // disagreement would surface as an operator approving something no resolver
+  // can compose. Its only dependency is the Zod-only canonical schema, so this
+  // grants Forgewing no reach it did not have.
+  '@/lib/workflowAssessmentProposalClosure',
+  // Pure canonical schemas shared by new output and historical compatibility.
+  '@/lib/workflowAssessmentSchema',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',
@@ -134,8 +151,13 @@ function productionFilesIn(workspaceRoot: string): string[] {
  */
 function treeFingerprint(files: readonly string[]): string {
   return files.map((file) => {
-    const stat = statSync(file);
-    return `${file}:${stat.mtimeMs}:${stat.size}`;
+    // Content digest, not metadata. Size and mtime can both be preserved across
+    // a real edit -- swapping two characters keeps the size, and a fast write or
+    // a coarse filesystem clock keeps the mtime -- so a metadata fingerprint can
+    // declare a changed tree unchanged and serve a stale scan. Reading the bytes
+    // costs what the scan would have cost anyway on a genuine change, and on an
+    // unchanged tree it still saves the parse.
+    return `${file}:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
   }).join('|');
 }
 
@@ -903,10 +925,12 @@ describe('production architecture import boundaries', () => {
     ]);
   }, 30_000);
 
-  it('allows only the exact internal route to consume the workflow assessment server seam', () => {
+  it('allows only the claim seam to consume the assessment seam', () => {
     expect(workflowAssessmentConsumerViolations()).toEqual([]);
+    // Enumerated, so a route reaching the runner directly -- and therefore
+    // skipping the claim -- fails here rather than appearing quietly.
     expect(workflowAssessmentProductionConsumers()).toEqual([
-      'app/api/internal/workflow-assessment/route.ts',
+      'lib/server/workflowAssessmentClaim.ts',
     ]);
   }, 30_000);
 
@@ -962,6 +986,55 @@ describe('production architecture import boundaries', () => {
     // The real repository must be byte-for-byte untouched by this test. If a
     // future edit reintroduces a real-tree probe, this fails rather than
     // quietly reopening the contamination window.
+    expect(treeFingerprint(productionFilesIn(ROOT))).toBe(repoBefore);
+  }, 60_000);
+
+  // Metadata identity could not see this. Both writes are the same byte length
+  // and the mtime is forced identical afterwards, so a path+size+mtime
+  // fingerprint is unchanged while the import the file declares is different.
+  //
+  // The assertion compares the resolved SPECIFIER, not an edge count: a count
+  // stays 1 across both writes, so counting would pass whether or not the cache
+  // rescanned. That is the mistake this test previously made.
+  it.each([
+    ['resolved scan', (root: string) => productionEdgesIn(root).map((e) => e.specifier)],
+    ['fast scan', (root: string) => allEdges(root).map((e) => e.specifier)],
+  ])('invalidates the %s cache on same-size same-mtime mutation', (_label, scan) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'eightforge-collision-'));
+    const probe = path.join(root, 'lib', 'validator', 'collision.ts');
+    const repoBefore = treeFingerprint(productionFilesIn(ROOT));
+
+    try {
+      mkdirSync(path.dirname(probe), { recursive: true });
+
+      // Identical length by construction: 'alpha' and 'omega' are both five.
+      const first = "import { x } from '@/lib/alpha/thing';";
+      const second = "import { x } from '@/lib/omega/thing';";
+      expect(first.length).toBe(second.length);
+
+      writeFileSync(probe, first);
+      // Normalize the timestamp BEFORE the baseline scan. A filesystem mtime
+      // can carry sub-millisecond precision that utimesSync truncates, so
+      // capturing the baseline first would leave the two fingerprints
+      // different for that reason alone -- and the test would pass under
+      // metadata identity, proving nothing.
+      const stamp = new Date(Math.floor(statSync(probe).mtimeMs));
+      utimesSync(probe, stamp, stamp);
+      const pinned = statSync(probe).mtimeMs;
+      expect(scan(root)).toEqual(['@/lib/alpha/thing']);
+
+      writeFileSync(probe, second);
+      utimesSync(probe, stamp, stamp);
+      // Metadata is now genuinely indistinguishable from the first write.
+      expect(statSync(probe).mtimeMs).toBe(pinned);
+      expect(statSync(probe).size).toBe(first.length);
+
+      // A metadata fingerprint would serve the cached '@/lib/alpha/thing'.
+      expect(scan(root)).toEqual(['@/lib/omega/thing']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+
     expect(treeFingerprint(productionFilesIn(ROOT))).toBe(repoBefore);
   }, 60_000);
 
@@ -1143,17 +1216,28 @@ describe('Forgewing proposal authority seal', () => {
     for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  it('allows only the exact internal route to consume the workflow assessment seam', () => {
+  it('allows only the claim seam to consume the workflow assessment seam', () => {
+    const root = fixtureRoot();
+    source(
+      root,
+      'lib/server/workflowAssessmentClaim.ts',
+      "import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';",
+    );
+    expect(workflowAssessmentConsumerViolations(root)).toEqual([]);
+    expect(workflowAssessmentProductionConsumers(root)).toEqual([
+      'lib/server/workflowAssessmentClaim.ts',
+    ]);
+  });
+
+  it('rejects a route that reaches the assessment runner around the claim', () => {
     const root = fixtureRoot();
     source(
       root,
       'app/api/internal/workflow-assessment/route.ts',
       "import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';",
     );
-    expect(workflowAssessmentConsumerViolations(root)).toEqual([]);
-    expect(workflowAssessmentProductionConsumers(root)).toEqual([
-      'app/api/internal/workflow-assessment/route.ts',
-    ]);
+    // Skipping the claim would reopen sweep/manual double-spend.
+    expect(workflowAssessmentConsumerViolations(root)).not.toEqual([]);
   });
 
   it.each([

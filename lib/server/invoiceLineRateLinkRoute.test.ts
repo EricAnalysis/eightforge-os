@@ -67,6 +67,7 @@ const ACTOR = {
     organizationId: 'org-1',
     displayName: 'Test User',
     role: null,
+    email: null,
   },
 };
 

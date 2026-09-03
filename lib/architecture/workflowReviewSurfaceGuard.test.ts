@@ -90,10 +90,29 @@ describe('workflow review surface has no execution affordance', () => {
     }
   });
 
-  it.each(READ_ROUTES)('%s is eligibility gated', (file) => {
-    const source = read(file);
-    expect(source).toContain('getActorContext');
-    expect(source).toContain('resolveWorkflowReviewEligibility');
+  // Platform-wide, never organization-scoped. Workflow assessments belong to no
+  // tenant, so gating on an organization role would let any tenant's
+  // administrator read every other tenant's submitted business process.
+  it.each([...READ_ROUTES, 'app/api/internal/workflow-assessment-review/route.ts'])(
+    '%s is gated by platform review access', (file) => {
+      const source = read(file);
+      expect(source).toContain('getActorContext');
+      expect(source).toContain('resolveWorkflowPlatformReviewAccess');
+      expect(source).not.toContain('resolveWorkflowReviewEligibility');
+      expect(source).not.toContain('hasProjectAdminRole');
+    },
+  );
+
+  it('never reuses the project-admin fallback for platform review access', () => {
+    // Comment-stripped: the module explains why it does NOT reuse the
+    // project-admin fallback, and that explanation must not read as a use.
+    const predicate = code('lib/server/workflowPlatformReviewAccess.ts');
+    // Inheriting that fallback would readmit every organization administrator,
+    // which is the defect this predicate exists to close.
+    expect(predicate).not.toContain('hasProjectAdminRole');
+    expect(predicate).not.toContain('isAllowedInternalOrchestratorOperator');
+    // Fail closed with nothing configured.
+    expect(predicate).toContain("reason: 'not_configured'");
   });
 
   it('submits only through the existing immutable review-write seam', () => {
@@ -122,5 +141,56 @@ describe('workflow review surface has no execution affordance', () => {
     expect(card).toContain('/platform/workflows/reviews');
     // The card reads the queue but records nothing.
     expect(card).not.toMatch(/method:\s*'POST'/);
+  });
+  // The operator must be able to answer three questions from this page alone:
+  // what did Forgewing propose, what did I change, what was recorded.
+  it('renders the classification-specific proposal, not just the summary', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    for (const collection of [
+      'deterministicRuleProposals', 'verificationRuleProposals',
+      'extractionRequirements', 'forgewingRecoveryTasks',
+      'humanDecisionPoints', 'advisorySteps',
+    ]) {
+      expect(detail).toContain(collection);
+    }
+    expect(detail).toContain('Proposed {step.classification} specification');
+  });
+
+  it('renders the immutable recorded specification after review', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    // Not merely typed: actually rendered.
+    expect(detail).toMatch(/record=\{recorded\.acceptedSpecification\}/);
+    expect(detail).toContain('Recorded ');
+  });
+
+  it('shows a rejected step explicitly rather than as a bare verdict', () => {
+    expect(code(SURFACE_FILES[1]!))
+      .toContain('not part of the approved specification');
+  });
+  // Both are material to how a proposal should be reviewed, and they are
+  // different evidence: assumptions are embedded in the proposed step, reasons
+  // explain the state EightForge assigned. Neither may be collapsed into the
+  // other or into a generic "gaps" list.
+  it('renders unresolved assumptions and state reasons separately', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    expect(detail).toContain('Unresolved assumptions');
+    expect(detail).toMatch(/step\.unresolvedAssumptions\?\.map/);
+    expect(detail).toContain('Why this state');
+    expect(detail).toMatch(/qualification\?\.reasons\.map/);
+  });
+
+  it('normalizes legacy qualification through the presentation layer', () => {
+    const detail = code(SURFACE_FILES[1]!);
+    expect(detail).toContain("from '@/lib/workflowAssessmentPresentation'");
+    expect(detail).toContain('{workflowQualificationLabel(qualification.state)}');
+    expect(detail).not.toMatch(/\{qualification\.state(?:\.|\})/);
+  });
+
+  it('has no owner/admin review eligibility copy anywhere in the UI', () => {
+    // Authority is the explicit platform allowlist; telling an operator it is
+    // an organization role would be simply false.
+    for (const file of [...SURFACE_FILES, 'app/platform/workflows/page.tsx']) {
+      expect(read(file)).not.toMatch(/owner and admin|owner\/admin/i);
+    }
   });
 });

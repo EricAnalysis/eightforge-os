@@ -12,13 +12,46 @@ import {
 
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
-const REVIEWER = { actorId: REVIEWER_ID, role: 'admin' } as const;
+const REVIEWER_EMAIL = 'platform.reviewer@example.test';
+// Authorization is now platform-wide and allowlist-driven. An organization
+// role such as 'admin' no longer grants review access on its own, so tests that
+// exercise an authorized path must configure the allowlist explicitly.
+const REVIEWER = {
+  actorId: REVIEWER_ID, role: 'admin', email: REVIEWER_EMAIL,
+} as const;
 
 type RpcArgs = Record<string, unknown>;
 
-function rpcClient(response: unknown) {
+/**
+ * A client whose stored assessment is structurally composable.
+ *
+ * The seam re-checks proposal closure against the persisted payload before
+ * allowing "accepted as proposed", so tests exercising that path need a stored
+ * assessment to check. `closure` overrides it to model a historical assessment
+ * that predates the current contract.
+ */
+function rpcClient(response: unknown, closure?: unknown) {
   const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => response);
-  getAdmin.mockReturnValue({ rpc });
+  const assessment = closure ?? {
+    workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+    deterministicRuleProposals: [{
+      ruleId: 'r1', stepId: 'step-1', plainLanguageRule: 'Compare the facts',
+      requiredFacts: ['fact'], conditionType: 'comparison',
+      expectedEvidence: ['evidence'], expectedOutcome: 'match',
+      userDescribedExceptions: [], unresolvedAssumptions: [],
+    }],
+    verificationRuleProposals: [], extractionRequirements: [],
+    forgewingRecoveryTasks: [], humanDecisionPoints: [], advisorySteps: [],
+    failureConsequences: [],
+  };
+  getAdmin.mockReturnValue({
+    rpc,
+    from: () => ({
+      select: () => ({
+        eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { assessment }, error: null }) }) }),
+      }),
+    }),
+  });
   return rpc;
 }
 
@@ -49,8 +82,16 @@ const recorded = {
 };
 
 describe('workflow assessment review seam', () => {
-  beforeEach(() => { getAdmin.mockReset(); });
-  afterEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    getAdmin.mockReset();
+    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = REVIEWER_EMAIL;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+  });
 
   it('writes only through the validated SECURITY DEFINER function', async () => {
     const rpc = rpcClient(recorded);
@@ -75,13 +116,68 @@ describe('workflow assessment review seam', () => {
     expect(payload).not.toMatch(/overall/i);
   });
 
+  it.each(['accepted', 'rejected'] as const)(
+    'omits the specification key for %s, preserving SQL NULL rather than JSON null', async (disposition) => {
+      const rpc = rpcClient(recorded);
+      const stepReview = disposition === 'accepted'
+        ? input().stepReviews[0]!
+        : { disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+          reviewerNotes: 'The proposal is not suitable.' };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [stepReview] }), REVIEWER);
+      expect(result.status).toBe('review_recorded');
+      const payload = rpc.mock.calls[0]![1] as { p_step_reviews: Record<string, unknown>[] };
+      expect(payload.p_step_reviews[0]).not.toHaveProperty('accepted_specification');
+    },
+  );
+
   it('never issues a direct table write', async () => {
     const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
-    const from = vi.fn();
+    // The closure gate legitimately READS the stored assessment before allowing
+    // "accepted as proposed". What must never happen is a write: the review
+    // tables grant INSERT to nobody, and the RPC is the only writer.
+    const builder = {
+      select: vi.fn(() => ({
+        eq: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: {
+                assessment: {
+                  workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+                  deterministicRuleProposals: [{
+                    ruleId: 'r1', stepId: 'step-1', plainLanguageRule: 'Compare facts.',
+                    requiredFacts: ['fact'], conditionType: 'comparison',
+                    expectedEvidence: ['source'], expectedOutcome: 'match',
+                    userDescribedExceptions: [], unresolvedAssumptions: [],
+                  }],
+                  verificationRuleProposals: [], extractionRequirements: [],
+                  forgewingRecoveryTasks: [], humanDecisionPoints: [],
+                  advisorySteps: [], failureConsequences: [],
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      })),
+    } as Record<string, unknown>;
+    const from = vi.fn((table: string) => {
+      // Only the assessment table, and only to read it.
+      expect(table).toBe('workflow_assessments');
+      return builder;
+    });
     getAdmin.mockReturnValue({ rpc, from });
-    await recordWorkflowAssessmentReview(input(), REVIEWER);
-    // The tables grant INSERT to nobody; the seam must not even attempt one.
-    expect(from).not.toHaveBeenCalled();
+
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(builder.insert).toBeUndefined();
+    expect(builder.update).toBeUndefined();
+    expect(builder.delete).toBeUndefined();
+    expect(builder.select).toHaveBeenCalled();
+    // The review tables themselves are never touched directly.
+    for (const call of from.mock.calls) {
+      expect(call[0]).not.toContain('review');
+    }
   });
 
   it.each([
@@ -155,6 +251,10 @@ describe('workflow assessment review seam', () => {
         disposition: 'reclassified', assessmentStepId: 'step-1',
         proposedClassification: 'RULE', reviewedClassification: 'HUMAN',
         reviewerNotes: 'Approval authority is not delegable.',
+        acceptedSpecification: {
+          description: 'Approve a payment adjustment.',
+          whyHumanControlled: 'Approval authority is not delegable.',
+        },
       }],
     }), REVIEWER);
     const sent = rpc.mock.calls[0]![1] as unknown as { p_step_reviews: RpcArgs[] };
@@ -259,16 +359,48 @@ describe('workflow assessment review seam', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  // These roles used to grant review access on their own. They must not: a
+  // workflow assessment belongs to no organization, so an organization
+  // administrator has no claim on another tenant's submitted business process.
   it.each([['owner'], ['admin'], ['Admin'], ['  OWNER  ']])(
-    'allows eligible role %s', async (role) => {
+    'refuses organization role %s when it is not allowlisted', async (role) => {
       const rpc = rpcClient(recorded);
       const result = await recordWorkflowAssessmentReview(
-        input(), { actorId: REVIEWER_ID, role } as never,
+        input(), { actorId: REVIEWER_ID, role, email: 'someone@other.test' } as never,
       );
-      expect(result.status).toBe('review_recorded');
-      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe('reviewer_not_eligible');
+      expect(rpc).not.toHaveBeenCalled();
     },
   );
+
+  it('allows an allowlisted platform reviewer email', async () => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows an allowlisted platform role', async () => {
+    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES = 'platform_reviewer';
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(
+      input(), { actorId: REVIEWER_ID, role: 'platform_reviewer', email: null } as never,
+    );
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when no allowlist is configured at all', async () => {
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result).toMatchObject({
+      status: 'reviewer_not_eligible', reason: 'not_configured',
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
 
   it('rebuilds the reviewed specification instead of passing it through', async () => {
     const rpc = rpcClient(recorded);
@@ -340,5 +472,160 @@ describe('workflow assessment review seam', () => {
     } });
     const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
     expect(result.status).toBe('reviewer_unresolved');
+  });
+  // A historical assessment stored before the closure rules existed was never
+  // validated against them, and it is immutable. It stays readable; what it
+  // loses is the right to be approved as proposed.
+  it('refuses accepted-as-proposed against an incompatible historical assessment', async () => {
+    const rpc = rpcClient(recorded, {
+      // Two rule proposals for one step: a resolver composing the effective
+      // specification would have no rule for choosing between them.
+      workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+      deterministicRuleProposals: [
+        { ruleId: 'r1', stepId: 'step-1' }, { ruleId: 'r2', stepId: 'step-1' },
+      ],
+      verificationRuleProposals: [], extractionRequirements: [],
+      forgewingRecoveryTasks: [], humanDecisionPoints: [], advisorySteps: [],
+      failureConsequences: [],
+    });
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+    // Nothing was written, and the assessment was not repaired.
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('allows complete replacements of unused malformed historical details with valid step identity', async () => {
+    // Only modified/reclassified/rejected steps: the effective specification
+    // comes from typed reviewed artifacts, not from the original proposal, so
+    // historical proposal closure is not load-bearing here.
+    const rpc = rpcClient(recorded, {
+      // Step identity remains pinned, while the unused historical HUMAN detail
+      // is intentionally incomplete and may be superseded by the replacement.
+      workflowSteps: [{ stepId: 'step-1', classification: 'HUMAN' }],
+      humanDecisionPoints: [{ stepId: 'step-1' }],
+    });
+    const result = await recordWorkflowAssessmentReview(input({
+      stepReviews: [{
+        disposition: 'modified', assessmentStepId: 'step-1',
+        proposedClassification: 'HUMAN', reviewedClassification: 'HUMAN',
+        reviewerNotes: 'tightened',
+        acceptedSpecification: {
+          description: 'Approve an adjustment.',
+          whyHumanControlled: 'Not delegable.',
+        },
+      }],
+    }), REVIEWER);
+    expect(result.status).toBe('review_recorded');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, 42, ''])('rejects a historical RULE with detail ID %s when accepted', async (ruleId) => {
+    const rpc = rpcClient(recorded, {
+      workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+      deterministicRuleProposals: [{ stepId: 'step-1', ruleId }],
+    });
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(['modified', 'reclassified'] as const)(
+    'allows a complete %s replacement of a malformed historical RULE', async (disposition) => {
+      const rpc = rpcClient(recorded, {
+        workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+        deterministicRuleProposals: [{ stepId: 'step-1', ruleId: 42 }],
+      });
+      const acceptedSpecification = disposition === 'modified' ? {
+        plainLanguageRule: 'Compare the supplied facts.', requiredFacts: ['fact'],
+        conditionType: 'comparison', expectedEvidence: ['source record'],
+        expectedOutcome: 'Report whether the facts match.',
+        userDescribedExceptions: [], unresolvedAssumptions: [],
+      } : {
+        description: 'Review the supplied facts.', whyHumanControlled: 'Requires human judgment.',
+      };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [{
+        disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE',
+        reviewedClassification: disposition === 'modified' ? 'RULE' : 'HUMAN',
+        reviewerNotes: 'Replace the incomplete historical proposal.', acceptedSpecification,
+      }] }), REVIEWER);
+      expect(result.status).toBe('review_recorded');
+      const payload = rpc.mock.calls[0]![1] as { p_step_reviews: Record<string, unknown>[] };
+      expect(payload.p_step_reviews[0]!.accepted_specification).toEqual(acceptedSpecification);
+    },
+  );
+
+  it.each(['accepted', 'modified', 'reclassified', 'rejected'] as const)(
+    'rejects malformed stored step identity for %s', async (disposition) => {
+      const rpc = rpcClient(recorded, {
+        workflowSteps: [{ stepId: 42, classification: 'RULE' }],
+      });
+      const stepReview = disposition === 'accepted' ? input().stepReviews[0]!
+        : disposition === 'rejected'
+          ? { disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+            reviewerNotes: 'The proposal is not suitable.' }
+          : {
+            disposition, assessmentStepId: 'step-1', proposedClassification: 'RULE' as const,
+            reviewedClassification: disposition === 'modified' ? 'RULE' as const : 'HUMAN' as const,
+            reviewerNotes: 'Replace the original.',
+            acceptedSpecification: disposition === 'modified' ? {
+              plainLanguageRule: 'Compare facts.', requiredFacts: ['fact'],
+              conditionType: 'comparison', expectedEvidence: ['source'], expectedOutcome: 'match',
+              userDescribedExceptions: [], unresolvedAssumptions: [],
+            } : { description: 'Review facts.', whyHumanControlled: 'Judgment.' },
+          };
+      const result = await recordWorkflowAssessmentReview(input({ stepReviews: [stepReview] }), REVIEWER);
+      expect(result.status).toBe('assessment_incompatible_with_current_review_contract');
+      expect(rpc).not.toHaveBeenCalled();
+    },
+  );
+  // The closure check must run against the EXACT assessment version under
+  // review, not the latest for that submission. A version mismatch would let a
+  // newer compatible assessment vouch for an older incompatible one, and the
+  // effective specification would then be composed from proposals nobody
+  // checked.
+  it('checks closure against the exact assessment id and version under review', async () => {
+    const filters: Array<[string, unknown]> = [];
+    const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
+    const chain = {
+      select: () => chain,
+      eq: (column: string, value: unknown) => { filters.push([column, value]); return chain; },
+      maybeSingle: async () => ({
+        data: {
+          assessment: {
+            workflowSteps: [{ stepId: 'step-1', classification: 'RULE' }],
+            deterministicRuleProposals: [{ ruleId: 'r1', stepId: 'step-1' }],
+            verificationRuleProposals: [], extractionRequirements: [],
+            forgewingRecoveryTasks: [], humanDecisionPoints: [],
+            advisorySteps: [], failureConsequences: [],
+          },
+        },
+        error: null,
+      }),
+    } as Record<string, unknown>;
+    getAdmin.mockReturnValue({ rpc, from: () => chain });
+
+    await recordWorkflowAssessmentReview(
+      input({ assessmentId: ASSESSMENT_ID, assessmentVersion: 7 }), REVIEWER,
+    );
+
+    expect(filters).toEqual([
+      ['id', ASSESSMENT_ID],
+      ['assessment_version', 7],
+    ]);
+  });
+
+  it('does not fall back to the latest version when the pinned one is absent', async () => {
+    const rpc = vi.fn(async (_name: string, _args?: RpcArgs) => recorded);
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      // No row at that exact version.
+      maybeSingle: async () => ({ data: null, error: null }),
+    } as Record<string, unknown>;
+    getAdmin.mockReturnValue({ rpc, from: () => chain });
+
+    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    expect(result.status).toBe('assessment_not_found');
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

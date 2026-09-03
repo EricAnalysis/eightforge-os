@@ -12,7 +12,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
-import { runAndRecordWorkflowAssessment } from '@/lib/server/workflowAssessment';
+import { executeClaimedWorkflowAssessment } from '@/lib/server/workflowAssessmentClaim';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -44,26 +44,49 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'invalid assessment request' }, { status: 400 });
   }
 
-  const result = await runAndRecordWorkflowAssessment(body.data.submissionId);
+  // The manual trigger acquires the same claim the sweep does. Without this it
+  // could spend a provider call on a submission the sweep is already assessing,
+  // or revive one that has exhausted its attempts.
+  const result = await executeClaimedWorkflowAssessment(body.data.submissionId);
 
   switch (result.status) {
-    case 'assessment_recorded':
-      return Response.json({
-        ok: true,
-        assessmentId: result.assessmentId,
-        sourceSubmissionId: result.sourceSubmissionId,
-        assessmentVersion: result.assessmentVersion,
-        authority: result.authority,
-        requiresHumanReview: result.requiresHumanReview,
-      }, { status: 201 });
-    case 'submission_not_found':
-      return Response.json({ ok: false, error: 'submission_not_found' }, { status: 404 });
+    case 'attempt_completed':
+      if (result.recorded) {
+        return Response.json({
+          ok: true,
+          attemptId: result.attemptId,
+          sourceSubmissionId: result.submissionId,
+          attemptNumber: result.attemptNumber,
+          // Pinned literals: an assessment is never authoritative and always
+          // requires human review.
+          authority: 'non_authoritative',
+          requiresHumanReview: true,
+        }, { status: 201 });
+      }
+      // Reason codes only; never provider or intake prose.
+      return Response.json({ ok: false, error: result.outcome }, { status: 422 });
+    case 'nothing_claimable':
+      // Already assessed, already claimed by a concurrent caller, or the
+      // submission has exhausted its bounded attempts. No provider call.
+      return Response.json({ ok: false, error: 'nothing_claimable' }, { status: 409 });
+    case 'assessment_disabled':
+      return Response.json({ ok: false, error: 'assessment_disabled' }, { status: 503 });
     case 'not_configured':
       return Response.json({ ok: false, error: 'assessment_not_configured' }, { status: 503 });
-    case 'assessment_not_produced':
-      return Response.json({ ok: false, error: result.reason }, { status: 422 });
-    case 'persist_failed':
-      console.error('[workflowAssessment] persistence failed', { reason: result.reason });
-      return Response.json({ ok: false, error: 'assessment_not_recorded' }, { status: 500 });
+    case 'claim_failed':
+      console.error('[workflowAssessment] claim failed', { reason: result.reason });
+      return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });
+    case 'attempt_finalization_failed':
+      console.error('[workflowAssessment] attempt finalization failed', {
+        attemptId: result.attemptId, reason: result.reason,
+      });
+      return Response.json({
+        ok: false,
+        error: 'attempt_finalization_failed',
+        attemptId: result.attemptId,
+        sourceSubmissionId: result.submissionId,
+        attemptNumber: result.attemptNumber,
+        assessmentRecorded: result.recorded,
+      }, { status: 503 });
   }
 }

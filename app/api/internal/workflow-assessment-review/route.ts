@@ -22,7 +22,7 @@
 // specification, not a deployed rule.
 
 import { getActorContext } from '@/lib/server/getActorContext';
-import { resolveWorkflowReviewEligibility } from '@/lib/workflowReviewEligibility';
+import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 import {
   recordWorkflowAssessmentReview,
   workflowAssessmentReviewInputSchema,
@@ -44,10 +44,10 @@ export async function POST(request: Request): Promise<Response> {
   // Authentication proves who the actor is; this proves they were allowed to
   // review. Checked before the body is parsed, and again inside the seam: a
   // hidden button in a UI is convenience, this is the authority.
-  const eligibility = resolveWorkflowReviewEligibility(actor.actor.role);
-  if (!eligibility.eligible) {
+  const access = resolveWorkflowPlatformReviewAccess(actor.actor);
+  if (!access.allowed) {
     return Response.json(
-      { ok: false, error: 'reviewer_not_eligible', reason: eligibility.reason },
+      { ok: false, error: 'reviewer_not_eligible', reason: access.reason },
       { status: 403 },
     );
   }
@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await recordWorkflowAssessmentReview(
     body.data,
-    { actorId: actor.actor.actorId, role: actor.actor.role },
+    { actorId: actor.actor.actorId, role: actor.actor.role, email: actor.actor.email },
   );
 
   switch (result.status) {
@@ -96,6 +96,13 @@ export async function POST(request: Request): Promise<Response> {
         { ok: false, error: 'specification_invalid', reason: result.reason },
         { status: 422 },
       );
+    case 'assessment_incompatible_with_current_review_contract':
+      // The proposal cannot be composed into an effective specification, so it
+      // may not be approved as proposed. It is not repaired and not hidden.
+      return Response.json({
+        ok: false,
+        error: 'assessment_incompatible_with_current_review_contract',
+      }, { status: 409 });
     case 'input_invalid':
       return Response.json({ ok: false, error: 'invalid review request' }, { status: 400 });
     case 'duplicate_step_review':

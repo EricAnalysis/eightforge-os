@@ -23,7 +23,8 @@ type QueueRow = {
   createdAt: string;
   summary: string | null;
   stepCount: number;
-  qualifiedDeterministicCount: number;
+  groundedUnverifiedCount: number;
+  stepsWithGapsCount: number;
   humanDecisionCount: number;
 };
 
@@ -96,7 +97,7 @@ export default function WorkflowReviewQueuePage() {
             Review access required
           </p>
           <p className="mt-1 text-xs text-[var(--ef-text-muted)]">
-            Reviewing workflow assessments is limited to owner and admin roles.
+            Reviewing workflow assessments requires platform review access.
           </p>
         </div>
       )}
@@ -154,11 +155,17 @@ export default function WorkflowReviewQueuePage() {
                   </span>{' '}
                   steps
                 </span>
+                <span title="Grounding traced to the intake; not yet confirmed by an operator">
+                  <span className="font-medium text-[var(--ef-text-primary)]">
+                    {row.groundedUnverifiedCount}
+                  </span>{' '}
+                  grounded, unverified
+                </span>
                 <span>
                   <span className="font-medium text-[var(--ef-text-primary)]">
-                    {row.qualifiedDeterministicCount}
+                    {row.stepsWithGapsCount}
                   </span>{' '}
-                  qualified deterministic
+                  with gaps
                 </span>
                 <span>
                   <span className="font-medium text-[var(--ef-text-primary)]">

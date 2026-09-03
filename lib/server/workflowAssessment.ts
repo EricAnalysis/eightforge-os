@@ -24,7 +24,20 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const WORKFLOW_ASSESSMENT_TABLE = 'workflow_assessments' as const;
+import { isForgewingWorkflowAssessmentEnabled } from '@/lib/forgewing/runtime/modelConfig';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
+
+/**
+ * Whether assessment is enabled, re-exported through this seam.
+ *
+ * This module is already the single authorized Forgewing consumer. Exposing the
+ * flag here lets the production caller check it without becoming a second
+ * Forgewing consumer itself, so the non-authority seal keeps exactly the
+ * consumers it had.
+ */
+export function isWorkflowAssessmentEnabled(): boolean {
+  return isForgewingWorkflowAssessmentEnabled();
+}
 
 // Re-exported so this module's public surface is unchanged. The
 // implementation lives in a neutral module the review read seam also uses,

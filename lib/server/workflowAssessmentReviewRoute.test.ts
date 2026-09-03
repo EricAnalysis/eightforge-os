@@ -14,6 +14,7 @@ import { POST } from '@/app/api/internal/workflow-assessment-review/route';
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
 const OTHER_ID = '99999999-9999-4999-8999-999999999999';
+const PLATFORM_EMAIL = 'platform.reviewer@example.test';
 
 const body = (overrides: Record<string, unknown> = {}) => ({
   assessmentId: ASSESSMENT_ID,
@@ -39,9 +40,16 @@ describe('workflow assessment review route', () => {
   beforeEach(() => {
     recordReview.mockReset();
     actorContext.mockReset();
+    // Review access is platform-wide and allowlist-driven; an organization role
+    // no longer grants it on its own.
+    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = PLATFORM_EMAIL;
+    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
     actorContext.mockResolvedValue({
       ok: true,
-      actor: { actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op', role: 'admin' },
+      actor: {
+        actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op',
+        role: 'admin', email: PLATFORM_EMAIL,
+      },
     });
     recordReview.mockResolvedValue({
       status: 'review_recorded',
@@ -64,7 +72,10 @@ describe('workflow assessment review route', () => {
   it('passes the session actor as the reviewer, never the payload', async () => {
     await POST(request(body()));
     expect(recordReview).toHaveBeenCalledTimes(1);
-    expect(recordReview.mock.calls[0]![1]).toEqual({ actorId: REVIEWER_ID, role: 'admin' });
+    // Identity AND the fields eligibility is rechecked from, all session-derived.
+    expect(recordReview.mock.calls[0]![1]).toEqual({
+      actorId: REVIEWER_ID, role: 'admin', email: PLATFORM_EMAIL,
+    });
   });
 
   it('never forwards a payload-asserted identity', async () => {
@@ -180,14 +191,20 @@ describe('workflow assessment review route', () => {
     expect(recordReview).not.toHaveBeenCalled();
   });
 
-  it.each([['owner'], ['admin']])('allows an eligible role (%s)', async (role) => {
-    actorContext.mockResolvedValue({
-      ok: true,
-      actor: { actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op', role },
-    });
-    const response = await POST(request(body()));
-    expect(response.status).toBe(201);
-  });
+  it.each([['owner'], ['admin']])(
+    'refuses organization role %s that is not allowlisted', async (role) => {
+      actorContext.mockResolvedValue({
+        ok: true,
+        actor: {
+          actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op',
+          role, email: 'tenant.admin@other.test',
+        },
+      });
+      const response = await POST(request(body()));
+      expect(response.status).toBe(403);
+      expect(recordReview).not.toHaveBeenCalled();
+    },
+  );
 
   it('maps specification_invalid to 422 with field paths only', async () => {
     recordReview.mockResolvedValue({

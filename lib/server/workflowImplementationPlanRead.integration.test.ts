@@ -144,7 +144,7 @@ describe('trusted implementation plan consumer with real resolver and builder', 
     const response = await GET(req, { params: Promise.resolve({ assessmentId: pin.assessmentId }) });
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(await response.json()).toStrictEqual({ plan: expected.artifact });
+    expect(await response.json()).toStrictEqual({ ok: true, plan: expected.artifact });
     expect(mocks.actor).toHaveBeenCalledWith(req);
   });
 

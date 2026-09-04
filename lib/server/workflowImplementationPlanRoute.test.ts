@@ -29,7 +29,9 @@ describe('trusted implementation plan GET route', () => {
       rejectedSteps: [{ stepId: 'rejected', disposition: 'rejected' }],
       digest: { algorithm: 'sha256', value: 'plan-digest' },
     };
-    mocks.read.mockResolvedValue({ ok: true, artifact: plan });
+    mocks.read.mockResolvedValue({
+      ok: true, artifact: plan, evidence: { private: 'resolver evidence' }, paths: ['private.evidence.path'],
+    });
     const req = request();
     const parse = vi.spyOn(req, 'json');
     const text = vi.spyOn(req, 'text');
@@ -37,7 +39,9 @@ describe('trusted implementation plan GET route', () => {
     expect(mocks.read).toHaveBeenCalledExactlyOnceWith(req, pin);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ plan });
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body).toEqual({ ok: true, plan });
     expect(parse).not.toHaveBeenCalled();
     expect(text).not.toHaveBeenCalled();
   });
@@ -52,7 +56,9 @@ describe('trusted implementation plan GET route', () => {
     ['proposal_not_composable', 422], ['invalid_specification', 422], ['overall_disposition_mismatch', 422],
     ['plan_not_composable', 500], ['read_failed', 500],
   ])('maps %s to %s without partial plans or internal details', async (code, status) => {
-    mocks.read.mockResolvedValue({ ok: false, code, paths: ['private.evidence.path'] });
+    mocks.read.mockResolvedValue({
+      ok: false, code, evidence: { private: 'resolver evidence' }, paths: ['private.evidence.path'],
+    });
     const response = await route.GET(request(), context);
     expect(response.status).toBe(status);
     expect(response.headers.get('cache-control')).toBe('no-store');

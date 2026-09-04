@@ -91,7 +91,7 @@ Authorization is inherited from the resolver read seam: `getActorContext`
 then `resolveWorkflowPlatformReviewAccess`. It requires an explicit platform
 allowlist and does not add an owner/admin, cron, or anonymous fallback.
 
-Success returns `{ plan: artifact }` with the builder's complete plan unchanged:
+Success returns `{ ok: true, plan: artifact }` with the builder's complete plan unchanged:
 domain, schemaVersion, non-authority literals, source pin and resolver digest,
 plannedSteps, rejectedSteps, and plan digest. Raw resolver evidence is absent.
 Readiness, specifications, and audit provenance are projections from Plan V1.

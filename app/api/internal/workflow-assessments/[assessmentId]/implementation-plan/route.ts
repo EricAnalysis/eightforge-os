@@ -62,7 +62,7 @@ export async function GET(
       assessmentId, assessmentVersion, reviewId: query.get('reviewId'), reviewVersion,
     });
     return result.ok
-      ? json({ plan: result.artifact }, 200)
+      ? json({ ok: true, plan: result.artifact }, 200)
       : json({ ok: false, error: result.code }, FAILURE_STATUS[result.code]);
   } catch {
     return json({ ok: false, error: 'read_failed' }, 500);

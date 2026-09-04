@@ -5,27 +5,34 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useCurrentOrg } from '@/lib/useCurrentOrg';
 import { PlatformSideRail, PlatformTopNav } from '@/components/platform/shell';
+import { PlatformSessionTokenContext } from '@/components/platform/PlatformSessionContext';
 
 export default function PlatformLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { organization, loading: orgLoading } = useCurrentOrg();
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    let authRevision = 0;
 
     const validateAuth = async () => {
+      const revision = authRevision;
       const {
         data: { user },
         error,
       } = await supabase.auth.getUser();
 
-      if (!active) return;
+      if (!active || revision !== authRevision) return;
       if (error || !user) {
         router.replace('/login');
         return;
       }
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!active || revision !== authRevision) return;
+      setSessionToken(session?.access_token ?? null);
       setCheckingAuth(false);
     };
 
@@ -33,13 +40,18 @@ export default function PlatformLayout({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
       if (event === 'SIGNED_OUT') {
+        authRevision += 1;
+        setSessionToken(null);
         router.replace('/login');
         return;
       }
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        authRevision += 1;
+        setSessionToken(session?.access_token ?? null);
         setCheckingAuth(false);
       }
     });
@@ -75,7 +87,9 @@ export default function PlatformLayout({ children }: { children: ReactNode }) {
       <div className="flex pt-16">
         <PlatformSideRail workspaceName={workspaceName} onSignOut={handleSignOut} />
         <main className="min-h-[calc(100vh-4rem)] min-w-0 flex-1 bg-[var(--ef-background-primary)] lg:h-[calc(100vh-4rem)] lg:overflow-y-auto">
-          {children}
+          <PlatformSessionTokenContext.Provider value={sessionToken}>
+            {children}
+          </PlatformSessionTokenContext.Provider>
         </main>
       </div>
     </div>

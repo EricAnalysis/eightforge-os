@@ -306,6 +306,12 @@ export default function WorkflowReviewDetailPage() {
                 Outcome: {state.packet.existingReview.overallDisposition.replace(/_/g, ' ')}.
                 This review is immutable; a new review would be recorded as a new version.
               </p>
+              <Link
+                href={`/platform/workflows/reviews/${encodeURIComponent(state.packet.assessmentId)}/implementation-plan?assessmentVersion=${state.packet.assessmentVersion}&reviewId=${encodeURIComponent(state.packet.existingReview.reviewId)}&reviewVersion=${state.packet.existingReview.reviewVersion}`}
+                className="mt-3 inline-block text-sm text-[var(--ef-text-primary)] underline"
+              >
+                View implementation plan
+              </Link>
             </div>
           )}
 

@@ -234,6 +234,31 @@ function nonLiteralModuleLoadsInFile(
  * consumer and no authority-producing dependency. Both directions are sealed so
  * future nested files cannot turn proposals into serving truth by import alone.
  */
+// B1 names a read-only inspection root as data. It is not a Forgewing import
+// consumer: exempt only this literal in this exact declaration, never the file.
+function withoutRepositoryInspectionRoot(source: string, text: string): string {
+  if (source !== 'lib/repositoryPlanEvidence.ts') return text;
+  const ast = ts.createSourceFile(source, text, ts.ScriptTarget.Latest, true);
+  let result = text;
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'roots'
+      && node.initializer && ts.isAsExpression(node.initializer)
+      && ts.isObjectLiteralExpression(node.initializer.expression)) {
+      const property = node.initializer.expression.properties.find((item) => ts.isPropertyAssignment(item)
+        && ts.isIdentifier(item.name) && item.name.text === 'RECOVER');
+      if (property && ts.isPropertyAssignment(property) && ts.isArrayLiteralExpression(property.initializer)) {
+        const root = property.initializer.elements[0];
+        if (root && ts.isStringLiteral(root) && root.text === 'lib/forgewing/') {
+          result = text.slice(0, root.getStart(ast)) + "'inspection-root'" + text.slice(root.end);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return result;
+}
+
 function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
   const violations: string[] = [];
   const importConsumers = new Set<string>();
@@ -303,7 +328,7 @@ function forgewingBoundaryViolations(workspaceRoot = ROOT): string[] {
       || FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS.has(source)
     ) continue;
     if (importConsumers.has(source)) continue;
-    if (FORGEWING_MENTION_PATTERN.test(readFileSync(file, 'utf8'))) {
+    if (FORGEWING_MENTION_PATTERN.test(withoutRepositoryInspectionRoot(source, readFileSync(file, 'utf8')))) {
       violations.push(`${source} -> references Forgewing outside its module boundary`);
     }
   }
@@ -1551,6 +1576,21 @@ describe('Forgewing proposal authority seal', () => {
       'lib/validator/rawArbitrationTaskDiscriminator.ts -> references Forgewing outside its module boundary',
       'lib/validator/rawTaskDiscriminator.ts -> references Forgewing outside its module boundary',
     ]);
+  });
+
+  it('permits only the B1 inspection-root literal without authorizing Forgewing consumption', () => {
+    const root = fixtureRoot();
+    const data = "const roots = { RECOVER: ['lib/forgewing/'] } as const;";
+    source(root, 'lib/repositoryPlanEvidence.ts', data);
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
+    expect(forgewingProductionConsumers(root)).toEqual([]);
+    source(root, 'lib/repositoryPlanEvidence.ts', data + "\nconst other = 'lib/forgewing/proposal/schema';");
+    expect(forgewingBoundaryViolations(root)).toHaveLength(1);
+    source(root, 'lib/repositoryPlanEvidence.ts', data + "\nimport { x } from '@/lib/forgewing/proposal/schema';");
+    expect(forgewingBoundaryViolations(root)).toHaveLength(1);
+    source(root, 'lib/repositoryPlanEvidence.ts', data);
+    source(root, 'lib/other.ts', data);
+    expect(forgewingBoundaryViolations(root)).toHaveLength(1);
   });
 
   it('forbids Forgewing production code from naming pricing or canonical authority types', () => {

@@ -10,6 +10,7 @@ const CLIENT = 'components/platform/WorkflowImplementationPlanClient.tsx';
 const VIEW = 'components/platform/WorkflowImplementationPlanView.tsx';
 const SESSION = 'components/platform/PlatformSessionContext.tsx';
 const UI = [PAGE, CLIENT, VIEW];
+const WIRE_CONSUMERS = new Set([...UI, 'lib/repositoryPlanFoundation.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const withoutExtension = (file: string): string => file.replace(EXTENSION, '');
@@ -165,17 +166,23 @@ describe('implementation plan browser wire and display-only boundaries', () => {
     }
   });
 
-  it('allows wire imports only from exact named display consumers', () => {
+  it('allows wire imports only from exact named display and pure foundation consumers', () => {
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts'].flatMap((root) => productionFiles(path.join(ROOT, root)))) {
       const file = path.relative(ROOT, absolute).replaceAll('\\', '/');
       const text = readFileSync(absolute, 'utf8');
       for (const dependency of dependencies(text, file)) {
-        if (target(file, dependency) === withoutExtension(WIRE) && !UI.includes(file)) violations.push(file);
+        if (target(file, dependency) === withoutExtension(WIRE) && !WIRE_CONSUMERS.has(file)) violations.push(file);
       }
     }
     expect(violations).toEqual([]);
   }, 30_000);
+
+  it('does not expand the pure foundation exception to sibling or server consumers', () => {
+    expect([...WIRE_CONSUMERS]).toEqual([...UI, 'lib/repositoryPlanFoundation.ts']);
+    for (const file of ['lib/repositoryPlanFoundationOther.ts', 'lib/server/repositoryPlanFoundation.ts',
+      'app/api/repository-plan/route.ts']) expect(WIRE_CONSUMERS.has(file)).toBe(false);
+  });
 
   it.each([
     "import { x } from '@/lib/workflowImplementationPlan';",

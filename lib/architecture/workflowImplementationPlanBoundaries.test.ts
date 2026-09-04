@@ -46,12 +46,13 @@ function dependencies(text: string, file: string): { specifier: string; typeOnly
 }
 
 function consumerViolations(file: string, text: string): string[] {
-  return dependencies(text, file).flatMap(({ specifier }) => {
+  return dependencies(text, file).flatMap(({ specifier, typeOnly }) => {
     const normalized = specifier.replaceAll('\\', '/');
     const resolved = normalized.startsWith('@/') ? normalized.slice(2)
       : normalized.startsWith('.') ? path.posix.join(path.posix.dirname(file), normalized) : normalized;
     const target = path.posix.normalize(resolved).replace(EXTENSION, '');
-    return (target === CORE.replace(EXTENSION, '') && !PLAN_CONSUMERS.has(file))
+    const foundationType = file === 'lib/repositoryPlanFoundation.ts' && typeOnly;
+    return (target === CORE.replace(EXTENSION, '') && !PLAN_CONSUMERS.has(file) && !foundationType)
       || (target === READ.replace(EXTENSION, '') && !READ_CONSUMERS.has(file))
       ? [`${file} -> ${specifier}`] : [];
   });
@@ -232,6 +233,17 @@ describe('workflow implementation plan has no runtime or authority integration',
     expect(consumerViolations([...READ_CONSUMERS][0], seamImport)).toEqual([]);
     expect(consumerViolations('app/api/other/route.ts', seamImport)).toHaveLength(1);
     expect(consumerViolations('lib/server/other.ts', seamImport)).toHaveLength(1);
+  });
+
+  it('permits only erased foundation access without expanding runtime consumers', () => {
+    const foundation = 'lib/repositoryPlanFoundation.ts';
+    expect(consumerViolations(foundation,
+      "import type { WorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';")).toEqual([]);
+    for (const text of [
+      "import { buildWorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';",
+      "export * from '@/lib/workflowImplementationPlan';",
+      "const planner = import('@/lib/workflowImplementationPlan');",
+    ]) expect(consumerViolations(foundation, text)).toHaveLength(1);
   });
 
   it.each([

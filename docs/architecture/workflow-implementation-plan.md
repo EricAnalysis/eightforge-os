@@ -3,8 +3,8 @@
 `buildWorkflowImplementationPlan` in `lib/workflowImplementationPlan.ts` projects
 one `EffectiveReviewedSpecificationArtifact` into a deterministic description of
 implementation readiness. It returns `{ ok: true, artifact }` or
-`{ ok: false, code: 'invalid_artifact' }`. It reads no additional context and has
-no authorized production consumers.
+`{ ok: false, code: 'invalid_artifact' }`. It reads no additional context. Its
+only production consumer is the trusted server read seam below.
 
 The artifact uses domain `eightforge.implementation-plan`, `schemaVersion: 1`,
 `authority: 'non_authoritative'`, `executable: false`, and
@@ -65,9 +65,79 @@ import, the shared reviewed-specification schemas, and the existing hash
 primitive. It bans dynamic/computed imports and runtime IO or nondeterminism,
 and permits exactly one production consumer: the trusted implementation-plan
 read seam described below. The resolver's existing server read seam remains
-its only runtime core consumer. There is no plan persistence, UI, provider
+its only runtime core consumer. There is no plan persistence, provider
 call, task integration, rule registry change, extraction integration, or
 canonical/Validator/Project Truth/decision/action consumer.
+
+## Display-only operator surface (Phase 11D)
+
+`/platform/workflows/reviews/[assessmentId]/implementation-plan` carries the
+complete immutable pin in the path and `assessmentVersion`, `reviewId`, and
+`reviewVersion` query parameters. The recorded-review panel links to that exact
+identity. The plan page never reads the latest-review packet, fills missing
+versions, or substitutes another review after an error.
+
+The page consumes only the existing authenticated GET. The existing platform
+layout supplies its session token through a React-only `PlatformSessionContext`;
+the new page/client/view import no Supabase client. This conveys a credential,
+not eligibility: the existing server actor verification and explicit platform
+review allowlist remain the authorization boundary. No new database read or
+authorization policy is introduced by the context.
+
+`lib/workflowImplementationPlanWire.ts` imports only Zod. Its strict schemas
+mirror the complete response, including closed failure codes, non-authority
+literals, classification-specific specification structure, provenance, source
+details, rejected-step nulls, and both digest identities. They perform no trim,
+coercion, defaults, transformation, readiness calculation, or hashing. Fixed
+objects reject unknown keys. `domain` and plan `schemaVersion: 1` are sufficient;
+there is no additional transport version. Real server-output parity tests link
+this independent transport description to the resolver and planner.
+
+The client requires valid JSON, a valid wire envelope, agreement between HTTP
+status and envelope, and exact equality of all four requested/returned pin
+fields before rendering. It clears prior content for a changed pin or session,
+and ignores obsolete request completions. Retry sends the same identity only.
+Failures never display a partial or previously loaded plan.
+
+The surface renders supplied readiness states and blocker/decision enums, full
+specifications, specification sources, and audit provenance. Rejected steps have
+their own exclusion section, without invented readiness or specifications.
+All-rejected and valid empty plans are neutral empty states. Digest details
+describe identity only: the browser neither verifies hashing nor treats a digest
+as authorization. Persistent copy states that the plan is non-authoritative,
+not executable, grants no execution authority, and that specification completion
+does not authorize execution.
+
+Planner and resolver production allowlists remain unchanged. A separate AST
+guard permits only named browser consumers of the wire contract and forbids
+core/server/hash/provider/database dependencies, writes, execution controls,
+and classification-derived readiness. No route-side runtime schema dependency
+is added; tests validate the actual route serialization through the wire schema.
+
+Browser verification uses `playwright/implementation-plan.config.ts` against an
+already-running local server. It supplies a synthetic session and intercepts
+auth/profile/plan responses, aborting unexpected API/external requests. This is
+browser rendering/navigation evidence, not live database authorization proof.
+
+Phase 11D verification on local base `482f2ca`:
+
+- Focused wire, rendering/request, route parity, browser boundary, existing
+  planner/resolver/review guards, and import boundaries: 327 tests passed across
+  nine suites. The wire suite includes 81 tests; the component suite includes 24.
+- All six deliberate break-and-restore probes failed: UI planner import,
+  executable response, wrong review version, passthrough schema, removed race
+  protection, and classification-derived readiness. Original code was restored.
+- `npx tsc --noEmit`, `npm run build`, and diff whitespace checks passed. Build
+  retains the two existing pdfjs-dist worker externalization warnings.
+- Full Vitest with two workers and 120-second test/hook headroom: 4,220 passed,
+  23 skipped; 349 files passed and four skipped, no worker errors (311.65s).
+  The distinct-review-version race fixture also passed its focused rerun.
+- Two isolated Playwright tests passed against the production build, covering
+  recorded-review navigation, loading, success, provenance/digests, exclusions,
+  failure/retry, exact pin refusal, back navigation, and mobile overflow checks.
+  The existing external font stylesheet is stubbed for offline verification.
+- Real provider calls: zero. No live database, remote authorization, deployment,
+  or historical sweep was performed.
 
 ## Trusted GET consumer
 

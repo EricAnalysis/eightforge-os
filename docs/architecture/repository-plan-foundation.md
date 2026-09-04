@@ -39,13 +39,57 @@ informational `branchName` (null for detached HEAD), `worktreeDirty: false`,
 fail closed. All submodules are unsupported in B1 and fail closed, rather than
 claiming their recursive content has been verified. Unsupported index flags and
 applied content filters also fail closed. Installed but unused LFS filters are
-allowed. Git's read-only `hash-object --stdin-paths` also compares actual normalized
-file bytes against index blob identities, rejecting edits hidden by timestamp
-caching. Unsupported symlinks/special index modes fail closed. Inspection disables
-optional Git locks and fsmonitor and never executes
-a shell, network operation, checkout, repair, staging, commit, or push.
+allowed. Unsupported symlinks/special index modes fail closed.
 
-The snapshot describes the inspected state, not a filesystem lock. Future evidence
+Verification creates a fresh OS-generated temporary directory outside the resolved
+repository root and its Git/common metadata directories. It checks the resolved
+temporary parent before creating anything; containment or filesystem failures fail
+closed. Every call constructs a new external index using
+`read-tree --no-sparse-checkout <captured-SHA>`. No real-index stat metadata is
+copied. Comparing the real index's stage/mode/blob/path records with this HEAD-derived
+index independently rejects staged additions, deletions, renames, mode changes and
+content changes, even when the worktree matches HEAD.
+
+Git then compares the worktree against that external index using exactly
+`diff --no-ext-diff --no-textconv --no-renames --no-relative --name-only -z --`.
+Git remains the content-conversion authority, including CRLF-in-index safeguards
+and ordinary LF-blob/CRLF-checkout behavior. Fresh stat metadata forces content
+comparison, including equal-length edits with restored mtime under relaxed stat
+settings. No custom line-ending conversion is implemented. Untracked files remain
+excluded from trusted manifests and tracked-content comparison.
+
+All inherited `GIT_*` variables are scrubbed. Verification sets optional locks off,
+replacement objects off, terminal prompts off, and lazy fetching off. The external
+Git wrapper additionally isolates hooks in an empty temporary directory, disables
+fsmonitor, split index, sparse checkout/index, untracked cache and automatic
+maintenance, and retains `diff.autoRefreshIndex=true`. Applied `filter` attributes
+are rejected in both cached and worktree attributes before comparison: clean/process
+filters can run arbitrary programs despite `--no-ext-diff --no-textconv`.
+
+Git's diff may refresh its selected index even with `GIT_OPTIONAL_LOCKS=0`.
+Consequently **all constructing/refreshing commands target only the external
+index**. It is discarded and never reused. Reading an actual split index can also
+freshen a shared index's timestamp. The verifier rejects any `sharedindex.*` file
+in the real Git directory before running an index reader, including harmless orphan
+files. A split-index configuration alone remains supported when no shared index
+exists; the disposable index always disables split-index behavior.
+
+The runtime contract is **zero runtime repository writes**, not zero file writes:
+no working-tree, real index, config, refs, logs, or object-database writes. Ephemeral
+external files and their index locks are permitted solely for verification, are
+non-authoritative, and must be removed in `finally` before trusted success returns.
+Creation or cleanup failure returns `repository_unavailable`, with no trusted
+snapshot. Process termination or power loss may leave temporary files; later runs
+never reuse them or consume them as evidence. Git subprocesses have bounded buffers
+and a 120-second per-command timeout. No shell, network operation, checkout,
+repository repair, staging, commit, or push is part of verification.
+
+HEAD, origin configuration, real-index entries and flags are rechecked after
+comparison. A changed HEAD returns `head_mismatch`; other identity changes fail
+closed. This establishes a bounded read-only observation, **not atomic filesystem
+snapshot isolation**. Residual races include concurrent content/config/attribute
+changes and HEAD changing away and back between checks; no locking is introduced.
+Future evidence
 collection must read immutable objects at the exact commit and reject HEAD/source
 mismatch; it must never read later working-tree content under an old snapshot.
 
@@ -118,7 +162,8 @@ evidence. There is no repair, branch fallback, retry, or caller override.
 The AST guard fixes the complete runtime import graph to Zod, the snapshot/evidence
 schemas, the existing wire schema, and the shared hash helper. V1 and verifier
 imports in the foundation are erased types. The verifier alone may use its narrow
-read-only Git subprocess wrapper. Provider/database/mutation dependencies,
+Git subprocess wrappers and external temporary-directory filesystem primitives.
+Provider/database/repository-mutation dependencies,
 computed runtime access, and all external production consumers are rejected.
 The existing V1 production runtime consumer remains its original trusted read seam.
 The wire-schema guard permits one exact additional pure consumer: this foundation.
@@ -133,7 +178,20 @@ detachment, immutable authority, scope/path/blob/commit closure, deterministic
 duplicates/order, and Git fixture state. Negative probes include tracked-file
 edits/restoration, branch-as-SHA, traversal, wrong commits, absolute paths,
 unauthorized roots, provider imports, and a fake Codex consumer. Temporary Git
-fixture setup is test-only; runtime does not write repository files.
+fixture setup is test-only; runtime does not write repository files. The verifier's
+filesystem allowance is limited to fresh external verification state and its cleanup.
+
+The actual-checkout gate is opt-in so ordinary development with tracked edits does
+not create a flaky unit test. When enabled, a dirty tracked checkout is a failure,
+not a skip. It compares tracked/untracked content and Git metadata identities before
+and after verification, including any existing untracked audit documents. It does
+not inventory ignored dependencies/build output or write any files:
+
+```powershell
+$env:EIGHTFORGE_VERIFY_ACTUAL_CHECKOUT = '1'
+npx vitest run lib/server/repositoryPlanSnapshot.actual-checkout.test.ts --maxWorkers=1 --testTimeout=120000 --hookTimeout=120000
+Remove-Item Env:EIGHTFORGE_VERIFY_ACTUAL_CHECKOUT
+```
 
 Verification commands:
 
@@ -145,11 +203,10 @@ npx vitest run --maxWorkers=2 --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```
 
-No commit, push, merge, deployment, provider enablement, or production consumer is
-authorized by B1. Suggested eventual commit subject after review:
-`feat: add repository-aware plan pre-provider foundation`.
+B1 artifacts grant no commit, push, merge, deployment or provider execution
+authority. Repository development actions require their own user authorization.
 
-## B1 delivery verification (2026-09-04)
+## Original B1 delivery verification (2026-09-04, historical)
 
 Preflight: `main` and local `origin/main` both pointed to
 `d26d9142e1c8b9081aab334a60ab424e110a6378`; tracked state was clean, Git used
@@ -175,6 +232,12 @@ excluded from evidence and left untouched. Work is uncommitted on
 - Real provider calls: zero. Runtime repository writes: zero. No project commit,
   push, merge, deployment, database persistence, or production consumer added.
 
-No known blocking B1 defects remain. Content collector implementation, completed
+The original gates above did not exercise the verifier against the actual checkout.
+Claude subsequently identified the blocking CRLF clean-tree rejection at
+`044683d544627dacf981da850ce5da2f5897602c`; the original no-blocker conclusion was
+incorrect. The external-index remediation requires its own local gates and Claude
+delta review before merge. The investigation demonstrated byte-identical manifests
+across 84,394 real-checkout files; that expensive inventory is investigation evidence,
+not normal test or runtime behavior. Content collector implementation, completed
 provider output/provenance validation, production trust composition, persistence,
-and UI remain explicitly deferred. Claude Code review may begin.
+and UI remain explicitly deferred.

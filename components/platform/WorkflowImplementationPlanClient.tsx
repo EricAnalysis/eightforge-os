@@ -36,7 +36,14 @@ function expectedFailure(code: ImplementationPlanFailureCode): { status: number;
     case 'assessment_not_found': case 'review_not_found': return { status: 404, category: 'unavailable' };
     case 'not_configured': return { status: 503, category: 'server' };
     case 'plan_not_composable': case 'read_failed': return { status: 500, category: 'server' };
-    default: return { status: 422, category: 'historical' };
+    case 'invalid_json': case 'invalid_evidence': case 'assessment_pin_mismatch': case 'review_pin_mismatch':
+    case 'source_submission_mismatch': case 'step_review_parent_mismatch': case 'duplicate_step_review': case 'orphan_step_review':
+    case 'missing_step_review': case 'classification_mismatch': case 'incoherent_disposition': case 'proposal_not_composable':
+    case 'invalid_specification': case 'overall_disposition_mismatch': return { status: 422, category: 'historical' };
+    default: {
+      const exhaustive: never = code;
+      throw new Error(`Unhandled implementation plan failure code: ${exhaustive}`);
+    }
   }
 }
 

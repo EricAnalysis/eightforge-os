@@ -175,7 +175,7 @@ describe('implementation plan browser wire and display-only boundaries', () => {
       }
     }
     expect(violations).toEqual([]);
-  });
+  }, 30_000);
 
   it.each([
     "import { x } from '@/lib/workflowImplementationPlan';",

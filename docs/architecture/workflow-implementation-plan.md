@@ -63,10 +63,67 @@ Malformed inputs are never repaired and no source evidence is reread.
 The architecture guard fixes dependencies to Zod, an erased resolver type
 import, the shared reviewed-specification schemas, and the existing hash
 primitive. It bans dynamic/computed imports and runtime IO or nondeterminism,
-and enforces an empty production consumer set. The resolver's existing server
-read seam remains its only runtime consumer. There is no plan persistence,
-route, UI, provider call, task integration, rule registry change, extraction
-integration, or canonical/Validator/Project Truth/decision/action consumer.
+and permits exactly one production consumer: the trusted implementation-plan
+read seam described below. The resolver's existing server read seam remains
+its only runtime core consumer. There is no plan persistence, UI, provider
+call, task integration, rule registry change, extraction integration, or
+canonical/Validator/Project Truth/decision/action consumer.
+
+## Trusted GET consumer
+
+`GET /api/internal/workflow-assessments/[assessmentId]/implementation-plan`
+requires exactly three query parameters: `assessmentVersion`, `reviewId`,
+and `reviewVersion`. Together with the path UUID they form the complete
+immutable pin. Versions use positive decimal integer strings in the range
+1–2147483647. Missing, duplicate, unknown, or malformed parameters are
+rejected; request bodies are not parsed or accepted.
+
+The route calls only `readWorkflowImplementationPlan(request, pin)`. That seam
+awaits `readEffectiveReviewedSpecification(request, pin)` and immediately
+passes the same `resolved.artifact` to `buildWorkflowImplementationPlan`.
+There is no serialization, artifact reconstruction, digest recomputation,
+evidence reload, or latest fallback between the two calls. Both production
+consumer boundaries name this exact seam; only this exact GET route may
+consume the new seam. AST and object-identity regression tests guard the
+direct composition.
+
+Authorization is inherited from the resolver read seam: `getActorContext`
+then `resolveWorkflowPlatformReviewAccess`. It requires an explicit platform
+allowlist and does not add an owner/admin, cron, or anonymous fallback.
+
+Success returns `{ plan: artifact }` with the builder's complete plan unchanged:
+domain, schemaVersion, non-authority literals, source pin and resolver digest,
+plannedSteps, rejectedSteps, and plan digest. Raw resolver evidence is absent.
+Readiness, specifications, and audit provenance are projections from Plan V1.
+Responses use `Cache-Control: no-store`; each request recomputes from immutable
+evidence without a cache or database write.
+
+Failures return `{ ok: false, error: code }`, with no partial plan or resolver
+validation paths. Status mapping: `unauthorized` 401; `reviewer_not_eligible`
+403; `invalid_pin` 400; `assessment_not_found` / `review_not_found` 404;
+`not_configured` 503; `read_failed` / `plan_not_composable` 500; all other
+resolver incompatibility codes 422. A rejected trusted artifact is an internal
+resolver/builder contract failure, so it returns 500 and logs a fixed message
+without evidence. Unsupported mutation methods follow Next.js route behavior.
+
+Historical incompatibility affects only the requested pin. No historical sweep
+or recovery integration is part of this consumer.
+
+Consumer verification at base `aef9556`: 343 tests passed across nine focused
+suites (new seam, GET route, real resolver/builder integration, existing
+resolver and plan suites, both boundary suites, and import boundaries).
+All five actual break-and-restore probes failed: route importing the builder,
+cloned resolver artifact, generic plan allowlist, generic resolver allowlist,
+and removed review-version query filter. Functional server-prefix allowlist
+bypasses were also rejected. All original source bytes were restored before
+the combined focused run. Real provider calls: zero.
+
+Final consumer gates: `npx tsc --noEmit`, `npm run build`, and
+`git diff --check` passed. Build retained the existing two pdfjs-dist worker
+externalization warnings. Full Vitest with `--maxWorkers=2 --testTimeout=120000
+--hookTimeout=120000` passed: 4,082 tests passed, 23 skipped; 346 files passed,
+four skipped, no worker errors (215.05 seconds). No live database, Preview,
+deployment, or historical sweep was performed.
 
 ## Phase B verification (2026-09-03)
 

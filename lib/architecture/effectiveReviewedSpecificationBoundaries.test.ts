@@ -7,6 +7,7 @@ const ROOT = process.cwd();
 const CORE = 'lib/workflowEffectiveReviewedSpecification.ts';
 const READ = 'lib/server/workflowEffectiveReviewedSpecificationRead.ts';
 const PLAN = 'lib/workflowImplementationPlan.ts';
+const READ_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
@@ -63,7 +64,7 @@ function consumerViolations(file: string, text: string): string[] {
     const resolved = target(file, specifier);
     if (file === PLAN && resolved === CORE.replace(EXTENSION, '')
       && !imports(text, file, true).some((runtime) => target(file, runtime) === resolved)) return [];
-    return resolved === READ.replace(EXTENSION, '')
+    return (resolved === READ.replace(EXTENSION, '') && !READ_CONSUMERS.has(file))
       || (resolved === CORE.replace(EXTENSION, '') && file !== READ)
       ? [`${file} -> ${specifier}`] : [];
   });
@@ -95,10 +96,12 @@ describe('effective reviewed specification remains a read-only non-authority art
     expect(code(file)).not.toMatch(/\brequire\s*\(|\bimport\s*\(/);
   });
 
-  it('has exactly the read seam as its runtime core consumer and no server-seam consumers', () => {
+  it('has exactly the resolver read seam as core consumer and the plan read seam as read consumer', () => {
+    expect([...READ_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
     const violations: string[] = [];
     const coreConsumers: string[] = [];
-    for (const absolute of ['app', 'components', 'lib', 'types']
+    const readConsumers: string[] = [];
+    for (const absolute of ['app', 'components', 'lib', 'types', 'scripts']
       .flatMap((root) => productionFiles(path.join(ROOT, root)))) {
       const file = path.relative(ROOT, absolute).replaceAll('\\', '/');
       const text = readFileSync(absolute, 'utf8');
@@ -109,9 +112,12 @@ describe('effective reviewed specification remains a read-only non-authority art
       violations.push(...consumerViolations(file, text));
       if (imports(text, file, true).some((specifier) =>
         target(file, specifier) === CORE.replace(EXTENSION, ''))) coreConsumers.push(file);
+      if (imports(text, file).some((specifier) =>
+        target(file, specifier) === READ.replace(EXTENSION, ''))) readConsumers.push(file);
     }
     expect(violations).toEqual([]);
     expect(coreConsumers).toEqual([READ]);
+    expect(readConsumers).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
   });
 
   it('keeps hashing free of runtime state and preserves the narrow shared schema graph', () => {
@@ -187,6 +193,13 @@ describe('effective reviewed specification consumer guard recognizes import form
   });
 
   it('permits only the read seam importing the core and ignores comments', () => {
+    expect(consumerViolations('lib/server/workflowImplementationPlanRead.ts',
+      "import { readEffectiveReviewedSpecification } from '@/lib/server/workflowEffectiveReviewedSpecificationRead';")).toEqual([]);
+    for (const file of ['lib/server/other.ts', 'lib/server/nested/other.ts',
+      'app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']) {
+      expect(consumerViolations(file,
+        "import { readEffectiveReviewedSpecification } from '@/lib/server/workflowEffectiveReviewedSpecificationRead';")).toHaveLength(1);
+    }
     expect(consumerViolations(READ,
       "import { x } from '@/lib/workflowEffectiveReviewedSpecification';")).toEqual([]);
     expect(consumerViolations('lib/validator/comment.ts',

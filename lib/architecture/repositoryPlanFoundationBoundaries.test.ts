@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const FOUNDATION = 'lib/repositoryPlanFoundation.ts';
+const CONTENT = 'lib/repositoryPlanContent.ts';
 const SNAPSHOT = 'lib/repositoryPlanSnapshot.ts';
 const EVIDENCE = 'lib/repositoryPlanEvidence.ts';
 const VERIFIER = 'lib/server/repositoryPlanSnapshot.ts';
@@ -21,6 +22,7 @@ const edge = (specifier: string, typeOnly = false): Dependency => ({ specifier, 
 // leaf; the existing deterministic hash helper is the sole crypto leaf.
 const GRAPH = new Map<string, Dependency[]>([
   [FOUNDATION, [edge('zod'), edge(V1, true), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
+  [CONTENT, [edge('zod'), edge(HASH), edge(FOUNDATION), edge(EVIDENCE), edge(SNAPSHOT)]],
   [SNAPSHOT, [edge('zod')]],
   [EVIDENCE, [edge('zod'), edge(SNAPSHOT)]],
   [VERIFIER, [edge('node:child_process'), edge('node:fs'), edge('node:os'), edge('node:path'), edge(SNAPSHOT)]],
@@ -28,7 +30,7 @@ const GRAPH = new Map<string, Dependency[]>([
   [REVIEWED, [edge('zod')]],
   [HASH, [edge('node:crypto')]],
 ]);
-const B1 = new Set([FOUNDATION, SNAPSHOT, EVIDENCE, VERIFIER]);
+const B1 = new Set([FOUNDATION, CONTENT, SNAPSHOT, EVIDENCE, VERIFIER]);
 
 function parse(text: string, file: string): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
@@ -294,8 +296,9 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
   it('pins every internal dependency and the complete runtime helper closure', () => {
     for (const file of GRAPH.keys()) expect(graphViolations(file, read(file))).toEqual([]);
     expect(closureViolations(FOUNDATION, read)).toEqual([]);
+    expect(closureViolations(CONTENT, read)).toEqual([]);
     expect(closureViolations(VERIFIER, read)).toEqual([]);
-    for (const file of [FOUNDATION, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
+    for (const file of [FOUNDATION, CONTENT, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
   });
 
   it('allows no production consumers outside the exact B1 internal graph', () => {
@@ -374,7 +377,9 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
       "import { writeFileSync } from 'node:fs';", "export * from '@/lib/server/execution';"] ) {
       for (const changed of [FOUNDATION, EVIDENCE, SNAPSHOT, WIRE, HASH, REVIEWED]) {
         expect(closureViolations(FOUNDATION, (file) => read(file) + (file === changed ? '\n' + bad : ''))).not.toEqual([]);
+        expect(closureViolations(CONTENT, (file) => read(file) + (file === changed ? '\n' + bad : ''))).not.toEqual([]);
       }
+      expect(closureViolations(CONTENT, (file) => read(file) + (file === CONTENT ? '\n' + bad : ''))).not.toEqual([]);
     }
   });
 
@@ -398,6 +403,7 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
       expect(consumerViolations(file, `import type { X } from '@/${strip(module)}';`)).toHaveLength(1);
     }
     expect(consumerViolations(FOUNDATION, "import { verify } from '@/lib/server/repositoryPlanSnapshot';")).toHaveLength(1);
+    expect(consumerViolations('lib/codex/consumer.ts', "import { buildRepositoryPlanContent } from '@/lib/repositoryPlanContent';")).toHaveLength(1);
   });
 
   it.each(['Date.now()', 'Math.random()', "Math['random']()", 'fetch(url)', 'process.env.X',

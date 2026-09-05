@@ -99,10 +99,15 @@ The B1 collector is a **contract only**, not a registered content collector. The
 is no repository search, content acquisition, provider, or recommendation engine.
 Internal manifest/evidence inputs must come from trusted committed-blob inspection;
 schema validation alone does not prove that a file exists or that content matches
-its blob. No external caller may submit such records as trusted evidence. A future
-collector must supply only regular committed blobs, verify Git blob identity, and
-enforce its fixed budgets: 200 files, 64 KiB per file, 1 MiB total UTF-8 content.
-An empty manifest is truthful when nothing has been inspected.
+its blob. No external caller may submit such records as trusted evidence. B1.5a
+removes the obsolete future collector port that accepted a caller-selected `files`
+array. Its pure content contract has no arbitrary path, glob, root, search-result,
+or provider-selected file-list input. A future collector must supply only regular
+committed blobs, verify Git blob identity, and enforce its fixed collection safety
+budgets against **raw committed blob bytes**: 200 files, 64 KiB per file, and 1 MiB
+total. This is distinct from the later, smaller B2 provider-input budget; B1.5
+performs no token counting. An empty manifest is truthful when nothing has been
+inspected.
 
 Each manifest entry carries a literal repository-relative path, exact commit,
 required Git blob SHA, and classification authorizing inspection. Paths reject
@@ -138,6 +143,37 @@ change kind is deferred because B1 has no basis for justifying it. Evidence
 classifications must match guidance classification. No guidance is generated;
 future completed-output validation must additionally bind step IDs and evidence
 to the exact input manifest and define genuine provider provenance.
+
+## B1.5a committed-content contract
+
+`lib/repositoryPlanContent.ts` is a dormant pure contract with zero production
+consumers. It selects one classification at a time by walking the foundation's
+already canonical evidence order. Each evidence `filePath` is selected as source;
+its explicit `relevantTestPath`, when present, is selected as a relevant test.
+Both must resolve in the same classification manifest. Manifest-only paths are
+authorization, not selection, and are never eagerly collected. Selection is
+deduplicated by evidence ID; first occurrence fixes position and roles merge in
+the fixed `source`, `relevant_test` order. ADVISORY yields a valid empty selection.
+A non-ADVISORY classification with no manifest authorization fails closed.
+
+Evidence IDs are full-width `ev_` plus `hashCanonical` over the fixed domain and
+schema version together with exact commit, classification, path, and Git blob SHA.
+Reason, symbol, evidence kind, relevant-test relationship, timestamps, foundation
+digest, and provider data are excluded. The same blob in different classification
+scopes therefore has different evidence IDs, while prose edits do not change the
+content identity.
+
+The schema fixes domain `eightforge.repository-committed-content`, version 1,
+stage `pre_provider_content`, the non-authoritative/non-executable authority
+literals, and `contentTrust: 'untrusted_repository_data'`. Each entry carries its
+evidence ID, path, commit/blob identities, fixed regular-file mode, ordered roles,
+exact UTF-8 content, raw byte length, and SHA-256 content identity. The artifact
+binds the foundation digest, exact snapshot, one classification, fixed budgets,
+collection counters, and all ordered content under the existing canonical digest.
+Schema validation rechecks digest, counters, evidence IDs, content hashes and byte
+lengths. Successful construction canonical-JSON detaches and deeply freezes the
+result. B1.5a reads no Git objects and adds no collector; committed-object proof,
+strict decoding, mode verification, and zero-write Git retrieval belong to B1.5b.
 
 ## Authority, digest, and failure
 

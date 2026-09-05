@@ -76,19 +76,6 @@ export const RepositoryEvidenceBundleSchema = z.object({
   }
 });
 
-// Future collector port only: implementations must read regular committed blobs
-// at snapshot.commitSha, never the working tree or caller-written summaries.
-// No collector or provider is registered in B1. Limits apply to decoded UTF-8 bytes.
-export type ScopedRepositoryCollectionRequest = Readonly<{
-  repositorySnapshot: z.infer<typeof RepositorySnapshotSchema>;
-  files: readonly Readonly<{ classification: RepositoryClassification; filePath: string }>[];
-  maxFiles: 200; maxBytesPerFile: 65536; maxTotalBytes: 1048576;
-}>;
-export type ScopedRepositoryCollector = (request: ScopedRepositoryCollectionRequest) => Promise<
-  { ok: true; files: readonly Readonly<{ identity: InspectedRepositoryFile; content: string }>[] }
-  | { ok: false; code: 'repository_unavailable' | 'unsupported_path' | 'snapshot_mismatch' | 'budget_exceeded' }
->;
-
 // Structured future vocabulary only. No guidance instances are built in B1.
 const guidanceBase = { stepId: z.string().min(1).max(120), evidence: z.array(RepositoryEvidenceRecordSchema).min(1).max(20) };
 const ruleKinds = z.enum(['reuse_existing_rule', 'extend_existing_rule', 'add_new_authored_rule', 'rule_engine_architecture_gap']);

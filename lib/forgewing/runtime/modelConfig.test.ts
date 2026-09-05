@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getForgewingRuntimeConfig,
+  getForgewingRepositoryPlanRuntimeConfig,
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingPricingInterpretationEnabled,
   isForgewingPricingRateClusterRecoveryEnabled,
+  isForgewingRepositoryPlanGuidanceEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 
@@ -109,5 +111,24 @@ describe('Forgewing runtime configuration', () => {
 
     vi.stubEnv('FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED', '1');
     expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(true);
+  });
+
+  it('uses dedicated bounded repository-plan settings behind both gates', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED', '1');
+    expect(isForgewingRepositoryPlanGuidanceEnabled()).toBe(false);
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED', '');
+    expect(getForgewingRepositoryPlanRuntimeConfig()).toMatchObject({ enabled: false,
+      timeoutMs: 60_000, maxOutputTokens: 8_000 });
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_TIMEOUT_MS', '120000');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_MAX_OUTPUT_TOKENS', '16000');
+    expect(getForgewingRepositoryPlanRuntimeConfig()).toMatchObject({ enabled: true,
+      timeoutMs: 120_000, maxOutputTokens: 16_000 });
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_TIMEOUT_MS', '120001');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_MAX_OUTPUT_TOKENS', '16001');
+    expect(getForgewingRepositoryPlanRuntimeConfig()).toMatchObject({
+      timeoutMs: 60_000, maxOutputTokens: 8_000 });
   });
 });

@@ -7,6 +7,7 @@ const ROOT = process.cwd();
 const FOUNDATION = 'lib/repositoryPlanFoundation.ts';
 const CONTENT = 'lib/repositoryPlanContent.ts';
 const GUIDANCE = 'lib/repositoryPlanGuidance.ts';
+const REASONING = 'lib/forgewing/tasks/repositoryPlanGuidance.ts';
 const SNAPSHOT = 'lib/repositoryPlanSnapshot.ts';
 const EVIDENCE = 'lib/repositoryPlanEvidence.ts';
 const VERIFIER = 'lib/server/repositoryPlanSnapshot.ts';
@@ -26,6 +27,8 @@ const GRAPH = new Map<string, Dependency[]>([
   [FOUNDATION, [edge('zod'), edge(V1, true), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
   [CONTENT, [edge('zod'), edge(HASH), edge(FOUNDATION), edge(EVIDENCE), edge(SNAPSHOT)]],
   [GUIDANCE, [edge('zod'), edge(HASH), edge(CONTENT), edge(FOUNDATION), edge(EVIDENCE), edge(V1, true), edge(WIRE)]],
+  [REASONING, [edge('zod'), edge(HASH), edge('lib/forgewing/runtime/budget'),
+    edge('lib/forgewing/runtime/client'), edge('lib/forgewing/runtime/modelConfig'), edge(GUIDANCE)]],
   [SNAPSHOT, [edge('zod')]],
   [EVIDENCE, [edge('zod'), edge(SNAPSHOT)]],
   [VERIFIER, [edge('node:child_process'), edge('node:fs'), edge('node:os'), edge('node:path'), edge(SNAPSHOT)]],
@@ -514,7 +517,9 @@ describe('repository Plan V2 trusted deterministic foundation and B2a consumer',
     expect(consumerViolations(FOUNDATION, "import { verify } from '@/lib/server/repositoryPlanSnapshot';")).toHaveLength(1);
     expect(consumerViolations('lib/codex/consumer.ts', "import { buildRepositoryPlanContent } from '@/lib/repositoryPlanContent';")).toHaveLength(1);
     expect(consumerViolations(GUIDANCE, "import { buildRepositoryPlanContent } from '@/lib/repositoryPlanContent';")).toEqual([]);
+    expect(consumerViolations(REASONING, "import { guidance } from '@/lib/repositoryPlanGuidance';")).toEqual([]);
     expect(consumerViolations('lib/forgewing/tasks/fake.ts', "import { content } from '@/lib/repositoryPlanContent';")).toHaveLength(1);
+    expect(consumerViolations('lib/forgewing/tasks/fake.ts', "import { guidance } from '@/lib/repositoryPlanGuidance';")).toHaveLength(1);
   });
 
   it.each(['Date.now()', 'Math.random()', "Math['random']()", 'fetch(url)', 'process.env.X',

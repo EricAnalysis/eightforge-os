@@ -24,6 +24,13 @@ export type ForgewingRuntimeConfig = Readonly<{
   maxOutputTokens: number;
 }>;
 
+export type ForgewingRepositoryPlanRuntimeConfig = Readonly<{
+  enabled: boolean;
+  model: string;
+  timeoutMs: number;
+  maxOutputTokens: number;
+}>;
+
 export function isForgewingShadowEnabled(): boolean {
   return process.env.FORGEWING_SHADOW_ENABLED === '1';
 }
@@ -62,6 +69,22 @@ export function isForgewingPricingRateClusterRecoveryEnabled(): boolean {
 export function isForgewingWorkflowAssessmentEnabled(): boolean {
   return isForgewingShadowEnabled()
     && process.env.FORGEWING_WORKFLOW_ASSESSMENT_ENABLED === '1';
+}
+
+/** Repository-plan reasoning is separately default-off beneath the master gate. */
+export function isForgewingRepositoryPlanGuidanceEnabled(): boolean {
+  return isForgewingShadowEnabled()
+    && process.env.FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED === '1';
+}
+
+/** B2-specific bounds do not widen the conservative limits used by shadow extraction tasks. */
+export function getForgewingRepositoryPlanRuntimeConfig(): ForgewingRepositoryPlanRuntimeConfig {
+  return {
+    enabled: isForgewingRepositoryPlanGuidanceEnabled(),
+    model: process.env.FORGEWING_MODEL?.trim() || getClaudeModel(),
+    timeoutMs: boundedInteger(process.env.FORGEWING_REPOSITORY_PLAN_TIMEOUT_MS, 60_000, 1_000, 120_000),
+    maxOutputTokens: boundedInteger(process.env.FORGEWING_REPOSITORY_PLAN_MAX_OUTPUT_TOKENS, 8_000, 1_024, 16_000),
+  };
 }
 
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {

@@ -14,7 +14,8 @@ else
 fi
 
 "${psql[@]}" <<'SQL'
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
@@ -75,6 +76,7 @@ SQL
 # ambiguity or a lifetime-cap race because those function bodies are analyzed
 # on execution and concurrency spans transactions.
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
+"${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
 
 workflow_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000023'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
 

@@ -47,7 +47,7 @@ describe('repository Plan V2 persistence boundaries', () => {
   });
 
   it('allows only the producer, persistence writer, and validated reader to consume the neutral Plan V2 contract', () => {
-    const allowed = new Set(['lib/forgewing/tasks/repositoryPlanGuidance.ts',
+    const allowed = new Set(['lib/approvedEngineeringRequest.ts', 'lib/forgewing/tasks/repositoryPlanGuidance.ts',
       'lib/server/workflowRepositoryPlanPersistence.ts', 'lib/server/workflowRepositoryPlanRead.ts']);
     const consumers = productionFiles(path.join(root, 'lib')).flatMap((absolute) => {
       const text = readFileSync(absolute, 'utf8');

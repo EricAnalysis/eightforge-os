@@ -7,6 +7,7 @@ const ROOT = process.cwd();
 const FOUNDATION = 'lib/repositoryPlanFoundation.ts';
 const CONTENT = 'lib/repositoryPlanContent.ts';
 const GUIDANCE = 'lib/repositoryPlanGuidance.ts';
+const PLAN_V2 = 'lib/repositoryAwareImplementationPlan.ts';
 const REASONING = 'lib/forgewing/tasks/repositoryPlanGuidance.ts';
 const SNAPSHOT = 'lib/repositoryPlanSnapshot.ts';
 const EVIDENCE = 'lib/repositoryPlanEvidence.ts';
@@ -27,8 +28,9 @@ const GRAPH = new Map<string, Dependency[]>([
   [FOUNDATION, [edge('zod'), edge(V1, true), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
   [CONTENT, [edge('zod'), edge(HASH), edge(FOUNDATION), edge(EVIDENCE), edge(SNAPSHOT)]],
   [GUIDANCE, [edge('zod'), edge(HASH), edge(CONTENT), edge(FOUNDATION), edge(EVIDENCE), edge(V1, true), edge(WIRE)]],
-  [REASONING, [edge('zod'), edge(HASH), edge('lib/forgewing/runtime/budget'),
-    edge('lib/forgewing/runtime/client'), edge('lib/forgewing/runtime/modelConfig'), edge(GUIDANCE)]],
+  [PLAN_V2, [edge('zod'), edge(HASH), edge(GUIDANCE)]],
+  [REASONING, [edge(HASH), edge('lib/forgewing/runtime/budget'), edge('lib/forgewing/runtime/client'),
+    edge('lib/forgewing/runtime/modelConfig'), edge(GUIDANCE), edge(PLAN_V2)]],
   [SNAPSHOT, [edge('zod')]],
   [EVIDENCE, [edge('zod'), edge(SNAPSHOT)]],
   [VERIFIER, [edge('node:child_process'), edge('node:fs'), edge('node:os'), edge('node:path'), edge(SNAPSHOT)]],
@@ -382,9 +384,10 @@ describe('repository Plan V2 trusted deterministic foundation and B2a consumer',
     expect(closureViolations(FOUNDATION, read)).toEqual([]);
     expect(closureViolations(CONTENT, read)).toEqual([]);
     expect(closureViolations(GUIDANCE, read)).toEqual([]);
+    expect(closureViolations(PLAN_V2, read)).toEqual([]);
     expect(closureViolations(VERIFIER, read)).toEqual([]);
     expect(closureViolations(COLLECTOR, read)).toEqual([]);
-    for (const file of [FOUNDATION, CONTENT, GUIDANCE, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
+    for (const file of [FOUNDATION, CONTENT, GUIDANCE, PLAN_V2, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
   });
 
   it('allows no production consumers outside the exact B1 internal graph', () => {

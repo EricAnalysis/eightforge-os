@@ -98,6 +98,7 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   // B2b consumes only the pure B2a prepared-input/validation contract. B1/B1.5
   // repository and Git modules remain outside this allowlist.
   '@/lib/repositoryPlanGuidance',
+  '@/lib/repositoryAwareImplementationPlan',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',

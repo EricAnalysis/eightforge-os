@@ -75,7 +75,7 @@ describe('Linear projection remains a pure one-way contract with no consumers', 
     expect(source).toContain("projectionDirection: z.literal('eightforge_to_linear_only')");
   });
 
-  it('has zero production consumers before the separately reviewed B4-L2 runtime', () => {
+  it('allows only the separately reviewed B4-L2 delivery runtime to consume the contract', () => {
     const consumers = ['app', 'components', 'lib', 'types', 'scripts']
       .flatMap((root) => productionFiles(path.join(ROOT, root)))
       .flatMap((absolute) => {
@@ -85,7 +85,10 @@ describe('Linear projection remains a pure one-way contract with no consumers', 
           specifier.replaceAll('\\', '/').replace(/^@\//, '')
             .replace(EXTENSION, '') === 'lib/linearCapabilityProjection') ? [relative] : [];
       });
-    expect(consumers).toEqual([]);
+    expect(consumers).toEqual([
+      'lib/server/linearClient.ts',
+      'lib/server/linearProjectionDelivery.ts',
+    ]);
   });
 
   it.each([

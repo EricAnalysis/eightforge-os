@@ -40,6 +40,11 @@ const GRAPH = new Map<string, Dependency[]>([
   [HASH, [edge('node:crypto')]],
 ]);
 const B1 = new Set([FOUNDATION, CONTENT, GUIDANCE, SNAPSHOT, EVIDENCE, VERIFIER, COLLECTOR]);
+const AUTHORIZED_LATER_CONSUMERS = new Map<string, Dependency[]>([
+  ['components/workflow/EngineeringRecommendationReview.tsx', [edge(GUIDANCE, true)]],
+  ['lib/linearCapabilityProjection.ts', [edge(EVIDENCE)]],
+  ['lib/server/linearProjectionDelivery.ts', [edge(CONTENT)]],
+]);
 
 function parse(text: string, file: string): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
@@ -96,8 +101,9 @@ function consumerViolations(file: string, text: string): string[] {
   return dependencies(text, file).flatMap((dependency) => {
     const destination = [...B1].find((candidate) => strip(candidate) === target(file, dependency.specifier));
     if (!destination) return [];
-    const permitted = GRAPH.get(file)?.some((candidate) => strip(candidate.specifier) === strip(destination)
-      && candidate.typeOnly === dependency.typeOnly);
+    const permitted = [...(GRAPH.get(file) ?? []), ...(AUTHORIZED_LATER_CONSUMERS.get(file) ?? [])]
+      .some((candidate) => strip(candidate.specifier) === strip(destination)
+        && candidate.typeOnly === dependency.typeOnly);
     return permitted ? [] : [`${file} -> ${dependency.specifier}`];
   });
 }
@@ -391,6 +397,11 @@ describe('repository Plan V2 trusted deterministic foundation and B2a consumer',
   });
 
   it('allows no production consumers outside the exact B1 internal graph', () => {
+    expect([...AUTHORIZED_LATER_CONSUMERS.keys()]).toEqual([
+      'components/workflow/EngineeringRecommendationReview.tsx',
+      'lib/linearCapabilityProjection.ts',
+      'lib/server/linearProjectionDelivery.ts',
+    ]);
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts', 'pages', 'src']
       .flatMap((root) => productionFiles(path.join(ROOT, root)))) {

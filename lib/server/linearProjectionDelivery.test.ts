@@ -36,10 +36,10 @@ const issue = { id:'linear-id', identifier:'EF-123' };
 function harness(status:'acquired'|'recovered'|'busy'|'existing_projected'='acquired') {
   const calls:string[]=[];
   const admin={rpc:vi.fn(async(name:string)=>{calls.push(name); if(name==='claim_linear_projection_delivery')return {data:{
-    correlation_id:'44444444-4444-4444-8444-444444444444',claim_token:'55555555-5555-4555-8555-555555555555',
+    correlation_id:'44444444-4444-4444-8444-444444444444',claim_token:status==='busy'||status==='existing_projected'?null:'55555555-5555-4555-8555-555555555555',
     claim_status:status,linear_issue_id:status==='existing_projected'?issue.id:null,
     linear_issue_identifier:status==='existing_projected'?issue.identifier:null},error:null}; return {data:null,error:null};})};
-  const client={createIssue:vi.fn(async()=>issue),findProjectedIssueByIdempotencyKey:vi.fn(async()=>issue)};
+  const client={createIssue:vi.fn(async()=>issue),findProjectedIssueByIdempotencyKey:vi.fn(async()=>null as typeof issue|null)};
   const dependencies={admin,configuration:{projectId:'linear-project-id',client},
     readApproved:vi.fn(async()=>({ok:true as const,request:request()})),readPlan:vi.fn(async()=>plan)};
   return {calls,admin,client,dependencies};
@@ -48,29 +48,52 @@ function harness(status:'acquired'|'recovered'|'busy'|'existing_projected'='acqu
 beforeEach(()=>{process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS='reviewer@example.com';delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;});
 
 describe('manual Linear projection delivery',()=>{
-  it('claims, creates once, and confirms without a search on the initial attempt',async()=>{const h=harness();
+  it('searches before a fresh acquired create and creates once only after a lookup miss',async()=>{const h=harness();
     expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toMatchObject({status:'projected',issue,recovered:false});
-    expect(h.client.findProjectedIssueByIdempotencyKey).not.toHaveBeenCalled();expect(h.client.createIssue).toHaveBeenCalledTimes(1);
+    expect(h.client.findProjectedIssueByIdempotencyKey).toHaveBeenCalledTimes(1);expect(h.client.createIssue).toHaveBeenCalledTimes(1);
+    expect(h.client.findProjectedIssueByIdempotencyKey.mock.invocationCallOrder[0]).toBeLessThan(h.client.createIssue.mock.invocationCallOrder[0]!);
+    expect(h.calls).toEqual(['claim_linear_projection_delivery','confirm_linear_projection_delivery']);});
+  it('confirms a discovered issue without creating for a fresh acquired claim',async()=>{const h=harness();
+    h.client.findProjectedIssueByIdempotencyKey.mockResolvedValue(issue);
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toMatchObject({status:'projected',issue,recovered:false});
+    expect(h.client.findProjectedIssueByIdempotencyKey).toHaveBeenCalledTimes(1);expect(h.client.createIssue).not.toHaveBeenCalled();
     expect(h.calls).toEqual(['claim_linear_projection_delivery','confirm_linear_projection_delivery']);});
   it('searches first and confirms an issue after crash recovery',async()=>{const h=harness('recovered');
+    h.client.findProjectedIssueByIdempotencyKey.mockResolvedValue(issue);
     expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toMatchObject({status:'projected',recovered:true});
     expect(h.client.findProjectedIssueByIdempotencyKey).toHaveBeenCalledTimes(1);expect(h.client.createIssue).not.toHaveBeenCalled();});
-  it('creates only after a recovery search proves no issue exists',async()=>{const h=harness('recovered');h.client.findProjectedIssueByIdempotencyKey.mockResolvedValue(null as never);
+  it('creates only after a recovery search proves no issue exists',async()=>{const h=harness('recovered');
     await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies);
+    expect(h.client.createIssue).toHaveBeenCalledTimes(1);
     expect(h.client.findProjectedIssueByIdempotencyKey.mock.invocationCallOrder[0]).toBeLessThan(h.client.createIssue.mock.invocationCallOrder[0]!);});
   it('returns busy or existing without any external write',async()=>{for(const state of ['busy','existing_projected'] as const){const h=harness(state);
     const result=await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies);expect(result.status).toBe(state==='busy'?'in_progress':'projected');
     expect(h.client.createIssue).not.toHaveBeenCalled();expect(h.client.findProjectedIssueByIdempotencyKey).not.toHaveBeenCalled();}});
-  it('records a typed failure once and performs no automatic retry',async()=>{const h=harness();h.client.createIssue.mockRejectedValue(new Error('linear_unavailable'));
+  it('rejects an acquired claim without an ownership token',async()=>{const h=harness();
+    h.admin.rpc.mockResolvedValueOnce({data:{correlation_id:'44444444-4444-4444-8444-444444444444',claim_token:null,
+      claim_status:'acquired',linear_issue_id:null,linear_issue_identifier:null},error:null});
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toEqual({status:'claim_failed'});
+    expect(h.client.findProjectedIssueByIdempotencyKey).not.toHaveBeenCalled();expect(h.client.createIssue).not.toHaveBeenCalled();});
+  it('fails closed on an ambiguous lookup without creating',async()=>{const h=harness();h.client.findProjectedIssueByIdempotencyKey.mockRejectedValue(new Error('linear_projection_ambiguous'));
     expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toEqual({status:'projection_failed'});
-    expect(h.client.createIssue).toHaveBeenCalledTimes(1);expect(h.calls).toEqual(['claim_linear_projection_delivery','fail_linear_projection_delivery']);});
+    expect(h.client.createIssue).not.toHaveBeenCalled();expect(h.calls).toEqual(['claim_linear_projection_delivery','fail_linear_projection_delivery']);
+    expect(h.admin.rpc).toHaveBeenLastCalledWith('fail_linear_projection_delivery',expect.objectContaining({p_failure_code:'linear_projection_ambiguous'}));});
+  it('records a typed lookup failure and does not create',async()=>{const h=harness();h.client.findProjectedIssueByIdempotencyKey.mockRejectedValue(new Error('linear_unavailable'));
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toEqual({status:'projection_failed'});
+    expect(h.client.createIssue).not.toHaveBeenCalled();expect(h.calls).toEqual(['claim_linear_projection_delivery','fail_linear_projection_delivery']);
+    expect(h.admin.rpc).toHaveBeenLastCalledWith('fail_linear_projection_delivery',expect.objectContaining({p_failure_code:'linear_unavailable'}));});
+  it('searches before create on a failed retry and performs no automatic retry',async()=>{const h=harness('recovered');h.client.createIssue.mockRejectedValue(new Error('linear_unavailable'));
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies)).toEqual({status:'projection_failed'});
+    expect(h.client.findProjectedIssueByIdempotencyKey).toHaveBeenCalledTimes(1);expect(h.client.createIssue).toHaveBeenCalledTimes(1);
+    expect(h.client.findProjectedIssueByIdempotencyKey.mock.invocationCallOrder[0]).toBeLessThan(h.client.createIssue.mock.invocationCallOrder[0]!);
+    expect(h.calls).toEqual(['claim_linear_projection_delivery','fail_linear_projection_delivery']);});
   it('fails closed before claim for unauthorized, unconfigured, or forged evidence',async()=>{let h=harness();
     expect((await projectApprovedEngineeringRequestToLinear(input,{email:'other@example.com',role:null},h.dependencies)).status).toBe('reviewer_not_eligible');
     h=harness();expect((await projectApprovedEngineeringRequestToLinear(input,reviewer,{...h.dependencies,configuration:null})).status).toBe('projection_not_configured');
     h=harness();const forged={...input,evidenceBindings:[{...input.evidenceBindings[0]!,blobSha:'8'.repeat(40)}]};
     expect((await projectApprovedEngineeringRequestToLinear(forged,reviewer,h.dependencies)).status).toBe('evidence_invalid');expect(h.admin.rpc).not.toHaveBeenCalled();});
   it('does not mutate approval when Linear fails',async()=>{const h=harness();const approved=request();const before=JSON.stringify(approved);
-    h.dependencies.readApproved.mockResolvedValue({ok:true,request:approved});h.client.createIssue.mockRejectedValue(new Error('linear_unavailable'));
+    h.dependencies.readApproved.mockResolvedValue({ok:true,request:approved});h.client.findProjectedIssueByIdempotencyKey.mockRejectedValue(new Error('linear_unavailable'));
     await projectApprovedEngineeringRequestToLinear(input,reviewer,h.dependencies);expect(JSON.stringify(approved)).toBe(before);
     expect(buildLinearCapabilityProjection(approved,input.evidenceBindings).ok).toBe(true);});
 });
@@ -86,6 +109,36 @@ describe('minimal Linear GraphQL adapter',()=>{
 });
 
 describe('manual Linear projection withdrawal',()=>{
+  it('re-projects a withdrawn request by confirming the original issue without a duplicate create',async()=>{
+    const calls:string[]=[];const confirmations:Record<string,unknown>[]=[];let priorIssue:typeof issue|null=null;let claimCount=0;
+    const client={
+      createIssue:vi.fn(async()=>{priorIssue=issue;return issue;}),
+      findProjectedIssueByIdempotencyKey:vi.fn(async(_key:string)=>priorIssue),
+    };
+    const admin={rpc:vi.fn(async(name:string,args:Record<string,unknown>)=>{calls.push(name);
+      if(name==='claim_linear_projection_delivery'){claimCount+=1;return {data:{
+        correlation_id:claimCount===1?'44444444-4444-4444-8444-444444444444':'66666666-6666-4666-8666-666666666666',
+        claim_token:claimCount===1?'55555555-5555-4555-8555-555555555555':'77777777-7777-4777-8777-777777777777',
+        claim_status:'acquired',linear_issue_id:null,linear_issue_identifier:null},error:null};}
+      if(name==='confirm_linear_projection_delivery'){confirmations.push(args);return {data:null,error:null};}
+      if(name==='withdraw_linear_projection_delivery')return {data:null,error:null};
+      return {data:null,error:null};
+    })};
+    const dependencies={admin,configuration:{projectId:'linear-project-id',client},
+      readApproved:vi.fn(async()=>({ok:true as const,request:request()})),readPlan:vi.fn(async()=>plan)};
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,dependencies)).toMatchObject({status:'projected',issue});
+    expect((await withdrawLinearProjection({correlationId:'44444444-4444-4444-8444-444444444444',engineeringRequestDigestSha256:request().digest.value,rationale:'Re-project the controlled copy.'},reviewer,{admin})).status).toBe('withdrawn');
+    expect(await projectApprovedEngineeringRequestToLinear(input,reviewer,dependencies)).toMatchObject({status:'projected',issue});
+    expect(client.createIssue).toHaveBeenCalledTimes(1);
+    expect(client.findProjectedIssueByIdempotencyKey).toHaveBeenCalledTimes(2);
+    const keys=client.findProjectedIssueByIdempotencyKey.mock.calls.map(([key])=>key);
+    expect(new Set(keys)).toEqual(new Set([`linear-projection:${request().digest.value}`]));
+    expect(confirmations).toEqual([
+      expect.objectContaining({p_correlation_id:'44444444-4444-4444-8444-444444444444',p_linear_issue_id:issue.id,p_linear_issue_identifier:issue.identifier}),
+      expect.objectContaining({p_correlation_id:'66666666-6666-4666-8666-666666666666',p_linear_issue_id:issue.id,p_linear_issue_identifier:issue.identifier}),
+    ]);
+    expect(calls).toEqual(['claim_linear_projection_delivery','confirm_linear_projection_delivery','withdraw_linear_projection_delivery','claim_linear_projection_delivery','confirm_linear_projection_delivery']);
+  });
   it('marks only the external correlation withdrawn without contacting Linear',async()=>{
     const rpc=vi.fn().mockResolvedValue({data:null,error:null});
     await expect(withdrawLinearProjection({correlationId:'44444444-4444-4444-8444-444444444444',engineeringRequestDigestSha256:'a'.repeat(64),rationale:'Wrong external copy.'},reviewer,{admin:{rpc}})).resolves.toEqual({status:'withdrawn'});

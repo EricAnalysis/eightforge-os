@@ -34,7 +34,7 @@ type Dependencies = Readonly<{
 
 const claimReceipt = z.object({
   correlation_id: z.string().uuid(),
-  claim_token: z.string().uuid(),
+  claim_token: z.string().uuid().nullable(),
   claim_status: z.enum(['acquired', 'recovered', 'busy', 'existing_projected']),
   linear_issue_id: z.string().nullable(),
   linear_issue_identifier: z.string().nullable(),
@@ -107,12 +107,11 @@ export async function projectApprovedEngineeringRequestToLinear(
     return { status: 'projected', correlationId: claim.correlation_id,
       issue: { id: claim.linear_issue_id, identifier: claim.linear_issue_identifier }, recovered: true };
   }
+  if (!claim.claim_token) return { status: 'claim_failed' };
 
   let issue: { id: string; identifier: string } | null = null;
   try {
-    if (claim.claim_status === 'recovered') {
-      issue = await configuration.client.findProjectedIssueByIdempotencyKey(built.projection.idempotencyKey);
-    }
+    issue = await configuration.client.findProjectedIssueByIdempotencyKey(built.projection.idempotencyKey);
     issue ??= await configuration.client.createIssue(built.projection);
   } catch (error) {
     const code = error instanceof Error && /^[a-z0-9_]{1,120}$/.test(error.message)

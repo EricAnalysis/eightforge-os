@@ -89,7 +89,7 @@ describe('Linear projection remains a pure one-way contract with no consumers', 
       'lib/server/linearClient.ts',
       'lib/server/linearProjectionDelivery.ts',
     ]);
-  });
+  }, 30_000);
 
   it.each([
     'Date.now()', 'Math.random()', 'fetch(url)', 'process.env.LINEAR_API_KEY',

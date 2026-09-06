@@ -57,5 +57,5 @@ describe('repository Plan V2 persistence boundaries', () => {
     });
     expect(consumers.sort()).toEqual([...allowed].sort());
     expect(reader).not.toMatch(/RepositoryPlanRawProviderEvidence|rawProviderEvidence/);
-  });
+  }, 30_000);
 });

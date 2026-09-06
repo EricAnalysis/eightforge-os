@@ -3,7 +3,7 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { buildLinearCapabilityProjection } from '@/lib/linearCapabilityProjection';
 import { repositoryContentEvidenceId } from '@/lib/repositoryPlanContent';
 import { createLinearClient } from '@/lib/server/linearClient';
-import { projectApprovedEngineeringRequestToLinear } from '@/lib/server/linearProjectionDelivery';
+import { projectApprovedEngineeringRequestToLinear, withdrawLinearProjection } from '@/lib/server/linearProjectionDelivery';
 
 const commit = '3'.repeat(40);
 const classification = 'RULE' as const;
@@ -83,4 +83,16 @@ describe('minimal Linear GraphQL adapter',()=>{
     const built=buildLinearCapabilityProjection(request(),input.evidenceBindings);if(!built.ok)throw new Error(built.code);
     await client.createIssue(built.projection);await client.findProjectedIssueByIdempotencyKey(built.projection.idempotencyKey);
     expect(fetcher).toHaveBeenCalledTimes(2);expect(fetcher.mock.calls.every(call=>call[0]==='https://api.linear.app/graphql')).toBe(true);});
+});
+
+describe('manual Linear projection withdrawal',()=>{
+  it('marks only the external correlation withdrawn without contacting Linear',async()=>{
+    const rpc=vi.fn().mockResolvedValue({data:null,error:null});
+    await expect(withdrawLinearProjection({correlationId:'44444444-4444-4444-8444-444444444444',engineeringRequestDigestSha256:'a'.repeat(64),rationale:'Wrong external copy.'},reviewer,{admin:{rpc}})).resolves.toEqual({status:'withdrawn'});
+    expect(rpc).toHaveBeenCalledWith('withdraw_linear_projection_delivery',expect.objectContaining({p_withdrawal_rationale:'Wrong external copy.'}));
+  });
+  it('fails closed for unauthorized or malformed withdrawal requests',async()=>{const rpc=vi.fn();
+    expect((await withdrawLinearProjection({},reviewer,{admin:{rpc}})).status).toBe('invalid_input');
+    expect((await withdrawLinearProjection({correlationId:'44444444-4444-4444-8444-444444444444',engineeringRequestDigestSha256:'a'.repeat(64),rationale:'x'},{email:'other@example.com',role:null},{admin:{rpc}})).status).toBe('reviewer_not_eligible');expect(rpc).not.toHaveBeenCalled();
+  });
 });

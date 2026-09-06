@@ -11,6 +11,7 @@ import { resolveWorkflowPlatformReviewAccess, type WorkflowPlatformReviewer } fr
 export const CLAIM_LINEAR_PROJECTION_FUNCTION = 'claim_linear_projection_delivery' as const;
 export const CONFIRM_LINEAR_PROJECTION_FUNCTION = 'confirm_linear_projection_delivery' as const;
 export const FAIL_LINEAR_PROJECTION_FUNCTION = 'fail_linear_projection_delivery' as const;
+export const WITHDRAW_LINEAR_PROJECTION_FUNCTION = 'withdraw_linear_projection_delivery' as const;
 
 export const LinearProjectionDeliveryInputSchema = z.object({
   planV2RunId: z.string().uuid(),
@@ -128,4 +129,13 @@ export async function projectApprovedEngineeringRequestToLinear(
   } catch { return { status: 'confirmation_failed' }; }
   return { status: 'projected', correlationId: claim.correlation_id, issue,
     recovered: claim.claim_status === 'recovered' };
+}
+
+export async function withdrawLinearProjection(input: unknown, reviewer: WorkflowPlatformReviewer,
+  dependencies: Pick<Dependencies,'admin'> = {}) {
+  if (!resolveWorkflowPlatformReviewAccess(reviewer).allowed) return { status: 'reviewer_not_eligible' as const };
+  const parsed=z.object({correlationId:z.string().uuid(),engineeringRequestDigestSha256:z.string().regex(/^[a-f0-9]{64}$/),rationale:z.string().trim().min(1).max(4000)}).strict().safeParse(input);
+  if(!parsed.success)return {status:'invalid_input' as const};
+  const admin=dependencies.admin??getSupabaseAdmin(); if(!admin)return {status:'projection_not_configured' as const};
+  try{const result=await admin.rpc(WITHDRAW_LINEAR_PROJECTION_FUNCTION,{p_correlation_id:parsed.data.correlationId,p_engineering_request_digest_sha256:parsed.data.engineeringRequestDigestSha256,p_withdrawal_rationale:parsed.data.rationale});return result.error?{status:'withdrawal_failed' as const}:{status:'withdrawn' as const};}catch{return {status:'withdrawal_failed' as const};}
 }

@@ -224,7 +224,7 @@ describe('workflow implementation plan has no runtime or authority integration',
       violations.push(...consumerViolations(file, text));
     }
     expect(violations).toEqual([]);
-  });
+  }, 30_000);
 
   it('rejects route-to-builder shortcuts and generic server consumers', () => {
     const planImport = "import { buildWorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';";

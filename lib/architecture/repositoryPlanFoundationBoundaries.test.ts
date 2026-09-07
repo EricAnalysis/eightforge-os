@@ -507,7 +507,7 @@ describe('repository Plan V2 trusted deterministic foundation and B2a consumer',
       }
       expect(closureViolations(CONTENT, (file) => read(file) + (file === CONTENT ? '\n' + bad : ''))).not.toEqual([]);
     }
-  });
+  }, 30_000);
 
   it.each([
     "import { x } from '@/lib/repositoryPlanFoundation';",

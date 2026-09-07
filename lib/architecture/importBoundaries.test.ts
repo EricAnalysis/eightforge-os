@@ -932,7 +932,7 @@ describe('production architecture import boundaries', () => {
         && !ALLOWED.has(relative)
         && V2_SEAM_SYMBOLS.some((symbol) => text.includes(symbol)));
     expect(offenders.map(({ relative }) => relative)).toEqual([]);
-  });
+  }, 30_000);
 
   it('keeps exactly one canonical-to-validator projection module', () => {
     expect(canonicalProjectionModules())

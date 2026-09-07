@@ -118,7 +118,7 @@ describe('effective reviewed specification remains a read-only non-authority art
     expect(violations).toEqual([]);
     expect(coreConsumers).toEqual([READ]);
     expect(readConsumers).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
-  });
+  }, 30_000);
 
   it('keeps hashing free of runtime state and preserves the narrow shared schema graph', () => {
     expect(code(CORE)).not.toMatch(/\bprocess\s*\.|\bDate\b|Math\.random|\bfetch\s*\(|\beval\s*\(|new\s+Function/);

@@ -99,10 +99,15 @@ The B1 collector is a **contract only**, not a registered content collector. The
 is no repository search, content acquisition, provider, or recommendation engine.
 Internal manifest/evidence inputs must come from trusted committed-blob inspection;
 schema validation alone does not prove that a file exists or that content matches
-its blob. No external caller may submit such records as trusted evidence. A future
-collector must supply only regular committed blobs, verify Git blob identity, and
-enforce its fixed budgets: 200 files, 64 KiB per file, 1 MiB total UTF-8 content.
-An empty manifest is truthful when nothing has been inspected.
+its blob. No external caller may submit such records as trusted evidence. B1.5a
+removes the obsolete future collector port that accepted a caller-selected `files`
+array. Its pure content contract has no arbitrary path, glob, root, search-result,
+or provider-selected file-list input. A future collector must supply only regular
+committed blobs, verify Git blob identity, and enforce its fixed collection safety
+budgets against **raw committed blob bytes**: 200 files, 64 KiB per file, and 1 MiB
+total. This is distinct from the later, smaller B2 provider-input budget; B1.5
+performs no token counting. An empty manifest is truthful when nothing has been
+inspected.
 
 Each manifest entry carries a literal repository-relative path, exact commit,
 required Git blob SHA, and classification authorizing inspection. Paths reject
@@ -139,6 +144,75 @@ classifications must match guidance classification. No guidance is generated;
 future completed-output validation must additionally bind step IDs and evidence
 to the exact input manifest and define genuine provider provenance.
 
+## B1.5a committed-content contract
+
+`lib/repositoryPlanContent.ts` is a dormant pure contract with zero production
+consumers. It selects one classification at a time by walking the foundation's
+already canonical evidence order. Each evidence `filePath` is selected as source;
+its explicit `relevantTestPath`, when present, is selected as a relevant test.
+Both must resolve in the same classification manifest. Manifest-only paths are
+authorization, not selection, and are never eagerly collected. Selection is
+deduplicated by evidence ID; first occurrence fixes position and roles merge in
+the fixed `source`, `relevant_test` order. ADVISORY yields a valid empty selection.
+A non-ADVISORY classification with no manifest authorization fails closed.
+
+Evidence IDs are full-width `ev_` plus `hashCanonical` over the fixed domain and
+schema version together with exact commit, classification, path, and Git blob SHA.
+Reason, symbol, evidence kind, relevant-test relationship, timestamps, foundation
+digest, and provider data are excluded. The same blob in different classification
+scopes therefore has different evidence IDs, while prose edits do not change the
+content identity.
+
+The schema fixes domain `eightforge.repository-committed-content`, version 1,
+stage `pre_provider_content`, the non-authoritative/non-executable authority
+literals, and `contentTrust: 'untrusted_repository_data'`. Each entry carries its
+evidence ID, path, commit/blob identities, fixed regular-file mode, ordered roles,
+exact UTF-8 content, raw byte length, and SHA-256 content identity. The artifact
+binds the foundation digest, exact snapshot, one classification, fixed budgets,
+collection counters, and all ordered content under the existing canonical digest.
+Schema validation rechecks digest, counters, evidence IDs, content hashes and byte
+lengths. Successful construction canonical-JSON detaches and deeply freezes the
+result. B1.5a reads no Git objects and adds no collector; committed-object proof,
+strict decoding, mode verification, and zero-write Git retrieval belong to B1.5b.
+
+## B1.5b committed-object collector
+
+`lib/server/repositoryPlanContentCollector.ts` accepts only a trusted foundation,
+the separately supplied branded snapshot, one classification, and the verified
+repository root capability. It revalidates the complete foundation and compares
+the foundation snapshot with the branded snapshot using canonical identity. No
+caller path, glob, branch, `HEAD`, search result, or provider input enters selection.
+ADVISORY returns its deterministic empty bundle without Git.
+
+For nonempty selections the collector runs exactly two Git command families with
+no shell: `ls-tree -r -z --full-tree <exact commit SHA>` builds a complete in-memory
+lookup, then `cat-file --batch` receives newline-separated exact blob SHAs. It never
+reads source through `node:fs`, checkout paths, Git `show`, filters, text conversion,
+or path-qualified revisions. It creates no temporary state and performs no writes.
+
+Every selected path must occur in the same-classification manifest and exact commit
+tree as a `100644 blob`; the tree and manifest blob SHAs must match. Executables,
+symlinks, gitlinks, trees, missing objects, malformed/duplicate tree records,
+malformed batch framing, unexpected object types, and identity mismatches fail the
+entire collection. The Buffer batch parser verifies announced length, exact bytes,
+framing newline, and Git's exit-zero `missing` response.
+
+Raw committed blob bytes are the budget unit: 200 files, 65,536 bytes per file,
+and 1,048,576 bytes total. There is no truncation, sampling, or partial success.
+NUL, UTF-8 BOM, and invalid UTF-8 fail; fatal UTF-8 decoding otherwise preserves
+LF, CRLF, bare CR, whitespace, comments, and trailing newlines exactly. Git blob
+SHA-1 and independent SHA-256 of raw bytes remain distinct identities. This B1.5
+collection ceiling is separate from the smaller future B2 provider budget.
+
+All inherited `GIT_*` variables are scrubbed. Optional locks, replacement objects,
+terminal prompts, and lazy fetching are disabled with bounded time and output.
+Partial/promisor repositories work only for already-local exact objects; missing
+objects fail without network access. Grafts do not alter an exact commit's tree.
+Alternates may supply objects, but each still must match the pinned Git SHA and an
+independent SHA-256. The deeply detached `{ ok: true, bundle }` remains
+`untrusted_repository_data`; B2a owns prompt containment. There are zero production
+consumers, routes, persistence, UI, providers, or execution integration.
+
 ## Authority, digest, and failure
 
 All artifacts require `authority: 'non_authoritative'`, `executable: false`,
@@ -163,6 +237,9 @@ The AST guard fixes the complete runtime import graph to Zod, the snapshot/evide
 schemas, the existing wire schema, and the shared hash helper. V1 and verifier
 imports in the foundation are erased types. The verifier alone may use its narrow
 Git subprocess wrappers and external temporary-directory filesystem primitives.
+The B1.5 collector may use only its separately pinned `node:child_process`
+wrapper for exact tree and batch-object reads; it has no filesystem, path, or OS
+imports.
 Provider/database/repository-mutation dependencies,
 computed runtime access, and all external production consumers are rejected.
 The existing V1 production runtime consumer remains its original trusted read seam.
@@ -191,12 +268,15 @@ not inventory ignored dependencies/build output or write any files:
 $env:EIGHTFORGE_VERIFY_ACTUAL_CHECKOUT = '1'
 npx vitest run lib/server/repositoryPlanSnapshot.actual-checkout.test.ts --maxWorkers=1 --testTimeout=120000 --hookTimeout=120000
 Remove-Item Env:EIGHTFORGE_VERIFY_ACTUAL_CHECKOUT
+$env:EIGHTFORGE_VERIFY_ACTUAL_COLLECTOR = '1'
+npx vitest run lib/server/repositoryPlanContentCollector.actual-checkout.test.ts --maxWorkers=1 --testTimeout=120000 --hookTimeout=120000
+Remove-Item Env:EIGHTFORGE_VERIFY_ACTUAL_COLLECTOR
 ```
 
 Verification commands:
 
 ```text
-npx vitest run lib/repositoryPlanFoundation.test.ts lib/repositoryPlanEvidence.test.ts lib/repositoryPlanSnapshot.test.ts lib/server/repositoryPlanSnapshot.test.ts lib/architecture/repositoryPlanFoundationBoundaries.test.ts lib/architecture/workflowImplementationPlanBoundaries.test.ts lib/workflowImplementationPlan.test.ts lib/workflowImplementationPlanWire.test.ts lib/architecture/workflowImplementationPlanWireBoundaries.test.ts lib/server/workflowImplementationPlanRead.test.ts lib/server/workflowImplementationPlanRead.integration.test.ts lib/server/workflowImplementationPlanRoute.test.ts --maxWorkers=2 --testTimeout=120000 --hookTimeout=120000
+npx vitest run lib/repositoryPlanContent.test.ts lib/server/repositoryPlanContentCollector.test.ts lib/repositoryPlanFoundation.test.ts lib/repositoryPlanEvidence.test.ts lib/repositoryPlanSnapshot.test.ts lib/server/repositoryPlanSnapshot.test.ts lib/architecture/repositoryPlanFoundationBoundaries.test.ts lib/architecture/workflowImplementationPlanBoundaries.test.ts lib/workflowImplementationPlan.test.ts lib/workflowImplementationPlanWire.test.ts lib/architecture/workflowImplementationPlanWireBoundaries.test.ts lib/server/workflowImplementationPlanRead.test.ts lib/server/workflowImplementationPlanRead.integration.test.ts lib/server/workflowImplementationPlanRoute.test.ts --maxWorkers=2 --testTimeout=120000 --hookTimeout=120000
 npx tsc --noEmit
 npm run build
 npx vitest run --maxWorkers=2 --testTimeout=120000 --hookTimeout=120000

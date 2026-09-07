@@ -10,7 +10,7 @@ const CLIENT = 'components/platform/WorkflowImplementationPlanClient.tsx';
 const VIEW = 'components/platform/WorkflowImplementationPlanView.tsx';
 const SESSION = 'components/platform/PlatformSessionContext.tsx';
 const UI = [PAGE, CLIENT, VIEW];
-const WIRE_CONSUMERS = new Set([...UI, 'lib/repositoryPlanFoundation.ts']);
+const WIRE_CONSUMERS = new Set([...UI, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const withoutExtension = (file: string): string => file.replace(EXTENSION, '');
@@ -179,7 +179,7 @@ describe('implementation plan browser wire and display-only boundaries', () => {
   }, 30_000);
 
   it('does not expand the pure foundation exception to sibling or server consumers', () => {
-    expect([...WIRE_CONSUMERS]).toEqual([...UI, 'lib/repositoryPlanFoundation.ts']);
+    expect([...WIRE_CONSUMERS]).toEqual([...UI, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
     for (const file of ['lib/repositoryPlanFoundationOther.ts', 'lib/server/repositoryPlanFoundation.ts',
       'app/api/repository-plan/route.ts']) expect(WIRE_CONSUMERS.has(file)).toBe(false);
   });

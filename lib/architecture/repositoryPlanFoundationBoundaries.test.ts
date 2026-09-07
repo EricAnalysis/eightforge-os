@@ -5,9 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const FOUNDATION = 'lib/repositoryPlanFoundation.ts';
+const CONTENT = 'lib/repositoryPlanContent.ts';
+const GUIDANCE = 'lib/repositoryPlanGuidance.ts';
+const PLAN_V2 = 'lib/repositoryAwareImplementationPlan.ts';
+const REASONING = 'lib/forgewing/tasks/repositoryPlanGuidance.ts';
 const SNAPSHOT = 'lib/repositoryPlanSnapshot.ts';
 const EVIDENCE = 'lib/repositoryPlanEvidence.ts';
 const VERIFIER = 'lib/server/repositoryPlanSnapshot.ts';
+const COLLECTOR = 'lib/server/repositoryPlanContentCollector.ts';
 const WIRE = 'lib/workflowImplementationPlanWire.ts';
 const HASH = 'lib/extraction/domain/hash.ts';
 const V1 = 'lib/workflowImplementationPlan.ts';
@@ -21,14 +26,25 @@ const edge = (specifier: string, typeOnly = false): Dependency => ({ specifier, 
 // leaf; the existing deterministic hash helper is the sole crypto leaf.
 const GRAPH = new Map<string, Dependency[]>([
   [FOUNDATION, [edge('zod'), edge(V1, true), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
+  [CONTENT, [edge('zod'), edge(HASH), edge(FOUNDATION), edge(EVIDENCE), edge(SNAPSHOT)]],
+  [GUIDANCE, [edge('zod'), edge(HASH), edge(CONTENT), edge(FOUNDATION), edge(EVIDENCE), edge(V1, true), edge(WIRE)]],
+  [PLAN_V2, [edge('zod'), edge(HASH), edge(GUIDANCE)]],
+  [REASONING, [edge(HASH), edge('lib/forgewing/runtime/budget'), edge('lib/forgewing/runtime/client'),
+    edge('lib/forgewing/runtime/modelConfig'), edge(GUIDANCE), edge(PLAN_V2)]],
   [SNAPSHOT, [edge('zod')]],
   [EVIDENCE, [edge('zod'), edge(SNAPSHOT)]],
   [VERIFIER, [edge('node:child_process'), edge('node:fs'), edge('node:os'), edge('node:path'), edge(SNAPSHOT)]],
+  [COLLECTOR, [edge('node:child_process'), edge(HASH), edge(FOUNDATION), edge(CONTENT), edge(EVIDENCE, true), edge(VERIFIER, true)]],
   [WIRE, [edge('zod')]],
   [REVIEWED, [edge('zod')]],
   [HASH, [edge('node:crypto')]],
 ]);
-const B1 = new Set([FOUNDATION, SNAPSHOT, EVIDENCE, VERIFIER]);
+const B1 = new Set([FOUNDATION, CONTENT, GUIDANCE, SNAPSHOT, EVIDENCE, VERIFIER, COLLECTOR]);
+const AUTHORIZED_LATER_CONSUMERS = new Map<string, Dependency[]>([
+  ['components/workflow/EngineeringRecommendationReview.tsx', [edge(GUIDANCE, true)]],
+  ['lib/linearCapabilityProjection.ts', [edge(EVIDENCE)]],
+  ['lib/server/linearProjectionDelivery.ts', [edge(CONTENT)]],
+]);
 
 function parse(text: string, file: string): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
@@ -85,8 +101,9 @@ function consumerViolations(file: string, text: string): string[] {
   return dependencies(text, file).flatMap((dependency) => {
     const destination = [...B1].find((candidate) => strip(candidate) === target(file, dependency.specifier));
     if (!destination) return [];
-    const permitted = GRAPH.get(file)?.some((candidate) => strip(candidate.specifier) === strip(destination)
-      && candidate.typeOnly === dependency.typeOnly);
+    const permitted = [...(GRAPH.get(file) ?? []), ...(AUTHORIZED_LATER_CONSUMERS.get(file) ?? [])]
+      .some((candidate) => strip(candidate.specifier) === strip(destination)
+        && candidate.typeOnly === dependency.typeOnly);
     return permitted ? [] : [`${file} -> ${dependency.specifier}`];
   });
 }
@@ -290,15 +307,101 @@ function verifierViolations(text: string): string[] {
   return found;
 }
 
-describe('repository Plan V2 B1 remains a dormant deterministic foundation', () => {
+const COLLECTOR_ENV_AND_GIT_WRAPPER = `
+    const env: NodeJS.ProcessEnv = {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_'))),
+      NODE_ENV: process.env.NODE_ENV,
+      GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1',
+      GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1',
+    };
+    const runGit = (args: string[], stdin?: Buffer): Buffer => execFileSync('git', [
+      '--no-pager', '-c', 'core.fsmonitor=false', ...args,
+    ], { cwd: input.repositoryRoot, env, input: stdin, shell: false, windowsHide: true,
+      timeout: 120_000, maxBuffer: 16 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });`;
+const COLLECTOR_BATCH_INPUT = "Buffer.from(`${blobShas.join('\\n')}\\n`, 'ascii')";
+
+function collectorViolations(text: string): string[] {
+  const found = graphViolations(COLLECTOR, text);
+  const ast = parse(text, COLLECTOR);
+  const childProcess = ast.statements.filter(ts.isImportDeclaration)
+    .filter((node) => ts.isStringLiteralLike(node.moduleSpecifier) && node.moduleSpecifier.text === 'node:child_process');
+  if (childProcess.length !== 1 || childProcess[0].importClause?.name
+    || !childProcess[0].importClause?.namedBindings || !ts.isNamedImports(childProcess[0].importClause.namedBindings)
+    || childProcess[0].importClause.namedBindings.elements.length !== 1
+    || childProcess[0].importClause.namedBindings.elements[0].getText(ast) !== 'execFileSync') found.push('unexpected collector process API');
+  if (!compact(text).includes(compact(COLLECTOR_ENV_AND_GIT_WRAPPER))) found.push('collector Git wrapper or environment drift');
+  let gitCalls = 0;
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && node.text === 'runGit'
+      && !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+      && !(ts.isVariableDeclaration(node.parent) && node.parent.name === node)) found.push('aliased collector Git capability');
+    if (ts.isIdentifier(node) && node.text === 'env') {
+      const allowed = ts.isVariableDeclaration(node.parent) && node.parent.name === node
+        || ts.isPropertyAccessExpression(node.parent) && node.parent.name === node
+          && ts.isIdentifier(node.parent.expression) && node.parent.expression.text === 'process'
+        || ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node;
+      if (!allowed) found.push('mutated or aliased collector environment');
+    }
+    if (ts.isIdentifier(node) && node.text === 'process'
+      && !(ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node && node.parent.name.text === 'env'))
+      found.push('unexpected collector process access');
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (node.expression.text === 'runGit') {
+        gitCalls++;
+        const args = compact(node.arguments[0]?.getText(ast) ?? '');
+        const allowed = [
+          "['ls-tree','-r','-z','--full-tree',input.snapshot.commitSha]",
+          "['cat-file','--batch']",
+        ];
+        if (!allowed.includes(args)) found.push('unexpected collector Git command');
+        if (args === "['cat-file','--batch']" && (node.arguments.length !== 2
+          || compact(node.arguments[1]?.getText(ast) ?? '') !== compact(COLLECTOR_BATCH_INPUT)))
+          found.push('cat-file requires exact blob stdin');
+        if (args !== "['cat-file','--batch']" && node.arguments.length !== 1) found.push('unexpected collector Git input');
+      }
+      if (node.expression.text === 'execFileSync') {
+        const options = node.arguments[2];
+        const argv = node.arguments[1];
+        if (!ts.isStringLiteralLike(node.arguments[0]) || node.arguments[0].text !== 'git'
+          || !argv || !ts.isArrayLiteralExpression(argv) || argv.elements.length !== 4
+          || argv.elements.slice(0, 3).some((item, index) => !ts.isStringLiteralLike(item)
+            || item.text !== ['--no-pager', '-c', 'core.fsmonitor=false'][index])
+          || !ts.isSpreadElement(argv.elements[3]) || !ts.isIdentifier(argv.elements[3].expression)
+          || argv.elements[3].expression.text !== 'args'
+          || !options || !ts.isObjectLiteralExpression(options)
+          || !options.properties.some((item) => ts.isPropertyAssignment(item)
+            && item.name.getText(ast) === 'shell' && item.initializer.kind === ts.SyntaxKind.FalseKeyword))
+          found.push('unsafe collector process invocation');
+      }
+    }
+    if (ts.isIdentifier(node) && ['fetch', 'require', 'eval', 'Function', 'globalThis', 'WebSocket',
+      'readFileSync', 'readFile', 'createReadStream', 'open', 'openSync'].includes(node.text)
+      || node.kind === ts.SyntaxKind.ImportKeyword) found.push('ambient or working-tree collector integration');
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  if (gitCalls !== 2) found.push('collector must use exactly two Git commands');
+  return found;
+}
+
+describe('repository Plan V2 trusted deterministic foundation and B2a consumer', () => {
   it('pins every internal dependency and the complete runtime helper closure', () => {
     for (const file of GRAPH.keys()) expect(graphViolations(file, read(file))).toEqual([]);
     expect(closureViolations(FOUNDATION, read)).toEqual([]);
+    expect(closureViolations(CONTENT, read)).toEqual([]);
+    expect(closureViolations(GUIDANCE, read)).toEqual([]);
+    expect(closureViolations(PLAN_V2, read)).toEqual([]);
     expect(closureViolations(VERIFIER, read)).toEqual([]);
-    for (const file of [FOUNDATION, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
+    expect(closureViolations(COLLECTOR, read)).toEqual([]);
+    for (const file of [FOUNDATION, CONTENT, GUIDANCE, PLAN_V2, SNAPSHOT, EVIDENCE, WIRE, REVIEWED]) expect(purityViolations(read(file), file)).toEqual([]);
   });
 
   it('allows no production consumers outside the exact B1 internal graph', () => {
+    expect([...AUTHORIZED_LATER_CONSUMERS.keys()]).toEqual([
+      'components/workflow/EngineeringRecommendationReview.tsx',
+      'lib/linearCapabilityProjection.ts',
+      'lib/server/linearProjectionDelivery.ts',
+    ]);
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts', 'pages', 'src']
       .flatMap((root) => productionFiles(path.join(ROOT, root)))) {
@@ -319,6 +422,32 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
       "execFileSync('sh', ['-c', command], { shell: true });",
       "import { spawn } from 'node:child_process';", 'fetch(url);', "process.getBuiltinModule('fs');"]) {
       expect(verifierViolations(text + '\n' + addition)).not.toEqual([]);
+    }
+  });
+
+  it('pins committed-content collection to exact tree and blob object reads', () => {
+    const text = read(COLLECTOR);
+    expect(collectorViolations(text)).toEqual([]);
+    // The fixed buffer admits the complete maximum 200-file payload plus batch
+    // headers, so the parser—not maxBuffer—owns collection budget failures.
+    expect(16 * 1024 * 1024).toBeGreaterThan(200 * (65_536 + 64));
+    for (const addition of ["runGit(['show', 'HEAD:path']);", "runGit(['cat-file', '--filters']);",
+      "runGit(['fetch']);", "runGit(['checkout', 'main']);", "runGit(['ls-tree', 'HEAD']);",
+      "import { readFileSync } from 'node:fs';", "import { generateText } from 'ai';",
+      "import { client } from '@/lib/supabase';", "readFileSync(repositoryPath);",
+      "execFileSync('sh', ['-c', command], { shell: true });", 'const invoke = runGit;']) {
+      expect(collectorViolations(`${text}\n${addition}`), addition).not.toEqual([]);
+    }
+    for (const [before, after] of [
+      ["!key.toUpperCase().startsWith('GIT_')", 'true'],
+      ["GIT_NO_LAZY_FETCH: '1'", "GIT_NO_LAZY_FETCH: '0'"],
+      ['...args', "'fetch'"],
+      [COLLECTOR_BATCH_INPUT, "Buffer.from('HEAD:path\\n', 'ascii')"],
+      ["['cat-file', '--batch']", "['cat-file', '--filters']"],
+      ["['ls-tree', '-r', '-z', '--full-tree', input.snapshot.commitSha]", "['fetch']"],
+    ] as const) {
+      expect(text.includes(before), `collector probe target: ${before}`).toBe(true);
+      expect(collectorViolations(text.replace(before, after)), `${before} -> ${after}`).not.toEqual([]);
     }
   });
 
@@ -374,7 +503,9 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
       "import { writeFileSync } from 'node:fs';", "export * from '@/lib/server/execution';"] ) {
       for (const changed of [FOUNDATION, EVIDENCE, SNAPSHOT, WIRE, HASH, REVIEWED]) {
         expect(closureViolations(FOUNDATION, (file) => read(file) + (file === changed ? '\n' + bad : ''))).not.toEqual([]);
+        expect(closureViolations(CONTENT, (file) => read(file) + (file === changed ? '\n' + bad : ''))).not.toEqual([]);
       }
+      expect(closureViolations(CONTENT, (file) => read(file) + (file === CONTENT ? '\n' + bad : ''))).not.toEqual([]);
     }
   });
 
@@ -398,6 +529,11 @@ describe('repository Plan V2 B1 remains a dormant deterministic foundation', () 
       expect(consumerViolations(file, `import type { X } from '@/${strip(module)}';`)).toHaveLength(1);
     }
     expect(consumerViolations(FOUNDATION, "import { verify } from '@/lib/server/repositoryPlanSnapshot';")).toHaveLength(1);
+    expect(consumerViolations('lib/codex/consumer.ts', "import { buildRepositoryPlanContent } from '@/lib/repositoryPlanContent';")).toHaveLength(1);
+    expect(consumerViolations(GUIDANCE, "import { buildRepositoryPlanContent } from '@/lib/repositoryPlanContent';")).toEqual([]);
+    expect(consumerViolations(REASONING, "import { guidance } from '@/lib/repositoryPlanGuidance';")).toEqual([]);
+    expect(consumerViolations('lib/forgewing/tasks/fake.ts', "import { content } from '@/lib/repositoryPlanContent';")).toHaveLength(1);
+    expect(consumerViolations('lib/forgewing/tasks/fake.ts', "import { guidance } from '@/lib/repositoryPlanGuidance';")).toHaveLength(1);
   });
 
   it.each(['Date.now()', 'Math.random()', "Math['random']()", 'fetch(url)', 'process.env.X',

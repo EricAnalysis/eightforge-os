@@ -14,6 +14,7 @@ import {
 import {
   WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
+import { REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA } from '@/lib/forgewing/runtime/repositoryPlanGuidanceStructuredOutput';
 
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_ID = 'forgewing-region-classification';
 export const FORGEWING_REGION_CLASSIFICATION_PROMPT_VERSION = 'v1';
@@ -30,6 +31,8 @@ export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_ID =
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_VERSION = 'v1';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID = 'forgewing-workflow-assessment';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION = 'v1';
+export const FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_ID = 'forgewing-repository-plan-guidance';
+export const FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_VERSION = 'v1';
 
 export type ForgewingProviderRequest = Readonly<{
   model: string;
@@ -118,6 +121,13 @@ function loadWorkflowAssessmentPrompt(): string {
   );
 }
 
+export function loadRepositoryPlanGuidancePrompt(): string {
+  return readFileSync(
+    new URL('../prompts/repositoryPlanGuidance.md', import.meta.url),
+    'utf8',
+  );
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
@@ -128,7 +138,8 @@ async function callClaudeWithStructuredOutput(
     | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
     | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
     | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
-    | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
+    | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
+    | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
 ): Promise<string> {
   const controller = new AbortController();
@@ -215,6 +226,14 @@ export const callClaudeForWorkflowAssessment: ForgewingProvider = async (request
     request,
     loadWorkflowAssessmentPrompt(),
     WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+
+export const callClaudeForRepositoryPlanGuidance: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadRepositoryPlanGuidancePrompt(),
+    REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
     true,
   );
 

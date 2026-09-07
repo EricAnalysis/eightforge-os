@@ -7,6 +7,7 @@ const ROOT = process.cwd();
 const CORE = 'lib/workflowImplementationPlan.ts';
 const READ = 'lib/server/workflowImplementationPlanRead.ts';
 const PLAN_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts']);
+const PLAN_TYPE_CONSUMERS = new Set(['lib/repositoryPlanGuidance.ts']);
 const READ_CONSUMERS = new Set(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
 const RESOLVER = '@/lib/workflowEffectiveReviewedSpecification';
 const EXTENSION = /\.[cm]?[jt]sx?$/;
@@ -52,7 +53,8 @@ function consumerViolations(file: string, text: string): string[] {
       : normalized.startsWith('.') ? path.posix.join(path.posix.dirname(file), normalized) : normalized;
     const target = path.posix.normalize(resolved).replace(EXTENSION, '');
     const foundationType = file === 'lib/repositoryPlanFoundation.ts' && typeOnly;
-    return (target === CORE.replace(EXTENSION, '') && !PLAN_CONSUMERS.has(file) && !foundationType)
+    const authorizedPlanConsumer = PLAN_CONSUMERS.has(file) || (typeOnly && PLAN_TYPE_CONSUMERS.has(file));
+    return (target === CORE.replace(EXTENSION, '') && !authorizedPlanConsumer && !foundationType)
       || (target === READ.replace(EXTENSION, '') && !READ_CONSUMERS.has(file))
       ? [`${file} -> ${specifier}`] : [];
   });
@@ -211,6 +213,7 @@ describe('workflow implementation plan has no runtime or authority integration',
 
   it('allows exactly the trusted seam and GET route, including type imports and reexports', () => {
     expect([...PLAN_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
+    expect([...PLAN_TYPE_CONSUMERS]).toEqual(['lib/repositoryPlanGuidance.ts']);
     expect([...READ_CONSUMERS]).toEqual(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts']
@@ -244,6 +247,14 @@ describe('workflow implementation plan has no runtime or authority integration',
       "export * from '@/lib/workflowImplementationPlan';",
       "const planner = import('@/lib/workflowImplementationPlan');",
     ]) expect(consumerViolations(foundation, text)).toHaveLength(1);
+  });
+
+  it('permits B2a erased Plan V1 access without allowing a runtime builder dependency', () => {
+    const guidance = 'lib/repositoryPlanGuidance.ts';
+    expect(consumerViolations(guidance,
+      "import type { WorkflowImplementationPlanArtifact } from '@/lib/workflowImplementationPlan';")).toEqual([]);
+    expect(consumerViolations(guidance,
+      "import { buildWorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';")).toHaveLength(1);
   });
 
   it.each([

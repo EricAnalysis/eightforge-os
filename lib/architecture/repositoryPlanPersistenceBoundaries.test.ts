@@ -4,6 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const migration = readFileSync(path.join(root, 'supabase/migrations/20260906062740_immutable_repository_plan_v2_persistence.sql'), 'utf8');
+const closureMigration = readFileSync(path.join(root,
+  'supabase/migrations/20260907152935_phase11e_b3_engineering_persistence_authority_closure.sql'), 'utf8');
+const reviewMigration = readFileSync(path.join(root,
+  'supabase/migrations/20260906063909_immutable_repository_plan_engineering_reviews.sql'), 'utf8');
+const replay = readFileSync(path.join(root, 'scripts/verify-step0-migration-replay.sh'), 'utf8');
 const writer = readFileSync(path.join(root, 'lib/server/workflowRepositoryPlanPersistence.ts'), 'utf8');
 const reader = readFileSync(path.join(root, 'lib/server/workflowRepositoryPlanRead.ts'), 'utf8');
 
@@ -36,6 +41,21 @@ describe('repository Plan V2 persistence boundaries', () => {
     }
     expect(migration).toContain('pg_advisory_xact_lock');
     expect(migration).toContain('Plan V2 idempotency conflict');
+    expect(closureMigration).toContain('workflow_repository_plan_v2_plan_v1_source_binding_check');
+    expect(closureMigration).toContain("{guidance,sourceImplementationPlanV1DigestSha256}");
+  });
+
+  it('closes modified review scope at the database boundary and wires direct qualification before B4', () => {
+    expect(reviewMigration).toContain('record_workflow_repository_plan_recommendation_review');
+    expect(closureMigration).toContain('is_valid_workflow_engineering_modified_scope');
+    for (const required of ['capabilitySummary','evidenceRefs','regressionGates','stopConditions',
+      'operator_decision_required','^ev_[0-9a-f]{64}$']) expect(closureMigration).toContain(required);
+    expect(closureMigration).toContain('REVOKE ALL ON FUNCTION public.is_valid_workflow_engineering_modified_scope');
+    const b3 = replay.indexOf('verify-repository-plan-engineering-review.sql');
+    const b4 = replay.indexOf('verify-linear-projection-delivery.sql');
+    expect(b3).toBeGreaterThan(0);
+    expect(b4).toBeGreaterThan(b3);
+    expect(replay).toContain('PHASE 11E B3A/B3B CONCURRENCY: PASS');
   });
 
   it('keeps the normal read seam away from raw output and provider execution', () => {

@@ -16,7 +16,7 @@ INSERT INTO public.workflow_repository_plan_recommendation_reviews (
 )
 SELECT
   '94000000-0000-4000-8000-000000000001', plan.id,
-  plan.plan_v2_digest_sha256, 'rec_' || repeat('b', 64), 1,
+  plan.plan_v2_digest_sha256, 'rec_' || repeat('b', 64), 99,
   '93000000-0000-4000-8000-000000000001', 'accepted',
   'workflow_specific', 'Linear projection database verifier.', NULL,
   repeat('d', 64), plan.repository_commit_sha

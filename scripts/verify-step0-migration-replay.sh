@@ -2,9 +2,11 @@
 set -Eeuo pipefail
 
 if [[ -n "${STEP0_REPLAY_DATABASE_URL:-}" ]]; then
+  replay_database_url="${STEP0_REPLAY_DATABASE_URL}"
   psql=(psql -X -v ON_ERROR_STOP=1 "${STEP0_REPLAY_DATABASE_URL}")
 else
   database_name="eightforge_step0_replay_${$}"
+  replay_database_url="postgresql:///${database_name}"
   cleanup() {
     runuser -u postgres -- dropdb --if-exists "${database_name}" >/dev/null
   }
@@ -77,6 +79,45 @@ SQL
 # on execution and concurrency spans transactions.
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
+"${psql[@]}" --file scripts/sql/verify-repository-plan-engineering-review.sql
+
+# Hold each first transaction open after the SECURITY DEFINER call so the
+# second real PostgreSQL session must contend on the migration's advisory lock.
+b3_plan_race_sql="BEGIN; DO \$\$ DECLARE v_base jsonb; v_env jsonb; v_full jsonb; v_digest text; BEGIN SELECT plan_v2_canonical_json::jsonb INTO STRICT v_base FROM public.workflow_repository_plan_v2_runs WHERE repository_commit_sha=repeat('a',40) AND guidance_input_digest_sha256=repeat('6',64); v_env:=jsonb_set(v_base-'digest','{source,reviewPin,assessmentId}',to_jsonb('97000000-0000-4000-8000-000000000001'::text)); v_env:=jsonb_set(v_env,'{source,guidanceInputDigestSha256}',to_jsonb(repeat('e',64))); v_env:=jsonb_set(v_env,'{guidance,sourceGuidanceInputDigestSha256}',to_jsonb(repeat('e',64))); v_env:=jsonb_set(v_env,'{providerProvenance,guidanceInputDigestSha256}',to_jsonb(repeat('e',64))); v_env:=jsonb_set(v_env,'{providerProvenance,callCount}','0'::jsonb); v_env:=jsonb_set(v_env,'{providerProvenance,rawOutputSha256}','null'::jsonb); v_env:=jsonb_set(v_env,'{rawOutputSha256}','null'::jsonb); v_digest:=encode(extensions.digest(convert_to(v_env::text,'UTF8'),'sha256'),'hex'); v_full:=v_env||jsonb_build_object('digest',jsonb_build_object('algorithm','sha256','encoding','recursive-key-sorted-json-v1','value',v_digest)); PERFORM * FROM public.record_workflow_repository_plan_v2_run(NULL,NULL,v_full::text,v_env::text); END \$\$; SELECT pg_sleep(3); COMMIT;"
+"${psql[@]}" --command "SET application_name='b3_plan_race_a'; ${b3_plan_race_sql}" >/dev/null &
+b3_plan_first_pid=$!
+b3_plan_overlap=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='b3_plan_race_a' AND wait_event='PgSleep'")" == "1" ]]; then b3_plan_overlap=true; break; fi
+  sleep 0.02
+done
+if [[ "${b3_plan_overlap}" != true ]]; then echo "PHASE 11E B3A CONCURRENCY: FAILED (no overlap)"; wait "${b3_plan_first_pid}"; exit 1; fi
+"${psql[@]}" --command "SET application_name='b3_plan_race_b'; ${b3_plan_race_sql}" >/dev/null &
+b3_plan_second_pid=$!
+wait "${b3_plan_first_pid}"
+wait "${b3_plan_second_pid}"
+"${psql[@]}" --command "DO \$\$ BEGIN IF (SELECT count(*) FROM public.workflow_repository_plan_v2_runs WHERE assessment_id='97000000-0000-4000-8000-000000000001')<>1 THEN RAISE EXCEPTION 'concurrent identical Plan V2 persistence did not converge'; END IF; END \$\$;" >/dev/null
+
+b3_review_call="SELECT * FROM public.record_workflow_repository_plan_recommendation_review((SELECT id FROM public.workflow_repository_plan_v2_runs WHERE repository_commit_sha=repeat('a',40) AND guidance_input_digest_sha256=repeat('6',64)),(SELECT plan_v2_digest_sha256 FROM public.workflow_repository_plan_v2_runs WHERE repository_commit_sha=repeat('a',40) AND guidance_input_digest_sha256=repeat('6',64)),'rec_'||repeat('b',64),'96000000-0000-4000-8000-000000000001','accepted','reusable_platform_capability','Concurrent review qualification.',NULL,repeat('5',64))"
+"${psql[@]}" --command "SET application_name='b3_review_race_a'; SET ROLE service_role; SET request.jwt.claim.role='service_role'; BEGIN; ${b3_review_call}; SELECT pg_sleep(3); COMMIT;" >/dev/null &
+b3_review_first_pid=$!
+b3_review_overlap=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='b3_review_race_a' AND wait_event='PgSleep'")" == "1" ]]; then b3_review_overlap=true; break; fi
+  sleep 0.02
+done
+if [[ "${b3_review_overlap}" != true ]]; then echo "PHASE 11E B3B CONCURRENCY: FAILED (no overlap)"; wait "${b3_review_first_pid}"; exit 1; fi
+b3_review_second_call="SELECT * FROM public.record_workflow_repository_plan_recommendation_review((SELECT id FROM public.workflow_repository_plan_v2_runs WHERE repository_commit_sha=repeat('a',40) AND guidance_input_digest_sha256=repeat('6',64)),(SELECT plan_v2_digest_sha256 FROM public.workflow_repository_plan_v2_runs WHERE repository_commit_sha=repeat('a',40) AND guidance_input_digest_sha256=repeat('6',64)),'rec_'||repeat('b',64),'96000000-0000-4000-8000-000000000001','accepted','reusable_platform_capability','Concurrent review qualification.',NULL,repeat('6',64))"
+"${psql[@]}" --command "SET application_name='b3_review_race_b'; SET ROLE service_role; SET request.jwt.claim.role='service_role'; ${b3_review_second_call};" >/dev/null &
+b3_review_second_pid=$!
+wait "${b3_review_first_pid}"
+wait "${b3_review_second_pid}"
+"${psql[@]}" --command "DO \$\$ BEGIN IF (SELECT array_agg(review_version ORDER BY review_version) FROM public.workflow_repository_plan_recommendation_reviews WHERE review_request_digest_sha256 IN (repeat('5',64),repeat('6',64))) IS DISTINCT FROM ARRAY[5,6] THEN RAISE EXCEPTION 'concurrent review version allocation did not serialize'; END IF; END \$\$;" >/dev/null
+echo "PHASE 11E B3A/B3B CONCURRENCY: PASS"
+PHASE11E_B3_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE11E_B3_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts scripts/verify-approved-engineering-request-from-postgres.ts
+
 "${psql[@]}" --file scripts/sql/verify-linear-projection-delivery.sql
 
 workflow_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000023'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
@@ -2633,6 +2674,7 @@ echo "DATABASE DEPENDENCY CLOSURE MISSING / MISMATCHED NEGATIVES: PASS"
 echo "DATABASE STEP1 SHADOW IDEMPOTENCY / DIVERGENCE / ATOMICITY: PASS"
 echo "DATABASE STEP1 CONCURRENT RETRY CONVERGENCE: PASS"
 echo "DATABASE P2 IMMUTABLE SOURCE IDENTITY / RETRY / CONFLICT: PASS"
+echo "PHASE 11E B3A/B3B DIRECT POSTGRESQL QUALIFICATION: PASS"
 echo "DATABASE LINEAR PROJECTION ACL / CLAIM / RECOVERY / WITHDRAWAL: PASS"
 echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"
 echo "DATABASE STEP3 CELL RECONSTRUCTION / QUARANTINE CLOSURE / ATOMICITY: PASS"

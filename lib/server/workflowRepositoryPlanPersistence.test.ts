@@ -82,6 +82,9 @@ describe('repository Plan V2 persistence seam', () => {
       value.rawProviderEvidence, { admin: { rpc } })).resolves.toEqual({ status: 'invalid_artifact' });
     await expect(recordWorkflowRepositoryPlanV2(value.planV2, null, { admin: { rpc } }))
       .resolves.toEqual({ status: 'identity_mismatch' });
+    await expect(recordWorkflowRepositoryPlanV2({ ...value.planV2,
+      source: { ...value.planV2.source, implementationPlanV1DigestSha256: '9'.repeat(64) } } as never,
+    value.rawProviderEvidence, { admin: { rpc } })).resolves.toEqual({ status: 'invalid_artifact' });
     expect(rpc).not.toHaveBeenCalled();
   });
 

@@ -82,6 +82,7 @@ export const RepositoryAwareImplementationPlanV2Schema = planV2EnvelopeSchema.ex
   .superRefine((artifact, ctx) => {
     const { digest, ...envelope } = artifact;
     if (hashCanonical(envelope) !== digest.value || artifact.validatedOutputSha256 !== artifact.guidance.digest.value
+      || artifact.guidance.sourceImplementationPlanV1DigestSha256 !== artifact.source.implementationPlanV1DigestSha256
       || artifact.guidance.sourceGuidanceInputDigestSha256 !== artifact.source.guidanceInputDigestSha256
       || artifact.providerProvenance.repositoryCommitSha !== artifact.source.repositorySnapshot.commitSha
       || artifact.providerProvenance.foundationDigestSha256 !== artifact.source.foundationDigestSha256

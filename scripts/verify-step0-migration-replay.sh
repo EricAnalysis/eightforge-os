@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+database_name=''
+migration_replay_root=''
+migration_replay_parent=''
+cleanup() {
+  if [[ -n "${migration_replay_root}" ]]; then
+    local resolved_replay_root
+    resolved_replay_root="$(realpath -- "${migration_replay_root}")"
+    case "${resolved_replay_root}" in
+      "${migration_replay_parent}"/eightforge-migration-replay.*)
+        rm -rf -- "${resolved_replay_root}"
+        ;;
+      *)
+        echo "REFUSING UNSAFE MIGRATION REPLAY CLEANUP: ${resolved_replay_root}" >&2
+        ;;
+    esac
+  fi
+  if [[ -n "${database_name}" ]]; then
+    runuser -u postgres -- dropdb --if-exists "${database_name}" >/dev/null
+  fi
+}
+trap cleanup EXIT
+
 if [[ -n "${STEP0_REPLAY_DATABASE_URL:-}" ]]; then
   replay_database_url="${STEP0_REPLAY_DATABASE_URL}"
   psql=(psql -X -v ON_ERROR_STOP=1 "${STEP0_REPLAY_DATABASE_URL}")
 else
   database_name="eightforge_step0_replay_${$}"
   replay_database_url="postgresql:///${database_name}"
-  cleanup() {
-    runuser -u postgres -- dropdb --if-exists "${database_name}" >/dev/null
-  }
-  trap cleanup EXIT
   runuser -u postgres -- createdb "${database_name}"
   psql=(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 --dbname "${database_name}")
 fi
@@ -41,6 +59,26 @@ if [[ "${#migrations[@]}" -eq 0 ]]; then
   echo "FRESH REPLAY: FAILED AT no migration files found"
   exit 1
 fi
+repository_root="$(pwd -P)"
+migration_replay_parent="$(realpath -- "${TMPDIR:-/tmp}")"
+case "${migration_replay_parent}/" in
+  "${repository_root}/"*)
+    echo "FRESH REPLAY: FAILED AT temporary replay parent is inside repository" >&2
+    exit 1
+    ;;
+esac
+migration_replay_root="$(mktemp -d -- "${migration_replay_parent}/eightforge-migration-replay.XXXXXX")"
+resolved_replay_root="$(realpath -- "${migration_replay_root}")"
+case "${resolved_replay_root}" in
+  "${migration_replay_parent}"/eightforge-migration-replay.*) ;;
+  *)
+    echo "FRESH REPLAY: FAILED AT unsafe temporary replay path" >&2
+    exit 1
+    ;;
+esac
+migration_replay_root="${resolved_replay_root}"
+chmod 0711 -- "${migration_replay_root}"
+
 "${psql[@]}" <<'SQL'
 CREATE SCHEMA IF NOT EXISTS supabase_migrations;
 CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
@@ -50,8 +88,13 @@ CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
 );
 SQL
 for migration in "${migrations[@]}"; do
-  "${psql[@]}" --file "${migration}" >/dev/null
   migration_file="$(basename "${migration}" .sql)"
+  normalized_migration="${migration_replay_root}/${migration_file}.sql"
+  # PostgreSQL retains SQL-function body line endings in pg_proc.prosrc. Feed
+  # platform-invariant LF bytes to psql without changing tracked source files.
+  LC_ALL=C perl -0777 -pe 's/\r\n/\n/g' -- "${migration}" > "${normalized_migration}"
+  chmod 0644 -- "${normalized_migration}"
+  "${psql[@]}" --file "${normalized_migration}" >/dev/null
   migration_version="${migration_file%%_*}"
   migration_name="${migration_file#*_}"
   "${psql[@]}" \
@@ -226,7 +269,7 @@ SQL
 
 "${psql[@]}" --file scripts/sql/verify-phase1b-physical-page-provenance.sql
 
-phase1b_migration='supabase/migrations/20260812192944_phase1b_physical_page_provenance.sql'
+phase1b_migration="${migration_replay_root}/20260812192944_phase1b_physical_page_provenance.sql"
 "${psql[@]}" --file "${phase1b_migration}" >/dev/null
 
 run_phase1b_drift_negative() {

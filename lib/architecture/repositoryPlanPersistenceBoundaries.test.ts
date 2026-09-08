@@ -43,6 +43,9 @@ describe('repository Plan V2 persistence boundaries', () => {
     expect(migration).toContain('Plan V2 idempotency conflict');
     expect(closureMigration).toContain('workflow_repository_plan_v2_plan_v1_source_binding_check');
     expect(closureMigration).toContain("{guidance,sourceImplementationPlanV1DigestSha256}");
+    expect(closureMigration).toMatch(
+      /ADD CONSTRAINT workflow_repository_plan_v2_plan_v1_source_binding_check\s+CHECK \(\s*implementation_plan_v1_digest_sha256\s+IS NOT DISTINCT FROM plan_v2_canonical_json::jsonb #>> '\{source,implementationPlanV1DigestSha256\}'\s+AND implementation_plan_v1_digest_sha256\s+IS NOT DISTINCT FROM plan_v2_canonical_json::jsonb #>> '\{guidance,sourceImplementationPlanV1DigestSha256\}'\s*\);/,
+    );
   });
 
   it('closes modified review scope at the database boundary and wires direct qualification before B4', () => {

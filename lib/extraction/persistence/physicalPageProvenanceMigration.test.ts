@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,6 +7,9 @@ const migrationPath = path.join(
   process.cwd(),
   'supabase/migrations/20260812192944_phase1b_physical_page_provenance.sql',
 );
+const replayPath = path.join(process.cwd(), 'scripts/verify-step0-migration-replay.sh');
+const md5 = (value: string): string => createHash('md5').update(value).digest('hex');
+const normalizeReplaySql = (value: string): string => value.replaceAll('\r\n', '\n');
 
 describe('Phase 1B physical-page provenance migration', () => {
   const sql = fs.readFileSync(migrationPath, 'utf8');
@@ -44,6 +48,32 @@ describe('Phase 1B physical-page provenance migration', () => {
     );
     expect(sql).toContain('has an incompatible definition');
     expect(sql).toContain('pg_catalog.pg_get_triggerdef');
+  });
+
+  it('replays migration function bodies with platform-invariant line endings', () => {
+    const replay = fs.readFileSync(replayPath, 'utf8');
+    const validator = sql.match(
+      /CREATE OR REPLACE FUNCTION public\.is_valid_physical_page_coordinate[\s\S]*?AS \$\$([\s\S]*?)\$\$;/,
+    );
+    const expectedHash = sql.match(
+      /pg_catalog\.md5\(p\.prosrc\) = '([a-f0-9]{32})'/,
+    );
+    expect(validator).not.toBeNull();
+    expect(expectedHash).not.toBeNull();
+    expect(md5(normalizeReplaySql(validator![1]))).toBe(expectedHash![1]);
+    expect(normalizeReplaySql('first\r\nembedded\rvalue\nlast\r')).toBe('first\nembedded\rvalue\nlast\r');
+    expect(replay).toContain(
+      "LC_ALL=C perl -0777 -pe 's/\\r\\n/\\n/g' -- \"${migration}\" > \"${normalized_migration}\"",
+    );
+    expect(replay).toContain(
+      'migration_replay_root="$(mktemp -d -- "${migration_replay_parent}/eightforge-migration-replay.XXXXXX")"',
+    );
+    expect(replay).toContain('chmod 0711 -- "${migration_replay_root}"');
+    expect(replay).toContain('chmod 0644 -- "${normalized_migration}"');
+    expect(replay).toContain(
+      'phase1b_migration="${migration_replay_root}/20260812192944_phase1b_physical_page_provenance.sql"',
+    );
+    expect(replay).not.toContain('sed -i');
   });
 
   it('replaces the reviewed publisher explicitly without prosrc surgery', () => {

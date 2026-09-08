@@ -17,3 +17,22 @@
 # lib/evaluation/forgewing/phaseCArtifactByteStability.test.ts enforces that.
 
 scripts/evaluation/artifacts/**    -text
+
+# Supabase migrations are a canonical-LF byte contract.
+#
+# Audit (2026-09-08) over all 101 committed migrations found every blob is
+# already pure LF, so "text eol=lf" is a provable no-op on committed bytes: no
+# historical migration is renormalized or modified by this rule.
+#
+# "eol=lf" (not "-text") is deliberate. Both keep today's blobs intact, but
+# "-text" preserves whatever bytes an author commits, so a migration authored
+# on Windows would enter the tree as a CRLF blob and permanently break the LF
+# contract. "text eol=lf" normalizes future migrations to LF and forces LF on
+# checkout, so disk bytes equal blob bytes on every platform and migration
+# SHA-256 values reproduce cross-machine.
+#
+# This differs from the artifact rule above on purpose: those artifacts are
+# hash-pinned and their blobs must be taken exactly as stored, so "-text" is
+# correct there. Migrations instead require a canonical LF form.
+
+supabase/migrations/**    text eol=lf

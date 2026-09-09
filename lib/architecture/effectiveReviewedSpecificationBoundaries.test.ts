@@ -7,6 +7,11 @@ const ROOT = process.cwd();
 const CORE = 'lib/workflowEffectiveReviewedSpecification.ts';
 const READ = 'lib/server/workflowEffectiveReviewedSpecificationRead.ts';
 const PLAN = 'lib/workflowImplementationPlan.ts';
+const CORE_CONSUMERS = new Set([
+  READ,
+  'lib/server/repositoryPlanGenerationWorker.ts',
+  'lib/server/workflowRepositoryPlanRuns.ts',
+]);
 const READ_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
@@ -65,7 +70,7 @@ function consumerViolations(file: string, text: string): string[] {
     if (file === PLAN && resolved === CORE.replace(EXTENSION, '')
       && !imports(text, file, true).some((runtime) => target(file, runtime) === resolved)) return [];
     return (resolved === READ.replace(EXTENSION, '') && !READ_CONSUMERS.has(file))
-      || (resolved === CORE.replace(EXTENSION, '') && file !== READ)
+      || (resolved === CORE.replace(EXTENSION, '') && !CORE_CONSUMERS.has(file))
       ? [`${file} -> ${specifier}`] : [];
   });
 }
@@ -96,7 +101,12 @@ describe('effective reviewed specification remains a read-only non-authority art
     expect(code(file)).not.toMatch(/\brequire\s*\(|\bimport\s*\(/);
   });
 
-  it('has exactly the resolver read seam as core consumer and the plan read seam as read consumer', () => {
+  it('has exactly the reviewed resolver consumers and the plan read seam as read consumer', () => {
+    expect([...CORE_CONSUMERS].sort()).toEqual([
+      READ,
+      'lib/server/repositoryPlanGenerationWorker.ts',
+      'lib/server/workflowRepositoryPlanRuns.ts',
+    ].sort());
     expect([...READ_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
     const violations: string[] = [];
     const coreConsumers: string[] = [];
@@ -116,7 +126,7 @@ describe('effective reviewed specification remains a read-only non-authority art
         target(file, specifier) === READ.replace(EXTENSION, ''))) readConsumers.push(file);
     }
     expect(violations).toEqual([]);
-    expect(coreConsumers).toEqual([READ]);
+    expect(coreConsumers.sort()).toEqual([...CORE_CONSUMERS].sort());
     expect(readConsumers).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
   }, 30_000);
 

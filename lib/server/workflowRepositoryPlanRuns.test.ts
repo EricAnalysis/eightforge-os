@@ -85,4 +85,13 @@ describe('workflow repository Plan run service', () => {
     await expect(readWorkflowRepositoryPlanRun('44444444-4444-4444-8444-444444444444', { admin: admin() }))
       .resolves.toEqual({ ok: false, code: 'read_failed' });
   });
+
+  it('maps database-only crash codes into the closed public failure vocabulary', async () => {
+    mocks.read.mockResolvedValue({ ok: true, job: {
+      job_id: '44444444-4444-4444-8444-444444444444', classification: 'RULE', job_status: 'failed',
+      failure_code: 'provider_claim_expired', provider_call_count: 1,
+    } });
+    await expect(readWorkflowRepositoryPlanRun('44444444-4444-4444-8444-444444444444', { admin: admin() }))
+      .resolves.toMatchObject({ ok: true, job: { status: 'failed', failureCode: 'worker_failed' } });
+  });
 });

@@ -28,6 +28,11 @@ export type RepositoryPlanRunActor = Readonly<{
   role: string | null;
 }>;
 
+const publicFailureCodes = new Set([
+  'provider_disabled', 'provider_timeout', 'provider_failed', 'invalid_provider_output',
+  'trusted_source_invalid', 'repository_mismatch', 'persistence_failed', 'worker_failed',
+]);
+
 async function readTrustedPlan(pin: RepositoryPlanRunRequest, admin: AdminClient) {
   const assessment = await admin.from('workflow_assessments')
     .select('id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at')
@@ -95,7 +100,9 @@ export async function readWorkflowRepositoryPlanRun(
   const row = read.job;
   const base = { jobId: row.job_id, classification: row.classification, status: row.job_status };
   if (row.job_status === 'failed') return { ok: true,
-    job: { ...base, status: 'failed' as const, failureCode: row.failure_code ?? 'worker_failed' } } as const;
+    job: { ...base, status: 'failed' as const,
+      failureCode: row.failure_code && publicFailureCodes.has(row.failure_code)
+        ? row.failure_code : 'worker_failed' } } as const;
   if (row.job_status === 'succeeded') {
     if (!row.plan_v2_run_id || !row.plan_v2_digest_sha256 || !row.repository_commit_sha) {
       return { ok: false, code: 'read_failed' } as const;

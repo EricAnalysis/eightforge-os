@@ -132,4 +132,72 @@ describe('runOneRepositoryPlanGenerationJob', () => {
     expect(result).toMatchObject({ status: 'succeeded', providerCallCount: 0 });
     expect(beginProvider).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['repository mismatch', { verifySnapshot: vi.fn().mockReturnValue({ ok: false, code: 'head_mismatch' }) }, 'repository_mismatch'],
+    ['B1 failure', {}, 'trusted_source_invalid'],
+    ['B1.5 failure', { collectContent: vi.fn().mockReturnValue({ ok: false, code: 'object_missing' }) }, 'repository_mismatch'],
+  ])('fails before B2b on %s with zero provider calls', async (_name, override, code) => {
+    if (_name === 'B1 failure') mocks.foundation.mockReturnValueOnce({ ok: false, code: 'invalid_plan_v1' });
+    const runGuidance = vi.fn();
+    const persist = vi.fn();
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo',
+      dependencies({ ...override, runGuidance, persist }));
+    expect(result).toMatchObject({ status: 'failed', code });
+    expect(runGuidance).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('persists an insufficient-evidence zero-call result without marking provider start', async () => {
+    const beginProvider = vi.fn();
+    const deterministic = { ...generated, mode: 'insufficient_evidence' as const,
+      rawProviderEvidence: null, planV2: { ...generated.planV2,
+        providerProvenance: { callCount: 0 as const } } };
+    const persist = vi.fn().mockResolvedValue({ status: 'recorded',
+      planV2RunId: '55555555-5555-4555-8555-555555555555' });
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo', dependencies({
+      beginProvider, persist, runGuidance: vi.fn().mockResolvedValue(deterministic),
+    }));
+    expect(result).toMatchObject({ status: 'succeeded', providerCallCount: 0 });
+    expect(beginProvider).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['forgewing_disabled', 0, 'provider_disabled'],
+    ['provider_timeout', 1, 'provider_timeout'],
+    ['invalid_model_output', 1, 'invalid_provider_output'],
+  ] as const)('fails %s without persistence or worker-layer retry', async (reason, callCount, code) => {
+    const beginProvider = vi.fn().mockResolvedValue({ ok: true });
+    const runGuidance = vi.fn(async (_input, options) => {
+      if (callCount === 1) await options.beforeProviderCall?.();
+      return reason === 'forgewing_disabled'
+        ? { status: 'skipped' as const, reason }
+        : { status: 'failed' as const, reason, callCount, rawProviderEvidence: null };
+    });
+    const persist = vi.fn();
+    const fail = vi.fn().mockResolvedValue({ ok: true });
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo',
+      dependencies({ beginProvider, runGuidance, persist, fail }));
+    expect(result).toMatchObject({ status: 'failed', code });
+    expect(beginProvider).toHaveBeenCalledTimes(callCount);
+    expect(runGuidance).toHaveBeenCalledOnce();
+    expect(persist).not.toHaveBeenCalled();
+    expect(fail).toHaveBeenCalledOnce();
+  });
+
+  it('marks the job failed after one B3a attempt without another provider attempt', async () => {
+    const runGuidance = vi.fn(async (_input, options) => {
+      await options.beforeProviderCall?.();
+      return generated;
+    });
+    const persist = vi.fn().mockResolvedValue({ status: 'persist_failed' });
+    const fail = vi.fn().mockResolvedValue({ ok: true });
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo',
+      dependencies({ runGuidance, persist, fail }));
+    expect(result).toEqual({ status: 'failed', jobId: job.job_id, code: 'persistence_failed' });
+    expect(runGuidance).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledOnce();
+    expect(fail).toHaveBeenCalledOnce();
+  });
 });

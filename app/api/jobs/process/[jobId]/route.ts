@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { loadConfirmedRateObservations } from '@/lib/server/effectiveRecoveryConfirmations';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
 import { runDecisionEngine } from '@/lib/server/heuristicDecisionEngine';
@@ -156,6 +157,18 @@ export async function POST(
         ? {
             sourceArtifactId: processingIdentity.sourceArtifactId,
             sourceDocumentId: job.document_id,
+          }
+        : null,
+      // Human-confirmed recovery selections, resolved once, server-side, from
+      // exact accepted or modified reviews. Empty unless a human authorized a
+      // re-entry, so ordinary processing is unchanged.
+      processingIdentity.status === 'persisted'
+        ? {
+            confirmedRateObservations: await loadConfirmedRateObservations({
+              organizationId: job.organization_id,
+              sourceDocumentId: job.document_id,
+              sourceArtifactId: processingIdentity.sourceArtifactId,
+            }),
           }
         : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };

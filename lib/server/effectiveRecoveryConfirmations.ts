@@ -1,3 +1,5 @@
+import type { ConfirmedRateObservation }
+  from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import {
   ConfirmedRecoverySchema,
   type ConfirmedRecovery,
@@ -189,4 +191,40 @@ export async function resolveEffectiveRecoveryConfirmations(
     confirmations: Object.freeze(confirmations),
     diagnostics: Object.freeze(diagnostics),
   };
+}
+
+/**
+ * The single entry point a processing pipeline uses.
+ *
+ * Both extraction pipelines call this and nothing else, so "an accepted
+ * recovery exists" is decided in exactly one place. A resolver failure yields
+ * an empty set: an unavailable review database must leave reconstruction
+ * behaving exactly as it did before recovery existed, never admit a row.
+ */
+export async function loadConfirmedRateObservations(
+  query: EffectiveRecoveryConfirmationQuery,
+  dependencies: Readonly<{
+    admin?: RecoveryReadClient | null;
+    resolve?: typeof resolveEffectiveRecoveryConfirmations;
+  }> = {},
+): Promise<readonly ConfirmedRateObservation[]> {
+  const resolved = await (dependencies.resolve ?? resolveEffectiveRecoveryConfirmations)(
+    query,
+    { admin: dependencies.admin },
+  );
+  if (resolved.status !== 'ok') {
+    if (resolved.status === 'read_failed') {
+      console.warn('[forgewingRecovery] confirmation resolve failed; proceeding unconfirmed', {
+        sourceDocumentId: query.sourceDocumentId, reason: resolved.reason,
+      });
+    }
+    return Object.freeze([]);
+  }
+  for (const diagnostic of resolved.diagnostics) {
+    console.warn('[forgewingRecovery] confirmed recovery not applied', diagnostic);
+  }
+  return Object.freeze(resolved.confirmations.map((confirmation) => Object.freeze({
+    observation_id: confirmation.confirmedObservationId as ConfirmedRateObservation['observation_id'],
+    confirmed_raw_text: confirmation.confirmedRawText,
+  })));
 }

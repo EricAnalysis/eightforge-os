@@ -116,6 +116,13 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   // Its output remains non-authoritative and can only reach the qualified B3
   // persistence seam guarded independently by repository-plan boundaries.
   'lib/server/repositoryPlanGenerationWorker.ts',
+  // Phase 12A. The durable recovery proposal is the reviewable identity a TTL'd
+  // shadow blob could not be. These two modules carry a Forgewing recovery
+  // proposal to non-authoritative storage and nowhere else: they hold no
+  // authority, and the forbidden-dependency rule below still denies them
+  // canonical, pricing, and validator code.
+  'lib/forgewingRecoveryProposal.ts',
+  'lib/server/forgewingRecoveryProposalPersistence.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -947,13 +954,14 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with three named consumers and an isolated evaluator', () => {
+  it('keeps Forgewing non-authoritative with named consumers and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
-    // Exactly these three, sorted. Each is a seam that carries a Forgewing
-    // proposal to non-authoritative storage and nowhere else; a fourth entry
-    // appearing here is a deliberate architectural decision, not an accident.
+    // Exactly these, sorted. Each is a seam that carries a Forgewing proposal
+    // to non-authoritative storage and nowhere else; a further entry appearing
+    // here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
       'lib/extraction/persistence/complianceShadow.ts',
+      'lib/server/forgewingRecoveryProposalPersistence.ts',
       'lib/server/repositoryPlanGenerationWorker.ts',
       'lib/server/workflowAssessment.ts',
     ]);

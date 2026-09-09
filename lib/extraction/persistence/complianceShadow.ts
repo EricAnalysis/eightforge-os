@@ -44,6 +44,11 @@ import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/s
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
 import {
+  buildDurableRecoveryProposal,
+  persistForgewingRecoveryProposal,
+  type RecoveryProposalPersistenceResult,
+} from '@/lib/server/forgewingRecoveryProposalPersistence';
+import {
   persistReasoningShadowArtifact,
   type ReasoningShadowPersistenceInput,
   type ReasoningShadowPersistenceResult,
@@ -1072,6 +1077,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     register?: (task: () => Promise<void>) => void;
     run?: typeof runForgewingPricingRateClusterRecovery;
     persist?: (params: { input: ReasoningShadowPersistenceInput }) => Promise<ReasoningShadowPersistenceResult>;
+    persistProposal?: typeof persistForgewingRecoveryProposal;
   }> = {},
 ): void {
   const env = input.env ?? process.env;
@@ -1121,6 +1127,38 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
           ...('warningCode' in persisted ? { warningCode: persisted.warningCode } : {}),
         });
       }
+      // The shadow blob expires. A human review has to pin something that does
+      // not, so the bounded proposal identity is recorded durably and
+      // independently: a failed or expired blob never removes a reviewable
+      // proposal, and this write does not depend on the blob having succeeded.
+      const durable = buildDurableRecoveryProposal({
+        organizationId: input.organizationId,
+        bundle: result.bundle,
+        providerModel: result.metadata.model,
+        promptTemplateId: result.metadata.promptTemplateId,
+        promptTemplateVersion: result.metadata.promptTemplateVersion,
+        shadowArtifactPath: persisted.status === 'persisted' ? persisted.path : null,
+      });
+      if (!durable) {
+        console.error('[forgewingRecovery] durable recovery proposal projection failed', {
+          mode: 'shadow', taskType: 'pricing_rate_cluster_recovery',
+          physicalPageNumber: candidate.physicalPageNumber,
+        });
+        return;
+      }
+      const recorded: RecoveryProposalPersistenceResult =
+        await (dependencies.persistProposal ?? persistForgewingRecoveryProposal)(durable);
+      if (recorded.status === 'persisted') {
+        console.info('[forgewingRecovery] durable recovery proposal recorded', {
+          mode: 'shadow', proposalId: durable.proposalId,
+          proposalDigestSha256: recorded.proposalDigestSha256,
+          inserted: recorded.inserted, requiresHumanReview: true, authority: 'non_authoritative',
+        });
+        return;
+      }
+      console.warn('[forgewingRecovery] non-fatal durable recovery proposal outcome', {
+        mode: 'shadow', status: recorded.status, reason: recorded.reason,
+      });
     } catch (error) {
       console.error('[forgewingRecovery] non-fatal pricing recovery failure', {
         mode: 'shadow', error: error instanceof Error ? error.message : String(error),

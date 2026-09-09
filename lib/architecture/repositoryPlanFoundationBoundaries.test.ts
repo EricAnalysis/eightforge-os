@@ -44,6 +44,11 @@ const AUTHORIZED_LATER_CONSUMERS = new Map<string, Dependency[]>([
   ['components/workflow/EngineeringRecommendationReview.tsx', [edge(GUIDANCE, true)]],
   ['lib/linearCapabilityProjection.ts', [edge(EVIDENCE)]],
   ['lib/server/linearProjectionDelivery.ts', [edge(CONTENT)]],
+  ['lib/repositoryPlanEvidenceCatalog.ts', [edge(EVIDENCE), edge(SNAPSHOT)]],
+  ['lib/server/repositoryPlanEvidenceCatalogLoader.ts', [edge(EVIDENCE, true), edge(VERIFIER, true)]],
+  ['lib/server/repositoryPlanGenerationJobs.ts', [edge(EVIDENCE)]],
+  ['lib/server/repositoryPlanCurrentSnapshot.ts', [edge(VERIFIER)]],
+  ['lib/server/repositoryPlanGenerationWorker.ts', [edge(FOUNDATION), edge(GUIDANCE), edge(COLLECTOR)]],
 ]);
 
 function parse(text: string, file: string): ts.SourceFile {
@@ -401,6 +406,11 @@ describe('repository Plan V2 trusted deterministic foundation and B2a consumer',
       'components/workflow/EngineeringRecommendationReview.tsx',
       'lib/linearCapabilityProjection.ts',
       'lib/server/linearProjectionDelivery.ts',
+      'lib/repositoryPlanEvidenceCatalog.ts',
+      'lib/server/repositoryPlanEvidenceCatalogLoader.ts',
+      'lib/server/repositoryPlanGenerationJobs.ts',
+      'lib/server/repositoryPlanCurrentSnapshot.ts',
+      'lib/server/repositoryPlanGenerationWorker.ts',
     ]);
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts', 'pages', 'src']

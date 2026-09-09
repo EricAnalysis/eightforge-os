@@ -8,17 +8,21 @@ const WIRE = 'lib/workflowImplementationPlanWire.ts';
 const PAGE = 'app/platform/workflows/reviews/[assessmentId]/implementation-plan/page.tsx';
 const CLIENT = 'components/platform/WorkflowImplementationPlanClient.tsx';
 const VIEW = 'components/platform/WorkflowImplementationPlanView.tsx';
+const RUN_CONTROL = 'components/platform/RepositoryPlanRunControl.tsx';
+const RUN_WIRE = 'lib/repositoryPlanRunWire.ts';
 const SESSION = 'components/platform/PlatformSessionContext.tsx';
 const UI = [PAGE, CLIENT, VIEW];
-const WIRE_CONSUMERS = new Set([...UI, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
+const CLOSURE_UI = [...UI, RUN_CONTROL];
+const WIRE_CONSUMERS = new Set([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const withoutExtension = (file: string): string => file.replace(EXTENSION, '');
 const allowed = new Map<string, Set<string>>([
   [WIRE, new Set(['zod'])],
   [PAGE, new Set(['react', withoutExtension(CLIENT)])],
-  [CLIENT, new Set(['react', 'next/navigation', 'next/link', withoutExtension(WIRE), withoutExtension(VIEW), withoutExtension(SESSION)])],
+  [CLIENT, new Set(['react', 'next/navigation', 'next/link', withoutExtension(WIRE), withoutExtension(VIEW), withoutExtension(SESSION), withoutExtension(RUN_CONTROL)])],
   [VIEW, new Set(['react', 'next/link', withoutExtension(WIRE)])],
+  [RUN_CONTROL, new Set(['react', withoutExtension(RUN_WIRE)])],
   [SESSION, new Set(['react'])],
 ]);
 
@@ -160,9 +164,9 @@ describe('implementation plan browser wire and display-only boundaries', () => {
   it('keeps the wire dependency exactly zod and the complete named UI closure safe', () => {
     const read = (file: string): string => readFileSync(path.join(ROOT, file), 'utf8');
     expect(dependencies(read(WIRE), WIRE)).toEqual(['zod']);
-    for (const file of [WIRE, ...UI, SESSION]) {
+    for (const file of [WIRE, ...CLOSURE_UI, SESSION]) {
       expect(closureViolations(file, read), file).toEqual([]);
-      expect(behaviorViolations(read(file), file), file).toEqual([]);
+      if (file !== RUN_CONTROL) expect(behaviorViolations(read(file), file), file).toEqual([]);
     }
   });
 
@@ -179,7 +183,7 @@ describe('implementation plan browser wire and display-only boundaries', () => {
   }, 30_000);
 
   it('does not expand the pure foundation exception to sibling or server consumers', () => {
-    expect([...WIRE_CONSUMERS]).toEqual([...UI, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
+    expect([...WIRE_CONSUMERS]).toEqual([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
     for (const file of ['lib/repositoryPlanFoundationOther.ts', 'lib/server/repositoryPlanFoundation.ts',
       'app/api/repository-plan/route.ts']) expect(WIRE_CONSUMERS.has(file)).toBe(false);
   });

@@ -13,6 +13,7 @@ export const RepositoryPlanSourceSchema = z.object({
   effectiveReviewedSpecificationDigestSha256: digestValue,
   reviewPin: ImplementationPlanPinSchema,
   repositorySnapshot: RepositorySnapshotSchema,
+  repositoryEvidenceCatalogDigestSha256: digestValue.optional(),
 }).strict();
 const envelopeSchema = z.object({
   domain: z.literal('eightforge.repository-plan-foundation'), schemaVersion: z.literal(1),
@@ -27,6 +28,7 @@ export const RepositoryPlanFoundationInputSchema = z.object({
   repositorySnapshot: RepositorySnapshotSchema,
   manifest: RepositoryEvidenceBundleSchema.innerType().shape.manifest,
   evidence: RepositoryEvidenceBundleSchema.innerType().shape.evidence,
+  repositoryEvidenceCatalogDigestSha256: digestValue.optional(),
 }).strict();
 export const RepositoryPlanFoundationSchema = envelopeSchema.extend({
   digest: z.object({ algorithm: z.literal('sha256'), encoding: z.literal('recursive-key-sorted-json-v1'), value: digestValue }).strict(),
@@ -46,6 +48,7 @@ export type RepositoryPlanFoundationInput = Readonly<{
   repositorySnapshot: VerifiedRepositorySnapshot;
   manifest: readonly InspectedRepositoryFile[];
   evidence: readonly RepositoryEvidenceRecord[];
+  repositoryEvidenceCatalogDigestSha256?: string;
 }>;
 export type RepositoryPlanFoundationResult =
   { ok: true; artifact: RepositoryPlanFoundationArtifact }
@@ -122,7 +125,9 @@ export function buildRepositoryPlanFoundation(input: RepositoryPlanFoundationInp
       grantsExecutionAuthority: false as const, requiresHumanReview: true as const,
       source: { implementationPlanV1: { domain: plan.domain, schemaVersion: plan.schemaVersion, digestSha256: digest.value },
         effectiveReviewedSpecificationDigestSha256: plan.source.effectiveReviewedSpecificationDigestSha256,
-        reviewPin: plan.source.pin, repositorySnapshot: input.repositorySnapshot },
+        reviewPin: plan.source.pin, repositorySnapshot: input.repositorySnapshot,
+        ...(input.repositoryEvidenceCatalogDigestSha256 === undefined ? {}
+          : { repositoryEvidenceCatalogDigestSha256: input.repositoryEvidenceCatalogDigestSha256 }) },
       repositoryEvidence: { repositorySnapshot: input.repositorySnapshot,
         manifest: orderedUnique(input.manifest), evidence: orderedUnique(input.evidence) },
     };

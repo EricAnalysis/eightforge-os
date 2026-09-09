@@ -157,6 +157,24 @@ wait "${b3_review_first_pid}"
 wait "${b3_review_second_pid}"
 "${psql[@]}" --command "DO \$\$ BEGIN IF (SELECT array_agg(review_version ORDER BY review_version) FROM public.workflow_repository_plan_recommendation_reviews WHERE review_request_digest_sha256 IN (repeat('5',64),repeat('6',64))) IS DISTINCT FROM ARRAY[5,6] THEN RAISE EXCEPTION 'concurrent review version allocation did not serialize'; END IF; END \$\$;" >/dev/null
 echo "PHASE 11E B3A/B3B CONCURRENCY: PASS"
+"${psql[@]}" --file scripts/sql/verify-repository-plan-generation-jobs.sql
+
+# Hold the winning transaction open after its claim. The overlapping second
+# session must receive no job, proving one claim token per pending job.
+"${psql[@]}" --command "SET application_name='repository_plan_job_race_a'; SET ROLE forgewing_engineering_worker; BEGIN; CREATE TEMP TABLE repository_plan_job_race AS SELECT * FROM public.claim_workflow_repository_plan_generation_job(); SELECT 1 / CASE WHEN count(*)=1 THEN 1 ELSE 0 END FROM repository_plan_job_race; SELECT pg_sleep(3); COMMIT;" >/dev/null &
+repository_plan_job_race_a_pid=$!
+repository_plan_job_overlap=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='repository_plan_job_race_a' AND wait_event='PgSleep'")" == "1" ]]; then repository_plan_job_overlap=true; break; fi
+  sleep 0.02
+done
+if [[ "${repository_plan_job_overlap}" != true ]]; then echo "REPOSITORY PLAN JOB CLAIM RACE: FAILED (no overlap)"; wait "${repository_plan_job_race_a_pid}"; exit 1; fi
+"${psql[@]}" --command "SET ROLE forgewing_engineering_worker; CREATE TEMP TABLE repository_plan_job_race AS SELECT * FROM public.claim_workflow_repository_plan_generation_job(); SELECT 1 / CASE WHEN count(*)=0 THEN 1 ELSE 0 END FROM repository_plan_job_race;" >/dev/null &
+repository_plan_job_race_b_pid=$!
+wait "${repository_plan_job_race_a_pid}"
+wait "${repository_plan_job_race_b_pid}"
+"${psql[@]}" --command "DO \$\$ BEGIN IF (SELECT count(*) FROM public.workflow_repository_plan_generation_jobs WHERE implementation_plan_v1_digest_sha256=repeat('d',64) AND status='claimed' AND claim_generation=1)<>1 THEN RAISE EXCEPTION 'concurrent repository plan job claim did not converge'; END IF; END \$\$;" >/dev/null
+echo "REPOSITORY PLAN JOB CLAIM RACE: PASS"
 PHASE11E_B3_DATABASE_URL="${replay_database_url}" \
 WSLENV="${WSLENV:+${WSLENV}:}PHASE11E_B3_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts scripts/verify-approved-engineering-request-from-postgres.ts

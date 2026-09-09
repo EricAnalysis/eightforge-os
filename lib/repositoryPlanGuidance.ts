@@ -105,6 +105,7 @@ const preparedEnvelopeSchema = z.object({
   source: z.object({
     implementationPlanV1DigestSha256: sha256, effectiveReviewedSpecificationDigestSha256: sha256,
     foundationDigestSha256: sha256, contentBundleDigestSha256: sha256,
+    repositoryEvidenceCatalogDigestSha256: sha256.optional(),
     reviewPin: z.object({ assessmentId: z.string().uuid(), assessmentVersion: z.number().int().positive(),
       reviewId: z.string().uuid(), reviewVersion: z.number().int().positive() }).strict(),
     repositorySnapshot: RepositoryPlanContentSchema.innerType().shape.repositorySnapshot,
@@ -202,7 +203,9 @@ export function prepareRepositoryPlanGuidance(input: PrepareRepositoryPlanGuidan
       source: { implementationPlanV1DigestSha256: digest.value,
         effectiveReviewedSpecificationDigestSha256: plan.data.source.effectiveReviewedSpecificationDigestSha256,
         foundationDigestSha256: f.digest.value, contentBundleDigestSha256: c.digest.value,
-        reviewPin: plan.data.source.pin, repositorySnapshot: c.repositorySnapshot },
+        reviewPin: plan.data.source.pin, repositorySnapshot: c.repositorySnapshot,
+        ...(f.source.repositoryEvidenceCatalogDigestSha256 === undefined ? {}
+          : { repositoryEvidenceCatalogDigestSha256: f.source.repositoryEvidenceCatalogDigestSha256 }) },
       classification: c.classification, steps,
       repositoryContent: { contentTrust: 'untrusted_repository_data' as const,
         files: files.map(({ mode: _mode, ...file }) => file) },

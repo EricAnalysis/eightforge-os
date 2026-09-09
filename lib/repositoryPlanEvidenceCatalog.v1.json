@@ -1,0 +1,115 @@
+{
+  "domain": "eightforge.repository-plan-evidence-catalog",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "classification": "RULE",
+      "filePath": "lib/rules/types.ts",
+      "symbol": "RuleDefinition",
+      "evidenceKind": "implementation_seam",
+      "reason": "Defines the closed authored-rule contract consumed by the deterministic rule engine."
+    },
+    {
+      "classification": "RULE",
+      "filePath": "lib/rules/evaluator.ts",
+      "evidenceKind": "implementation_seam",
+      "reason": "Provides the existing deterministic rule evaluation seam."
+    },
+    {
+      "classification": "RULE",
+      "filePath": "lib/validator/rulePacks/requiredSources.ts",
+      "evidenceKind": "authored_rule",
+      "reason": "Provides a bounded example of an existing authored rule pack.",
+      "relevantTestPath": "lib/validator/rulePacks/requiredSources.test.ts"
+    },
+    {
+      "classification": "VERIFY",
+      "filePath": "lib/rules/types.ts",
+      "symbol": "RuleDefinition",
+      "evidenceKind": "implementation_seam",
+      "reason": "Defines the closed authored-rule contract available to verification steps."
+    },
+    {
+      "classification": "VERIFY",
+      "filePath": "lib/rules/evaluator.ts",
+      "evidenceKind": "implementation_seam",
+      "reason": "Provides the existing deterministic verification evaluation seam."
+    },
+    {
+      "classification": "VERIFY",
+      "filePath": "lib/validator/rulePacks/requiredSources.ts",
+      "evidenceKind": "authored_rule",
+      "reason": "Provides a bounded rule-pack and regression-test example for verification guidance.",
+      "relevantTestPath": "lib/validator/rulePacks/requiredSources.test.ts"
+    },
+    {
+      "classification": "EXTRACT",
+      "filePath": "lib/documentTypes.ts",
+      "evidenceKind": "document_type",
+      "reason": "Defines the existing closed document-type vocabulary without inferring a new taxonomy."
+    },
+    {
+      "classification": "EXTRACT",
+      "filePath": "lib/extraction/domain/parserManifest.ts",
+      "evidenceKind": "implementation_seam",
+      "reason": "Defines the existing parser-manifest seam for extraction provenance.",
+      "relevantTestPath": "lib/extraction/domain/parserManifest.test.ts"
+    },
+    {
+      "classification": "EXTRACT",
+      "filePath": "lib/extraction/domain/genericContentScheduling.ts",
+      "evidenceKind": "implementation_seam",
+      "reason": "Provides a bounded deterministic extraction scheduling seam.",
+      "relevantTestPath": "lib/extraction/domain/genericContentScheduling.test.ts"
+    },
+    {
+      "classification": "RECOVER",
+      "filePath": "lib/forgewing/runtime/modelConfig.ts",
+      "evidenceKind": "recovery_pattern",
+      "reason": "Defines the existing fail-closed Forgewing recovery gating configuration.",
+      "relevantTestPath": "lib/forgewing/runtime/modelConfig.test.ts"
+    },
+    {
+      "classification": "RECOVER",
+      "filePath": "lib/forgewing/runtime/budget.ts",
+      "evidenceKind": "implementation_seam",
+      "reason": "Defines the bounded provider-call budget used by Forgewing tasks."
+    },
+    {
+      "classification": "RECOVER",
+      "filePath": "lib/forgewing/prompts/pricingRateClusterRecovery.md",
+      "evidenceKind": "recovery_pattern",
+      "reason": "Provides the repository-owned prompt contract for the existing bounded recovery task."
+    },
+    {
+      "classification": "RECOVER",
+      "filePath": "lib/forgewing/tasks/pricingRateClusterRecovery.test.ts",
+      "evidenceKind": "test",
+      "reason": "Provides bounded regression evidence for the existing recovery task."
+    },
+    {
+      "classification": "HUMAN",
+      "filePath": "lib/server/workflowTasks.ts",
+      "evidenceKind": "authority_contract",
+      "reason": "Defines the existing server-owned human workflow-task seam."
+    },
+    {
+      "classification": "HUMAN",
+      "filePath": "lib/types/workflow.ts",
+      "evidenceKind": "authority_contract",
+      "reason": "Defines the existing workflow task and assignment vocabulary."
+    },
+    {
+      "classification": "HUMAN",
+      "filePath": "supabase/migrations/20250312000000_add_assignment_fields.sql",
+      "evidenceKind": "authority_contract",
+      "reason": "Defines the persisted assignment fields for human-owned workflow tasks."
+    },
+    {
+      "classification": "HUMAN",
+      "filePath": "supabase/migrations/20260329000000_add_project_id_to_decisions_and_tasks.sql",
+      "evidenceKind": "authority_contract",
+      "reason": "Defines project scoping for persisted human decisions and tasks."
+    }
+  ]
+}

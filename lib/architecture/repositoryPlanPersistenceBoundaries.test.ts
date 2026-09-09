@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +13,7 @@ const writer = readFileSync(path.join(root, 'lib/server/workflowRepositoryPlanPe
 const reader = readFileSync(path.join(root, 'lib/server/workflowRepositoryPlanRead.ts'), 'utf8');
 
 function productionFiles(directory: string): string[] {
+  if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
     return entry.isDirectory() ? productionFiles(absolute)
@@ -71,8 +72,10 @@ describe('repository Plan V2 persistence boundaries', () => {
 
   it('allows only the producer, persistence writer, and validated reader to consume the neutral Plan V2 contract', () => {
     const allowed = new Set(['lib/approvedEngineeringRequest.ts', 'lib/forgewing/tasks/repositoryPlanGuidance.ts',
-      'lib/server/workflowRepositoryPlanPersistence.ts', 'lib/server/workflowRepositoryPlanRead.ts']);
-    const consumers = productionFiles(path.join(root, 'lib')).flatMap((absolute) => {
+      'lib/server/workflowRepositoryPlanPersistence.ts', 'lib/server/workflowRepositoryPlanRead.ts',
+      'scripts/verify-approved-engineering-request-from-postgres.ts']);
+    const consumers = ['app', 'components', 'lib', 'types', 'scripts', 'pages', 'src']
+      .flatMap((directory) => productionFiles(path.join(root, directory))).flatMap((absolute) => {
       const text = readFileSync(absolute, 'utf8');
       const relative = path.relative(root, absolute).replaceAll('\\', '/');
       return /(?:from\s*|require\s*\(|import\s*\()(['"])(?:@\/lib\/|\.\.\/)*repositoryAwareImplementationPlan\1/.test(text)

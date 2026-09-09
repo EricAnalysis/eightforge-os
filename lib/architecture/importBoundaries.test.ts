@@ -112,6 +112,10 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   // consumer, forbidden from reaching canonical, pricing, or validator
   // authority by FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES below.
   'lib/server/workflowAssessment.ts',
+  // The production repository-plan worker is the sole live consumer of B2b.
+  // Its output remains non-authoritative and can only reach the qualified B3
+  // persistence seam guarded independently by repository-plan boundaries.
+  'lib/server/repositoryPlanGenerationWorker.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -943,13 +947,14 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with two named consumers and an isolated evaluator', () => {
+  it('keeps Forgewing non-authoritative with three named consumers and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
-    // Exactly these two, sorted. Each is a seam that carries a Forgewing
-    // proposal to non-authoritative storage and nowhere else; a third entry
+    // Exactly these three, sorted. Each is a seam that carries a Forgewing
+    // proposal to non-authoritative storage and nowhere else; a fourth entry
     // appearing here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
       'lib/extraction/persistence/complianceShadow.ts',
+      'lib/server/repositoryPlanGenerationWorker.ts',
       'lib/server/workflowAssessment.ts',
     ]);
   }, 30_000);

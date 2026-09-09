@@ -6,7 +6,11 @@ import { describe, expect, it } from 'vitest';
 const ROOT = process.cwd();
 const CORE = 'lib/workflowImplementationPlan.ts';
 const READ = 'lib/server/workflowImplementationPlanRead.ts';
-const PLAN_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts']);
+const PLAN_CONSUMERS = new Set([
+  'lib/server/workflowImplementationPlanRead.ts',
+  'lib/server/workflowRepositoryPlanRuns.ts',
+  'lib/server/repositoryPlanGenerationWorker.ts',
+]);
 const PLAN_TYPE_CONSUMERS = new Set(['lib/repositoryPlanGuidance.ts']);
 const READ_CONSUMERS = new Set(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
 const RESOLVER = '@/lib/workflowEffectiveReviewedSpecification';
@@ -212,7 +216,11 @@ describe('workflow implementation plan has no runtime or authority integration',
   });
 
   it('allows exactly the trusted seam and GET route, including type imports and reexports', () => {
-    expect([...PLAN_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
+    expect([...PLAN_CONSUMERS]).toEqual([
+      'lib/server/workflowImplementationPlanRead.ts',
+      'lib/server/workflowRepositoryPlanRuns.ts',
+      'lib/server/repositoryPlanGenerationWorker.ts',
+    ]);
     expect([...PLAN_TYPE_CONSUMERS]).toEqual(['lib/repositoryPlanGuidance.ts']);
     expect([...READ_CONSUMERS]).toEqual(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
     const violations: string[] = [];

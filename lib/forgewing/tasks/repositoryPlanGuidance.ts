@@ -26,6 +26,8 @@ export type ForgewingRepositoryPlanGuidanceDependencies = Readonly<{
   config?: ForgewingRepositoryPlanRuntimeConfig;
   provider?: ForgewingProvider;
   budget?: ForgewingCallBudget;
+  /** Durable job marker. Failure prevents provider access. */
+  beforeProviderCall?: () => Promise<void>;
 }>;
 
 export type ForgewingRepositoryPlanGuidanceResult =
@@ -34,7 +36,7 @@ export type ForgewingRepositoryPlanGuidanceResult =
       rawProviderEvidence: RepositoryPlanRawProviderEvidenceArtifact | null;
       planV2: RepositoryAwareImplementationPlanV2Artifact }>
   | Readonly<{ status: 'failed'; reason: 'budget_exhausted' | 'provider_timeout' | 'provider_error'
-      | 'provider_truncated_output' | 'output_too_large' | 'invalid_model_output';
+      | 'provider_start_failed' | 'provider_truncated_output' | 'output_too_large' | 'invalid_model_output';
       rawProviderEvidence: RepositoryPlanRawProviderEvidenceArtifact | null;
       callCount: 0 | 1 }>;
 
@@ -78,7 +80,10 @@ function planV2(input: RepositoryPlanGuidanceInputArtifact, guidance: Repository
       foundationDigestSha256: input.source.foundationDigestSha256,
       contentBundleDigestSha256: input.source.contentBundleDigestSha256,
       guidanceInputDigestSha256: input.digest.value, reviewPin: input.source.reviewPin,
-      repositorySnapshot: input.source.repositorySnapshot }, guidance, providerProvenance,
+      repositorySnapshot: input.source.repositorySnapshot,
+      ...(input.source.repositoryEvidenceCatalogDigestSha256 === undefined ? {}
+        : { repositoryEvidenceCatalogDigestSha256: input.source.repositoryEvidenceCatalogDigestSha256 }) },
+    guidance, providerProvenance,
     rawOutputSha256: raw?.rawOutputSha256 ?? null, validatedOutputSha256: guidance.digest.value };
   return freeze(RepositoryAwareImplementationPlanV2Schema.parse(JSON.parse(canonicalJson({ ...envelope,
     digest: { algorithm: 'sha256', encoding: 'recursive-key-sorted-json-v1', value: hashCanonical(envelope) } }))));
@@ -123,6 +128,11 @@ export async function runForgewingRepositoryPlanGuidance(rawInput: RepositoryPla
   if (!config.enabled) return { status: 'skipped', reason: 'forgewing_disabled' };
   const budget = dependencies.budget ?? new ForgewingCallBudget(1);
   if (!budget.tryConsume()) return { status: 'failed', reason: 'budget_exhausted', rawProviderEvidence: null, callCount: 0 };
+  try {
+    await dependencies.beforeProviderCall?.();
+  } catch {
+    return { status: 'failed', reason: 'provider_start_failed', rawProviderEvidence: null, callCount: 0 };
+  }
   const baseProvenance = provenance(input, config, 1, null, null) as RepositoryPlanProviderProvenance & { callCount: 1 };
   let rawOutput: string;
   try {

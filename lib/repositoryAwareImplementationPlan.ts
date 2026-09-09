@@ -33,6 +33,7 @@ export type RepositoryAwareImplementationPlanV2Artifact = Readonly<{
   authority: 'non_authoritative'; executable: false; grantsExecutionAuthority: false; requiresHumanReview: true;
   source: Readonly<{ implementationPlanV1DigestSha256: string; effectiveReviewedSpecificationDigestSha256: string;
     foundationDigestSha256: string; contentBundleDigestSha256: string; guidanceInputDigestSha256: string;
+    repositoryEvidenceCatalogDigestSha256?: string;
     reviewPin: RepositoryPlanGuidanceInputArtifact['source']['reviewPin'];
     repositorySnapshot: RepositoryPlanGuidanceInputArtifact['source']['repositorySnapshot'] }>;
   guidance: RepositoryPlanGuidanceArtifact; providerProvenance: RepositoryPlanProviderProvenance;
@@ -73,6 +74,7 @@ const planV2EnvelopeSchema = z.object({
   requiresHumanReview: z.literal(true), source: z.object({ implementationPlanV1DigestSha256: sha256,
     effectiveReviewedSpecificationDigestSha256: sha256, foundationDigestSha256: sha256,
     contentBundleDigestSha256: sha256, guidanceInputDigestSha256: sha256,
+    repositoryEvidenceCatalogDigestSha256: sha256.optional(),
     reviewPin: z.object({ assessmentId: z.string().uuid(), assessmentVersion: z.number().int().positive(),
       reviewId: z.string().uuid(), reviewVersion: z.number().int().positive() }).strict(), repositorySnapshot: snapshotSchema }).strict(),
   guidance: RepositoryPlanGuidanceSchema, providerProvenance: RepositoryPlanProviderProvenanceSchema,

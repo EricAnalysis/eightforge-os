@@ -149,4 +149,29 @@ describe('bounded Forgewing repository-plan reasoning', () => {
       budget: new ForgewingCallBudget(0) })).resolves.toMatchObject({ status: 'failed', reason: 'budget_exhausted', callCount: 0 });
     expect(provider).not.toHaveBeenCalled();
   });
+
+  it('durably marks provider start only for an eligible call and fails closed when marking fails', async () => {
+    const prepared = input();
+    const provider = vi.fn().mockResolvedValue(validOutput(prepared));
+    const beforeProviderCall = vi.fn().mockRejectedValue(new Error('claim lost'));
+    await expect(runForgewingRepositoryPlanGuidance(prepared, {
+      provider, config: enabled, beforeProviderCall,
+    })).resolves.toEqual({
+      status: 'failed', reason: 'provider_start_failed', rawProviderEvidence: null, callCount: 0,
+    });
+    expect(beforeProviderCall).toHaveBeenCalledExactlyOnceWith();
+    expect(provider).not.toHaveBeenCalled();
+
+    beforeProviderCall.mockClear();
+    await runForgewingRepositoryPlanGuidance(input('ADVISORY'), {
+      provider, config: enabled, beforeProviderCall,
+    });
+    await runForgewingRepositoryPlanGuidance(input('RULE', false), {
+      provider, config: enabled, beforeProviderCall,
+    });
+    await runForgewingRepositoryPlanGuidance(prepared, {
+      provider, config: { ...enabled, enabled: false }, beforeProviderCall,
+    });
+    expect(beforeProviderCall).not.toHaveBeenCalled();
+  });
 });

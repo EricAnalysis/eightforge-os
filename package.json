@@ -13,7 +13,8 @@
     "seed:test-user": "node scripts/seed-test-user.mjs",
     "test:unit": "vitest run",
     "compare:authority": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/run-authority-comparison.mjs",
-    "backfill:source-identity": "vite-node scripts/backfill-source-artifact-identity.ts"
+    "backfill:source-identity": "vite-node scripts/backfill-source-artifact-identity.ts",
+    "worker:repository-plan": "vite-node --config vitest.config.ts scripts/workers/repository-plan-worker.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

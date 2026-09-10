@@ -12,7 +12,7 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
-import { loadConfirmedRateObservations } from '@/lib/server/effectiveRecoveryConfirmations';
+import { loadConfirmedRecoverySelections } from '@/lib/server/effectiveRecoveryConfirmations';
 import { normalizeExtraction } from '@/lib/server/extractionNormalizer';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
@@ -345,6 +345,13 @@ export async function processDocument(params: {
     });
 
     // ── 4. Extract text and fields ───────────────────────────────────────────
+    const recoverySelections = processingIdentity.status === 'persisted'
+      ? await loadConfirmedRecoverySelections({
+          organizationId: params.organizationId,
+          sourceDocumentId: params.documentId,
+          sourceArtifactId: processingIdentity.sourceArtifactId,
+        })
+      : null;
     const payload = (await extractDocument(
       metadata,
       bytes,
@@ -359,15 +366,7 @@ export async function processDocument(params: {
       // Human-confirmed recovery selections, resolved once, server-side, from
       // exact accepted or modified reviews. Empty unless a human authorized a
       // re-entry, so ordinary processing is unchanged.
-      processingIdentity.status === 'persisted'
-        ? {
-            confirmedRateObservations: await loadConfirmedRateObservations({
-              organizationId: params.organizationId,
-              sourceDocumentId: params.documentId,
-              sourceArtifactId: processingIdentity.sourceArtifactId,
-            }),
-          }
-        : null,
+      processingIdentity.status === 'persisted' ? recoverySelections : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
     const complianceShadowTask = scheduleExtractionComplianceShadow({

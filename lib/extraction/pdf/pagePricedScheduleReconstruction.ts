@@ -1,4 +1,9 @@
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
+import {
+  buildRecoveryCandidateV2,
+  RecoveryCandidateV2Schema,
+  type RecoveryCandidateV2,
+} from '@/lib/extraction/recovery/recoveryCandidateV2';
 
 /**
  * Generic, source-derived reconstruction of priced schedule rows that are fully
@@ -261,12 +266,15 @@ export type PricedScheduleRecoveryDiagnosticReason =
    * changed the page changes every id on it. Never rebound by text.
    */
   | 'confirmed_recovery_unbound'
+  /** The resolver supplied the same confirmation identity more than once. */
+  | 'duplicate_recovery_confirmation'
   /** Bound to a token, but no priced row was admitted through it. */
   | 'confirmed_recovery_not_applied';
 
 export type PricedScheduleRecoveryDiagnostic = {
   readonly reason: PricedScheduleRecoveryDiagnosticReason;
   readonly observation_id: NonNullable<PdfToken['observation_id']>;
+  readonly candidate_id?: string;
   readonly physical_page_number: number | null;
   readonly recovery_applied: false;
 };
@@ -280,7 +288,15 @@ export type PagePricedScheduleReconstruction = {
    * re-entry existed.
    */
   readonly recovery_diagnostics?: readonly PricedScheduleRecoveryDiagnostic[];
+  /** Present only for an explicit proposal-generation pass. */
+  readonly recovery_candidates?: readonly RecoveryCandidateV2[];
 };
+
+export type RecoveryCandidateBuildContext = Readonly<{
+  sourceDocumentId: string;
+  sourceArtifactId: string;
+  pageRepresentationDigestByPage: Readonly<Record<number, string>>;
+}>;
 
 function tokenCenterX(token: PdfToken): number {
   return token.x + token.width / 2;
@@ -536,27 +552,48 @@ type ConfirmedRateOutcome =
   | { readonly status: 'ambiguous_confirmation' }
   | {
       readonly status: 'confirmed';
-      readonly observation_id: NonNullable<PdfToken['observation_id']>;
+      readonly observation_ids: readonly NonNullable<PdfToken['observation_id']>[];
       readonly confirmed_raw_text: string;
       /** V1 can recover only when the selected observation is the whole cluster. */
       readonly represents_complete_cluster: boolean;
+      /** Set when a V2 candidate authorized this, so nothing re-derives it later. */
+      readonly candidate_id: string | null;
     };
 
 /**
- * Which confirmed observation, if any, resolves this candidate's ambiguity.
+ * Which confirmed recovery, if any, resolves this candidate's ambiguity.
  *
  * Exactly one match resolves it. Zero leaves the existing abstention exactly as
  * it was. More than one is two answers to a one-answer question, and fails
  * closed rather than picking either. Only rate-band observations are consulted,
  * so a confirmation naming a description or unit token never resolves anything.
+ *
+ * V1 single-observation confirmations and V2 candidate confirmations are
+ * counted TOGETHER, not in precedence order. A V1 review and a V2 review that
+ * both bind to this spine are two independent human answers; letting the newer
+ * contract win would be exactly the latest-wins authority the resolver refuses
+ * one layer up.
  */
 function confirmedRateFor(
   lines: readonly SourceLine[],
   confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
+  confirmedCandidates: readonly RecoveryCandidateV2[],
+  targetRowIdentity: string,
 ): ConfirmedRateOutcome {
-  if (confirmed.size === 0) return { status: 'unconfirmed' };
   const matched = new Map<string, ConfirmedRateObservation>();
   const clusters = lines.flatMap((line) => rateLikeClusters(line));
+  const candidateMatches = confirmedCandidates.filter((candidate) => {
+    if (candidate.recoveryType !== 'pricing_rate_multi_observation_cluster'
+      || candidate.targetRowIdentity !== targetRowIdentity) return false;
+    return clusters.some((cluster) => {
+      const ids = cluster.map((token) => token.observation_id);
+      return ids.every((id): id is NonNullable<PdfToken['observation_id']> => Boolean(id))
+        && ids.length === candidate.orderedObservationIds.length
+        && ids.every((id, index) => id === candidate.orderedObservationIds[index])
+        && cluster.map((token) => token.text.trim()).join(' ') === candidate.composedRawText;
+    });
+  });
+
   for (const entry of lines.flatMap((line) => line.banded)) {
     if (entry.role !== 'rate') continue;
     const observationId = entry.token.observation_id;
@@ -564,15 +601,30 @@ function confirmedRateFor(
     const match = confirmed.get(observationId);
     if (match) matched.set(observationId, match);
   }
-  if (matched.size === 0) return { status: 'unconfirmed' };
-  if (matched.size > 1) return { status: 'ambiguous_confirmation' };
+
+  const answers = candidateMatches.length + matched.size;
+  if (answers === 0) return { status: 'unconfirmed' };
+  if (answers > 1) return { status: 'ambiguous_confirmation' };
+
+  if (candidateMatches.length === 1) {
+    const candidate = candidateMatches[0]!;
+    return {
+      status: 'confirmed',
+      observation_ids:
+        candidate.orderedObservationIds as unknown as readonly NonNullable<PdfToken['observation_id']>[],
+      confirmed_raw_text: candidate.composedRawText,
+      represents_complete_cluster: true,
+      candidate_id: candidate.candidateId,
+    };
+  }
   const only = [...matched.values()][0]!;
   return {
     status: 'confirmed',
-    observation_id: only.observation_id,
+    observation_ids: [only.observation_id],
     confirmed_raw_text: only.confirmed_raw_text,
     represents_complete_cluster: clusters.some((cluster) =>
       cluster.length === 1 && cluster[0]!.observation_id === only.observation_id),
+    candidate_id: null,
   };
 }
 
@@ -621,10 +673,54 @@ function lineRawText(line: SourceLine): string {
   return line.tokens.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
 }
 
+function candidateEvidence(tokens: readonly PdfToken[]) {
+  return tokens.flatMap((token) => token.observation_id ? [{
+    observationId: token.observation_id,
+    sourceLayer: token.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
+    rawText: token.text.trim(),
+    boundingBox: {
+      xMin: token.x, xMax: token.x + token.width,
+      yMin: token.y, yMax: token.y + token.height,
+    },
+  }] : []);
+}
+
+function buildPageRecoveryCandidate(
+  page: PdfLayoutPage,
+  context: RecoveryCandidateBuildContext | undefined,
+  input: Readonly<{
+    recoveryType: RecoveryCandidateV2['recoveryType'];
+    targetRowIdentity: string;
+    tokens: readonly PdfToken[];
+    composedRawText: string;
+  }>,
+): RecoveryCandidateV2 | null {
+  if (!context) return null;
+  const pageRepresentationDigest = context.pageRepresentationDigestByPage[page.page_number];
+  const evidence = candidateEvidence(input.tokens);
+  if (!pageRepresentationDigest || evidence.length !== input.tokens.length) return null;
+  return buildRecoveryCandidateV2({
+    recoveryType: input.recoveryType,
+    sourceDocumentId: context.sourceDocumentId,
+    sourceArtifactId: context.sourceArtifactId,
+    physicalPageNumber: page.page_number,
+    pageRepresentationDigest,
+    targetRowIdentity: input.targetRowIdentity,
+    orderedObservationIds: evidence.map((entry) => entry.observationId),
+    rawTexts: evidence.map((entry) => entry.rawText),
+    composedRawText: input.composedRawText,
+    evidence,
+  });
+}
+
 function reconstructPage(
   page: PdfLayoutPage,
   confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
+  confirmedCandidates: readonly RecoveryCandidateV2[],
   appliedConfirmations: Set<string>,
+  appliedCandidates: Set<string>,
+  candidateBuildContext?: RecoveryCandidateBuildContext,
+  generatedCandidates: RecoveryCandidateV2[] = [],
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
   // A page presenting more than one priced-table header holds more than one
@@ -738,6 +834,43 @@ function reconstructPage(
   const rejectedEdgeLines: Array<{ line: SourceLine; spine: SourceLine; distance: number }> = [];
   const edgeLines: SourceLine[] = [];
   const interiorGaps: number[] = [];
+  const continuationCandidateByLine = new Map<SourceLine, RecoveryCandidateV2>();
+  const resolveConfirmedContinuation = (
+    line: SourceLine,
+    targetSpines: readonly SourceLine[],
+  ): SourceLine | null => {
+    const fragmentEvidence = candidateEvidence(line.tokens);
+    const matches = targetSpines.flatMap((target) => {
+      if (!attached.has(target)) return [];
+      const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${spineIndex.get(target)!}`;
+      const preview = buildCell('description', [...target.banded, ...line.banded]
+        .filter((entry) => entry.role === 'description'))?.raw_text ?? lineRawText(line);
+      const candidate = buildPageRecoveryCandidate(page, candidateBuildContext, {
+        recoveryType: 'priced_schedule_continuation_attribution',
+        targetRowIdentity,
+        tokens: line.tokens,
+        composedRawText: preview,
+      });
+      if (candidate && !generatedCandidates.some((entry) => entry.candidateId === candidate.candidateId)) {
+        generatedCandidates.push(candidate);
+      }
+      return confirmedCandidates
+        .filter((confirmedCandidate) =>
+          confirmedCandidate.recoveryType === 'priced_schedule_continuation_attribution'
+          && confirmedCandidate.physicalPageNumber === page.page_number
+          && confirmedCandidate.targetRowIdentity === targetRowIdentity
+          && confirmedCandidate.composedRawText === preview
+          && fragmentEvidence.length === line.tokens.length
+          && confirmedCandidate.orderedObservationIds.length === fragmentEvidence.length
+          && confirmedCandidate.orderedObservationIds.every((id, index) =>
+            id === fragmentEvidence[index]!.observationId
+            && confirmedCandidate.rawTexts[index] === fragmentEvidence[index]!.rawText))
+        .map((confirmedCandidate) => ({ target, candidate: confirmedCandidate }));
+    });
+    if (matches.length !== 1) return null;
+    continuationCandidateByLine.set(line, matches[0]!.candidate);
+    return matches[0]!.target;
+  };
 
   // Quarantine lines clearly belonging to a rejected edge spine. They remain in
   // that diagnostic bundle and never enter active continuation spacing or cells.
@@ -767,6 +900,11 @@ function reconstructPage(
     if (touchesPitchOutlier
       && fartherDistance > 0
       && nearerDistance / fartherDistance > CONTINUATION_AMBIGUITY_RATIO) {
+      const confirmedTarget = resolveConfirmedContinuation(line, [above, below]);
+      if (confirmedTarget) {
+        attached.get(confirmedTarget)!.push(line);
+        continue;
+      }
       reportLine(line, 'ambiguous_row_assignment');
       continue;
     }
@@ -791,6 +929,17 @@ function reconstructPage(
     const nearerDistance = Math.min(distanceAbove, distanceBelow);
     const fartherDistance = Math.max(distanceAbove, distanceBelow);
     if (fartherDistance > 0 && nearerDistance / fartherDistance > CONTINUATION_AMBIGUITY_RATIO) {
+      const confirmedTarget = resolveConfirmedContinuation(line, [above, below]);
+      if (confirmedTarget) {
+        attached.get(confirmedTarget)!.push(line);
+        // Deliberately NOT contributed to `interiorGaps`. That median is what
+        // admits edge lines elsewhere on the page, and it must stay derived
+        // from lines the geometry itself attributed. A human authorized THIS
+        // line's attachment; it is not new evidence about the page's spacing,
+        // and letting it move the median would let one confirmation change
+        // which unrelated rows get published.
+        continue;
+      }
       reportLine(line, 'ambiguous_row_assignment');
       continue;
     }
@@ -847,19 +996,34 @@ function reconstructPage(
     const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
     const contributed = lines.flatMap((line) => line.banded);
     const ambiguous = lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
+    const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${index}`;
+    if (ambiguous) {
+      for (const cluster of lines.flatMap((line) => rateLikeClusters(line))) {
+        const candidate = buildPageRecoveryCandidate(page, candidateBuildContext, {
+          recoveryType: 'pricing_rate_multi_observation_cluster',
+          targetRowIdentity,
+          tokens: cluster,
+          composedRawText: cluster.map((token) => token.text.trim()).join(' '),
+        });
+        if (candidate && !generatedCandidates.some((entry) => entry.candidateId === candidate.candidateId)) {
+          generatedCandidates.push(candidate);
+        }
+      }
+    }
 
     // A human confirmation may resolve this candidate's ambiguity, and only
     // this one: it narrows the rate band to a single already-observed token so
     // the row can be built the ordinary way. It cannot create a token, cannot
     // supply a value, and cannot relax any other admission gate below.
     const confirmation: ConfirmedRateOutcome = ambiguous
-      ? confirmedRateFor(lines, confirmed)
+      ? confirmedRateFor(lines, confirmed, confirmedCandidates, targetRowIdentity)
       : { status: 'unconfirmed' };
     const cells: PricedScheduleCell[] = [];
     for (const role of recognizedRoles) {
       const banded = contributed.filter((entry) => entry.role === role);
       const cell = buildCell(role, role === 'rate' && confirmation.status === 'confirmed'
-        ? banded.filter((entry) => entry.token.observation_id === confirmation.observation_id)
+        ? banded.filter((entry) => entry.token.observation_id
+          && confirmation.observation_ids.includes(entry.token.observation_id))
         : banded);
       if (cell) cells.push(cell);
     }
@@ -888,8 +1052,19 @@ function reconstructPage(
       withheldReason,
       appliedConfirmation:
         withheldReason === null && confirmation.status === 'confirmed'
-          ? confirmation.observation_id
+          ? confirmation.observation_ids
           : null,
+      // Carried out of the resolver rather than searched for again: re-deriving
+      // "which candidate authorized this" from the observation ids alone can
+      // match a different candidate that happens to share them.
+      appliedCandidate:
+        withheldReason === null && confirmation.status === 'confirmed'
+          ? confirmation.candidate_id
+          : null,
+      continuationCandidateIds: lines.flatMap((line) => {
+        const candidate = continuationCandidateByLine.get(line);
+        return candidate ? [candidate.candidateId] : [];
+      }),
       isBodyAnchor: recognizedRoles.every((role) => populatedRoles.has(role)),
     };
   });
@@ -940,7 +1115,11 @@ function reconstructPage(
   // A confirmation counts as applied only once its row has survived every
   // other admission gate and is actually being published.
   for (const entry of accepted) {
-    if (entry.appliedConfirmation) appliedConfirmations.add(entry.appliedConfirmation);
+    for (const observationId of entry.appliedConfirmation ?? []) {
+      appliedConfirmations.add(observationId);
+    }
+    if (entry.appliedCandidate) appliedCandidates.add(entry.appliedCandidate);
+    for (const candidateId of entry.continuationCandidateIds) appliedCandidates.add(candidateId);
   }
 
   const rows: PricedScheduleRow[] = accepted.map((entry) => ({
@@ -1043,24 +1222,58 @@ export function buildPagePricedScheduleReconstruction(params: {
    * no diagnostic is emitted, and no admission decision changes.
    */
   confirmedRateObservations?: readonly ConfirmedRateObservation[];
+  /** Exact persisted V2 candidates selected by a human; never browser-supplied. */
+  confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  /** Enables a deterministic candidate-generation pass before Forgewing. */
+  recoveryCandidateBuildContext?: RecoveryCandidateBuildContext;
 }): PagePricedScheduleReconstruction {
   const supplied = params.confirmedRateObservations ?? [];
-  const confirmed = new Map(supplied.map((entry) => [entry.observation_id, entry]));
+  const confirmationCounts = new Map<string, number>();
+  for (const entry of supplied) {
+    confirmationCounts.set(entry.observation_id, (confirmationCounts.get(entry.observation_id) ?? 0) + 1);
+  }
+  const duplicateConfirmationIds = new Set(
+    [...confirmationCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([observationId]) => observationId),
+  );
+  // Duplicate authority is ambiguity, not a collection-normalization concern.
+  // Exclude every duplicated identity so neither first-wins nor last-wins can
+  // admit a row through it.
+  const confirmed = new Map(
+    supplied
+      .filter((entry) => !duplicateConfirmationIds.has(entry.observation_id))
+      .map((entry) => [entry.observation_id, entry]),
+  );
+  const confirmedCandidates = (params.confirmedRecoveryCandidates ?? [])
+    .flatMap((candidate) => {
+      const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
+      return parsed.success ? [parsed.data] : [];
+    });
   const appliedConfirmations = new Set<string>();
+  const appliedCandidates = new Set<string>();
+  const generatedCandidates: RecoveryCandidateV2[] = [];
   const pages: PricedSchedulePage[] = [];
   // Deterministic page order regardless of input ordering.
   const orderedPages = [...params.layout.pages].sort(
     (left, right) => left.page_number - right.page_number,
   );
   for (const page of orderedPages) {
-    const reconstructed = reconstructPage(page, confirmed, appliedConfirmations);
+    const reconstructed = reconstructPage(
+      page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
+      params.recoveryCandidateBuildContext, generatedCandidates,
+    );
     if (reconstructed) pages.push(reconstructed);
   }
   const base: PagePricedScheduleReconstruction = {
     parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages,
+    ...(params.recoveryCandidateBuildContext
+      ? { recovery_candidates: generatedCandidates.sort((left, right) =>
+          left.candidateId.localeCompare(right.candidateId, 'en-US')) }
+      : {}),
   };
-  if (supplied.length === 0) return base;
+  if (supplied.length === 0 && confirmedCandidates.length === 0) return base;
 
   // Where each confirmed observation still lives in this parse, if anywhere.
   // A confirmation that no longer binds is reported and dropped: observation
@@ -1074,16 +1287,39 @@ export function buildPagePricedScheduleReconstruction(params: {
       }
     }
   }
-  const recovery_diagnostics = [...confirmed.keys()]
+  const recovery_diagnostics: PricedScheduleRecoveryDiagnostic[] = [...new Set([
+    ...confirmed.keys(),
+    ...duplicateConfirmationIds,
+  ])]
     .filter((observationId) => !appliedConfirmations.has(observationId))
     .sort((left, right) => left.localeCompare(right, 'en-US'))
     .map((observationId): PricedScheduleRecoveryDiagnostic => ({
-      reason: pageByObservation.has(observationId)
+      reason: duplicateConfirmationIds.has(observationId)
+        ? 'duplicate_recovery_confirmation'
+        : pageByObservation.has(observationId)
         ? 'confirmed_recovery_not_applied'
         : 'confirmed_recovery_unbound',
       observation_id: observationId as NonNullable<PdfToken['observation_id']>,
       physical_page_number: pageByObservation.get(observationId) ?? null,
       recovery_applied: false,
     }));
+  for (const candidate of confirmedCandidates) {
+    if (appliedCandidates.has(candidate.candidateId)) continue;
+    const boundIds = candidate.orderedObservationIds.filter((id) => pageByObservation.has(id));
+    recovery_diagnostics.push({
+      reason: boundIds.length === candidate.orderedObservationIds.length
+        ? 'confirmed_recovery_not_applied'
+        : 'confirmed_recovery_unbound',
+      observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+      candidate_id: candidate.candidateId,
+      physical_page_number: boundIds.length > 0
+        ? pageByObservation.get(boundIds[0]!) ?? null
+        : null,
+      recovery_applied: false,
+    });
+  }
+  recovery_diagnostics.sort((left, right) =>
+    left.observation_id.localeCompare(right.observation_id, 'en-US')
+    || (left.candidate_id ?? '').localeCompare(right.candidate_id ?? '', 'en-US'));
   return { ...base, recovery_diagnostics };
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import {
+  buildRecoveryCandidateV2,
+  type RecoveryCandidateV2,
+} from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import {
   buildPagePricedScheduleReconstruction,
@@ -128,14 +132,108 @@ function ambiguousPageLayout(overrides: {
   }]);
 }
 
+function splitAmbiguousPageLayout(): PdfLayout {
+  return layoutOf([{
+    page_number: PAGE, width: 612, height: 792,
+    lines: [
+      headerLine(PAGE),
+      pricedLine(PAGE, 680, {
+        description: 'Alpha service', unit: 'Widget', origin: 'Yard to Depot',
+        currency: '$', amount: '12.00', amountObservation: 'obs:alpha',
+      }),
+      pricedLine(PAGE, 660, {
+        description: 'Beta service', unit: 'Widget', origin: 'Depot to Site',
+        currency: '$', amount: '3.50', amountObservation: 'obs:beta',
+      }),
+      line(PAGE, 640, [
+        { x: DESCRIPTION_X, text: 'Gamma service', width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 },
+        { x: ORIGIN_X, text: 'Yard to Depot', width: 100 },
+        { x: CURRENCY_X, text: '$', width: 8, observation_id: observation('obs:split-currency') },
+        { x: AMOUNT_X, text: '8.75', width: 40, observation_id: observation('obs:split-number') },
+        { x: SECOND_CURRENCY_X, text: '$', width: 8, observation_id: observation('obs:split-currency-2') },
+        { x: SECOND_AMOUNT_X, text: '52.50', width: 40, observation_id: observation('obs:split-number-2') },
+      ]),
+    ],
+  }]);
+}
+
+function splitCandidate(
+  orderedObservationIds: readonly string[] = ['obs:split-currency', 'obs:split-number'],
+): RecoveryCandidateV2 {
+  const rawById = new Map([
+    ['obs:split-currency', '$'],
+    ['obs:split-number', '8.75'],
+  ]);
+  const rawTexts = orderedObservationIds.map((id) => rawById.get(id) ?? 'missing');
+  const built = buildRecoveryCandidateV2({
+    recoveryType: 'pricing_rate_multi_observation_cluster',
+    sourceDocumentId: '11111111-1111-4111-8111-111111111111',
+    sourceArtifactId: '22222222-2222-4222-8222-222222222222',
+    physicalPageNumber: PAGE,
+    pageRepresentationDigest: 'a'.repeat(64),
+    targetRowIdentity: `page_priced_schedule:p${PAGE}:r2`,
+    orderedObservationIds: [...orderedObservationIds],
+    rawTexts,
+    composedRawText: rawTexts.join(' '),
+    evidence: orderedObservationIds.map((id, index) => ({
+      observationId: id,
+      sourceLayer: 'pdf_native_text' as const,
+      rawText: rawTexts[index]!,
+      boundingBox: { xMin: index, xMax: index + 1, yMin: 1, yMax: 2 },
+    })),
+  });
+  if (!built) throw new Error('invalid test recovery candidate');
+  return built;
+}
+
+function continuationAmbiguousPageLayout(fragmentId = 'obs:continuation'): PdfLayout {
+  return layoutOf([{
+    page_number: PAGE, width: 612, height: 792,
+    lines: [
+      headerLine(PAGE),
+      pricedLine(PAGE, 660, {
+        description: 'Inert Debris Removal and', unit: 'Ton', origin: 'A to B',
+        currency: '$', amount: '12.00', amountObservation: 'obs:alpha',
+      }),
+      line(PAGE, 630, [{
+        x: DESCRIPTION_X, text: 'Disposal', width: 70,
+        observation_id: observation(fragmentId),
+      }]),
+      pricedLine(PAGE, 600, {
+        description: 'Vegetative Debris', unit: 'Ton', origin: 'A to B',
+        currency: '$', amount: '3.50', amountObservation: 'obs:beta',
+      }),
+    ],
+  }]);
+}
+
+const candidateBuildContext = {
+  sourceDocumentId: '11111111-1111-4111-8111-111111111111',
+  sourceArtifactId: '22222222-2222-4222-8222-222222222222',
+  pageRepresentationDigestByPage: { [PAGE]: 'a'.repeat(64) },
+};
+
+function continuationCandidates(layout = continuationAmbiguousPageLayout()) {
+  const generated = buildPagePricedScheduleReconstruction({
+    layout,
+    recoveryCandidateBuildContext: candidateBuildContext,
+  }).recovery_candidates ?? [];
+  return generated.filter((candidate) =>
+    candidate.recoveryType === 'priced_schedule_continuation_attribution');
+}
+
 const confirm = (observationId: string, text: string): ConfirmedRateObservation =>
   ({ observation_id: observation(observationId), confirmed_raw_text: text });
 
 function reconstruct(
   layout: PdfLayout,
   confirmedRateObservations?: readonly ConfirmedRateObservation[],
+  confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[],
 ) {
-  return buildPagePricedScheduleReconstruction({ layout, confirmedRateObservations });
+  return buildPagePricedScheduleReconstruction({
+    layout, confirmedRateObservations, confirmedRecoveryCandidates,
+  });
 }
 
 function gammaRow(result: ReturnType<typeof reconstruct>) {
@@ -228,6 +326,21 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
       .toEqual(['confirmed_recovery_not_applied', 'confirmed_recovery_not_applied']);
   });
 
+  it('D2: rejects a duplicate confirmation identity instead of silently taking the last value', () => {
+    const result = reconstruct(ambiguousPageLayout(), [
+      confirm('obs:gamma-unit', '$8.75'),
+      confirm('obs:gamma-unit', '$9.99'),
+    ]);
+    expect(gammaRow(result)).toBeNull();
+    expect(rejectionReasons(result)).toContain('ambiguous_rate_clusters');
+    expect(result.recovery_diagnostics).toEqual([{
+      reason: 'duplicate_recovery_confirmation',
+      observation_id: 'obs:gamma-unit',
+      physical_page_number: PAGE,
+      recovery_applied: false,
+    }]);
+  });
+
   it('E: fails closed when the built rate text disagrees with what was confirmed', () => {
     // The observation binds, but the human confirmed a different authored value,
     // so the confirmation does not describe this row.
@@ -246,29 +359,7 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
     // The V1 producer proposes the selected observation's own raw text. The
     // numeric observation is only half of the authored "$" + "8.75" cluster,
     // so matching that value must not let reconstruction discard its sibling.
-    const split = layoutOf([{
-      page_number: PAGE, width: 612, height: 792,
-      lines: [
-        headerLine(PAGE),
-        pricedLine(PAGE, 680, {
-          description: 'Alpha service', unit: 'Widget', origin: 'Yard to Depot',
-          currency: '$', amount: '12.00', amountObservation: 'obs:alpha',
-        }),
-        pricedLine(PAGE, 660, {
-          description: 'Beta service', unit: 'Widget', origin: 'Depot to Site',
-          currency: '$', amount: '3.50', amountObservation: 'obs:beta',
-        }),
-        line(PAGE, 640, [
-          { x: DESCRIPTION_X, text: 'Gamma service', width: 100 },
-          { x: UNIT_X, text: 'Widget', width: 60 },
-          { x: ORIGIN_X, text: 'Yard to Depot', width: 100 },
-          { x: CURRENCY_X, text: '$', width: 8, observation_id: observation('obs:split-currency') },
-          { x: AMOUNT_X, text: '8.75', width: 40, observation_id: observation('obs:split-number') },
-          { x: SECOND_CURRENCY_X, text: '$', width: 8, observation_id: observation('obs:split-currency-2') },
-          { x: SECOND_AMOUNT_X, text: '52.50', width: 40, observation_id: observation('obs:split-number-2') },
-        ]),
-      ],
-    }]);
+    const split = splitAmbiguousPageLayout();
     const result = reconstruct(split, [confirm('obs:split-number', '8.75')]);
     expect(gammaRow(result)).toBeNull();
     expect(rejectionReasons(result)).toContain('recovery_closure_failed');
@@ -278,6 +369,50 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
       physical_page_number: PAGE,
       recovery_applied: false,
     }]);
+  });
+
+  it('G2: admits the complete deterministic split-token candidate through ordinary buildCell', () => {
+    const result = reconstruct(splitAmbiguousPageLayout(), undefined, [splitCandidate()]);
+    expect(gammaRow(result)?.cells.find((cell) => cell.role === 'rate')?.raw_text).toBe('$ 8.75');
+    expect(result.recovery_diagnostics).toEqual([]);
+  });
+
+  it('G3: rejects reordered candidate members', () => {
+    const result = reconstruct(splitAmbiguousPageLayout(), undefined, [
+      splitCandidate(['obs:split-number', 'obs:split-currency']),
+    ]);
+    expect(gammaRow(result)).toBeNull();
+    expect(result.recovery_diagnostics?.[0]).toMatchObject({
+      reason: 'confirmed_recovery_not_applied',
+    });
+  });
+
+  it('G4: makes the whole candidate unbound when one member is stale', () => {
+    const candidate = splitCandidate();
+    const changed = splitAmbiguousPageLayout();
+    const number = changed.pages[0]!.lines[3]!.tokens.find((entry) => entry.text === '8.75')!;
+    number.observation_id = observation('obs:split-number-reparsed');
+    const result = reconstruct(changed, undefined, [candidate]);
+    expect(gammaRow(result)).toBeNull();
+    expect(result.recovery_diagnostics?.[0]).toMatchObject({
+      reason: 'confirmed_recovery_unbound',
+      candidate_id: candidate.candidateId,
+    });
+  });
+
+  it('G5: fails closed when a V1 observation and a V2 candidate both answer one spine', () => {
+    // A historical V1 review and a new V2 review can both be accepted against
+    // the same page. Two humans answered the same question; letting the newer
+    // contract win would be a latest-wins authority by another name.
+    const result = reconstruct(
+      splitAmbiguousPageLayout(),
+      [confirm('obs:split-number-2', '$52.50')],
+      [splitCandidate()],
+    );
+    expect(gammaRow(result)).toBeNull();
+    expect(rejectionReasons(result)).toContain('ambiguous_recovery_confirmation');
+    expect(result.recovery_diagnostics?.map((entry) => entry.reason))
+      .toEqual(['confirmed_recovery_not_applied', 'confirmed_recovery_not_applied']);
   });
 
   it('G control: reconstructs an ordinary unambiguous split monetary cluster', () => {
@@ -298,6 +433,92 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
 
     expect(result.pages[0]!.rows[0]!.cells.find((cell) => cell.role === 'rate')?.raw_text)
       .toBe('$ 8.75');
+  });
+});
+
+describe('candidate-based continuation attribution re-entry', () => {
+  it('A/B: generates deterministic targets but leaves the ambiguous fragment withheld without review', () => {
+    const layout = continuationAmbiguousPageLayout();
+    const result = reconstruct(layout);
+    expect(result.pages[0]?.unassigned_lines).toMatchObject([{
+      reason: 'ambiguous_row_assignment', raw_text: 'Disposal',
+    }]);
+    const candidates = continuationCandidates(layout);
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.targetRowIdentity).sort()).toEqual([
+      `page_priced_schedule:p${PAGE}:r0`,
+      `page_priced_schedule:p${PAGE}:r1`,
+    ]);
+  });
+
+  it('C: an accepted exact target candidate re-enters before the ordinary row is built', () => {
+    const layout = continuationAmbiguousPageLayout();
+    const candidate = continuationCandidates(layout).find((entry) =>
+      entry.targetRowIdentity.endsWith(':r0'))!;
+    const result = reconstruct(layout, undefined, [candidate]);
+    expect(result.pages[0]?.rows[0]?.cells.find((cell) => cell.role === 'description')?.raw_text)
+      .toBe('Inert Debris Removal and Disposal');
+    expect(result.pages[0]?.unassigned_lines).toEqual([]);
+    expect(result.recovery_diagnostics).toEqual([]);
+  });
+
+  it('D: modified semantics select the other already-generated target candidate', () => {
+    const layout = continuationAmbiguousPageLayout();
+    const candidate = continuationCandidates(layout).find((entry) =>
+      entry.targetRowIdentity.endsWith(':r1'))!;
+    const result = reconstruct(layout, undefined, [candidate]);
+    expect(result.pages[0]?.rows[1]?.cells.find((cell) => cell.role === 'description')?.raw_text)
+      .toBe('Disposal Vegetative Debris');
+    expect(result.pages[0]?.rows[0]?.cells.find((cell) => cell.role === 'description')?.raw_text)
+      .toBe('Inert Debris Removal and');
+  });
+
+  it('E/F: rejected or deferred confirmation sets have zero effect', () => {
+    const baseline = reconstruct(continuationAmbiguousPageLayout());
+    expect(reconstruct(continuationAmbiguousPageLayout(), undefined, [])).toEqual(baseline);
+  });
+
+  it('H: a stale fragment observation makes the whole candidate unbound', () => {
+    const candidate = continuationCandidates()[0]!;
+    const result = reconstruct(
+      continuationAmbiguousPageLayout('obs:continuation-reparsed'), undefined, [candidate],
+    );
+    expect(result.pages[0]?.unassigned_lines[0]?.reason).toBe('ambiguous_row_assignment');
+    expect(result.recovery_diagnostics?.[0]).toMatchObject({
+      reason: 'confirmed_recovery_unbound', candidate_id: candidate.candidateId,
+    });
+  });
+
+  it('publishes no row and loses no line other than the one confirmed', () => {
+    // A continuation confirmation authorizes exactly one attachment. It must
+    // not become evidence about the page's continuation spacing, which is what
+    // admits edge lines elsewhere -- so the published row count is unchanged
+    // and the withheld set shrinks by exactly the confirmed fragment.
+    const layout = continuationAmbiguousPageLayout();
+    const baseline = reconstruct(layout).pages[0]!;
+    const candidate = continuationCandidates(layout).find((entry) =>
+      entry.targetRowIdentity.endsWith(':r0'))!;
+    const recovered = reconstruct(layout, undefined, [candidate]).pages[0]!;
+
+    expect(recovered.rows).toHaveLength(baseline.rows.length);
+    expect(baseline.unassigned_lines.map((entry) => entry.raw_text)).toEqual(['Disposal']);
+    expect(recovered.unassigned_lines).toEqual([]);
+    expect(recovered.rejected_spines).toEqual(baseline.rejected_spines);
+    // Every row the confirmation did not target is byte-identical.
+    expect(recovered.rows[1]).toEqual(baseline.rows[1]);
+  });
+
+  it('J: recovered and ordinary continuation produce the same ordinary row shape', () => {
+    const ambiguous = continuationAmbiguousPageLayout();
+    const candidate = continuationCandidates(ambiguous).find((entry) =>
+      entry.targetRowIdentity.endsWith(':r0'))!;
+    const recovered = reconstruct(ambiguous, undefined, [candidate]).pages[0]!.rows[0]!;
+    const ordinaryLayout = continuationAmbiguousPageLayout();
+    ordinaryLayout.pages[0]!.lines[3]!.y = 590;
+    for (const token of ordinaryLayout.pages[0]!.lines[3]!.tokens) token.y = 590;
+    const ordinary = reconstruct(ordinaryLayout).pages[0]!.rows[0]!;
+    expect(recovered).toEqual(ordinary);
+    expect(JSON.stringify(recovered)).not.toMatch(/recover|confirm|candidate/i);
   });
 });
 

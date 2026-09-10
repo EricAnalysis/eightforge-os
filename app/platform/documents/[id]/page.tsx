@@ -31,6 +31,7 @@ import type { RelatedDocInput } from '@/lib/documentIntelligence';
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { buildDocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { DocumentProjectControls } from '@/components/documents/DocumentProjectControls';
+import { RecoveryReviewPanel } from '@/components/documents/RecoveryReviewPanel';
 import { DocumentDetailExperience } from '@/components/document-intelligence/DocumentDetailExperience';
 import type {
   DetectedEntity,
@@ -1784,13 +1785,19 @@ export default function DocumentDetailPage({
         navigationValidatorHref={navigationValidatorHref}
         evaluationNode={evaluationSection}
         managementNode={(
-          <DocumentProjectControls
-            documentId={id}
-            documentLabel={displayTitle}
-            currentProjectId={project?.id ?? doc.project_id ?? null}
-            currentProjectName={project?.name ?? null}
-            onDocumentProjectChanged={loadAllData}
-          />
+          <div className="space-y-4">
+            {/* Withheld priced rows live beside the document's own management
+                controls: reviewing one authorizes a reprocess of this document,
+                which is the action immediately above it. */}
+            <RecoveryReviewPanel documentId={id} onReprocessed={loadAllData} />
+            <DocumentProjectControls
+              documentId={id}
+              documentLabel={displayTitle}
+              currentProjectId={project?.id ?? doc.project_id ?? null}
+              currentProjectName={project?.name ?? null}
+              onDocumentProjectChanged={loadAllData}
+            />
+          </div>
         )}
       />
     </div>

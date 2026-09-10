@@ -5,8 +5,35 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/verify-step0-migration-replay.sh'
-      - 'scripts/sql/verify-phase1b-physical-page-provenance.sql'
-      - 'scripts/sql/verify-workflow-database-authority.sql'
+      - 'scripts/sql/**'
+      - 'scripts/verify-approved-engineering-request-from-postgres.ts'
+      - 'scripts/verify-phase12-effective-recovery-from-postgres.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vitest.config.ts'
+      - 'lib/extraction/domain/hash.ts'
+      - 'lib/approvedEngineeringRequest.ts'
+      - 'lib/forgewingConfirmedRecovery.ts'
+      - 'lib/forgewingRecoveryReview.ts'
+      - 'lib/workflowEngineeringReview.ts'
+      - 'lib/repositoryAwareImplementationPlan.ts'
+      - 'lib/repositoryPlanContent.ts'
+      - 'lib/repositoryPlanEvidence.ts'
+      - 'lib/repositoryPlanFoundation.ts'
+      - 'lib/repositoryPlanGuidance.ts'
+      - 'lib/repositoryPlanSnapshot.ts'
+      - 'lib/workflowImplementationPlan.ts'
+      - 'lib/workflowImplementationPlanWire.ts'
+      - 'lib/workflowReviewedSpecification.ts'
+      - 'lib/server/approvedEngineeringRequestRead.ts'
+      - 'lib/server/effectiveRecoveryConfirmations.ts'
+      - 'lib/server/forgewingRecoveryProposalPersistence.ts'
+      - 'lib/server/forgewingRecoveryReview.ts'
+      - 'lib/server/supabaseAdmin.ts'
+      - 'lib/server/workflowEngineeringReview.ts'
+      - 'lib/server/workflowPlatformReviewAccess.ts'
+      - 'lib/server/workflowRepositoryPlanPersistence.ts'
+      - 'lib/server/workflowRepositoryPlanRead.ts'
       - '.github/workflows/migration-fresh-replay.yml'
   push:
     branches:
@@ -14,8 +41,35 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/verify-step0-migration-replay.sh'
-      - 'scripts/sql/verify-phase1b-physical-page-provenance.sql'
-      - 'scripts/sql/verify-workflow-database-authority.sql'
+      - 'scripts/sql/**'
+      - 'scripts/verify-approved-engineering-request-from-postgres.ts'
+      - 'scripts/verify-phase12-effective-recovery-from-postgres.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vitest.config.ts'
+      - 'lib/extraction/domain/hash.ts'
+      - 'lib/approvedEngineeringRequest.ts'
+      - 'lib/forgewingConfirmedRecovery.ts'
+      - 'lib/forgewingRecoveryReview.ts'
+      - 'lib/workflowEngineeringReview.ts'
+      - 'lib/repositoryAwareImplementationPlan.ts'
+      - 'lib/repositoryPlanContent.ts'
+      - 'lib/repositoryPlanEvidence.ts'
+      - 'lib/repositoryPlanFoundation.ts'
+      - 'lib/repositoryPlanGuidance.ts'
+      - 'lib/repositoryPlanSnapshot.ts'
+      - 'lib/workflowImplementationPlan.ts'
+      - 'lib/workflowImplementationPlanWire.ts'
+      - 'lib/workflowReviewedSpecification.ts'
+      - 'lib/server/approvedEngineeringRequestRead.ts'
+      - 'lib/server/effectiveRecoveryConfirmations.ts'
+      - 'lib/server/forgewingRecoveryProposalPersistence.ts'
+      - 'lib/server/forgewingRecoveryReview.ts'
+      - 'lib/server/supabaseAdmin.ts'
+      - 'lib/server/workflowEngineeringReview.ts'
+      - 'lib/server/workflowPlatformReviewAccess.ts'
+      - 'lib/server/workflowRepositoryPlanPersistence.ts'
+      - 'lib/server/workflowRepositoryPlanRead.ts'
       - '.github/workflows/migration-fresh-replay.yml'
 
 jobs:
@@ -50,6 +104,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
       - name: Install PostgreSQL client
         run: |
           set -Eeuo pipefail
@@ -60,7 +123,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE SCHEMA IF NOT EXISTS extensions;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
           CREATE SCHEMA IF NOT EXISTS auth;
           CREATE TABLE IF NOT EXISTS auth.users (
             id uuid PRIMARY KEY,

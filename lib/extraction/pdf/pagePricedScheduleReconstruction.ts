@@ -177,6 +177,19 @@ export type PricedScheduleRejectedSpineReason =
   /** Carried more than one plausible authored rate/amount cluster. */
   | 'ambiguous_rate_clusters'
   /**
+   * Carried more than one plausible cluster AND more than one of its rate-band
+   * observations was human-confirmed. Two confirmations are two answers, so
+   * this stays withheld rather than choosing between them.
+   */
+  | 'ambiguous_recovery_confirmation'
+  /**
+   * A human-confirmed observation narrowed the rate band, but the rate cell the
+   * reconstructor then built does not carry the authored text that was
+   * confirmed. The confirmation does not describe this row, so it is not
+   * applied and the row stays withheld.
+   */
+  | 'recovery_closure_failed'
+  /**
    * Sat at the start or end of the sequence, separated from it by a gap
    * materially outside the spacing the rest of the sequence established.
    */
@@ -226,9 +239,47 @@ export type PricedSchedulePage = {
   readonly unassigned_lines: readonly PricedScheduleUnassignedLine[];
 };
 
+/**
+ * One human-confirmed rate observation, supplied by the server-side
+ * confirmation resolver.
+ *
+ * This is an authorization, not a value: the reconstructor still builds the
+ * rate cell from the page's own tokens by its own rules. The confirmed text is
+ * carried only so the result can be checked against what the human actually
+ * confirmed, and the row withheld if the two disagree.
+ */
+export type ConfirmedRateObservation = {
+  readonly observation_id: NonNullable<PdfToken['observation_id']>;
+  readonly confirmed_raw_text: string;
+};
+
+/** Why a supplied confirmation produced no recovery. Always fail-closed. */
+export type PricedScheduleRecoveryDiagnosticReason =
+  /**
+   * The confirmed observation does not exist in this layout. Observation
+   * identity includes the page representation digest, so a reparse that
+   * changed the page changes every id on it. Never rebound by text.
+   */
+  | 'confirmed_recovery_unbound'
+  /** Bound to a token, but no priced row was admitted through it. */
+  | 'confirmed_recovery_not_applied';
+
+export type PricedScheduleRecoveryDiagnostic = {
+  readonly reason: PricedScheduleRecoveryDiagnosticReason;
+  readonly observation_id: NonNullable<PdfToken['observation_id']>;
+  readonly physical_page_number: number | null;
+  readonly recovery_applied: false;
+};
+
 export type PagePricedScheduleReconstruction = {
   readonly parser_version: typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
   readonly pages: readonly PricedSchedulePage[];
+  /**
+   * Present only when confirmations were supplied. Absent otherwise, so the
+   * default reconstruction is byte-identical to one built before recovery
+   * re-entry existed.
+   */
+  readonly recovery_diagnostics?: readonly PricedScheduleRecoveryDiagnostic[];
 };
 
 function tokenCenterX(token: PdfToken): number {
@@ -447,26 +498,82 @@ function isCoherentPitchBaseline(values: readonly number[]): boolean {
   return maximum <= minimum * ROW_PITCH_ENVELOPE_FACTOR;
 }
 
-/** Counts authored rate/amount clusters without assigning them semantics. */
-function rateLikeClusterCount(line: SourceLine): number {
+/** Groups authored rate/amount clusters without assigning them semantics. */
+function rateLikeClusters(line: SourceLine): readonly (readonly PdfToken[])[] {
   const tokens = line.banded
     .filter((entry) => entry.role === 'rate')
     .map((entry) => entry.token)
     .sort(compareTokens);
-  let clusters = 0;
+  const clusters: PdfToken[][] = [];
   for (let index = 0; index < tokens.length; index += 1) {
-    const text = tokens[index]!.text.trim();
+    const current = tokens[index]!;
+    const text = current.text.trim();
     if (CURRENCY_SPINE_PATTERN.test(text)) {
-      clusters += 1;
-      const next = tokens[index + 1]?.text.trim() ?? '';
-      if (RATE_NUMBER_PATTERN.test(next) || RATE_MARKER_PATTERN.test(next)) index += 1;
+      const next = tokens[index + 1];
+      const nextText = next?.text.trim() ?? '';
+      if (next && (RATE_NUMBER_PATTERN.test(nextText) || RATE_MARKER_PATTERN.test(nextText))) {
+        clusters.push([current, next]);
+        index += 1;
+      } else {
+        clusters.push([current]);
+      }
       continue;
     }
     if (CURRENCY_LED_AMOUNT_PATTERN.test(text) || RATE_NUMBER_PATTERN.test(text)) {
-      clusters += 1;
+      clusters.push([current]);
     }
   }
   return clusters;
+}
+
+/** Counts authored rate/amount clusters without assigning them semantics. */
+function rateLikeClusterCount(line: SourceLine): number {
+  return rateLikeClusters(line).length;
+}
+
+type ConfirmedRateOutcome =
+  | { readonly status: 'unconfirmed' }
+  | { readonly status: 'ambiguous_confirmation' }
+  | {
+      readonly status: 'confirmed';
+      readonly observation_id: NonNullable<PdfToken['observation_id']>;
+      readonly confirmed_raw_text: string;
+      /** V1 can recover only when the selected observation is the whole cluster. */
+      readonly represents_complete_cluster: boolean;
+    };
+
+/**
+ * Which confirmed observation, if any, resolves this candidate's ambiguity.
+ *
+ * Exactly one match resolves it. Zero leaves the existing abstention exactly as
+ * it was. More than one is two answers to a one-answer question, and fails
+ * closed rather than picking either. Only rate-band observations are consulted,
+ * so a confirmation naming a description or unit token never resolves anything.
+ */
+function confirmedRateFor(
+  lines: readonly SourceLine[],
+  confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
+): ConfirmedRateOutcome {
+  if (confirmed.size === 0) return { status: 'unconfirmed' };
+  const matched = new Map<string, ConfirmedRateObservation>();
+  const clusters = lines.flatMap((line) => rateLikeClusters(line));
+  for (const entry of lines.flatMap((line) => line.banded)) {
+    if (entry.role !== 'rate') continue;
+    const observationId = entry.token.observation_id;
+    if (!observationId) continue;
+    const match = confirmed.get(observationId);
+    if (match) matched.set(observationId, match);
+  }
+  if (matched.size === 0) return { status: 'unconfirmed' };
+  if (matched.size > 1) return { status: 'ambiguous_confirmation' };
+  const only = [...matched.values()][0]!;
+  return {
+    status: 'confirmed',
+    observation_id: only.observation_id,
+    confirmed_raw_text: only.confirmed_raw_text,
+    represents_complete_cluster: clusters.some((cluster) =>
+      cluster.length === 1 && cluster[0]!.observation_id === only.observation_id),
+  };
 }
 
 /**
@@ -514,7 +621,11 @@ function lineRawText(line: SourceLine): string {
   return line.tokens.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
 }
 
-function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
+function reconstructPage(
+  page: PdfLayoutPage,
+  confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
+  appliedConfirmations: Set<string>,
+): PricedSchedulePage | null {
   const headers = detectHeaders(page);
   // A page presenting more than one priced-table header holds more than one
   // table. Reconstructing it as a single table would let the second header and
@@ -735,29 +846,58 @@ function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
     const index = spineIndex.get(spine)!;
     const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
     const contributed = lines.flatMap((line) => line.banded);
+    const ambiguous = lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
+
+    // A human confirmation may resolve this candidate's ambiguity, and only
+    // this one: it narrows the rate band to a single already-observed token so
+    // the row can be built the ordinary way. It cannot create a token, cannot
+    // supply a value, and cannot relax any other admission gate below.
+    const confirmation: ConfirmedRateOutcome = ambiguous
+      ? confirmedRateFor(lines, confirmed)
+      : { status: 'unconfirmed' };
     const cells: PricedScheduleCell[] = [];
     for (const role of recognizedRoles) {
-      const cell = buildCell(role, contributed.filter((entry) => entry.role === role));
+      const banded = contributed.filter((entry) => entry.role === role);
+      const cell = buildCell(role, role === 'rate' && confirmation.status === 'confirmed'
+        ? banded.filter((entry) => entry.token.observation_id === confirmation.observation_id)
+        : banded);
       if (cell) cells.push(cell);
     }
     const populatedRoles = new Set(cells.map((cell) => cell.role));
+
+    // Closure. The rate cell the reconstructor actually built must carry the
+    // authored text the human confirmed. If it does not, the confirmation
+    // describes something other than this row, and no row is admitted from it.
+    const closed = confirmation.status !== 'confirmed'
+      || (confirmation.represents_complete_cluster
+        && cells.find((cell) => cell.role === 'rate')?.raw_text === confirmation.confirmed_raw_text);
+    const withheldReason: PricedScheduleRejectedSpineReason | null = !ambiguous
+      ? null
+      : confirmation.status === 'ambiguous_confirmation'
+        ? 'ambiguous_recovery_confirmation'
+        : confirmation.status === 'unconfirmed'
+          ? 'ambiguous_rate_clusters'
+          : closed ? null : 'recovery_closure_failed';
+
     return {
       spine,
       index,
       cells,
       lines,
       populatedRoles,
-      hasAmbiguousRateClusters: lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1,
+      withheldReason,
+      appliedConfirmation:
+        withheldReason === null && confirmation.status === 'confirmed'
+          ? confirmation.observation_id
+          : null,
       isBodyAnchor: recognizedRoles.every((role) => populatedRoles.has(role)),
     };
   });
 
   for (const entry of assembled) {
-    if (entry.hasAmbiguousRateClusters) {
-      rejectLines(entry.spine, entry.lines, 'ambiguous_rate_clusters');
-    }
+    if (entry.withheldReason) rejectLines(entry.spine, entry.lines, entry.withheldReason);
   }
-  const bodyCandidates = assembled.filter((entry) => !entry.hasAmbiguousRateClusters);
+  const bodyCandidates = assembled.filter((entry) => entry.withheldReason === null);
 
   // The header bounds the body from above -- nothing above it belongs to the
   // table. Nothing marks the end of a table, so the lowest fully-populated row
@@ -795,6 +935,12 @@ function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
       rejectLines(entry.spine, entry.lines, 'insufficient_priced_rows');
     }
     return pageResult('failed_closed', []);
+  }
+
+  // A confirmation counts as applied only once its row has survived every
+  // other admission gate and is actually being published.
+  for (const entry of accepted) {
+    if (entry.appliedConfirmation) appliedConfirmations.add(entry.appliedConfirmation);
   }
 
   const rows: PricedScheduleRow[] = accepted.map((entry) => ({
@@ -856,6 +1002,16 @@ function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
  *   - A row contributing more than one plausible monetary cluster is rejected
  *     as ambiguous. Geometry may prove that multiple observations exist, but it
  *     cannot say which is a unit rate, extension, or duplicate.
+ *
+ *     That abstention -- and only that one -- can be resolved by a human. When
+ *     `confirmedRateObservations` names exactly one of the candidate's own
+ *     rate-band observations, the rate band narrows to that token and the row
+ *     is built the ordinary way. Zero matches leave the abstention untouched;
+ *     more than one fails closed. The rate cell that results must then carry
+ *     the authored text that was confirmed, or the row is withheld: a
+ *     confirmation that does not describe the row it lands on never admits it.
+ *     Nothing here relaxes any other gate, and every admitted row is an
+ *     ordinary priced row with no recovery marking of any kind.
  *   - Anything that fails admission is reported -- rate markers in
  *     `rejected_spines`, authored lines in `unassigned_lines` -- each with a
  *     reason, its authored text and its geometry. Nothing is dropped in silence.
@@ -878,18 +1034,56 @@ function reconstructPage(page: PdfLayoutPage): PricedSchedulePage | null {
  */
 export function buildPagePricedScheduleReconstruction(params: {
   layout: PdfLayout;
+  /**
+   * Rate observations a human has confirmed, from the server-side confirmation
+   * resolver only. Never browser-supplied.
+   *
+   * Absent, undefined or empty leaves this function byte-identical to the
+   * reconstruction built before recovery re-entry existed: no field is added,
+   * no diagnostic is emitted, and no admission decision changes.
+   */
+  confirmedRateObservations?: readonly ConfirmedRateObservation[];
 }): PagePricedScheduleReconstruction {
+  const supplied = params.confirmedRateObservations ?? [];
+  const confirmed = new Map(supplied.map((entry) => [entry.observation_id, entry]));
+  const appliedConfirmations = new Set<string>();
   const pages: PricedSchedulePage[] = [];
   // Deterministic page order regardless of input ordering.
   const orderedPages = [...params.layout.pages].sort(
     (left, right) => left.page_number - right.page_number,
   );
   for (const page of orderedPages) {
-    const reconstructed = reconstructPage(page);
+    const reconstructed = reconstructPage(page, confirmed, appliedConfirmations);
     if (reconstructed) pages.push(reconstructed);
   }
-  return {
+  const base: PagePricedScheduleReconstruction = {
     parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages,
   };
+  if (supplied.length === 0) return base;
+
+  // Where each confirmed observation still lives in this parse, if anywhere.
+  // A confirmation that no longer binds is reported and dropped: observation
+  // identity carries the page representation digest, so a reparse that changed
+  // the page changed the id, and rebinding by text would be a guess.
+  const pageByObservation = new Map<string, number>();
+  for (const page of params.layout.pages) {
+    for (const line of page.lines) {
+      for (const token of line.tokens) {
+        if (token.observation_id) pageByObservation.set(token.observation_id, page.page_number);
+      }
+    }
+  }
+  const recovery_diagnostics = [...confirmed.keys()]
+    .filter((observationId) => !appliedConfirmations.has(observationId))
+    .sort((left, right) => left.localeCompare(right, 'en-US'))
+    .map((observationId): PricedScheduleRecoveryDiagnostic => ({
+      reason: pageByObservation.has(observationId)
+        ? 'confirmed_recovery_not_applied'
+        : 'confirmed_recovery_unbound',
+      observation_id: observationId as NonNullable<PdfToken['observation_id']>,
+      physical_page_number: pageByObservation.get(observationId) ?? null,
+      recovery_applied: false,
+    }));
+  return { ...base, recovery_diagnostics };
 }

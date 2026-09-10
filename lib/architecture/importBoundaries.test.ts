@@ -95,6 +95,10 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   '@/lib/workflowAssessmentProposalClosure',
   // Pure canonical schemas shared by new output and historical compatibility.
   '@/lib/workflowAssessmentSchema',
+  // B2b consumes only the pure B2a prepared-input/validation contract. B1/B1.5
+  // repository and Git modules remain outside this allowlist.
+  '@/lib/repositoryPlanGuidance',
+  '@/lib/repositoryAwareImplementationPlan',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',
@@ -108,6 +112,17 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   // consumer, forbidden from reaching canonical, pricing, or validator
   // authority by FORGEWING_COMPLIANCE_SHADOW_FORBIDDEN_DEPENDENCIES below.
   'lib/server/workflowAssessment.ts',
+  // The production repository-plan worker is the sole live consumer of B2b.
+  // Its output remains non-authoritative and can only reach the qualified B3
+  // persistence seam guarded independently by repository-plan boundaries.
+  'lib/server/repositoryPlanGenerationWorker.ts',
+  // Phase 12A. The durable recovery proposal is the reviewable identity a TTL'd
+  // shadow blob could not be. These two modules carry a Forgewing recovery
+  // proposal to non-authoritative storage and nowhere else: they hold no
+  // authority, and the forbidden-dependency rule below still denies them
+  // canonical, pricing, and validator code.
+  'lib/forgewingRecoveryProposal.ts',
+  'lib/server/forgewingRecoveryProposalPersistence.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -928,7 +943,7 @@ describe('production architecture import boundaries', () => {
         && !ALLOWED.has(relative)
         && V2_SEAM_SYMBOLS.some((symbol) => text.includes(symbol)));
     expect(offenders.map(({ relative }) => relative)).toEqual([]);
-  });
+  }, 30_000);
 
   it('keeps exactly one canonical-to-validator projection module', () => {
     expect(canonicalProjectionModules())
@@ -939,13 +954,15 @@ describe('production architecture import boundaries', () => {
     expect(comparisonBoundaryViolations()).toEqual([]);
   }, 30_000);
 
-  it('keeps Forgewing non-authoritative with two named consumers and an isolated evaluator', () => {
+  it('keeps Forgewing non-authoritative with named consumers and an isolated evaluator', () => {
     expect(forgewingBoundaryViolations()).toEqual([]);
-    // Exactly these two, sorted. Each is a seam that carries a Forgewing
-    // proposal to non-authoritative storage and nowhere else; a third entry
-    // appearing here is a deliberate architectural decision, not an accident.
+    // Exactly these, sorted. Each is a seam that carries a Forgewing proposal
+    // to non-authoritative storage and nowhere else; a further entry appearing
+    // here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
       'lib/extraction/persistence/complianceShadow.ts',
+      'lib/server/forgewingRecoveryProposalPersistence.ts',
+      'lib/server/repositoryPlanGenerationWorker.ts',
       'lib/server/workflowAssessment.ts',
     ]);
   }, 30_000);

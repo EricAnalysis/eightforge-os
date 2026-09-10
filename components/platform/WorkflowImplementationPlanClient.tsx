@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
 import WorkflowImplementationPlanView from '@/components/platform/WorkflowImplementationPlanView';
+import RepositoryPlanRunControl from '@/components/platform/RepositoryPlanRunControl';
 import { ImplementationPlanPinSchema, ImplementationPlanResponseSchema, type BrowserSafeImplementationPlan, type ImplementationPlanPin, type ImplementationPlanFailureCode } from '@/lib/workflowImplementationPlanWire';
 
 export type PlanDisplayState = { kind: 'loading' } | { kind: 'ready'; plan: BrowserSafeImplementationPlan } | { kind: 'error'; category: keyof typeof errorMessages };
@@ -126,6 +127,13 @@ export default function WorkflowImplementationPlanClient({ assessmentId, query }
         <p className="mt-2 text-sm">Specification complete does not authorize execution.</p>
       </div>
     </header>
-    {state.kind === 'ready' ? <WorkflowImplementationPlanView plan={state.plan} /> : <PlanStatus state={state} retry={() => setRetry((value) => value + 1)} />}
+    {state.kind === 'ready' ? <><WorkflowImplementationPlanView plan={state.plan} />
+      {[...new Set(state.plan.plannedSteps.map((step) => step.effectiveClassification))].map((classification) => (
+        <RepositoryPlanRunControl
+          key={JSON.stringify([state.plan.source.pin, classification, token])}
+          accessToken={token!}
+          request={{ ...state.plan.source.pin, classification }}
+        />
+      ))}</> : <PlanStatus state={state} retry={() => setRetry((value) => value + 1)} />}
   </div>;
 }

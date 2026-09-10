@@ -1,0 +1,70 @@
+{
+  "approvedScope": {
+    "architectureRisks": ["Duplicate validator logic could diverge from canonical truth."],
+    "capabilitySummary": "Reuse canonical invoice validation",
+    "evidenceRefs": [
+      "ev_1111111111111111111111111111111111111111111111111111111111111111",
+      "ev_2222222222222222222222222222222222222222222222222222222222222222"
+    ],
+    "regressionGates": [
+      {
+        "evidenceRef": "ev_2222222222222222222222222222222222222222222222222222222222222222",
+        "gate": "evidence_test",
+        "testPath": "lib/validator/rulePacks/invoice.test.ts"
+      },
+      { "gate": "typecheck" }
+    ],
+    "stopConditions": ["canonical_truth_owner_unclear"],
+    "summary": "Extend the existing validator seam without creating a second truth path.",
+    "unresolvedQuestions": ["Whether the existing rule vocabulary covers the client term."]
+  },
+  "capabilityScope": "reusable_platform_capability",
+  "capabilitySummary": "Reuse canonical invoice validation",
+  "description": "NON-AUTHORITATIVE COPY — EightForge remains the source of truth.\n\n```json\n{\"engineeringRequestDigestSha256\":\"a329d33b3e33697e06a9563bbc7f55218c42bc25efc22543d7d0b05099f8bc00\",\"idempotencyKey\":\"linear-projection:a329d33b3e33697e06a9563bbc7f55218c42bc25efc22543d7d0b05099f8bc00\",\"linearAuthority\":\"none\",\"linearIsInputAuthority\":false,\"planV2DigestSha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"planV2RunId\":\"11111111-1111-4111-8111-111111111111\",\"projectionDirection\":\"eightforge_to_linear_only\",\"recommendationId\":\"rec_5555555555555555555555555555555555555555555555555555555555555555\",\"repositoryCommitSha\":\"3333333333333333333333333333333333333333\",\"reviewId\":\"22222222-2222-4222-8222-222222222222\",\"reviewRequestDigestSha256\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"reviewVersion\":2,\"schemaVersion\":1}\n```\n\n## Approved capability scope\nExtend the existing validator seam without creating a second truth path.\n\nScope source: human_reviewed_replacement\nCapability scope: reusable_platform_capability\n\n## Reviewer rationale\nThe replacement keeps the implementation inside the reviewed validator seam.\n\n## Architecture risks\n- Duplicate validator logic could diverge from canonical truth.\n\n## Regression gates\n- Evidence test: lib/validator/rulePacks/invoice.test.ts (ev_2222222222222222222222222222222222222222222222222222222222222222)\n- TypeScript typecheck\n\n## Stop conditions\n- canonical_truth_owner_unclear\n\n## Repository evidence\n- lib/validator/rulePacks/invoice.ts @ 3333333333333333333333333333333333333333:7777777777777777777777777777777777777777 (ev_1111111111111111111111111111111111111111111111111111111111111111)\n- lib/validator/rulePacks/invoice.test.ts @ 3333333333333333333333333333333333333333:8888888888888888888888888888888888888888 (ev_2222222222222222222222222222222222222222222222222222222222222222)",
+  "digest": {
+    "algorithm": "sha256",
+    "encoding": "recursive-key-sorted-json-v1",
+    "value": "7d0d11dd5a9cdfbb93fbb03d7d0ffe3f05118d86027eaa1687492266f1a15c8c"
+  },
+  "domain": "eightforge.linear-capability-projection",
+  "executable": false,
+  "grantsExecutionAuthority": false,
+  "idempotencyKey": "linear-projection:a329d33b3e33697e06a9563bbc7f55218c42bc25efc22543d7d0b05099f8bc00",
+  "labels": [
+    "Client Request",
+    "Forgewing Proposed",
+    "Approved for backlog",
+    "Reusable platform capability"
+  ],
+  "linearAuthority": "none",
+  "linearIsInputAuthority": false,
+  "projectionDirection": "eightforge_to_linear_only",
+  "repositoryEvidence": [
+    {
+      "blobSha": "7777777777777777777777777777777777777777",
+      "commitSha": "3333333333333333333333333333333333333333",
+      "evidenceRef": "ev_1111111111111111111111111111111111111111111111111111111111111111",
+      "filePath": "lib/validator/rulePacks/invoice.ts"
+    },
+    {
+      "blobSha": "8888888888888888888888888888888888888888",
+      "commitSha": "3333333333333333333333333333333333333333",
+      "evidenceRef": "ev_2222222222222222222222222222222222222222222222222222222222222222",
+      "filePath": "lib/validator/rulePacks/invoice.test.ts"
+    }
+  ],
+  "reviewerRationale": "The replacement keeps the implementation inside the reviewed validator seam.",
+  "schemaVersion": 1,
+  "scopeSource": "human_reviewed_replacement",
+  "source": {
+    "engineeringRequestDigestSha256": "a329d33b3e33697e06a9563bbc7f55218c42bc25efc22543d7d0b05099f8bc00",
+    "planV2DigestSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "planV2RunId": "11111111-1111-4111-8111-111111111111",
+    "recommendationId": "rec_5555555555555555555555555555555555555555555555555555555555555555",
+    "repositoryCommitSha": "3333333333333333333333333333333333333333",
+    "reviewId": "22222222-2222-4222-8222-222222222222",
+    "reviewRequestDigestSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "reviewVersion": 2
+  },
+  "title": "Reuse canonical invoice validation [EF-a329d33b3e33]"
+}

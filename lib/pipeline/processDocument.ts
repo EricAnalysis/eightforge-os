@@ -12,6 +12,7 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { loadConfirmedRateObservations } from '@/lib/server/effectiveRecoveryConfirmations';
 import { normalizeExtraction } from '@/lib/server/extractionNormalizer';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
@@ -353,6 +354,18 @@ export async function processDocument(params: {
         ? {
             sourceArtifactId: processingIdentity.sourceArtifactId,
             sourceDocumentId: params.documentId,
+          }
+        : null,
+      // Human-confirmed recovery selections, resolved once, server-side, from
+      // exact accepted or modified reviews. Empty unless a human authorized a
+      // re-entry, so ordinary processing is unchanged.
+      processingIdentity.status === 'persisted'
+        ? {
+            confirmedRateObservations: await loadConfirmedRateObservations({
+              organizationId: params.organizationId,
+              sourceDocumentId: params.documentId,
+              sourceArtifactId: processingIdentity.sourceArtifactId,
+            }),
           }
         : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };

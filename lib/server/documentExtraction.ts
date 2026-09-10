@@ -39,7 +39,10 @@ import {
   type OcrLayoutDiagnostics,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPdfTableExtraction, type PdfTable } from '@/lib/extraction/pdf/extractTables';
-import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  buildPagePricedScheduleReconstruction,
+  type ConfirmedRateObservation,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import {
   buildPdfLayoutObservationsLayer,
   type PdfLayoutObservationsLayer,
@@ -165,6 +168,19 @@ export type DocumentMetadata = {
 export type ExtractionProvenanceContext = {
   readonly sourceArtifactId: string;
   readonly sourceDocumentId: string;
+};
+
+/**
+ * Rate observations a human confirmed, already resolved by the server-side
+ * confirmation resolver before extraction begins.
+ *
+ * Extraction never queries for these itself: the pipeline resolves them once,
+ * from the exact accepted or modified reviews, and hands the closed set in.
+ * A browser can request that a document be reprocessed; it can never say which
+ * observations are confirmed.
+ */
+export type ExtractionRecoveryContext = {
+  readonly confirmedRateObservations: readonly ConfirmedRateObservation[];
 };
 
 export type ExtractionPayload = {
@@ -1596,6 +1612,7 @@ export async function extractDocument(
   mimeType: string | null,
   fileName: string,
   provenanceContext?: ExtractionProvenanceContext | null,
+  recoveryContext?: ExtractionRecoveryContext | null,
 ): Promise<ExtractionPayload> {
   const size = fileBytes.byteLength;
   const pdfLayoutObservationIdentityContext: PdfLayoutObservationIdentityContext | null =
@@ -2098,6 +2115,9 @@ export async function extractDocument(
     });
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: structuredLayout,
+      // Absent or empty leaves this call byte-identical to the one made before
+      // recovery re-entry existed.
+      confirmedRateObservations: recoveryContext?.confirmedRateObservations,
     });
     const pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
       layout: structuredLayout,

@@ -113,13 +113,41 @@ describe('recovery review architecture boundaries', () => {
       .sort();
     expect(suppliers).toEqual([
       // The reconstruction seam itself, the resolver that produces the set,
-      // the extraction function that forwards it, and the two pipelines that
-      // call the resolver. Nothing else, and no browser-facing module.
-      'app/api/jobs/process/[jobId]/route.ts',
+      // and the extraction function that forwards it. The pipelines no longer
+      // name it: they take the whole selection set from the resolver instead.
       'lib/extraction/pdf/pagePricedScheduleReconstruction.ts',
-      'lib/pipeline/processDocument.ts',
       'lib/server/documentExtraction.ts',
+      'lib/server/effectiveRecoveryConfirmations.ts',
     ]);
+  });
+
+  it('lets only the resolver and extraction seam carry confirmed V2 candidates', () => {
+    const suppliers = productionFiles()
+      .filter(({ text }) => text.includes('confirmedRecoveryCandidates'))
+      .map(({ relative }) => relative)
+      .sort();
+    expect(suppliers).toEqual([
+      'lib/extraction/pdf/pagePricedScheduleReconstruction.ts',
+      'lib/server/documentExtraction.ts',
+      'lib/server/effectiveRecoveryConfirmations.ts',
+    ]);
+  });
+
+  it('resolves recovery selections through the V2 loader in BOTH process entry points', () => {
+    // Both pipelines must load the same selection set. A pipeline still calling
+    // the V1-only loader would silently discard every candidate confirmation:
+    // a human accepts a cluster, reprocesses, and the row stays withheld with
+    // no diagnostic. That is a fail-open on human authority, so it is pinned.
+    const entryPoints = [
+      'app/api/jobs/process/[jobId]/route.ts',
+      'lib/pipeline/processDocument.ts',
+    ];
+    for (const relative of entryPoints) {
+      const file = productionFiles().find((entry) => entry.relative === relative);
+      expect(file, `${relative} is missing`).toBeDefined();
+      expect(file!.text, relative).toContain('loadConfirmedRecoverySelections');
+      expect(file!.text, relative).not.toContain('loadConfirmedRateObservations');
+    }
   });
 
   it('never lets a browser supply a confirmed observation set', () => {

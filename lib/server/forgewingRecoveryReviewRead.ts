@@ -36,9 +36,22 @@ export type RecoveryReviewCandidateObservation = Readonly<{
   proposed: boolean;
 }>;
 
+export type RecoveryReviewCandidateSelection = Readonly<{
+  candidateId: string;
+  recoveryType: 'pricing_rate_multi_observation_cluster' | 'priced_schedule_continuation_attribution';
+  targetRowIdentity: string;
+  composedRawText: string;
+  observations: readonly RecoveryReviewCandidateObservation[];
+  proposed: boolean;
+}>;
+
 export type RecoveryReviewCandidate = Readonly<{
   proposalId: string;
   proposalDigestSha256: string;
+  proposalVersion: 1 | 2;
+  recoveryType: 'pricing_rate_single_observation'
+    | 'pricing_rate_multi_observation_cluster'
+    | 'priced_schedule_continuation_attribution';
   physicalPageNumber: number;
   /** The deterministic reason the row was never emitted. */
   recoveryReason: string;
@@ -47,6 +60,7 @@ export type RecoveryReviewCandidate = Readonly<{
   certainty: number;
   /** Only eligible monetary observations; a reviewer may select any of them. */
   selectableObservations: readonly RecoveryReviewCandidateObservation[];
+  selectableCandidates: readonly RecoveryReviewCandidateSelection[];
   /** Every cited observation, including context tokens, for display. */
   evidence: readonly RecoveryReviewCandidateObservation[];
   reviewState: RecoveryReviewState;
@@ -55,6 +69,7 @@ export type RecoveryReviewCandidate = Readonly<{
     reviewVersion: number;
     disposition: string;
     confirmedObservationId: string | null;
+    confirmedCandidateId: string | null;
     createdAt: string;
   }> | null;
   createdAt: string;
@@ -99,6 +114,52 @@ function observations(
     .sort((left, right) => left.observationId.localeCompare(right.observationId, 'en-US'));
 }
 
+/**
+ * Projects a candidate's members in the candidate's own authored order.
+ *
+ * `orderedObservationIds` is load-bearing, not incidental: it is what the
+ * candidate id is a digest over, and it is the order the composed text was
+ * built in. Re-sorting here -- alphabetically or otherwise -- would show a
+ * reviewer "8.75 $" for a candidate whose authored text is "$ 8.75", so the
+ * ordered ids drive the projection and the evidence array is only a lookup.
+ *
+ * A candidate whose ordered ids do not fully resolve against its own evidence
+ * is dropped rather than rendered short. A reviewer confirms a candidate whole;
+ * being shown part of one is being shown a different candidate.
+ */
+function candidateSelections(
+  value: unknown,
+  selectedCandidateId: string,
+): RecoveryReviewCandidateSelection[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord).flatMap((candidate) => {
+    const orderedObservationIds = candidate.orderedObservationIds;
+    if (typeof candidate.candidateId !== 'string'
+      || (candidate.recoveryType !== 'pricing_rate_multi_observation_cluster'
+        && candidate.recoveryType !== 'priced_schedule_continuation_attribution')
+      || typeof candidate.targetRowIdentity !== 'string'
+      || typeof candidate.composedRawText !== 'string'
+      || !Array.isArray(orderedObservationIds)
+      || orderedObservationIds.length === 0) return [];
+
+    const byId = new Map<string, RecoveryReviewCandidateObservation>();
+    for (const entry of observations(candidate.evidence, '', false)) {
+      byId.set(entry.observationId, entry);
+    }
+    const members = orderedObservationIds.flatMap((id) =>
+      typeof id === 'string' && byId.has(id) ? [byId.get(id)!] : []);
+    if (members.length !== orderedObservationIds.length) return [];
+
+    return [{
+      candidateId: candidate.candidateId,
+      recoveryType: candidate.recoveryType as RecoveryReviewCandidateSelection['recoveryType'],
+      targetRowIdentity: candidate.targetRowIdentity,
+      composedRawText: candidate.composedRawText,
+      observations: members,
+      proposed: candidate.candidateId === selectedCandidateId,
+    }];
+  }).sort((left, right) => left.candidateId.localeCompare(right.candidateId, 'en-US'));
+}
+
 export async function readRecoveryReviewQueue(
   query: Readonly<{ organizationId: string; sourceDocumentId: string }>,
   dependencies: Readonly<{ admin?: RecoveryReadClient | null }> = {},
@@ -110,7 +171,7 @@ export async function readRecoveryReviewQueue(
 
   const proposalRead: SelectResult = await admin
     .from(RECOVERY_PROPOSAL_TABLE)
-    .select('id, proposal_id, proposal_digest_sha256, physical_page_number, recovery_reason, selected_observation_id, proposed_value, reason_category, certainty, evidence, created_at')
+    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, physical_page_number, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
     .eq('organization_id', query.organizationId)
     .eq('source_document_id', query.sourceDocumentId);
   if (proposalRead.error) {
@@ -121,7 +182,7 @@ export async function readRecoveryReviewQueue(
 
   const reviewRead: SelectResult = await admin
     .from(RECOVERY_REVIEW_TABLE)
-    .select('id, proposal_row_id, review_version, disposition, confirmed_observation_id, created_at')
+    .select('id, proposal_row_id, review_version, disposition, confirmed_observation_id, confirmed_candidate_id, created_at')
     .eq('organization_id', query.organizationId)
     .in('proposal_row_id', proposals.map((row) => row.id));
   if (reviewRead.error) {
@@ -138,8 +199,12 @@ export async function readRecoveryReviewQueue(
     const proposalId = row.proposal_id;
     const digest = row.proposal_digest_sha256;
     const selectedObservationId = row.selected_observation_id;
+    const selectedCandidateId = row.selected_candidate_id;
+    const proposalVersion = row.proposal_version === 2 ? 2 as const : 1 as const;
     if (typeof row.id !== 'string' || typeof proposalId !== 'string'
-      || typeof digest !== 'string' || typeof selectedObservationId !== 'string') return [];
+      || typeof digest !== 'string'
+      || (proposalVersion === 1 && typeof selectedObservationId !== 'string')
+      || (proposalVersion === 2 && typeof selectedCandidateId !== 'string')) return [];
 
     const reviews = [...(reviewsByProposal.get(row.id) ?? [])]
       .sort((left, right) => Number(left.review_version) - Number(right.review_version));
@@ -158,16 +223,37 @@ export async function readRecoveryReviewQueue(
             ? 'deferred'
             : 'pending_review';
 
+    // Resolved once. Two continuation candidates for the same withheld line
+    // cite that line's own tokens, so the union is deduplicated by observation
+    // identity: evidence is what the reviewer is shown, and showing one token
+    // twice misrepresents how much source backs the decision.
+    const selectableCandidates = proposalVersion === 2
+      ? candidateSelections(row.recovery_candidates, selectedCandidateId as string)
+      : [];
+    const candidateEvidence = [...new Map(selectableCandidates
+      .flatMap((candidate) => candidate.observations)
+      .map((entry) => [entry.observationId, entry])).values()];
+
     return [{
       proposalId,
       proposalDigestSha256: digest,
+      proposalVersion,
+      recoveryType: proposalVersion === 2
+        && (row.recovery_type === 'pricing_rate_multi_observation_cluster'
+          || row.recovery_type === 'priced_schedule_continuation_attribution')
+        ? row.recovery_type
+        : 'pricing_rate_single_observation',
       physicalPageNumber: Number(row.physical_page_number),
       recoveryReason: typeof row.recovery_reason === 'string' ? row.recovery_reason : 'unknown',
       proposedValue: typeof row.proposed_value === 'string' ? row.proposed_value : '',
       reasonCategory: typeof row.reason_category === 'string' ? row.reason_category : 'unknown',
       certainty: Number(row.certainty),
-      selectableObservations: observations(row.evidence, selectedObservationId, true),
-      evidence: observations(row.evidence, selectedObservationId, false),
+      selectableObservations: proposalVersion === 1
+        ? observations(row.evidence, selectedObservationId as string, true) : [],
+      selectableCandidates,
+      evidence: proposalVersion === 1
+        ? observations(row.evidence, selectedObservationId as string, false)
+        : candidateEvidence,
       reviewState,
       latestReview: latest && typeof latest.id === 'string' ? {
         reviewId: latest.id,
@@ -175,6 +261,9 @@ export async function readRecoveryReviewQueue(
         disposition: String(latest.disposition),
         confirmedObservationId: typeof latest.confirmed_observation_id === 'string'
           ? latest.confirmed_observation_id
+          : null,
+        confirmedCandidateId: typeof latest.confirmed_candidate_id === 'string'
+          ? latest.confirmed_candidate_id
           : null,
         createdAt: String(latest.created_at),
       } : null,

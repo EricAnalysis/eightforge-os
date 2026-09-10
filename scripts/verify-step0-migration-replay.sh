@@ -2722,6 +2722,47 @@ fi
 END \$\$;" >/dev/null
 "${psql[@]}" --command "DROP TABLE public.step1_replay_payloads" >/dev/null
 
+# Phase 12 recovery persistence is a privileged authority seam. Exercise the
+# actual RPCs, table ACLs, immutable records, exact pins and tenant negatives.
+"${psql[@]}" --file scripts/sql/verify-phase12-recovery-review.sql
+
+phase12_review_a="SET ROLE service_role; SET request.jwt.claim.role='service_role'; BEGIN; SELECT * FROM public.record_forgewing_recovery_proposal_review('a1000000-0000-4000-8000-000000000001',(SELECT proposal_id FROM public.forgewing_recovery_proposals WHERE proposal_digest_sha256=repeat('0',64)),repeat('0',64),'a6000000-0000-4000-8000-000000000001','accepted','obs:selected','Concurrent accepted review.',repeat('7',64)); SELECT pg_sleep(3); COMMIT;"
+phase12_review_b="SET ROLE service_role; SET request.jwt.claim.role='service_role'; SELECT * FROM public.record_forgewing_recovery_proposal_review('a1000000-0000-4000-8000-000000000001',(SELECT proposal_id FROM public.forgewing_recovery_proposals WHERE proposal_digest_sha256=repeat('0',64)),repeat('0',64),'a6000000-0000-4000-8000-000000000001','rejected',NULL,'Concurrent rejected review.',repeat('8',64));"
+"${psql[@]}" --command "SET application_name='phase12_review_race_a'; ${phase12_review_a}" >/dev/null &
+phase12_review_a_pid=$!
+phase12_review_overlap=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='phase12_review_race_a' AND wait_event='PgSleep'")" == "1" ]]; then phase12_review_overlap=true; break; fi
+  sleep 0.02
+done
+if [[ "${phase12_review_overlap}" != true ]]; then
+  echo "PHASE 12 REVIEW CONCURRENCY: FAILED (no overlap)"
+  wait "${phase12_review_a_pid}"
+  exit 1
+fi
+"${psql[@]}" --command "SET application_name='phase12_review_race_b'; ${phase12_review_b}" >/dev/null &
+phase12_review_b_pid=$!
+phase12_review_b_blocked=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='phase12_review_race_b' AND wait_event_type='Lock'")" == "1" ]]; then phase12_review_b_blocked=true; break; fi
+  sleep 0.02
+done
+if [[ "${phase12_review_b_blocked}" != true ]]; then
+  echo "PHASE 12 REVIEW CONCURRENCY: FAILED (second session did not block on advisory lock)"
+  wait "${phase12_review_a_pid}"
+  wait "${phase12_review_b_pid}"
+  exit 1
+fi
+wait "${phase12_review_a_pid}"
+wait "${phase12_review_b_pid}"
+"${psql[@]}" --command "DO \$\$ BEGIN IF (SELECT array_agg(review_version ORDER BY review_version) FROM public.forgewing_recovery_proposal_reviews WHERE proposal_digest_sha256=repeat('0',64)) IS DISTINCT FROM ARRAY[1,2] OR (SELECT count(DISTINCT review_version) FROM public.forgewing_recovery_proposal_reviews WHERE proposal_digest_sha256=repeat('0',64))<>2 THEN RAISE EXCEPTION 'Phase 12 concurrent review version allocation did not serialize'; END IF; END \$\$;" >/dev/null
+echo "PHASE 12 REVIEW CONCURRENCY: PASS"
+
+PHASE12_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE12_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-phase12-effective-recovery-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2741,3 +2782,5 @@ echo "DATABASE STEP3 TABLE ARTIFACT RLS / APPEND-ONLY / RPC-ONLY SCHEMA: PASS"
 echo "DATABASE STEP3 CELL RECONSTRUCTION / QUARANTINE CLOSURE / ATOMICITY: PASS"
 echo "DATABASE STEP3 SEMANTIC DIVERGENCE / ATOMIC ROLLBACK: PASS"
 echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"
+echo "PHASE 12 RECOVERY DATABASE AUTHORITY / IDEMPOTENCY / ACL: PASS"
+echo "PHASE 12 EFFECTIVE CONFIRMATION / CONCURRENCY: PASS"

@@ -99,6 +99,14 @@ describe('durable recovery proposal projection', () => {
     expect(proposal!.shadowArtifactPath).toBeNull();
   });
 
+  it('rejects a caller organization outside the recovery run tenant', () => {
+    expect(buildDurableRecoveryProposal({
+      organizationId: '99999999-9999-4999-8999-999999999999',
+      bundle: bundle(),
+      ...runtime,
+    })).toBeNull();
+  });
+
   it('rejects a proposal whose value disagrees with its selected observation', () => {
     expect(buildDurableRecoveryProposal({
       organizationId: ORG, bundle: bundle({ proposedValue: '$9.99' }), ...runtime,

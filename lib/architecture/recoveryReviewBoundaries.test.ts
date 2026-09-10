@@ -24,6 +24,10 @@ const ROOT = process.cwd();
 const MIGRATIONS = path.join(ROOT, 'supabase', 'migrations');
 const SOURCE_EXTENSION = /\.(?:ts|tsx)$/;
 const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx)$/;
+const AUTHORITY_REMEDIATION = readFileSync(path.join(
+  MIGRATIONS,
+  '20260910123806_phase_12_recovery_proposal_source_authority.sql',
+), 'utf8');
 
 function walk(directory: string): string[] {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
@@ -249,5 +253,41 @@ describe('recovery persistence SQL posture', () => {
   it('lets only accepted and modified carry a confirmation', () => {
     expect(sql).toContain(
       "CHECK ((disposition IN ('accepted','modified')) = (confirmed_observation_id IS NOT NULL)");
+  });
+
+  it('closes proposal source authority and selectable evidence in the remediation migration', () => {
+    expect(AUTHORITY_REMEDIATION).toContain('artifact.source_document_id = p_source_document_id');
+    expect(AUTHORITY_REMEDIATION).toContain('artifact.organization_id = p_organization_id');
+    expect(AUTHORITY_REMEDIATION).toContain('document.organization_id = p_organization_id');
+    expect(AUTHORITY_REMEDIATION).toContain("evidence->'eligible' = 'true'::jsonb");
+    expect(AUTHORITY_REMEDIATION).toContain("evidence->>'rawText' = p_proposed_value");
+  });
+
+  it('makes proposal digest collision checks exact and null-safe', () => {
+    for (const field of [
+      'organization_id', 'source_document_id', 'source_artifact_id', 'extraction_snapshot_id',
+      'physical_page_number', 'proposal_id', 'schema_version', 'selected_observation_id',
+      'proposed_value', 'normalized_value', 'page_representation_digest', 'evidence',
+      'alternative_observation_ids', 'certainty', 'reason_category', 'provider_model',
+      'prompt_template_id', 'prompt_template_version', 'shadow_artifact_path',
+    ]) {
+      expect(AUTHORITY_REMEDIATION).toContain(
+        `v_existing.${field} IS DISTINCT FROM p_${field}`,
+      );
+    }
+  });
+
+  it('authorizes the exact proposal before returning an idempotent review', () => {
+    const exactProposal = AUTHORITY_REMEDIATION.indexOf(
+      'WHERE proposal_id = p_proposal_id AND proposal_digest_sha256 = p_proposal_digest_sha256',
+    );
+    const existingReview = AUTHORITY_REMEDIATION.indexOf(
+      'WHERE review_request_digest_sha256 = p_review_request_digest_sha256',
+    );
+    expect(exactProposal).toBeGreaterThan(0);
+    expect(existingReview).toBeGreaterThan(exactProposal);
+    expect(AUTHORITY_REMEDIATION).toContain(
+      'v_existing.proposal_row_id IS DISTINCT FROM v_proposal.id',
+    );
   });
 });

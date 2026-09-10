@@ -35,6 +35,7 @@ export function buildDurableRecoveryProposal(params: Readonly<{
   pageRepresentationDigest?: string | null;
   shadowArtifactPath?: string | null;
 }>): DurableRecoveryProposal | null {
+  if (params.organizationId !== params.bundle.run.organizationId) return null;
   const proposal = params.bundle.proposals[0];
   if (!proposal) return null;
   const eligible = new Set<string>([

@@ -2726,6 +2726,67 @@ END \$\$;" >/dev/null
 # actual RPCs, table ACLs, immutable records, exact pins and tenant negatives.
 "${psql[@]}" --file scripts/sql/verify-phase12-recovery-review.sql
 
+"${psql[@]}" --command "CREATE TABLE public.phase12_proposal_concurrency_results(
+  session_name text PRIMARY KEY, proposal_row_id uuid NOT NULL, inserted boolean NOT NULL);
+  GRANT INSERT, SELECT ON public.phase12_proposal_concurrency_results TO service_role;" >/dev/null
+phase12_proposal_call="SELECT * FROM public.record_forgewing_recovery_proposal(
+  'a1000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000001',
+  'a3000000-0000-4000-8000-000000000001','phase12-concurrent-snapshot',7,
+  'forgewing-proposal-pricing-rate-cluster-' || pg_catalog.md5('proposal-concurrency'),repeat('9',64),
+  'forgewing-pricing-rate-cluster-recovery-v1','obs:selected','8.75','8.75',repeat('9',64),
+  jsonb_build_array(
+    jsonb_build_object('observationId','obs:selected','sourceLayer','pdf_native_text','rawText','8.75',
+      'boundingBox',jsonb_build_object('xMin',0.1,'xMax',0.2,'yMin',0.3,'yMax',0.4),'eligible',true),
+    jsonb_build_object('observationId','obs:alternate','sourceLayer','ocr','rawText','52.50',
+      'boundingBox',jsonb_build_object('xMin',0.5,'xMax',0.6,'yMin',0.3,'yMax',0.4),'eligible',true)),
+  jsonb_build_array('obs:alternate'::text),0.9,'explicit_currency_marker','no-provider-qualification',
+  'forgewing.pricing_rate_cluster_recovery','v1',NULL)"
+phase12_proposal_a="SET ROLE service_role; SET request.jwt.claim.role='service_role'; BEGIN;
+  INSERT INTO public.phase12_proposal_concurrency_results
+    SELECT 'a', proposal_row_id, inserted FROM (${phase12_proposal_call}) result;
+  SELECT pg_sleep(3); COMMIT;"
+phase12_proposal_b="SET ROLE service_role; SET request.jwt.claim.role='service_role';
+  INSERT INTO public.phase12_proposal_concurrency_results
+    SELECT 'b', proposal_row_id, inserted FROM (${phase12_proposal_call}) result;"
+"${psql[@]}" --command "SET application_name='phase12_proposal_race_a'; ${phase12_proposal_a}" >/dev/null &
+phase12_proposal_a_pid=$!
+phase12_proposal_a_sleeping=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='phase12_proposal_race_a' AND wait_event='PgSleep'")" == "1" ]]; then phase12_proposal_a_sleeping=true; break; fi
+  sleep 0.02
+done
+if [[ "${phase12_proposal_a_sleeping}" != true ]]; then
+  echo "PHASE 12 PROPOSAL CONCURRENCY: FAILED (first session did not hold transaction)"
+  wait "${phase12_proposal_a_pid}"
+  exit 1
+fi
+"${psql[@]}" --command "SET application_name='phase12_proposal_race_b'; ${phase12_proposal_b}" >/dev/null &
+phase12_proposal_b_pid=$!
+phase12_proposal_b_blocked=false
+for _ in {1..100}; do
+  if [[ "$("${psql[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='phase12_proposal_race_b' AND wait_event_type='Lock'")" == "1" ]]; then phase12_proposal_b_blocked=true; break; fi
+  sleep 0.02
+done
+if [[ "${phase12_proposal_b_blocked}" != true ]]; then
+  echo "PHASE 12 PROPOSAL CONCURRENCY: FAILED (second session did not block on advisory lock)"
+  wait "${phase12_proposal_a_pid}"
+  wait "${phase12_proposal_b_pid}"
+  exit 1
+fi
+wait "${phase12_proposal_a_pid}"
+wait "${phase12_proposal_b_pid}"
+"${psql[@]}" --command "DO \$\$ BEGIN
+  IF (SELECT count(*) FROM public.phase12_proposal_concurrency_results) <> 2
+    OR (SELECT count(*) FROM public.phase12_proposal_concurrency_results WHERE inserted) <> 1
+    OR (SELECT count(*) FROM public.phase12_proposal_concurrency_results WHERE NOT inserted) <> 1
+    OR (SELECT count(DISTINCT proposal_row_id) FROM public.phase12_proposal_concurrency_results) <> 1
+    OR (SELECT count(*) FROM public.forgewing_recovery_proposals
+        WHERE proposal_digest_sha256=repeat('9',64)) <> 1 THEN
+    RAISE EXCEPTION 'Phase 12 concurrent proposal idempotency did not converge';
+  END IF;
+END \$\$; DROP TABLE public.phase12_proposal_concurrency_results;" >/dev/null
+echo "PHASE 12 PROPOSAL CONCURRENCY: PASS"
+
 phase12_review_a="SET ROLE service_role; SET request.jwt.claim.role='service_role'; BEGIN; SELECT * FROM public.record_forgewing_recovery_proposal_review('a1000000-0000-4000-8000-000000000001',(SELECT proposal_id FROM public.forgewing_recovery_proposals WHERE proposal_digest_sha256=repeat('0',64)),repeat('0',64),'a6000000-0000-4000-8000-000000000001','accepted','obs:selected','Concurrent accepted review.',repeat('7',64)); SELECT pg_sleep(3); COMMIT;"
 phase12_review_b="SET ROLE service_role; SET request.jwt.claim.role='service_role'; SELECT * FROM public.record_forgewing_recovery_proposal_review('a1000000-0000-4000-8000-000000000001',(SELECT proposal_id FROM public.forgewing_recovery_proposals WHERE proposal_digest_sha256=repeat('0',64)),repeat('0',64),'a6000000-0000-4000-8000-000000000001','rejected',NULL,'Concurrent rejected review.',repeat('8',64));"
 "${psql[@]}" --command "SET application_name='phase12_review_race_a'; ${phase12_review_a}" >/dev/null &

@@ -243,11 +243,9 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
   });
 
   it('G: leaves a split "$" + number rate unsupported', () => {
-    // A recovery that would need two observation ids -- the currency token and
-    // the number token -- cannot be expressed by the single-observation V1
-    // contract, and must not become expressible by accident. Confirming the
-    // number alone builds a rate cell reading "8.75", which is not the "$ 8.75"
-    // a reviewer would have confirmed, so closure refuses it.
+    // The V1 producer proposes the selected observation's own raw text. The
+    // numeric observation is only half of the authored "$" + "8.75" cluster,
+    // so matching that value must not let reconstruction discard its sibling.
     const split = layoutOf([{
       page_number: PAGE, width: 612, height: 792,
       lines: [
@@ -271,14 +269,35 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
         ]),
       ],
     }]);
-    for (const confirmation of [
-      [confirm('obs:split-number', '$8.75')],
-      [confirm('obs:split-currency', '$8.75')],
-      [confirm('obs:split-currency', '$'), confirm('obs:split-number', '8.75')],
-    ]) {
-      const result = reconstruct(split, confirmation);
-      expect(gammaRow(result)).toBeNull();
-    }
+    const result = reconstruct(split, [confirm('obs:split-number', '8.75')]);
+    expect(gammaRow(result)).toBeNull();
+    expect(rejectionReasons(result)).toContain('recovery_closure_failed');
+    expect(result.recovery_diagnostics).toEqual([{
+      reason: 'confirmed_recovery_not_applied',
+      observation_id: 'obs:split-number',
+      physical_page_number: PAGE,
+      recovery_applied: false,
+    }]);
+  });
+
+  it('G control: reconstructs an ordinary unambiguous split monetary cluster', () => {
+    const result = reconstruct(layoutOf([{
+      page_number: PAGE, width: 612, height: 792,
+      lines: [
+        headerLine(PAGE),
+        pricedLine(PAGE, 680, {
+          description: 'Alpha service', unit: 'Widget', origin: 'Yard to Depot',
+          currency: '$', amount: '8.75', amountObservation: 'obs:alpha',
+        }),
+        pricedLine(PAGE, 660, {
+          description: 'Beta service', unit: 'Widget', origin: 'Depot to Site',
+          currency: '$', amount: '3.50', amountObservation: 'obs:beta',
+        }),
+      ],
+    }]));
+
+    expect(result.pages[0]!.rows[0]!.cells.find((cell) => cell.role === 'rate')?.raw_text)
+      .toBe('$ 8.75');
   });
 });
 

@@ -498,26 +498,37 @@ function isCoherentPitchBaseline(values: readonly number[]): boolean {
   return maximum <= minimum * ROW_PITCH_ENVELOPE_FACTOR;
 }
 
-/** Counts authored rate/amount clusters without assigning them semantics. */
-function rateLikeClusterCount(line: SourceLine): number {
+/** Groups authored rate/amount clusters without assigning them semantics. */
+function rateLikeClusters(line: SourceLine): readonly (readonly PdfToken[])[] {
   const tokens = line.banded
     .filter((entry) => entry.role === 'rate')
     .map((entry) => entry.token)
     .sort(compareTokens);
-  let clusters = 0;
+  const clusters: PdfToken[][] = [];
   for (let index = 0; index < tokens.length; index += 1) {
-    const text = tokens[index]!.text.trim();
+    const current = tokens[index]!;
+    const text = current.text.trim();
     if (CURRENCY_SPINE_PATTERN.test(text)) {
-      clusters += 1;
-      const next = tokens[index + 1]?.text.trim() ?? '';
-      if (RATE_NUMBER_PATTERN.test(next) || RATE_MARKER_PATTERN.test(next)) index += 1;
+      const next = tokens[index + 1];
+      const nextText = next?.text.trim() ?? '';
+      if (next && (RATE_NUMBER_PATTERN.test(nextText) || RATE_MARKER_PATTERN.test(nextText))) {
+        clusters.push([current, next]);
+        index += 1;
+      } else {
+        clusters.push([current]);
+      }
       continue;
     }
     if (CURRENCY_LED_AMOUNT_PATTERN.test(text) || RATE_NUMBER_PATTERN.test(text)) {
-      clusters += 1;
+      clusters.push([current]);
     }
   }
   return clusters;
+}
+
+/** Counts authored rate/amount clusters without assigning them semantics. */
+function rateLikeClusterCount(line: SourceLine): number {
+  return rateLikeClusters(line).length;
 }
 
 type ConfirmedRateOutcome =
@@ -527,6 +538,8 @@ type ConfirmedRateOutcome =
       readonly status: 'confirmed';
       readonly observation_id: NonNullable<PdfToken['observation_id']>;
       readonly confirmed_raw_text: string;
+      /** V1 can recover only when the selected observation is the whole cluster. */
+      readonly represents_complete_cluster: boolean;
     };
 
 /**
@@ -538,12 +551,13 @@ type ConfirmedRateOutcome =
  * so a confirmation naming a description or unit token never resolves anything.
  */
 function confirmedRateFor(
-  contributed: readonly BandedToken[],
+  lines: readonly SourceLine[],
   confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
 ): ConfirmedRateOutcome {
   if (confirmed.size === 0) return { status: 'unconfirmed' };
   const matched = new Map<string, ConfirmedRateObservation>();
-  for (const entry of contributed) {
+  const clusters = lines.flatMap((line) => rateLikeClusters(line));
+  for (const entry of lines.flatMap((line) => line.banded)) {
     if (entry.role !== 'rate') continue;
     const observationId = entry.token.observation_id;
     if (!observationId) continue;
@@ -557,6 +571,8 @@ function confirmedRateFor(
     status: 'confirmed',
     observation_id: only.observation_id,
     confirmed_raw_text: only.confirmed_raw_text,
+    represents_complete_cluster: clusters.some((cluster) =>
+      cluster.length === 1 && cluster[0]!.observation_id === only.observation_id),
   };
 }
 
@@ -837,7 +853,7 @@ function reconstructPage(
     // the row can be built the ordinary way. It cannot create a token, cannot
     // supply a value, and cannot relax any other admission gate below.
     const confirmation: ConfirmedRateOutcome = ambiguous
-      ? confirmedRateFor(contributed, confirmed)
+      ? confirmedRateFor(lines, confirmed)
       : { status: 'unconfirmed' };
     const cells: PricedScheduleCell[] = [];
     for (const role of recognizedRoles) {
@@ -853,7 +869,8 @@ function reconstructPage(
     // authored text the human confirmed. If it does not, the confirmation
     // describes something other than this row, and no row is admitted from it.
     const closed = confirmation.status !== 'confirmed'
-      || cells.find((cell) => cell.role === 'rate')?.raw_text === confirmation.confirmed_raw_text;
+      || (confirmation.represents_complete_cluster
+        && cells.find((cell) => cell.role === 'rate')?.raw_text === confirmation.confirmed_raw_text);
     const withheldReason: PricedScheduleRejectedSpineReason | null = !ambiguous
       ? null
       : confirmation.status === 'ambiguous_confirmation'

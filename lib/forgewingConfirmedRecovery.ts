@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { RECOVERY_PROPOSAL_ID_PATTERN } from '@/lib/forgewingRecoveryProposal';
+import { RecoveryCandidateV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
 
 /**
  * A human-confirmed recovery selection.
@@ -44,6 +45,26 @@ export const ConfirmedRecoverySchema = z.object({
   purpose: z.literal('reconstruction_reentry'),
 }).strict();
 export type ConfirmedRecovery = z.infer<typeof ConfirmedRecoverySchema>;
+
+export const ConfirmedRecoveryV2Schema = z.object({
+  organizationId: z.string().uuid(),
+  sourceDocumentId: z.string().uuid(),
+  sourceArtifactId: z.string().uuid(),
+  physicalPageNumber: z.number().int().positive(),
+  pageRepresentationDigest: digest,
+  proposalId: z.string().regex(RECOVERY_PROPOSAL_ID_PATTERN),
+  proposalDigestSha256: digest,
+  reviewId: z.string().uuid(),
+  reviewVersion: z.number().int().positive(),
+  reviewDisposition: z.enum(['accepted', 'modified']),
+  reviewerActorId: z.string().uuid(),
+  confirmedCandidate: RecoveryCandidateV2Schema,
+  authority: z.literal('human_confirmed'),
+  executable: z.literal(false),
+  purpose: z.literal('reconstruction_reentry'),
+}).strict();
+export type ConfirmedRecoveryV2 = z.infer<typeof ConfirmedRecoveryV2Schema>;
+export type EffectiveConfirmedRecovery = ConfirmedRecovery | ConfirmedRecoveryV2;
 
 /**
  * Why an otherwise reviewed proposal produced no confirmation.

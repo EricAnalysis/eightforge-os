@@ -19,6 +19,7 @@ import { RECOVERY_PROPOSAL_ID_PATTERN } from '@/lib/forgewingRecoveryProposal';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const observationId = z.string().min(1).max(200).refine((value) => value.trim() === value);
+const candidateId = z.string().regex(/^recovery-candidate-v2-[a-f0-9]{64}$/);
 const rationale = z.string().trim().min(1).max(4_000);
 
 const pin = {
@@ -30,7 +31,7 @@ export const RECOVERY_REVIEW_DISPOSITIONS = ['accepted', 'modified', 'rejected',
 export const RecoveryReviewDispositionSchema = z.enum(RECOVERY_REVIEW_DISPOSITIONS);
 export type RecoveryReviewDisposition = z.infer<typeof RecoveryReviewDispositionSchema>;
 
-export const RecoveryProposalReviewInputSchema = z.discriminatedUnion('disposition', [
+const RecoveryProposalReviewInputV1Schema = z.discriminatedUnion('disposition', [
   // Accept confirms the observation Forgewing selected. The observation id is
   // still required and still checked against the pinned proposal, so an accept
   // cannot silently confirm something the reviewer was not shown.
@@ -40,6 +41,18 @@ export const RecoveryProposalReviewInputSchema = z.discriminatedUnion('dispositi
     confirmedObservationId: observationId, reviewerRationale: rationale }).strict(),
   z.object({ ...pin, disposition: z.literal('rejected'), reviewerRationale: rationale }).strict(),
   z.object({ ...pin, disposition: z.literal('deferred'), reviewerRationale: rationale }).strict(),
+]);
+const RecoveryProposalReviewInputV2Schema = z.discriminatedUnion('disposition', [
+  z.object({ ...pin, disposition: z.literal('accepted'),
+    confirmedCandidateId: candidateId, reviewerRationale: rationale }).strict(),
+  z.object({ ...pin, disposition: z.literal('modified'),
+    confirmedCandidateId: candidateId, reviewerRationale: rationale }).strict(),
+  z.object({ ...pin, disposition: z.literal('rejected'), reviewerRationale: rationale }).strict(),
+  z.object({ ...pin, disposition: z.literal('deferred'), reviewerRationale: rationale }).strict(),
+]);
+export const RecoveryProposalReviewInputSchema = z.union([
+  RecoveryProposalReviewInputV1Schema,
+  RecoveryProposalReviewInputV2Schema,
 ]);
 export type RecoveryProposalReviewInput = z.infer<typeof RecoveryProposalReviewInputSchema>;
 
@@ -52,13 +65,25 @@ export const RecoveryProposalReviewEvidenceSchema = z.object({
   reviewRequestDigestSha256: digest,
   disposition: RecoveryReviewDispositionSchema,
   confirmedObservationId: observationId.nullable(),
-  /** Read out of the pinned proposal's evidence server-side, never supplied. */
-  confirmedRawText: z.string().min(1).max(200).nullable(),
+  confirmedCandidateId: candidateId.nullable().optional(),
+  /**
+   * Read out of the pinned proposal's evidence server-side, never supplied.
+   *
+   * Bounded by the candidate contract's `composedRawText`, not by the V1
+   * observation `rawText` cap: a continuation candidate composes a whole
+   * wrapped description. A tighter bound here would reject the receipt for a
+   * review the database had already committed, leaving a persisted review the
+   * server could never acknowledge -- and no retry could clear it, because
+   * idempotency returns that same row.
+   */
+  confirmedRawText: z.string().min(1).max(4_000).nullable(),
   reviewerRationale: rationale,
 }).strict().superRefine((value, ctx) => {
   const approving = value.disposition === 'accepted' || value.disposition === 'modified';
-  if (approving !== (value.confirmedObservationId !== null)
-    || (value.confirmedObservationId !== null) !== (value.confirmedRawText !== null)) {
+  const selectionCount = Number(value.confirmedObservationId !== null)
+    + Number(value.confirmedCandidateId != null);
+  if ((approving && selectionCount !== 1) || (!approving && selectionCount !== 0)
+    || approving !== (value.confirmedRawText !== null)) {
     ctx.addIssue({ code: 'custom', message: 'recovery review confirmation coherence mismatch' });
   }
 });

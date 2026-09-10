@@ -7,6 +7,7 @@ import {
 import {
   recordForgewingRecoveryProposalReview,
   RECOVERY_REVIEW_WRITE_FUNCTION,
+  RECOVERY_REVIEW_V2_WRITE_FUNCTION,
 } from '@/lib/server/forgewingRecoveryReview';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -16,6 +17,8 @@ const ROW = '66666666-6666-4666-8666-666666666666';
 const PROPOSAL = `forgewing-proposal-pricing-rate-cluster-${'a'.repeat(32)}`;
 const DIGEST = 'c'.repeat(64);
 const actor = { actorId: ACTOR, organizationId: ORG };
+const V2_PROPOSAL = `forgewing-proposal-recovery-v2-${'a'.repeat(64)}`;
+const CANDIDATE = `recovery-candidate-v2-${'b'.repeat(64)}`;
 
 function accepted(overrides: Record<string, unknown> = {}) {
   return {
@@ -166,5 +169,23 @@ describe('recovery review server seam', () => {
     const rpc = okRpc();
     await recordForgewingRecoveryProposalReview(accepted(), actor, { admin: { rpc } });
     expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('records an exact V2 candidate selection and never accepts authored text', async () => {
+    const rpc = okRpc({ confirmed_observation_id: undefined,
+      confirmed_candidate_id: CANDIDATE, confirmed_raw_text: '$ 8.75' });
+    const result = await recordForgewingRecoveryProposalReview({
+      proposalId: V2_PROPOSAL, proposalDigestSha256: DIGEST,
+      disposition: 'accepted', confirmedCandidateId: CANDIDATE,
+      reviewerRationale: 'The complete source cluster is the rate.',
+    }, actor, { admin: { rpc } });
+    expect(result.ok && result.review.confirmedCandidateId).toBe(CANDIDATE);
+    expect(rpc).toHaveBeenCalledWith(RECOVERY_REVIEW_V2_WRITE_FUNCTION,
+      expect.not.objectContaining({ p_confirmed_observation_id: expect.anything() }));
+    expect(RecoveryProposalReviewInputSchema.safeParse({
+      proposalId: V2_PROPOSAL, proposalDigestSha256: DIGEST,
+      disposition: 'modified', confirmedCandidateId: CANDIDATE,
+      confirmedRawText: '$ 9.99', reviewerRationale: 'No free text.',
+    }).success).toBe(false);
   });
 });

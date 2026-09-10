@@ -1,8 +1,11 @@
 import type { ConfirmedRateObservation }
   from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
   ConfirmedRecoverySchema,
+  ConfirmedRecoveryV2Schema,
   type ConfirmedRecovery,
+  type ConfirmedRecoveryV2,
   type RecoveryConfirmationDiagnostic,
 } from '@/lib/forgewingConfirmedRecovery';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -49,6 +52,7 @@ export type EffectiveRecoveryConfirmationQuery = Readonly<{
 
 export type EffectiveRecoveryConfirmations = Readonly<{
   confirmations: readonly ConfirmedRecovery[];
+  candidateConfirmations?: readonly ConfirmedRecoveryV2[];
   diagnostics: readonly RecoveryConfirmationDiagnostic[];
 }>;
 
@@ -87,7 +91,7 @@ export async function resolveEffectiveRecoveryConfirmations(
 
   const proposalRead: SelectResult = await admin
     .from(RECOVERY_PROPOSAL_TABLE)
-    .select('id, proposal_id, proposal_digest_sha256, physical_page_number, page_representation_digest')
+    .select('id, proposal_id, proposal_digest_sha256, physical_page_number, page_representation_digest, proposal_version, recovery_type, recovery_candidates')
     .eq('organization_id', query.organizationId)
     .eq('source_document_id', query.sourceDocumentId)
     .eq('source_artifact_id', query.sourceArtifactId);
@@ -110,13 +114,16 @@ export async function resolveEffectiveRecoveryConfirmations(
         physicalPageNumber: page,
         pageRepresentationDigest:
           typeof row.page_representation_digest === 'string' ? row.page_representation_digest : null,
+        proposalVersion: row.proposal_version === 2 ? 2 as const : 1 as const,
+        recoveryType: typeof row.recovery_type === 'string' ? row.recovery_type : null,
+        recoveryCandidates: row.recovery_candidates,
       }];
     });
   if (proposals.length === 0) return { status: 'ok', ...NO_RECOVERY_CONFIRMATIONS };
 
   const reviewRead: SelectResult = await admin
     .from(RECOVERY_REVIEW_TABLE)
-    .select('id, proposal_row_id, proposal_digest_sha256, review_version, reviewer_actor_id, disposition, confirmed_observation_id, confirmed_raw_text')
+    .select('id, proposal_row_id, proposal_digest_sha256, review_version, reviewer_actor_id, disposition, confirmed_observation_id, confirmed_candidate_id, confirmed_raw_text')
     .eq('organization_id', query.organizationId)
     .in('proposal_row_id', proposals.map((entry) => entry.id));
   if (reviewRead.error) {
@@ -133,6 +140,7 @@ export async function resolveEffectiveRecoveryConfirmations(
   }
 
   const confirmations: ConfirmedRecovery[] = [];
+  const candidateConfirmations: ConfirmedRecoveryV2[] = [];
   const diagnostics: RecoveryConfirmationDiagnostic[] = [];
   for (const proposal of proposals) {
     const approving = approvingByProposal.get(proposal.id) ?? [];
@@ -153,6 +161,36 @@ export async function resolveEffectiveRecoveryConfirmations(
       continue;
     }
     const review = approving[0]!;
+    if (proposal.proposalVersion === 2) {
+      const candidate = (Array.isArray(proposal.recoveryCandidates)
+        ? proposal.recoveryCandidates : []).find((entry) =>
+          isRecord(entry) && entry.candidateId === review.confirmed_candidate_id);
+      const parsedV2 = ConfirmedRecoveryV2Schema.safeParse({
+        organizationId: query.organizationId,
+        sourceDocumentId: query.sourceDocumentId,
+        sourceArtifactId: query.sourceArtifactId,
+        physicalPageNumber: proposal.physicalPageNumber,
+        pageRepresentationDigest: proposal.pageRepresentationDigest,
+        proposalId: proposal.proposalId,
+        proposalDigestSha256: proposal.proposalDigestSha256,
+        reviewId: review.id,
+        reviewVersion: review.review_version,
+        reviewDisposition: review.disposition,
+        reviewerActorId: review.reviewer_actor_id,
+        confirmedCandidate: candidate,
+        authority: 'human_confirmed',
+        executable: false,
+        purpose: 'reconstruction_reentry',
+      });
+      if (!parsedV2.success || review.proposal_digest_sha256 !== proposal.proposalDigestSha256) {
+        diagnostics.push({ ...base, code: 'incoherent_recovery_confirmation',
+          reviewId: typeof review.id === 'string' ? review.id : null,
+          expectedObservationId: null });
+      } else {
+        candidateConfirmations.push(parsedV2.data);
+      }
+      continue;
+    }
     const parsed = ConfirmedRecoverySchema.safeParse({
       organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId,
@@ -184,11 +222,17 @@ export async function resolveEffectiveRecoveryConfirmations(
 
   confirmations.sort((left, right) =>
     left.confirmedObservationId.localeCompare(right.confirmedObservationId, 'en-US'));
+  candidateConfirmations.sort((left, right) =>
+    left.confirmedCandidate.candidateId.localeCompare(
+      right.confirmedCandidate.candidateId, 'en-US'));
   diagnostics.sort((left, right) =>
     left.proposalId.localeCompare(right.proposalId, 'en-US') || left.code.localeCompare(right.code, 'en-US'));
   return {
     status: 'ok',
     confirmations: Object.freeze(confirmations),
+    ...(candidateConfirmations.length > 0
+      ? { candidateConfirmations: Object.freeze(candidateConfirmations) }
+      : {}),
     diagnostics: Object.freeze(diagnostics),
   };
 }
@@ -227,4 +271,51 @@ export async function loadConfirmedRateObservations(
     observation_id: confirmation.confirmedObservationId as ConfirmedRateObservation['observation_id'],
     confirmed_raw_text: confirmation.confirmedRawText,
   })));
+}
+
+/**
+ * The single entry point a processing pipeline uses once V2 exists.
+ *
+ * Same rules as `loadConfirmedRateObservations`, widened to carry candidate
+ * confirmations alongside V1 observation confirmations. A resolver failure
+ * still yields empty sets in both, so an unavailable review database leaves
+ * reconstruction behaving exactly as it did before recovery existed.
+ */
+export async function loadConfirmedRecoverySelections(
+  query: EffectiveRecoveryConfirmationQuery,
+  dependencies: Readonly<{
+    admin?: RecoveryReadClient | null;
+    resolve?: typeof resolveEffectiveRecoveryConfirmations;
+  }> = {},
+): Promise<Readonly<{
+  confirmedRateObservations: readonly ConfirmedRateObservation[];
+  confirmedRecoveryCandidates: readonly RecoveryCandidateV2[];
+}>> {
+  const resolved = await (dependencies.resolve ?? resolveEffectiveRecoveryConfirmations)(
+    query, { admin: dependencies.admin },
+  );
+  if (resolved.status !== 'ok') {
+    if (resolved.status === 'read_failed') {
+      console.warn('[forgewingRecovery] confirmation resolve failed; proceeding unconfirmed', {
+        sourceDocumentId: query.sourceDocumentId, reason: resolved.reason,
+      });
+    }
+    return { confirmedRateObservations: Object.freeze([]), confirmedRecoveryCandidates: Object.freeze([]) };
+  }
+  // A fail-closed resolution is only useful if an operator can see it. This is
+  // the V2 path's only reporting seam; without it an ambiguous authority would
+  // withhold a row in silence.
+  for (const diagnostic of resolved.diagnostics) {
+    console.warn('[forgewingRecovery] confirmed recovery not applied', diagnostic);
+  }
+  return {
+    confirmedRateObservations: Object.freeze(resolved.confirmations
+      .filter((confirmation): confirmation is ConfirmedRecovery => !('confirmedCandidate' in confirmation))
+      .map((confirmation) => Object.freeze({
+        observation_id: confirmation.confirmedObservationId as ConfirmedRateObservation['observation_id'],
+        confirmed_raw_text: confirmation.confirmedRawText,
+      }))),
+    confirmedRecoveryCandidates: Object.freeze(
+      (resolved.candidateConfirmations ?? []).map((confirmation) => confirmation.confirmedCandidate)),
+  };
 }

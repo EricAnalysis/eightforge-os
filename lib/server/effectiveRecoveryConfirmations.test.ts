@@ -6,6 +6,7 @@ import {
   RECOVERY_REVIEW_TABLE,
   type RecoveryReadClient,
 } from '@/lib/server/effectiveRecoveryConfirmations';
+import { buildRecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const DOC = '22222222-2222-4222-8222-222222222222';
@@ -212,5 +213,34 @@ describe('effective recovery confirmation resolver', () => {
     });
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it('resolves one exact V2 candidate while preserving the V1 confirmation channel', async () => {
+    const candidate = buildRecoveryCandidateV2({
+      recoveryType: 'priced_schedule_continuation_attribution',
+      sourceDocumentId: DOC, sourceArtifactId: ART, physicalPageNumber: 3,
+      pageRepresentationDigest: 'e'.repeat(64), targetRowIdentity: 'page_priced_schedule:p3:r1',
+      orderedObservationIds: ['obs:fragment'], rawTexts: ['Disposal'],
+      composedRawText: 'Inert Debris Removal and Disposal',
+      evidence: [{ observationId: 'obs:fragment', sourceLayer: 'pdf_native_text',
+        rawText: 'Disposal', boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } }],
+    })!;
+    const proposal = {
+      ...proposalRow(1),
+      proposal_id: `forgewing-proposal-recovery-v2-${'1'.repeat(64)}`,
+      proposal_version: 2,
+      recovery_type: 'priced_schedule_continuation_attribution',
+      recovery_candidates: [candidate],
+    };
+    const result = await resolveEffectiveRecoveryConfirmations(query, {
+      admin: client([proposal], [reviewRow(proposal, {
+        confirmed_observation_id: null,
+        confirmed_candidate_id: candidate.candidateId,
+        confirmed_raw_text: candidate.composedRawText,
+      })]),
+    });
+    expect(result.status === 'ok' && result.confirmations).toEqual([]);
+    expect(result.status === 'ok' && result.candidateConfirmations?.[0]?.confirmedCandidate)
+      .toEqual(candidate);
   });
 });

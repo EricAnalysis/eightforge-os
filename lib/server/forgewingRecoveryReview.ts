@@ -22,6 +22,8 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const RECOVERY_REVIEW_WRITE_FUNCTION =
   'record_forgewing_recovery_proposal_review' as const;
+export const RECOVERY_REVIEW_V2_WRITE_FUNCTION =
+  'record_forgewing_recovery_proposal_review_v2' as const;
 
 type RpcClient = {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }>;
@@ -37,7 +39,8 @@ const receipt = z.object({
   review_id: z.string().uuid(),
   review_version: z.number().int().positive(),
   proposal_row_id: z.string().uuid(),
-  confirmed_observation_id: z.string().min(1).nullable(),
+  confirmed_observation_id: z.string().min(1).nullable().optional(),
+  confirmed_candidate_id: z.string().min(1).nullable().optional(),
   confirmed_raw_text: z.string().min(1).nullable(),
   inserted: z.boolean(),
 }).strict();
@@ -66,14 +69,18 @@ export async function recordForgewingRecoveryProposalReview(
   const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
   if (!admin) return { ok: false, code: 'not_configured' };
 
-  const result = await admin.rpc(RECOVERY_REVIEW_WRITE_FUNCTION, {
+  const v2 = value.proposalId.startsWith('forgewing-proposal-recovery-v2-');
+  const result = await admin.rpc(v2 ? RECOVERY_REVIEW_V2_WRITE_FUNCTION : RECOVERY_REVIEW_WRITE_FUNCTION, {
     p_organization_id: actor.organizationId,
     p_proposal_id: value.proposalId,
     p_proposal_digest_sha256: value.proposalDigestSha256,
     p_reviewer_actor_id: actor.actorId,
     p_disposition: value.disposition,
-    p_confirmed_observation_id:
-      'confirmedObservationId' in value ? value.confirmedObservationId : null,
+    ...(v2
+      ? { p_confirmed_candidate_id:
+          'confirmedCandidateId' in value ? value.confirmedCandidateId : null }
+      : { p_confirmed_observation_id:
+          'confirmedObservationId' in value ? value.confirmedObservationId : null }),
     p_reviewer_rationale: value.reviewerRationale,
     p_review_request_digest_sha256: requestDigest,
   });
@@ -90,7 +97,8 @@ export async function recordForgewingRecoveryProposalReview(
     reviewerActorId: actor.actorId,
     reviewRequestDigestSha256: requestDigest,
     disposition: value.disposition,
-    confirmedObservationId: row.data.confirmed_observation_id,
+    confirmedObservationId: row.data.confirmed_observation_id ?? null,
+    ...(v2 ? { confirmedCandidateId: row.data.confirmed_candidate_id ?? null } : {}),
     confirmedRawText: row.data.confirmed_raw_text,
     reviewerRationale: value.reviewerRationale,
   });

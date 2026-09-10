@@ -165,7 +165,13 @@ describe('repository-owned committed evidence catalog', { timeout: 120_000 }, ()
     expect(load('RULE')).toEqual({ ok: false, code: 'unsupported_mode', filePath: 'lib/rules/example.ts' });
 
     git('update-index', '--chmod=-x', 'lib/rules/example.ts');
+    // Restore the working-tree mode too, not just the index mode. Where git
+    // honours filesystem permissions (core.fileMode=true, i.e. Linux CI) the
+    // `git add` below re-reads 0o755 off disk and re-stages the file as
+    // executable, so this case would assert the executable rejection again
+    // rather than the size one it is written to cover.
     write('lib/rules/example.ts', Buffer.alloc(REPOSITORY_PLAN_EVIDENCE_CATALOG_LIMITS.maxBytesPerFile + 1, 0x61));
+    chmodSync(join(repositoryRoot, 'lib/rules/example.ts'), 0o644);
     git('add', 'lib/rules/example.ts');
     git('commit', '--no-verify', '-m', 'oversized');
     expect(load('RULE')).toEqual({

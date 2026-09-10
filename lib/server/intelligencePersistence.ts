@@ -1417,6 +1417,14 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       pipelineResult.primaryDocument,
       pricingSourceEligibility!.scope.authoritativePages,
     );
+    const extractionRoot = asRecord(buildContext.buildParams.extractionData);
+    const extraction = asRecord(extractionRoot?.extraction);
+    const contentLayers = asRecord(extraction?.content_layers_v1);
+    const pdfLayers = asRecord(contentLayers?.pdf);
+    const reconstruction = asRecord(pdfLayers?.priced_schedule_reconstruction_v1);
+    const recoveryCandidatesV2 = Array.isArray(reconstruction?.recovery_candidates)
+      ? reconstruction.recovery_candidates
+      : [];
     scheduleEligiblePricingReasoningShadow({
       organizationId: params.organizationId,
       sourceDocumentId: params.documentId,
@@ -1426,6 +1434,7 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       sourceObservations,
       pricingSourceEligibility,
       pricingRecoveryDiagnostics,
+      recoveryCandidatesV2,
     });
   }
 

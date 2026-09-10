@@ -8,6 +8,7 @@ import {
   PRICING_INTERPRETATION_CONDITIONAL_FIELD_RULES,
   PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA,
   PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
+  RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
   REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA,
   TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA,
 } from '@/lib/forgewing/runtime/structuredOutput';
@@ -29,6 +30,8 @@ export const FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION = 'v3';
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_ID =
   'forgewing-pricing-rate-cluster-recovery';
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_VERSION = 'v1';
+export const FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_ID = 'forgewing-recovery-candidate-v2';
+export const FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION = 'v1';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID = 'forgewing-workflow-assessment';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION = 'v1';
 export const FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_ID = 'forgewing-repository-plan-guidance';
@@ -114,6 +117,10 @@ function loadPricingRateClusterRecoveryPrompt(): string {
   );
 }
 
+function loadRecoveryCandidateV2Prompt(): string {
+  return readFileSync(new URL('../prompts/recoveryCandidateV2.md', import.meta.url), 'utf8');
+}
+
 function loadWorkflowAssessmentPrompt(): string {
   return readFileSync(
     new URL('../prompts/workflowAssessment.md', import.meta.url),
@@ -138,6 +145,7 @@ async function callClaudeWithStructuredOutput(
     | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
     | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
     | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
+    | typeof RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA
     | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
     | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
@@ -218,6 +226,14 @@ export const callClaudeForPricingRateClusterRecovery: ForgewingProvider = async 
     request,
     loadPricingRateClusterRecoveryPrompt(),
     PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA,
+    true,
+  );
+
+export const callClaudeForRecoveryCandidateV2: ForgewingProvider = async (request) =>
+  callClaudeWithStructuredOutput(
+    request,
+    loadRecoveryCandidateV2Prompt(),
+    RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
     true,
   );
 

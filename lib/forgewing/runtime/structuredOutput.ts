@@ -743,3 +743,14 @@ export const COLUMN_MAPPING_OUTPUT_JSON_SCHEMA = {
     },
   },
 } as const;
+
+export const RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['selectedCandidateId', 'confidence', 'rationaleCode'],
+  properties: {
+    selectedCandidateId: { type: 'string' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    rationaleCode: { type: 'string' },
+  },
+} as const;

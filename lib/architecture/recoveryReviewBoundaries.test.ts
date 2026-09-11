@@ -214,6 +214,19 @@ describe('recovery review architecture boundaries', () => {
       .toContain("from '@/lib/recovery/sourceGeometry'");
   });
 
+  it('keeps source-evidence binding a server answer, never a browser comparison', () => {
+    // The only page representation digest that exists is the proposal's own, so
+    // a browser-side "is this current?" check compares a value to itself.
+    const viewer = readFileSync(path.join(
+      ROOT, 'components/recovery/SourceEvidencePage.tsx'), 'utf8');
+    expect(viewer).not.toContain('currentPageRepresentationDigest');
+    expect(viewer).toContain('data-testid="source-evidence-unbound"');
+    const panel = readFileSync(path.join(
+      ROOT, 'components/documents/RecoveryReviewPanel.tsx'), 'utf8');
+    expect(panel).not.toContain('currentPageRepresentationDigest');
+    expect(panel).toContain('sourceEvidenceBinding');
+  });
+
   it('forbids fuzzy, nearest, and text-based visual evidence rebinding', () => {
     const forbidden = /fuzzy|nearest|textmatch|text_match|rebind/i;
     const offenders = VISUAL_SOURCE_MODULES.flatMap((relative) => {
@@ -261,6 +274,36 @@ describe('recovery review architecture boundaries', () => {
     ]) expect(workflow).toContain(pathFilter);
     expect(replay).toContain('scripts/verify-phase13-recovery-v2-from-postgres.ts');
     expect(replay).toContain('scripts/verify-phase14-recovery-target-context-from-postgres.ts');
+  });
+
+  it('makes the DN corpus optional to test but mandatory to qualify', () => {
+    // Ordinary runs may skip the 3.9MB fixture. The explicit qualification
+    // harness may not: a skip there would let "Phase 14 is real-corpus
+    // qualified" be proven by a silent green.
+    const suite = readFileSync(path.join(
+      ROOT, 'lib/evaluation/pagePricedScheduleDnCorpusRegression.test.ts'), 'utf8');
+    expect(suite).toContain('describe.skipIf(!corpusConfigured)');
+
+    const harness = readFileSync(path.join(
+      ROOT, 'scripts/qualify-phase14-dn-target-context.ts'), 'utf8');
+    expect(harness).not.toMatch(/skipIf|\.skip\(|process\.exit\(0\)/);
+    expect(harness).toContain('DN_PRICED_SCHEDULE_SOURCE_PDF is required');
+    // The corpus is pinned by identity, so a different file cannot qualify it.
+    expect(harness).toContain(
+      '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272');
+    expect(harness).toContain('3_895_497');
+    const packageJson = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    expect(packageJson.scripts['qualify:dn-phase14'])
+      .toContain('scripts/qualify-phase14-dn-target-context.ts');
+  });
+
+  it('keeps the DN qualification harness away from every provider client', () => {
+    const harness = readFileSync(path.join(
+      ROOT, 'scripts/qualify-phase14-dn-target-context.ts'), 'utf8');
+    for (const term of [
+      '@/lib/server/ai/claudeClient', '@/lib/forgewing/runtime/client',
+      '@anthropic-ai/sdk', 'callClaudeFor', 'runForgewingPricing',
+    ]) expect(harness.includes(term)).toBe(false);
   });
 
   it('offers no control that asks Forgewing to regenerate a proposal', () => {

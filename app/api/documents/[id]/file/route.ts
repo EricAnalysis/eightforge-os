@@ -10,23 +10,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const queryOrgId = request.nextUrl.searchParams.get('orgId');
 
   if (!id) {
     return NextResponse.json({ error: 'Document id is required' }, { status: 400 });
   }
 
+  const actorResult = await getActorContext(request);
+  if (!actorResult.ok) {
+    return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
+  }
   const admin = getSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 503 });
   }
-
-  const actorResult = await getActorContext(request);
-  const orgId = actorResult.ok ? actorResult.actor.organizationId : queryOrgId;
-
-  if (!orgId) {
-    return NextResponse.json({ error: 'orgId query parameter is required' }, { status: 400 });
-  }
+  const orgId = actorResult.actor.organizationId;
 
   const { data: doc, error: docError } = await admin
     .from('documents')

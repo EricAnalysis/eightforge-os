@@ -3,6 +3,7 @@ import {
   RECOVERY_REVIEW_TABLE,
   type RecoveryReadClient,
 } from '@/lib/server/effectiveRecoveryConfirmations';
+import { RecoveryCandidateV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 /**
@@ -42,6 +43,12 @@ export type RecoveryReviewCandidateSelection = Readonly<{
   targetRowIdentity: string;
   composedRawText: string;
   observations: readonly RecoveryReviewCandidateObservation[];
+  /** Target-spine observations, kept separate from the fragment evidence. */
+  targetContext: readonly RecoveryReviewCandidateObservation[];
+  sourceDocumentId: string;
+  sourceArtifactId: string;
+  physicalPageNumber: number;
+  pageRepresentationDigest: string;
   proposed: boolean;
 }>;
 
@@ -53,6 +60,9 @@ export type RecoveryReviewCandidate = Readonly<{
     | 'pricing_rate_multi_observation_cluster'
     | 'priced_schedule_continuation_attribution';
   physicalPageNumber: number;
+  sourceDocumentId: string;
+  sourceArtifactId: string | null;
+  pageRepresentationDigest: string | null;
   /** The deterministic reason the row was never emitted. */
   recoveryReason: string;
   proposedValue: string;
@@ -114,6 +124,18 @@ function observations(
     .sort((left, right) => left.observationId.localeCompare(right.observationId, 'en-US'));
 }
 
+function orderedObservations(
+  evidence: unknown,
+  orderedObservationIds: unknown,
+): RecoveryReviewCandidateObservation[] | null {
+  if (!Array.isArray(orderedObservationIds) || orderedObservationIds.length === 0) return null;
+  const byId = new Map<string, RecoveryReviewCandidateObservation>();
+  for (const entry of observations(evidence, '', false)) byId.set(entry.observationId, entry);
+  const ordered = orderedObservationIds.flatMap((id) =>
+    typeof id === 'string' && byId.has(id) ? [byId.get(id)!] : []);
+  return ordered.length === orderedObservationIds.length ? ordered : null;
+}
+
 /**
  * Projects a candidate's members in the candidate's own authored order.
  *
@@ -130,24 +152,35 @@ function observations(
 function candidateSelections(
   value: unknown,
   selectedCandidateId: string,
+  scope: Readonly<{
+    sourceDocumentId: string;
+    sourceArtifactId: string;
+    physicalPageNumber: number;
+    pageRepresentationDigest: string;
+  }>,
 ): RecoveryReviewCandidateSelection[] {
-  return (Array.isArray(value) ? value : []).filter(isRecord).flatMap((candidate) => {
+  return (Array.isArray(value) ? value : []).flatMap((rawCandidate) => {
+    const parsed = RecoveryCandidateV2Schema.safeParse(rawCandidate);
+    if (!parsed.success) return [];
+    const candidate = parsed.data;
     const orderedObservationIds = candidate.orderedObservationIds;
-    if (typeof candidate.candidateId !== 'string'
-      || (candidate.recoveryType !== 'pricing_rate_multi_observation_cluster'
-        && candidate.recoveryType !== 'priced_schedule_continuation_attribution')
-      || typeof candidate.targetRowIdentity !== 'string'
-      || typeof candidate.composedRawText !== 'string'
-      || !Array.isArray(orderedObservationIds)
-      || orderedObservationIds.length === 0) return [];
+    if (candidate.sourceDocumentId !== scope.sourceDocumentId
+      || candidate.sourceArtifactId !== scope.sourceArtifactId
+      || candidate.physicalPageNumber !== scope.physicalPageNumber
+      || candidate.pageRepresentationDigest !== scope.pageRepresentationDigest) return [];
 
-    const byId = new Map<string, RecoveryReviewCandidateObservation>();
-    for (const entry of observations(candidate.evidence, '', false)) {
-      byId.set(entry.observationId, entry);
+    const members = orderedObservations(candidate.evidence, orderedObservationIds);
+    if (!members) return [];
+
+    let targetContext: RecoveryReviewCandidateObservation[] = [];
+    if (candidate.targetContextEvidence !== undefined) {
+      const projected = orderedObservations(
+        candidate.targetContextEvidence.evidence,
+        candidate.targetContextEvidence.orderedObservationIds,
+      );
+      if (!projected) return [];
+      targetContext = projected;
     }
-    const members = orderedObservationIds.flatMap((id) =>
-      typeof id === 'string' && byId.has(id) ? [byId.get(id)!] : []);
-    if (members.length !== orderedObservationIds.length) return [];
 
     return [{
       candidateId: candidate.candidateId,
@@ -155,6 +188,11 @@ function candidateSelections(
       targetRowIdentity: candidate.targetRowIdentity,
       composedRawText: candidate.composedRawText,
       observations: members,
+      targetContext,
+      sourceDocumentId: candidate.sourceDocumentId,
+      sourceArtifactId: candidate.sourceArtifactId,
+      physicalPageNumber: candidate.physicalPageNumber,
+      pageRepresentationDigest: candidate.pageRepresentationDigest,
       proposed: candidate.candidateId === selectedCandidateId,
     }];
   }).sort((left, right) => left.candidateId.localeCompare(right.candidateId, 'en-US'));
@@ -171,7 +209,7 @@ export async function readRecoveryReviewQueue(
 
   const proposalRead: SelectResult = await admin
     .from(RECOVERY_PROPOSAL_TABLE)
-    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, physical_page_number, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
+    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, source_artifact_id, physical_page_number, page_representation_digest, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
     .eq('organization_id', query.organizationId)
     .eq('source_document_id', query.sourceDocumentId);
   if (proposalRead.error) {
@@ -227,8 +265,20 @@ export async function readRecoveryReviewQueue(
     // cite that line's own tokens, so the union is deduplicated by observation
     // identity: evidence is what the reviewer is shown, and showing one token
     // twice misrepresents how much source backs the decision.
+    const sourceArtifactId = typeof row.source_artifact_id === 'string'
+      ? row.source_artifact_id : null;
+    const physicalPageNumber = Number(row.physical_page_number);
+    const pageRepresentationDigest = typeof row.page_representation_digest === 'string'
+      ? row.page_representation_digest : null;
     const selectableCandidates = proposalVersion === 2
-      ? candidateSelections(row.recovery_candidates, selectedCandidateId as string)
+      && sourceArtifactId && Number.isInteger(physicalPageNumber) && physicalPageNumber > 0
+      && pageRepresentationDigest
+      ? candidateSelections(row.recovery_candidates, selectedCandidateId as string, {
+          sourceDocumentId: query.sourceDocumentId,
+          sourceArtifactId,
+          physicalPageNumber,
+          pageRepresentationDigest,
+        })
       : [];
     const candidateEvidence = [...new Map(selectableCandidates
       .flatMap((candidate) => candidate.observations)
@@ -243,7 +293,10 @@ export async function readRecoveryReviewQueue(
           || row.recovery_type === 'priced_schedule_continuation_attribution')
         ? row.recovery_type
         : 'pricing_rate_single_observation',
-      physicalPageNumber: Number(row.physical_page_number),
+      physicalPageNumber,
+      sourceDocumentId: query.sourceDocumentId,
+      sourceArtifactId,
+      pageRepresentationDigest,
       recoveryReason: typeof row.recovery_reason === 'string' ? row.recovery_reason : 'unknown',
       proposedValue: typeof row.proposed_value === 'string' ? row.proposed_value : '',
       reasonCategory: typeof row.reason_category === 'string' ? row.reason_category : 'unknown',

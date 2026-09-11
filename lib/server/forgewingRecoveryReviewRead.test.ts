@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  buildRecoveryCandidateV2,
+  type RecoveryCandidateV2,
+} from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { RecoveryReadClient } from '@/lib/server/effectiveRecoveryConfirmations';
 import { readRecoveryReviewQueue } from '@/lib/server/forgewingRecoveryReviewRead';
 
@@ -13,6 +17,8 @@ const proposal = {
   proposal_id: `forgewing-proposal-pricing-rate-cluster-${'a'.repeat(32)}`,
   proposal_digest_sha256: 'c'.repeat(64),
   physical_page_number: 3,
+  source_artifact_id: '33333333-3333-4333-8333-333333333333',
+  page_representation_digest: 'a'.repeat(64),
   recovery_reason: 'ambiguous_rate_clusters',
   selected_observation_id: 'obs:unit',
   proposed_value: '$8.75',
@@ -29,7 +35,32 @@ const proposal = {
   created_at: '2026-09-09T00:00:00.000Z',
 };
 
-const v2CandidateId = `recovery-candidate-v2-${'d'.repeat(64)}`;
+function candidate(
+  input: Omit<RecoveryCandidateV2, 'candidateId'>,
+): RecoveryCandidateV2 {
+  const built = buildRecoveryCandidateV2(input);
+  if (!built) throw new Error('invalid recovery candidate fixture');
+  return built;
+}
+
+const v2Candidate = candidate({
+  recoveryType: 'pricing_rate_multi_observation_cluster',
+  targetRowIdentity: 'row:unit-rate',
+  sourceDocumentId: DOC,
+  sourceArtifactId: '33333333-3333-4333-8333-333333333333',
+  physicalPageNumber: 3,
+  pageRepresentationDigest: 'a'.repeat(64),
+  composedRawText: '$ 8.75',
+  orderedObservationIds: ['obs:dollar', 'obs:amount'],
+  rawTexts: ['$', '8.75'],
+  evidence: [
+    { observationId: 'obs:dollar', rawText: '$', sourceLayer: 'pdf_native_text',
+      boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } },
+    { observationId: 'obs:amount', rawText: '8.75', sourceLayer: 'pdf_native_text',
+      boundingBox: { xMin: 2, xMax: 3, yMin: 3, yMax: 4 } },
+  ],
+});
+const v2CandidateId = v2Candidate.candidateId;
 const v2Proposal = {
   ...proposal,
   id: '88888888-8888-4888-8888-888888888888',
@@ -42,20 +73,7 @@ const v2Proposal = {
   // orderedObservationIds / rawTexts / evidence are one ordered membership
   // expressed three ways, and "$" precedes "8.75" because that is the order the
   // composed text was built in -- not alphabetical order of the ids.
-  recovery_candidates: [{
-    candidateId: v2CandidateId,
-    recoveryType: 'pricing_rate_multi_observation_cluster',
-    targetRowIdentity: 'row:unit-rate',
-    composedRawText: '$ 8.75',
-    orderedObservationIds: ['obs:dollar', 'obs:amount'],
-    rawTexts: ['$', '8.75'],
-    evidence: [
-      { observationId: 'obs:dollar', rawText: '$', sourceLayer: 'pdf_native_text',
-        boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } },
-      { observationId: 'obs:amount', rawText: '8.75', sourceLayer: 'pdf_native_text',
-        boundingBox: { xMin: 2, xMax: 3, yMin: 3, yMax: 4 } },
-    ],
-  }],
+  recovery_candidates: [v2Candidate],
 };
 
 function review(overrides: Record<string, unknown> = {}) {
@@ -122,8 +140,53 @@ describe('recovery review queue read', () => {
           expect.objectContaining({ observationId: 'obs:dollar', rawText: '$' }),
           expect.objectContaining({ observationId: 'obs:amount', rawText: '8.75' }),
         ],
+        targetContext: [],
       }),
     ]);
+  });
+
+  it('keeps selected and alternate target contexts distinct and out of fragment evidence', async () => {
+    const { candidateId: _baseCandidateId, ...baseCandidateInput } = v2Candidate;
+    const first = candidate({
+      ...baseCandidateInput,
+      recoveryType: 'priced_schedule_continuation_attribution',
+      targetRowIdentity: 'row:above',
+      targetContextEvidence: {
+        targetRowIdentity: 'row:above',
+        orderedObservationIds: ['obs:above'], rawTexts: ['Above'], composedRawText: 'Above',
+        evidence: [{ observationId: 'obs:above', rawText: 'Above', sourceLayer: 'pdf_native_text',
+          boundingBox: { xMin: 4, xMax: 9, yMin: 10, yMax: 12 } }],
+      },
+    });
+    const { candidateId: _firstCandidateId, ...firstCandidateInput } = first;
+    const second = candidate({
+      ...firstCandidateInput,
+      targetRowIdentity: 'row:below',
+      targetContextEvidence: {
+        targetRowIdentity: 'row:below',
+        orderedObservationIds: ['obs:below'], rawTexts: ['Below'], composedRawText: 'Below',
+        evidence: [{ observationId: 'obs:below', rawText: 'Below', sourceLayer: 'pdf_native_text',
+          boundingBox: { xMin: 4, xMax: 9, yMin: 20, yMax: 22 } }],
+      },
+    });
+    const enriched = {
+      ...v2Proposal,
+      recovery_type: 'priced_schedule_continuation_attribution',
+      selected_candidate_id: first.candidateId,
+      recovery_candidates: [first, second],
+    };
+    const result = await readRecoveryReviewQueue(query, { admin: client([enriched], []) });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.candidates[0]!.selectableCandidates.map((entry) => ({
+      id: entry.candidateId,
+      target: entry.targetContext.map((observation) => observation.observationId),
+    }))).toEqual([
+      { id: first.candidateId, target: ['obs:above'] },
+      { id: second.candidateId, target: ['obs:below'] },
+    ]);
+    expect(result.candidates[0]!.evidence.map((entry) => entry.observationId))
+      .toEqual(['obs:dollar', 'obs:amount']);
   });
 
   it('distinguishes an accepted review from an applied recovery', async () => {

@@ -1205,9 +1205,23 @@ export function scheduleRecoveryCandidateV2Shadow(
   const env = input.env ?? process.env;
   if (env.FORGEWING_SHADOW_ENABLED !== '1'
     || env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED !== '1') return;
+  // Continuation attribution is qualified against the real DN priced corpus;
+  // ambiguous multi-observation pricing-cluster recovery is qualified only
+  // against synthetic fixtures. One gate for both recovery types made the
+  // intended production state -- continuation on, pricing cluster off --
+  // inexpressible, so cluster recovery carries its own default-off gate
+  // beneath the V2 gate. Strict '1' like every sibling: nothing enables itself.
+  const pricingClusterEnabled = env.FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED === '1';
   const candidates = (input.recoveryCandidatesV2 ?? []).flatMap((candidate) => {
     const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
-    return parsed.success ? [parsed.data] : [];
+    if (!parsed.success) return [];
+    // Dropped before grouping, not inside the per-unit task: a disabled
+    // recovery type must never form an evaluation unit, so it can never
+    // consume a call from the document's shared provider budget and can never
+    // displace a continuation unit the budget would otherwise have served.
+    if (parsed.data.recoveryType === 'pricing_rate_multi_observation_cluster'
+      && !pricingClusterEnabled) return [];
+    return [parsed.data];
   });
   const groups = new Map<string, RecoveryCandidateV2[]>();
   for (const candidate of candidates) {

@@ -80,11 +80,23 @@ const CANONICAL_ROOTS = [
 const RECOVERY_VOCABULARY = [
   RECOVERY_PROPOSAL_TABLE,
   RECOVERY_REVIEW_TABLE,
+  'recovery_candidates',
+  'RecoveryCandidateV2',
   'resolveEffectiveRecoveryConfirmations',
   'loadConfirmedRateObservations',
   'ConfirmedRecovery',
   'confirmedRateObservations',
+  'confirmedRecoveryCandidates',
 ];
+
+const VISUAL_SOURCE_MODULES = [
+  'components/documents/RecoveryReviewPanel.tsx',
+  'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
+  'components/recovery/SourceEvidencePage.tsx',
+  'lib/recovery/sourceGeometry.ts',
+  'lib/recovery/visualSourceEvidence.ts',
+  'lib/server/forgewingRecoveryReviewRead.ts',
+] as const;
 
 describe('recovery review architecture boundaries', () => {
   it('keeps recovery tables inside the four persistence seams', () => {
@@ -168,12 +180,87 @@ describe('recovery review architecture boundaries', () => {
       'lib/server/forgewingRecoveryReview.ts',
       'lib/server/forgewingRecoveryReviewRead.ts',
       'lib/server/effectiveRecoveryConfirmations.ts',
+      ...VISUAL_SOURCE_MODULES,
     ]) {
       const text = readFileSync(path.join(ROOT, relative), 'utf8');
       for (const term of providerTerms) {
         expect(`${relative}:${text.includes(term)}`).toBe(`${relative}:false`);
       }
     }
+  });
+
+  it('keeps visual source verification outside canonical and validator authority', () => {
+    for (const relative of VISUAL_SOURCE_MODULES) {
+      const text = readFileSync(path.join(ROOT, relative), 'utf8');
+      expect(text, relative).not.toMatch(/from ['"]@\/lib\/(?:canonical|validator|projectFacts|truthQuery|effectiveFacts)/);
+    }
+  });
+
+  it('has one canonical source-space converter and makes every viewer import it', () => {
+    const definitions = productionFiles().filter(({ text }) =>
+      text.includes('export function toViewportRect('));
+    expect(definitions.map(({ relative }) => relative)).toEqual([
+      'lib/recovery/sourceGeometry.ts',
+    ]);
+    for (const relative of [
+      'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
+      'components/recovery/SourceEvidencePage.tsx',
+    ]) {
+      const text = readFileSync(path.join(ROOT, relative), 'utf8');
+      expect(text, relative).toContain('SourceEvidencePage');
+    }
+    expect(readFileSync(path.join(
+      ROOT, 'components/recovery/SourceEvidencePage.tsx'), 'utf8'))
+      .toContain("from '@/lib/recovery/sourceGeometry'");
+  });
+
+  it('forbids fuzzy, nearest, and text-based visual evidence rebinding', () => {
+    const forbidden = /fuzzy|nearest|textmatch|text_match|rebind/i;
+    const offenders = VISUAL_SOURCE_MODULES.flatMap((relative) => {
+      const code = readFileSync(path.join(ROOT, relative), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      return forbidden.test(code) ? [relative] : [];
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps browser review authority candidate-id-only', () => {
+    const panel = readFileSync(
+      path.join(ROOT, 'components/documents/RecoveryReviewPanel.tsx'), 'utf8');
+    const requestStart = panel.indexOf(
+      "authorizedFetch('/api/internal/forgewing-recovery-review'");
+    const requestEnd = panel.indexOf('    });', requestStart);
+    expect(requestStart).toBeGreaterThan(0);
+    const request = panel.slice(requestStart, requestEnd);
+    expect(request).toContain('confirmedCandidateId');
+    for (const forbidden of [
+      'boundingBox', 'orderedObservationIds', 'rawText', 'targetRowIdentity',
+      'pageRepresentationDigest', 'sourceArtifactId', 'targetContextEvidence',
+    ]) expect(request).not.toContain(forbidden);
+  });
+
+  it('requires authenticated actor context before source-file access', () => {
+    const route = readFileSync(
+      path.join(ROOT, 'app/api/documents/[id]/file/route.ts'), 'utf8');
+    expect(route).not.toContain("searchParams.get('orgId')");
+    expect(route.indexOf('getActorContext(request)')).toBeGreaterThan(0);
+    expect(route.indexOf('getActorContext(request)')).toBeLessThan(
+      route.indexOf('getSupabaseAdmin()'));
+    expect(route).toContain('actorResult.actor.organizationId');
+  });
+
+  it('keeps recovery candidate contract changes on the fresh-replay path', () => {
+    const workflow = readFileSync(
+      path.join(ROOT, '.github/workflows/migration-fresh-replay.yml'), 'utf8');
+    const replay = readFileSync(
+      path.join(ROOT, 'scripts/verify-step0-migration-replay.sh'), 'utf8');
+    for (const pathFilter of [
+      "'lib/extraction/recovery/**'",
+      "'scripts/verify-phase13-recovery-v2-from-postgres.ts'",
+      "'scripts/verify-phase14-recovery-target-context-from-postgres.ts'",
+    ]) expect(workflow).toContain(pathFilter);
+    expect(replay).toContain('scripts/verify-phase13-recovery-v2-from-postgres.ts');
+    expect(replay).toContain('scripts/verify-phase14-recovery-target-context-from-postgres.ts');
   });
 
   it('offers no control that asks Forgewing to regenerate a proposal', () => {

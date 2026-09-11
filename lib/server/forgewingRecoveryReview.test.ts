@@ -73,6 +73,18 @@ describe('recovery review contract', () => {
     ).success).toBe(false);
   });
 
+  it('rejects browser-authored visual evidence and candidate membership', () => {
+    for (const injected of [
+      { boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } },
+      { orderedObservationIds: ['pdf:layout-token:v1:forged'] },
+      { targetRowIdentity: 'page_priced_schedule:p3:r99' },
+      { pageRepresentationDigest: 'a'.repeat(64) },
+      { sourceArtifactId: '33333333-3333-4333-8333-333333333333' },
+    ]) {
+      expect(RecoveryProposalReviewInputSchema.safeParse(accepted(injected)).success).toBe(false);
+    }
+  });
+
   it('refuses a review that does not pin an exact proposal digest', () => {
     expect(RecoveryProposalReviewInputSchema.safeParse(
       accepted({ proposalDigestSha256: 'latest' }),

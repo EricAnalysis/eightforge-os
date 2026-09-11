@@ -188,22 +188,30 @@ function splitCandidate(
 }
 
 function continuationAmbiguousPageLayout(fragmentId = 'obs:continuation'): PdfLayout {
+  const upperTarget = pricedLine(PAGE, 660, {
+    description: 'Inert Debris Removal and', unit: 'Ton', origin: 'A to B',
+    currency: '$', amount: '12.00', amountObservation: 'obs:alpha',
+  });
+  upperTarget.tokens.forEach((entry, index) => {
+    entry.observation_id = observation(`obs:upper-target-${index}`);
+  });
+  const lowerTarget = pricedLine(PAGE, 600, {
+    description: 'Vegetative Debris', unit: 'Ton', origin: 'A to B',
+    currency: '$', amount: '3.50', amountObservation: 'obs:beta',
+  });
+  lowerTarget.tokens.forEach((entry, index) => {
+    entry.observation_id = observation(`obs:lower-target-${index}`);
+  });
   return layoutOf([{
     page_number: PAGE, width: 612, height: 792,
     lines: [
       headerLine(PAGE),
-      pricedLine(PAGE, 660, {
-        description: 'Inert Debris Removal and', unit: 'Ton', origin: 'A to B',
-        currency: '$', amount: '12.00', amountObservation: 'obs:alpha',
-      }),
+      upperTarget,
       line(PAGE, 630, [{
         x: DESCRIPTION_X, text: 'Disposal', width: 70,
         observation_id: observation(fragmentId),
       }]),
-      pricedLine(PAGE, 600, {
-        description: 'Vegetative Debris', unit: 'Ton', origin: 'A to B',
-        currency: '$', amount: '3.50', amountObservation: 'obs:beta',
-      }),
+      lowerTarget,
     ],
   }]);
 }
@@ -449,6 +457,13 @@ describe('candidate-based continuation attribution re-entry', () => {
       `page_priced_schedule:p${PAGE}:r0`,
       `page_priced_schedule:p${PAGE}:r1`,
     ]);
+    expect(candidates.every((candidate) => candidate.targetContextEvidence)).toBe(true);
+    expect(candidates[0]!.targetContextEvidence!.orderedObservationIds).not.toEqual(
+      candidates[1]!.targetContextEvidence!.orderedObservationIds,
+    );
+    expect(candidates[0]!.targetContextEvidence!.targetRowIdentity).toBe(
+      candidates[0]!.targetRowIdentity,
+    );
   });
 
   it('C: an accepted exact target candidate re-enters before the ordinary row is built', () => {
@@ -487,6 +502,30 @@ describe('candidate-based continuation attribution re-entry', () => {
     expect(result.recovery_diagnostics?.[0]).toMatchObject({
       reason: 'confirmed_recovery_unbound', candidate_id: candidate.candidateId,
     });
+  });
+
+  it('H2: a stale target observation identity makes the enriched candidate unbound', () => {
+    const candidate = continuationCandidates().find((entry) =>
+      entry.targetRowIdentity.endsWith(':r0'))!;
+    const changed = continuationAmbiguousPageLayout();
+    changed.pages[0]!.lines[1]!.tokens[0]!.observation_id = observation('obs:upper-target-reparsed');
+    const result = reconstruct(changed, undefined, [candidate]);
+    expect(result.pages[0]?.unassigned_lines[0]?.reason).toBe('ambiguous_row_assignment');
+    expect(result.recovery_diagnostics?.[0]).toMatchObject({
+      reason: 'confirmed_recovery_unbound', candidate_id: candidate.candidateId,
+    });
+  });
+
+  it('keeps a historical no-context continuation candidate resolvable by its exact legacy id', () => {
+    const enriched = continuationCandidates().find((entry) =>
+      entry.targetRowIdentity.endsWith(':r0'))!;
+    const { candidateId: _candidateId, targetContextEvidence: _targetContext, ...legacyInput }
+      = enriched;
+    const legacy = buildRecoveryCandidateV2(legacyInput)!;
+    expect(legacy.candidateId).not.toBe(enriched.candidateId);
+    expect(reconstruct(continuationAmbiguousPageLayout(), undefined, [legacy])
+      .pages[0]?.rows[0]?.cells.find((cell) => cell.role === 'description')?.raw_text)
+      .toBe('Inert Debris Removal and Disposal');
   });
 
   it('publishes no row and loses no line other than the one confirmed', () => {

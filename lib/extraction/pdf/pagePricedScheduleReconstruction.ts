@@ -693,12 +693,18 @@ function buildPageRecoveryCandidate(
     targetRowIdentity: string;
     tokens: readonly PdfToken[];
     composedRawText: string;
+    targetContextTokens?: readonly PdfToken[];
   }>,
 ): RecoveryCandidateV2 | null {
   if (!context) return null;
   const pageRepresentationDigest = context.pageRepresentationDigestByPage[page.page_number];
   const evidence = candidateEvidence(input.tokens);
   if (!pageRepresentationDigest || evidence.length !== input.tokens.length) return null;
+  const targetContextEvidence = input.targetContextTokens
+    ? candidateEvidence(input.targetContextTokens)
+    : undefined;
+  if (input.targetContextTokens
+    && targetContextEvidence?.length !== input.targetContextTokens.length) return null;
   return buildRecoveryCandidateV2({
     recoveryType: input.recoveryType,
     sourceDocumentId: context.sourceDocumentId,
@@ -710,6 +716,16 @@ function buildPageRecoveryCandidate(
     rawTexts: evidence.map((entry) => entry.rawText),
     composedRawText: input.composedRawText,
     evidence,
+    ...(targetContextEvidence ? {
+      targetContextEvidence: {
+        targetRowIdentity: input.targetRowIdentity,
+        orderedObservationIds: targetContextEvidence.map((entry) => entry.observationId),
+        rawTexts: targetContextEvidence.map((entry) => entry.rawText),
+        composedRawText: input.targetContextTokens!.map((token) => token.text.trim())
+          .filter((text) => text.length > 0).join(' '),
+        evidence: targetContextEvidence,
+      },
+    } : {}),
   });
 }
 
@@ -839,32 +855,42 @@ function reconstructPage(
     line: SourceLine,
     targetSpines: readonly SourceLine[],
   ): SourceLine | null => {
-    const fragmentEvidence = candidateEvidence(line.tokens);
     const matches = targetSpines.flatMap((target) => {
       if (!attached.has(target)) return [];
       const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${spineIndex.get(target)!}`;
       const preview = buildCell('description', [...target.banded, ...line.banded]
         .filter((entry) => entry.role === 'description'))?.raw_text ?? lineRawText(line);
-      const candidate = buildPageRecoveryCandidate(page, candidateBuildContext, {
+      const candidateInput = {
         recoveryType: 'priced_schedule_continuation_attribution',
         targetRowIdentity,
         tokens: line.tokens,
         composedRawText: preview,
+      } as const;
+      const candidate = buildPageRecoveryCandidate(page, candidateBuildContext, {
+        ...candidateInput,
+        targetContextTokens: target.tokens,
       });
       if (candidate && !generatedCandidates.some((entry) => entry.candidateId === candidate.candidateId)) {
         generatedCandidates.push(candidate);
       }
       return confirmedCandidates
-        .filter((confirmedCandidate) =>
-          confirmedCandidate.recoveryType === 'priced_schedule_continuation_attribution'
-          && confirmedCandidate.physicalPageNumber === page.page_number
-          && confirmedCandidate.targetRowIdentity === targetRowIdentity
-          && confirmedCandidate.composedRawText === preview
-          && fragmentEvidence.length === line.tokens.length
-          && confirmedCandidate.orderedObservationIds.length === fragmentEvidence.length
-          && confirmedCandidate.orderedObservationIds.every((id, index) =>
-            id === fragmentEvidence[index]!.observationId
-            && confirmedCandidate.rawTexts[index] === fragmentEvidence[index]!.rawText))
+        .filter((confirmedCandidate) => {
+          const regenerated = buildPageRecoveryCandidate(page, {
+            sourceDocumentId: confirmedCandidate.sourceDocumentId,
+            sourceArtifactId: confirmedCandidate.sourceArtifactId,
+            pageRepresentationDigestByPage: {
+              [page.page_number]: confirmedCandidate.pageRepresentationDigest,
+            },
+          }, {
+            ...candidateInput,
+            ...(confirmedCandidate.targetContextEvidence
+              ? { targetContextTokens: target.tokens }
+              : {}),
+          });
+          return confirmedCandidate.recoveryType === 'priced_schedule_continuation_attribution'
+            && confirmedCandidate.candidateId === regenerated?.candidateId
+            && confirmedCandidate.composedRawText === preview;
+        })
         .map((confirmedCandidate) => ({ target, candidate: confirmedCandidate }));
     });
     if (matches.length !== 1) return null;
@@ -1305,9 +1331,13 @@ export function buildPagePricedScheduleReconstruction(params: {
     }));
   for (const candidate of confirmedCandidates) {
     if (appliedCandidates.has(candidate.candidateId)) continue;
-    const boundIds = candidate.orderedObservationIds.filter((id) => pageByObservation.has(id));
+    const expectedIds = [
+      ...candidate.orderedObservationIds,
+      ...(candidate.targetContextEvidence?.orderedObservationIds ?? []),
+    ];
+    const boundIds = expectedIds.filter((id) => pageByObservation.has(id));
     recovery_diagnostics.push({
-      reason: boundIds.length === candidate.orderedObservationIds.length
+      reason: boundIds.length === expectedIds.length
         ? 'confirmed_recovery_not_applied'
         : 'confirmed_recovery_unbound',
       observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,

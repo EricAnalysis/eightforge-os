@@ -16,6 +16,7 @@ import {
   callClaudeForTableContinuation,
   ForgewingProviderOutputError,
   FORGEWING_PRICING_INTERPRETATION_PROMPT_VERSION,
+  FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION,
   loadPricingInterpretationPrompt,
   loadRepositoryPlanGuidancePrompt,
   normalizeClaudeProviderError,
@@ -23,6 +24,10 @@ import {
 
 describe('Forgewing Claude adapter', () => {
   beforeEach(() => messagesCreate.mockReset());
+
+  it('versions the enriched Recovery Candidate V2 input payload as v2', () => {
+    expect(FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION).toBe('v2');
+  });
 
   it('loads the versioned prompt and requests strict JSON with retries disabled', async () => {
     messagesCreate.mockResolvedValue({

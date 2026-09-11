@@ -2726,6 +2726,10 @@ END \$\$;" >/dev/null
 # actual RPCs, table ACLs, immutable records, exact pins and tenant negatives.
 "${psql[@]}" --file scripts/sql/verify-phase12-recovery-review.sql
 
+# Phase 13 additively reuses the Phase 12 tables and human-review authority.
+# Prove V1 compatibility plus closed-candidate V2 RPC behavior on the replayed schema.
+"${psql[@]}" --file scripts/sql/verify-phase13-recovery-v2.sql
+
 "${psql[@]}" --command "CREATE TABLE public.phase12_proposal_concurrency_results(
   session_name text PRIMARY KEY, proposal_row_id uuid NOT NULL, inserted boolean NOT NULL);
   GRANT INSERT, SELECT ON public.phase12_proposal_concurrency_results TO service_role;" >/dev/null
@@ -2823,6 +2827,14 @@ PHASE12_DATABASE_URL="${replay_database_url}" \
 WSLENV="${WSLENV:+${WSLENV}:}PHASE12_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase12-effective-recovery-from-postgres.ts
+
+# Phase 13 candidate ids are digests over their own source closure, so the
+# candidate-bearing qualification runs through the real contract and resolver
+# rather than through SQL literals.
+PHASE13_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE13_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-phase13-recovery-v2-from-postgres.ts
 
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"

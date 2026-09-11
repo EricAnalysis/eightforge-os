@@ -29,6 +29,35 @@ const proposal = {
   created_at: '2026-09-09T00:00:00.000Z',
 };
 
+const v2CandidateId = `recovery-candidate-v2-${'d'.repeat(64)}`;
+const v2Proposal = {
+  ...proposal,
+  id: '88888888-8888-4888-8888-888888888888',
+  proposal_id: `forgewing-proposal-recovery-v2-${'e'.repeat(64)}`,
+  proposal_version: 2,
+  recovery_type: 'pricing_rate_multi_observation_cluster',
+  selected_observation_id: null,
+  selected_candidate_id: v2CandidateId,
+  // The persisted shape, as record_forgewing_recovery_proposal_v2 stores it:
+  // orderedObservationIds / rawTexts / evidence are one ordered membership
+  // expressed three ways, and "$" precedes "8.75" because that is the order the
+  // composed text was built in -- not alphabetical order of the ids.
+  recovery_candidates: [{
+    candidateId: v2CandidateId,
+    recoveryType: 'pricing_rate_multi_observation_cluster',
+    targetRowIdentity: 'row:unit-rate',
+    composedRawText: '$ 8.75',
+    orderedObservationIds: ['obs:dollar', 'obs:amount'],
+    rawTexts: ['$', '8.75'],
+    evidence: [
+      { observationId: 'obs:dollar', rawText: '$', sourceLayer: 'pdf_native_text',
+        boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } },
+      { observationId: 'obs:amount', rawText: '8.75', sourceLayer: 'pdf_native_text',
+        boundingBox: { xMin: 2, xMax: 3, yMin: 3, yMax: 4 } },
+    ],
+  }],
+};
+
 function review(overrides: Record<string, unknown> = {}) {
   return {
     id: '55555555-5555-4555-8555-555555555555',
@@ -73,6 +102,28 @@ describe('recovery review queue read', () => {
   it('reads pending review when nothing has been decided', async () => {
     const result = await readRecoveryReviewQueue(query, { admin: client([proposal], []) });
     expect(result.status === 'ok' && result.candidates[0]!.reviewState).toBe('pending_review');
+  });
+
+  it('returns each V2 candidate as one whole selectable recovery', async () => {
+    const result = await readRecoveryReviewQueue(query, { admin: client([v2Proposal], []) });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.candidates[0]).toMatchObject({
+      proposalVersion: 2,
+      recoveryType: 'pricing_rate_multi_observation_cluster',
+      selectableObservations: [],
+    });
+    expect(result.candidates[0]!.selectableCandidates).toEqual([
+      expect.objectContaining({
+        candidateId: v2CandidateId,
+        composedRawText: '$ 8.75',
+        proposed: true,
+        observations: [
+          expect.objectContaining({ observationId: 'obs:dollar', rawText: '$' }),
+          expect.objectContaining({ observationId: 'obs:amount', rawText: '8.75' }),
+        ],
+      }),
+    ]);
   });
 
   it('distinguishes an accepted review from an applied recovery', async () => {

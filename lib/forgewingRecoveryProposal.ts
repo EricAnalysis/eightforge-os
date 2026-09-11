@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { RecoveryCandidateV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
+
 /**
  * Durable identity of a Forgewing recovery proposal.
  *
@@ -18,7 +20,7 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.string().uuid();
 
 export const RECOVERY_PROPOSAL_ID_PATTERN =
-  /^forgewing-proposal-pricing-rate-cluster-[a-f0-9]{32}$/;
+  /^forgewing-proposal-(?:pricing-rate-cluster-[a-f0-9]{32}|recovery-v2-[a-f0-9]{64})$/;
 
 export const RecoveryProposalEvidenceSchema = z.object({
   observationId: identifier,
@@ -83,6 +85,48 @@ export const DurableRecoveryProposalSchema = z.object({
   }
 });
 export type DurableRecoveryProposal = z.infer<typeof DurableRecoveryProposalSchema>;
+
+/** Additive candidate-based proposal. Historical V1 rows retain their shape. */
+export const DurableRecoveryProposalV2Schema = z.object({
+  organizationId: uuid,
+  sourceDocumentId: uuid,
+  sourceArtifactId: uuid,
+  extractionSnapshotId: identifier,
+  physicalPageNumber: z.number().int().positive(),
+  proposalId: z.string().regex(/^forgewing-proposal-recovery-v2-[a-f0-9]{64}$/),
+  proposalDigestSha256: digest,
+  proposalVersion: z.literal(2),
+  schemaVersion: z.literal('forgewing-recovery-proposal-v2'),
+  recoveryType: z.enum([
+    'pricing_rate_multi_observation_cluster',
+    'priced_schedule_continuation_attribution',
+  ]),
+  selectedCandidateId: z.string().regex(/^recovery-candidate-v2-[a-f0-9]{64}$/),
+  candidates: z.array(RecoveryCandidateV2Schema).min(1).max(32),
+  certainty: z.number().min(0).max(1),
+  reasonCategory: identifier,
+  providerModel: identifier,
+  promptTemplateId: identifier,
+  promptTemplateVersion: identifier,
+  authority: z.literal('non_authoritative'),
+  requiresHumanReview: z.literal(true),
+  shadowArtifactPath: z.string().min(1).max(500).nullable(),
+}).strict().superRefine((proposal, ctx) => {
+  const byId = new Map(proposal.candidates.map((candidate) => [candidate.candidateId, candidate]));
+  const selected = byId.get(proposal.selectedCandidateId);
+  if (byId.size !== proposal.candidates.length || !selected) {
+    ctx.addIssue({ code: 'custom', message: 'selected candidate is not unique proposal evidence' });
+    return;
+  }
+  if (proposal.candidates.some((candidate) =>
+    candidate.recoveryType !== proposal.recoveryType
+    || candidate.sourceDocumentId !== proposal.sourceDocumentId
+    || candidate.sourceArtifactId !== proposal.sourceArtifactId
+    || candidate.physicalPageNumber !== proposal.physicalPageNumber)) {
+    ctx.addIssue({ code: 'custom', message: 'candidate source context does not match proposal' });
+  }
+});
+export type DurableRecoveryProposalV2 = z.infer<typeof DurableRecoveryProposalV2Schema>;
 
 /**
  * The observations a human review may choose between. "Modified" means picking

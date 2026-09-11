@@ -99,6 +99,17 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   // repository and Git modules remain outside this allowlist.
   '@/lib/repositoryPlanGuidance',
   '@/lib/repositoryAwareImplementationPlan',
+  // The canonical Recovery V2 candidate contract, for the same reason as the
+  // proposal-closure validator above: a candidate id is a digest over the
+  // candidate's own source closure, and Forgewing must validate against the
+  // SAME implementation the extractor built it with and the confirmation
+  // resolver later re-validates. A second copy would eventually disagree, and
+  // the disagreement would surface as a human confirming a candidate that no
+  // reconstruction can bind. It is a pure Zod schema plus that digest -- its
+  // only dependency is the already-allowlisted hash module -- so this grants
+  // Forgewing no reach it did not have, and specifically no persistence,
+  // no provider, and no authority.
+  '@/lib/extraction/recovery/recoveryCandidateV2',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',

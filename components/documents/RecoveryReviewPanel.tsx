@@ -103,10 +103,12 @@ export function RecoveryReviewPanel({
       setError('A rationale is required: the review is immutable audit history.');
       return;
     }
-    const confirmedObservationId = selection[candidate.proposalId]
-      ?? candidate.selectableObservations.find((entry) => entry.proposed)?.observationId;
-    if ((disposition === 'accepted' || disposition === 'modified') && !confirmedObservationId) {
-      setError('Select the observation you are confirming.');
+    const confirmedSelectionId = selection[candidate.proposalId]
+      ?? (candidate.proposalVersion === 2
+        ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
+        : candidate.selectableObservations.find((entry) => entry.proposed)?.observationId);
+    if ((disposition === 'accepted' || disposition === 'modified') && !confirmedSelectionId) {
+      setError('Select the source-backed candidate you are confirming.');
       return;
     }
     setBusyProposalId(candidate.proposalId);
@@ -119,7 +121,9 @@ export function RecoveryReviewPanel({
         proposalDigestSha256: candidate.proposalDigestSha256,
         disposition,
         ...(disposition === 'accepted' || disposition === 'modified'
-          ? { confirmedObservationId }
+          ? candidate.proposalVersion === 2
+            ? { confirmedCandidateId: confirmedSelectionId }
+            : { confirmedObservationId: confirmedSelectionId }
           : {}),
         reviewerRationale,
       }),
@@ -141,7 +145,7 @@ export function RecoveryReviewPanel({
     setError(null);
     const response = await authorizedFetch('/api/documents/process', {
       method: 'POST',
-      body: JSON.stringify({ documentId }),
+      body: JSON.stringify({ documentId, processingPurpose: 'recovery_reprocess' }),
     });
     setReprocessState('idle');
     if (!response?.ok) {
@@ -182,7 +186,9 @@ export function RecoveryReviewPanel({
             : candidate.reviewState;
           const decided = candidate.reviewState !== 'pending_review';
           const chosen = selection[candidate.proposalId]
-            ?? candidate.selectableObservations.find((entry) => entry.proposed)?.observationId
+            ?? (candidate.proposalVersion === 2
+              ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
+              : candidate.selectableObservations.find((entry) => entry.proposed)?.observationId)
             ?? '';
           return (
             <li
@@ -202,7 +208,9 @@ export function RecoveryReviewPanel({
                 <div>
                   <dt className="text-[var(--ef-text-muted)]">EightForge result</dt>
                   <dd className="text-[var(--ef-text-primary)]">
-                    Row withheld — ambiguous rate cluster
+                    {candidate.recoveryType === 'priced_schedule_continuation_attribution'
+                      ? 'Continuation withheld — ambiguous row assignment'
+                      : 'Row withheld — ambiguous rate cluster'}
                   </dd>
                 </div>
                 <div>
@@ -232,26 +240,39 @@ export function RecoveryReviewPanel({
                 <div className="mt-3 space-y-3">
                   <fieldset>
                     <legend className="text-xs text-[var(--ef-text-muted)]">
-                      Human decision — select the rate you are confirming
+                      Human decision — select an existing deterministic candidate
                     </legend>
                     <div className="mt-2 space-y-1">
-                      {candidate.selectableObservations.map((observation) => (
+                      {(candidate.proposalVersion === 2
+                        ? candidate.selectableCandidates.map((entry) => ({
+                            id: entry.candidateId,
+                            label: entry.composedRawText,
+                            detail: entry.recoveryType === 'priced_schedule_continuation_attribution'
+                              ? `Target ${entry.targetRowIdentity}`
+                              : entry.observations.map((observation) => observation.rawText).join(' + '),
+                            proposed: entry.proposed,
+                          }))
+                        : candidate.selectableObservations.map((entry) => ({
+                            id: entry.observationId, label: entry.rawText,
+                            detail: '', proposed: entry.proposed,
+                          }))).map((option) => (
                         <label
-                          key={observation.observationId}
+                          key={option.id}
                           className="flex items-center gap-2 text-xs text-[var(--ef-text-primary)]"
                         >
                           <input
                             type="radio"
                             name={`recovery-${candidate.proposalId}`}
-                            value={observation.observationId}
-                            checked={chosen === observation.observationId}
+                            value={option.id}
+                            checked={chosen === option.id}
                             onChange={() => setSelection((previous) => ({
                               ...previous,
-                              [candidate.proposalId]: observation.observationId,
+                              [candidate.proposalId]: option.id,
                             }))}
                           />
-                          <span className="font-mono">{observation.rawText}</span>
-                          {observation.proposed ? (
+                          <span className="font-mono">{option.label}</span>
+                          {option.detail ? <span className="text-[var(--ef-text-muted)]">{option.detail}</span> : null}
+                          {option.proposed ? (
                             <span className="text-[var(--ef-text-muted)]">(proposed)</span>
                           ) : null}
                         </label>
@@ -278,7 +299,9 @@ export function RecoveryReviewPanel({
                       disabled={busyProposalId === candidate.proposalId}
                       onClick={() => submit(
                         candidate,
-                        chosen === candidate.selectableObservations.find((entry) => entry.proposed)?.observationId
+                        chosen === (candidate.proposalVersion === 2
+                          ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
+                          : candidate.selectableObservations.find((entry) => entry.proposed)?.observationId)
                           ? 'accepted'
                           : 'modified',
                       )}

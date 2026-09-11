@@ -6,10 +6,14 @@ import {
 } from '@/lib/forgewingRecoveryProposal';
 import {
   buildDurableRecoveryProposal,
+  buildDurableRecoveryProposalV2,
   persistForgewingRecoveryProposal,
+  persistForgewingRecoveryProposalV2,
   recoveryProposalDigest,
   RECOVERY_PROPOSAL_WRITE_FUNCTION,
+  RECOVERY_PROPOSAL_V2_WRITE_FUNCTION,
 } from '@/lib/server/forgewingRecoveryProposalPersistence';
+import { buildRecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { ForgewingPricingRateClusterRecoveryBundle }
   from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
 
@@ -176,5 +180,45 @@ describe('durable recovery proposal persistence', () => {
     );
     expect(result).toEqual({ status: 'failed', reason: 'invalid_proposal' });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('candidate-based recovery V2 persistence', () => {
+  const candidate = buildRecoveryCandidateV2({
+    recoveryType: 'pricing_rate_multi_observation_cluster',
+    sourceDocumentId: DOC, sourceArtifactId: ART, physicalPageNumber: 3,
+    pageRepresentationDigest: 'd'.repeat(64), targetRowIdentity: 'page_priced_schedule:p3:r2',
+    orderedObservationIds: ['obs:dollar', 'obs:number'], rawTexts: ['$', '8.75'],
+    composedRawText: '$ 8.75',
+    evidence: [
+      { observationId: 'obs:dollar', sourceLayer: 'pdf_native_text' as const, rawText: '$',
+        boundingBox: { xMin: 1, xMax: 2, yMin: 3, yMax: 4 } },
+      { observationId: 'obs:number', sourceLayer: 'pdf_native_text' as const, rawText: '8.75',
+        boundingBox: { xMin: 2, xMax: 3, yMin: 3, yMax: 4 } },
+    ],
+  })!;
+
+  it('builds one immutable proposal around pre-built candidates', () => {
+    const proposal = buildDurableRecoveryProposalV2({
+      organizationId: ORG, extractionSnapshotId: 'snapshot-v2', candidates: [candidate],
+      selectedCandidateId: candidate.candidateId, certainty: 0.8,
+      reasonCategory: 'whole_cluster', ...runtime,
+    });
+    expect(proposal).toMatchObject({ proposalVersion: 2, selectedCandidateId: candidate.candidateId,
+      authority: 'non_authoritative', requiresHumanReview: true });
+  });
+
+  it('writes V2 through its service-role RPC with no observation array supplied by a reviewer', async () => {
+    const proposal = buildDurableRecoveryProposalV2({
+      organizationId: ORG, extractionSnapshotId: 'snapshot-v2', candidates: [candidate],
+      selectedCandidateId: candidate.candidateId, certainty: 0.8,
+      reasonCategory: 'whole_cluster', ...runtime,
+    })!;
+    const rpc = vi.fn(async () => ({ data: [{ proposal_row_id: DOC, inserted: true }], error: null }));
+    await expect(persistForgewingRecoveryProposalV2(proposal, { admin: { rpc } }))
+      .resolves.toMatchObject({ status: 'persisted', inserted: true });
+    expect(rpc).toHaveBeenCalledWith(RECOVERY_PROPOSAL_V2_WRITE_FUNCTION,
+      expect.objectContaining({ p_selected_candidate_id: candidate.candidateId,
+        p_recovery_candidates: [candidate] }));
   });
 });

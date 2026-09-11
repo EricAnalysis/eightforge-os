@@ -43,6 +43,7 @@ import {
   buildPagePricedScheduleReconstruction,
   type ConfirmedRateObservation,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
   buildPdfLayoutObservationsLayer,
   type PdfLayoutObservationsLayer,
@@ -181,6 +182,7 @@ export type ExtractionProvenanceContext = {
  */
 export type ExtractionRecoveryContext = {
   readonly confirmedRateObservations: readonly ConfirmedRateObservation[];
+  readonly confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
 };
 
 export type ExtractionPayload = {
@@ -2118,6 +2120,23 @@ export async function extractDocument(
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
+      confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
+      ...(process.env.FORGEWING_SHADOW_ENABLED === '1'
+        && process.env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED === '1'
+        && provenanceContext
+        ? { recoveryCandidateBuildContext: {
+            sourceDocumentId: provenanceContext.sourceDocumentId,
+            sourceArtifactId: provenanceContext.sourceArtifactId,
+            pageRepresentationDigestByPage: Object.fromEntries(
+              structuredLayout.pages.flatMap((page) => {
+                const digest = page.lines.flatMap((line) => line.tokens)
+                  .find((token) => token.observation_identity)?.observation_identity
+                  ?.page_representation_digest;
+                return digest ? [[page.page_number, digest]] : [];
+              }),
+            ),
+          } }
+        : {}),
     });
     const pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
       layout: structuredLayout,

@@ -1,13 +1,17 @@
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import {
   DurableRecoveryProposalSchema,
+  DurableRecoveryProposalV2Schema,
   type DurableRecoveryProposal,
+  type DurableRecoveryProposalV2,
 } from '@/lib/forgewingRecoveryProposal';
+import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { ForgewingPricingRateClusterRecoveryBundle }
   from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const RECOVERY_PROPOSAL_WRITE_FUNCTION = 'record_forgewing_recovery_proposal' as const;
+export const RECOVERY_PROPOSAL_V2_WRITE_FUNCTION = 'record_forgewing_recovery_proposal_v2' as const;
 
 type RpcClient = {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }>;
@@ -17,6 +21,62 @@ export type RecoveryProposalPersistenceResult =
   | Readonly<{ status: 'persisted'; proposalRowId: string; proposalDigestSha256: string; inserted: boolean }>
   | Readonly<{ status: 'skipped'; reason: 'not_configured' }>
   | Readonly<{ status: 'failed'; reason: 'invalid_proposal' | 'write_failed' }>;
+
+export function buildDurableRecoveryProposalV2(params: Readonly<{
+  organizationId: string;
+  extractionSnapshotId: string;
+  candidates: readonly RecoveryCandidateV2[];
+  selectedCandidateId: string;
+  certainty: number;
+  reasonCategory: string;
+  providerModel: string;
+  promptTemplateId: string;
+  promptTemplateVersion: string;
+  shadowArtifactPath?: string | null;
+}>): DurableRecoveryProposalV2 | null {
+  const selected = params.candidates.find((candidate) =>
+    candidate.candidateId === params.selectedCandidateId);
+  if (!selected || params.candidates.some((candidate) =>
+    candidate.recoveryType !== selected.recoveryType
+    || candidate.sourceDocumentId !== selected.sourceDocumentId
+    || candidate.sourceArtifactId !== selected.sourceArtifactId
+    || candidate.physicalPageNumber !== selected.physicalPageNumber)) return null;
+  const identity = hashCanonical({
+    proposalVersion: 2,
+    extractionSnapshotId: params.extractionSnapshotId,
+    recoveryType: selected.recoveryType,
+    selectedCandidateId: params.selectedCandidateId,
+    candidates: params.candidates,
+    certainty: params.certainty,
+    reasonCategory: params.reasonCategory,
+    providerModel: params.providerModel,
+    promptTemplateId: params.promptTemplateId,
+    promptTemplateVersion: params.promptTemplateVersion,
+  });
+  const parsed = DurableRecoveryProposalV2Schema.safeParse({
+    organizationId: params.organizationId,
+    sourceDocumentId: selected.sourceDocumentId,
+    sourceArtifactId: selected.sourceArtifactId,
+    extractionSnapshotId: params.extractionSnapshotId,
+    physicalPageNumber: selected.physicalPageNumber,
+    proposalId: `forgewing-proposal-recovery-v2-${identity}`,
+    proposalDigestSha256: identity,
+    proposalVersion: 2,
+    schemaVersion: 'forgewing-recovery-proposal-v2',
+    recoveryType: selected.recoveryType,
+    selectedCandidateId: params.selectedCandidateId,
+    candidates: params.candidates,
+    certainty: params.certainty,
+    reasonCategory: params.reasonCategory,
+    providerModel: params.providerModel,
+    promptTemplateId: params.promptTemplateId,
+    promptTemplateVersion: params.promptTemplateVersion,
+    authority: 'non_authoritative',
+    requiresHumanReview: true,
+    shadowArtifactPath: params.shadowArtifactPath ?? null,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
 /**
  * Projects a validated Recovery V1 bundle onto the durable proposal record.
@@ -149,4 +209,43 @@ export async function persistForgewingRecoveryProposal(
     proposalDigestSha256: value.proposalDigestSha256,
     inserted: row.inserted,
   };
+}
+
+export async function persistForgewingRecoveryProposalV2(
+  proposal: DurableRecoveryProposalV2,
+  dependencies: Readonly<{ admin?: RpcClient | null }> = {},
+): Promise<RecoveryProposalPersistenceResult> {
+  const parsed = DurableRecoveryProposalV2Schema.safeParse(proposal);
+  if (!parsed.success) return { status: 'failed', reason: 'invalid_proposal' };
+  const value = parsed.data;
+  const selected = value.candidates.find((candidate) => candidate.candidateId === value.selectedCandidateId)!;
+  const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
+  if (!admin) return { status: 'skipped', reason: 'not_configured' };
+  const result = await admin.rpc(RECOVERY_PROPOSAL_V2_WRITE_FUNCTION, {
+    p_organization_id: value.organizationId,
+    p_source_document_id: value.sourceDocumentId,
+    p_source_artifact_id: value.sourceArtifactId,
+    p_extraction_snapshot_id: value.extractionSnapshotId,
+    p_physical_page_number: value.physicalPageNumber,
+    p_proposal_id: value.proposalId,
+    p_proposal_digest_sha256: value.proposalDigestSha256,
+    p_recovery_type: value.recoveryType,
+    p_selected_candidate_id: value.selectedCandidateId,
+    p_proposed_value: selected.composedRawText,
+    p_page_representation_digest: selected.pageRepresentationDigest,
+    p_recovery_candidates: value.candidates,
+    p_certainty: value.certainty,
+    p_reason_category: value.reasonCategory,
+    p_provider_model: value.providerModel,
+    p_prompt_template_id: value.promptTemplateId,
+    p_prompt_template_version: value.promptTemplateVersion,
+    p_shadow_artifact_path: value.shadowArtifactPath,
+  });
+  if (result.error) return { status: 'failed', reason: 'write_failed' };
+  const row = (Array.isArray(result.data) ? result.data[0] : result.data) as
+    | { proposal_row_id?: unknown; inserted?: unknown } | null | undefined;
+  return row && typeof row.proposal_row_id === 'string' && typeof row.inserted === 'boolean'
+    ? { status: 'persisted', proposalRowId: row.proposal_row_id,
+        proposalDigestSha256: value.proposalDigestSha256, inserted: row.inserted }
+    : { status: 'failed', reason: 'write_failed' };
 }

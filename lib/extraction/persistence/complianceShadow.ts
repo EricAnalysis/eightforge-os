@@ -35,19 +35,27 @@ import {
   type ForgewingPricingRateClusterRecoveryInput,
 } from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
 import {
+  getForgewingRuntimeConfig,
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingShadowEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
+import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
 import {
   buildDurableRecoveryProposal,
+  buildDurableRecoveryProposalV2,
   persistForgewingRecoveryProposal,
+  persistForgewingRecoveryProposalV2,
   type RecoveryProposalPersistenceResult,
 } from '@/lib/server/forgewingRecoveryProposalPersistence';
+import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 }
+  from '@/lib/extraction/recovery/recoveryCandidateV2';
+import { runRecoveryCandidateV2Recommendation }
+  from '@/lib/forgewing/tasks/recoveryCandidateV2';
 import {
   persistReasoningShadowArtifact,
   type ReasoningShadowPersistenceInput,
@@ -528,6 +536,8 @@ export type ForgewingPricingInterpretationShadowInput = Readonly<{
   pricingSourceEligibility: unknown;
   /** Exact, independently closed rejected-spine diagnostics; never accepted pricing rows. */
   pricingRecoveryDiagnostics?: readonly unknown[];
+  /** Deterministically constructed before any Forgewing recommendation. */
+  recoveryCandidatesV2?: readonly unknown[];
   env?: Readonly<Record<string, string | undefined>>;
 }>;
 
@@ -1180,6 +1190,64 @@ export function scheduleEligiblePricingReasoningShadow(
 ): void {
   scheduleForgewingPricingInterpretationShadow(input);
   scheduleForgewingPricingRateClusterRecoveryShadow(input);
+  scheduleRecoveryCandidateV2Shadow(input);
+}
+
+export function scheduleRecoveryCandidateV2Shadow(
+  input: ForgewingPricingInterpretationShadowInput,
+  dependencies: Readonly<{
+    register?: (task: () => Promise<void>) => void;
+    run?: typeof runRecoveryCandidateV2Recommendation;
+    persistProposal?: typeof persistForgewingRecoveryProposalV2;
+    budget?: ForgewingCallBudget;
+  }> = {},
+): void {
+  const env = input.env ?? process.env;
+  if (env.FORGEWING_SHADOW_ENABLED !== '1'
+    || env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED !== '1') return;
+  const candidates = (input.recoveryCandidatesV2 ?? []).flatMap((candidate) => {
+    const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const groups = new Map<string, RecoveryCandidateV2[]>();
+  for (const candidate of candidates) {
+    const unit = candidate.recoveryType === 'priced_schedule_continuation_attribution'
+      ? `${candidate.recoveryType}:${candidate.physicalPageNumber}:${candidate.orderedObservationIds.join(':')}`
+      : `${candidate.recoveryType}:${candidate.physicalPageNumber}:${candidate.targetRowIdentity}`;
+    groups.set(unit, [...(groups.get(unit) ?? []), candidate]);
+  }
+  // One provider call per recovery evaluation unit, and one shared budget for
+  // the whole document. Without the shared budget the fan-out is unbounded:
+  // the real DN priced page carries thirteen ambiguous continuations, which
+  // would be thirteen provider calls for one reprocess. Units past the budget
+  // return `budget_exhausted` having called nothing, and grouping order is
+  // deterministic (candidates arrive sorted by candidate id), so which units
+  // are served is reproducible rather than arbitrary.
+  const budget = dependencies.budget
+    ?? new ForgewingCallBudget(getForgewingRuntimeConfig().maxCalls);
+  for (const unitCandidates of groups.values()) {
+    const task = async () => {
+      const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
+        organizationId: input.organizationId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        candidates: unitCandidates,
+      }, { budget });
+      if (recommendation.status !== 'requires_human_review') return;
+      const durable = buildDurableRecoveryProposalV2({
+        organizationId: input.organizationId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        candidates: unitCandidates,
+        selectedCandidateId: recommendation.selectedCandidateId,
+        certainty: recommendation.confidence,
+        reasonCategory: recommendation.rationaleCode,
+        providerModel: recommendation.model,
+        promptTemplateId: recommendation.promptTemplateId,
+        promptTemplateVersion: recommendation.promptTemplateVersion,
+      });
+      if (durable) await (dependencies.persistProposal ?? persistForgewingRecoveryProposalV2)(durable);
+    };
+    (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+  }
 }
 
 export function withForgewingRegionClassificationShadow(

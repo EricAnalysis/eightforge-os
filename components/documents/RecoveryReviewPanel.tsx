@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
 import { supabase } from '@/lib/supabaseClient';
+import type { VisualSourceEvidence, VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
 import type {
   RecoveryReviewCandidate,
   RecoveryReviewState,
@@ -56,6 +58,52 @@ async function authorizedFetch(input: string, init?: RequestInit): Promise<Respo
   });
 }
 
+function visualEvidence(
+  candidate: RecoveryReviewCandidate,
+  selectedId: string,
+): VisualSourceEvidence | null {
+  if (candidate.proposalVersion === 2) {
+    const selected = candidate.selectableCandidates.find((entry) => entry.candidateId === selectedId);
+    if (!selected) return null;
+    const boxes: VisualSourceBox[] = [
+      ...selected.observations.map((observation, memberIndex) => ({
+        ...observation, role: 'candidate_member' as const, memberIndex,
+      })),
+      ...selected.targetContext.map((observation, memberIndex) => ({
+        ...observation, role: 'target_row_context' as const, memberIndex,
+      })),
+      ...candidate.selectableCandidates
+        .filter((entry) => entry.candidateId !== selected.candidateId)
+        .flatMap((entry) => entry.targetContext.map((observation, memberIndex) => ({
+          ...observation, role: 'alternative_candidate' as const, memberIndex,
+        }))),
+    ];
+    return {
+      sourceDocumentId: selected.sourceDocumentId,
+      sourceArtifactId: selected.sourceArtifactId,
+      physicalPageNumber: selected.physicalPageNumber,
+      pageRepresentationDigest: selected.pageRepresentationDigest,
+      candidateId: selected.candidateId,
+      recoveryType: selected.recoveryType,
+      composedRawText: selected.composedRawText,
+      boxes,
+    };
+  }
+  if (!candidate.sourceArtifactId || !candidate.pageRepresentationDigest) return null;
+  const selected = candidate.selectableObservations.find((entry) => entry.observationId === selectedId);
+  if (!selected) return null;
+  return {
+    sourceDocumentId: candidate.sourceDocumentId,
+    sourceArtifactId: candidate.sourceArtifactId,
+    physicalPageNumber: candidate.physicalPageNumber,
+    pageRepresentationDigest: candidate.pageRepresentationDigest,
+    candidateId: `v1:${selected.observationId}`,
+    recoveryType: 'pricing_rate_single_observation',
+    composedRawText: selected.rawText,
+    boxes: [{ ...selected, role: 'candidate_member', memberIndex: 0 }],
+  };
+}
+
 export function RecoveryReviewPanel({
   documentId,
   onReprocessed,
@@ -70,6 +118,9 @@ export function RecoveryReviewPanel({
   const [selection, setSelection] = useState<Record<string, string>>({});
   const [rationale, setRationale] = useState<Record<string, string>>({});
   const [reprocessState, setReprocessState] = useState<'idle' | 'reprocessing'>('idle');
+  const [openSourceProposalId, setOpenSourceProposalId] = useState<string | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +147,25 @@ export function RecoveryReviewPanel({
   }, [documentId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const toggleSource = async (proposalId: string) => {
+    if (openSourceProposalId === proposalId) {
+      setOpenSourceProposalId(null);
+      return;
+    }
+    setOpenSourceProposalId(proposalId);
+    if (sourceUrl) return;
+    setSourceLoading(true);
+    const response = await authorizedFetch(`/api/documents/${encodeURIComponent(documentId)}/file`);
+    const body = await response?.json().catch(() => null);
+    setSourceLoading(false);
+    if (!response?.ok || typeof body?.signedUrl !== 'string') {
+      setError('The authenticated source file could not be loaded.');
+      setOpenSourceProposalId(null);
+      return;
+    }
+    setSourceUrl(body.signedUrl);
+  };
 
   const submit = async (candidate: RecoveryReviewCandidate, disposition: ReviewDisposition) => {
     const reviewerRationale = rationale[candidate.proposalId]?.trim();
@@ -190,6 +260,7 @@ export function RecoveryReviewPanel({
               ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
               : candidate.selectableObservations.find((entry) => entry.proposed)?.observationId)
             ?? '';
+          const sourceEvidence = visualEvidence(candidate, chosen);
           return (
             <li
               key={candidate.proposalId}
@@ -225,6 +296,22 @@ export function RecoveryReviewPanel({
                   </dd>
                 </div>
               </dl>
+
+              <button type="button" className="mt-3 rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-primary)]"
+                aria-expanded={openSourceProposalId === candidate.proposalId}
+                disabled={!sourceEvidence || sourceLoading}
+                onClick={() => void toggleSource(candidate.proposalId)}>
+                {sourceLoading && openSourceProposalId === candidate.proposalId ? 'Loading source…'
+                  : openSourceProposalId === candidate.proposalId ? 'Hide source' : 'View source'}
+              </button>
+              {!sourceEvidence ? <p className="mt-2 text-xs text-[var(--ef-warning)]">
+                Exact source geometry is unavailable for this historical proposal.</p> : null}
+              {openSourceProposalId === candidate.proposalId && sourceUrl && sourceEvidence ? (
+                <div className="mt-3 max-h-[42rem] overflow-hidden rounded border border-white/10">
+                  <SourceEvidencePage sourceUrl={sourceUrl} evidence={sourceEvidence}
+                    currentPageRepresentationDigest={sourceEvidence.pageRepresentationDigest} />
+                </div>
+              ) : null}
 
               {decided ? (
                 candidate.latestReview ? (

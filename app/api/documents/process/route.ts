@@ -33,9 +33,13 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     const documentId = body?.documentId;
+    const processingPurpose = body?.processingPurpose;
 
     if (!documentId || typeof documentId !== 'string') {
       return jsonError('documentId is required', 'MISSING_DOCUMENT_ID', 400);
+    }
+    if (processingPurpose !== undefined && processingPurpose !== 'recovery_reprocess') {
+      return jsonError('processingPurpose is invalid', 'INVALID_PROCESSING_PURPOSE', 400);
     }
 
     const admin = getSupabaseAdmin();
@@ -98,6 +102,7 @@ export async function POST(req: Request) {
       analysisMode,
       triggeredBy: 'manual',
       registerBackgroundTask: (task) => after(task),
+      ...(processingPurpose === 'recovery_reprocess' ? { processingPurpose } : {}),
     });
 
     console.log('[documents/process] pipeline result', {

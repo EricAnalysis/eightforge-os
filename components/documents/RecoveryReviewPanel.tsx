@@ -145,7 +145,7 @@ export function RecoveryReviewPanel({
     setError(null);
     const response = await authorizedFetch('/api/documents/process', {
       method: 'POST',
-      body: JSON.stringify({ documentId }),
+      body: JSON.stringify({ documentId, processingPurpose: 'recovery_reprocess' }),
     });
     setReprocessState('idle');
     if (!response?.ok) {

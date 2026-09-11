@@ -1326,6 +1326,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   organizationId: string;
   projectId?: string | null;
   extractionData?: Record<string, unknown> | null;
+  /** Server-derived. False for confirmed-recovery reprocessing only. */
+  providerWorkAllowed?: boolean;
 }): Promise<PersistCanonicalIntelligenceResult> {
   const buildContext = await loadBuildParams(params.admin, {
     documentId: params.documentId,
@@ -1401,7 +1403,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     ?.pricing_source_eligibility;
   const pricingSourceArtifactId = pricingSourceEligibility?.sourceArtifactId;
   if (
-    buildContext.extractionSnapshotId
+    params.providerWorkAllowed !== false
+    && buildContext.extractionSnapshotId
     && typeof pricingSourceArtifactId === 'string'
     && pricingSourceArtifactId.trim().length > 0
   ) {

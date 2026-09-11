@@ -12,7 +12,10 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
-import { loadConfirmedRecoverySelections } from '@/lib/server/effectiveRecoveryConfirmations';
+import {
+  hasConfirmedRecoverySelections,
+  loadConfirmedRecoverySelections,
+} from '@/lib/server/effectiveRecoveryConfirmations';
 import { normalizeExtraction } from '@/lib/server/extractionNormalizer';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
@@ -250,6 +253,7 @@ export async function processDocument(params: {
   analysisMode: string;
   triggeredBy: JobTrigger;
   registerBackgroundTask?: (task: Promise<unknown>) => void;
+  processingPurpose?: 'standard' | 'recovery_reprocess';
 }): Promise<ProcessDocumentResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { success: false, error: 'Server not configured' };
@@ -352,6 +356,25 @@ export async function processDocument(params: {
           sourceArtifactId: processingIdentity.sourceArtifactId,
         })
       : null;
+    const hasConfirmedRecovery = hasConfirmedRecoverySelections(recoverySelections);
+    if (params.processingPurpose === 'recovery_reprocess' && !hasConfirmedRecovery) {
+      await markFailed(job.id, params.documentId, 'No effective recovery confirmation was available');
+      return {
+        success: false,
+        error: 'No effective recovery confirmation was available',
+        jobId: job.id,
+      };
+    }
+    // Server-derived from the request's purpose, not from whether confirmations
+    // exist. Gating on their existence would be wrong in both directions: an
+    // ordinary reprocess of a document that once had a recovery confirmed would
+    // silently lose enrichment, and -- worse -- proposals are generated from the
+    // spines that are STILL withheld, so confirming one of a page's abstentions
+    // would permanently stop Forgewing ever proposing for the rest of them.
+    //
+    // The browser can only ever send 'recovery_reprocess', which removes
+    // capability; there is no value it can send that adds any.
+    const providerWorkAllowed = params.processingPurpose !== 'recovery_reprocess';
     const payload = (await extractDocument(
       metadata,
       bytes,
@@ -369,29 +392,31 @@ export async function processDocument(params: {
       processingIdentity.status === 'persisted' ? recoverySelections : null,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
-    const complianceShadowTask = scheduleExtractionComplianceShadow({
-      admin,
-      organizationId: params.organizationId,
-      sourceDocumentId: params.documentId,
-      sourceBytes: bytes,
-      storageBucket: BUCKET,
-      storagePath,
-      storageVersionBeforeDownload,
-      mediaType: mimeType,
-      legacyExtractionPayload: payload as unknown as Record<string, unknown>,
-      locatedObservations: getLocatedOcrObservations(payload),
-      step3InterpretationBridge: buildStep3SemanticInterpretation,
-      observedAt: extractionShadowObservedAt,
-      analysisJobId: job.id,
-      analysisMode: params.analysisMode,
-    });
-    if (params.registerBackgroundTask) {
-      params.registerBackgroundTask(complianceShadowTask);
-    } else {
-      void complianceShadowTask;
+    if (providerWorkAllowed) {
+      const complianceShadowTask = scheduleExtractionComplianceShadow({
+        admin,
+        organizationId: params.organizationId,
+        sourceDocumentId: params.documentId,
+        sourceBytes: bytes,
+        storageBucket: BUCKET,
+        storagePath,
+        storageVersionBeforeDownload,
+        mediaType: mimeType,
+        legacyExtractionPayload: payload as unknown as Record<string, unknown>,
+        locatedObservations: getLocatedOcrObservations(payload),
+        step3InterpretationBridge: buildStep3SemanticInterpretation,
+        observedAt: extractionShadowObservedAt,
+        analysisJobId: job.id,
+        analysisMode: params.analysisMode,
+      });
+      if (params.registerBackgroundTask) {
+        params.registerBackgroundTask(complianceShadowTask);
+      } else {
+        void complianceShadowTask;
+      }
     }
 
-    if (params.analysisMode === 'ai_enriched') {
+    if (providerWorkAllowed && params.analysisMode === 'ai_enriched') {
       const aiResult = await runAiEnrichment({
         organizationId: params.organizationId,
         documentMetadata: {
@@ -530,6 +555,7 @@ export async function processDocument(params: {
           organizationId: params.organizationId,
           projectId,
           extractionData: payload as unknown as Record<string, unknown>,
+          providerWorkAllowed,
         }),
         'generateAndPersistCanonicalIntelligence',
         CANONICAL_PERSISTENCE_TIMEOUT_MS,
@@ -670,6 +696,7 @@ export async function processDocument(params: {
                 documentId: siblingId,
                 organizationId: params.organizationId,
                 projectId,
+                providerWorkAllowed,
               });
             }
           }

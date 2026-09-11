@@ -2828,6 +2828,14 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE12_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase12-effective-recovery-from-postgres.ts
 
+# Phase 13 candidate ids are digests over their own source closure, so the
+# candidate-bearing qualification runs through the real contract and resolver
+# rather than through SQL literals.
+PHASE13_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE13_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-phase13-recovery-v2-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"

@@ -15,8 +15,10 @@ const MOCKED_MODULES = [
   '@/lib/server/workflowEngine',
   '@/lib/server/activity/logActivityEvent',
   '@/lib/server/intelligencePersistence',
+  '@/lib/server/effectiveRecoveryConfirmations',
   '@/lib/pipeline/projectRerun',
   '@/lib/extraction/persistence/complianceShadow',
+  '@/lib/extraction/persistence/sourceArtifactIdentity',
 ] as const;
 
 type SetupParams = {
@@ -30,6 +32,10 @@ type SetupParams = {
   storageVersions?: readonly [string | null, string | null];
   pendingStorageVersion?: boolean;
   pendingShadowPublisher?: boolean;
+  recoverySelections?: Readonly<{
+    confirmedRateObservations: readonly Record<string, unknown>[];
+    confirmedRecoveryCandidates: readonly Record<string, unknown>[];
+  }>;
 };
 
 async function loadProcessDocument() {
@@ -156,8 +162,19 @@ async function setupProcessDocumentTest(params: SetupParams) {
   const setDocumentStatus = vi.fn(async (_input: { status: string }) => {
     void _input;
   });
-  const extractDocument = vi.fn(async () => extractionPayload);
+  // Rest-typed so assertions can read positional arguments -- the recovery
+  // context is argument 6, and an untyped mock makes that index unreachable.
+  const extractDocument = vi.fn(async (..._args: readonly unknown[]) => extractionPayload);
   const normalizeExtraction = vi.fn(async () => undefined);
+  const recoverySelections = params.recoverySelections ?? {
+    confirmedRateObservations: [],
+    confirmedRecoveryCandidates: [],
+  };
+  const loadConfirmedRecoverySelections = vi.fn(async () => recoverySelections);
+  const persistUploadedSourceArtifactIdentity = vi.fn(async () => ({
+    status: 'persisted' as const,
+    sourceArtifactId: 'source-artifact-1',
+  }));
   const runAiEnrichment = vi.fn(async () => ({
     confidence_note: null,
   }));
@@ -266,6 +283,14 @@ async function setupProcessDocumentTest(params: SetupParams) {
   vi.doMock('@/lib/server/intelligencePersistence', () => ({
     generateAndPersistCanonicalIntelligence,
   }));
+  vi.doMock('@/lib/server/effectiveRecoveryConfirmations', () => ({
+    loadConfirmedRecoverySelections,
+    hasConfirmedRecoverySelections: (selections: typeof recoverySelections | null) => Boolean(
+      selections
+      && (selections.confirmedRateObservations.length > 0
+        || selections.confirmedRecoveryCandidates.length > 0),
+    ),
+  }));
   vi.doMock('@/lib/pipeline/projectRerun', () => ({
     getProjectRerunStoredDocTypes,
   }));
@@ -273,6 +298,9 @@ async function setupProcessDocumentTest(params: SetupParams) {
     captureStorageObjectVersion,
     publishExtractionComplianceShadowNonBlocking,
     scheduleExtractionComplianceShadow,
+  }));
+  vi.doMock('@/lib/extraction/persistence/sourceArtifactIdentity', () => ({
+    persistUploadedSourceArtifactIdentity,
   }));
 
   const processDocument = await loadProcessDocument();
@@ -298,6 +326,8 @@ async function setupProcessDocumentTest(params: SetupParams) {
       captureStorageObjectVersion,
       publishExtractionComplianceShadowNonBlocking,
       scheduleExtractionComplianceShadow,
+      loadConfirmedRecoverySelections,
+      persistUploadedSourceArtifactIdentity,
     },
   };
 }
@@ -311,6 +341,122 @@ afterEach(() => {
 });
 
 describe('processDocument canonical persistence gating', () => {
+  it('runs confirmed recovery reprocessing through extraction with zero provider-capable work', async () => {
+    const registerBackgroundTask = vi.fn();
+    const confirmedRateObservations = [{
+      observation_id: 'obs:confirmed', confirmed_raw_text: '8.75',
+    }];
+    const confirmedRecoveryCandidates = [{ candidateId: 'candidate:confirmed' }];
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentType: 'contract',
+      recoverySelections: { confirmedRateObservations, confirmedRecoveryCandidates },
+    });
+
+    await expect(processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'ai_enriched',
+      triggeredBy: 'manual',
+      processingPurpose: 'recovery_reprocess',
+      registerBackgroundTask,
+    })).resolves.toMatchObject({ success: true });
+
+    expect(spies.loadConfirmedRecoverySelections).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      sourceDocumentId: 'doc-1',
+      sourceArtifactId: 'source-artifact-1',
+    });
+    expect(spies.extractDocument.mock.calls[0]?.[5]).toEqual({
+      confirmedRateObservations,
+      confirmedRecoveryCandidates,
+    });
+    expect(spies.runAiEnrichment).not.toHaveBeenCalled();
+    expect(spies.persistAiEnrichmentDecisions).not.toHaveBeenCalled();
+    expect(spies.scheduleExtractionComplianceShadow).not.toHaveBeenCalled();
+    expect(registerBackgroundTask).not.toHaveBeenCalled();
+    expect(spies.generateAndPersistCanonicalIntelligence).toHaveBeenCalledWith(
+      expect.objectContaining({ providerWorkAllowed: false }),
+    );
+  });
+
+  it('fails an unbound recovery reprocess before extraction or provider-capable work', async () => {
+    const registerBackgroundTask = vi.fn();
+    const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract' });
+
+    await expect(processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'ai_enriched',
+      triggeredBy: 'manual',
+      processingPurpose: 'recovery_reprocess',
+      registerBackgroundTask,
+    })).resolves.toMatchObject({
+      success: false,
+      error: 'No effective recovery confirmation was available',
+    });
+
+    expect(spies.extractDocument).not.toHaveBeenCalled();
+    expect(spies.runAiEnrichment).not.toHaveBeenCalled();
+    expect(spies.scheduleExtractionComplianceShadow).not.toHaveBeenCalled();
+    expect(spies.generateAndPersistCanonicalIntelligence).not.toHaveBeenCalled();
+    expect(registerBackgroundTask).not.toHaveBeenCalled();
+  });
+
+  it('keeps normal AI enrichment and provider-capable scheduling unchanged without confirmations', async () => {
+    const registerBackgroundTask = vi.fn();
+    const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract' });
+
+    await expect(processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'ai_enriched',
+      triggeredBy: 'manual',
+      registerBackgroundTask,
+    })).resolves.toMatchObject({ success: true });
+
+    expect(spies.runAiEnrichment).toHaveBeenCalledOnce();
+    expect(spies.persistAiEnrichmentDecisions).toHaveBeenCalledOnce();
+    expect(spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
+    expect(registerBackgroundTask).toHaveBeenCalledWith(expect.any(Promise));
+    expect(spies.generateAndPersistCanonicalIntelligence).toHaveBeenCalledWith(
+      expect.objectContaining({ providerWorkAllowed: true }),
+    );
+  });
+
+  it('keeps provider work on an ordinary reprocess of a document that has confirmations', async () => {
+    // Provider capability is decided by the request's purpose, never by whether
+    // a confirmation exists. Proposals are generated from the spines still
+    // withheld, so if one confirmed recovery disabled provider work for the
+    // document, Forgewing could never propose for the page's remaining
+    // abstentions again -- confirm one of thirteen and lose the other twelve.
+    const registerBackgroundTask = vi.fn();
+    const { processDocument, spies } = await setupProcessDocumentTest({
+      documentType: 'contract',
+      recoverySelections: {
+        confirmedRateObservations: [{ observation_id: 'obs:confirmed', confirmed_raw_text: '8.75' }],
+        confirmedRecoveryCandidates: [{ candidateId: 'candidate:confirmed' }],
+      },
+    });
+
+    await expect(processDocument({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      analysisMode: 'ai_enriched',
+      triggeredBy: 'manual',
+      registerBackgroundTask,
+    })).resolves.toMatchObject({ success: true });
+
+    // The confirmations are still applied -- they just do not gate the provider.
+    expect(spies.extractDocument.mock.calls[0]?.[5]).toMatchObject({
+      confirmedRateObservations: [{ observation_id: 'obs:confirmed' }],
+    });
+    expect(spies.runAiEnrichment).toHaveBeenCalledOnce();
+    expect(spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
+    expect(spies.generateAndPersistCanonicalIntelligence).toHaveBeenCalledWith(
+      expect.objectContaining({ providerWorkAllowed: true }),
+    );
+  });
+
   it('captures one storage generation and completes the non-fatal compliance write', async () => {
     const { processDocument, spies } = await setupProcessDocumentTest({
       documentType: 'contract',

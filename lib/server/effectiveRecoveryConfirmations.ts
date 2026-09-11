@@ -319,3 +319,14 @@ export async function loadConfirmedRecoverySelections(
       (resolved.candidateConfirmations ?? []).map((confirmation) => confirmation.confirmedCandidate)),
   };
 }
+
+export function hasConfirmedRecoverySelections(
+  selections: Readonly<{
+    confirmedRateObservations: readonly unknown[];
+    confirmedRecoveryCandidates: readonly unknown[];
+  }> | null | undefined,
+): boolean {
+  return Boolean(selections
+    && (selections.confirmedRateObservations.length > 0
+      || selections.confirmedRecoveryCandidates.length > 0));
+}

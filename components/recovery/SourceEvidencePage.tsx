@@ -20,11 +20,17 @@ const ROLE_STYLE = {
   alternative_candidate: { label: 'Alternate target row', stroke: 'var(--ef-warning)', dash: '2 4' },
 } as const;
 
-export function SourceEvidencePage({ sourceUrl, evidence, currentPageRepresentationDigest,
+export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
   selectedObservationIds = [], hoveredObservationId = null, onHoverObservation,
   onToggleObservation }: {
   sourceUrl: string; evidence: VisualSourceEvidence;
-  currentPageRepresentationDigest?: string | null;
+  /**
+   * Server-derived. True when the persisted evidence no longer closes over the
+   * source identity it claims. There is no browser-side freshness check here on
+   * purpose: nothing the browser holds is authoritative about the current page
+   * representation, and re-deriving one would mean re-extracting.
+   */
+  unbound?: boolean;
   selectedObservationIds?: readonly string[]; hoveredObservationId?: string | null;
   onHoverObservation?: (id: string | null) => void; onToggleObservation?: (id: string) => void;
 }) {
@@ -35,8 +41,6 @@ export function SourceEvidencePage({ sourceUrl, evidence, currentPageRepresentat
     pageWidthPoints: number; pageHeightPoints: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState(0);
-  const digestStale = currentPageRepresentationDigest != null
-    && currentPageRepresentationDigest !== evidence.pageRepresentationDigest;
 
   useEffect(() => {
     let cancelled = false;
@@ -74,12 +78,12 @@ export function SourceEvidencePage({ sourceUrl, evidence, currentPageRepresentat
     return () => { cancelled = true; renderTask?.cancel(); };
   }, [evidence.physicalPageNumber, sourceUrl]);
 
-  const rendered = useMemo(() => pageGeometry && !digestStale ? evidence.boxes.map((box) => ({ box,
+  const rendered = useMemo(() => pageGeometry && !unbound ? evidence.boxes.map((box) => ({ box,
     rect: toViewportRect(box, { viewportWidth: pageGeometry.viewport.width,
       viewportHeight: pageGeometry.viewport.height, scale: pageGeometry.scale,
       rotation: pageGeometry.viewport.rotation, pageWidthPoints: pageGeometry.pageWidthPoints,
       pageHeightPoints: pageGeometry.pageHeightPoints }) })) : [],
-  [digestStale, evidence.boxes, pageGeometry]);
+  [evidence.boxes, pageGeometry, unbound]);
   const geometryUnavailable = rendered.some((entry) => entry.rect === null);
   useEffect(() => { setActiveMember(0); }, [evidence.candidateId]);
   useEffect(() => {
@@ -109,8 +113,8 @@ export function SourceEvidencePage({ sourceUrl, evidence, currentPageRepresentat
         <button type="button" aria-label="Next evidence member" onClick={() => setActiveMember((value) =>
           (value + 1) % evidence.boxes.length)}>→</button></span> : null}
     </div>
-    {digestStale ? <p className="mb-3 text-xs text-[var(--ef-critical)]" data-testid="source-evidence-unbound">
-      Source evidence is unbound: the page representation has changed. No highlights are shown.</p>
+    {unbound ? <p className="mb-3 text-xs text-[var(--ef-critical)]" data-testid="source-evidence-unbound">
+      Source evidence is unbound: the persisted evidence no longer closes over this source. No highlights are shown.</p>
       : geometryUnavailable ? <p className="mb-3 text-xs text-[var(--ef-warning)]" data-testid="source-geometry-unavailable">
         Exact geometry is unavailable for this source layer. No approximate highlight was drawn.</p> : null}
     <div ref={pageRef} className="relative mx-auto bg-white shadow-2xl" style={{ width: pageGeometry?.viewport.width ?? 612,

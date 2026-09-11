@@ -52,6 +52,31 @@ export type RecoveryReviewCandidateSelection = Readonly<{
   proposed: boolean;
 }>;
 
+/**
+ * Whether the server could bind this proposal's candidates to source identity.
+ *
+ * Deliberately server-derived. There is no persisted current page
+ * representation digest to compare against -- the only one that exists is the
+ * proposal's own -- so a browser-side "is this still current?" check would be
+ * comparing a value to itself. The honest question the server *can* answer is
+ * whether the persisted candidates still close over their own identity, and
+ * that is what this reports. A viewer showing `unbound` draws no highlight.
+ */
+export type RecoverySourceEvidenceBinding =
+  /** Every persisted candidate validated and matched the proposal's source identity. */
+  | 'bound'
+  /**
+   * At least one persisted candidate no longer closes over its source identity.
+   *
+   * Partial is treated as unbound on purpose. A dropped candidate silently
+   * removes an alternate-target highlight, so a reviewer would be shown fewer
+   * alternatives than the proposal actually offered -- an approximate picture
+   * of the decision, which is the outcome this phase exists to refuse.
+   */
+  | 'unbound_identity_incomplete'
+  /** A V1 proposal: single-observation evidence, no candidate closure to bind. */
+  | 'not_applicable';
+
 export type RecoveryReviewCandidate = Readonly<{
   proposalId: string;
   proposalDigestSha256: string;
@@ -71,6 +96,8 @@ export type RecoveryReviewCandidate = Readonly<{
   /** Only eligible monetary observations; a reviewer may select any of them. */
   selectableObservations: readonly RecoveryReviewCandidateObservation[];
   selectableCandidates: readonly RecoveryReviewCandidateSelection[];
+  /** Server-derived: whether the visual layer may draw this proposal's evidence. */
+  sourceEvidenceBinding: RecoverySourceEvidenceBinding;
   /** Every cited observation, including context tokens, for display. */
   evidence: readonly RecoveryReviewCandidateObservation[];
   reviewState: RecoveryReviewState;
@@ -283,6 +310,16 @@ export async function readRecoveryReviewQueue(
     const candidateEvidence = [...new Map(selectableCandidates
       .flatMap((candidate) => candidate.observations)
       .map((entry) => [entry.observationId, entry])).values()];
+    // Compared against what was actually persisted, not against a self-derived
+    // value: every persisted candidate must survive schema closure and the
+    // source-identity scope check, or the visual layer draws nothing.
+    const persistedCandidateCount = Array.isArray(row.recovery_candidates)
+      ? row.recovery_candidates.length : 0;
+    const sourceEvidenceBinding: RecoverySourceEvidenceBinding = proposalVersion !== 2
+      ? 'not_applicable'
+      : persistedCandidateCount > 0 && selectableCandidates.length === persistedCandidateCount
+        ? 'bound'
+        : 'unbound_identity_incomplete';
 
     return [{
       proposalId,
@@ -304,6 +341,7 @@ export async function readRecoveryReviewQueue(
       selectableObservations: proposalVersion === 1
         ? observations(row.evidence, selectedObservationId as string, true) : [],
       selectableCandidates,
+      sourceEvidenceBinding,
       evidence: proposalVersion === 1
         ? observations(row.evidence, selectedObservationId as string, false)
         : candidateEvidence,

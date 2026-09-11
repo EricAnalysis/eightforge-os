@@ -5,7 +5,8 @@ import {
   type RecoveryCandidateV2,
 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { RecoveryReadClient } from '@/lib/server/effectiveRecoveryConfirmations';
-import { readRecoveryReviewQueue } from '@/lib/server/forgewingRecoveryReviewRead';
+import { readRecoveryReviewQueue, type RecoveryReviewQueueResult }
+  from '@/lib/server/forgewingRecoveryReviewRead';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const DOC = '22222222-2222-4222-8222-222222222222';
@@ -103,6 +104,13 @@ function client(proposals: unknown[], reviews: unknown[]): RecoveryReadClient {
   return { from: (table: string) => builder(table) as never } as never;
 }
 
+function firstCandidate(result: RecoveryReviewQueueResult) {
+  if (result.status !== 'ok') throw new Error(`expected ok, got ${result.status}`);
+  const candidate = result.candidates[0];
+  if (!candidate) throw new Error('expected at least one candidate');
+  return candidate;
+}
+
 describe('recovery review queue read', () => {
   it('offers only eligible monetary observations as selectable', async () => {
     const result = await readRecoveryReviewQueue(query, { admin: client([proposal], []) });
@@ -187,6 +195,43 @@ describe('recovery review queue read', () => {
     ]);
     expect(result.candidates[0]!.evidence.map((entry) => entry.observationId))
       .toEqual(['obs:dollar', 'obs:amount']);
+  });
+
+  it('reports the source evidence binding from persisted identity, not from itself', async () => {
+    // The digest a proposal carries is the only one that exists, so comparing it
+    // to itself proves nothing. What the server can answer is whether every
+    // persisted candidate still closes over the identity it claims.
+    expect(firstCandidate(await readRecoveryReviewQueue(
+      query, { admin: client([v2Proposal], []) })).sourceEvidenceBinding).toBe('bound');
+    expect(firstCandidate(await readRecoveryReviewQueue(
+      query, { admin: client([proposal], []) })).sourceEvidenceBinding).toBe('not_applicable');
+  });
+
+  it('reads a candidate that no longer closes over its source as unbound', async () => {
+    for (const broken of [
+      // Identity no longer matches the closure it was hashed from.
+      { ...v2Candidate, targetRowIdentity: 'row:moved' },
+      { ...v2Candidate, orderedObservationIds: ['obs:dollar'] },
+      // The proposal's own source identity moved out from under the candidate.
+      { ...v2Candidate, pageRepresentationDigest: 'b'.repeat(64) },
+    ]) {
+      const candidate = firstCandidate(await readRecoveryReviewQueue(query, {
+        admin: client([{ ...v2Proposal, recovery_candidates: [broken] }], []),
+      }));
+      expect(candidate.sourceEvidenceBinding).toBe('unbound_identity_incomplete');
+      expect(candidate.selectableCandidates).toEqual([]);
+    }
+  });
+
+  it('treats a partially bound candidate set as unbound rather than drawing part of it', async () => {
+    // One candidate survives, one does not. Rendering the survivor alone would
+    // show the reviewer fewer alternatives than the proposal actually offered.
+    expect(firstCandidate(await readRecoveryReviewQueue(query, {
+      admin: client([{
+        ...v2Proposal,
+        recovery_candidates: [v2Candidate, { ...v2Candidate, targetRowIdentity: 'row:moved' }],
+      }], []),
+    })).sourceEvidenceBinding).toBe('unbound_identity_incomplete');
   });
 
   it('distinguishes an accepted review from an applied recovery', async () => {

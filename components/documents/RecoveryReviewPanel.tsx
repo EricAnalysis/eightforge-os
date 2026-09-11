@@ -45,6 +45,12 @@ const STATE_TONE: Record<string, string> = {
   applied: 'text-[var(--ef-success)]',
 };
 
+/**
+ * Slightly under the route's 300s signed-URL expiry, so a URL is never handed
+ * to the viewer with only a sliver of life left.
+ */
+const SIGNED_URL_REUSE_MS = 240_000;
+
 async function authorizedFetch(input: string, init?: RequestInit): Promise<Response | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return null;
@@ -119,7 +125,7 @@ export function RecoveryReviewPanel({
   const [rationale, setRationale] = useState<Record<string, string>>({});
   const [reprocessState, setReprocessState] = useState<'idle' | 'reprocessing'>('idle');
   const [openSourceProposalId, setOpenSourceProposalId] = useState<string | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [source, setSource] = useState<{ url: string; expiresAt: number } | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -154,17 +160,22 @@ export function RecoveryReviewPanel({
       return;
     }
     setOpenSourceProposalId(proposalId);
-    if (sourceUrl) return;
+    // The signed URL expires. Reuse it only while it is still usable, and
+    // otherwise fetch a fresh one through the same authenticated route -- the
+    // alternative is a viewer that silently fails to load after five minutes.
+    // Fetched on open only: no polling, no background refresh.
+    if (source && Date.now() < source.expiresAt) return;
     setSourceLoading(true);
     const response = await authorizedFetch(`/api/documents/${encodeURIComponent(documentId)}/file`);
     const body = await response?.json().catch(() => null);
     setSourceLoading(false);
     if (!response?.ok || typeof body?.signedUrl !== 'string') {
+      setSource(null);
       setError('The authenticated source file could not be loaded.');
       setOpenSourceProposalId(null);
       return;
     }
-    setSourceUrl(body.signedUrl);
+    setSource({ url: body.signedUrl, expiresAt: Date.now() + SIGNED_URL_REUSE_MS });
   };
 
   const submit = async (candidate: RecoveryReviewCandidate, disposition: ReviewDisposition) => {
@@ -304,12 +315,18 @@ export function RecoveryReviewPanel({
                 {sourceLoading && openSourceProposalId === candidate.proposalId ? 'Loading source…'
                   : openSourceProposalId === candidate.proposalId ? 'Hide source' : 'View source'}
               </button>
-              {!sourceEvidence ? <p className="mt-2 text-xs text-[var(--ef-warning)]">
-                Exact source geometry is unavailable for this historical proposal.</p> : null}
-              {openSourceProposalId === candidate.proposalId && sourceUrl && sourceEvidence ? (
+              {!sourceEvidence ? (
+                candidate.sourceEvidenceBinding === 'unbound_identity_incomplete'
+                  ? <p className="mt-2 text-xs text-[var(--ef-critical)]" data-testid="source-evidence-unbound">
+                    Source evidence is unbound: the persisted candidates no longer close over this
+                    source. No highlights are shown.</p>
+                  : <p className="mt-2 text-xs text-[var(--ef-warning)]">
+                    Exact source geometry is unavailable for this historical proposal.</p>
+              ) : null}
+              {openSourceProposalId === candidate.proposalId && source && sourceEvidence ? (
                 <div className="mt-3 max-h-[42rem] overflow-hidden rounded border border-white/10">
-                  <SourceEvidencePage sourceUrl={sourceUrl} evidence={sourceEvidence}
-                    currentPageRepresentationDigest={sourceEvidence.pageRepresentationDigest} />
+                  <SourceEvidencePage key={source.url} sourceUrl={source.url} evidence={sourceEvidence}
+                    unbound={candidate.sourceEvidenceBinding === 'unbound_identity_incomplete'} />
                 </div>
               ) : null}
 

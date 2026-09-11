@@ -14,7 +14,8 @@
     "test:unit": "vitest run",
     "compare:authority": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/run-authority-comparison.mjs",
     "backfill:source-identity": "vite-node scripts/backfill-source-artifact-identity.ts",
-    "worker:repository-plan": "vite-node --config vitest.config.ts scripts/workers/repository-plan-worker.ts"
+    "worker:repository-plan": "vite-node --config vitest.config.ts scripts/workers/repository-plan-worker.ts",
+    "qualify:dn-phase14": "vite-node --config vitest.config.ts scripts/qualify-phase14-dn-target-context.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

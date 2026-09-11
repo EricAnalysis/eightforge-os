@@ -2836,6 +2836,14 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE13_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase13-recovery-v2-from-postgres.ts
 
+# Phase 14 keeps historical V2 candidates readable while optionally binding
+# continuation target context. Prove both shapes through persistence, review,
+# and resolution against the freshly replayed schema.
+PHASE14_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE14_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-phase14-recovery-target-context-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"

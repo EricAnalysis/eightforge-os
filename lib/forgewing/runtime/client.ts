@@ -31,7 +31,7 @@ export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_ID =
   'forgewing-pricing-rate-cluster-recovery';
 export const FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_PROMPT_VERSION = 'v1';
 export const FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_ID = 'forgewing-recovery-candidate-v2';
-export const FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION = 'v1';
+export const FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION = 'v2';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID = 'forgewing-workflow-assessment';
 export const FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION = 'v1';
 export const FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_ID = 'forgewing-repository-plan-guidance';

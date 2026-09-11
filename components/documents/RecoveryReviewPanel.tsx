@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
 import { supabase } from '@/lib/supabaseClient';
+import type { VisualSourceEvidence, VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
 import type {
   RecoveryReviewCandidate,
   RecoveryReviewState,
@@ -43,6 +45,12 @@ const STATE_TONE: Record<string, string> = {
   applied: 'text-[var(--ef-success)]',
 };
 
+/**
+ * Slightly under the route's 300s signed-URL expiry, so a URL is never handed
+ * to the viewer with only a sliver of life left.
+ */
+const SIGNED_URL_REUSE_MS = 240_000;
+
 async function authorizedFetch(input: string, init?: RequestInit): Promise<Response | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return null;
@@ -54,6 +62,52 @@ async function authorizedFetch(input: string, init?: RequestInit): Promise<Respo
       ...(init?.headers ?? {}),
     },
   });
+}
+
+function visualEvidence(
+  candidate: RecoveryReviewCandidate,
+  selectedId: string,
+): VisualSourceEvidence | null {
+  if (candidate.proposalVersion === 2) {
+    const selected = candidate.selectableCandidates.find((entry) => entry.candidateId === selectedId);
+    if (!selected) return null;
+    const boxes: VisualSourceBox[] = [
+      ...selected.observations.map((observation, memberIndex) => ({
+        ...observation, role: 'candidate_member' as const, memberIndex,
+      })),
+      ...selected.targetContext.map((observation, memberIndex) => ({
+        ...observation, role: 'target_row_context' as const, memberIndex,
+      })),
+      ...candidate.selectableCandidates
+        .filter((entry) => entry.candidateId !== selected.candidateId)
+        .flatMap((entry) => entry.targetContext.map((observation, memberIndex) => ({
+          ...observation, role: 'alternative_candidate' as const, memberIndex,
+        }))),
+    ];
+    return {
+      sourceDocumentId: selected.sourceDocumentId,
+      sourceArtifactId: selected.sourceArtifactId,
+      physicalPageNumber: selected.physicalPageNumber,
+      pageRepresentationDigest: selected.pageRepresentationDigest,
+      candidateId: selected.candidateId,
+      recoveryType: selected.recoveryType,
+      composedRawText: selected.composedRawText,
+      boxes,
+    };
+  }
+  if (!candidate.sourceArtifactId || !candidate.pageRepresentationDigest) return null;
+  const selected = candidate.selectableObservations.find((entry) => entry.observationId === selectedId);
+  if (!selected) return null;
+  return {
+    sourceDocumentId: candidate.sourceDocumentId,
+    sourceArtifactId: candidate.sourceArtifactId,
+    physicalPageNumber: candidate.physicalPageNumber,
+    pageRepresentationDigest: candidate.pageRepresentationDigest,
+    candidateId: `v1:${selected.observationId}`,
+    recoveryType: 'pricing_rate_single_observation',
+    composedRawText: selected.rawText,
+    boxes: [{ ...selected, role: 'candidate_member', memberIndex: 0 }],
+  };
 }
 
 export function RecoveryReviewPanel({
@@ -70,6 +124,9 @@ export function RecoveryReviewPanel({
   const [selection, setSelection] = useState<Record<string, string>>({});
   const [rationale, setRationale] = useState<Record<string, string>>({});
   const [reprocessState, setReprocessState] = useState<'idle' | 'reprocessing'>('idle');
+  const [openSourceProposalId, setOpenSourceProposalId] = useState<string | null>(null);
+  const [source, setSource] = useState<{ url: string; expiresAt: number } | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +153,30 @@ export function RecoveryReviewPanel({
   }, [documentId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const toggleSource = async (proposalId: string) => {
+    if (openSourceProposalId === proposalId) {
+      setOpenSourceProposalId(null);
+      return;
+    }
+    setOpenSourceProposalId(proposalId);
+    // The signed URL expires. Reuse it only while it is still usable, and
+    // otherwise fetch a fresh one through the same authenticated route -- the
+    // alternative is a viewer that silently fails to load after five minutes.
+    // Fetched on open only: no polling, no background refresh.
+    if (source && Date.now() < source.expiresAt) return;
+    setSourceLoading(true);
+    const response = await authorizedFetch(`/api/documents/${encodeURIComponent(documentId)}/file`);
+    const body = await response?.json().catch(() => null);
+    setSourceLoading(false);
+    if (!response?.ok || typeof body?.signedUrl !== 'string') {
+      setSource(null);
+      setError('The authenticated source file could not be loaded.');
+      setOpenSourceProposalId(null);
+      return;
+    }
+    setSource({ url: body.signedUrl, expiresAt: Date.now() + SIGNED_URL_REUSE_MS });
+  };
 
   const submit = async (candidate: RecoveryReviewCandidate, disposition: ReviewDisposition) => {
     const reviewerRationale = rationale[candidate.proposalId]?.trim();
@@ -190,6 +271,7 @@ export function RecoveryReviewPanel({
               ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
               : candidate.selectableObservations.find((entry) => entry.proposed)?.observationId)
             ?? '';
+          const sourceEvidence = visualEvidence(candidate, chosen);
           return (
             <li
               key={candidate.proposalId}
@@ -225,6 +307,28 @@ export function RecoveryReviewPanel({
                   </dd>
                 </div>
               </dl>
+
+              <button type="button" className="mt-3 rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-primary)]"
+                aria-expanded={openSourceProposalId === candidate.proposalId}
+                disabled={!sourceEvidence || sourceLoading}
+                onClick={() => void toggleSource(candidate.proposalId)}>
+                {sourceLoading && openSourceProposalId === candidate.proposalId ? 'Loading source…'
+                  : openSourceProposalId === candidate.proposalId ? 'Hide source' : 'View source'}
+              </button>
+              {!sourceEvidence ? (
+                candidate.sourceEvidenceBinding === 'unbound_identity_incomplete'
+                  ? <p className="mt-2 text-xs text-[var(--ef-critical)]" data-testid="source-evidence-unbound">
+                    Source evidence is unbound: the persisted candidates no longer close over this
+                    source. No highlights are shown.</p>
+                  : <p className="mt-2 text-xs text-[var(--ef-warning)]">
+                    Exact source geometry is unavailable for this historical proposal.</p>
+              ) : null}
+              {openSourceProposalId === candidate.proposalId && source && sourceEvidence ? (
+                <div className="mt-3 max-h-[42rem] overflow-hidden rounded border border-white/10">
+                  <SourceEvidencePage key={source.url} sourceUrl={source.url} evidence={sourceEvidence}
+                    unbound={candidate.sourceEvidenceBinding === 'unbound_identity_incomplete'} />
+                </div>
+              ) : null}
 
               {decided ? (
                 candidate.latestReview ? (

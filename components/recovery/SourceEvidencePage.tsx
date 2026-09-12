@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 import { toViewportRect } from '@/lib/recovery/sourceGeometry';
-import type { VisualSourceEvidence, VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
+import { visualSourceEvidenceIdentity,
+  type VisualSourceEvidence, type VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
 
 const PDF_WORKER_SRC = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 const PDF_WASM_BASE_URL = '/vendor/pdfjs/wasm/';
@@ -18,6 +19,7 @@ const ROLE_STYLE = {
   candidate_member: { label: 'Candidate fragment', stroke: 'var(--ef-purple-glow)', dash: undefined },
   target_row_context: { label: 'Selected target row', stroke: 'var(--ef-success)', dash: '8 3' },
   alternative_candidate: { label: 'Alternate target row', stroke: 'var(--ef-warning)', dash: '2 4' },
+  diagnostic_evidence: { label: 'Diagnostic evidence', stroke: 'var(--ef-critical)', dash: '5 3' },
 } as const;
 
 export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
@@ -41,6 +43,7 @@ export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
     pageWidthPoints: number; pageHeightPoints: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState(0);
+  const evidenceIdentity = visualSourceEvidenceIdentity(evidence);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +88,7 @@ export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
       pageHeightPoints: pageGeometry.pageHeightPoints }) })) : [],
   [evidence.boxes, pageGeometry, unbound]);
   const geometryUnavailable = rendered.some((entry) => entry.rect === null);
-  useEffect(() => { setActiveMember(0); }, [evidence.candidateId]);
+  useEffect(() => { setActiveMember(0); }, [evidenceIdentity]);
   useEffect(() => {
     const container = scrollRef.current;
     const page = pageRef.current;
@@ -105,7 +108,7 @@ export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
       {(Object.keys(ROLE_STYLE) as Array<keyof typeof ROLE_STYLE>).map((role) => <span key={role}
         className="inline-flex items-center gap-1.5"><span aria-hidden className="inline-block h-2.5 w-5 border-2"
           style={{ borderColor: ROLE_STYLE[role].stroke, borderStyle: role === 'candidate_member'
-            ? 'solid' : role === 'target_row_context' ? 'dashed' : 'dotted' }} />{ROLE_STYLE[role].label}</span>)}
+            ? 'solid' : role === 'alternative_candidate' ? 'dotted' : 'dashed' }} />{ROLE_STYLE[role].label}</span>)}
       {evidence.boxes.length > 1 ? <span className="ml-auto inline-flex items-center gap-2">
         <button type="button" aria-label="Previous evidence member" onClick={() => setActiveMember((value) =>
           (value - 1 + evidence.boxes.length) % evidence.boxes.length)}>←</button>

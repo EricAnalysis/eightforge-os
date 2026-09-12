@@ -32,6 +32,7 @@ import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { buildDocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { DocumentProjectControls } from '@/components/documents/DocumentProjectControls';
 import { RecoveryReviewPanel } from '@/components/documents/RecoveryReviewPanel';
+import { DiagnosticsPanel } from '@/components/documents/DiagnosticsPanel';
 import { DocumentDetailExperience } from '@/components/document-intelligence/DocumentDetailExperience';
 import type {
   DetectedEntity,
@@ -1790,6 +1791,7 @@ export default function DocumentDetailPage({
                 controls: reviewing one authorizes a reprocess of this document,
                 which is the action immediately above it. */}
             <RecoveryReviewPanel documentId={id} onReprocessed={loadAllData} />
+            <DiagnosticsPanel documentId={id} />
             <DocumentProjectControls
               documentId={id}
               documentLabel={displayTitle}

@@ -57,6 +57,12 @@ import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 }
 import { runRecoveryCandidateV2Recommendation }
   from '@/lib/forgewing/tasks/recoveryCandidateV2';
 import {
+  persistForgewingRecoveryGenerationOutcome,
+  sanitizeRecoveryGenerationReason,
+  type RecoveryGenerationOutcome,
+  type RecoveryGenerationOutcomeCode,
+} from '@/lib/server/forgewingRecoveryGenerationOutcomePersistence';
+import {
   persistReasoningShadowArtifact,
   type ReasoningShadowPersistenceInput,
   type ReasoningShadowPersistenceResult,
@@ -71,6 +77,25 @@ const PROJECTION_SCHEMA_VERSION = 'step0-shadow-projection-v1';
 const GAP_KEY = 'legacy-payload-missing-geometry-v1';
 const GAP_DETAIL =
   'Step 0 shadow publication preserves the legacy payload unchanged; it cannot manufacture geometry-complete verified fields.';
+
+async function recordRecoveryGenerationOutcome(
+  outcome: RecoveryGenerationOutcome,
+  persist: typeof persistForgewingRecoveryGenerationOutcome,
+): Promise<void> {
+  try {
+    const receipt = await persist(outcome);
+    if (receipt.status === 'persisted') return;
+    console.warn('[forgewingRecovery] non-fatal recovery generation outcome persistence', {
+      mode: 'shadow', status: receipt.status, reason: receipt.reason,
+      outcomeCode: outcome.outcomeCode,
+    });
+  } catch {
+    console.warn('[forgewingRecovery] non-fatal recovery generation outcome persistence', {
+      mode: 'shadow', status: 'failed', reason: 'write_failed',
+      outcomeCode: outcome.outcomeCode,
+    });
+  }
+}
 
 export type ShadowWriteInput = {
   readonly admin: SupabaseClient;
@@ -1081,6 +1106,26 @@ export function buildEligiblePricingRateClusterRecoveryCandidates(
   return Object.freeze(candidates.map((entry) => Object.freeze(entry.input)));
 }
 
+function pricingRecoveryPageRepresentationDigest(
+  input: ForgewingPricingInterpretationShadowInput,
+  candidate: ForgewingPricingRateClusterRecoveryInput,
+): string | null {
+  const ids = new Set(candidate.observations.map((observation) => observation.observationId));
+  const digests = (input.pricingRecoveryDiagnostics ?? []).flatMap((rawDiagnostic) => {
+    const diagnostic = pricingRecord(rawDiagnostic);
+    if (diagnostic?.physicalPageNumber !== candidate.physicalPageNumber
+      || !Array.isArray(diagnostic.observations)) return [];
+    return diagnostic.observations.flatMap((rawObservation) => {
+      const observation = pricingRecord(rawObservation);
+      const metadata = pricingRecord(observation?.metadata);
+      const digest = metadata?.page_representation_digest;
+      return typeof observation?.id === 'string' && ids.has(observation.id)
+        && typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest) ? [digest] : [];
+    });
+  });
+  return digests.length === ids.size && new Set(digests).size === 1 ? digests[0]! : null;
+}
+
 export function scheduleForgewingPricingRateClusterRecoveryShadow(
   input: ForgewingPricingInterpretationShadowInput,
   dependencies: Readonly<{
@@ -1088,6 +1133,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     run?: typeof runForgewingPricingRateClusterRecovery;
     persist?: (params: { input: ReasoningShadowPersistenceInput }) => Promise<ReasoningShadowPersistenceResult>;
     persistProposal?: typeof persistForgewingRecoveryProposal;
+    persistOutcome?: typeof persistForgewingRecoveryGenerationOutcome;
   }> = {},
 ): void {
   const env = input.env ?? process.env;
@@ -1101,6 +1147,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     });
     return;
   }
+  const pageRepresentationDigest = pricingRecoveryPageRepresentationDigest(input, candidate);
   const task = async (): Promise<void> => {
     try {
       const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(candidate);
@@ -1113,7 +1160,26 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
         taskType: 'pricing_rate_cluster_recovery', physicalPageNumber: candidate.physicalPageNumber,
         evidenceObservationCount: candidate.observations.length,
       });
-      if (result.status !== 'requires_human_review') return;
+      if (result.status !== 'requires_human_review') {
+        if (result.status !== 'not_needed') {
+          const outcomeCode: RecoveryGenerationOutcomeCode =
+            result.status === 'eligible_not_executed' ? result.reason : result.status;
+          if (pageRepresentationDigest) await recordRecoveryGenerationOutcome({
+            organizationId: input.organizationId,
+            sourceDocumentId: input.sourceDocumentId,
+            sourceArtifactId: input.sourceArtifactId,
+            extractionSnapshotId: input.extractionSnapshotId,
+            physicalPageNumber: candidate.physicalPageNumber,
+            pageRepresentationDigest,
+            recoveryType: 'pricing_rate_single_observation',
+            outcomeCode,
+            sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, result.reason),
+            providerInvoked: 'metadata' in result ? result.metadata.providerInvoked : false,
+            candidateIds: [],
+          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+        }
+        return;
+      }
       const persisted = await (dependencies.persist ?? persistReasoningShadowArtifact)({ input: {
         organizationId: input.organizationId,
         sourceDocumentId: input.sourceDocumentId,
@@ -1154,6 +1220,19 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
           mode: 'shadow', taskType: 'pricing_rate_cluster_recovery',
           physicalPageNumber: candidate.physicalPageNumber,
         });
+        if (pageRepresentationDigest) await recordRecoveryGenerationOutcome({
+          organizationId: input.organizationId,
+          sourceDocumentId: input.sourceDocumentId,
+          sourceArtifactId: input.sourceArtifactId,
+          extractionSnapshotId: input.extractionSnapshotId,
+          physicalPageNumber: candidate.physicalPageNumber,
+          pageRepresentationDigest,
+          recoveryType: 'pricing_rate_single_observation',
+          outcomeCode: 'deterministic_validation_failed',
+          sanitizedReason: 'projection_failed',
+          providerInvoked: true,
+          candidateIds: [],
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
         return;
       }
       const recorded: RecoveryProposalPersistenceResult =
@@ -1169,10 +1248,37 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
       console.warn('[forgewingRecovery] non-fatal durable recovery proposal outcome', {
         mode: 'shadow', status: recorded.status, reason: recorded.reason,
       });
+      if (pageRepresentationDigest) await recordRecoveryGenerationOutcome({
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        physicalPageNumber: candidate.physicalPageNumber,
+        pageRepresentationDigest,
+        recoveryType: 'pricing_rate_single_observation',
+        outcomeCode: 'proposal_persist_failed',
+        sanitizedReason: sanitizeRecoveryGenerationReason(
+          'proposal_persist_failed', recorded.reason),
+        providerInvoked: true,
+        candidateIds: [],
+      }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
     } catch (error) {
       console.error('[forgewingRecovery] non-fatal pricing recovery failure', {
         mode: 'shadow', error: error instanceof Error ? error.message : String(error),
       });
+      if (pageRepresentationDigest) await recordRecoveryGenerationOutcome({
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        physicalPageNumber: candidate.physicalPageNumber,
+        pageRepresentationDigest,
+        recoveryType: 'pricing_rate_single_observation',
+        outcomeCode: 'provider_failed',
+        sanitizedReason: sanitizeRecoveryGenerationReason('provider_failed', error),
+        providerInvoked: true,
+        candidateIds: [],
+      }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
     }
   };
   try {
@@ -1199,6 +1305,7 @@ export function scheduleRecoveryCandidateV2Shadow(
     register?: (task: () => Promise<void>) => void;
     run?: typeof runRecoveryCandidateV2Recommendation;
     persistProposal?: typeof persistForgewingRecoveryProposalV2;
+    persistOutcome?: typeof persistForgewingRecoveryGenerationOutcome;
     budget?: ForgewingCallBudget;
   }> = {},
 ): void {
@@ -1241,24 +1348,69 @@ export function scheduleRecoveryCandidateV2Shadow(
     ?? new ForgewingCallBudget(getForgewingRuntimeConfig().maxCalls);
   for (const unitCandidates of groups.values()) {
     const task = async () => {
-      const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
+      const representative = unitCandidates[0]!;
+      const base = {
         organizationId: input.organizationId,
+        sourceDocumentId: representative.sourceDocumentId,
+        sourceArtifactId: representative.sourceArtifactId,
         extractionSnapshotId: input.extractionSnapshotId,
-        candidates: unitCandidates,
-      }, { budget });
-      if (recommendation.status !== 'requires_human_review') return;
-      const durable = buildDurableRecoveryProposalV2({
-        organizationId: input.organizationId,
-        extractionSnapshotId: input.extractionSnapshotId,
-        candidates: unitCandidates,
-        selectedCandidateId: recommendation.selectedCandidateId,
-        certainty: recommendation.confidence,
-        reasonCategory: recommendation.rationaleCode,
-        providerModel: recommendation.model,
-        promptTemplateId: recommendation.promptTemplateId,
-        promptTemplateVersion: recommendation.promptTemplateVersion,
-      });
-      if (durable) await (dependencies.persistProposal ?? persistForgewingRecoveryProposalV2)(durable);
+        physicalPageNumber: representative.physicalPageNumber,
+        pageRepresentationDigest: representative.pageRepresentationDigest,
+        recoveryType: representative.recoveryType,
+        candidateIds: unitCandidates.map((candidate) => candidate.candidateId),
+      } as const;
+      try {
+        const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
+          organizationId: input.organizationId,
+          extractionSnapshotId: input.extractionSnapshotId,
+          candidates: unitCandidates,
+        }, { budget });
+        if (recommendation.status !== 'requires_human_review') {
+          const outcomeCode: RecoveryGenerationOutcomeCode =
+            recommendation.status === 'eligible_not_executed'
+              ? recommendation.reason : recommendation.status;
+          await recordRecoveryGenerationOutcome({
+            ...base, outcomeCode,
+            sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, recommendation.reason),
+            providerInvoked: recommendation.providerCalls > 0,
+          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+          return;
+        }
+        const durable = buildDurableRecoveryProposalV2({
+          organizationId: input.organizationId,
+          extractionSnapshotId: input.extractionSnapshotId,
+          candidates: unitCandidates,
+          selectedCandidateId: recommendation.selectedCandidateId,
+          certainty: recommendation.confidence,
+          reasonCategory: recommendation.rationaleCode,
+          providerModel: recommendation.model,
+          promptTemplateId: recommendation.promptTemplateId,
+          promptTemplateVersion: recommendation.promptTemplateVersion,
+        });
+        if (!durable) {
+          await recordRecoveryGenerationOutcome({
+            ...base, outcomeCode: 'deterministic_validation_failed',
+            sanitizedReason: 'projection_failed', providerInvoked: true,
+          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+          return;
+        }
+        const recorded = await (dependencies.persistProposal
+          ?? persistForgewingRecoveryProposalV2)(durable);
+        if (recorded.status !== 'persisted') {
+          await recordRecoveryGenerationOutcome({
+            ...base, outcomeCode: 'proposal_persist_failed',
+            sanitizedReason: sanitizeRecoveryGenerationReason(
+              'proposal_persist_failed', recorded.reason),
+            providerInvoked: true,
+          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+        }
+      } catch (error) {
+        await recordRecoveryGenerationOutcome({
+          ...base, outcomeCode: 'provider_failed',
+          sanitizedReason: sanitizeRecoveryGenerationReason('provider_failed', error),
+          providerInvoked: true,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+      }
     };
     (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);
   }

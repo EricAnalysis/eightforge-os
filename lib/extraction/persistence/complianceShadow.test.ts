@@ -204,6 +204,7 @@ describe('compliance shadow dual-write isolation', () => {
       id,
       source_document_id: 'document-1', source_artifact_id: 'artifact-1',
       physical_page_number: 2, source_method: 'pdfjs', raw_text: rawText,
+      metadata: { page_representation_digest: 'a'.repeat(64) },
       physical_page_coordinate: {
         mappingState: 'resolved_physical_page', sourceDocumentId: 'document-1',
         sourceArtifactId: 'artifact-1', physicalPageNumber: 2, artifactLocalIndex: 1,
@@ -297,6 +298,38 @@ describe('compliance shadow dual-write isolation', () => {
       validatedBundle: bundle,
       runtime: expect.objectContaining({ warningCodes: ['requires_human_review'], calls: 1 }),
     }) });
+  });
+
+  it('records a sanitized V1 provider failure without creating a proposal', async () => {
+    const input = pricingRecoveryInput();
+    const persistOutcome = vi.fn(async () => ({
+      status: 'persisted' as const, outcomeRowId: 'outcome-1',
+      diagnosticId: 'd'.repeat(64), inserted: true,
+    }));
+    const persistProposal = vi.fn();
+    const registered: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingRateClusterRecoveryShadow(input, {
+      register: (task) => registered.push(task),
+      run: vi.fn(async () => ({
+        status: 'provider_failed' as const,
+        reason: 'secret provider payload',
+        metadata: {
+          considered: true, eligibilityReason: 'ambiguous_relationship' as const,
+          providerInvoked: true, calls: 1, model: 'test-model',
+          promptTemplateId: 'test-prompt', promptTemplateVersion: 'v1',
+          timeoutMs: 100, maxOutputTokens: 100,
+          deterministicValidationSuccessful: false, humanReviewRequired: false,
+        },
+      })) as never,
+      persistProposal,
+      persistOutcome: persistOutcome as never,
+    });
+    await registered[0]!();
+    expect(persistProposal).not.toHaveBeenCalled();
+    expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcomeCode: 'provider_failed', sanitizedReason: 'provider_error',
+      providerInvoked: true, recoveryType: 'pricing_rate_single_observation',
+    }));
   });
 
   it('fails the recovery candidate set closed on foreign primitive identity', () => {

@@ -193,6 +193,38 @@ describe('Recovery V2 domain gate split', () => {
     }
   });
 
+  it('records a bounded V2 budget outcome and does not create a proposal', async () => {
+    const registered: Array<() => Promise<void>> = [];
+    const persistProposal = vi.fn();
+    const persistOutcome = vi.fn(async () => ({
+      status: 'persisted' as const, outcomeRowId: 'outcome-1',
+      diagnosticId: 'd'.repeat(64), inserted: true,
+    }));
+    scheduleRecoveryCandidateV2Shadow({
+      organizationId: ORGANIZATION_ID,
+      sourceDocumentId: SOURCE_DOCUMENT_ID,
+      sourceArtifactId: SOURCE_ARTIFACT_ID,
+      extractionSnapshotId: 'snapshot-1',
+      pricingRows: [], sourceObservations: [], pricingSourceEligibility: null,
+      recoveryCandidatesV2: [continuation], env: MASTER_ON,
+    }, {
+      register: (task) => registered.push(task),
+      run: vi.fn(async () => ({
+        status: 'eligible_not_executed' as const,
+        reason: 'budget_exhausted' as const, providerCalls: 0 as const,
+      })) as never,
+      persistProposal: persistProposal as never,
+      persistOutcome: persistOutcome as never,
+    });
+    await drain(registered);
+    expect(persistProposal).not.toHaveBeenCalled();
+    expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcomeCode: 'budget_exhausted', sanitizedReason: 'budget_exhausted',
+      providerInvoked: false,
+      candidateIds: [continuation.candidateId],
+    }));
+  });
+
   it('gates scheduling only: review, re-entry and reconstruction stay gate-free', () => {
     // The gate must not leak into human review or deterministic re-entry.
     // Those paths are human-authoritative and provider-free, and a generation

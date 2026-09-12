@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
 import { readDocumentDiagnostics, type DiagnosticReadClient, type DiagnosticReadQuery }
   from '@/lib/server/documentDiagnosticsRead';
 
@@ -99,5 +100,26 @@ describe('document diagnostics read model', () => {
       code: 'document_processing_failed', summary: 'Worker failed', currentState: 'blocked',
     });
   });
-});
 
+  it('maps durable producer outcome codes onto the closed diagnostic registry', async () => {
+    const candidateId = `recovery-candidate-v2-${'d'.repeat(64)}`;
+    const persistedId = diagnosticId({ code: 'recovery_provider_failed', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }], document_extractions: [],
+        forgewing_recovery_generation_outcomes: [{ diagnostic_id: persistedId,
+          source_artifact_id: ARTIFACT, extraction_snapshot_id: 'snapshot-outcome',
+          physical_page_number: 7, page_representation_digest: DIGEST,
+          outcome_code: 'provider_failed', sanitized_reason: 'provider_timeout',
+          provider_invoked: true, candidate_ids: [candidateId],
+          observed_at: '2026-09-12T12:00:00Z' }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics[0]).toMatchObject({
+      diagnosticId: persistedId, code: 'recovery_provider_failed',
+      summary: 'provider_timeout', currentState: 'detected',
+    });
+  });
+});

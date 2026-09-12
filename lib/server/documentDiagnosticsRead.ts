@@ -10,6 +10,15 @@ import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const RECOVERY_GENERATION_OUTCOMES_TABLE = 'forgewing_recovery_generation_outcomes';
+const RECOVERY_OUTCOME_DIAGNOSTIC_CODE = Object.freeze({
+  provider_failed: 'recovery_provider_failed',
+  structured_output_invalid: 'recovery_structured_output_invalid',
+  evidence_binding_failed: 'recovery_evidence_binding_failed',
+  deterministic_validation_failed: 'recovery_deterministic_validation_failed',
+  proposal_persist_failed: 'recovery_proposal_persist_failed',
+  budget_exhausted: 'recovery_budget_exhausted',
+  recovery_disabled: 'recovery_disabled',
+} as const satisfies Record<string, DiagnosticCode>);
 
 export type DiagnosticCurrentState =
   | 'detected' | 'recovery_available' | 'human_review_required' | 'reprocess_required'
@@ -275,14 +284,17 @@ export async function readDocumentDiagnostics(
     if (item) diagnostics.push(item);
   }
   for (const row of records(outcomeRead.data)) {
-    const code = DiagnosticCodeSchema.safeParse(row.outcome_code);
-    if (!code.success) continue;
+    const code = typeof row.outcome_code === 'string'
+      ? RECOVERY_OUTCOME_DIAGNOSTIC_CODE[
+          row.outcome_code as keyof typeof RECOVERY_OUTCOME_DIAGNOSTIC_CODE]
+      : undefined;
+    if (!code) continue;
     const candidateIds = Array.isArray(row.candidate_ids)
       ? row.candidate_ids.filter((id): id is string => typeof id === 'string') : [];
     const refs: DiagnosticEvidenceRef[] = candidateIds.map((candidateId) =>
       ({ kind: 'recovery_candidate', candidateId }));
     const page = Number(row.physical_page_number);
-    const item = buildDiagnostic({ code: code.data, organizationId: query.organizationId,
+    const item = buildDiagnostic({ code, organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: typeof row.source_artifact_id === 'string' ? row.source_artifact_id : null,
       physicalPageNumber: Number.isInteger(page) && page > 0 ? page : null,

@@ -28,7 +28,34 @@ function runSql(statement: string): unknown {
   return text.length === 0 ? null : JSON.parse(text);
 }
 
+function expectSqlState(label: string, sqlState: string, statement: string): void {
+  try {
+    runSql(statement);
+  } catch (error) {
+    if (String(error).includes(sqlState)) return;
+    throw new Error(`${label} raised an unexpected database error: ${String(error)}`);
+  }
+  throw new Error(`${label} did not raise SQLSTATE ${sqlState}`);
+}
+
+function outcomeRpcSql(
+  value: RecoveryGenerationOutcome,
+  diagnosticId: string,
+  organizationOverride = value.organizationId,
+): string {
+  return `SET ROLE service_role;
+    SET request.jwt.claim.role='service_role';
+    SELECT public.record_forgewing_recovery_generation_outcome(
+      ${literal(organizationOverride)}::uuid, ${literal(value.sourceDocumentId)}::uuid,
+      ${literal(value.sourceArtifactId)}::uuid, ${literal(value.extractionSnapshotId)},
+      ${value.physicalPageNumber}, ${literal(value.pageRepresentationDigest)},
+      ${literal(diagnosticId)}, ${literal(value.recoveryType)}, ${literal(value.outcomeCode)},
+      ${literal(value.sanitizedReason)}, ${value.providerInvoked ? 'true' : 'false'},
+      ${literal(JSON.stringify(value.candidateIds))}::jsonb);`;
+}
+
 const organizationId = 'a1000000-0000-4000-8000-000000000001';
+const otherOrganizationId = 'b1000000-0000-4000-8000-000000000001';
 const sourceDocumentId = 'a2000000-0000-4000-8000-000000000016';
 const sourceArtifactId = 'a3000000-0000-4000-8000-000000000016';
 runSql(`INSERT INTO public.documents(id, organization_id, name, storage_path)
@@ -75,7 +102,7 @@ const outcome: RecoveryGenerationOutcome = {
   extractionSnapshotId: 'phase15-snapshot', physicalPageNumber: 106,
   pageRepresentationDigest: '1'.repeat(64),
   recoveryType: 'priced_schedule_continuation_attribution',
-  outcomeCode: 'provider_failed', sanitizedReason: 'provider_timeout',
+  outcomeCode: 'evidence_binding_failed', sanitizedReason: 'candidate_closure_failed',
   providerInvoked: true,
   candidateIds: [`recovery-candidate-v2-${'2'.repeat(64)}`],
 };
@@ -84,7 +111,6 @@ const replay = await persistForgewingRecoveryGenerationOutcome(outcome, { admin 
 const repeatedObservation = await persistForgewingRecoveryGenerationOutcome({
   ...outcome,
   extractionSnapshotId: 'phase15-snapshot-rerun',
-  sanitizedReason: 'provider_error',
 }, { admin });
 if (first.status !== 'persisted' || !first.inserted
   || replay.status !== 'persisted' || replay.inserted
@@ -95,6 +121,21 @@ if (first.status !== 'persisted' || !first.inserted
 }
 
 const diagnosticId = recoveryGenerationDiagnosticId(outcome);
+expectSqlState('Phase 15 page collision', '23505', outcomeRpcSql({
+  ...outcome, physicalPageNumber: 107,
+}, diagnosticId));
+expectSqlState('Phase 15 recovery type collision', '23505', outcomeRpcSql({
+  ...outcome, recoveryType: 'pricing_rate_multi_observation_cluster',
+}, diagnosticId));
+expectSqlState('Phase 15 sanitized reason collision', '23505', outcomeRpcSql({
+  ...outcome, sanitizedReason: 'unknown_evidence_reference',
+}, diagnosticId));
+expectSqlState('Phase 15 provider invocation collision', '23505', outcomeRpcSql({
+  ...outcome, providerInvoked: false,
+}, diagnosticId));
+expectSqlState('Phase 15 real cross-tenant source claim', '23514',
+  outcomeRpcSql(outcome, diagnosticId, otherOrganizationId));
+
 runSql(`SET request.jwt.claim.role='service_role';
 DO $$
 DECLARE
@@ -129,6 +170,29 @@ BEGIN
         AND diagnostic_id=${literal(diagnosticId)}) <> 1 THEN
     RAISE EXCEPTION 'Phase 15 outcome row missing or duplicated';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.organizations WHERE id=${literal(otherOrganizationId)}::uuid)
+     OR NOT EXISTS (SELECT 1 FROM public.organizations WHERE id=${literal(organizationId)}::uuid) THEN
+    RAISE EXCEPTION 'Phase 15 tenant fixtures are not valid';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.forgewing_recovery_generation_outcomes
+      WHERE organization_id=${literal(otherOrganizationId)}::uuid
+        AND source_document_id=${literal(sourceDocumentId)}::uuid) THEN
+    RAISE EXCEPTION 'Phase 15 cross-tenant claim persisted an organization B row';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.forgewing_recovery_generation_outcomes
+      WHERE organization_id=${literal(organizationId)}::uuid
+        AND diagnostic_id=${literal(diagnosticId)}
+        AND (source_document_id IS DISTINCT FROM ${literal(sourceDocumentId)}::uuid
+          OR source_artifact_id IS DISTINCT FROM ${literal(sourceArtifactId)}::uuid
+          OR physical_page_number IS DISTINCT FROM 106
+          OR page_representation_digest IS DISTINCT FROM repeat('1',64)
+          OR recovery_type IS DISTINCT FROM 'priced_schedule_continuation_attribution'
+          OR outcome_code IS DISTINCT FROM 'evidence_binding_failed'
+          OR sanitized_reason IS DISTINCT FROM 'candidate_closure_failed'
+          OR provider_invoked IS DISTINCT FROM true
+          OR candidate_ids IS DISTINCT FROM ${literal(JSON.stringify(outcome.candidateIds))}::jsonb)) THEN
+    RAISE EXCEPTION 'Phase 15 collision changed immutable outcome content';
+  END IF;
 
   BEGIN
     UPDATE public.forgewing_recovery_generation_outcomes SET sanitized_reason='provider_error'
@@ -140,14 +204,6 @@ BEGIN
     WHERE diagnostic_id=${literal(diagnosticId)};
     RAISE EXCEPTION 'Phase 15 delete unexpectedly succeeded';
   EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
-  BEGIN
-    PERFORM public.record_forgewing_recovery_generation_outcome(
-      ${literal(organizationId)}::uuid, ${literal(sourceDocumentId)}::uuid,
-      'a3000000-0000-4000-8000-000000000001'::uuid, 'phase15-snapshot', 106,
-      repeat('1',64), repeat('3',64), 'priced_schedule_continuation_attribution',
-      'provider_failed', 'provider_error', true, '[]'::jsonb);
-    RAISE EXCEPTION 'Phase 15 foreign artifact unexpectedly succeeded';
-  EXCEPTION WHEN SQLSTATE '23514' THEN NULL; END;
 END $$;
 SELECT NULL::json;`);
 

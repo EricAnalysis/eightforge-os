@@ -87,15 +87,21 @@ const RECOVERY_VOCABULARY = [
   'ConfirmedRecovery',
   'confirmedRateObservations',
   'confirmedRecoveryCandidates',
+  'forgewing_recovery_generation_outcomes',
+  'FailureDiagnostic',
+  'DiagnosticRecoverability',
 ];
 
 const VISUAL_SOURCE_MODULES = [
+  'app/api/internal/document-diagnostics/route.ts',
+  'components/documents/DiagnosticsPanel.tsx',
   'components/documents/RecoveryReviewPanel.tsx',
   'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
   'components/recovery/SourceEvidencePage.tsx',
   'lib/recovery/sourceGeometry.ts',
   'lib/recovery/visualSourceEvidence.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',
+  'lib/server/documentDiagnosticsRead.ts',
 ] as const;
 
 describe('recovery review architecture boundaries', () => {

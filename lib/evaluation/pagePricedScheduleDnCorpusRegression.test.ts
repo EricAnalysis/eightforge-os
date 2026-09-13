@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
+import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
 import { loadPdfLayout } from '@/lib/extraction/pdf/extractText';
 import { buildPdfLayoutObservationsLayer } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import {
@@ -448,5 +449,28 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     });
 
     expect(reversed).toEqual(reconstruction);
+
+    const page = solePricedPage(reconstruction.pages);
+    const digest = layout.pages.find((entry) => entry.page_number === page.physical_page_number)
+      ?.lines.flatMap((line) => line.tokens)
+      .find((token) => token.observation_identity)?.observation_identity?.page_representation_digest;
+    expect(digest).toMatch(/^[a-f0-9]{64}$/);
+    const identities = (value: typeof reconstruction) => solePricedPage(value.pages)
+      .unassigned_lines.map((line) => diagnosticId({
+        code: line.reason,
+        scope: {
+          organizationId: '10000000-0000-4000-8000-000000000015',
+          sourceDocumentId: '20000000-0000-4000-8000-000000000015',
+          sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
+          physicalPageNumber: line.physical_page_number,
+          pageRepresentationDigest: digest!,
+        },
+        evidenceRefs: line.source_refs.flatMap((ref) => ref.observation_id
+          ? [{ kind: 'observation' as const, observationId: ref.observation_id }] : []),
+      }));
+    const first = identities(reconstruction);
+    expect(first).toHaveLength(14);
+    expect(new Set(first).size).toBe(14);
+    expect(identities(reversed)).toEqual(first);
   }, 300_000);
 });

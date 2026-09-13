@@ -275,6 +275,7 @@ export function RecoveryReviewPanel({
           return (
             <li
               key={candidate.proposalId}
+              id={`recovery-proposal-${candidate.proposalId}`}
               className="rounded border border-white/5 bg-[var(--ef-surface-elevated)] p-3"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">

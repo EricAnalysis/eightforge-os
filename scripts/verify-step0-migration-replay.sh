@@ -2844,6 +2844,13 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE14_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase14-recovery-target-context-from-postgres.ts
 
+# Phase 15 persists only the recovery-generation outcomes that previously
+# disappeared. Qualify its immutable RPC seam through the real TypeScript adapter.
+PHASE15_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}PHASE15_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-phase15-diagnostics-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2865,3 +2872,4 @@ echo "DATABASE STEP3 SEMANTIC DIVERGENCE / ATOMIC ROLLBACK: PASS"
 echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"
 echo "PHASE 12 RECOVERY DATABASE AUTHORITY / IDEMPOTENCY / ACL: PASS"
 echo "PHASE 12 EFFECTIVE CONFIRMATION / CONCURRENCY: PASS"
+echo "PHASE 15 RECOVERY GENERATION OUTCOME / ACL / IMMUTABILITY: PASS"

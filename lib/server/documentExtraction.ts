@@ -45,6 +45,10 @@ import {
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
+  admittedRecoveryV2GenerationTypes,
+  readRecoveryOperationalConfig,
+} from '@/lib/extraction/recovery/recoveryOperationalPolicy';
+import {
   buildPdfLayoutObservationsLayer,
   type PdfLayoutObservationsLayer,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
@@ -2115,18 +2119,25 @@ export async function extractDocument(
     const pdfTableLayer = buildPdfTableExtraction({
       layout: structuredLayout,
     });
+    // Qualification-capped, not raw gates: env alone cannot admit a
+    // synthetic-only recovery type to candidate generation.
+    const admittedRecoveryTypes = admittedRecoveryV2GenerationTypes(
+      readRecoveryOperationalConfig(process.env, {
+        emitWarnings: true, context: 'candidate_generation_admission',
+      }),
+    );
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: structuredLayout,
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
       confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
-      ...(process.env.FORGEWING_SHADOW_ENABLED === '1'
-        && process.env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED === '1'
+      ...(admittedRecoveryTypes.length > 0
         && provenanceContext
         ? { recoveryCandidateBuildContext: {
             sourceDocumentId: provenanceContext.sourceDocumentId,
             sourceArtifactId: provenanceContext.sourceArtifactId,
+            allowedRecoveryTypes: admittedRecoveryTypes,
             pageRepresentationDigestByPage: Object.fromEntries(
               structuredLayout.pages.flatMap((page) => {
                 const digest = page.lines.flatMap((line) => line.tokens)

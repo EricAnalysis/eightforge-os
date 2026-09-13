@@ -10,9 +10,10 @@ import {
 } from '@/lib/forgewing/runtime/client';
 import {
   getForgewingRuntimeConfig,
-  isForgewingPricingRateClusterRecoveryEnabled,
   type ForgewingRuntimeConfig,
 } from '@/lib/forgewing/runtime/modelConfig';
+import { readRecoveryOperationalConfig }
+  from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 import {
   parsePricingRateClusterRecoveryModelOutput,
   type PricingRateClusterRecoveryModelOutput,
@@ -180,6 +181,7 @@ export type ForgewingPricingRateClusterRecoveryResult =
 export type ForgewingPricingRateClusterRecoveryDependencies = Readonly<{
   config?: ForgewingRuntimeConfig;
   taskEnabled?: boolean;
+  env?: Readonly<Record<string, string | undefined>>;
   provider?: ForgewingProvider;
   budget?: ForgewingCallBudget;
 }>;
@@ -319,8 +321,13 @@ export async function runForgewingPricingRateClusterRecovery(
   if (rawInput == null) return { status: 'not_needed', reason: 'no_ambiguous_rate_clusters' };
   const config = dependencies.config ?? getForgewingRuntimeConfig();
   const disabledMetadata = metadata(config, 0, false, false, false);
+  const activation = readRecoveryOperationalConfig(dependencies.env ?? process.env, {
+    emitWarnings: true, context: 'pricing_v1_runner',
+  })
+    .activationByType.pricing_rate_single_observation;
   if (!config.enabled
-    || !(dependencies.taskEnabled ?? isForgewingPricingRateClusterRecoveryEnabled())) {
+    || dependencies.taskEnabled === false
+    || activation === 'disabled') {
     return { status: 'eligible_not_executed', reason: 'recovery_disabled',
       metadata: disabledMetadata };
   }

@@ -12,9 +12,10 @@ import {
 } from '@/lib/forgewing/runtime/client';
 import {
   getForgewingRuntimeConfig,
-  isForgewingRecoveryCandidateV2Enabled,
   type ForgewingRuntimeConfig,
 } from '@/lib/forgewing/runtime/modelConfig';
+import { readRecoveryOperationalConfig }
+  from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 
 const outputSchema = z.object({
   selectedCandidateId: z.string().regex(/^recovery-candidate-v2-[a-f0-9]{64}$/),
@@ -41,6 +42,7 @@ export async function runRecoveryCandidateV2Recommendation(
   dependencies: Readonly<{
     config?: ForgewingRuntimeConfig;
     enabled?: boolean;
+    env?: Readonly<Record<string, string | undefined>>;
     provider?: ForgewingProvider;
     budget?: ForgewingCallBudget;
   }> = {},
@@ -49,8 +51,17 @@ export async function runRecoveryCandidateV2Recommendation(
   if (!parsed.success || new Set(parsed.data.map((entry) => entry.candidateId)).size !== parsed.data.length) {
     return { status: 'evidence_binding_failed', reason: 'candidate_closure_failed', providerCalls: 0 };
   }
+  const recoveryTypes = new Set(parsed.data.map((entry) => entry.recoveryType));
+  if (recoveryTypes.size !== 1) {
+    return { status: 'evidence_binding_failed', reason: 'candidate_closure_failed', providerCalls: 0 };
+  }
   const config = dependencies.config ?? getForgewingRuntimeConfig();
-  if (!config.enabled || !(dependencies.enabled ?? isForgewingRecoveryCandidateV2Enabled())) {
+  const recoveryType = parsed.data[0]!.recoveryType;
+  const activation = readRecoveryOperationalConfig(dependencies.env ?? process.env, {
+    emitWarnings: true, context: 'recovery_candidate_v2_runner',
+  })
+    .activationByType[recoveryType];
+  if (!config.enabled || dependencies.enabled === false || activation === 'disabled') {
     return { status: 'eligible_not_executed', reason: 'recovery_disabled', providerCalls: 0 };
   }
   const budget = dependencies.budget ?? new ForgewingCallBudget(1);

@@ -5,6 +5,23 @@ import {
   type ForgewingPricingRateClusterRecoveryInput,
 } from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
 
+vi.mock('@/lib/extraction/recovery/recoveryOperationalPolicy', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@/lib/extraction/recovery/recoveryOperationalPolicy')
+  >();
+  return {
+    ...actual,
+    readRecoveryOperationalConfig: () => ({
+      masterEnabled: true,
+      activationByType: {
+        pricing_rate_single_observation: 'controlled',
+        pricing_rate_multi_observation_cluster: 'disabled',
+        priced_schedule_continuation_attribution: 'controlled',
+      },
+    }),
+  };
+});
+
 const config = {
   enabled: true,
   model: 'fake-local-model',

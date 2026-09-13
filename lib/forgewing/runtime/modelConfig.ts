@@ -1,8 +1,6 @@
 import { getClaudeModel } from '@/lib/server/ai/claudeClient';
-
-const DEFAULT_TIMEOUT_MS = 3_000;
-const DEFAULT_MAX_CALLS = 1;
-const DEFAULT_MAX_OUTPUT_TOKENS = 800;
+import { readRecoveryOperationalConfig }
+  from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 
 function boundedInteger(
   raw: string | undefined,
@@ -32,7 +30,16 @@ export type ForgewingRepositoryPlanRuntimeConfig = Readonly<{
 }>;
 
 export function isForgewingShadowEnabled(): boolean {
-  return process.env.FORGEWING_SHADOW_ENABLED === '1';
+  return readRecoveryOperationalConfig(process.env, {
+    emitWarnings: true, context: 'master_gate',
+  }).masterEnabled;
+}
+
+/** Region classification is separately default-off beneath the Forgewing master gate. */
+export function isForgewingRegionClassificationEnabled(): boolean {
+  return readRecoveryOperationalConfig(process.env, {
+    emitWarnings: true, context: 'region_classification_gate',
+  }).regionClassificationEnabled;
 }
 
 /** Table continuation is separately default-off beneath the Forgewing master gate. */
@@ -61,13 +68,17 @@ export function isForgewingPricingInterpretationEnabled(): boolean {
 
 /** Ambiguous rate-cluster recovery is separately default-off beneath the shadow gate. */
 export function isForgewingPricingRateClusterRecoveryEnabled(): boolean {
-  return isForgewingShadowEnabled()
-    && process.env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED === '1';
+  return readRecoveryOperationalConfig(process.env, {
+    emitWarnings: true, context: 'pricing_v1_gate',
+  })
+    .activationByType.pricing_rate_single_observation !== 'disabled';
 }
 
 export function isForgewingRecoveryCandidateV2Enabled(): boolean {
-  return isForgewingShadowEnabled()
-    && process.env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED === '1';
+  return readRecoveryOperationalConfig(process.env, {
+    emitWarnings: true, context: 'recovery_v2_gate',
+  })
+    .activationByType.priced_schedule_continuation_attribution !== 'disabled';
 }
 
 /** Workflow assessment is separately default-off beneath the shadow gate. */
@@ -93,16 +104,14 @@ export function getForgewingRepositoryPlanRuntimeConfig(): ForgewingRepositoryPl
 }
 
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
+  const operational = readRecoveryOperationalConfig(process.env, {
+    emitWarnings: true, context: 'runtime_config',
+  });
   return {
-    enabled: isForgewingShadowEnabled(),
+    enabled: operational.masterEnabled,
     model: process.env.FORGEWING_MODEL?.trim() || getClaudeModel(),
-    timeoutMs: boundedInteger(process.env.FORGEWING_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 100, 8_000),
-    maxCalls: boundedInteger(process.env.FORGEWING_MAX_CALLS, DEFAULT_MAX_CALLS, 1, 4),
-    maxOutputTokens: boundedInteger(
-      process.env.FORGEWING_MAX_OUTPUT_TOKENS,
-      DEFAULT_MAX_OUTPUT_TOKENS,
-      128,
-      2_000,
-    ),
+    timeoutMs: operational.timeoutMs,
+    maxCalls: operational.maxCalls,
+    maxOutputTokens: operational.maxOutputTokens,
   };
 }

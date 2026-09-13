@@ -1,0 +1,160 @@
+{
+  "labelSetVersion": "dn-continuation-labels-v1",
+  "authority": "human_evaluation_ground_truth_only",
+  "recoveryType": "priced_schedule_continuation_attribution",
+  "corpus": {
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 106
+  },
+  "harnessIdentity": {
+    "sourceDocumentId": "60000000-0000-4000-8000-0000000000dd",
+    "sourceArtifactId": "60000000-0000-4000-8000-000000000106",
+    "pageRepresentationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "units": [
+    {
+      "unitKey": "dn-continuation-unit-38a97868db88865a697cbb79",
+      "candidateIds": [
+        "recovery-candidate-v2-c4a6393f60e6693fd6d468b38d8b2c3310c09b017a96651b7be2af5622fa0beb",
+        "recovery-candidate-v2-f422cce89f1beea6652d5ff2655c1ed10cac8e41911814671e7a6187192eac9b"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-3e6205176a77e0a260aa38fb",
+      "candidateIds": [
+        "recovery-candidate-v2-b3c17a9d019b35330348990f200a40859b677037ed5f7d08ded47e2d07705615",
+        "recovery-candidate-v2-d52f96eb766a0e96fb27a28e0ff22c18baea5baaea7801b1bdbc0be39dc2fc18"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-42826a5c65e1c858a617a1e1",
+      "candidateIds": [
+        "recovery-candidate-v2-dc0801ff9467c8ecaac995f2962d22178aee27e787543269c100a3c43495239e",
+        "recovery-candidate-v2-ec7a32fe4a988864febd4f592a5ed9e97cc9cb7e57285edc766535dd40eebcca"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-4fbb0b177523927ff9c094f5",
+      "candidateIds": [
+        "recovery-candidate-v2-9a1045f7c75dc349feb892e50e7f66b8c7521d8756944bf16a1cf3046c58084a",
+        "recovery-candidate-v2-f673d9b22b70c763b52d94c38c2d4380bd5b0b0b115610979fef32916eb6cdbe"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-54f42488ce43e1ebe8b3b3dc",
+      "candidateIds": [
+        "recovery-candidate-v2-1867b662eeef37d94b13cf62100d16bc6b5296c0c16d5ae6f7e774e8faa9e6d7",
+        "recovery-candidate-v2-466cd5f3384f667ffbe9f8ada2d2f6a34848053bdb5abcfe53718133312a0d51"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-57fabde8c6cbb835eb6ce4db",
+      "candidateIds": [
+        "recovery-candidate-v2-4b0d745dd856632364b39c24bc5dd1cf3a47766cc0b30305f2f099981e939966",
+        "recovery-candidate-v2-defb05f50310156024e46bcea969158451436562cee5f13d6db239a2713a319a"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-587d110e3d2a7ab72bf596af",
+      "candidateIds": [
+        "recovery-candidate-v2-77910ddee4ec90b81f707d1d009e437695f1fbd20666a350b74e0ca9f171ff23",
+        "recovery-candidate-v2-dfae9fc557dcedf6e48b8b31364f4414027cdfd1aeebbf61b50f0142d58410cd"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-5b1b95aa42ad816e1da2bfce",
+      "candidateIds": [
+        "recovery-candidate-v2-a699547e68f15f132ec3a6b60bd4fdc0be9b243af7cdcb9a28a35df2c4305e7f",
+        "recovery-candidate-v2-c5b298059a00fa998844b4423ff0fb44e376a07dda1dd4b19e8c7d9570072507"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-622fabcb9df024ef586b4154",
+      "candidateIds": [
+        "recovery-candidate-v2-79ce5d816733e668fabb2d59ea713d4fd6ffee925d0b50fd50132fede0226c64",
+        "recovery-candidate-v2-d240fd44ca5a9db6e1622416b50b33c1bfea3a1e0fdf3621417822c6e9316b1a"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-68d30f0bf92912c2ca31e4e5",
+      "candidateIds": [
+        "recovery-candidate-v2-717349fcb9b0a08c1b90b1ce73e8d716fa02bac4e3be35b59bae4198518ab080",
+        "recovery-candidate-v2-f25f47ea243c985c6b554aaa4eab06291a046c3a250fe061e0417f36c4fe35ac"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-8aaa23f20a44275080fb986e",
+      "candidateIds": [
+        "recovery-candidate-v2-55c29bf68b3c0eae85e21b618ca6537e87de082fd0dccee660e3d7a8360f40cc",
+        "recovery-candidate-v2-a0e691da401d757c0c4d5032567e319b99ae045be0563dd545f2c2fea3b57077"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-b42e8e1fece75a0e87f939bf",
+      "candidateIds": [
+        "recovery-candidate-v2-5cb06e953874a560622aa2138b682596946874558584e30f2ea5a83ef704cdc2",
+        "recovery-candidate-v2-86b892bbc23a4533176956418c1f7516afe360fbd3944c48ecb8cb2f571ba6f1"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    },
+    {
+      "unitKey": "dn-continuation-unit-b6d240bfa930fe0ada1f4bef",
+      "candidateIds": [
+        "recovery-candidate-v2-013a71223af84dd91985c8efd61572d0982413108c4c4154112575db1d91729d",
+        "recovery-candidate-v2-802acdd699e739fc42dd288649d4d3e8f0f1713c92a9b2860aec7b471d336555"
+      ],
+      "expected": null,
+      "labeledBy": null,
+      "labeledAt": null,
+      "note": null
+    }
+  ]
+}

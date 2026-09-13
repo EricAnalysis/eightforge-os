@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { scheduleRecoveryCandidateV2Shadow } from '@/lib/extraction/persistence/complianceShadow';
 import { buildRecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
+import { recoveryEvaluationUnitIdentity }
+  from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 
 const SOURCE_DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
@@ -105,6 +107,10 @@ function scheduleBoth(
     persistProposal: persistProposal as never,
     persistOutcome: persistOutcome as never,
     budget,
+    loadPriorState: async () => ({ status: 'ok' as const, state: {
+      proposedUnitIdentities: [], confirmedCandidateIds: [],
+      providerInvokedUnitIdentities: [],
+    } }),
   });
 
   return { registered, run, persistProposal, persistOutcome, budget };
@@ -129,7 +135,7 @@ describe('Recovery V2 domain gate split', () => {
     await drain(registered);
 
     expect(scheduledTypes(run)).toEqual(['priced_schedule_continuation_attribution']);
-    expect(registered).toHaveLength(2);
+    expect(registered).toHaveLength(1);
     expect(persistProposal).toHaveBeenCalledTimes(1);
     expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
       outcomeCode: 'recovery_disabled', providerInvoked: false,
@@ -150,20 +156,17 @@ describe('Recovery V2 domain gate split', () => {
     expect(budget.used).toBe(1);
   });
 
-  it('schedules both recovery types once the cluster gate is on', async () => {
+  it('does not let the cluster gate raise a synthetic-only recovery type', async () => {
     const { registered, run, persistProposal, budget } = scheduleBoth({
       ...MASTER_ON,
       FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1',
     });
     await drain(registered);
 
-    expect(registered).toHaveLength(2);
-    expect([...scheduledTypes(run)].sort()).toEqual([
-      'priced_schedule_continuation_attribution',
-      'pricing_rate_multi_observation_cluster',
-    ]);
-    expect(persistProposal).toHaveBeenCalledTimes(2);
-    expect(budget.used).toBe(2);
+    expect(registered).toHaveLength(1);
+    expect(scheduledTypes(run)).toEqual(['priced_schedule_continuation_attribution']);
+    expect(persistProposal).toHaveBeenCalledTimes(1);
+    expect(budget.used).toBe(1);
   });
 
   it('treats any cluster-gate value other than exact 1 as off', async () => {
@@ -180,21 +183,21 @@ describe('Recovery V2 domain gate split', () => {
   });
 
   it('schedules neither recovery type while the master or V2 gate is off', async () => {
-    for (const [env, expectedPersistenceTasks] of [
-      [{ FORGEWING_SHADOW_ENABLED: '1' }, 2],
-      [{ FORGEWING_SHADOW_ENABLED: '1', FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 2],
-      [{ FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1' }, 0],
+    for (const [env, expectedRegisteredTasks, expectedOutcomes] of [
+      [{ FORGEWING_SHADOW_ENABLED: '1' }, 1, 2],
+      [{ FORGEWING_SHADOW_ENABLED: '1', FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 1, 2],
+      [{ FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1' }, 0, 0],
       [{ FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1',
-        FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 0],
-      [{}, 0],
+        FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 0, 0],
+      [{}, 0, 0],
     ] as const) {
       const { registered, run, persistProposal, persistOutcome, budget } = scheduleBoth(env);
       await drain(registered);
 
-      expect(registered).toHaveLength(expectedPersistenceTasks);
+      expect(registered).toHaveLength(expectedRegisteredTasks);
       expect(run).not.toHaveBeenCalled();
       expect(persistProposal).not.toHaveBeenCalled();
-      expect(persistOutcome).toHaveBeenCalledTimes(expectedPersistenceTasks);
+      expect(persistOutcome).toHaveBeenCalledTimes(expectedOutcomes);
       for (const call of persistOutcome.mock.calls) {
         expect(call[0]).toMatchObject({ outcomeCode: 'recovery_disabled', providerInvoked: false });
       }
@@ -224,6 +227,11 @@ describe('Recovery V2 domain gate split', () => {
       })) as never,
       persistProposal: persistProposal as never,
       persistOutcome: persistOutcome as never,
+      budget: new ForgewingCallBudget(0),
+      loadPriorState: async () => ({ status: 'ok' as const, state: {
+        proposedUnitIdentities: [], confirmedCandidateIds: [],
+        providerInvokedUnitIdentities: [],
+      } }),
     });
     await drain(registered);
     expect(persistProposal).not.toHaveBeenCalled();
@@ -246,9 +254,57 @@ describe('Recovery V2 domain gate split', () => {
       register: (task) => registered.push(task),
       run: vi.fn(async () => { throw new Error('unexpected downstream failure'); }) as never,
       persistOutcome: persistOutcome as never,
+      loadPriorState: async () => ({ status: 'ok' as const, state: {
+        proposedUnitIdentities: [], confirmedCandidateIds: [],
+        providerInvokedUnitIdentities: [],
+      } }),
     });
     await drain(registered);
     expect(persistOutcome).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before provider work when prior state is unavailable', async () => {
+    const registered: Array<() => Promise<void>> = [];
+    const run = vi.fn();
+    scheduleRecoveryCandidateV2Shadow({
+      organizationId: ORGANIZATION_ID, sourceDocumentId: SOURCE_DOCUMENT_ID,
+      sourceArtifactId: SOURCE_ARTIFACT_ID, extractionSnapshotId: 'snapshot-1',
+      pricingRows: [], sourceObservations: [], pricingSourceEligibility: null,
+      recoveryCandidatesV2: [continuation], env: MASTER_ON,
+    }, {
+      register: (task) => registered.push(task),
+      run: run as never,
+      loadPriorState: async () => ({ status: 'read_failed' as const, reason: 'hidden' }),
+    });
+    await drain(registered);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not call or duplicate an exact existing proposal', async () => {
+    const registered: Array<() => Promise<void>> = [];
+    const run = vi.fn();
+    const persistProposal = vi.fn();
+    scheduleRecoveryCandidateV2Shadow({
+      organizationId: ORGANIZATION_ID, sourceDocumentId: SOURCE_DOCUMENT_ID,
+      sourceArtifactId: SOURCE_ARTIFACT_ID, extractionSnapshotId: 'new-snapshot',
+      pricingRows: [], sourceObservations: [], pricingSourceEligibility: null,
+      recoveryCandidatesV2: [continuation], env: MASTER_ON,
+    }, {
+      register: (task) => registered.push(task),
+      run: run as never,
+      persistProposal: persistProposal as never,
+      loadPriorState: async () => ({ status: 'ok' as const, state: {
+        proposedUnitIdentities: [recoveryEvaluationUnitIdentity({
+          recoveryType: continuation.recoveryType,
+          pageRepresentationDigest: continuation.pageRepresentationDigest,
+          candidateIds: [continuation.candidateId],
+        })],
+        confirmedCandidateIds: [], providerInvokedUnitIdentities: [],
+      } }),
+    });
+    await drain(registered);
+    expect(run).not.toHaveBeenCalled();
+    expect(persistProposal).not.toHaveBeenCalled();
   });
 
   it('gates scheduling only: review, re-entry and reconstruction stay gate-free', () => {

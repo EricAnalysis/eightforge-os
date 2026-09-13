@@ -56,6 +56,8 @@ vi.mock('@/lib/forgewing/runtime/modelConfig', () => ({
     && process.env.FORGEWING_TABLE_CONTINUATION_ENABLED === '1',
   isForgewingObservationArbitrationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
     && process.env.FORGEWING_OBSERVATION_ARBITRATION_ENABLED === '1',
+  isForgewingRegionClassificationEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
+    && process.env.FORGEWING_REGION_CLASSIFICATION_ENABLED === '1',
   isForgewingPricingRateClusterRecoveryEnabled: () => process.env.FORGEWING_SHADOW_ENABLED === '1'
     && process.env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED === '1',
 }));
@@ -230,7 +232,7 @@ describe('compliance shadow dual-write isolation', () => {
     };
   }
 
-  it('builds and schedules one exact ambiguous-rate recovery candidate', async () => {
+  it('builds but does not schedule a synthetic-only V1 recovery candidate', async () => {
     const input = pricingRecoveryInput();
     const candidates = buildEligiblePricingRateClusterRecoveryCandidates(input);
     expect(candidates).toHaveLength(1);
@@ -247,10 +249,10 @@ describe('compliance shadow dual-write isolation', () => {
     });
     expect(registered).toHaveLength(1);
     await registered[0]!();
-    expect(runForgewingPricingRateClusterRecovery).toHaveBeenCalledOnce();
+    expect(runForgewingPricingRateClusterRecovery).not.toHaveBeenCalled();
   });
 
-  it('persists only a validated review-required recovery bundle', async () => {
+  it('does not persist a new V1 proposal while synthetic-only', async () => {
     const input = pricingRecoveryInput();
     const candidates = buildEligiblePricingRateClusterRecoveryCandidates(input);
     const candidate = candidates[0]!;
@@ -293,14 +295,11 @@ describe('compliance shadow dual-write isolation', () => {
       register: (task) => registered.push(task), run: run as never, persist: persist as never,
     });
     await registered[0]!();
-    expect(persist).toHaveBeenCalledWith({ input: expect.objectContaining({
-      resultStatus: 'applied', schemaVersion: bundle.schemaVersion,
-      validatedBundle: bundle,
-      runtime: expect.objectContaining({ warningCodes: ['requires_human_review'], calls: 1 }),
-    }) });
+    expect(run).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
   });
 
-  it('records a sanitized V1 provider failure without creating a proposal', async () => {
+  it('prevents a requested V1 provider failure path from being invoked', async () => {
     const input = pricingRecoveryInput();
     const persistOutcome = vi.fn(async () => ({
       status: 'persisted' as const, outcomeRowId: 'outcome-1',
@@ -327,8 +326,8 @@ describe('compliance shadow dual-write isolation', () => {
     await registered[0]!();
     expect(persistProposal).not.toHaveBeenCalled();
     expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
-      outcomeCode: 'provider_failed', sanitizedReason: 'provider_error',
-      providerInvoked: true, recoveryType: 'pricing_rate_single_observation',
+      outcomeCode: 'recovery_disabled', sanitizedReason: 'recovery_disabled',
+      providerInvoked: false, recoveryType: 'pricing_rate_single_observation',
     }));
   });
 
@@ -352,7 +351,7 @@ describe('compliance shadow dual-write isolation', () => {
     }));
   });
 
-  it('does not relabel an arbitrary V1 task exception as a provider failure', async () => {
+  it('does not reach an arbitrary V1 task exception while qualification disables it', async () => {
     const input = pricingRecoveryInput();
     const persistOutcome = vi.fn();
     const registered: Array<() => Promise<void>> = [];
@@ -362,7 +361,9 @@ describe('compliance shadow dual-write isolation', () => {
       persistOutcome: persistOutcome as never,
     });
     await registered[0]!();
-    expect(persistOutcome).not.toHaveBeenCalled();
+    expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcomeCode: 'recovery_disabled', providerInvoked: false,
+    }));
   });
 
   it('fails the recovery candidate set closed on foreign primitive identity', () => {
@@ -930,6 +931,7 @@ describe('compliance shadow dual-write isolation', () => {
 
   it('returns the deterministic Step 3 payload unchanged while Forgewing observes shadow input', async () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     const payload = {
       interpretation_snapshot: { id: 'interpretation-1' },
       semantic_column_mappings: [{ id: 'mapping-1' }],
@@ -978,8 +980,37 @@ describe('compliance shadow dual-write isolation', () => {
     expect(runForgewingRegionClassification).not.toHaveBeenCalled();
   });
 
+  it('makes zero region-classification calls under the master gate alone', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    const payload = {
+      interpretation_snapshot: null,
+      semantic_column_mappings: [],
+      interpretation_records: [],
+    };
+    const bridge = withForgewingRegionClassificationShadow(
+      async () => payload,
+      'organization-1',
+      'document-1',
+      { register: () => undefined },
+    );
+    const bridgeInput = {
+      extraction_snapshot_id: 'snapshot-1', chains: [], segments: [], cells: [],
+      verified_field_handles: [], published_at: '2026-08-14T00:00:00.000Z',
+    } as never;
+
+    // Deterministic output is identical with or without the sub-gate: region
+    // classification is shadow-only and never changes authority-bearing data.
+    await expect(bridge?.(bridgeInput)).resolves.toBe(payload);
+    expect(runForgewingRegionClassification).not.toHaveBeenCalled();
+
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
+    await expect(bridge?.(bridgeInput)).resolves.toBe(payload);
+    expect(runForgewingRegionClassification).toHaveBeenCalledOnce();
+  });
+
   it('contains Forgewing failure after deterministic Step 3 succeeds', async () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     const payload = {
       interpretation_snapshot: null,
       semantic_column_mappings: [],
@@ -1015,6 +1046,7 @@ describe('compliance shadow dual-write isolation', () => {
     ['schema rejection', actionableResult('abstained', ['model_schema_rejected'])],
   ])('keeps deterministic Step 3 identical on Forgewing %s', async (_case, outcome) => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     runForgewingRegionClassification.mockResolvedValueOnce(outcome as never);
     const payload = {
       interpretation_snapshot: { id: 'deterministic' },
@@ -1039,6 +1071,7 @@ describe('compliance shadow dual-write isolation', () => {
 
   it('returns deterministic Step 3 without waiting for a never-settling persistence task', async () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
     const payload = {
       interpretation_snapshot: { id: 'deterministic' },
@@ -1070,6 +1103,7 @@ describe('compliance shadow dual-write isolation', () => {
 
   it('does not register persistence for skipped or pre-bundle failed results', async () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     const register = vi.fn();
     for (const result of [
       { status: 'skipped', reason: 'no_candidate_regions' },
@@ -1095,6 +1129,7 @@ describe('compliance shadow dual-write isolation', () => {
 
   it('contains persistence registration and task failures', async () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     runForgewingRegionClassification.mockResolvedValueOnce(actionableResult() as never);
     const bridge = withForgewingRegionClassificationShadow(

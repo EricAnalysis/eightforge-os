@@ -38,6 +38,7 @@ import {
   getForgewingRuntimeConfig,
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
+  isForgewingRegionClassificationEnabled,
   isForgewingShadowEnabled,
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
@@ -54,8 +55,21 @@ import {
 } from '@/lib/server/forgewingRecoveryProposalPersistence';
 import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 }
   from '@/lib/extraction/recovery/recoveryCandidateV2';
+import {
+  groupRecoveryEvaluationUnits,
+  planRecoveryEvaluation,
+  type RecoveryEvaluationUnit,
+} from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
+import {
+  RECOVERY_OPERATIONAL_POLICY,
+  RECOVERY_OPERATIONAL_POLICY_DIGEST,
+  RECOVERY_OPERATIONAL_POLICY_VERSION,
+  readRecoveryOperationalConfig,
+} from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 import { runRecoveryCandidateV2Recommendation }
   from '@/lib/forgewing/tasks/recoveryCandidateV2';
+import { loadRecoveryEvaluationPriorState }
+  from '@/lib/server/recoveryEvaluationPriorState';
 import {
   persistForgewingRecoveryGenerationOutcome,
   sanitizeRecoveryGenerationReason,
@@ -1137,7 +1151,10 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
   }> = {},
 ): void {
   const env = input.env ?? process.env;
-  if (env.FORGEWING_SHADOW_ENABLED !== '1') return;
+  const operational = readRecoveryOperationalConfig(env, {
+    emitWarnings: true, context: 'pricing_v1_scheduler',
+  });
+  if (!operational.masterEnabled) return;
   const candidate = buildEligiblePricingRateClusterRecoveryCandidates(input)[0];
   if (!candidate) {
     console.info('[forgewingRecovery] pricing recovery outcome', {
@@ -1147,7 +1164,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     return;
   }
   const pageRepresentationDigest = pricingRecoveryPageRepresentationDigest(input, candidate);
-  if (env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED !== '1') {
+  if (operational.activationByType.pricing_rate_single_observation === 'disabled') {
     if (pageRepresentationDigest) {
       const disabledTask = async (): Promise<void> => {
         await recordRecoveryGenerationOutcome({
@@ -1170,7 +1187,10 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
   }
   const task = async (): Promise<void> => {
     try {
-      const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(candidate);
+      const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(
+        candidate,
+        { env },
+      );
       console.info('[forgewingRecovery] pricing recovery outcome', {
         mode: 'shadow', resultState: result.status, eligibilityReason: 'ambiguous_relationship',
         providerInvoked: 'metadata' in result ? result.metadata.providerInvoked : false,
@@ -1314,117 +1334,166 @@ export function scheduleRecoveryCandidateV2Shadow(
     persistProposal?: typeof persistForgewingRecoveryProposalV2;
     persistOutcome?: typeof persistForgewingRecoveryGenerationOutcome;
     budget?: ForgewingCallBudget;
+    loadPriorState?: typeof loadRecoveryEvaluationPriorState;
   }> = {},
 ): void {
   const env = input.env ?? process.env;
-  if (env.FORGEWING_SHADOW_ENABLED !== '1') return;
-  // Continuation attribution is qualified against the real DN priced corpus;
-  // ambiguous multi-observation pricing-cluster recovery is qualified only
-  // against synthetic fixtures. One gate for both recovery types made the
-  // intended production state -- continuation on, pricing cluster off --
-  // inexpressible, so cluster recovery carries its own default-off gate
-  // beneath the V2 gate. Strict '1' like every sibling: nothing enables itself.
-  const pricingClusterEnabled = env.FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED === '1';
+  const operational = readRecoveryOperationalConfig(env, {
+    emitWarnings: true, context: 'recovery_v2_scheduler',
+  });
+  if (!operational.masterEnabled) return;
   const candidates = (input.recoveryCandidatesV2 ?? []).flatMap((candidate) => {
     const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
     if (!parsed.success) return [];
     return [parsed.data];
   });
-  const groups = new Map<string, RecoveryCandidateV2[]>();
-  for (const candidate of candidates) {
-    const unit = candidate.recoveryType === 'priced_schedule_continuation_attribution'
-      ? `${candidate.recoveryType}:${candidate.physicalPageNumber}:${candidate.orderedObservationIds.join(':')}`
-      : `${candidate.recoveryType}:${candidate.physicalPageNumber}:${candidate.targetRowIdentity}`;
-    groups.set(unit, [...(groups.get(unit) ?? []), candidate]);
-  }
-  // One provider call per recovery evaluation unit, and one shared budget for
-  // the whole document. Without the shared budget the fan-out is unbounded:
-  // the real DN priced page carries thirteen ambiguous continuations, which
-  // would be thirteen provider calls for one reprocess. Units past the budget
-  // return `budget_exhausted` having called nothing, and grouping order is
-  // deterministic (candidates arrive sorted by candidate id), so which units
-  // are served is reproducible rather than arbitrary.
-  const budget = dependencies.budget
-    ?? new ForgewingCallBudget(getForgewingRuntimeConfig().maxCalls);
-  for (const unitCandidates of groups.values()) {
+  const units = groupRecoveryEvaluationUnits(candidates);
+  if (units.length === 0) return;
+
+  const outcomeBase = (unit: RecoveryEvaluationUnit) => ({
+    organizationId: input.organizationId,
+    sourceDocumentId: unit.candidates[0]!.sourceDocumentId,
+    sourceArtifactId: unit.candidates[0]!.sourceArtifactId,
+    extractionSnapshotId: input.extractionSnapshotId,
+    physicalPageNumber: unit.physicalPageNumber,
+    pageRepresentationDigest: unit.pageRepresentationDigest,
+    recoveryType: unit.recoveryType,
+    candidateIds: [...unit.candidateIds],
+  });
+  const runUnit = async (unit: RecoveryEvaluationUnit): Promise<void> => {
+    const base = outcomeBase(unit);
+    const unitCandidates = unit.candidates;
     const representative = unitCandidates[0]!;
-    const base = {
+    try {
+      const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
         organizationId: input.organizationId,
-        sourceDocumentId: representative.sourceDocumentId,
-        sourceArtifactId: representative.sourceArtifactId,
         extractionSnapshotId: input.extractionSnapshotId,
-        physicalPageNumber: representative.physicalPageNumber,
-        pageRepresentationDigest: representative.pageRepresentationDigest,
-        recoveryType: representative.recoveryType,
-        candidateIds: unitCandidates.map((candidate) => candidate.candidateId),
-    } as const;
-    const disabled = env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED !== '1'
-      || (representative.recoveryType === 'pricing_rate_multi_observation_cluster'
-        && !pricingClusterEnabled);
-    const task = async () => {
-      if (disabled) {
+        candidates: unitCandidates,
+      }, { env, budget: new ForgewingCallBudget(1) });
+      if (recommendation.status !== 'requires_human_review') {
+        const outcomeCode: RecoveryGenerationOutcomeCode =
+          recommendation.status === 'eligible_not_executed'
+            ? recommendation.reason : recommendation.status;
         await recordRecoveryGenerationOutcome({
-          ...base,
-          outcomeCode: 'recovery_disabled',
-          sanitizedReason: 'recovery_disabled',
-          providerInvoked: false,
+          ...base, outcomeCode,
+          sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, recommendation.reason),
+          providerInvoked: recommendation.providerCalls > 0,
         }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
         return;
       }
-      try {
-        const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
-          organizationId: input.organizationId,
-          extractionSnapshotId: input.extractionSnapshotId,
-          candidates: unitCandidates,
-        }, { budget });
-        if (recommendation.status !== 'requires_human_review') {
-          const outcomeCode: RecoveryGenerationOutcomeCode =
-            recommendation.status === 'eligible_not_executed'
-              ? recommendation.reason : recommendation.status;
-          await recordRecoveryGenerationOutcome({
-            ...base, outcomeCode,
-            sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, recommendation.reason),
-            providerInvoked: recommendation.providerCalls > 0,
-          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
-          return;
-        }
-        const durable = buildDurableRecoveryProposalV2({
-          organizationId: input.organizationId,
-          extractionSnapshotId: input.extractionSnapshotId,
-          candidates: unitCandidates,
-          selectedCandidateId: recommendation.selectedCandidateId,
-          certainty: recommendation.confidence,
-          reasonCategory: recommendation.rationaleCode,
-          providerModel: recommendation.model,
-          promptTemplateId: recommendation.promptTemplateId,
-          promptTemplateVersion: recommendation.promptTemplateVersion,
-        });
-        if (!durable) {
-          await recordRecoveryGenerationOutcome({
-            ...base, outcomeCode: 'deterministic_validation_failed',
-            sanitizedReason: 'projection_failed', providerInvoked: true,
-          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
-          return;
-        }
-        const recorded = await (dependencies.persistProposal
-          ?? persistForgewingRecoveryProposalV2)(durable);
-        if (recorded.status !== 'persisted') {
-          await recordRecoveryGenerationOutcome({
-            ...base, outcomeCode: 'proposal_persist_failed',
-            sanitizedReason: sanitizeRecoveryGenerationReason(
-              'proposal_persist_failed', recorded.reason),
-            providerInvoked: true,
-          }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
-        }
-      } catch (error) {
-        console.error('[forgewingRecoveryV2] non-fatal recovery task failure', {
-          mode: 'shadow', error: error instanceof Error ? error.message : String(error),
-          recoveryType: representative.recoveryType,
-          physicalPageNumber: representative.physicalPageNumber,
-        });
+      const durable = buildDurableRecoveryProposalV2({
+        organizationId: input.organizationId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        candidates: unitCandidates,
+        selectedCandidateId: recommendation.selectedCandidateId,
+        certainty: recommendation.confidence,
+        reasonCategory: recommendation.rationaleCode,
+        providerModel: recommendation.model,
+        promptTemplateId: recommendation.promptTemplateId,
+        promptTemplateVersion: recommendation.promptTemplateVersion,
+      });
+      if (!durable) {
+        await recordRecoveryGenerationOutcome({
+          ...base, outcomeCode: 'deterministic_validation_failed',
+          sanitizedReason: 'projection_failed', providerInvoked: true,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+        return;
       }
-    };
+      const recorded = await (dependencies.persistProposal
+        ?? persistForgewingRecoveryProposalV2)(durable);
+      if (recorded.status !== 'persisted') {
+        await recordRecoveryGenerationOutcome({
+          ...base, outcomeCode: 'proposal_persist_failed',
+          sanitizedReason: sanitizeRecoveryGenerationReason(
+            'proposal_persist_failed', recorded.reason),
+          providerInvoked: true,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+      }
+    } catch (error) {
+      console.error('[forgewingRecoveryV2] non-fatal recovery task failure', {
+        mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+        recoveryType: representative.recoveryType,
+        physicalPageNumber: representative.physicalPageNumber,
+      });
+    }
+  };
+
+  const task = async (): Promise<void> => {
+    let prior: Awaited<ReturnType<typeof loadRecoveryEvaluationPriorState>>;
+    try {
+      prior = await (dependencies.loadPriorState ?? loadRecoveryEvaluationPriorState)({
+        organizationId: input.organizationId,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceArtifactId: input.sourceArtifactId,
+      });
+    } catch {
+      console.warn('[forgewingOperationalPolicy] recovery planning warning', {
+        policyVersion: RECOVERY_OPERATIONAL_POLICY_VERSION,
+        policyDigest: RECOVERY_OPERATIONAL_POLICY_DIGEST,
+        reason: 'prior_state_unavailable',
+      });
+      return;
+    }
+    if (prior.status !== 'ok') {
+      console.warn('[forgewingOperationalPolicy] recovery planning warning', {
+        policyVersion: RECOVERY_OPERATIONAL_POLICY_VERSION,
+        policyDigest: RECOVERY_OPERATIONAL_POLICY_DIGEST,
+        reason: 'prior_state_unavailable',
+      });
+      return;
+    }
+    const plan = planRecoveryEvaluation(units, prior.state, {
+      overallCap: dependencies.budget
+        ? Math.max(0, dependencies.budget.limit - dependencies.budget.used)
+        : operational.maxCalls,
+      perTypeCap: {
+        priced_schedule_continuation_attribution:
+          RECOVERY_OPERATIONAL_POLICY.priced_schedule_continuation_attribution.perTypeCallCap
+            ?? operational.maxCalls,
+        pricing_rate_multi_observation_cluster:
+          RECOVERY_OPERATIONAL_POLICY.pricing_rate_multi_observation_cluster.perTypeCallCap ?? 0,
+      },
+      activation: {
+        priced_schedule_continuation_attribution:
+          operational.activationByType.priced_schedule_continuation_attribution,
+        pricing_rate_multi_observation_cluster:
+          operational.activationByType.pricing_rate_multi_observation_cluster,
+      },
+    });
+    console.info('[forgewingOperationalPolicy] recovery evaluation planned', {
+      policyVersion: RECOVERY_OPERATIONAL_POLICY_VERSION,
+      policyDigest: RECOVERY_OPERATIONAL_POLICY_DIGEST,
+      buildIdentity: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+      selected: plan.selected.length,
+      queued: plan.budgetExhausted.length,
+      disabled: plan.disabled.length,
+      previouslyHandled: plan.previouslyHandled.length,
+    });
+    // Reserve every selected slot before starting any provider work. The pure
+    // plan already bounded this count against the remaining shared budget.
+    for (const _unit of plan.selected) dependencies.budget?.tryConsume();
+    await Promise.all([
+      ...plan.disabled.map((unit) => recordRecoveryGenerationOutcome({
+        ...outcomeBase(unit),
+        outcomeCode: 'recovery_disabled',
+        sanitizedReason: 'recovery_disabled',
+        providerInvoked: false,
+      }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome)),
+      ...plan.budgetExhausted.map((unit) => recordRecoveryGenerationOutcome({
+        ...outcomeBase(unit),
+        outcomeCode: 'budget_exhausted',
+        sanitizedReason: 'budget_exhausted',
+        providerInvoked: false,
+      }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome)),
+      ...plan.selected.map(runUnit),
+    ]);
+  };
+  try {
     (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);
+  } catch (error) {
+    console.error('[forgewingRecoveryV2] recovery planning registration failed', {
+      mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -1618,6 +1687,7 @@ export function withForgewingRegionClassificationShadow(
         });
       }
     }
+    if (!isForgewingRegionClassificationEnabled()) return deterministicPayload;
     try {
       const result = await runForgewingRegionClassification(
         forgewingInput(input, organizationId, sourceDocumentId),

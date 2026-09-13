@@ -65,6 +65,7 @@ const RECOVERY_PERSISTENCE_MODULES = new Set([
   'lib/server/forgewingRecoveryReview.ts',
   'lib/server/effectiveRecoveryConfirmations.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',
+  'lib/server/recoveryEvaluationPriorState.ts',
 ]);
 
 /**
@@ -105,7 +106,7 @@ const VISUAL_SOURCE_MODULES = [
 ] as const;
 
 describe('recovery review architecture boundaries', () => {
-  it('keeps recovery tables inside the four persistence seams', () => {
+  it('keeps recovery tables inside the approved persistence and planning seams', () => {
     const offenders = productionFiles().filter(({ relative, text }) =>
       !RECOVERY_PERSISTENCE_MODULES.has(relative)
       && (text.includes(RECOVERY_PROPOSAL_TABLE) || text.includes(RECOVERY_REVIEW_TABLE)));

@@ -13,6 +13,10 @@ export class ForgewingCallBudget {
     return this.#used;
   }
 
+  get limit(): number {
+    return this.#maximum;
+  }
+
   tryConsume(): boolean {
     if (this.#used >= this.#maximum) return false;
     this.#used += 1;

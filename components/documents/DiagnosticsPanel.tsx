@@ -16,6 +16,8 @@ const STATE_LABEL: Record<DocumentDiagnostic['currentState'], string> = {
   unbound: 'Evidence unbound',
   blocked: 'Blocked',
   engineering_attention: 'Engineering attention',
+  deferred: 'Review postponed',
+  not_recovered: 'Not recovered',
   resolved: 'Resolved',
 };
 

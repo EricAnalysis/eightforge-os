@@ -24,7 +24,10 @@ const RECOVERY_OUTCOME_DIAGNOSTIC_CODE = Object.freeze({
 
 export type DiagnosticCurrentState =
   | 'detected' | 'recovery_available' | 'human_review_required' | 'reprocess_required'
-  | 'unbound' | 'blocked' | 'engineering_attention' | 'resolved';
+  | 'unbound' | 'blocked' | 'engineering_attention' | 'deferred' | 'not_recovered'
+  | 'resolved';
+
+const FAILURE_DIAGNOSTIC_SUMMARY_MAX_LENGTH = 1_200;
 
 export type DocumentDiagnostic = FailureDiagnostic & Readonly<{
   currentState: DiagnosticCurrentState;
@@ -117,7 +120,8 @@ function buildDiagnostic(input: Readonly<{
     code: input.code,
     ...registry,
     scope,
-    summary: input.summary?.trim() || registry.summary,
+    summary: (input.summary?.trim() || registry.summary)
+      .slice(0, FAILURE_DIAGNOSTIC_SUMMARY_MAX_LENGTH),
     evidenceRefs: [...input.evidenceRefs],
     sourceIdentity: {
       extractionSnapshotId: input.extractionSnapshotId,
@@ -132,12 +136,14 @@ function buildDiagnostic(input: Readonly<{
     || input.code === 'recovery_source_evidence_unbound'
     || proposal?.sourceEvidenceBinding === 'unbound_identity_incomplete'
     ? 'unbound'
-    : proposal?.reviewState === 'rejected' || proposal?.reviewState === 'deferred'
-      ? 'resolved'
-      : input.code === 'ambiguous_recovery_confirmation'
+    : input.code === 'ambiguous_recovery_confirmation'
         || input.code === 'recovery_closure_failed'
         || proposal?.reviewState === 'ambiguous_authority'
         ? 'blocked'
+      : proposal?.reviewState === 'deferred'
+        ? 'deferred'
+        : proposal?.reviewState === 'rejected'
+          ? 'not_recovered'
         : registry.recoverability === 'engineering_diagnostic'
           ? 'engineering_attention'
           : proposal?.reviewState === 'accepted_awaiting_reprocess'
@@ -256,6 +262,62 @@ function extractionSourceArtifactId(extraction: Record<string, unknown>): string
     : typeof provenance?.source_artifact_id === 'string' ? provenance.source_artifact_id : null;
 }
 
+function trustedCurrentSourceArtifactId(extraction: Record<string, unknown>): string | null {
+  const extractionRoot = record(extraction.extraction);
+  const provenance = record(extractionRoot?.physical_page_provenance_v1);
+  const layers = record(extractionRoot?.content_layers_v1);
+  const observations = record(record(layers?.pdf)?.layout_observations_v1);
+  const observationArtifact = typeof observations?.source_artifact_id === 'string'
+    ? observations.source_artifact_id : null;
+  const provenanceArtifact = typeof provenance?.source_artifact_id === 'string'
+    ? provenance.source_artifact_id : null;
+  if (observationArtifact && provenanceArtifact && observationArtifact !== provenanceArtifact) return null;
+  return observationArtifact ?? provenanceArtifact;
+}
+
+function extractionPageRepresentationDigests(extraction: Record<string, unknown>): Map<number, string> {
+  const extractionRoot = record(extraction.extraction);
+  const layers = record(extractionRoot?.content_layers_v1);
+  const observations = record(record(layers?.pdf)?.layout_observations_v1);
+  const digests = new Map<number, string>();
+  const untrustworthyPages = new Set<number>();
+  for (const observation of records(observations?.observations)) {
+    const page = Number(observation.physical_page_number);
+    const metadata = record(observation.metadata);
+    if (!Number.isInteger(page) || page < 1 || untrustworthyPages.has(page)) continue;
+    const digest = metadata?.page_representation_digest;
+    if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)
+      || (digests.has(page) && digests.get(page) !== digest)) {
+      digests.delete(page);
+      untrustworthyPages.add(page);
+      continue;
+    }
+    digests.set(page, digest);
+  }
+  return digests;
+}
+
+function outcomeProposalFor(params: Readonly<{
+  row: Record<string, unknown>;
+  page: number;
+  candidateIds: readonly string[];
+  proposals: readonly RecoveryReviewCandidate[];
+}>): RecoveryReviewCandidate | null {
+  return params.proposals.find((proposal) =>
+    proposal.sourceArtifactId === params.row.source_artifact_id
+    && proposal.physicalPageNumber === params.page
+    && proposal.pageRepresentationDigest === params.row.page_representation_digest
+    && proposal.recoveryType === params.row.recovery_type
+    && (() => {
+      const outcomeIds = [...params.candidateIds].sort((left, right) =>
+        left.localeCompare(right, 'en-US'));
+      const proposalIds = proposal.selectableCandidates.map((candidate) => candidate.candidateId)
+        .sort((left, right) => left.localeCompare(right, 'en-US'));
+      return outcomeIds.length === proposalIds.length
+        && outcomeIds.every((candidateId, index) => candidateId === proposalIds[index]);
+    })()) ?? null;
+}
+
 function proposalAuthorityDiagnostics(params: Readonly<{
   organizationId: string;
   sourceDocumentId: string;
@@ -307,7 +369,7 @@ export async function readDocumentDiagnostics(
     admin.from('document_extractions').select('id, data, created_at').eq('organization_id', query.organizationId)
       .eq('document_id', query.sourceDocumentId).is('field_key', null),
     admin.from(RECOVERY_GENERATION_OUTCOMES_TABLE)
-      .select('diagnostic_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, outcome_code, sanitized_reason, provider_invoked, candidate_ids, observed_at')
+      .select('diagnostic_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, recovery_type, outcome_code, sanitized_reason, provider_invoked, candidate_ids, observed_at')
       .eq('organization_id', query.organizationId).eq('source_document_id', query.sourceDocumentId),
     admin.from('document_analysis_jobs')
       .select('id, status, error_message, completed_at, created_at')
@@ -322,7 +384,8 @@ export async function readDocumentDiagnostics(
   const document = records(documentRead.data)[0];
   if (!document) return { status: 'ok', diagnostics: [] };
   const extractionRows = records(extractionRead.data).sort((left, right) =>
-    iso(right.created_at).localeCompare(iso(left.created_at)));
+    iso(right.created_at).localeCompare(iso(left.created_at))
+    || String(right.id).localeCompare(String(left.id), 'en-US'));
   const latest = extractionRows[0];
   const latestData = latest ? record(latest.data) : null;
   const proposals = reviewRead.status === 'ok' ? reviewRead.candidates : [];
@@ -338,7 +401,7 @@ export async function readDocumentDiagnostics(
     const item = buildDiagnostic({ code: 'recovery_read_failed',
       organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
-      summary: reviewRead.reason, evidenceRefs: [],
+      evidenceRefs: [],
       extractionSnapshotId: latest ? String(latest.id) : null,
       occurredAt: iso(document.updated_at ?? latest?.created_at) });
     if (item) diagnostics.push(item);
@@ -353,7 +416,7 @@ export async function readDocumentDiagnostics(
       const item = buildDiagnostic({ code: 'recovery_read_failed',
         organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
         sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
-        summary: confirmationRead.reason, evidenceRefs: [],
+        evidenceRefs: [],
         extractionSnapshotId: latest ? String(latest.id) : null,
         occurredAt: iso(document.updated_at ?? latest?.created_at) });
       if (item) diagnostics.push(item);
@@ -380,20 +443,27 @@ export async function readDocumentDiagnostics(
       }
     }
   }
-  const failedJobs = records(jobRead.data).filter((row) => row.status === 'failed'
-    && typeof row.id === 'string' && typeof row.error_message === 'string'
-    && row.error_message.trim());
+  const terminalJobs = records(jobRead.data).filter((row) =>
+    (row.status === 'failed' || row.status === 'completed') && typeof row.id === 'string')
+    .sort((left, right) => iso(right.completed_at ?? right.created_at)
+      .localeCompare(iso(left.completed_at ?? left.created_at))
+      || iso(right.created_at).localeCompare(iso(left.created_at))
+      || (right.status === 'failed' ? 1 : 0) - (left.status === 'failed' ? 1 : 0)
+      || String(right.id).localeCompare(String(left.id), 'en-US'));
+  const latestTerminalJob = terminalJobs[0];
+  const failedJobs = latestTerminalJob?.status === 'failed' ? [latestTerminalJob] : [];
   for (const job of failedJobs) {
     const item = buildDiagnostic({ code: 'document_processing_failed',
       organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
-      summary: String(job.error_message),
+      summary: typeof job.error_message === 'string' && job.error_message.trim()
+        ? job.error_message : undefined,
       evidenceRefs: [{ kind: 'processing_job', jobId: String(job.id) }],
       extractionSnapshotId: null, processingRunId: String(job.id),
       occurredAt: iso(job.completed_at ?? job.created_at) });
     if (item) diagnostics.push(item);
   }
-  if (failedJobs.length === 0 && typeof document.processing_error === 'string'
+  if (terminalJobs.length === 0 && typeof document.processing_error === 'string'
     && document.processing_error.trim()) {
     const item = buildDiagnostic({ code: 'document_processing_failed',
       organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
@@ -402,6 +472,9 @@ export async function readDocumentDiagnostics(
       occurredAt: iso(document.updated_at) });
     if (item) diagnostics.push(item);
   }
+  const currentPageDigests = latestData ? extractionPageRepresentationDigests(latestData) : new Map();
+  const currentOutcomeSourceArtifactId = latestData
+    ? trustedCurrentSourceArtifactId(latestData) : null;
   for (const row of records(outcomeRead.data)) {
     const code = typeof row.outcome_code === 'string'
       ? RECOVERY_OUTCOME_DIAGNOSTIC_CODE[
@@ -413,13 +486,13 @@ export async function readDocumentDiagnostics(
     const refs: DiagnosticEvidenceRef[] = candidateIds.map((candidateId) =>
       ({ kind: 'recovery_candidate', candidateId }));
     const page = Number(row.physical_page_number);
-    const outcomeProposal = proposals.find((proposal) =>
-      proposal.sourceArtifactId === row.source_artifact_id
-      && proposal.physicalPageNumber === page
-      && proposal.pageRepresentationDigest === row.page_representation_digest
-      && proposal.recoveryType === row.recovery_type
-      && (candidateIds.length === 0 || proposal.selectableCandidates.some((candidate) =>
-        candidateIds.includes(candidate.candidateId)))) ?? null;
+    if (currentOutcomeSourceArtifactId
+      && row.source_artifact_id !== currentOutcomeSourceArtifactId) continue;
+    const currentPageDigest = currentPageDigests.get(page);
+    if (currentPageDigest && row.page_representation_digest !== currentPageDigest) continue;
+    const supersedingProposal = outcomeProposalFor({ row, page, candidateIds, proposals });
+    if (supersedingProposal
+      && iso(supersedingProposal.createdAt) > iso(row.observed_at)) continue;
     const item = buildDiagnostic({ code, organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: typeof row.source_artifact_id === 'string' ? row.source_artifact_id : null,
@@ -430,8 +503,7 @@ export async function readDocumentDiagnostics(
       evidenceRefs: refs,
       extractionSnapshotId: typeof row.extraction_snapshot_id === 'string'
         ? row.extraction_snapshot_id : null,
-      occurredAt: iso(row.observed_at),
-      proposal: outcomeProposal });
+      occurredAt: iso(row.observed_at) });
     if (item && item.diagnosticId === row.diagnostic_id) diagnostics.push(item);
   }
   const unique = [...new Map(diagnostics.map((entry) => [entry.diagnosticId, entry])).values()]

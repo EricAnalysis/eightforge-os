@@ -9,12 +9,16 @@ const DOC = '22222222-2222-4222-8222-222222222222';
 const ARTIFACT = '33333333-3333-4333-8333-333333333333';
 const DIGEST = 'a'.repeat(64);
 
-function admin(tables: Record<string, unknown[]>): DiagnosticReadClient {
+function admin(
+  tables: Record<string, unknown[]>,
+  onSelect?: (table: string, columns: string) => void,
+): DiagnosticReadClient {
   return {
     from(table: string) {
       const result = { data: tables[table] ?? [], error: null };
       const chain = {
-        select: () => chain, eq: () => chain, is: () => chain, in: () => chain,
+        select: (columns: string) => { onSelect?.(table, columns); return chain; },
+        eq: () => chain, is: () => chain, in: () => chain,
         order: () => chain, limit: () => chain,
         then: <R>(resolve: (value: typeof result) => R) => Promise.resolve(resolve(result)),
       };
@@ -61,6 +65,16 @@ const proposal = {
   createdAt: '2026-09-12T12:00:00.000Z',
 };
 
+const CANDIDATE_ID = `recovery-candidate-v2-${'d'.repeat(64)}`;
+const selectableCandidate = {
+  candidateId: CANDIDATE_ID,
+  recoveryType: 'priced_schedule_continuation_attribution' as const,
+  targetRowIdentity: 'target-row-1', composedRawText: 'Continuation text',
+  observations: proposal.evidence, targetContext: [], sourceDocumentId: DOC,
+  sourceArtifactId: ARTIFACT, physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+  proposed: true,
+};
+
 describe('document diagnostics read model', () => {
   it('derives source-bound reconstruction diagnostics and links only an existing proposal', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
@@ -82,8 +96,8 @@ describe('document diagnostics read model', () => {
   });
 
   it.each([
-    ['rejected', 'resolved'],
-    ['deferred', 'resolved'],
+    ['rejected', 'not_recovered'],
+    ['deferred', 'deferred'],
     ['accepted_awaiting_reprocess', 'reprocess_required'],
   ] as const)('maps a %s review to %s without mutating authority', async (reviewState, state) => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
@@ -94,6 +108,25 @@ describe('document diagnostics read model', () => {
     expect(result.status === 'ok' && result.diagnostics.find((entry) =>
       entry.code === 'ambiguous_row_assignment')?.currentState).toBe(state);
   });
+
+  it.each(['rejected', 'deferred'] as const)(
+    'does not let a %s review hide a current recovery closure blocker', async (reviewState) => {
+      const withClosureFailure = structuredClone(extraction);
+      Object.assign(withClosureFailure.data.extraction.content_layers_v1.pdf
+        .priced_schedule_reconstruction_v1, { recovery_diagnostics: [{
+          reason: 'recovery_closure_failed', physical_page_number: 7,
+          observation_id: 'obs-continuation',
+        }] });
+      const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC, processing_error: null }],
+          document_extractions: [withClosureFailure], forgewing_recovery_generation_outcomes: [] }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [{ ...proposal,
+          recoveryReason: 'recovery_closure_failed', reviewState }] }),
+      });
+      expect(result.status === 'ok' && result.diagnostics.find((entry) =>
+        entry.code === 'recovery_closure_failed')?.currentState).toBe('blocked');
+    },
+  );
 
   it('requires human review when recovery is possible but no proposal exists', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
@@ -137,6 +170,8 @@ describe('document diagnostics read model', () => {
     expect(result.diagnostics.map((entry) => entry.code)).toEqual(expect.arrayContaining([
       'ambiguous_row_assignment', 'recovery_read_failed',
     ]));
+    const readFailure = result.diagnostics.find((entry) => entry.code === 'recovery_read_failed');
+    expect(readFailure?.summary).not.toContain('review_read_failed');
   });
 
   it('projects incoherent confirmation output from the canonical resolver', async () => {
@@ -205,8 +240,76 @@ describe('document diagnostics read model', () => {
       sourceIdentity: { processingRunId: jobId } });
   });
 
+  it.each([
+    ['failed then completed', [
+      { id: '55555555-5555-4555-8555-555555555551', status: 'failed',
+        error_message: 'old failure', completed_at: '2026-09-12T11:00:00Z' },
+      { id: '55555555-5555-4555-8555-555555555552', status: 'completed',
+        error_message: null, completed_at: '2026-09-12T12:00:00Z' },
+    ], null],
+    ['failed then completed then failed', [
+      { id: '55555555-5555-4555-8555-555555555553', status: 'failed',
+        error_message: 'old failure', completed_at: '2026-09-12T10:00:00Z' },
+      { id: '55555555-5555-4555-8555-555555555554', status: 'completed',
+        error_message: null, completed_at: '2026-09-12T11:00:00Z' },
+      { id: '55555555-5555-4555-8555-555555555555', status: 'failed',
+        error_message: 'current failure', completed_at: '2026-09-12T12:00:00Z' },
+    ], 'current failure'],
+    ['multiple failures then completed', [
+      { id: '55555555-5555-4555-8555-555555555556', status: 'failed',
+        error_message: 'old failure one', completed_at: '2026-09-12T10:00:00Z' },
+      { id: '55555555-5555-4555-8555-555555555557', status: 'failed',
+        error_message: 'old failure two', completed_at: '2026-09-12T11:00:00Z' },
+      { id: '55555555-5555-4555-8555-555555555558', status: 'completed',
+        error_message: null, completed_at: '2026-09-12T12:00:00Z' },
+    ], null],
+  ] as const)('derives current processing state from %s', async (_name, jobs, summary) => {
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: 'stale document error' }],
+        document_extractions: [], forgewing_recovery_generation_outcomes: [],
+        document_analysis_jobs: [...jobs] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    const processingFailures = result.status === 'ok' ? result.diagnostics.filter((entry) =>
+      entry.code === 'document_processing_failed') : [];
+    expect(processingFailures.map((entry) => entry.summary)).toEqual(summary ? [summary] : []);
+  });
+
+  it('keeps a latest failed job blocking when its error text is absent', async () => {
+    const jobId = '55555555-5555-4555-8555-555555555559';
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }], document_extractions: [],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [{
+          id: jobId, status: 'failed', error_message: null,
+          created_at: '2026-09-12T13:00:00Z',
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics[0]).toMatchObject({
+      code: 'document_processing_failed', currentState: 'blocked',
+      evidenceRefs: [{ kind: 'processing_job', jobId }],
+    });
+  });
+
+  it.each([1_200, 1_201, 100_000])(
+    'keeps a blocking processing diagnostic when runtime text has %i characters', async (length) => {
+      const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC, processing_error: 'x'.repeat(length),
+          updated_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
+          forgewing_recovery_generation_outcomes: [] }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      });
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.diagnostics[0]).toMatchObject({
+        code: 'document_processing_failed', currentState: 'blocked',
+      });
+      expect(result.diagnostics[0]?.summary).toHaveLength(Math.min(length, 1_200));
+    },
+  );
+
   it('maps durable producer outcome codes onto the closed diagnostic registry', async () => {
-    const candidateId = `recovery-candidate-v2-${'d'.repeat(64)}`;
+    const candidateId = CANDIDATE_ID;
     const persistedId = diagnosticId({ code: 'recovery_provider_failed', scope: {
       organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
       physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
@@ -225,5 +328,105 @@ describe('document diagnostics read model', () => {
       diagnosticId: persistedId, code: 'recovery_provider_failed',
       summary: 'provider_timeout', currentState: 'detected',
     });
+  });
+
+  it('selects recovery type but does not attach an older proposal to a later outcome', async () => {
+    const selectedColumns = new Map<string, string>();
+    const linkedProposal = { ...proposal, selectableCandidates: [selectableCandidate],
+      createdAt: '2026-09-12T11:00:00Z' };
+    const persistedId = diagnosticId({ code: 'recovery_provider_failed', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId: CANDIDATE_ID }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST,
+          recovery_type: 'priced_schedule_continuation_attribution',
+          outcome_code: 'provider_failed', sanitized_reason: 'provider_timeout',
+          provider_invoked: true, candidate_ids: [CANDIDATE_ID],
+          observed_at: '2026-09-12T12:00:00Z',
+        }] }, (table, columns) => selectedColumns.set(table, columns)),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [linkedProposal] }),
+    });
+    expect(selectedColumns.get('forgewing_recovery_generation_outcomes')).toContain('recovery_type');
+    expect(result.status === 'ok' && result.diagnostics.find((entry) =>
+      entry.code === 'recovery_provider_failed')).toMatchObject({
+        recoveryProposalId: null, currentState: 'detected',
+      });
+  });
+
+  it('suppresses a historical outcome after a later exact proposal exists', async () => {
+    const linkedProposal = { ...proposal, selectableCandidates: [selectableCandidate],
+      createdAt: '2026-09-12T13:00:00Z' };
+    const persistedId = diagnosticId({ code: 'recovery_disabled', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId: CANDIDATE_ID }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST,
+          recovery_type: 'priced_schedule_continuation_attribution', outcome_code: 'recovery_disabled',
+          sanitized_reason: 'recovery_disabled', provider_invoked: false,
+          candidate_ids: [CANDIDATE_ID], observed_at: '2026-09-12T12:00:00Z',
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [linkedProposal] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics.some((entry) =>
+      entry.code === 'recovery_disabled')).toBe(false);
+  });
+
+  it('does not suppress a distinct candidate failure when a later proposal only overlaps it', async () => {
+    const otherCandidateId = `recovery-candidate-v2-${'e'.repeat(64)}`;
+    const overlappingProposal = { ...proposal,
+      selectableCandidates: [selectableCandidate, { ...selectableCandidate,
+        candidateId: otherCandidateId }], createdAt: '2026-09-12T13:00:00Z' };
+    const persistedId = diagnosticId({ code: 'recovery_provider_failed', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId: CANDIDATE_ID }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST,
+          recovery_type: 'priced_schedule_continuation_attribution', outcome_code: 'provider_failed',
+          sanitized_reason: 'provider_error', provider_invoked: true,
+          candidate_ids: [CANDIDATE_ID], observed_at: '2026-09-12T12:00:00Z',
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [overlappingProposal] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics.some((entry) =>
+      entry.code === 'recovery_provider_failed')).toBe(true);
+  });
+
+  it('suppresses an outcome from an older page representation without hiding current failures', async () => {
+    const oldDigest = 'e'.repeat(64);
+    const staleId = diagnosticId({ code: 'recovery_provider_failed', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: oldDigest,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId: CANDIDATE_ID }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: staleId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'old-snapshot', physical_page_number: 7,
+          page_representation_digest: oldDigest,
+          recovery_type: 'priced_schedule_continuation_attribution',
+          outcome_code: 'provider_failed', sanitized_reason: 'provider_error', provider_invoked: true,
+          candidate_ids: [CANDIDATE_ID], observed_at: '2026-09-12T11:00:00Z',
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.diagnostics.some((entry) => entry.code === 'recovery_provider_failed')).toBe(false);
+    expect(result.diagnostics.some((entry) => entry.code === 'ambiguous_row_assignment')).toBe(true);
   });
 });

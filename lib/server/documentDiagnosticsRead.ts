@@ -1,5 +1,6 @@
-import { DiagnosticCodeSchema, FailureDiagnosticSchema,
-  type DiagnosticCode, type DiagnosticEvidenceRef, type FailureDiagnostic }
+import { DiagnosticCodeSchema, DiagnosticRecoveryTypeSchema, FailureDiagnosticSchema,
+  type DiagnosticCode, type DiagnosticEvidenceRef, type DiagnosticRecoveryType,
+  type FailureDiagnostic }
   from '@/lib/diagnostics/failureDiagnostic';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
 import { getFailureRegistryEntry } from '@/lib/diagnostics/failureRegistry';
@@ -10,8 +11,18 @@ import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
 import { resolveEffectiveRecoveryConfirmations }
   from '@/lib/server/effectiveRecoveryConfirmations';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import {
+  recoveryOperationalState,
+  type RecoveryActivation,
+  type RecoveryQualification,
+} from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 
 export const RECOVERY_GENERATION_OUTCOMES_TABLE = 'forgewing_recovery_generation_outcomes';
+export const DIAGNOSTIC_SEVERITY_RANK = Object.freeze({
+  blocking: 0,
+  warning: 1,
+  info: 2,
+} as const);
 const RECOVERY_OUTCOME_DIAGNOSTIC_CODE = Object.freeze({
   provider_failed: 'recovery_provider_failed',
   structured_output_invalid: 'recovery_structured_output_invalid',
@@ -25,7 +36,7 @@ const RECOVERY_OUTCOME_DIAGNOSTIC_CODE = Object.freeze({
 export type DiagnosticCurrentState =
   | 'detected' | 'recovery_available' | 'human_review_required' | 'reprocess_required'
   | 'unbound' | 'blocked' | 'engineering_attention' | 'deferred' | 'not_recovered'
-  | 'resolved';
+  | 'queued_for_later_processing' | 'resolved';
 
 const FAILURE_DIAGNOSTIC_SUMMARY_MAX_LENGTH = 1_200;
 
@@ -33,6 +44,11 @@ export type DocumentDiagnostic = FailureDiagnostic & Readonly<{
   currentState: DiagnosticCurrentState;
   recoveryProposalId: string | null;
   visualEvidence: DiagnosticVisualSourceEvidence | null;
+  recoveryPolicy: Readonly<{
+    qualification: RecoveryQualification;
+    activation: RecoveryActivation;
+    reviewRequired: boolean;
+  }> | null;
 }>;
 
 export type DocumentDiagnosticsResult =
@@ -103,6 +119,7 @@ function buildDiagnostic(input: Readonly<{
   occurredAt: string;
   visualBoxes?: readonly VisualSourceBox[];
   proposal?: RecoveryReviewCandidate | null;
+  recoveryType?: DiagnosticRecoveryType | null;
 }>): DocumentDiagnostic | null {
   const registry = getFailureRegistryEntry(input.code);
   const scope = {
@@ -132,6 +149,15 @@ function buildDiagnostic(input: Readonly<{
   const parsed = FailureDiagnosticSchema.safeParse(candidate);
   if (!parsed.success) return null;
   const proposal = input.proposal ?? null;
+  const operationalType = input.recoveryType ?? registry.recoveryType ?? proposal?.recoveryType ?? null;
+  const recoveryPolicy = operationalType ? (() => {
+    const policy = recoveryOperationalState(operationalType);
+    return {
+      qualification: policy.qualification,
+      activation: policy.activation,
+      reviewRequired: policy.reviewRequired,
+    };
+  })() : null;
   const currentState: DiagnosticCurrentState = input.code === 'confirmed_recovery_unbound'
     || input.code === 'recovery_source_evidence_unbound'
     || proposal?.sourceEvidenceBinding === 'unbound_identity_incomplete'
@@ -146,12 +172,15 @@ function buildDiagnostic(input: Readonly<{
           ? 'not_recovered'
         : registry.recoverability === 'engineering_diagnostic'
           ? 'engineering_attention'
+          : input.code === 'recovery_budget_exhausted'
+            ? 'queued_for_later_processing'
           : proposal?.reviewState === 'accepted_awaiting_reprocess'
             ? 'reprocess_required'
             : proposal?.reviewState === 'pending_review'
-              ? 'recovery_available'
+              ? 'human_review_required'
               : registry.recoverability === 'recoverable_after_human_review'
-                ? proposal ? 'recovery_available' : 'human_review_required'
+                ? recoveryPolicy?.activation !== 'disabled'
+                  ? 'recovery_available' : 'detected'
                 : registry.severity === 'blocking' ? 'blocked' : 'detected';
   const visualEvidence = input.sourceArtifactId && input.physicalPageNumber
     && input.pageRepresentationDigest && input.visualBoxes?.length ? {
@@ -165,7 +194,7 @@ function buildDiagnostic(input: Readonly<{
       boxes: [...input.visualBoxes],
     } : null;
   return { ...parsed.data, currentState, recoveryProposalId: proposal?.proposalId ?? null,
-    visualEvidence };
+    visualEvidence, recoveryPolicy };
 }
 
 function matchingProposal(
@@ -475,7 +504,26 @@ export async function readDocumentDiagnostics(
   const currentPageDigests = latestData ? extractionPageRepresentationDigests(latestData) : new Map();
   const currentOutcomeSourceArtifactId = latestData
     ? trustedCurrentSourceArtifactId(latestData) : null;
+  // "Queued for a later run" is only true until a later run actually evaluates
+  // the unit. Outcome rows are immutable, so a budget deferral is superseded at
+  // read time by a later provider-invoked outcome for the same exact unit.
+  const outcomeUnitKey = (row: Record<string, unknown>) => JSON.stringify([
+    row.source_artifact_id, row.recovery_type, row.page_representation_digest,
+    (Array.isArray(row.candidate_ids) ? row.candidate_ids : [])
+      .filter((id): id is string => typeof id === 'string').sort(),
+  ]);
+  const latestProviderInvokedAt = new Map<string, string>();
   for (const row of records(outcomeRead.data)) {
+    if (row.provider_invoked !== true) continue;
+    const key = outcomeUnitKey(row);
+    const observedAt = iso(row.observed_at);
+    if ((latestProviderInvokedAt.get(key) ?? '') < observedAt) {
+      latestProviderInvokedAt.set(key, observedAt);
+    }
+  }
+  for (const row of records(outcomeRead.data)) {
+    if (row.outcome_code === 'budget_exhausted'
+      && (latestProviderInvokedAt.get(outcomeUnitKey(row)) ?? '') > iso(row.observed_at)) continue;
     const code = typeof row.outcome_code === 'string'
       ? RECOVERY_OUTCOME_DIAGNOSTIC_CODE[
           row.outcome_code as keyof typeof RECOVERY_OUTCOME_DIAGNOSTIC_CODE]
@@ -499,7 +547,7 @@ export async function readDocumentDiagnostics(
       physicalPageNumber: Number.isInteger(page) && page > 0 ? page : null,
       pageRepresentationDigest: typeof row.page_representation_digest === 'string'
         ? row.page_representation_digest : null,
-      summary: typeof row.sanitized_reason === 'string' ? row.sanitized_reason : undefined,
+      recoveryType: DiagnosticRecoveryTypeSchema.safeParse(row.recovery_type).data ?? null,
       evidenceRefs: refs,
       extractionSnapshotId: typeof row.extraction_snapshot_id === 'string'
         ? row.extraction_snapshot_id : null,
@@ -507,7 +555,8 @@ export async function readDocumentDiagnostics(
     if (item && item.diagnosticId === row.diagnostic_id) diagnostics.push(item);
   }
   const unique = [...new Map(diagnostics.map((entry) => [entry.diagnosticId, entry])).values()]
-    .sort((left, right) => left.severity.localeCompare(right.severity)
+    .sort((left, right) => DIAGNOSTIC_SEVERITY_RANK[left.severity]
+      - DIAGNOSTIC_SEVERITY_RANK[right.severity]
       || left.occurredAt.localeCompare(right.occurredAt)
       || left.diagnosticId.localeCompare(right.diagnosticId));
   return { status: 'ok', diagnostics: unique };

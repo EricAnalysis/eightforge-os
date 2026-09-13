@@ -110,7 +110,7 @@ describe('Forgewing runtime configuration', () => {
     expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(false);
 
     vi.stubEnv('FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED', '1');
-    expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(true);
+    expect(isForgewingPricingRateClusterRecoveryEnabled()).toBe(false);
   });
 
   it('uses dedicated bounded repository-plan settings behind both gates', () => {

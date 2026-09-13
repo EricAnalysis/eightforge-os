@@ -16,6 +16,8 @@ vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => null }));
 
 import { scheduleForgewingPricingRateClusterRecoveryShadow }
   from '@/lib/extraction/persistence/complianceShadow';
+import { buildDurableRecoveryProposal }
+  from '@/lib/server/forgewingRecoveryProposalPersistence';
 
 /**
  * The TTL hazard, closed.
@@ -142,30 +144,25 @@ function recoveryResult() {
   };
 }
 
-async function schedule(dependencies: Record<string, unknown>) {
-  const registered: Array<() => Promise<void>> = [];
-  scheduleForgewingPricingRateClusterRecoveryShadow(shadowInput() as never, {
-    register: (task: () => Promise<void>) => registered.push(task),
-    run: (async () => recoveryResult()) as never,
-    ...dependencies,
-  } as never);
-  expect(registered).toHaveLength(1);
-  await registered[0]!();
+function project(shadowArtifactPath: string | null) {
+  const result = recoveryResult();
+  return buildDurableRecoveryProposal({
+    organizationId: ORG,
+    bundle: result.bundle as never,
+    providerModel: result.metadata.model,
+    promptTemplateId: result.metadata.promptTemplateId,
+    promptTemplateVersion: result.metadata.promptTemplateVersion,
+    shadowArtifactPath,
+  });
 }
 
 describe('durable recovery proposal survives the shadow blob', () => {
-  it('records the durable proposal alongside a successful blob', async () => {
-    const persistProposal = vi.fn(async () => ({
-      status: 'persisted' as const, proposalRowId: DOC,
-      proposalDigestSha256: 'd'.repeat(64), inserted: true,
-    }));
-    await schedule({
-      persist: async () => ({ status: 'persisted', path: 'forgewing/shadow/blob.json.gz' }),
-      persistProposal,
-    });
-    expect(persistProposal).toHaveBeenCalledOnce();
-    const written = (persistProposal.mock.calls as unknown as unknown[][])[0]![0] as unknown as Record<string, unknown>;
-    expect(written).toMatchObject({
+  // Phase 16 caps V1 at `disabled`: it is synthetic-only, so the scheduler no
+  // longer reaches the projection for new work. Existing V1 proposals remain
+  // reviewable, so the projection's blob-independence is still sealed here,
+  // directly, instead of through a scheduling path policy now refuses.
+  it('records the durable proposal alongside a successful blob', () => {
+    expect(project('forgewing/shadow/blob.json.gz')).toMatchObject({
       organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ART,
       selectedObservationId: 'rate-1', proposedValue: '$12.00',
       authority: 'non_authoritative', requiresHumanReview: true,
@@ -174,49 +171,35 @@ describe('durable recovery proposal survives the shadow blob', () => {
     });
   });
 
-  it('records the durable proposal even when the blob write fails', async () => {
-    const persistProposal = vi.fn(async () => ({
-      status: 'persisted' as const, proposalRowId: DOC,
-      proposalDigestSha256: 'd'.repeat(64), inserted: true,
-    }));
-    await schedule({
-      persist: async () => ({ status: 'failed', reason: 'upload_failed', warningCode: 'x' }),
-      persistProposal,
-    });
-    expect(persistProposal).toHaveBeenCalledOnce();
+  it('records the durable proposal even when the blob write fails', () => {
     // No blob, and therefore no pointer -- but a fully reviewable proposal.
-    expect(((persistProposal.mock.calls as unknown as unknown[][])[0]![0] as unknown as Record<string, unknown>)
-      .shadowArtifactPath).toBeNull();
+    const durable = project(null);
+    expect(durable).not.toBeNull();
+    expect(durable!.shadowArtifactPath).toBeNull();
   });
 
-  it('marks only the monetary candidates selectable for a later modified review', async () => {
-    const persistProposal = vi.fn(async () => ({
-      status: 'persisted' as const, proposalRowId: DOC,
-      proposalDigestSha256: 'd'.repeat(64), inserted: true,
-    }));
-    await schedule({
-      persist: async () => ({ status: 'persisted', path: 'forgewing/shadow/blob.json.gz' }),
-      persistProposal,
-    });
-    const written = (persistProposal.mock.calls as unknown as unknown[][])[0]![0] as unknown as {
+  it('marks only the monetary candidates selectable for a later modified review', () => {
+    const durable = project('forgewing/shadow/blob.json.gz') as unknown as {
       evidence: Array<{ observationId: string; eligible: boolean }>;
     };
-    expect(written.evidence.filter((entry) => entry.eligible).map((entry) => entry.observationId))
+    expect(durable.evidence.filter((entry) => entry.eligible).map((entry) => entry.observationId))
       .toEqual(['rate-1', 'rate-2']);
   });
 
-  it('does not write a durable proposal when no review is required', async () => {
+  it('writes no new V1 proposal even when requested, because V1 is synthetic-only', async () => {
+    const run = vi.fn(async () => recoveryResult());
+    const persist = vi.fn();
     const persistProposal = vi.fn();
+    const persistOutcome = vi.fn(async () => ({ status: 'persisted' as const,
+      outcomeRowId: 'row', diagnosticId: 'd'.repeat(64), inserted: true }));
     const registered: Array<() => Promise<void>> = [];
     scheduleForgewingPricingRateClusterRecoveryShadow(shadowInput() as never, {
       register: (task: () => Promise<void>) => registered.push(task),
-      run: (async () => ({
-        status: 'deterministic_validation_failed', reason: 'proposal_value_validation_failed',
-        metadata: recoveryResult().metadata,
-      })) as never,
-      persistProposal: persistProposal as never,
+      run, persist, persistProposal, persistOutcome,
     } as never);
-    await registered[0]!();
+    for (const task of registered) await task();
+    expect(run).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
     expect(persistProposal).not.toHaveBeenCalled();
   });
 });

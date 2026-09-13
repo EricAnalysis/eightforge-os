@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 import {
@@ -13,6 +13,12 @@ const config = {
   maxCalls: 1,
   maxOutputTokens: 800,
 } as const;
+
+beforeEach(() => {
+  vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+  vi.stubEnv('FORGEWING_REGION_CLASSIFICATION_ENABLED', '1');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 function box(y0 = 0.1) {
   return {
@@ -79,6 +85,44 @@ describe('Forgewing region classification', () => {
     });
     expect(result).toEqual({ status: 'skipped', reason: 'forgewing_disabled' });
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('makes no call when only the master gate is enabled', async () => {
+    const provider = vi.fn();
+    const result = await runForgewingRegionClassification(input(), {
+      config,
+      env: { FORGEWING_SHADOW_ENABLED: '1' },
+      provider,
+    });
+    expect(result).toEqual({ status: 'skipped', reason: 'forgewing_disabled' });
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('fails a malformed sub-gate closed and emits a structured warning', async () => {
+    const provider = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const result = await runForgewingRegionClassification(input(), {
+      config,
+      env: {
+        FORGEWING_SHADOW_ENABLED: '1',
+        FORGEWING_REGION_CLASSIFICATION_ENABLED: 'true',
+      },
+      provider,
+    });
+    expect(result).toEqual({ status: 'skipped', reason: 'forgewing_disabled' });
+    expect(provider).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[forgewingOperationalPolicy] configuration warning',
+      expect.objectContaining({
+        context: 'region_classification_runner',
+        warnings: expect.arrayContaining([
+          expect.objectContaining({
+            reason: 'malformed_boolean', setting: 'region_classification_gate',
+          }),
+        ]),
+      }),
+    );
+    warn.mockRestore();
   });
 
   it('builds a validated non-authoritative proposal from known evidence IDs', async () => {

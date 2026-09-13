@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildRecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
@@ -19,8 +19,19 @@ const candidate = buildRecoveryCandidateV2({
 })!;
 const input = { organizationId: '33333333-3333-4333-8333-333333333333',
   extractionSnapshotId: 'snapshot-1', candidates: [candidate] };
+const clusterCandidate = buildRecoveryCandidateV2({
+  ...candidate,
+  recoveryType: 'pricing_rate_multi_observation_cluster',
+  targetRowIdentity: 'page_priced_schedule:p3:r2',
+})!;
 const config = { enabled: true, model: 'test-model', timeoutMs: 1000,
   maxCalls: 1, maxOutputTokens: 400 };
+
+beforeEach(() => {
+  vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+  vi.stubEnv('FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED', '1');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe('Recovery V2 candidate recommendation', () => {
   it('selects one pre-built candidate with one provider call', async () => {
@@ -49,6 +60,29 @@ describe('Recovery V2 candidate recommendation', () => {
       { config, enabled: false, provider })).resolves.toMatchObject({ providerCalls: 0 });
     expect(provider).not.toHaveBeenCalled();
   });
+
+  it('does not let a direct caller bypass the cluster qualification ceiling', async () => {
+    const provider = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const result = await runRecoveryCandidateV2Recommendation({
+      ...input, candidates: [clusterCandidate],
+    }, {
+      config, enabled: true, provider,
+      env: {
+        FORGEWING_SHADOW_ENABLED: '1',
+        FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1',
+        FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1',
+      },
+    });
+    expect(result).toMatchObject({ status: 'eligible_not_executed',
+      reason: 'recovery_disabled', providerCalls: 0 });
+    expect(provider).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[forgewingOperationalPolicy] configuration warning',
+      expect.objectContaining({ context: 'recovery_candidate_v2_runner' }),
+    );
+    warn.mockRestore();
+  });
 });
 
 describe('Recovery V2 candidate generation fan-out', () => {
@@ -76,12 +110,10 @@ describe('Recovery V2 candidate generation fan-out', () => {
       && outcome.providerCalls === 0)).toBe(true);
   });
 
-  it('shares one budget across the whole document generation pass', () => {
+  it('allocates provider slots before registering provider work', () => {
     const shadow = readFileSync('lib/extraction/persistence/complianceShadow.ts', 'utf8');
     const dispatcher = shadow.slice(shadow.indexOf('export function scheduleRecoveryCandidateV2Shadow'));
-    // The budget is constructed once, outside the per-unit loop.
-    expect(dispatcher.indexOf('new ForgewingCallBudget'))
-      .toBeLessThan(dispatcher.indexOf('for (const unitCandidates of groups.values())'));
-    expect(dispatcher).toContain('{ budget }');
+    expect(dispatcher.indexOf('planRecoveryEvaluation'))
+      .toBeLessThan(dispatcher.indexOf('plan.selected.map(runUnit)'));
   });
 });

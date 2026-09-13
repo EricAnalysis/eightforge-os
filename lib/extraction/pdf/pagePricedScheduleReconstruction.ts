@@ -296,6 +296,7 @@ export type RecoveryCandidateBuildContext = Readonly<{
   sourceDocumentId: string;
   sourceArtifactId: string;
   pageRepresentationDigestByPage: Readonly<Record<number, string>>;
+  allowedRecoveryTypes?: readonly RecoveryCandidateV2['recoveryType'][];
 }>;
 
 function tokenCenterX(token: PdfToken): number {
@@ -697,6 +698,8 @@ function buildPageRecoveryCandidate(
   }>,
 ): RecoveryCandidateV2 | null {
   if (!context) return null;
+  if (context.allowedRecoveryTypes
+    && !context.allowedRecoveryTypes.includes(input.recoveryType)) return null;
   const pageRepresentationDigest = context.pageRepresentationDigestByPage[page.page_number];
   const evidence = candidateEvidence(input.tokens);
   if (!pageRepresentationDigest || evidence.length !== input.tokens.length) return null;

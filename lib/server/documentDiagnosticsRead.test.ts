@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
-import { readDocumentDiagnostics, type DiagnosticReadClient, type DiagnosticReadQuery }
+import { DIAGNOSTIC_SEVERITY_RANK, readDocumentDiagnostics,
+  type DiagnosticReadClient, type DiagnosticReadQuery }
   from '@/lib/server/documentDiagnosticsRead';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -76,6 +77,37 @@ const selectableCandidate = {
 };
 
 describe('document diagnostics read model', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('uses explicit blocking, warning, info severity order', () => {
+    expect(DIAGNOSTIC_SEVERITY_RANK).toEqual({ blocking: 0, warning: 1, info: 2 });
+  });
+
+  it('orders returned diagnostics as blocking, warning, then info', async () => {
+    const candidateId = CANDIDATE_ID;
+    const persistedId = diagnosticId({ code: 'recovery_disabled', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [{ kind: 'recovery_candidate', candidateId }] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST,
+          recovery_type: 'priced_schedule_continuation_attribution',
+          outcome_code: 'recovery_disabled', sanitized_reason: 'recovery_disabled',
+          provider_invoked: false, candidate_ids: [candidateId],
+          observed_at: '2026-09-12T12:00:00Z',
+        }], document_analysis_jobs: [{
+          id: '55555555-5555-4555-8555-555555555555', status: 'failed',
+          error_message: 'Worker failed', completed_at: '2026-09-12T13:00:00Z',
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics.map((entry) => entry.severity))
+      .toEqual(['blocking', 'warning', 'info']);
+  });
   it('derives source-bound reconstruction diagnostics and links only an existing proposal', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: null }],
@@ -87,7 +119,7 @@ describe('document diagnostics read model', () => {
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]).toMatchObject({
       code: 'ambiguous_row_assignment', summary: 'Continuation text',
-      currentState: 'recovery_available',
+      currentState: 'human_review_required',
       recoveryProposalId: 'forgewing-proposal-recovery-v2-' + 'b'.repeat(64),
       scope: { sourceArtifactId: ARTIFACT, physicalPageNumber: 7,
         pageRepresentationDigest: DIGEST },
@@ -128,14 +160,42 @@ describe('document diagnostics read model', () => {
     },
   );
 
-  it('requires human review when recovery is possible but no proposal exists', async () => {
-    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+  it('does not request human review when no recovery proposal can be active', async () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED', '1');
+    vi.stubEnv('FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED', '1');
+    const clusterExtraction = structuredClone(extraction);
+    clusterExtraction.data.extraction.content_layers_v1.pdf
+      .priced_schedule_reconstruction_v1.pages[0]!.unassigned_lines[0]!.reason =
+        'ambiguous_rate_clusters';
+    const clusterResult = await readDocumentDiagnostics(
+      { organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [clusterExtraction], forgewing_recovery_generation_outcomes: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(clusterResult.status === 'ok' && clusterResult.diagnostics[0]).toMatchObject({
+      code: 'ambiguous_rate_clusters',
+      currentState: 'detected',
+      recoveryPolicy: {
+        qualification: 'synthetic_qualified', activation: 'disabled', reviewRequired: true,
+      },
+    });
+
+    const continuationResult = await readDocumentDiagnostics(
+      { organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: null }],
         document_extractions: [extraction], forgewing_recovery_generation_outcomes: [] }),
       readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
     });
-    expect(result.status === 'ok' && result.diagnostics[0]?.currentState)
-      .toBe('human_review_required');
+    expect(continuationResult.status === 'ok' && continuationResult.diagnostics[0])
+      .toMatchObject({
+        code: 'ambiguous_row_assignment',
+        currentState: 'recovery_available',
+        recoveryPolicy: {
+          qualification: 'corpus_qualified', activation: 'controlled', reviewRequired: true,
+        },
+      });
   });
 
   it('projects ambiguous authority and incomplete evidence binding as durable diagnostics', async () => {
@@ -326,7 +386,8 @@ describe('document diagnostics read model', () => {
     });
     expect(result.status === 'ok' && result.diagnostics[0]).toMatchObject({
       diagnosticId: persistedId, code: 'recovery_provider_failed',
-      summary: 'provider_timeout', currentState: 'detected',
+      summary: 'The recovery provider failed before producing a reviewable result.',
+      currentState: 'detected',
     });
   });
 
@@ -356,6 +417,42 @@ describe('document diagnostics read model', () => {
       entry.code === 'recovery_provider_failed')).toMatchObject({
         recoveryProposalId: null, currentState: 'detected',
       });
+  });
+
+  it('stops reporting a budget deferral as queued once a later run evaluated the unit', async () => {
+    const scope = { organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST };
+    const refs = [{ kind: 'recovery_candidate' as const, candidateId: CANDIDATE_ID }];
+    const row = (code: string, invoked: boolean, observedAt: string) => ({
+      diagnostic_id: diagnosticId({
+        code: code === 'budget_exhausted' ? 'recovery_budget_exhausted' : 'recovery_provider_failed',
+        scope, evidenceRefs: refs,
+      }),
+      source_artifact_id: ARTIFACT, extraction_snapshot_id: `snapshot-${observedAt}`,
+      physical_page_number: 7, page_representation_digest: DIGEST,
+      recovery_type: 'priced_schedule_continuation_attribution', outcome_code: code,
+      sanitized_reason: code === 'budget_exhausted' ? 'budget_exhausted' : 'provider_timeout',
+      provider_invoked: invoked, candidate_ids: [CANDIDATE_ID], observed_at: observedAt,
+    });
+    const read = (outcomes: Record<string, unknown>[]) => readDocumentDiagnostics(
+      { organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC, processing_error: null }],
+          document_extractions: [extraction], forgewing_recovery_generation_outcomes: outcomes }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      });
+    const queued = row('budget_exhausted', false, '2026-09-12T12:00:00Z');
+
+    const stillQueued = await read([queued]);
+    expect(stillQueued.status === 'ok' && stillQueued.diagnostics.find((entry) =>
+      entry.code === 'recovery_budget_exhausted')).toMatchObject({
+        currentState: 'queued_for_later_processing', recommendedNextAction: 'none',
+      });
+
+    const evaluated = await read([queued, row('provider_failed', true, '2026-09-12T13:00:00Z')]);
+    expect(evaluated.status === 'ok' && evaluated.diagnostics
+      .filter((entry) => entry.stage === 'recovery_generation')
+      .map((entry) => entry.code))
+      .toEqual(['recovery_provider_failed']);
   });
 
   it('suppresses a historical outcome after a later exact proposal exists', async () => {

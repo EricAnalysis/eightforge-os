@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
@@ -12,6 +12,18 @@ import {
   buildPagePricedScheduleReconstruction,
   type PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  groupRecoveryEvaluationUnits,
+  planRecoveryEvaluation,
+  recoveryEvaluationUnitIdentity,
+  type RecoveryEvaluationUnit,
+} from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
+import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
+import { scheduleRecoveryCandidateV2Shadow } from '@/lib/extraction/persistence/complianceShadow';
+import {
+  loadRecoveryEvaluationPriorState,
+  type RecoveryEvaluationReadClient,
+} from '@/lib/server/recoveryEvaluationPriorState';
 
 /**
  * Source-backed regression for a priced-schedule layout family that the TDOT
@@ -211,6 +223,276 @@ function cellOf(row: PricedSchedulePage['rows'][number], role: string) {
 }
 
 describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against a real source', () => {
+  it('progresses all thirteen continuation units with mocked budgets 1 and 4', async () => {
+    const { layout } = await loadReconstruction();
+    const pageRepresentationDigestByPage = Object.fromEntries(layout.pages.flatMap((page) => {
+      const digest = page.lines.flatMap((line) => line.tokens)
+        .find((token) => token.observation_identity)?.observation_identity
+        ?.page_representation_digest;
+      return digest ? [[page.page_number, digest]] : [];
+    }));
+    const reconstruction = buildPagePricedScheduleReconstruction({
+      layout,
+      recoveryCandidateBuildContext: {
+        sourceDocumentId: '50000000-0000-4000-8000-000000000106',
+        sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
+        pageRepresentationDigestByPage,
+      },
+    });
+    const candidates = reconstruction.recovery_candidates ?? [];
+    const units = groupRecoveryEvaluationUnits(candidates);
+    expect(candidates).toHaveLength(26);
+    expect(units).toHaveLength(13);
+    expect(units.every((unit) =>
+      unit.recoveryType === 'priced_schedule_continuation_attribution')).toBe(true);
+
+    for (const budget of [1, 4]) {
+      const provider = vi.fn(async (_unit: RecoveryEvaluationUnit) => undefined);
+      const proposedUnitIdentities: string[] = [];
+      let runCount = 0;
+      while (proposedUnitIdentities.length < units.length) {
+        const plan = planRecoveryEvaluation(units, {
+          proposedUnitIdentities,
+          confirmedCandidateIds: [],
+          providerInvokedUnitIdentities: [],
+        }, {
+          overallCap: budget,
+          perTypeCap: {
+            priced_schedule_continuation_attribution: budget,
+            pricing_rate_multi_observation_cluster: 0,
+          },
+          activation: {
+            priced_schedule_continuation_attribution: 'controlled',
+            pricing_rate_multi_observation_cluster: 'disabled',
+          },
+        });
+        expect(plan.selected.length).toBeGreaterThan(0);
+        runCount += 1;
+        for (const unit of plan.selected) {
+          await provider(unit);
+          proposedUnitIdentities.push(recoveryEvaluationUnitIdentity(unit));
+        }
+      }
+      expect(provider).toHaveBeenCalledTimes(13);
+      expect(runCount).toBe(budget === 1 ? 13 : 4);
+    }
+
+    const firstIdentity = recoveryEvaluationUnitIdentity(units[0]!);
+    const secondIdentity = recoveryEvaluationUnitIdentity(units[1]!);
+    const exactProposalStates = planRecoveryEvaluation(units, {
+      // Existing pending, rejected, and deferred proposals all bind the exact
+      // representation and must not be proposed again while it is unchanged.
+      proposedUnitIdentities: [firstIdentity, secondIdentity],
+      confirmedCandidateIds: [units[2]!.candidateIds[0]!],
+      providerInvokedUnitIdentities: [],
+    }, {
+      overallCap: 4,
+      perTypeCap: {
+        priced_schedule_continuation_attribution: 4,
+        pricing_rate_multi_observation_cluster: 0,
+      },
+      activation: {
+        priced_schedule_continuation_attribution: 'controlled',
+        pricing_rate_multi_observation_cluster: 'disabled',
+      },
+    });
+    expect(exactProposalStates.previouslyHandled.map(recoveryEvaluationUnitIdentity))
+      .toEqual([firstIdentity, secondIdentity, recoveryEvaluationUnitIdentity(units[2]!)]);
+
+    const changedDigest = 'b'.repeat(64);
+    const changedRepresentation: RecoveryEvaluationUnit = Object.freeze({
+      ...units[0]!,
+      pageRepresentationDigest: changedDigest,
+      candidateIds: Object.freeze([`recovery-candidate-v2-${changedDigest}`]),
+    });
+    const changedPlan = planRecoveryEvaluation([units[0]!, changedRepresentation], {
+      proposedUnitIdentities: [firstIdentity],
+      confirmedCandidateIds: [],
+      providerInvokedUnitIdentities: [],
+    }, {
+      overallCap: 1,
+      perTypeCap: {
+        priced_schedule_continuation_attribution: 1,
+        pricing_rate_multi_observation_cluster: 0,
+      },
+      activation: {
+        priced_schedule_continuation_attribution: 'controlled',
+        pricing_rate_multi_observation_cluster: 'disabled',
+      },
+    });
+    expect(changedPlan.selected).toEqual([changedRepresentation]);
+
+    const retryTierPlan = planRecoveryEvaluation(units.slice(0, 2), {
+      proposedUnitIdentities: [],
+      confirmedCandidateIds: [],
+      providerInvokedUnitIdentities: [firstIdentity],
+    }, {
+      overallCap: 1,
+      perTypeCap: {
+        priced_schedule_continuation_attribution: 1,
+        pricing_rate_multi_observation_cluster: 0,
+      },
+      activation: {
+        priced_schedule_continuation_attribution: 'controlled',
+        pricing_rate_multi_observation_cluster: 'disabled',
+      },
+    });
+    expect(retryTierPlan.selected[0]!.unitKey).toBe(units[1]!.unitKey);
+
+    const shuffledPlan = planRecoveryEvaluation([...units].reverse(), {
+      proposedUnitIdentities: [], confirmedCandidateIds: [], providerInvokedUnitIdentities: [],
+    }, {
+      overallCap: 4,
+      perTypeCap: {
+        priced_schedule_continuation_attribution: 4,
+        pricing_rate_multi_observation_cluster: 0,
+      },
+      activation: {
+        priced_schedule_continuation_attribution: 'controlled',
+        pricing_rate_multi_observation_cluster: 'disabled',
+      },
+    });
+    expect(shuffledPlan.selected.map((unit) => unit.unitKey))
+      .toEqual(units.slice(0, 4).map((unit) => unit.unitKey));
+  }, 300_000);
+
+  it('progresses the real scheduler across standard runs from durable proposal and outcome state', async () => {
+    // The pure-planner case above proves the ordering rule. This one proves the
+    // wiring: the real scheduler, the real prior-state reader over the rows the
+    // scheduler itself wrote, and repeated standard runs with fresh snapshot
+    // ids -- the exact condition under which proposal identity used to fork.
+    // Only the provider is mocked; nothing here reaches a network or database.
+    const { layout } = await loadReconstruction();
+    const pageRepresentationDigestByPage = Object.fromEntries(layout.pages.flatMap((page) => {
+      const digest = page.lines.flatMap((line) => line.tokens)
+        .find((token) => token.observation_identity)?.observation_identity
+        ?.page_representation_digest;
+      return digest ? [[page.page_number, digest]] : [];
+    }));
+    const sourceDocumentId = '50000000-0000-4000-8000-000000000106';
+    const candidates = buildPagePricedScheduleReconstruction({
+      layout,
+      recoveryCandidateBuildContext: {
+        sourceDocumentId,
+        sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
+        pageRepresentationDigestByPage,
+        allowedRecoveryTypes: ['priced_schedule_continuation_attribution'],
+      },
+    }).recovery_candidates ?? [];
+    expect(groupRecoveryEvaluationUnits(candidates)).toHaveLength(13);
+    const identityOf = (members: readonly RecoveryCandidateV2[]) => recoveryEvaluationUnitIdentity({
+      recoveryType: members[0]!.recoveryType,
+      pageRepresentationDigest: members[0]!.pageRepresentationDigest,
+      candidateIds: members.map((candidate) => candidate.candidateId),
+    });
+
+    async function simulate(maxCalls: number, failOnce: ReadonlySet<string> = new Set()) {
+      const proposals: Record<string, unknown>[] = [];
+      const outcomes: Record<string, unknown>[] = [];
+      const invocations: string[][] = [];
+      const failed = new Set<string>();
+      const admin: RecoveryEvaluationReadClient = {
+        from(table: string) {
+          const rows = table === 'forgewing_recovery_proposals' ? proposals : outcomes;
+          const query: ReturnType<RecoveryEvaluationReadClient['from']> = Object.assign(
+            Promise.resolve({ data: rows.map((row) => ({ ...row })) as unknown, error: null }),
+            { select: () => query, eq: () => query },
+          );
+          return query;
+        },
+      };
+      for (let run = 1; run <= 30; run += 1) {
+        const registered: Array<() => Promise<void>> = [];
+        const called: string[] = [];
+        scheduleRecoveryCandidateV2Shadow({
+          organizationId: '70000000-0000-4000-8000-000000000106',
+          sourceDocumentId,
+          sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
+          extractionSnapshotId: `dn-standard-run-${run}`,
+          pricingRows: [], sourceObservations: [], pricingSourceEligibility: null,
+          recoveryCandidatesV2: candidates,
+          env: {
+            FORGEWING_SHADOW_ENABLED: '1',
+            FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1',
+            FORGEWING_MAX_CALLS: String(maxCalls),
+          },
+        }, {
+          register: (task) => { registered.push(task); },
+          loadPriorState: (query) => loadRecoveryEvaluationPriorState(query, { admin }),
+          run: (async (taskInput: { candidates: readonly RecoveryCandidateV2[] }) => {
+            const identity = identityOf(taskInput.candidates);
+            called.push(identity);
+            if (failOnce.has(identity) && !failed.has(identity)) {
+              failed.add(identity);
+              return { status: 'provider_failed', reason: 'provider_timeout', providerCalls: 1 };
+            }
+            return {
+              status: 'requires_human_review',
+              selectedCandidateId: taskInput.candidates[0]!.candidateId,
+              confidence: 0.9, rationaleCode: 'dn_progression_mock', providerCalls: 1,
+              model: 'mock-model', promptTemplateId: 'mock-prompt', promptTemplateVersion: 'v1',
+            };
+          }) as never,
+          persistProposal: (async (durable: {
+            recoveryType: string; candidates: readonly RecoveryCandidateV2[];
+          }) => {
+            proposals.push({
+              recovery_type: durable.recoveryType,
+              page_representation_digest: durable.candidates[0]!.pageRepresentationDigest,
+              recovery_candidates: durable.candidates,
+            });
+            return { status: 'persisted', proposalDigestSha256: 'f'.repeat(64), inserted: true };
+          }) as never,
+          persistOutcome: (async (outcome: {
+            recoveryType: string; pageRepresentationDigest: string;
+            providerInvoked: boolean; candidateIds: readonly string[];
+          }) => {
+            outcomes.push({
+              recovery_type: outcome.recoveryType,
+              page_representation_digest: outcome.pageRepresentationDigest,
+              provider_invoked: outcome.providerInvoked,
+              candidate_ids: [...outcome.candidateIds],
+            });
+            return { status: 'persisted', outcomeRowId: 'row', diagnosticId: 'd'.repeat(64),
+              inserted: true };
+          }) as never,
+        });
+        for (const task of registered) await task();
+        expect(called.length).toBeLessThanOrEqual(maxCalls);
+        if (called.length === 0) break;
+        invocations.push(called);
+      }
+      const proposedIdentities = proposals.map((row) =>
+        identityOf(row.recovery_candidates as RecoveryCandidateV2[]));
+      return { invocations, proposedIdentities };
+    }
+
+    for (const [budget, expectedRuns] of [[1, 13], [4, 4]] as const) {
+      const { invocations, proposedIdentities } = await simulate(budget);
+      expect(invocations).toHaveLength(expectedRuns);
+      expect(invocations.flat()).toHaveLength(13);
+      expect(new Set(invocations.flat()).size).toBe(13);
+      // One proposal per exact unit across every run: a fresh snapshot id no
+      // longer re-proposes a pending, rejected, or deferred unit, because
+      // suppression binds unit identity (type, page digest, candidate set) and
+      // never the review disposition.
+      expect(proposedIdentities).toHaveLength(13);
+      expect(new Set(proposedIdentities).size).toBe(13);
+    }
+
+    // A provider failure is retried, but only after every never-tried unit.
+    const firstUnit = identityOf(groupRecoveryEvaluationUnits(candidates)[0]!.candidates);
+    const { invocations, proposedIdentities } = await simulate(4, new Set([firstUnit]));
+    const flat = invocations.flat();
+    expect(flat[0]).toBe(firstUnit);
+    const retryIndex = flat.lastIndexOf(firstUnit);
+    expect(retryIndex).toBeGreaterThan(0);
+    expect(new Set(flat.slice(0, retryIndex)).size).toBe(13);
+    expect(flat).toHaveLength(14);
+    expect(new Set(proposedIdentities).size).toBe(13);
+    expect(proposedIdentities).toHaveLength(13);
+  }, 300_000);
+
   it('closes accepted identities while keeping withheld source observations diagnostic-only', async () => {
     const { layout, reconstruction } = await loadReconstruction();
     const layer = buildPdfLayoutObservationsLayer({

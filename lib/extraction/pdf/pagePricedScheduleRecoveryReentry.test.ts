@@ -231,6 +231,18 @@ function continuationCandidates(layout = continuationAmbiguousPageLayout()) {
     candidate.recoveryType === 'priced_schedule_continuation_attribution');
 }
 
+it('admits only policy-allowed recovery types during candidate generation', () => {
+  const generated = buildPagePricedScheduleReconstruction({
+    layout: splitAmbiguousPageLayout(),
+    recoveryCandidateBuildContext: {
+      ...candidateBuildContext,
+      allowedRecoveryTypes: ['priced_schedule_continuation_attribution'],
+    },
+  }).recovery_candidates ?? [];
+  expect(generated.some((candidate) =>
+    candidate.recoveryType === 'pricing_rate_multi_observation_cluster')).toBe(false);
+});
+
 const confirm = (observationId: string, text: string): ConfirmedRateObservation =>
   ({ observation_id: observation(observationId), confirmed_raw_text: text });
 

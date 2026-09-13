@@ -18,6 +18,8 @@ import {
   getForgewingRuntimeConfig,
   type ForgewingRuntimeConfig,
 } from '@/lib/forgewing/runtime/modelConfig';
+import { readRecoveryOperationalConfig }
+  from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 import {
   parseRegionClassificationModelOutput,
   type RegionClassificationModelOutput,
@@ -128,6 +130,7 @@ export type ForgewingRegionClassificationResult =
 
 export type ForgewingRegionClassificationDependencies = Readonly<{
   config?: ForgewingRuntimeConfig;
+  env?: Readonly<Record<string, string | undefined>>;
   provider?: ForgewingProvider;
   budget?: ForgewingCallBudget;
 }>;
@@ -402,7 +405,12 @@ export async function runForgewingRegionClassification(
   dependencies: ForgewingRegionClassificationDependencies = {},
 ): Promise<ForgewingRegionClassificationResult> {
   const config = dependencies.config ?? getForgewingRuntimeConfig();
-  if (!config.enabled) return { status: 'skipped', reason: 'forgewing_disabled' };
+  if (!config.enabled
+    || !readRecoveryOperationalConfig(dependencies.env ?? process.env, {
+      emitWarnings: true, context: 'region_classification_runner',
+    }).regionClassificationEnabled) {
+    return { status: 'skipped', reason: 'forgewing_disabled' };
+  }
 
   const parsed = taskInputSchema.safeParse(rawInput);
   if (!parsed.success) {

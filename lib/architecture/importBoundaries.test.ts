@@ -110,6 +110,16 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   // Forgewing no reach it did not have, and specifically no persistence,
   // no provider, and no authority.
   '@/lib/extraction/recovery/recoveryCandidateV2',
+  // The repo-owned recovery operational policy (Phase 16). Qualification must
+  // be enforced at the runners as well as the scheduler, or a direct future
+  // caller could run a synthetic-only recovery type because env said so -- and
+  // it must be the SAME ceiling the scheduler and candidate generation read, or
+  // the three enforcement points would drift. The module is pure constants plus
+  // a strict env reader; its only dependency is the already-allowlisted hash
+  // module, and recoveryOperationalPolicyBoundaries.test.ts forbids it any
+  // persistence, provider, review, or reprocess reach. It can only narrow
+  // Forgewing, never widen it.
+  '@/lib/extraction/recovery/recoveryOperationalPolicy',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',

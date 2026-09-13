@@ -18,8 +18,25 @@ const STATE_LABEL: Record<DocumentDiagnostic['currentState'], string> = {
   engineering_attention: 'Engineering attention',
   deferred: 'Review postponed',
   not_recovered: 'Not recovered',
+  queued_for_later_processing: 'Queued for later processing',
   resolved: 'Resolved',
 };
+
+function policyLabel(diagnostic: DocumentDiagnostic): string | null {
+  if (!diagnostic.recoveryPolicy) return null;
+  if (diagnostic.currentState === 'human_review_required') return 'Human review required';
+  if (diagnostic.currentState === 'reprocess_required') return 'Reprocess required';
+  if (diagnostic.currentState === 'queued_for_later_processing') {
+    return 'Queued for a later standard processing run';
+  }
+  if (diagnostic.currentState === 'recovery_available') return 'Recovery available';
+  if (diagnostic.recoveryPolicy.activation === 'disabled') {
+    return diagnostic.recoveryPolicy.qualification === 'synthetic_qualified'
+      ? 'Not qualified for production' : 'Recovery not enabled';
+  }
+  return diagnostic.recoveryPolicy.activation === 'controlled'
+    ? 'Controlled activation' : 'Enabled activation';
+}
 
 async function authorizedFetch(input: string): Promise<Response | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -96,15 +113,19 @@ export function DiagnosticsPanel({ documentId }: { documentId: string }) {
             <dt>Severity</dt><dd>{diagnostic.severity}</dd>
             <dt>Recoverability</dt><dd>{diagnostic.recoverability.replaceAll('_', ' ')}</dd>
             <dt>Next</dt><dd>{diagnostic.recommendedNextAction.replaceAll('_', ' ')}</dd>
+            {diagnostic.recoveryPolicy ? <>
+              <dt>Recovery policy</dt><dd>{policyLabel(diagnostic)}</dd>
+              <dt>Qualification</dt>
+              <dd>{diagnostic.recoveryPolicy.qualification.replaceAll('_', ' ')}</dd>
+              <dt>Review</dt><dd>{diagnostic.recoveryPolicy.reviewRequired
+                ? 'Always required' : 'Not required'}</dd>
+            </> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
             {diagnostic.recoveryProposalId ? <a
               href={`#recovery-proposal-${encodeURIComponent(diagnostic.recoveryProposalId)}`}
               className="text-[var(--ef-purple-accent)] underline">Open existing recovery review</a>
-              : diagnostic.recoverability === 'recoverable_after_human_review'
-                ? <span className="text-[var(--ef-warning)]">
-                    Recovery exists for this failure type, but no proposal has been generated.
-                  </span> : null}
+              : null}
             {diagnostic.visualEvidence ? <button type="button"
               className="text-[var(--ef-purple-accent)] underline"
               onClick={() => void toggleEvidence(diagnostic)}>

@@ -117,7 +117,7 @@ function loadPricingRateClusterRecoveryPrompt(): string {
   );
 }
 
-function loadRecoveryCandidateV2Prompt(): string {
+export function loadRecoveryCandidateV2Prompt(): string {
   return readFileSync(new URL('../prompts/recoveryCandidateV2.md', import.meta.url), 'utf8');
 }
 
@@ -135,6 +135,23 @@ export function loadRepositoryPlanGuidancePrompt(): string {
   );
 }
 
+/**
+ * Evaluation-only response metadata. Deliberately excludes content, thinking,
+ * and any reasoning: only what a behavioral measurement needs to account for a
+ * call.
+ */
+export type ForgewingProviderObservation = Readonly<{
+  messageId: string | null;
+  requestId: string | null;
+  returnedModel: string | null;
+  stopReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  latencyMs: number;
+}>;
+
+export type ForgewingProviderObserver = (observation: ForgewingProviderObservation) => void;
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
@@ -149,9 +166,11 @@ async function callClaudeWithStructuredOutput(
     | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
     | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
   detectTruncation = false,
+  observer?: ForgewingProviderObserver,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  const startedAt = performance.now();
   try {
     const message = await getClaudeClient().messages.create({
       model: request.model,
@@ -169,6 +188,19 @@ async function callClaudeWithStructuredOutput(
       signal: controller.signal,
       timeout: request.timeoutMs,
       maxRetries: 0,
+    });
+    // Observed before content handling so a truncated response is still
+    // accounted for. Absent for every production caller.
+    observer?.({
+      messageId: typeof message.id === 'string' ? message.id : null,
+      requestId: typeof (message as { _request_id?: unknown })._request_id === 'string'
+        ? (message as { _request_id: string })._request_id : null,
+      returnedModel: typeof message.model === 'string' ? message.model : null,
+      stopReason: typeof message.stop_reason === 'string' ? message.stop_reason : null,
+      inputTokens: typeof message.usage?.input_tokens === 'number' ? message.usage.input_tokens : null,
+      outputTokens: typeof message.usage?.output_tokens === 'number'
+        ? message.usage.output_tokens : null,
+      latencyMs: performance.now() - startedAt,
     });
     const rawOutput = message.content
       .filter((block) => block.type === 'text')
@@ -236,6 +268,26 @@ export const callClaudeForRecoveryCandidateV2: ForgewingProvider = async (reques
     RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
     true,
   );
+
+/**
+ * Evaluation-only observed variant of callClaudeForRecoveryCandidateV2 (Phase 17).
+ *
+ * Same client, prompt bytes, JSON schema, temperature, zero retries, and
+ * truncation detection as the production provider; the only addition is that
+ * response metadata is reported to the evaluation observer. Production callers
+ * continue to use callClaudeForRecoveryCandidateV2 above.
+ */
+export function createObservedRecoveryCandidateV2EvaluationProvider(
+  observer: ForgewingProviderObserver,
+): ForgewingProvider {
+  return async (request) => callClaudeWithStructuredOutput(
+    request,
+    loadRecoveryCandidateV2Prompt(),
+    RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
+    true,
+    observer,
+  );
+}
 
 export const callClaudeForWorkflowAssessment: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(

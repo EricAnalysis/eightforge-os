@@ -139,13 +139,9 @@ BEGIN
   WHERE organization_id = p_organization_id AND diagnostic_id = p_diagnostic_id;
   IF v_existing.source_document_id IS DISTINCT FROM p_source_document_id
      OR v_existing.source_artifact_id IS DISTINCT FROM p_source_artifact_id
-     OR v_existing.extraction_snapshot_id IS DISTINCT FROM p_extraction_snapshot_id
      OR v_existing.physical_page_number IS DISTINCT FROM p_physical_page_number
      OR v_existing.page_representation_digest IS DISTINCT FROM p_page_representation_digest
-     OR v_existing.recovery_type IS DISTINCT FROM p_recovery_type
      OR v_existing.outcome_code IS DISTINCT FROM p_outcome_code
-     OR v_existing.sanitized_reason IS DISTINCT FROM p_sanitized_reason
-     OR v_existing.provider_invoked IS DISTINCT FROM p_provider_invoked
      OR v_existing.candidate_ids IS DISTINCT FROM p_candidate_ids THEN
     RAISE EXCEPTION 'recovery generation diagnostic identity collision'
       USING ERRCODE = '23505';

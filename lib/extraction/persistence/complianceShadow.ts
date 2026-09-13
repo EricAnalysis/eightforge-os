@@ -1137,8 +1137,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
   }> = {},
 ): void {
   const env = input.env ?? process.env;
-  if (env.FORGEWING_SHADOW_ENABLED !== '1'
-    || env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED !== '1') return;
+  if (env.FORGEWING_SHADOW_ENABLED !== '1') return;
   const candidate = buildEligiblePricingRateClusterRecoveryCandidates(input)[0];
   if (!candidate) {
     console.info('[forgewingRecovery] pricing recovery outcome', {
@@ -1148,6 +1147,27 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     return;
   }
   const pageRepresentationDigest = pricingRecoveryPageRepresentationDigest(input, candidate);
+  if (env.FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED !== '1') {
+    if (pageRepresentationDigest) {
+      const disabledTask = async (): Promise<void> => {
+        await recordRecoveryGenerationOutcome({
+          organizationId: input.organizationId,
+          sourceDocumentId: input.sourceDocumentId,
+          sourceArtifactId: input.sourceArtifactId,
+          extractionSnapshotId: input.extractionSnapshotId,
+          physicalPageNumber: candidate.physicalPageNumber,
+          pageRepresentationDigest,
+          recoveryType: 'pricing_rate_single_observation',
+          outcomeCode: 'recovery_disabled',
+          sanitizedReason: 'recovery_disabled',
+          providerInvoked: false,
+          candidateIds: [],
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+      };
+      (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(disabledTask);
+    }
+    return;
+  }
   const task = async (): Promise<void> => {
     try {
       const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(candidate);
@@ -1266,19 +1286,6 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
       console.error('[forgewingRecovery] non-fatal pricing recovery failure', {
         mode: 'shadow', error: error instanceof Error ? error.message : String(error),
       });
-      if (pageRepresentationDigest) await recordRecoveryGenerationOutcome({
-        organizationId: input.organizationId,
-        sourceDocumentId: input.sourceDocumentId,
-        sourceArtifactId: input.sourceArtifactId,
-        extractionSnapshotId: input.extractionSnapshotId,
-        physicalPageNumber: candidate.physicalPageNumber,
-        pageRepresentationDigest,
-        recoveryType: 'pricing_rate_single_observation',
-        outcomeCode: 'provider_failed',
-        sanitizedReason: sanitizeRecoveryGenerationReason('provider_failed', error),
-        providerInvoked: true,
-        candidateIds: [],
-      }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
     }
   };
   try {
@@ -1310,8 +1317,7 @@ export function scheduleRecoveryCandidateV2Shadow(
   }> = {},
 ): void {
   const env = input.env ?? process.env;
-  if (env.FORGEWING_SHADOW_ENABLED !== '1'
-    || env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED !== '1') return;
+  if (env.FORGEWING_SHADOW_ENABLED !== '1') return;
   // Continuation attribution is qualified against the real DN priced corpus;
   // ambiguous multi-observation pricing-cluster recovery is qualified only
   // against synthetic fixtures. One gate for both recovery types made the
@@ -1322,12 +1328,6 @@ export function scheduleRecoveryCandidateV2Shadow(
   const candidates = (input.recoveryCandidatesV2 ?? []).flatMap((candidate) => {
     const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
     if (!parsed.success) return [];
-    // Dropped before grouping, not inside the per-unit task: a disabled
-    // recovery type must never form an evaluation unit, so it can never
-    // consume a call from the document's shared provider budget and can never
-    // displace a continuation unit the budget would otherwise have served.
-    if (parsed.data.recoveryType === 'pricing_rate_multi_observation_cluster'
-      && !pricingClusterEnabled) return [];
     return [parsed.data];
   });
   const groups = new Map<string, RecoveryCandidateV2[]>();
@@ -1347,9 +1347,8 @@ export function scheduleRecoveryCandidateV2Shadow(
   const budget = dependencies.budget
     ?? new ForgewingCallBudget(getForgewingRuntimeConfig().maxCalls);
   for (const unitCandidates of groups.values()) {
-    const task = async () => {
-      const representative = unitCandidates[0]!;
-      const base = {
+    const representative = unitCandidates[0]!;
+    const base = {
         organizationId: input.organizationId,
         sourceDocumentId: representative.sourceDocumentId,
         sourceArtifactId: representative.sourceArtifactId,
@@ -1358,7 +1357,20 @@ export function scheduleRecoveryCandidateV2Shadow(
         pageRepresentationDigest: representative.pageRepresentationDigest,
         recoveryType: representative.recoveryType,
         candidateIds: unitCandidates.map((candidate) => candidate.candidateId),
-      } as const;
+    } as const;
+    const disabled = env.FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED !== '1'
+      || (representative.recoveryType === 'pricing_rate_multi_observation_cluster'
+        && !pricingClusterEnabled);
+    const task = async () => {
+      if (disabled) {
+        await recordRecoveryGenerationOutcome({
+          ...base,
+          outcomeCode: 'recovery_disabled',
+          sanitizedReason: 'recovery_disabled',
+          providerInvoked: false,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+        return;
+      }
       try {
         const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
           organizationId: input.organizationId,
@@ -1405,11 +1417,11 @@ export function scheduleRecoveryCandidateV2Shadow(
           }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
         }
       } catch (error) {
-        await recordRecoveryGenerationOutcome({
-          ...base, outcomeCode: 'provider_failed',
-          sanitizedReason: sanitizeRecoveryGenerationReason('provider_failed', error),
-          providerInvoked: true,
-        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+        console.error('[forgewingRecoveryV2] non-fatal recovery task failure', {
+          mode: 'shadow', error: error instanceof Error ? error.message : String(error),
+          recoveryType: representative.recoveryType,
+          physicalPageNumber: representative.physicalPageNumber,
+        });
       }
     };
     (dependencies.register ?? ((backgroundTask) => after(backgroundTask)))(task);

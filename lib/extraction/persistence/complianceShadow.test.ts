@@ -332,6 +332,39 @@ describe('compliance shadow dual-write isolation', () => {
     }));
   });
 
+  it('records a V1 disabled outcome without invoking the provider', async () => {
+    const input = pricingRecoveryInput();
+    const persistOutcome = vi.fn(async () => ({ status: 'persisted' as const,
+      outcomeRowId: 'outcome-1', diagnosticId: 'd'.repeat(64), inserted: true }));
+    const run = vi.fn();
+    const registered: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingRateClusterRecoveryShadow({ ...input,
+      env: { FORGEWING_SHADOW_ENABLED: '1' } }, {
+      register: (task) => registered.push(task), run: run as never,
+      persistOutcome: persistOutcome as never,
+    });
+    expect(registered).toHaveLength(1);
+    await registered[0]!();
+    expect(run).not.toHaveBeenCalled();
+    expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcomeCode: 'recovery_disabled', sanitizedReason: 'recovery_disabled',
+      providerInvoked: false,
+    }));
+  });
+
+  it('does not relabel an arbitrary V1 task exception as a provider failure', async () => {
+    const input = pricingRecoveryInput();
+    const persistOutcome = vi.fn();
+    const registered: Array<() => Promise<void>> = [];
+    scheduleForgewingPricingRateClusterRecoveryShadow(input, {
+      register: (task) => registered.push(task),
+      run: vi.fn(async () => { throw new Error('unexpected downstream failure'); }) as never,
+      persistOutcome: persistOutcome as never,
+    });
+    await registered[0]!();
+    expect(persistOutcome).not.toHaveBeenCalled();
+  });
+
   it('fails the recovery candidate set closed on foreign primitive identity', () => {
     const input = pricingRecoveryInput();
     const diagnostics = structuredClone(input.pricingRecoveryDiagnostics);

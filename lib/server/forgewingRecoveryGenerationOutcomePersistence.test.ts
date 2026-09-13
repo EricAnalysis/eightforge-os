@@ -38,6 +38,9 @@ describe('recovery generation outcome persistence', () => {
       })),
     }));
     expect(recoveryGenerationDiagnosticId(base)).toBe(recoveryGenerationDiagnosticId({ ...base }));
+    expect(recoveryGenerationDiagnosticId(base)).toBe(recoveryGenerationDiagnosticId({
+      ...base, extractionSnapshotId: 'later-rerun', sanitizedReason: 'provider_timeout',
+    }));
     expect(recoveryGenerationDiagnosticId({ ...base, candidateIds: [
       `recovery-candidate-v2-${'c'.repeat(64)}`, ...base.candidateIds,
     ] })).toBe(recoveryGenerationDiagnosticId({ ...base, candidateIds: [

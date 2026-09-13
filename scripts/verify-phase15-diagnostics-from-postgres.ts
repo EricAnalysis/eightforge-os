@@ -81,9 +81,16 @@ const outcome: RecoveryGenerationOutcome = {
 };
 const first = await persistForgewingRecoveryGenerationOutcome(outcome, { admin });
 const replay = await persistForgewingRecoveryGenerationOutcome(outcome, { admin });
+const repeatedObservation = await persistForgewingRecoveryGenerationOutcome({
+  ...outcome,
+  extractionSnapshotId: 'phase15-snapshot-rerun',
+  sanitizedReason: 'provider_error',
+}, { admin });
 if (first.status !== 'persisted' || !first.inserted
   || replay.status !== 'persisted' || replay.inserted
-  || first.outcomeRowId !== replay.outcomeRowId) {
+  || repeatedObservation.status !== 'persisted' || repeatedObservation.inserted
+  || first.outcomeRowId !== replay.outcomeRowId
+  || first.outcomeRowId !== repeatedObservation.outcomeRowId) {
   throw new Error('Phase 15 real RPC idempotency failed');
 }
 

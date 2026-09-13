@@ -40,4 +40,3 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, error: 'document_diagnostics_read_failed' }, { status: 500 });
   }
 }
-

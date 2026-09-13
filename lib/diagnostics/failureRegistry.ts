@@ -89,7 +89,7 @@ export const FAILURE_REGISTRY: Readonly<Record<DiagnosticCode, FailureRegistryEn
     document_processing_failed: entry('runtime', 'blocking', 'retryable_runtime_failure', null,
       'reprocess_document', 'Document processing failed before completion.'),
     source_identity_read_failed: entry('runtime', 'warning', 'retryable_runtime_failure', null,
-      'retry_read', 'The source identity could not be read safely.'),
+      'reprocess_document', 'The source identity could not be read safely.'),
     recovery_read_failed: entry('runtime', 'warning', 'retryable_runtime_failure', null,
       'retry_read', 'Recovery state could not be read safely.'),
   } satisfies Record<DiagnosticCode, FailureRegistryEntry>);
@@ -101,4 +101,3 @@ export function getFailureRegistryEntry(code: DiagnosticCode): FailureRegistryEn
 export function diagnosticRegistryCodes(): readonly DiagnosticCode[] {
   return DIAGNOSTIC_CODES;
 }
-

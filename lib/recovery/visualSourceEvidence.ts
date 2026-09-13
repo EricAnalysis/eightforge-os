@@ -1,8 +1,7 @@
 export type VisualHighlightRole =
   | 'candidate_member'
   | 'target_row_context'
-  | 'alternative_candidate'
-  | 'diagnostic_evidence';
+  | 'alternative_candidate';
 
 export type VisualSourceBox = Readonly<{
   observationId: string;

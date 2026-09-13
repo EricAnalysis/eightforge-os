@@ -7,6 +7,8 @@ import type { DiagnosticVisualSourceEvidence, VisualSourceBox }
   from '@/lib/recovery/visualSourceEvidence';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
   from '@/lib/server/forgewingRecoveryReviewRead';
+import { resolveEffectiveRecoveryConfirmations }
+  from '@/lib/server/effectiveRecoveryConfirmations';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const RECOVERY_GENERATION_OUTCOMES_TABLE = 'forgewing_recovery_generation_outcomes';
@@ -77,7 +79,7 @@ function boxes(refs: readonly DiagnosticSourceRef[]): VisualSourceBox[] {
   return refs.flatMap((ref, memberIndex) => ref.observation_id ? [{
     observationId: ref.observation_id,
     rawText: ref.text,
-    role: 'diagnostic_evidence' as const,
+    role: 'candidate_member' as const,
     boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max },
     sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
     memberIndex,
@@ -126,20 +128,24 @@ function buildDiagnostic(input: Readonly<{
   const parsed = FailureDiagnosticSchema.safeParse(candidate);
   if (!parsed.success) return null;
   const proposal = input.proposal ?? null;
-  const currentState: DiagnosticCurrentState = proposal?.sourceEvidenceBinding === 'unbound_identity_incomplete'
+  const currentState: DiagnosticCurrentState = input.code === 'confirmed_recovery_unbound'
+    || input.code === 'recovery_source_evidence_unbound'
+    || proposal?.sourceEvidenceBinding === 'unbound_identity_incomplete'
     ? 'unbound'
-    : proposal?.reviewState === 'accepted_awaiting_reprocess'
-      ? 'reprocess_required'
-      : proposal?.reviewState === 'ambiguous_authority'
+    : proposal?.reviewState === 'rejected' || proposal?.reviewState === 'deferred'
+      ? 'resolved'
+      : input.code === 'ambiguous_recovery_confirmation'
+        || input.code === 'recovery_closure_failed'
+        || proposal?.reviewState === 'ambiguous_authority'
         ? 'blocked'
-        : proposal?.reviewState === 'pending_review'
-          ? 'human_review_required'
-          : proposal?.reviewState === 'rejected' || proposal?.reviewState === 'deferred'
-            ? 'blocked'
-            : registry.recoverability === 'recoverable_after_human_review'
-              ? proposal ? 'recovery_available' : 'human_review_required'
-              : registry.recoverability === 'engineering_diagnostic'
-                ? 'engineering_attention'
+        : registry.recoverability === 'engineering_diagnostic'
+          ? 'engineering_attention'
+          : proposal?.reviewState === 'accepted_awaiting_reprocess'
+            ? 'reprocess_required'
+            : proposal?.reviewState === 'pending_review'
+              ? 'recovery_available'
+              : registry.recoverability === 'recoverable_after_human_review'
+                ? proposal ? 'recovery_available' : 'human_review_required'
                 : registry.severity === 'blocking' ? 'blocked' : 'detected';
   const visualEvidence = input.sourceArtifactId && input.physicalPageNumber
     && input.pageRepresentationDigest && input.visualBoxes?.length ? {
@@ -240,17 +246,62 @@ function reconstructionDiagnostics(params: Readonly<{
   return output;
 }
 
+function extractionSourceArtifactId(extraction: Record<string, unknown>): string | null {
+  const extractionRoot = record(extraction.extraction);
+  const provenance = record(extractionRoot?.physical_page_provenance_v1);
+  const layers = record(extractionRoot?.content_layers_v1);
+  const observations = record(record(layers?.pdf)?.layout_observations_v1);
+  return typeof observations?.source_artifact_id === 'string'
+    ? observations.source_artifact_id
+    : typeof provenance?.source_artifact_id === 'string' ? provenance.source_artifact_id : null;
+}
+
+function proposalAuthorityDiagnostics(params: Readonly<{
+  organizationId: string;
+  sourceDocumentId: string;
+  extractionSnapshotId: string | null;
+  proposals: readonly RecoveryReviewCandidate[];
+}>): DocumentDiagnostic[] {
+  return params.proposals.flatMap((proposal) => {
+    const codes: DiagnosticCode[] = [
+      ...(proposal.reviewState === 'ambiguous_authority'
+        ? ['ambiguous_recovery_authority' as const] : []),
+      ...(proposal.sourceEvidenceBinding === 'unbound_identity_incomplete'
+        ? ['recovery_source_evidence_unbound' as const] : []),
+    ];
+    if (!proposal.sourceArtifactId || !proposal.pageRepresentationDigest) return [];
+    const refs: DiagnosticEvidenceRef[] = [
+      { kind: 'recovery_proposal', proposalId: proposal.proposalId,
+        proposalDigestSha256: proposal.proposalDigestSha256 },
+      ...(proposal.latestReview
+        ? [{ kind: 'recovery_review' as const, reviewId: proposal.latestReview.reviewId,
+            reviewVersion: proposal.latestReview.reviewVersion }]
+        : []),
+    ];
+    return codes.flatMap((code) => {
+      const diagnostic = buildDiagnostic({ code, organizationId: params.organizationId,
+        sourceDocumentId: params.sourceDocumentId, sourceArtifactId: proposal.sourceArtifactId,
+        physicalPageNumber: proposal.physicalPageNumber,
+        pageRepresentationDigest: proposal.pageRepresentationDigest,
+        evidenceRefs: refs, extractionSnapshotId: params.extractionSnapshotId,
+        occurredAt: proposal.latestReview?.createdAt ?? proposal.createdAt, proposal });
+      return diagnostic ? [diagnostic] : [];
+    });
+  });
+}
+
 export async function readDocumentDiagnostics(
   query: Readonly<{ organizationId: string; sourceDocumentId: string }>,
   dependencies: Readonly<{
     admin?: DiagnosticReadClient | null;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
+    resolveRecoveryConfirmations?: typeof resolveEffectiveRecoveryConfirmations;
   }> = {},
 ): Promise<DocumentDiagnosticsResult> {
   const admin = dependencies.admin === undefined
     ? getSupabaseAdmin() as unknown as DiagnosticReadClient | null : dependencies.admin;
   if (!admin) return { status: 'not_configured' };
-  const [documentRead, extractionRead, outcomeRead, reviewRead] = await Promise.all([
+  const [documentRead, extractionRead, outcomeRead, jobRead, reviewRead] = await Promise.all([
     admin.from('documents').select('id, processing_error, updated_at').eq('organization_id', query.organizationId)
       .eq('id', query.sourceDocumentId),
     admin.from('document_extractions').select('id, data, created_at').eq('organization_id', query.organizationId)
@@ -258,10 +309,13 @@ export async function readDocumentDiagnostics(
     admin.from(RECOVERY_GENERATION_OUTCOMES_TABLE)
       .select('diagnostic_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, outcome_code, sanitized_reason, provider_invoked, candidate_ids, observed_at')
       .eq('organization_id', query.organizationId).eq('source_document_id', query.sourceDocumentId),
+    admin.from('document_analysis_jobs')
+      .select('id, status, error_message, completed_at, created_at')
+      .eq('organization_id', query.organizationId).eq('document_id', query.sourceDocumentId),
     (dependencies.readRecoveryQueue ?? readRecoveryReviewQueue)({ organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId }, { admin: admin as never }),
   ]);
-  if (documentRead.error || extractionRead.error || outcomeRead.error || reviewRead.status === 'read_failed') {
+  if (documentRead.error || extractionRead.error || outcomeRead.error || jobRead.error) {
     return { status: 'read_failed', reason: 'document_diagnostics_read_failed' };
   }
   if (reviewRead.status === 'not_configured') return { status: 'not_configured' };
@@ -270,12 +324,77 @@ export async function readDocumentDiagnostics(
   const extractionRows = records(extractionRead.data).sort((left, right) =>
     iso(right.created_at).localeCompare(iso(left.created_at)));
   const latest = extractionRows[0];
-  const diagnostics = latest && record(latest.data)
+  const latestData = latest ? record(latest.data) : null;
+  const proposals = reviewRead.status === 'ok' ? reviewRead.candidates : [];
+  const diagnostics = latest && latestData
     ? reconstructionDiagnostics({ organizationId: query.organizationId,
-        sourceDocumentId: query.sourceDocumentId, extraction: record(latest.data)!,
+        sourceDocumentId: query.sourceDocumentId, extraction: latestData,
         extractionSnapshotId: String(latest.id), occurredAt: iso(latest.created_at),
-        proposals: reviewRead.candidates }) : [];
-  if (typeof document.processing_error === 'string' && document.processing_error.trim()) {
+        proposals }) : [];
+  diagnostics.push(...proposalAuthorityDiagnostics({ organizationId: query.organizationId,
+    sourceDocumentId: query.sourceDocumentId,
+    extractionSnapshotId: latest ? String(latest.id) : null, proposals }));
+  if (reviewRead.status === 'read_failed') {
+    const item = buildDiagnostic({ code: 'recovery_read_failed',
+      organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
+      sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
+      summary: reviewRead.reason, evidenceRefs: [],
+      extractionSnapshotId: latest ? String(latest.id) : null,
+      occurredAt: iso(document.updated_at ?? latest?.created_at) });
+    if (item) diagnostics.push(item);
+  }
+  const sourceArtifactId = latestData ? extractionSourceArtifactId(latestData) : null;
+  if (reviewRead.status === 'ok' && sourceArtifactId) {
+    const confirmationRead = await (dependencies.resolveRecoveryConfirmations
+      ?? resolveEffectiveRecoveryConfirmations)({ organizationId: query.organizationId,
+        sourceDocumentId: query.sourceDocumentId, sourceArtifactId },
+      { admin: admin as never });
+    if (confirmationRead.status === 'read_failed') {
+      const item = buildDiagnostic({ code: 'recovery_read_failed',
+        organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
+        sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
+        summary: confirmationRead.reason, evidenceRefs: [],
+        extractionSnapshotId: latest ? String(latest.id) : null,
+        occurredAt: iso(document.updated_at ?? latest?.created_at) });
+      if (item) diagnostics.push(item);
+    } else if (confirmationRead.status === 'ok') {
+      for (const authority of confirmationRead.diagnostics) {
+        if (authority.code === 'ambiguous_recovery_authority') continue;
+        const proposal = proposals.find((entry) => entry.proposalId === authority.proposalId);
+        if (!proposal?.sourceArtifactId || !proposal.pageRepresentationDigest) continue;
+        const refs: DiagnosticEvidenceRef[] = [
+          { kind: 'recovery_proposal', proposalId: authority.proposalId,
+            proposalDigestSha256: authority.proposalDigestSha256 },
+          ...(authority.reviewId && proposal.latestReview?.reviewId === authority.reviewId
+            ? [{ kind: 'recovery_review' as const, reviewId: authority.reviewId,
+                reviewVersion: proposal.latestReview.reviewVersion }] : []),
+        ];
+        const item = buildDiagnostic({ code: authority.code,
+          organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
+          sourceArtifactId: proposal.sourceArtifactId,
+          physicalPageNumber: proposal.physicalPageNumber,
+          pageRepresentationDigest: proposal.pageRepresentationDigest,
+          evidenceRefs: refs, extractionSnapshotId: latest ? String(latest.id) : null,
+          occurredAt: proposal.latestReview?.createdAt ?? proposal.createdAt, proposal });
+        if (item) diagnostics.push(item);
+      }
+    }
+  }
+  const failedJobs = records(jobRead.data).filter((row) => row.status === 'failed'
+    && typeof row.id === 'string' && typeof row.error_message === 'string'
+    && row.error_message.trim());
+  for (const job of failedJobs) {
+    const item = buildDiagnostic({ code: 'document_processing_failed',
+      organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
+      sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
+      summary: String(job.error_message),
+      evidenceRefs: [{ kind: 'processing_job', jobId: String(job.id) }],
+      extractionSnapshotId: null, processingRunId: String(job.id),
+      occurredAt: iso(job.completed_at ?? job.created_at) });
+    if (item) diagnostics.push(item);
+  }
+  if (failedJobs.length === 0 && typeof document.processing_error === 'string'
+    && document.processing_error.trim()) {
     const item = buildDiagnostic({ code: 'document_processing_failed',
       organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
@@ -294,6 +413,13 @@ export async function readDocumentDiagnostics(
     const refs: DiagnosticEvidenceRef[] = candidateIds.map((candidateId) =>
       ({ kind: 'recovery_candidate', candidateId }));
     const page = Number(row.physical_page_number);
+    const outcomeProposal = proposals.find((proposal) =>
+      proposal.sourceArtifactId === row.source_artifact_id
+      && proposal.physicalPageNumber === page
+      && proposal.pageRepresentationDigest === row.page_representation_digest
+      && proposal.recoveryType === row.recovery_type
+      && (candidateIds.length === 0 || proposal.selectableCandidates.some((candidate) =>
+        candidateIds.includes(candidate.candidateId)))) ?? null;
     const item = buildDiagnostic({ code, organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: typeof row.source_artifact_id === 'string' ? row.source_artifact_id : null,
@@ -305,7 +431,7 @@ export async function readDocumentDiagnostics(
       extractionSnapshotId: typeof row.extraction_snapshot_id === 'string'
         ? row.extraction_snapshot_id : null,
       occurredAt: iso(row.observed_at),
-      proposal: null });
+      proposal: outcomeProposal });
     if (item && item.diagnosticId === row.diagnostic_id) diagnostics.push(item);
   }
   const unique = [...new Map(diagnostics.map((entry) => [entry.diagnosticId, entry])).values()]

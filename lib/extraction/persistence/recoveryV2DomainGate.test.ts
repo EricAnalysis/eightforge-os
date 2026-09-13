@@ -86,6 +86,8 @@ function scheduleBoth(
     };
   });
   const persistProposal = vi.fn(async () => ({ status: 'persisted' as const }));
+  const persistOutcome = vi.fn(async (_input: unknown) => ({ status: 'persisted' as const,
+    outcomeRowId: 'outcome-1', diagnosticId: 'd'.repeat(64), inserted: true }));
 
   scheduleRecoveryCandidateV2Shadow({
     organizationId: ORGANIZATION_ID,
@@ -101,10 +103,11 @@ function scheduleBoth(
     register: (task) => { registered.push(task); },
     run: run as never,
     persistProposal: persistProposal as never,
+    persistOutcome: persistOutcome as never,
     budget,
   });
 
-  return { registered, run, persistProposal, budget };
+  return { registered, run, persistProposal, persistOutcome, budget };
 }
 
 async function drain(registered: readonly (() => Promise<void>)[]): Promise<void> {
@@ -122,12 +125,16 @@ describe('Recovery V2 domain gate split', () => {
     // The intended production state: continuation attribution is qualified on
     // the real DN priced corpus and runs; split-token cluster recovery is
     // synthetic-only and must not run under the flag that admits continuation.
-    const { registered, run, persistProposal, budget } = scheduleBoth(MASTER_ON);
+    const { registered, run, persistProposal, persistOutcome, budget } = scheduleBoth(MASTER_ON);
     await drain(registered);
 
     expect(scheduledTypes(run)).toEqual(['priced_schedule_continuation_attribution']);
-    expect(registered).toHaveLength(1);
+    expect(registered).toHaveLength(2);
     expect(persistProposal).toHaveBeenCalledTimes(1);
+    expect(persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcomeCode: 'recovery_disabled', providerInvoked: false,
+      candidateIds: [pricingCluster.candidateId],
+    }));
     // One unit served, one call consumed: the withheld pricing cluster took
     // nothing from the document's shared provider budget.
     expect(budget.used).toBe(1);
@@ -173,22 +180,24 @@ describe('Recovery V2 domain gate split', () => {
   });
 
   it('schedules neither recovery type while the master or V2 gate is off', async () => {
-    for (const env of [
-      { FORGEWING_SHADOW_ENABLED: '1' },
-      { FORGEWING_SHADOW_ENABLED: '1', FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' },
-      { FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1' },
-      {
-        FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1',
-        FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1',
-      },
-      {},
-    ]) {
-      const { registered, run, persistProposal, budget } = scheduleBoth(env);
+    for (const [env, expectedPersistenceTasks] of [
+      [{ FORGEWING_SHADOW_ENABLED: '1' }, 2],
+      [{ FORGEWING_SHADOW_ENABLED: '1', FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 2],
+      [{ FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1' }, 0],
+      [{ FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED: '1',
+        FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED: '1' }, 0],
+      [{}, 0],
+    ] as const) {
+      const { registered, run, persistProposal, persistOutcome, budget } = scheduleBoth(env);
       await drain(registered);
 
-      expect(registered).toHaveLength(0);
+      expect(registered).toHaveLength(expectedPersistenceTasks);
       expect(run).not.toHaveBeenCalled();
       expect(persistProposal).not.toHaveBeenCalled();
+      expect(persistOutcome).toHaveBeenCalledTimes(expectedPersistenceTasks);
+      for (const call of persistOutcome.mock.calls) {
+        expect(call[0]).toMatchObject({ outcomeCode: 'recovery_disabled', providerInvoked: false });
+      }
       expect(budget.used).toBe(0);
     }
   });
@@ -223,6 +232,23 @@ describe('Recovery V2 domain gate split', () => {
       providerInvoked: false,
       candidateIds: [continuation.candidateId],
     }));
+  });
+
+  it('does not relabel an arbitrary V2 task exception as a provider failure', async () => {
+    const registered: Array<() => Promise<void>> = [];
+    const persistOutcome = vi.fn();
+    scheduleRecoveryCandidateV2Shadow({
+      organizationId: ORGANIZATION_ID, sourceDocumentId: SOURCE_DOCUMENT_ID,
+      sourceArtifactId: SOURCE_ARTIFACT_ID, extractionSnapshotId: 'snapshot-1',
+      pricingRows: [], sourceObservations: [], pricingSourceEligibility: null,
+      recoveryCandidatesV2: [continuation], env: MASTER_ON,
+    }, {
+      register: (task) => registered.push(task),
+      run: vi.fn(async () => { throw new Error('unexpected downstream failure'); }) as never,
+      persistOutcome: persistOutcome as never,
+    });
+    await drain(registered);
+    expect(persistOutcome).not.toHaveBeenCalled();
   });
 
   it('gates scheduling only: review, re-entry and reconstruction stay gate-free', () => {

@@ -24,7 +24,6 @@ async function authorizedFetch(input: string): Promise<Response | null> {
   if (!session?.access_token) return null;
   return fetch(input, { headers: { Authorization: `Bearer ${session.access_token}` } });
 }
-
 export function DiagnosticsPanel({ documentId }: { documentId: string }) {
   const [diagnostics, setDiagnostics] = useState<readonly DocumentDiagnostic[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -119,4 +118,3 @@ export function DiagnosticsPanel({ documentId }: { documentId: string }) {
     </div>
   </section>;
 }
-

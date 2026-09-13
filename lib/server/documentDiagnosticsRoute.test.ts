@@ -58,4 +58,3 @@ describe('document diagnostics route', () => {
       error: 'document_diagnostics_read_failed' });
   });
 });
-

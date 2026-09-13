@@ -19,7 +19,6 @@ const ROLE_STYLE = {
   candidate_member: { label: 'Candidate fragment', stroke: 'var(--ef-purple-glow)', dash: undefined },
   target_row_context: { label: 'Selected target row', stroke: 'var(--ef-success)', dash: '8 3' },
   alternative_candidate: { label: 'Alternate target row', stroke: 'var(--ef-warning)', dash: '2 4' },
-  diagnostic_evidence: { label: 'Diagnostic evidence', stroke: 'var(--ef-critical)', dash: '5 3' },
 } as const;
 
 export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,

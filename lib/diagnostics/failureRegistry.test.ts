@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { RECOVERY_TYPES_V2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
+import type {
+  PricedScheduleRecoveryDiagnosticReason,
+  PricedScheduleRejectedSpineReason,
+  PricedScheduleUnassignedLineReason,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { RECOVERY_CONFIRMATION_DIAGNOSTICS }
+  from '@/lib/forgewingConfirmedRecovery';
+import { RECOVERY_GENERATION_OUTCOME_CODES }
+  from '@/lib/server/forgewingRecoveryGenerationOutcomePersistence';
 import {
   DIAGNOSTIC_CODES,
   FailureDiagnosticSchema,
@@ -19,6 +28,26 @@ const scope: DiagnosticScope = {
 };
 
 describe('failure diagnostic registry', () => {
+  it('covers every closed diagnostic emitted by existing reconstruction and recovery producers', () => {
+    type ReconstructionProducerCode = PricedScheduleRejectedSpineReason
+      | PricedScheduleUnassignedLineReason | PricedScheduleRecoveryDiagnosticReason;
+    const reconstructionCodes = [
+      'insufficient_row_structure', 'insufficient_priced_rows', 'outside_table_body',
+      'ambiguous_rate_clusters', 'ambiguous_recovery_confirmation', 'recovery_closure_failed',
+      'inconsistent_row_pitch', 'ambiguous_row_assignment', 'unsupported_trailing_line',
+      'confirmed_recovery_unbound', 'duplicate_recovery_confirmation',
+      'confirmed_recovery_not_applied',
+    ] as const satisfies readonly ReconstructionProducerCode[];
+    const exhaustive: Exclude<ReconstructionProducerCode,
+      (typeof reconstructionCodes)[number]> extends never ? true : never = true;
+    expect(exhaustive).toBe(true);
+    const registryCodes = new Set<string>(DIAGNOSTIC_CODES);
+    expect([...reconstructionCodes, ...RECOVERY_CONFIRMATION_DIAGNOSTICS]
+      .every((code) => registryCodes.has(code))).toBe(true);
+    expect(RECOVERY_GENERATION_OUTCOME_CODES.every((code) =>
+      registryCodes.has(code === 'recovery_disabled' ? code : `recovery_${code}`))).toBe(true);
+  });
+
   it('has exactly one frozen entry for every closed diagnostic code', () => {
     expect(Object.keys(FAILURE_REGISTRY).sort()).toEqual([...DIAGNOSTIC_CODES].sort());
     expect(Object.isFrozen(FAILURE_REGISTRY)).toBe(true);

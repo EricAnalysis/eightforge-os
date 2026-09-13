@@ -23,11 +23,15 @@ import {
   executePhase17Calls,
   PHASE17_EVALUATION_ACTIVATION_ENV,
   Phase17GuardError,
+  phase17ProviderExecution,
+  phase17ResponseIdentityVerified,
   type Phase17ExecutionParams,
 } from '@/lib/evaluation/forgewing/phase17/phase17Execution';
 import { bindPhase17Labels, parsePhase17LabelSet }
   from '@/lib/evaluation/forgewing/phase17/dnContinuationLabels';
 import { buildPhase17CallPlan } from '@/lib/evaluation/forgewing/phase17/phase17Plan';
+import { PHASE17_ACCEPTED_CONTRACT_PINS } from '@/lib/evaluation/forgewing/phase17/phase17Pins';
+import { createObservedRecoveryCandidateV2EvaluationProvider } from '@/lib/forgewing/runtime/client';
 import {
   chooseAbove,
   mockPhase17ProviderFactory,
@@ -48,6 +52,7 @@ const plan = buildPhase17CallPlan(cohort, { systemPrompt: 'prompt', outputSchema
 function params(calls = plan.slice(0, 1), overrides: Partial<Phase17ExecutionParams> = {}): Phase17ExecutionParams {
   return {
     calls, expectedByUnitKey: labels.expectedByUnitKey,
+    expectedPromptSha256: PHASE17_ACCEPTED_CONTRACT_PINS.promptSha256,
     runtimeConfig: PHASE17_TEST_RUNTIME_CONFIG, effectiveMaxOutputTokens: 400,
     maxCalls: calls.length, inputUsdPerMillionTokens: 3, outputUsdPerMillionTokens: 15,
     ...overrides,
@@ -150,12 +155,70 @@ describe('Phase 17 execution through the production task runner', () => {
       projectDurableProposal: buildDurableRecoveryProposalV2,
       createProvider: (observer) => async (request) => {
         observer({ messageId: 'm', requestId: null, returnedModel: 'claude-other', stopReason: 'end_turn',
-          inputTokens: 1, outputTokens: 1, latencyMs: 1 });
+          inputTokens: 1, outputTokens: 1, latencyMs: 1,
+          systemPromptSha256: PHASE17_ACCEPTED_CONTRACT_PINS.promptSha256 });
         const parsed = JSON.parse(request.inputJson);
         return selectionOutput(expectedAboveCandidateId(parsed.candidates));
       },
     });
     expect(result.modelDeviationSequences).toEqual([1]);
+  });
+
+  it('treats a sent system prompt that is not the pinned exact bytes as a contract deviation', async () => {
+    const result = await executePhase17Calls(params(), {
+      projectDurableProposal: buildDurableRecoveryProposalV2,
+      createProvider: (observer) => async (request) => {
+        observer({ messageId: 'm', requestId: 'r', returnedModel: request.model, stopReason: 'end_turn',
+          inputTokens: 1, outputTokens: 1, latencyMs: 1,
+          // For example, the CRLF checkout of the same prompt.
+          systemPromptSha256: 'c'.repeat(64) });
+        return selectionOutput(expectedAboveCandidateId(JSON.parse(request.inputJson).candidates));
+      },
+    });
+    expect(result.contractDeviationSequences).toEqual([1]);
+  });
+
+  it('hands each call its raw evidence as soon as the call completes', async () => {
+    const seen: number[] = [];
+    const counter = { count: 0 };
+    await executePhase17Calls(params(plan.slice(0, 3), {
+      onRecord: (record) => {
+        seen.push(record.sequence);
+        expect(counter.count).toBe(record.sequence);
+      },
+    }), {
+      projectDurableProposal: buildDurableRecoveryProposalV2,
+      createProvider: mockPhase17ProviderFactory(chooseAbove, counter),
+    });
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  describe('provider provenance is derived from the seam, never declared', () => {
+    it('is dry_run without execution, and anthropic_live only for the real observed seam', () => {
+      expect(phase17ProviderExecution('dry_run', undefined)).toBe('dry_run');
+      expect(phase17ProviderExecution('dry_run', mockPhase17ProviderFactory(chooseAbove))).toBe('dry_run');
+      expect(phase17ProviderExecution('provider_enabled', undefined)).toBe('anthropic_live');
+      expect(phase17ProviderExecution('provider_enabled',
+        createObservedRecoveryCandidateV2EvaluationProvider)).toBe('anthropic_live');
+    });
+
+    it('classifies every other factory as injected_mock, even one wrapping the real seam', () => {
+      expect(phase17ProviderExecution('provider_enabled', mockPhase17ProviderFactory(chooseAbove)))
+        .toBe('injected_mock');
+      const wrapped: typeof createObservedRecoveryCandidateV2EvaluationProvider = (observer) =>
+        createObservedRecoveryCandidateV2EvaluationProvider(observer);
+      expect(phase17ProviderExecution('provider_enabled', wrapped)).toBe('injected_mock');
+    });
+
+    it('accepts only Anthropic-shaped response identifiers as live identity', () => {
+      const unit = (messageId: string | null, requestId: string | null) =>
+        ({ provider: { messageId, requestId, returnedModel: null, stopReason: null } }) as never;
+      expect(phase17ResponseIdentityVerified(unit('msg_01XFDUDYJgAACzvnptvVoYEL', 'req_011CRqX7m4yPj6s')))
+        .toBe(true);
+      expect(phase17ResponseIdentityVerified(unit('msg_mock_1', 'req_mock_1'))).toBe(false);
+      expect(phase17ResponseIdentityVerified(unit('msg_01XFDUDYJgAACzvnptvVoYEL', null))).toBe(false);
+      expect(phase17ResponseIdentityVerified(unit(null, null))).toBe(true);
+    });
   });
 
   describe('deterministic-only adversarial candidates never reach the provider', () => {

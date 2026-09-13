@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const messagesCreate = vi.hoisted(() => vi.fn());
@@ -13,6 +16,7 @@ import {
   callClaudeForPricingInterpretationWithEvaluationPrompt,
   callClaudeForRecoveryCandidateV2,
   callClaudeForRegionClassification,
+  buildForgewingStructuredOutputRequest,
   createObservedRecoveryCandidateV2EvaluationProvider,
   loadRecoveryCandidateV2Prompt,
   type ForgewingProviderObservation,
@@ -25,6 +29,7 @@ import {
   loadRepositoryPlanGuidancePrompt,
   normalizeClaudeProviderError,
 } from '@/lib/forgewing/runtime/client';
+import { RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA } from '@/lib/forgewing/runtime/structuredOutput';
 
 describe('Forgewing Claude adapter', () => {
   beforeEach(() => messagesCreate.mockReset());
@@ -75,6 +80,36 @@ describe('Forgewing Claude adapter', () => {
       expect(production![1]).toMatchObject({ timeout: 3_000, maxRetries: 0 });
     });
 
+    it('sends the exact runtime prompt bytes, and reports their digest per request', async () => {
+      messagesCreate.mockResolvedValue(response);
+      const observations: ForgewingProviderObservation[] = [];
+      await callClaudeForRecoveryCandidateV2(request);
+      await createObservedRecoveryCandidateV2EvaluationProvider((value) => {
+        observations.push(value);
+      })(request);
+      const [production, observed] = messagesCreate.mock.calls;
+      const sentProduction = production![0].system as string;
+      const sentObserved = observed![0].system as string;
+      expect(Buffer.from(sentObserved, 'utf8').equals(Buffer.from(sentProduction, 'utf8'))).toBe(true);
+      expect(sentObserved.includes('\r')).toBe(false);
+      const digest = createHash('sha256').update(sentObserved, 'utf8').digest('hex');
+      expect(observations[0]!.systemPromptSha256).toBe(digest);
+      expect(digest).toBe(createHash('sha256')
+        .update(readFileSync('lib/forgewing/prompts/recoveryCandidateV2.md')).digest('hex'));
+    });
+
+    it('builds every provider request through the single request builder', async () => {
+      messagesCreate.mockResolvedValue(response);
+      await callClaudeForRecoveryCandidateV2(request);
+      const built = buildForgewingStructuredOutputRequest(request, loadRecoveryCandidateV2Prompt(),
+        RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA);
+      const [body, options] = messagesCreate.mock.calls[0]!;
+      expect(body).toEqual(built.body);
+      const { signal, ...rest } = options as Record<string, unknown>;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(rest).toEqual(built.options);
+    });
+
     it('returns the same content and reports only accounting metadata', async () => {
       messagesCreate.mockResolvedValue(response);
       const observations: ForgewingProviderObservation[] = [];
@@ -86,7 +121,7 @@ describe('Forgewing Claude adapter', () => {
         returnedModel: 'claude-sonnet-4-6', stopReason: 'end_turn', inputTokens: 1_234,
         outputTokens: 56 });
       expect(Object.keys(observations[0]!).sort()).toEqual(['inputTokens', 'latencyMs', 'messageId',
-        'outputTokens', 'requestId', 'returnedModel', 'stopReason']);
+        'outputTokens', 'requestId', 'returnedModel', 'stopReason', 'systemPromptSha256']);
     });
 
     it('keeps truncation detection and still accounts for the truncated call', async () => {

@@ -31,8 +31,6 @@ import {
   PHASE17_MAX_SPEND_USD_HARD,
   PHASE17_PRODUCTION_TIMEOUT_MS,
   PHASE17_PROGRESSION_COHORT,
-  PHASE17_PROVIDER_SDK_MAX_RETRIES,
-  PHASE17_PROVIDER_TEMPERATURE,
   PHASE17_RECOVERY_TYPE,
   PHASE17_SCORING_VERSION,
   type Phase17EvaluationRun,
@@ -40,16 +38,22 @@ import {
   type Phase17Freeze,
   type Phase17Pins,
   type Phase17ProgressionRunCheck,
+  type Phase17ProviderExecution,
 } from '@/lib/evaluation/forgewing/phase17/phase17Contract';
 import {
   executePhase17Calls,
+  phase17ProviderExecution,
+  phase17ResponseIdentityVerified,
+  type Phase17LocalRawRecord,
   Phase17GuardError,
   type Phase17ExecutionDependencies,
   type Phase17ExecutionResult,
 } from '@/lib/evaluation/forgewing/phase17/phase17Execution';
 import {
   computePhase17ContractPins,
+  exactPromptSha256,
   phase17ContractPinMismatches,
+  phase17PromptHasCarriageReturn,
   PHASE17_ACCEPTED_CONTRACT_PINS,
   type Phase17ContractPins,
 } from '@/lib/evaluation/forgewing/phase17/phase17Pins';
@@ -114,10 +118,13 @@ export type Phase17RunDependencies = Partial<Phase17ExecutionDependencies> & Rea
   computeContractPins?: (repoRoot: string) => Phase17ContractPins;
   acceptedContractPins?: Phase17ContractPins;
   qualificationSourceDigest?: (repoRoot: string) => string;
+  /** TEST ONLY: substitutes the runtime prompt loader to prove CR refusal. */
+  loadPrompt?: () => string;
 }>;
 
 export type Phase17RunOutcome = Readonly<{
   runId: string;
+  providerExecution: Phase17ProviderExecution;
   freeze: Phase17Freeze;
   freezePath: string;
   freezeSha256: string;
@@ -169,12 +176,25 @@ export async function runPhase17ContinuationEvaluation(
   if (!params.labelBytes) fail('labels_missing', 'the human label artifact is required');
   const labels = bindPhase17Labels(parsePhase17LabelSet(params.labelBytes), cohort);
 
+  // ── Exact prompt bytes ───────────────────────────────────────────────────
+  // The provider receives the prompt file's runtime bytes verbatim. A CR means
+  // this checkout would send different bytes than production (LF blobs).
+  const systemPrompt = (dependencies.loadPrompt ?? loadRecoveryCandidateV2Prompt)();
+  if (phase17PromptHasCarriageReturn(systemPrompt)) {
+    fail('prompt_bytes_not_lf', 'the runtime prompt contains CR; check out with LF '
+      + '(lib/forgewing/prompts/** text eol=lf) so evaluation sends production bytes');
+  }
+
   // ── Behavioral contract pins ─────────────────────────────────────────────
   const contractPins = (dependencies.computeContractPins ?? computePhase17ContractPins)(
     params.repoRoot);
   const mismatched = phase17ContractPinMismatches(contractPins,
     dependencies.acceptedContractPins ?? PHASE17_ACCEPTED_CONTRACT_PINS);
   if (mismatched.length > 0) fail('contract_mismatch', mismatched.join(', '));
+  if (contractPins.promptSha256 !== exactPromptSha256(systemPrompt)) {
+    fail('contract_mismatch', 'promptSha256 does not describe the prompt bytes that will be sent');
+  }
+  const providerExecution = phase17ProviderExecution(params.mode, dependencies.createProvider);
 
   // ── Effective production runtime ─────────────────────────────────────────
   const runtimeConfig = params.runtimeConfig ?? getForgewingRuntimeConfig();
@@ -195,7 +215,6 @@ export async function runPhase17ContinuationEvaluation(
   }
 
   // ── Plan, ceilings, spend ────────────────────────────────────────────────
-  const systemPrompt = loadRecoveryCandidateV2Prompt();
   const outputSchemaJson = JSON.stringify(RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA);
   const directCalls = buildPhase17CallPlan(cohort, { systemPrompt, outputSchemaJson });
   const progression = buildPhase17ProgressionCalls(cohort, directCalls.length + 1,
@@ -265,11 +284,14 @@ export async function runPhase17ContinuationEvaluation(
     corpusByteLength: cohort.corpusByteLength,
     labelSetSha256: labels.labelSetSha256,
     model: runtimeConfig.model,
-    temperature: PHASE17_PROVIDER_TEMPERATURE,
-    sdkMaxRetries: PHASE17_PROVIDER_SDK_MAX_RETRIES,
+    // Read back from the production request builder, not written by hand.
+    temperature: contractPins.requestContract.temperature as 0,
+    sdkMaxRetries: contractPins.requestContract.maxRetries as 0,
     timeoutMs: runtimeConfig.timeoutMs,
     maxOutputTokens: effectiveMaxOutputTokens,
     ...contractPins,
+    // Equal to the accepted literal pins: the mismatch gate above already ran.
+    requestContract: contractPins.requestContract as Phase17Pins['requestContract'],
   };
   const runId = `phase17-${hashCanonical({
     evaluationVersion: PHASE17_EVALUATION_VERSION, pins, createdAt, mode: params.mode,
@@ -282,6 +304,7 @@ export async function runPhase17ContinuationEvaluation(
     runId,
     createdAt,
     executionMode: params.mode,
+    providerExecution,
     authority: PHASE17_AUTHORITY,
     promotionAuthorized: false,
     recoveryType: PHASE17_RECOVERY_TYPE,
@@ -324,9 +347,17 @@ export async function runPhase17ContinuationEvaluation(
     contractDeviationSequences: [], modelDeviationSequences: [],
   };
   let progressionRuns: Phase17ProgressionRunCheck[] | null = null;
+  let localRaw: Readonly<{ path: string; sha256: string }> | null = null;
   if (live) {
+    // Paid-call evidence is collected as each call completes and written before
+    // anything else can fail -- including when execution itself throws.
+    const rawRecords: Phase17LocalRawRecord[] = [];
+    let executionCompleted = false;
+    try {
     const measurement = {
       expectedByUnitKey: labels.expectedByUnitKey,
+      expectedPromptSha256: pins.promptSha256,
+      onRecord: (record: Phase17LocalRawRecord) => { rawRecords.push(record); },
       runtimeConfig,
       effectiveMaxOutputTokens,
       inputUsdPerMillionTokens: params.inputUsdPerMillionTokens,
@@ -366,6 +397,11 @@ export async function runPhase17ContinuationEvaluation(
           .map((record) => record.unit.sequence),
       ],
     };
+    executionCompleted = true;
+    } finally {
+      localRaw = writePhase17LocalRaw(params.artifactRoot, runId, rawRecords,
+        executionCompleted ? 'completed' : 'aborted');
+    }
   }
 
   const { result: qualification, units } = evaluatePhase17Qualification({
@@ -387,6 +423,8 @@ export async function runPhase17ContinuationEvaluation(
     contractDeviationSequences: execution.contractDeviationSequences,
     qualificationMutationDetected: qualificationDigest(params.repoRoot) !== qualificationBefore,
     progressionRuns,
+    providerExecution,
+    responseIdentityVerified: execution.units.every(phase17ResponseIdentityVerified),
   });
 
   const costs = units.map((unit) => unit.estimatedCostUsd);
@@ -397,6 +435,7 @@ export async function runPhase17ContinuationEvaluation(
     startedAt,
     finishedAt: new Date().toISOString(),
     executionMode: params.mode,
+    providerExecution,
     authority: PHASE17_AUTHORITY,
     promotionAuthorized: false,
     pins,
@@ -418,10 +457,10 @@ export async function runPhase17ContinuationEvaluation(
     qualification,
     limitations: [...PHASE17_KNOWN_LIMITATIONS],
   };
+  // Raw evidence (if any calls ran) is already on disk; only then the summary.
   const written = writePhase17Summary(params.artifactRoot, summary);
-  const localRaw = live ? writePhase17LocalRaw(params.artifactRoot, runId, execution.raw) : null;
   return {
-    runId, freeze, freezePath: frozen.path, freezeSha256: frozen.sha256,
+    runId, providerExecution, freeze, freezePath: frozen.path, freezeSha256: frozen.sha256,
     summary, summaryPath: written.path, localRawPath: localRaw?.path ?? null,
   };
 }

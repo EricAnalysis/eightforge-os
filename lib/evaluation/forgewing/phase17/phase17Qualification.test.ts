@@ -61,6 +61,8 @@ function baseline(overrides: (unit: number, run: number) => Partial<Phase17Evalu
     authorityWrites: 0,
     effectiveTimeoutMs: 3_000,
     progressionRuns,
+    providerExecution: 'anthropic_live',
+    responseIdentityVerified: true,
   };
 }
 
@@ -74,9 +76,23 @@ describe('Phase 17 qualification thresholds', () => {
       progression: { state: 'passed' } });
   });
 
+  it('lets mocked evidence pass the thresholds but never support a recommendation', () => {
+    const result = evaluate({ ...baseline(), providerExecution: 'injected_mock' });
+    expect(result).toMatchObject({ state: 'passed', providerExecution: 'injected_mock',
+      productionQualificationRecommendable: false, promotionAuthorized: false });
+    expect(result.recommendationBlockers).toEqual(['provider_execution_not_anthropic_live']);
+  });
+
+  it('blocks a live recommendation whose responses lack Anthropic identity', () => {
+    const result = evaluate({ ...baseline(), responseIdentityVerified: false });
+    expect(result.productionQualificationRecommendable).toBe(false);
+    expect(result.recommendationBlockers).toEqual(['provider_response_identity_unverified']);
+  });
+
   it('returns not_run for a dry run', () => {
-    expect(evaluate({ ...baseline(), executionMode: 'dry_run', units: [] })).toMatchObject({
-      state: 'not_run', productionQualificationRecommendable: false, promotionAuthorized: false });
+    expect(evaluate({ ...baseline(), executionMode: 'dry_run', providerExecution: 'dry_run', units: [] }))
+      .toMatchObject({ state: 'not_run', providerExecution: 'dry_run',
+        productionQualificationRecommendable: false, promotionAuthorized: false });
   });
 
   describe('accuracy (majority of three core runs)', () => {

@@ -1,6 +1,11 @@
 import type { RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { PHASE17_APPROVED_MODEL } from '@/lib/evaluation/forgewing/phase17/phase17Contract';
-import type { ForgewingProvider, ForgewingProviderObserver } from '@/lib/forgewing/runtime/client';
+import { sha256Hex } from '@/lib/extraction/domain/hash';
+import {
+  loadRecoveryCandidateV2Prompt,
+  type ForgewingProvider,
+  type ForgewingProviderObserver,
+} from '@/lib/forgewing/runtime/client';
 import type { ForgewingRuntimeConfig } from '@/lib/forgewing/runtime/modelConfig';
 
 /** Mock provider for Phase 17 tests. Reports observations like the real seam; never a network call. */
@@ -38,6 +43,8 @@ export function mockPhase17ProviderFactory(decide: MockDecision, calls: { count:
       inputTokens: 2_000,
       outputTokens: 40,
       latencyMs: 25,
+      // Mirrors the real seam: the digest of the exact system prompt it would send.
+      systemPromptSha256: sha256Hex(loadRecoveryCandidateV2Prompt()),
     });
     return decision.output;
   };

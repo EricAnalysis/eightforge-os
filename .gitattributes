@@ -36,3 +36,14 @@ scripts/evaluation/artifacts/**    -text
 # correct there. Migrations instead require a canonical LF form.
 
 supabase/migrations/**    text eol=lf
+
+# Forgewing prompt files are exact provider request bytes.
+#
+# The prompt loader reads these files from disk and sends them verbatim as the
+# Anthropic system prompt. Under core.autocrlf=true a Windows checkout rewrote
+# them to CRLF, so a local evaluation sent different bytes than production
+# (built from LF blobs). Audit (2026-09-13): all nine committed prompt blobs are
+# pure LF, so "text eol=lf" is a no-op on committed bytes and forces LF on every
+# checkout. Phase 17 pins the exact runtime bytes and refuses a prompt with CR.
+
+lib/forgewing/prompts/**    text eol=lf

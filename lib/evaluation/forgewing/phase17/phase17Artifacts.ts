@@ -17,7 +17,9 @@ import type { Phase17LocalRawRecord } from '@/lib/evaluation/forgewing/phase17/p
  * Layout: <artifactRoot>/<runId>/
  *   freeze.json      commit-safe, written and byte-verified before any provider call
  *   summary.json     commit-safe normalized metrics and qualification result
- *   local/raw.json   provider inputs and raw outputs; gitignored, never committed
+ *   local/raw.json   provider inputs and raw outputs; gitignored, never committed;
+ *                    written after execution (even when it throws) and BEFORE the
+ *                    summary, so paid-call evidence survives a summary failure
  *
  * Every file is write-once (`wx`). Commit-safe artifacts are rejected if any
  * key that could carry source text or provider payload appears at any depth.
@@ -81,12 +83,15 @@ export function writePhase17Summary(artifactRoot: string, summary: Phase17Evalua
 }
 
 export function writePhase17LocalRaw(artifactRoot: string, runId: string,
-  raw: readonly Phase17LocalRawRecord[]): Readonly<{ path: string; sha256: string }> {
+  raw: readonly Phase17LocalRawRecord[], executionStatus: 'completed' | 'aborted',
+): Readonly<{ path: string; sha256: string }> {
   const target = path.join(phase17RunDirectory(artifactRoot, runId), PHASE17_LOCAL_DIRECTORY,
     'raw.json');
   return { path: target, sha256: writeOnce(target, serialize({
     warning: 'LOCAL ONLY. Contains source text and provider payloads. Never commit.',
     runId,
+    // aborted: execution threw; these are the calls that completed before it did.
+    executionStatus,
     records: raw,
   })) };
 }

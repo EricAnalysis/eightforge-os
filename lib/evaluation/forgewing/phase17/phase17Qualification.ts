@@ -4,6 +4,7 @@ import {
   PHASE17_HUMAN_INDETERMINATE,
   PHASE17_PROGRESSION_COHORT,
   type Phase17ProgressionRunCheck,
+  type Phase17ProviderExecution,
   PHASE17_SCORING_VERSION,
   Phase17QualificationResultSchema,
   type Phase17EvaluationUnit,
@@ -39,6 +40,10 @@ export type Phase17QualificationInput = Readonly<{
   qualificationMutationDetected?: boolean;
   /** null when the progression cohort did not execute. */
   progressionRuns?: readonly Phase17ProgressionRunCheck[] | null;
+  /** Derived from the execution seam; only anthropic_live may support a recommendation. */
+  providerExecution: Phase17ProviderExecution;
+  /** Every observed response carried Anthropic-shaped identifiers. */
+  responseIdentityVerified?: boolean;
 }>;
 
 type Band = 'passed' | 'conditionally_passed' | 'failed' | 'not_run';
@@ -111,6 +116,7 @@ export function evaluatePhase17Qualification(
     const result = Phase17QualificationResultSchema.parse({
       scoringVersion: PHASE17_SCORING_VERSION,
       state: 'not_run',
+      providerExecution: input.providerExecution,
       zeroToleranceViolations: [],
       accuracy: { state: 'not_run', determinateUnits: 0, incorrectUnitKeys: [] },
       repeatability: { state: 'not_run', unstableDeterminateUnitKeys: [],
@@ -210,11 +216,17 @@ export function evaluatePhase17Qualification(
     ...(determinate.length === 0 ? ['no_determinate_human_labels'] : []),
     ...(humanIndeterminateUnitKeys.length > 0
       ? ['human_indeterminate_units_require_abstention_capable_contract'] : []),
+    // Mocked or injected evidence can pass the thresholds but can never support
+    // a production qualification recommendation.
+    ...(input.providerExecution === 'anthropic_live' ? [] : ['provider_execution_not_anthropic_live']),
+    ...(input.providerExecution === 'anthropic_live' && input.responseIdentityVerified === false
+      ? ['provider_response_identity_unverified'] : []),
   ];
 
   const result = Phase17QualificationResultSchema.parse({
     scoringVersion: PHASE17_SCORING_VERSION,
     state,
+    providerExecution: input.providerExecution,
     zeroToleranceViolations,
     accuracy: { state: accuracyState, determinateUnits: determinate.length, incorrectUnitKeys },
     repeatability: { state: repeatabilityState, unstableDeterminateUnitKeys,

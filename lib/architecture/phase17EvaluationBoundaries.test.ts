@@ -156,6 +156,37 @@ describe('Phase 17 evaluation boundaries', () => {
     }
   });
 
+  it('checks Forgewing prompts out as exact LF request bytes', () => {
+    expect(read('.gitattributes')).toMatch(/^lib\/forgewing\/prompts\/\*\*[ \t]+text[ \t]+eol=lf[ \t]*\r?$/m);
+    for (const prompt of readdirSync(path.join(ROOT, 'lib/forgewing/prompts'))) {
+      expect(readFileSync(path.join(ROOT, 'lib/forgewing/prompts', prompt)).includes(0x0d), prompt)
+        .toBe(false);
+    }
+  });
+
+  it('derives provider provenance in one place and lets no caller declare it', () => {
+    const declaring = phase17Sources().filter((relative) => /'anthropic_live'/.test(code(relative)));
+    // The closed vocabulary and the single derivation; nothing else may name the live state.
+    expect(declaring.sort()).toEqual([
+      `${PHASE17_LIB}/phase17Contract.ts`,
+      `${PHASE17_LIB}/phase17Execution.ts`,
+      `${PHASE17_LIB}/phase17Qualification.ts`,
+    ]);
+    expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))
+      .toMatch(/input\.providerExecution === 'anthropic_live' \? \[\] : \['provider_execution_not_anthropic_live'\]/);
+    // The explicit command never injects a provider, so its runs are the real seam or nothing.
+    expect(code(`${PHASE17_SCRIPTS}/runPhase17ContinuationEvaluation.ts`)).not.toMatch(/createProvider/);
+  });
+
+  it('writes raw evidence before the summary', () => {
+    const run = code(`${PHASE17_LIB}/phase17Run.ts`);
+    const raw = run.indexOf('writePhase17LocalRaw(');
+    const summary = run.indexOf('writePhase17Summary(params.artifactRoot');
+    expect(raw).toBeGreaterThan(0);
+    expect(summary).toBeGreaterThan(raw);
+    expect(run.slice(run.lastIndexOf('try {', raw), raw)).toContain('} finally {');
+  });
+
   it('ignores raw payloads and labeling workbooks', () => {
     expect(read('.gitignore')).toContain('scripts/evaluation/artifacts/phase17/**/local/');
   });

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { sha256Hex } from '@/lib/extraction/domain/hash';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import {
   COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
@@ -148,50 +149,76 @@ export type ForgewingProviderObservation = Readonly<{
   inputTokens: number | null;
   outputTokens: number | null;
   latencyMs: number;
+  /** sha256 of the exact system prompt string sent in this request. */
+  systemPromptSha256: string;
 }>;
 
 export type ForgewingProviderObserver = (observation: ForgewingProviderObservation) => void;
 
+export type ForgewingStructuredOutputSchema = typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
+  | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
+  | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
+  | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
+  | typeof RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA
+  | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
+  | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA;
+
+// forgewing-request-contract:begin
+/**
+ * The single definition of a Forgewing structured-output Claude request: body
+ * and per-request options except the abort signal. Every provider in this module
+ * sends exactly this; Phase 17 pins this region and derives its recorded request
+ * parameters from it rather than from handwritten constants.
+ */
+export function buildForgewingStructuredOutputRequest(
+  request: ForgewingProviderRequest,
+  prompt: string,
+  schema: ForgewingStructuredOutputSchema,
+) {
+  return {
+    body: {
+      model: request.model,
+      temperature: 0,
+      max_tokens: request.maxOutputTokens,
+      system: prompt,
+      messages: [{ role: 'user' as const, content: request.inputJson }],
+      output_config: {
+        format: {
+          type: 'json_schema' as const,
+          schema,
+        },
+      },
+    },
+    options: {
+      timeout: request.timeoutMs,
+      maxRetries: 0,
+    },
+  };
+}
+
 async function callClaudeWithStructuredOutput(
   request: ForgewingProviderRequest,
   prompt: string,
-  schema: typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
-    | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
-    | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
-    | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
-    | typeof RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA
-    | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
-    | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
+  schema: ForgewingStructuredOutputSchema,
   detectTruncation = false,
   observer?: ForgewingProviderObserver,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
   const startedAt = performance.now();
+  const built = buildForgewingStructuredOutputRequest(request, prompt, schema);
   try {
-    const message = await getClaudeClient().messages.create({
-      model: request.model,
-      temperature: 0,
-      max_tokens: request.maxOutputTokens,
-      system: prompt,
-      messages: [{ role: 'user', content: request.inputJson }],
-      output_config: {
-        format: {
-          type: 'json_schema',
-          schema,
-        },
-      },
-    }, {
+    const message = await getClaudeClient().messages.create(built.body, {
       signal: controller.signal,
-      timeout: request.timeoutMs,
-      maxRetries: 0,
+      ...built.options,
     });
     // Observed before content handling so a truncated response is still
     // accounted for. Absent for every production caller.
     observer?.({
+      systemPromptSha256: sha256Hex(built.body.system),
       messageId: typeof message.id === 'string' ? message.id : null,
       requestId: typeof (message as { _request_id?: unknown })._request_id === 'string'
         ? (message as { _request_id: string })._request_id : null,
@@ -216,6 +243,7 @@ async function callClaudeWithStructuredOutput(
     clearTimeout(timer);
   }
 }
+// forgewing-request-contract:end
 
 export const callClaudeForRegionClassification: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(

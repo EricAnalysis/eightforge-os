@@ -20,6 +20,7 @@ import {
   PHASE17_HUMAN_INDETERMINATE,
   type Phase17EvaluationUnit,
   type Phase17FailureCode,
+  type Phase17ProviderExecution,
 } from '@/lib/evaluation/forgewing/phase17/phase17Contract';
 import { PHASE17_INJECTION_CANARY, type Phase17ExecutableCall }
   from '@/lib/evaluation/forgewing/phase17/phase17Plan';
@@ -87,8 +88,40 @@ export type Phase17ExecutionResult = Readonly<{
 
 export type Phase17ProviderFactory = (observer: ForgewingProviderObserver) => ForgewingProvider;
 
+/**
+ * Provider provenance, derived from the seam itself. There is no way to state
+ * it: any injected factory other than the real observed Anthropic seam is
+ * injected_mock, whatever it returns.
+ */
+export function phase17ProviderExecution(mode: 'dry_run' | 'provider_enabled',
+  createProvider: Phase17ProviderFactory | undefined): Phase17ProviderExecution {
+  if (mode === 'dry_run') return 'dry_run';
+  return createProvider === undefined
+    || createProvider === createObservedRecoveryCandidateV2EvaluationProvider
+    ? 'anthropic_live' : 'injected_mock';
+}
+
+const ANTHROPIC_MESSAGE_ID = /^msg_[A-Za-z0-9]{8,}$/;
+const ANTHROPIC_REQUEST_ID = /^req_[A-Za-z0-9]{8,}$/;
+
+/**
+ * Defense in depth for anthropic_live evidence: a response the harness observed
+ * must carry Anthropic-shaped message and request identifiers. Provenance itself
+ * is structural (see phase17ProviderExecution); this only catches a client mocked
+ * beneath the real seam.
+ */
+export function phase17ResponseIdentityVerified(unit: Phase17EvaluationUnit): boolean {
+  if (unit.provider.messageId === null && unit.provider.requestId === null) return true;
+  return ANTHROPIC_MESSAGE_ID.test(unit.provider.messageId ?? '')
+    && ANTHROPIC_REQUEST_ID.test(unit.provider.requestId ?? '');
+}
+
 export type Phase17MeasurementParams = Readonly<{
   expectedByUnitKey: ReadonlyMap<string, string | typeof PHASE17_HUMAN_INDETERMINATE | null>;
+  /** Pinned digest of the exact prompt bytes; every observed request must match it. */
+  expectedPromptSha256: string;
+  /** Receives each call's local raw evidence as soon as the call completes. */
+  onRecord?: (record: Phase17LocalRawRecord) => void;
   runtimeConfig: ForgewingRuntimeConfig;
   effectiveMaxOutputTokens: number;
   inputUsdPerMillionTokens: number | null;
@@ -267,7 +300,9 @@ export function buildPhase17UnitRecord(params: Readonly<{
     raw: { sequence: call.planned.sequence, inputJson: call.inputJson,
       rawOutput: measured.state.rawOutput, rationaleCode,
       providerErrorMessage: measured.state.providerErrorMessage },
-    requestDeviated: measured.state.requestDeviated,
+    // The system prompt the client actually sent must be the pinned exact bytes.
+    requestDeviated: measured.state.requestDeviated
+      || (observed !== null && observed.systemPromptSha256 !== measurement.expectedPromptSha256),
     modelDeviated: Boolean(observed?.returnedModel
       && observed.returnedModel !== measurement.runtimeConfig.model),
   };
@@ -321,11 +356,13 @@ export async function executePhase17Calls(
         && durable.selectedCandidateId === result.selectedCandidateId
         ? 'valid' : 'failed';
     }
-    records.push(buildPhase17UnitRecord({
+    const record = buildPhase17UnitRecord({
       call, result, measured, durableProjection,
       timings: { startedAt, providerReturnedAt, finishedAt: clock() },
       measurement: params,
-    }));
+    });
+    records.push(record);
+    params.onRecord?.(record.raw);
   }
 
   return {

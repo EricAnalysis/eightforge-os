@@ -368,12 +368,14 @@ export async function executePhase17Progression(params: Phase17MeasurementParams
       : runProposals.some((proposal) => proposal.selectedCandidateId === accepted.selectedCandidateId
         && proposal.authority === 'non_authoritative' && proposal.requiresHumanReview === true)
         ? 'valid' : 'failed';
-    records.push(buildPhase17UnitRecord({
+    const record = buildPhase17UnitRecord({
       call, result, measured, durableProjection,
       timings: { startedAt: startedAt || finishedAt,
         providerReturnedAt: providerReturnedAt || finishedAt, finishedAt },
       measurement: params,
-    }));
+    });
+    records.push(record);
+    params.onRecord?.(record.raw);
     runs.push({
       runIndex,
       sequence: call.planned.sequence,

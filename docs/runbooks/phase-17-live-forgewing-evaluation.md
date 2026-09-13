@@ -29,6 +29,20 @@ not a qualification change.
   configuration: `temperature: 0`, zero SDK retries, 3000 ms timeout, 400 output
   tokens. Any other model or timeout refuses to start. An 8000 ms comparison run
   needs separate explicit approval.
+- **Exact prompt bytes.** The system prompt is sent verbatim from
+  `lib/forgewing/prompts/recoveryCandidateV2.md`, which checks out LF on every
+  platform (`lib/forgewing/prompts/** text eol=lf`). The freeze pins the sha256 of
+  the exact runtime bytes, each observed request reports the digest of the prompt
+  it actually sent, and a prompt containing CR refuses to run.
+- **Request contract read from production.** Temperature, retries, timeout,
+  output cap, model, prompt, schema and user-input binding are derived from the
+  single production request builder (`buildForgewingStructuredOutputRequest`),
+  whose marked source region is also pinned.
+- **Provenance is explicit.** Freeze and summary record `providerExecution`:
+  `dry_run`, `injected_mock` or `anthropic_live`. It is derived from the
+  execution seam — any injected provider is `injected_mock` — and only
+  `anthropic_live` evidence can make a result eligible for a production
+  qualification recommendation.
 - **Human labels are authoritative.** No provider output may create or change a
   label.
 - **Phase 17 cannot promote qualification.** A passing result can only
@@ -94,14 +108,21 @@ occurring failures; nobody forces rate limits or bad credentials.
      --input-usd-per-mtok <confirmed> --output-usd-per-mtok <confirmed>
    ```
 
-5. **Review.** Commit only `freeze.json` and `summary.json` from
+5. **Review.** Confirm `providerExecution` is `anthropic_live`. Commit only
+   `freeze.json` and `summary.json` from
    `scripts/evaluation/artifacts/phase17/<runId>/`. Never commit `local/`.
+
+   Artifact order: the freeze is written and verified before any call; each call's
+   raw evidence is collected as it completes and `local/raw.json` is written
+   (`executionStatus` `completed` or `aborted`) even if execution throws; only
+   then is the summary written. A failed summary never loses paid-call evidence.
 
 ## Refusals (all before the freeze and before any call)
 
 Missing or mismatched corpus; wrong page, unit or candidate count; missing,
-malformed or unbound labels; incomplete labels (live); drifted prompt, output
-schema, task, candidate, durable projection, planner or Phase 16 policy pin;
+malformed or unbound labels; incomplete labels (live); a runtime prompt containing
+CR; drifted prompt bytes, request builder or request contract, output schema,
+task, candidate, durable projection, planner or Phase 16 policy pin;
 wrong model; non-production timeout or output cap; database environment;
 `--max-calls` missing (live), above 50 or below the plan; spend ceiling above $2
 or estimate above the ceiling; missing pricing (live); missing credentials
@@ -134,7 +155,8 @@ RecoveryCandidateV2 must select exactly one supplied candidate.
 
 ## What invalidates a Phase 17 result
 
-A change to the model, prompt bytes or version, output schema, task validation,
+A change to the model, exact prompt bytes or version, the request builder or its
+derived request contract, output schema, task validation,
 candidate contract, durable projection, progression planner, or Phase 16
 operational policy digest. The harness pins all of them and refuses to run on
 drift; changing an accepted pin is a reviewed act.

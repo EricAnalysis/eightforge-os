@@ -72,6 +72,15 @@ export const PHASE17_PROGRESSION_COHORT = {
   maxLiveCalls: 3,
 } as const;
 
+/**
+ * Where provider responses came from. Derived from the execution seam, never
+ * accepted from a caller: only the real observed Anthropic seam is
+ * anthropic_live, and only anthropic_live evidence may support a production
+ * qualification recommendation.
+ */
+export const PHASE17_PROVIDER_EXECUTIONS = ['dry_run', 'injected_mock', 'anthropic_live'] as const;
+export type Phase17ProviderExecution = typeof PHASE17_PROVIDER_EXECUTIONS[number];
+
 export const PHASE17_KNOWN_LIMITATIONS = [
   'recovery_candidate_v2_cannot_abstain_requires_exactly_one_supplied_candidate',
   'rationale_code_is_free_text_not_enumerated',
@@ -292,6 +301,7 @@ const bandState = z.enum(['passed', 'conditionally_passed', 'failed', 'not_run']
 export const Phase17QualificationResultSchema = z.object({
   scoringVersion: z.literal(PHASE17_SCORING_VERSION),
   state: z.enum(PHASE17_QUALIFICATION_STATES),
+  providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
   zeroToleranceViolations: z.array(z.object({
     code: z.enum(PHASE17_ZERO_TOLERANCE_CODES),
     sequences: z.array(z.number().int().positive()),
@@ -338,7 +348,21 @@ export const Phase17PinsSchema = z.object({
   maxOutputTokens: z.number().int().positive(),
   promptTemplateId: z.string().min(1),
   promptTemplateVersion: z.string().min(1),
+  /** sha256 of the exact runtime prompt bytes sent; never line-ending normalized. */
   promptSha256: digest,
+  requestBuilderSourceSha256: digest,
+  requestContract: z.object({
+    temperature: z.literal(PHASE17_PROVIDER_TEMPERATURE),
+    maxRetries: z.literal(PHASE17_PROVIDER_SDK_MAX_RETRIES),
+    bodyKeys: z.array(z.string()),
+    optionKeys: z.array(z.string()),
+    bindsModel: z.literal(true),
+    bindsMaxOutputTokens: z.literal(true),
+    bindsTimeout: z.literal(true),
+    bindsSystemPromptExactly: z.literal(true),
+    bindsOutputSchema: z.literal(true),
+    bindsUserInputExactly: z.literal(true),
+  }).strict(),
   outputSchemaSha256: digest,
   taskContractSha256: digest,
   candidateContractSha256: digest,
@@ -360,6 +384,7 @@ export const Phase17FreezeSchema = z.object({
   runId: z.string().regex(/^phase17-[a-f0-9]{24}$/),
   createdAt: z.string().datetime(),
   executionMode: z.enum(['dry_run', 'provider_enabled']),
+  providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
   authority: z.literal(PHASE17_AUTHORITY),
   promotionAuthorized: z.literal(false),
   recoveryType: z.literal(PHASE17_RECOVERY_TYPE),
@@ -409,6 +434,7 @@ export const Phase17EvaluationRunSchema = z.object({
   startedAt: z.string().datetime(),
   finishedAt: z.string().datetime(),
   executionMode: z.enum(['dry_run', 'provider_enabled']),
+  providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
   authority: z.literal(PHASE17_AUTHORITY),
   promotionAuthorized: z.literal(false),
   pins: Phase17PinsSchema,

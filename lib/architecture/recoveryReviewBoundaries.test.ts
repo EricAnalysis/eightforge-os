@@ -219,6 +219,9 @@ describe('recovery review architecture boundaries', () => {
     expect(readFileSync(path.join(
       ROOT, 'components/recovery/SourceEvidencePage.tsx'), 'utf8'))
       .toContain("from '@/lib/recovery/sourceGeometry'");
+    expect(readFileSync(path.join(
+      ROOT, 'components/recovery/SourceEvidencePage.tsx'), 'utf8'))
+      .toContain('ocrPixelWidth: evidence.ocrPixelWidth');
   });
 
   it('keeps source-evidence binding a server answer, never a browser comparison', () => {

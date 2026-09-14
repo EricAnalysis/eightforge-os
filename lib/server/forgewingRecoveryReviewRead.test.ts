@@ -70,6 +70,7 @@ const v2Proposal = {
   recovery_type: 'pricing_rate_multi_observation_cluster',
   selected_observation_id: null,
   selected_candidate_id: v2CandidateId,
+  extraction_snapshot_id: '99999999-9999-4999-8999-999999999999',
   // The persisted shape, as record_forgewing_recovery_proposal_v2 stores it:
   // orderedObservationIds / rawTexts / evidence are one ordered membership
   // expressed three ways, and "$" precedes "8.75" because that is the order the
@@ -89,10 +90,11 @@ function review(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function client(proposals: unknown[], reviews: unknown[]): RecoveryReadClient {
+function client(proposals: unknown[], reviews: unknown[], extractions: unknown[] = []): RecoveryReadClient {
   const builder = (table: string) => {
     const result = {
-      data: table === 'forgewing_recovery_proposals' ? proposals : reviews,
+      data: table === 'forgewing_recovery_proposals' ? proposals
+        : table === 'document_extractions' ? extractions : reviews,
       error: null,
     };
     const self: Record<string, unknown> = {
@@ -205,6 +207,46 @@ describe('recovery review queue read', () => {
       query, { admin: client([v2Proposal], []) })).sourceEvidenceBinding).toBe('bound');
     expect(firstCandidate(await readRecoveryReviewQueue(
       query, { admin: client([proposal], []) })).sourceEvidenceBinding).toBe('not_applicable');
+  });
+
+  it('binds OCR dimensions only from the proposal exact extraction, artifact, page, and digest', async () => {
+    const { candidateId: _candidateId, ...candidateInput } = v2Candidate;
+    const ocrCandidate = candidate({
+      ...candidateInput,
+      evidence: v2Candidate.evidence.map((entry) => ({ ...entry, sourceLayer: 'ocr' as const })),
+    });
+    const extraction = {
+      id: v2Proposal.extraction_snapshot_id,
+      data: { extraction: { content_layers_v1: { pdf: { layout_observations_v1: {
+        source_artifact_id: ocrCandidate.sourceArtifactId,
+        source_page_geometries: [{
+          physical_page_number: ocrCandidate.physicalPageNumber,
+          source_layer: 'ocr',
+          page_representation_digest: ocrCandidate.pageRepresentationDigest,
+          pixel_width: 1224,
+          pixel_height: 1584,
+        }],
+      } } } } },
+    };
+    const result = await readRecoveryReviewQueue(query, { admin: client([{
+      ...v2Proposal,
+      selected_candidate_id: ocrCandidate.candidateId,
+      recovery_candidates: [ocrCandidate],
+    }], [], [extraction]) });
+    expect(firstCandidate(result)).toMatchObject({
+      ocrPixelWidth: 1224,
+      ocrPixelHeight: 1584,
+    });
+
+    const wrongDigest = structuredClone(extraction) as typeof extraction;
+    wrongDigest.data.extraction.content_layers_v1.pdf.layout_observations_v1
+      .source_page_geometries[0]!.page_representation_digest = 'f'.repeat(64);
+    const unbound = await readRecoveryReviewQueue(query, { admin: client([{
+      ...v2Proposal,
+      selected_candidate_id: ocrCandidate.candidateId,
+      recovery_candidates: [ocrCandidate],
+    }], [], [wrongDigest]) });
+    expect(firstCandidate(unbound).ocrPixelWidth).toBeUndefined();
   });
 
   it('reads a candidate that no longer closes over its source as unbound', async () => {

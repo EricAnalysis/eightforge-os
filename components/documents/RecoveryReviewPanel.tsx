@@ -89,6 +89,10 @@ function visualEvidence(
       sourceArtifactId: selected.sourceArtifactId,
       physicalPageNumber: selected.physicalPageNumber,
       pageRepresentationDigest: selected.pageRepresentationDigest,
+      ...(candidate.ocrPixelWidth && candidate.ocrPixelHeight ? {
+        ocrPixelWidth: candidate.ocrPixelWidth,
+        ocrPixelHeight: candidate.ocrPixelHeight,
+      } : {}),
       candidateId: selected.candidateId,
       recoveryType: selected.recoveryType,
       composedRawText: selected.composedRawText,
@@ -103,6 +107,10 @@ function visualEvidence(
     sourceArtifactId: candidate.sourceArtifactId,
     physicalPageNumber: candidate.physicalPageNumber,
     pageRepresentationDigest: candidate.pageRepresentationDigest,
+    ...(candidate.ocrPixelWidth && candidate.ocrPixelHeight ? {
+      ocrPixelWidth: candidate.ocrPixelWidth,
+      ocrPixelHeight: candidate.ocrPixelHeight,
+    } : {}),
     candidateId: `v1:${selected.observationId}`,
     recoveryType: 'pricing_rate_single_observation',
     composedRawText: selected.rawText,

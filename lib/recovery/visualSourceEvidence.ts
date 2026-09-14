@@ -17,6 +17,8 @@ type VisualSourceEvidenceBase = Readonly<{
   sourceDocumentId: string;
   physicalPageNumber: number;
   pageRepresentationDigest: string;
+  ocrPixelWidth?: number;
+  ocrPixelHeight?: number;
   boxes: readonly VisualSourceBox[];
 }>;
 

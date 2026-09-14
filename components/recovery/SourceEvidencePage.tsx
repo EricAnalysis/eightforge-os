@@ -84,8 +84,10 @@ export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
     rect: toViewportRect(box, { viewportWidth: pageGeometry.viewport.width,
       viewportHeight: pageGeometry.viewport.height, scale: pageGeometry.scale,
       rotation: pageGeometry.viewport.rotation, pageWidthPoints: pageGeometry.pageWidthPoints,
-      pageHeightPoints: pageGeometry.pageHeightPoints }) })) : [],
-  [evidence.boxes, pageGeometry, unbound]);
+      pageHeightPoints: pageGeometry.pageHeightPoints,
+      ocrPixelWidth: evidence.ocrPixelWidth,
+      ocrPixelHeight: evidence.ocrPixelHeight }) })) : [],
+  [evidence.boxes, evidence.ocrPixelHeight, evidence.ocrPixelWidth, pageGeometry, unbound]);
   const geometryUnavailable = rendered.some((entry) => entry.rect === null);
   useEffect(() => { setActiveMember(0); }, [evidenceIdentity]);
   useEffect(() => {

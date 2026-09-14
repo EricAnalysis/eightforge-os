@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { loadPdfLayout } from '@/lib/extraction/pdf/extractText';
 
 /**
- * Real-bytes preflight over the committed scanned Goodlettsville price sheet
- * (4 physical pages, no native text layer). No provider and no OCR run here.
+ * Real-bytes preflight over the committed Goodlettsville price sheet: 4
+ * physical pages with no native text layer, whose glyphs are outlined vector
+ * paths. No provider and no OCR run here. Tests allow a cold pdf.js load under
+ * full-suite load.
  */
 const FIXTURE = 'lib/contracts/__fixtures__/goodlettsville_price_sheet.pdf';
 
@@ -21,7 +23,7 @@ describe('native layout preflight', () => {
     expect(layout.page_count).toBe(4);
     // Page 1 from the cap, page 3 from guidance; out-of-range guidance is ignored.
     expect(layout.pages.map((page) => page.page_number)).toEqual([1, 3]);
-  });
+  }, 60_000);
 
   it('detects visible content with no text layer deterministically from the operator list', async () => {
     const first = await loadPdfLayout(fixtureBytes());
@@ -34,5 +36,5 @@ describe('native layout preflight', () => {
     }
     expect(second.pages.map((page) => page.visual_coverage))
       .toEqual(first.pages.map((page) => page.visual_coverage));
-  });
+  }, 60_000);
 });

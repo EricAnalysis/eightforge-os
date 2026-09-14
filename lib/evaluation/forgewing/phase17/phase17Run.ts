@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { loadRecoveryCandidateV2Prompt } from '@/lib/forgewing/runtime/client';
@@ -36,6 +38,7 @@ import {
   type Phase17EvaluationRun,
   type Phase17EvaluationUnit,
   type Phase17Freeze,
+  type Phase17HarnessIntegrity,
   type Phase17Pins,
   type Phase17ProgressionRunCheck,
   type Phase17ProviderExecution,
@@ -44,10 +47,11 @@ import {
   executePhase17Calls,
   phase17ProviderExecution,
   phase17ResponseIdentityVerified,
+  type Phase17DurableProjection,
   type Phase17LocalRawRecord,
   Phase17GuardError,
-  type Phase17ExecutionDependencies,
   type Phase17ExecutionResult,
+  type Phase17ProviderFactory,
 } from '@/lib/evaluation/forgewing/phase17/phase17Execution';
 import {
   computePhase17ContractPins,
@@ -77,6 +81,14 @@ import { evaluatePhase17Qualification }
  * written before any provider call is possible. The default mode is a dry run
  * that builds and freezes the plan with zero provider calls. Live execution is
  * reachable only with mode `provider_enabled` AND every live precondition.
+ *
+ * Harness integrity. Everything that can change the behavioral input or the
+ * qualification -- corpus cohort, labels, contract pins, prompt, projection,
+ * Phase 16 scheduler, provider seam, repository, git state, runtime config and
+ * environment -- is resolved by this module itself. Tests may override any of
+ * it, but then the run is `injected_test_hooks`. A run against the real
+ * Anthropic seam that is not `default_trusted` refuses to start, before any
+ * artifact or provider call.
  */
 
 /** Environment that would give this process a production database. */
@@ -94,37 +106,125 @@ export const PHASE17_QUALIFICATION_SOURCE_FILES = [
   'lib/extraction/recovery/recoveryOperationalPolicy.ts',
 ] as const;
 
+/** The committed human label artifact, read by path (never imported). */
+export const PHASE17_LABEL_ARTIFACT_PATH = 'lib/evaluation/fixtures/dnContinuationLabels.v1.json';
+
+/** Operator controls. None of these can change what is measured or how it is judged. */
 export type Phase17RunParams = Readonly<{
   mode: 'dry_run' | 'provider_enabled';
   corpusBytes: Uint8Array | null;
-  labelBytes: Uint8Array | string | null;
-  repoRoot: string;
   artifactRoot: string;
-  codeState: Readonly<{ commitSha: string | null; treeClean: boolean }>;
-  env: Readonly<Record<string, string | undefined>>;
   maxCalls: number | null;
   maxSpendUsd: number | null;
   inputUsdPerMillionTokens: number | null;
   outputUsdPerMillionTokens: number | null;
-  runtimeConfig?: ForgewingRuntimeConfig;
-  now?: () => Date;
-  runNonce?: string;
 }>;
 
-export type Phase17RunDependencies = Partial<Phase17ExecutionDependencies> & Readonly<{
-  /** The real scheduleRecoveryCandidateV2Shadow, wired by the script layer. */
-  scheduleRecovery?: Phase17RecoveryScheduler;
-  buildCohort?: (bytes: Uint8Array) => Promise<Phase17Cohort>;
-  computeContractPins?: (repoRoot: string) => Phase17ContractPins;
-  acceptedContractPins?: Phase17ContractPins;
-  qualificationSourceDigest?: (repoRoot: string) => string;
-  /** TEST ONLY: substitutes the runtime prompt loader to prove CR refusal. */
-  loadPrompt?: () => string;
-}>;
+/** Explicit operator-control surface. New run inputs require a reviewed classification. */
+export const PHASE17_OPERATOR_CONTROL_KEYS = [
+  'mode',
+  'corpusBytes',
+  'artifactRoot',
+  'maxCalls',
+  'maxSpendUsd',
+  'inputUsdPerMillionTokens',
+  'outputUsdPerMillionTokens',
+] as const;
+
+/**
+ * Test overrides. Every key is classified below; the type-level assertion makes
+ * an unclassified addition a compile error, so a new hook cannot silently skip
+ * the integrity decision.
+ */
+export type Phase17RunDependencies = Partial<Readonly<{
+  buildCohort: (bytes: Uint8Array) => Promise<Phase17Cohort>;
+  computeContractPins: (repoRoot: string) => Phase17ContractPins;
+  acceptedContractPins: Phase17ContractPins;
+  loadPrompt: () => string;
+  qualificationSourceDigest: (repoRoot: string) => string;
+  projectDurableProposal: Phase17DurableProjection;
+  scheduleRecovery: Phase17RecoveryScheduler;
+  createProvider: Phase17ProviderFactory;
+  labelBytes: Uint8Array | string;
+  repoRoot: string;
+  codeState: Readonly<{ commitSha: string | null; treeClean: boolean }>;
+  runtimeConfig: ForgewingRuntimeConfig;
+  env: Readonly<Record<string, string | undefined>>;
+  clock: () => number;
+  now: () => Date;
+  runNonce: string;
+}>>;
+
+/** Overrides that can alter behavioral input, pins, execution or qualification. */
+export const PHASE17_INTEGRITY_CRITICAL_OVERRIDES = [
+  'buildCohort',
+  'computeContractPins',
+  'acceptedContractPins',
+  'loadPrompt',
+  'qualificationSourceDigest',
+  'projectDurableProposal',
+  'scheduleRecovery',
+  'createProvider',
+  'labelBytes',
+  'repoRoot',
+  'codeState',
+  'runtimeConfig',
+  'env',
+  'clock',
+] as const;
+
+/** Overrides that only affect artifact timestamps or run-id uniqueness. */
+export const PHASE17_INTEGRITY_NEUTRAL_OVERRIDES = ['now', 'runNonce'] as const;
+
+type ClassifiedOverride = typeof PHASE17_INTEGRITY_CRITICAL_OVERRIDES[number]
+  | typeof PHASE17_INTEGRITY_NEUTRAL_OVERRIDES[number];
+type AssertNever<T extends never> = T;
+export type Phase17UnclassifiedOverrides =
+  AssertNever<Exclude<keyof Phase17RunDependencies, ClassifiedOverride>>;
+export type Phase17StaleOverrideClassifications =
+  AssertNever<Exclude<ClassifiedOverride, keyof Phase17RunDependencies>>;
+type Phase17OperatorControl = typeof PHASE17_OPERATOR_CONTROL_KEYS[number];
+export type Phase17UnclassifiedRunParams =
+  AssertNever<Exclude<keyof Phase17RunParams, Phase17OperatorControl>>;
+export type Phase17StaleOperatorControls =
+  AssertNever<Exclude<Phase17OperatorControl, keyof Phase17RunParams>>;
+
+type Phase17RunDependencySnapshot = {
+  readonly [Key in keyof Required<Phase17RunDependencies>]: Phase17RunDependencies[Key];
+};
+
+/**
+ * Read every caller-owned dependency exactly once. Classification and execution
+ * use this frozen snapshot, so an accessor or later mutation cannot swap a seam
+ * after provenance was derived.
+ */
+function snapshotPhase17RunDependencies(
+  dependencies: Phase17RunDependencies,
+): Phase17RunDependencySnapshot {
+  return Object.freeze({
+    buildCohort: dependencies.buildCohort,
+    computeContractPins: dependencies.computeContractPins,
+    acceptedContractPins: dependencies.acceptedContractPins,
+    loadPrompt: dependencies.loadPrompt,
+    qualificationSourceDigest: dependencies.qualificationSourceDigest,
+    projectDurableProposal: dependencies.projectDurableProposal,
+    scheduleRecovery: dependencies.scheduleRecovery,
+    createProvider: dependencies.createProvider,
+    labelBytes: dependencies.labelBytes,
+    repoRoot: dependencies.repoRoot,
+    codeState: dependencies.codeState,
+    runtimeConfig: dependencies.runtimeConfig,
+    env: dependencies.env,
+    clock: dependencies.clock,
+    now: dependencies.now,
+    runNonce: dependencies.runNonce,
+  });
+}
 
 export type Phase17RunOutcome = Readonly<{
   runId: string;
   providerExecution: Phase17ProviderExecution;
+  harnessIntegrity: Phase17HarnessIntegrity;
   freeze: Phase17Freeze;
   freezePath: string;
   freezeSha256: string;
@@ -137,6 +237,11 @@ function fail(code: string, detail: string): never {
   throw new Phase17GuardError(code, detail);
 }
 
+/** The repository this module belongs to, derived from its own location. */
+export function phase17TrustedRepoRoot(): string {
+  return path.resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
+}
+
 export function phase17QualificationSourceDigest(repoRoot: string): string {
   return hashCanonical(PHASE17_QUALIFICATION_SOURCE_FILES.map((relative) => {
     const absolute = path.join(repoRoot, relative);
@@ -146,6 +251,87 @@ export function phase17QualificationSourceDigest(repoRoot: string): string {
         ? createHash('sha256').update(readFileSync(absolute)).digest('hex') : null,
     };
   }));
+}
+
+function gitCodeState(repoRoot: string): Readonly<{ commitSha: string | null; treeClean: boolean }> {
+  const git = (args: readonly string[]) =>
+    execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+  try {
+    return {
+      commitSha: git(['rev-parse', 'HEAD']),
+      treeClean: git(['status', '--porcelain', '--untracked-files=no']) === '',
+    };
+  } catch {
+    return { commitSha: null, treeClean: false };
+  }
+}
+
+type TrustedSeams = Readonly<{
+  projectDurableProposal: Phase17DurableProjection;
+  scheduleRecovery: Phase17RecoveryScheduler;
+}>;
+
+async function loadTrustedSeams(): Promise<TrustedSeams> {
+  const seams = await import('@/lib/evaluation/phase17LiveSeams');
+  return {
+    projectDurableProposal: seams.PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL,
+    // Structural narrowing only: the evaluation type makes every IO dependency required.
+    scheduleRecovery: seams.PHASE17_TRUSTED_SCHEDULE_RECOVERY as unknown as Phase17RecoveryScheduler,
+  };
+}
+
+const DEFAULT_FUNCTION_SEAMS = {
+  buildCohort: buildPhase17DnCohort,
+  computeContractPins: computePhase17ContractPins,
+  acceptedContractPins: PHASE17_ACCEPTED_CONTRACT_PINS,
+  loadPrompt: loadRecoveryCandidateV2Prompt,
+  qualificationSourceDigest: phase17QualificationSourceDigest,
+} as const;
+
+/**
+ * Structural harness integrity. `default_trusted` only when every critical
+ * override is absent or is the exact default reference. Data overrides (labels,
+ * repository, git state, runtime config, environment) have no trusted
+ * reference to compare against, so supplying one at all is an injected hook.
+ */
+function derivePhase17HarnessIntegrityFromSnapshot(
+  snapshot: Phase17RunDependencySnapshot,
+  trustedSeams: TrustedSeams | undefined,
+): Readonly<{ harnessIntegrity: Phase17HarnessIntegrity; overridden: readonly string[] }> {
+  const overridden = PHASE17_INTEGRITY_CRITICAL_OVERRIDES.filter((key) => {
+    const value = snapshot[key];
+    if (value === undefined) return false;
+    switch (key) {
+      case 'buildCohort':
+      case 'computeContractPins':
+      case 'acceptedContractPins':
+      case 'loadPrompt':
+      case 'qualificationSourceDigest':
+        return value !== DEFAULT_FUNCTION_SEAMS[key];
+      case 'projectDurableProposal':
+      case 'scheduleRecovery':
+        return value !== trustedSeams?.[key];
+      case 'createProvider':
+        return phase17ProviderExecution('provider_enabled', value as Phase17ProviderFactory)
+          !== 'anthropic_live';
+      default:
+        return true;
+    }
+  });
+  return {
+    harnessIntegrity: overridden.length === 0 ? 'default_trusted' : 'injected_test_hooks',
+    overridden,
+  };
+}
+
+export async function derivePhase17HarnessIntegrity(
+  dependencies: Phase17RunDependencies,
+): Promise<Readonly<{ harnessIntegrity: Phase17HarnessIntegrity; overridden: readonly string[] }>> {
+  const snapshot = snapshotPhase17RunDependencies(dependencies);
+  const needsSeams = snapshot.projectDurableProposal !== undefined
+    || snapshot.scheduleRecovery !== undefined;
+  const trustedSeams = needsSeams ? await loadTrustedSeams() : undefined;
+  return derivePhase17HarnessIntegrityFromSnapshot(snapshot, trustedSeams);
 }
 
 function statistics(values: readonly number[]) {
@@ -165,39 +351,54 @@ export async function runPhase17ContinuationEvaluation(
   params: Phase17RunParams,
   dependencies: Phase17RunDependencies = {},
 ): Promise<Phase17RunOutcome> {
+  const injected = snapshotPhase17RunDependencies(dependencies);
   const live = params.mode === 'provider_enabled';
   if (params.mode !== 'dry_run' && !live) fail('invalid_mode', String(params.mode));
+
+  // ── Harness integrity (first: before corpus, pins, freeze or provider) ────
+  const providerExecution = phase17ProviderExecution(params.mode, injected.createProvider);
+  const trustedSeams = live || injected.projectDurableProposal !== undefined
+    || injected.scheduleRecovery !== undefined ? await loadTrustedSeams() : undefined;
+  const { harnessIntegrity, overridden } =
+    derivePhase17HarnessIntegrityFromSnapshot(injected, trustedSeams);
+  if (providerExecution === 'anthropic_live' && harnessIntegrity !== 'default_trusted') {
+    fail('harness_integrity_not_trusted', `a live Anthropic run may not use injected hooks `
+      + `(${overridden.join(', ')}); only the default harness can produce live evidence`);
+  }
+  const repoRoot = injected.repoRoot ?? phase17TrustedRepoRoot();
+  const env = injected.env ?? process.env;
 
   // ── Corpus, cohort, labels ────────────────────────────────────────────────
   if (!params.corpusBytes) {
     fail('corpus_missing', 'DN_PRICED_SCHEDULE_SOURCE_PDF is required; Phase 17 never skips');
   }
-  const cohort = await (dependencies.buildCohort ?? buildPhase17DnCohort)(params.corpusBytes);
-  if (!params.labelBytes) fail('labels_missing', 'the human label artifact is required');
-  const labels = bindPhase17Labels(parsePhase17LabelSet(params.labelBytes), cohort);
+  const cohort = await (injected.buildCohort ?? buildPhase17DnCohort)(params.corpusBytes);
+  const labelPath = path.join(repoRoot, PHASE17_LABEL_ARTIFACT_PATH);
+  const labelBytes = injected.labelBytes
+    ?? (existsSync(labelPath) ? readFileSync(labelPath) : null);
+  if (!labelBytes) fail('labels_missing', `the human label artifact is required at ${PHASE17_LABEL_ARTIFACT_PATH}`);
+  const labels = bindPhase17Labels(parsePhase17LabelSet(labelBytes), cohort);
 
   // ── Exact prompt bytes ───────────────────────────────────────────────────
   // The provider receives the prompt file's runtime bytes verbatim. A CR means
   // this checkout would send different bytes than production (LF blobs).
-  const systemPrompt = (dependencies.loadPrompt ?? loadRecoveryCandidateV2Prompt)();
+  const systemPrompt = (injected.loadPrompt ?? loadRecoveryCandidateV2Prompt)();
   if (phase17PromptHasCarriageReturn(systemPrompt)) {
     fail('prompt_bytes_not_lf', 'the runtime prompt contains CR; check out with LF '
       + '(lib/forgewing/prompts/** text eol=lf) so evaluation sends production bytes');
   }
 
   // ── Behavioral contract pins ─────────────────────────────────────────────
-  const contractPins = (dependencies.computeContractPins ?? computePhase17ContractPins)(
-    params.repoRoot);
+  const contractPins = (injected.computeContractPins ?? computePhase17ContractPins)(repoRoot);
   const mismatched = phase17ContractPinMismatches(contractPins,
-    dependencies.acceptedContractPins ?? PHASE17_ACCEPTED_CONTRACT_PINS);
+    injected.acceptedContractPins ?? PHASE17_ACCEPTED_CONTRACT_PINS);
   if (mismatched.length > 0) fail('contract_mismatch', mismatched.join(', '));
   if (contractPins.promptSha256 !== exactPromptSha256(systemPrompt)) {
     fail('contract_mismatch', 'promptSha256 does not describe the prompt bytes that will be sent');
   }
-  const providerExecution = phase17ProviderExecution(params.mode, dependencies.createProvider);
 
   // ── Effective production runtime ─────────────────────────────────────────
-  const runtimeConfig = params.runtimeConfig ?? getForgewingRuntimeConfig();
+  const runtimeConfig = injected.runtimeConfig ?? getForgewingRuntimeConfig();
   if (runtimeConfig.model !== PHASE17_APPROVED_MODEL) {
     fail('model_mismatch', `${runtimeConfig.model} is not ${PHASE17_APPROVED_MODEL}`);
   }
@@ -209,7 +410,7 @@ export async function runPhase17ContinuationEvaluation(
   if (effectiveMaxOutputTokens !== PHASE17_EFFECTIVE_MAX_OUTPUT_TOKENS) {
     fail('max_output_tokens_not_production', String(effectiveMaxOutputTokens));
   }
-  const databaseEnv = PHASE17_FORBIDDEN_DATABASE_ENV.filter((name) => params.env[name]?.trim());
+  const databaseEnv = PHASE17_FORBIDDEN_DATABASE_ENV.filter((name) => env[name]?.trim());
   if (databaseEnv.length > 0) {
     fail('production_database_configured', `unset ${databaseEnv.join(', ')} before running Phase 17`);
   }
@@ -256,30 +457,25 @@ export async function runPhase17ContinuationEvaluation(
   }
 
   // ── Live-only preconditions ──────────────────────────────────────────────
+  const codeState = injected.codeState ?? gitCodeState(repoRoot);
   if (live) {
-    if (!params.env.ANTHROPIC_API_KEY?.trim()) fail('provider_credentials_missing', 'ANTHROPIC_API_KEY');
+    if (!env.ANTHROPIC_API_KEY?.trim()) fail('provider_credentials_missing', 'ANTHROPIC_API_KEY');
     if (labels.state !== 'complete') {
       fail('labels_incomplete', `${labels.unlabeledUnitKeys.length} unit(s) have no human label`);
     }
-    if (!params.codeState.treeClean || !params.codeState.commitSha) {
+    if (!codeState.treeClean || !codeState.commitSha) {
       fail('tree_not_clean', 'live qualification must describe an exact commit');
-    }
-    if (!dependencies.projectDurableProposal) {
-      fail('projection_missing', 'the real durable proposal projection must be supplied');
-    }
-    if (!dependencies.scheduleRecovery) {
-      fail('scheduler_missing', 'the real Phase 16 recovery scheduler must be supplied');
     }
   }
 
   // ── Freeze (before any provider call) ────────────────────────────────────
-  const qualificationDigest = dependencies.qualificationSourceDigest
+  const qualificationDigest = injected.qualificationSourceDigest
     ?? phase17QualificationSourceDigest;
-  const qualificationBefore = qualificationDigest(params.repoRoot);
-  const createdAt = (params.now ?? (() => new Date()))().toISOString();
+  const qualificationBefore = qualificationDigest(repoRoot);
+  const createdAt = (injected.now ?? (() => new Date()))().toISOString();
   const pins: Phase17Pins = {
-    codeCommitSha: params.codeState.commitSha,
-    treeClean: params.codeState.treeClean,
+    codeCommitSha: codeState.commitSha,
+    treeClean: codeState.treeClean,
     corpusSha256: cohort.corpusSha256,
     corpusByteLength: cohort.corpusByteLength,
     labelSetSha256: labels.labelSetSha256,
@@ -295,7 +491,7 @@ export async function runPhase17ContinuationEvaluation(
   };
   const runId = `phase17-${hashCanonical({
     evaluationVersion: PHASE17_EVALUATION_VERSION, pins, createdAt, mode: params.mode,
-    plan: plannedCalls, runNonce: params.runNonce ?? randomUUID(),
+    plan: plannedCalls, runNonce: injected.runNonce ?? randomUUID(),
   }).slice(0, 24)}`;
   const freeze: Phase17Freeze = {
     freezeVersion: 'phase17-continuation-freeze-v1',
@@ -305,6 +501,8 @@ export async function runPhase17ContinuationEvaluation(
     createdAt,
     executionMode: params.mode,
     providerExecution,
+    harnessIntegrity,
+    harnessOverrides: [...overridden],
     authority: PHASE17_AUTHORITY,
     promotionAuthorized: false,
     recoveryType: PHASE17_RECOVERY_TYPE,
@@ -349,6 +547,7 @@ export async function runPhase17ContinuationEvaluation(
   let progressionRuns: Phase17ProgressionRunCheck[] | null = null;
   let localRaw: Readonly<{ path: string; sha256: string }> | null = null;
   if (live) {
+    const seams = trustedSeams!;
     // Paid-call evidence is collected as each call completes and written before
     // anything else can fail -- including when execution itself throws.
     const rawRecords: Phase17LocalRawRecord[] = [];
@@ -364,9 +563,9 @@ export async function runPhase17ContinuationEvaluation(
       outputUsdPerMillionTokens: params.outputUsdPerMillionTokens,
     };
     const direct = await executePhase17Calls({ ...measurement, calls: directCalls, maxCalls }, {
-      projectDurableProposal: dependencies.projectDurableProposal!,
-      createProvider: dependencies.createProvider,
-      clock: dependencies.clock,
+      projectDurableProposal: injected.projectDurableProposal ?? seams.projectDurableProposal,
+      createProvider: injected.createProvider,
+      clock: injected.clock,
     });
     const progressed = await executePhase17Progression({
       ...measurement,
@@ -376,9 +575,9 @@ export async function runPhase17ContinuationEvaluation(
       callsAlreadyExecuted: direct.executedCalls,
       maxCalls,
     }, {
-      scheduler: dependencies.scheduleRecovery!,
-      createProvider: dependencies.createProvider,
-      clock: dependencies.clock,
+      scheduler: injected.scheduleRecovery ?? seams.scheduleRecovery,
+      createProvider: injected.createProvider,
+      clock: injected.clock,
     });
     progressionRuns = [...progressed.runs];
     execution = {
@@ -421,9 +620,10 @@ export async function runPhase17ContinuationEvaluation(
     effectiveTimeoutMs: runtimeConfig.timeoutMs,
     modelDeviationSequences: execution.modelDeviationSequences,
     contractDeviationSequences: execution.contractDeviationSequences,
-    qualificationMutationDetected: qualificationDigest(params.repoRoot) !== qualificationBefore,
+    qualificationMutationDetected: qualificationDigest(repoRoot) !== qualificationBefore,
     progressionRuns,
     providerExecution,
+    harnessIntegrity,
     responseIdentityVerified: execution.units.every(phase17ResponseIdentityVerified),
   });
 
@@ -436,6 +636,7 @@ export async function runPhase17ContinuationEvaluation(
     finishedAt: new Date().toISOString(),
     executionMode: params.mode,
     providerExecution,
+    harnessIntegrity,
     authority: PHASE17_AUTHORITY,
     promotionAuthorized: false,
     pins,
@@ -460,7 +661,8 @@ export async function runPhase17ContinuationEvaluation(
   // Raw evidence (if any calls ran) is already on disk; only then the summary.
   const written = writePhase17Summary(params.artifactRoot, summary);
   return {
-    runId, providerExecution, freeze, freezePath: frozen.path, freezeSha256: frozen.sha256,
-    summary, summaryPath: written.path, localRawPath: localRaw?.path ?? null,
+    runId, providerExecution, harnessIntegrity, freeze, freezePath: frozen.path,
+    freezeSha256: frozen.sha256, summary, summaryPath: written.path,
+    localRawPath: localRaw?.path ?? null,
   };
 }

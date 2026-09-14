@@ -12,18 +12,16 @@
  * A missing corpus is a failure, never a skip. Nothing here writes to a
  * database, creates a proposal, or changes any qualification constant.
  */
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { runPhase17ContinuationEvaluation }
   from '@/lib/evaluation/forgewing/phase17/phase17Run';
 
-const DEFAULT_LABELS = 'lib/evaluation/fixtures/dnContinuationLabels.v1.json';
 const DEFAULT_ARTIFACT_ROOT = 'scripts/evaluation/artifacts/phase17';
 const VALUE_FLAGS = new Set([
   '--max-calls', '--max-spend-usd', '--input-usd-per-mtok', '--output-usd-per-mtok',
-  '--labels', '--artifact-root',
+  '--artifact-root',
 ]);
 const BOOLEAN_FLAGS = new Set(['--execute-provider']);
 
@@ -54,10 +52,6 @@ function numberFlag(args: Map<string, string | true>, flag: string): number | nu
   return value;
 }
 
-function git(args: readonly string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8' }).trim();
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const live = args.get('--execute-provider') === true;
@@ -67,33 +61,25 @@ async function main(): Promise<void> {
     throw new Error('DN_PRICED_SCHEDULE_SOURCE_PDF is required: Phase 17 evaluates the pinned '
       + 'DN corpus and must not pass or skip without it.');
   }
-  const labelsPath = path.resolve(repoRoot, String(args.get('--labels') ?? DEFAULT_LABELS));
   const artifactRoot = path.resolve(repoRoot, String(args.get('--artifact-root') ?? DEFAULT_ARTIFACT_ROOT));
 
-  const seams = live ? await import('./phase17ProductionSeams') : null;
+  // Operator controls only. Labels, repository, git state, runtime config,
+  // environment and every production seam are resolved by the harness itself,
+  // so this command can only ever produce a default_trusted run.
   const outcome = await runPhase17ContinuationEvaluation({
     mode: live ? 'provider_enabled' : 'dry_run',
     corpusBytes: new Uint8Array(readFileSync(path.resolve(corpusPath))),
-    labelBytes: readFileSync(labelsPath),
-    repoRoot,
     artifactRoot,
-    codeState: {
-      commitSha: git(['rev-parse', 'HEAD']),
-      treeClean: git(['status', '--porcelain', '--untracked-files=no']) === '',
-    },
-    env: process.env,
     maxCalls: numberFlag(args, '--max-calls'),
     maxSpendUsd: numberFlag(args, '--max-spend-usd'),
     inputUsdPerMillionTokens: numberFlag(args, '--input-usd-per-mtok'),
     outputUsdPerMillionTokens: numberFlag(args, '--output-usd-per-mtok'),
-  }, seams ? {
-    projectDurableProposal: seams.phase17ProjectDurableProposal,
-    scheduleRecovery: seams.phase17ScheduleRecovery,
-  } : {});
+  });
 
   const { summary, freeze } = outcome;
   process.stdout.write([
     `PHASE 17 ${live ? 'LIVE' : 'DRY RUN'} ${outcome.runId}`,
+    `  provenance: ${outcome.providerExecution} / ${outcome.harnessIntegrity}`,
     `  freeze:   ${outcome.freezePath} (${outcome.freezeSha256})`,
     `  summary:  ${outcome.summaryPath}`,
     ...(outcome.localRawPath ? [`  local raw (never commit): ${outcome.localRawPath}`] : []),

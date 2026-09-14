@@ -22,13 +22,25 @@ vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: supabaseAdmin }
 vi.mock('next/server', () => ({ after: (task: () => Promise<void>) => { void task(); } }));
 
 import {
-  phase17ProjectDurableProposal,
-  phase17ScheduleRecovery,
-} from '@/scripts/evaluation/phase17/phase17ProductionSeams';
+  PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL,
+  PHASE17_TRUSTED_SCHEDULE_RECOVERY,
+} from '@/lib/evaluation/phase17LiveSeams';
 import { verifyPhase17CommittedRun } from '@/lib/evaluation/forgewing/phase17/phase17Artifacts';
-import { PHASE17_ACCEPTED_CONTRACT_PINS } from '@/lib/evaluation/forgewing/phase17/phase17Pins';
-import { loadRecoveryCandidateV2Prompt } from '@/lib/forgewing/runtime/client';
+import { buildPhase17DnCohort } from '@/lib/evaluation/forgewing/phase17/dnContinuationCohort';
+import { phase17ProviderExecution, type Phase17ProviderFactory }
+  from '@/lib/evaluation/forgewing/phase17/phase17Execution';
 import {
+  computePhase17ContractPins,
+  PHASE17_ACCEPTED_CONTRACT_PINS,
+} from '@/lib/evaluation/forgewing/phase17/phase17Pins';
+import {
+  createObservedRecoveryCandidateV2EvaluationProvider,
+  loadRecoveryCandidateV2Prompt,
+} from '@/lib/forgewing/runtime/client';
+import {
+  derivePhase17HarnessIntegrity,
+  phase17QualificationSourceDigest,
+  PHASE17_INTEGRITY_CRITICAL_OVERRIDES,
   runPhase17ContinuationEvaluation,
   type Phase17RunDependencies,
   type Phase17RunParams,
@@ -46,6 +58,7 @@ import {
 
 const cohort = syntheticPhase17Cohort();
 const roots: string[] = [];
+const trustedScheduler = PHASE17_TRUSTED_SCHEDULE_RECOVERY as unknown as Phase17RecoveryScheduler;
 
 function tempRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'phase17-run-'));
@@ -57,34 +70,33 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/** Operator controls only. */
 function params(overrides: Partial<Phase17RunParams> = {}): Phase17RunParams {
   return {
     mode: 'dry_run',
     corpusBytes: new Uint8Array([1]),
-    labelBytes: JSON.stringify(syntheticPhase17Labels(cohort)),
-    repoRoot: process.cwd(),
     artifactRoot: tempRoot(),
-    codeState: { commitSha: 'a'.repeat(40), treeClean: true },
-    env: {},
     maxCalls: null,
     maxSpendUsd: null,
     inputUsdPerMillionTokens: 3,
     outputUsdPerMillionTokens: 15,
-    runtimeConfig: PHASE17_TEST_RUNTIME_CONFIG,
     ...overrides,
   };
 }
 
-const liveParams = (overrides: Partial<Phase17RunParams> = {}) => params({
-  mode: 'provider_enabled', maxCalls: 48, env: { ANTHROPIC_API_KEY: 'test-only-not-a-key' }, ...overrides,
-});
+const liveParams = (overrides: Partial<Phase17RunParams> = {}) =>
+  params({ mode: 'provider_enabled', maxCalls: 48, ...overrides });
 
-function dependencies(overrides: Partial<Phase17RunDependencies> = {},
+/** Test harness: synthetic cohort and labels, fake git state, mock provider. */
+function dependencies(overrides: Phase17RunDependencies = {},
   counter = { count: 0 }): Phase17RunDependencies {
   return {
     buildCohort: async () => cohort,
-    projectDurableProposal: phase17ProjectDurableProposal,
-    scheduleRecovery: phase17ScheduleRecovery,
+    labelBytes: JSON.stringify(syntheticPhase17Labels(cohort)),
+    repoRoot: process.cwd(),
+    codeState: { commitSha: 'a'.repeat(40), treeClean: true },
+    env: { ANTHROPIC_API_KEY: 'test-only-not-a-key' },
+    runtimeConfig: PHASE17_TEST_RUNTIME_CONFIG,
     createProvider: mockPhase17ProviderFactory(chooseAbove, counter),
     ...overrides,
   };
@@ -115,8 +127,8 @@ describe('Phase 17 run orchestration', () => {
       providerInvocations: 48, authorityWrites: 0 });
     // Mocked evidence passes every threshold yet can never support a recommendation.
     expect(outcome.summary.qualification).toMatchObject({ state: 'passed', zeroToleranceViolations: [],
-      providerExecution: 'injected_mock', productionQualificationRecommendable: false,
-      recommendationBlockers: ['provider_execution_not_anthropic_live'], promotionAuthorized: false,
+      providerExecution: 'injected_mock', harnessIntegrity: 'injected_test_hooks',
+      productionQualificationRecommendable: false, promotionAuthorized: false,
       progression: { state: 'passed' } });
     expect(outcome.summary.qualification.progression.runs.map((run) => run.violations))
       .toEqual([[], [], []]);
@@ -153,7 +165,7 @@ describe('Phase 17 run orchestration', () => {
   it('never sends an unplanned progression unit to the provider', async () => {
     const counter = { count: 0 };
     const reorderingScheduler: Phase17RecoveryScheduler = (input, schedulerDependencies) =>
-      phase17ScheduleRecovery(input, { ...schedulerDependencies,
+      trustedScheduler(input, { ...schedulerDependencies,
         // A prior state that forgets history makes the scheduler re-serve the first unit.
         loadPriorState: async () => ({ status: 'ok', state: {
           proposedUnitIdentities: [], confirmedCandidateIds: [], providerInvokedUnitIdentities: [] } }) });
@@ -172,15 +184,16 @@ describe('Phase 17 run orchestration', () => {
       ['a missing corpus', () => runPhase17ContinuationEvaluation(params({ corpusBytes: null }), dependencies())],
       ['a corpus hash mismatch', () => runPhase17ContinuationEvaluation(params(),
         dependencies({ buildCohort: undefined }))],
-      ['missing labels', () => runPhase17ContinuationEvaluation(params({ labelBytes: null }), dependencies())],
-      ['a model other than claude-sonnet-4-6', () => runPhase17ContinuationEvaluation(params({
-        runtimeConfig: { ...PHASE17_TEST_RUNTIME_CONFIG, model: 'claude-opus-5' } }), dependencies())],
-      ['a non-production timeout', () => runPhase17ContinuationEvaluation(params({
-        runtimeConfig: { ...PHASE17_TEST_RUNTIME_CONFIG, timeoutMs: 8_000 } }), dependencies())],
+      ['labels that do not bind', () => runPhase17ContinuationEvaluation(params(),
+        dependencies({ labelBytes: '{"not":"labels"}' }))],
+      ['a model other than claude-sonnet-4-6', () => runPhase17ContinuationEvaluation(params(), dependencies({
+        runtimeConfig: { ...PHASE17_TEST_RUNTIME_CONFIG, model: 'claude-opus-5' } }))],
+      ['a non-production timeout', () => runPhase17ContinuationEvaluation(params(), dependencies({
+        runtimeConfig: { ...PHASE17_TEST_RUNTIME_CONFIG, timeoutMs: 8_000 } }))],
       ['a drifted prompt or schema pin', () => runPhase17ContinuationEvaluation(params(), dependencies({
         acceptedContractPins: { ...PHASE17_ACCEPTED_CONTRACT_PINS, outputSchemaSha256: '0'.repeat(64) } }))],
-      ['a configured production database', () => runPhase17ContinuationEvaluation(params({
-        env: { SUPABASE_SERVICE_ROLE_KEY: 'x' } }), dependencies())],
+      ['a configured production database', () => runPhase17ContinuationEvaluation(params(), dependencies({
+        env: { SUPABASE_SERVICE_ROLE_KEY: 'x' } }))],
       ['more than 50 calls', () => runPhase17ContinuationEvaluation(params({ maxCalls: 51 }), dependencies())],
       ['a ceiling below the plan', () => runPhase17ContinuationEvaluation(liveParams({ maxCalls: 47 }),
         dependencies())],
@@ -192,17 +205,13 @@ describe('Phase 17 run orchestration', () => {
         inputUsdPerMillionTokens: 100, outputUsdPerMillionTokens: 500 }), dependencies())],
       ['a live run without confirmed pricing', () => runPhase17ContinuationEvaluation(liveParams({
         inputUsdPerMillionTokens: null }), dependencies())],
-      ['a live run without provider credentials', () => runPhase17ContinuationEvaluation(liveParams({
-        env: {} }), dependencies())],
-      ['a live run with incomplete labels', () => runPhase17ContinuationEvaluation(liveParams({
+      ['a live run without provider credentials', () => runPhase17ContinuationEvaluation(liveParams(),
+        dependencies({ env: {} }))],
+      ['a live run with incomplete labels', () => runPhase17ContinuationEvaluation(liveParams(), dependencies({
         labelBytes: JSON.stringify(syntheticPhase17Labels(cohort, {
-          unlabeledUnitKeys: [cohort.units[0]!.unitKey] })) }), dependencies())],
-      ['a live run on a dirty tree', () => runPhase17ContinuationEvaluation(liveParams({
-        codeState: { commitSha: 'a'.repeat(40), treeClean: false } }), dependencies())],
-      ['a live run without the real projection', () => runPhase17ContinuationEvaluation(liveParams(),
-        dependencies({ projectDurableProposal: undefined }))],
-      ['a live run without the real scheduler', () => runPhase17ContinuationEvaluation(liveParams(),
-        dependencies({ scheduleRecovery: undefined }))],
+          unlabeledUnitKeys: [cohort.units[0]!.unitKey] })) }))],
+      ['a live run on a dirty tree', () => runPhase17ContinuationEvaluation(liveParams(), dependencies({
+        codeState: { commitSha: 'a'.repeat(40), treeClean: false } }))],
     ];
 
     it.each(cases)('on %s', async (_name, start) => {
@@ -213,9 +222,9 @@ describe('Phase 17 run orchestration', () => {
   it('lets an incomplete label set prepare a dry run but not a live run', async () => {
     const labelBytes = JSON.stringify(syntheticPhase17Labels(cohort, {
       unlabeledUnitKeys: [cohort.units[0]!.unitKey] }));
-    const dry = await runPhase17ContinuationEvaluation(params({ labelBytes }), dependencies());
+    const dry = await runPhase17ContinuationEvaluation(params(), dependencies({ labelBytes }));
     expect(dry.freeze.labelState).toBe('incomplete');
-    await expect(runPhase17ContinuationEvaluation(liveParams({ labelBytes }), dependencies()))
+    await expect(runPhase17ContinuationEvaluation(liveParams(), dependencies({ labelBytes })))
       .rejects.toThrow(/LABELS_INCOMPLETE/);
   });
 
@@ -277,42 +286,142 @@ describe('Phase 17 run orchestration', () => {
       expect(outcome.summary.qualification.recommendationBlockers)
         .toContain('provider_execution_not_anthropic_live');
     }, 30_000);
+  });
 
-    it('cannot pass a mock off as live even beneath the real seam', async () => {
-      // The real observed seam with the Anthropic client itself replaced: the seam
-      // is genuine, so provenance is anthropic_live, but the responses carry no
-      // Anthropic identity and the recommendation is blocked.
-      realClaudeClient.mockImplementation((() => ({ messages: { create: async (body: {
-        messages: { content: string }[] }) => {
-        const candidates = JSON.parse(body.messages[0]!.content).candidates;
-        return { id: 'msg_mock', _request_id: 'req_mock', model: 'claude-sonnet-4-6',
-          stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 },
-          content: [{ type: 'text', text: JSON.stringify({ selectedCandidateId:
-            candidates[0].candidateId, confidence: 0.5, rationaleCode: 'mock' }) }] };
-      } } })) as never);
-      try {
-        const outcome = await runPhase17ContinuationEvaluation(liveParams(),
-          dependencies({ createProvider: undefined }));
-        expect(outcome.providerExecution).toBe('anthropic_live');
-        expect(outcome.summary.qualification.productionQualificationRecommendable).toBe(false);
-        expect(outcome.summary.qualification.recommendationBlockers)
-          .toContain('provider_response_identity_unverified');
-      } finally {
-        realClaudeClient.mockReset();
-        realClaudeClient.mockImplementation(() => {
-          throw new Error('phase17 tests must not construct a real Claude client');
-        });
-      }
-    }, 30_000);
-
-    it('offers callers no way to declare provenance', () => {
-      const runParams: Record<keyof Phase17RunParams, true> = {
-        mode: true, corpusBytes: true, labelBytes: true, repoRoot: true, artifactRoot: true,
-        codeState: true, env: true, maxCalls: true, maxSpendUsd: true, inputUsdPerMillionTokens: true,
-        outputUsdPerMillionTokens: true, runtimeConfig: true, now: true, runNonce: true,
+  describe('harness integrity (M4)', () => {
+    function realSeamLiveRun(injected: Phase17RunDependencies) {
+      // No createProvider: the real observed Anthropic seam. Only `injected` is overridden.
+      const root = tempRoot();
+      return {
+        root,
+        run: runPhase17ContinuationEvaluation(liveParams({ artifactRoot: root }), injected),
       };
-      expect(Object.keys(runParams)).not.toContain('providerExecution');
+    }
+
+    const injectedHooks: Array<[string, Phase17RunDependencies]> = [
+      ['buildCohort', { buildCohort: async () => cohort }],
+      ['computeContractPins', { computeContractPins: (root: string) => computePhase17ContractPins(root) }],
+      ['acceptedContractPins', { acceptedContractPins: { ...PHASE17_ACCEPTED_CONTRACT_PINS } }],
+      ['loadPrompt', { loadPrompt: () => loadRecoveryCandidateV2Prompt() }],
+      ['qualificationSourceDigest', { qualificationSourceDigest: () => 'f'.repeat(64) }],
+      ['projectDurableProposal', { projectDurableProposal: (input) =>
+        PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL(input) }],
+      ['scheduleRecovery', { scheduleRecovery: (input, schedulerDependencies) =>
+        trustedScheduler(input, schedulerDependencies) }],
+      ['labelBytes', { labelBytes: JSON.stringify(syntheticPhase17Labels(cohort)) }],
+      ['repoRoot', { repoRoot: process.cwd() }],
+      ['codeState', { codeState: { commitSha: 'a'.repeat(40), treeClean: true } }],
+      ['runtimeConfig', { runtimeConfig: PHASE17_TEST_RUNTIME_CONFIG }],
+      ['env', { env: { ANTHROPIC_API_KEY: 'test-only-not-a-key' } }],
+      ['clock', { clock: () => 0 }],
+    ];
+
+    it('covers every integrity-critical override except the provider seam itself', () => {
+      expect(injectedHooks.map(([name]) => name).sort()).toEqual(
+        PHASE17_INTEGRITY_CRITICAL_OVERRIDES.filter((key) => key !== 'createProvider').sort());
     });
+
+    it.each(injectedHooks)(
+      'refuses a real-provider live run with an injected %s, before any artifact or provider call',
+      async (name, injected) => {
+        const { root, run } = realSeamLiveRun(injected);
+        await expect(run).rejects.toThrow(new RegExp(`HARNESS_INTEGRITY_NOT_TRUSTED.*\\(${name}\\)`));
+        expect(readdirSync(root)).toEqual([]);
+        expect(realClaudeClient).not.toHaveBeenCalled();
+        expect(supabaseAdmin).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lets a default-trusted live run through the integrity gate into the real corpus checks', async () => {
+      // No overrides at all: the gate passes, and the real DN verification is what stops
+      // this bogus corpus -- still with zero provider calls and no artifacts.
+      const { root, run } = realSeamLiveRun({});
+      await expect(run).rejects.toThrow(/PHASE17_COHORT_CORPUS_SHA256_MISMATCH/);
+      expect(readdirSync(root)).toEqual([]);
+      expect(realClaudeClient).not.toHaveBeenCalled();
+    });
+
+    it('is default_trusted only when every override is absent or the exact default reference', async () => {
+      expect(phase17ProviderExecution('provider_enabled', undefined)).toBe('anthropic_live');
+      await expect(derivePhase17HarnessIntegrity({})).resolves
+        .toEqual({ harnessIntegrity: 'default_trusted', overridden: [] });
+      await expect(derivePhase17HarnessIntegrity({
+        buildCohort: buildPhase17DnCohort,
+        computeContractPins: computePhase17ContractPins,
+        acceptedContractPins: PHASE17_ACCEPTED_CONTRACT_PINS,
+        loadPrompt: loadRecoveryCandidateV2Prompt,
+        qualificationSourceDigest: phase17QualificationSourceDigest,
+        projectDurableProposal: PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL,
+        scheduleRecovery: trustedScheduler,
+        createProvider: createObservedRecoveryCandidateV2EvaluationProvider,
+        now: () => new Date(0),
+        runNonce: 'neutral',
+      })).resolves.toEqual({ harnessIntegrity: 'default_trusted', overridden: [] });
+    });
+
+    it('treats any look-alike of a default as an injected hook', async () => {
+      const result = await derivePhase17HarnessIntegrity({
+        acceptedContractPins: { ...PHASE17_ACCEPTED_CONTRACT_PINS },
+        createProvider: (observer) => createObservedRecoveryCandidateV2EvaluationProvider(observer),
+      });
+      expect(result).toEqual({ harnessIntegrity: 'injected_test_hooks',
+        overridden: ['acceptedContractPins', 'createProvider'] });
+    });
+
+    it('snapshots caller dependencies once so stateful getters cannot swap trusted seams', async () => {
+      let buildCohortReads = 0;
+      let createProviderReads = 0;
+      let injectedCohortCalls = 0;
+      let injectedProviderCalls = 0;
+      const stateful = {} as Phase17RunDependencies;
+      Object.defineProperties(stateful, {
+        buildCohort: {
+          enumerable: true,
+          get: () => {
+            buildCohortReads += 1;
+            if (buildCohortReads === 1) return buildPhase17DnCohort;
+            return async () => {
+              injectedCohortCalls += 1;
+              return cohort;
+            };
+          },
+        },
+        createProvider: {
+          enumerable: true,
+          get: () => {
+            createProviderReads += 1;
+            if (createProviderReads === 1) return undefined;
+            const factory: Phase17ProviderFactory = (observer) => {
+              injectedProviderCalls += 1;
+              return mockPhase17ProviderFactory(chooseAbove)(observer);
+            };
+            return factory;
+          },
+        },
+      });
+
+      const { root, run } = realSeamLiveRun(stateful);
+      await expect(run).rejects.toThrow(/PHASE17_COHORT_CORPUS_SHA256_MISMATCH/);
+      expect({ buildCohortReads, createProviderReads }).toEqual({
+        buildCohortReads: 1, createProviderReads: 1,
+      });
+      expect({ injectedCohortCalls, injectedProviderCalls }).toEqual({
+        injectedCohortCalls: 0, injectedProviderCalls: 0,
+      });
+      expect(readdirSync(root)).toEqual([]);
+      expect(realClaudeClient).not.toHaveBeenCalled();
+    });
+
+    it('keeps dependency injection for mocked runs, tagged and never recommendable', async () => {
+      const outcome = await runPhase17ContinuationEvaluation(liveParams(), dependencies());
+      expect(outcome.harnessIntegrity).toBe('injected_test_hooks');
+      expect(outcome.freeze).toMatchObject({ providerExecution: 'injected_mock',
+        harnessIntegrity: 'injected_test_hooks' });
+      expect(outcome.freeze.harnessOverrides).toEqual(expect.arrayContaining(['buildCohort', 'createProvider']));
+      expect(outcome.summary.harnessIntegrity).toBe('injected_test_hooks');
+      expect(outcome.summary.qualification.recommendationBlockers).toEqual(expect.arrayContaining([
+        'provider_execution_not_anthropic_live', 'harness_integrity_not_default_trusted']));
+    }, 30_000);
   });
 
   describe('raw evidence durability (M3)', () => {
@@ -326,11 +435,8 @@ describe('Phase 17 run orchestration', () => {
       const root = tempRoot();
       const longModel = 'x'.repeat(300); // violates the summary schema after all 48 calls
       await expect(runPhase17ContinuationEvaluation(liveParams({ artifactRoot: root }), dependencies({
-        createProvider: (observer) => {
-          const inner = mockPhase17ProviderFactory(chooseAbove)((observation) =>
-            observer({ ...observation, returnedModel: longModel }));
-          return inner;
-        },
+        createProvider: (observer) => mockPhase17ProviderFactory(chooseAbove)((observation) =>
+          observer({ ...observation, returnedModel: longModel })),
       }))).rejects.toThrow();
       const directory = runDirectory(root);
       expect(existsSync(path.join(directory, 'freeze.json'))).toBe(true);

@@ -16,7 +16,9 @@ const SOURCE = /\.(?:ts|tsx)$/;
 const TEST = /\.(?:test|spec)\.(?:ts|tsx)$/;
 const PHASE17_LIB = 'lib/evaluation/forgewing/phase17';
 const PHASE17_SCRIPTS = 'scripts/evaluation/phase17';
-const SEAMS = `${PHASE17_SCRIPTS}/phase17ProductionSeams.ts`;
+/** The single audited module that references production seams for Phase 17. */
+const SEAMS = 'lib/evaluation/phase17LiveSeams.ts';
+const RUN = `${PHASE17_LIB}/phase17Run.ts`;
 
 function walk(directory: string): string[] {
   const absolute = path.join(ROOT, directory);
@@ -32,7 +34,7 @@ function walk(directory: string): string[] {
 const read = (relative: string) => readFileSync(path.join(ROOT, relative), 'utf8');
 const code = (relative: string) => read(relative)
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-const phase17Sources = () => [...walk(PHASE17_LIB), ...walk(PHASE17_SCRIPTS)]
+const phase17Sources = () => [...walk(PHASE17_LIB), ...walk(PHASE17_SCRIPTS), SEAMS]
   .filter((relative) => !TEST.test(relative));
 
 describe('Phase 17 evaluation boundaries', () => {
@@ -58,10 +60,20 @@ describe('Phase 17 evaluation boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('imports exactly two production seams, only at the script layer', () => {
+  it('references exactly two production seams, from one audited module loaded only by the run', () => {
     const importers = phase17Sources().filter((relative) =>
       /from '@\/lib\/(?:server|extraction\/persistence)\//.test(code(relative)));
     expect(importers).toEqual([SEAMS]);
+    // The provider-evaluation subtree never imports serving code statically; the
+    // run loads the seam module lazily, and nothing else in production reaches it.
+    const seamConsumers = ['app', 'components', 'lib', 'scripts'].flatMap(walk)
+      .filter((relative) => !TEST.test(relative) && relative !== SEAMS)
+      .filter((relative) => read(relative).includes('phase17LiveSeams'));
+    expect(seamConsumers).toEqual([RUN]);
+    expect(code(RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
+    expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL = buildDurableRecoveryProposalV2;/);
+    expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_SCHEDULE_RECOVERY = scheduleRecoveryCandidateV2Shadow;/);
+    expect([...code(SEAMS).matchAll(/^export /gm)]).toHaveLength(2);
     const seamImports = [...code(SEAMS).matchAll(/import\s+(type\s+)?\{([^}]*)\}\s+from\s+'([^']+)'/g)]
       .filter((match) => !match[1])
       .map((match) => `${match[2]!.trim()} <- ${match[3]}`);
@@ -166,16 +178,95 @@ describe('Phase 17 evaluation boundaries', () => {
 
   it('derives provider provenance in one place and lets no caller declare it', () => {
     const declaring = phase17Sources().filter((relative) => /'anthropic_live'/.test(code(relative)));
-    // The closed vocabulary and the single derivation; nothing else may name the live state.
+    // The vocabulary, the single derivation, and the two places that gate on it.
     expect(declaring.sort()).toEqual([
       `${PHASE17_LIB}/phase17Contract.ts`,
       `${PHASE17_LIB}/phase17Execution.ts`,
       `${PHASE17_LIB}/phase17Qualification.ts`,
+      RUN,
     ]);
+    expect([...code(`${PHASE17_LIB}/phase17Execution.ts`).matchAll(/\? 'anthropic_live'/g)]).toHaveLength(1);
     expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))
       .toMatch(/input\.providerExecution === 'anthropic_live' \? \[\] : \['provider_execution_not_anthropic_live'\]/);
     // The explicit command never injects a provider, so its runs are the real seam or nothing.
     expect(code(`${PHASE17_SCRIPTS}/runPhase17ContinuationEvaluation.ts`)).not.toMatch(/createProvider/);
+  });
+
+  describe('harness integrity (M4)', () => {
+    it('classifies every run override, and CI forces a decision for any new one', () => {
+      const run = code(RUN);
+      const listed = (name: string) => {
+        const block = run.slice(run.indexOf(`export const ${name} = [`));
+        return [...block.slice(0, block.indexOf('] as const;')).matchAll(/'([A-Za-z]+)'/g)]
+          .map((match) => match[1]!);
+      };
+      const critical = listed('PHASE17_INTEGRITY_CRITICAL_OVERRIDES');
+      const neutral = listed('PHASE17_INTEGRITY_NEUTRAL_OVERRIDES');
+      const operatorControls = listed('PHASE17_OPERATOR_CONTROL_KEYS');
+      // A deliberate, reviewed snapshot: adding or reclassifying an override must edit this list.
+      expect(critical).toEqual(['buildCohort', 'computeContractPins', 'acceptedContractPins', 'loadPrompt',
+        'qualificationSourceDigest', 'projectDurableProposal', 'scheduleRecovery', 'createProvider',
+        'labelBytes', 'repoRoot', 'codeState', 'runtimeConfig', 'env', 'clock']);
+      expect(neutral).toEqual(['now', 'runNonce']);
+      expect(operatorControls).toEqual(['mode', 'corpusBytes', 'artifactRoot', 'maxCalls',
+        'maxSpendUsd', 'inputUsdPerMillionTokens', 'outputUsdPerMillionTokens']);
+      // Every override the run actually reads is classified...
+      const used = [...new Set([...run.matchAll(/\bdependencies\.([A-Za-z]+)/g)].map((match) => match[1]!))];
+      expect(used.filter((key) => !critical.includes(key) && !neutral.includes(key))).toEqual([]);
+      // ...and the type-level assertion makes an unclassified type key a compile error.
+      expect(run).toContain('AssertNever<Exclude<keyof Phase17RunDependencies, ClassifiedOverride>>');
+      expect(run).toContain('AssertNever<Exclude<ClassifiedOverride, keyof Phase17RunDependencies>>');
+      expect(run).toContain('AssertNever<Exclude<keyof Phase17RunParams, Phase17OperatorControl>>');
+      expect(run).toContain('AssertNever<Exclude<Phase17OperatorControl, keyof Phase17RunParams>>');
+
+      // Raw caller dependencies are read exactly once, inside the synchronous snapshot.
+      const snapshotStart = run.indexOf('function snapshotPhase17RunDependencies(');
+      const snapshotEnd = run.indexOf('\n}', snapshotStart);
+      const rawReads = [...run.matchAll(/\bdependencies\.([A-Za-z]+)/g)];
+      expect(rawReads.map((match) => match[1])).toEqual([...critical, ...neutral]);
+      expect(rawReads.every((match) => match.index! > snapshotStart && match.index! < snapshotEnd))
+        .toBe(true);
+      // Trust roots are module-owned; callers cannot provide comparison references.
+      const classifier = run.slice(run.indexOf('export async function derivePhase17HarnessIntegrity('));
+      expect(classifier.slice(0, classifier.indexOf('): Promise'))).not.toContain('trustedSeams');
+    });
+
+    it('decides integrity before reading the corpus, labels, pins or writing anything', () => {
+      const run = code(RUN);
+      const gate = run.indexOf("fail('harness_integrity_not_trusted'");
+      expect(gate).toBeGreaterThan(0);
+      for (const later of ['injected.buildCohort ?? buildPhase17DnCohort', 'PHASE17_LABEL_ARTIFACT_PATH)',
+        'computeContractPins ?? computePhase17ContractPins', 'writePhase17Freeze(', 'executePhase17Calls(']) {
+        expect(run.indexOf(later), later).toBeGreaterThan(gate);
+      }
+      expect(run).toMatch(/providerExecution === 'anthropic_live' && harnessIntegrity !== 'default_trusted'/);
+    });
+
+    it('lets the explicit command supply operator controls only', () => {
+      const cli = code(`${PHASE17_SCRIPTS}/runPhase17ContinuationEvaluation.ts`);
+      const call = cli.slice(cli.indexOf('runPhase17ContinuationEvaluation({'));
+      const args = call.slice(0, call.indexOf('});') + 3);
+      expect(args).not.toMatch(/\},\s*\{/); // no second (overrides) argument
+      for (const key of ['buildCohort', 'computeContractPins', 'acceptedContractPins', 'loadPrompt',
+        'qualificationSourceDigest', 'projectDurableProposal', 'scheduleRecovery', 'createProvider',
+        'labelBytes', 'repoRoot', 'codeState', 'runtimeConfig', 'env']) {
+        expect(args).not.toContain(`${key}:`);
+      }
+      expect(cli).not.toMatch(/--labels|--repo-root|--prompt|--cohort/);
+      const flagBlock = (name: string) => {
+        const block = cli.slice(cli.indexOf(`const ${name} = new Set([`));
+        return [...block.slice(0, block.indexOf(']);')).matchAll(/'(--[a-z-]+)'/g)]
+          .map((match) => match[1]!);
+      };
+      expect(flagBlock('VALUE_FLAGS')).toEqual(['--max-calls', '--max-spend-usd',
+        '--input-usd-per-mtok', '--output-usd-per-mtok', '--artifact-root']);
+      expect(flagBlock('BOOLEAN_FLAGS')).toEqual(['--execute-provider']);
+    });
+
+    it('requires default_trusted as well as anthropic_live to recommend', () => {
+      expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))
+        .toMatch(/input\.harnessIntegrity === 'default_trusted' \? \[\] : \['harness_integrity_not_default_trusted'\]/);
+    });
   });
 
   it('writes raw evidence before the summary', () => {

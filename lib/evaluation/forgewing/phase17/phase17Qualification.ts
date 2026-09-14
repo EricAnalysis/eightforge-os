@@ -4,6 +4,7 @@ import {
   PHASE17_HUMAN_INDETERMINATE,
   PHASE17_PROGRESSION_COHORT,
   type Phase17ProgressionRunCheck,
+  type Phase17HarnessIntegrity,
   type Phase17ProviderExecution,
   PHASE17_SCORING_VERSION,
   Phase17QualificationResultSchema,
@@ -42,6 +43,8 @@ export type Phase17QualificationInput = Readonly<{
   progressionRuns?: readonly Phase17ProgressionRunCheck[] | null;
   /** Derived from the execution seam; only anthropic_live may support a recommendation. */
   providerExecution: Phase17ProviderExecution;
+  /** Derived by the harness; only default_trusted may support a recommendation. */
+  harnessIntegrity: Phase17HarnessIntegrity;
   /** Every observed response carried Anthropic-shaped identifiers. */
   responseIdentityVerified?: boolean;
 }>;
@@ -117,6 +120,7 @@ export function evaluatePhase17Qualification(
       scoringVersion: PHASE17_SCORING_VERSION,
       state: 'not_run',
       providerExecution: input.providerExecution,
+      harnessIntegrity: input.harnessIntegrity,
       zeroToleranceViolations: [],
       accuracy: { state: 'not_run', determinateUnits: 0, incorrectUnitKeys: [] },
       repeatability: { state: 'not_run', unstableDeterminateUnitKeys: [],
@@ -219,6 +223,9 @@ export function evaluatePhase17Qualification(
     // Mocked or injected evidence can pass the thresholds but can never support
     // a production qualification recommendation.
     ...(input.providerExecution === 'anthropic_live' ? [] : ['provider_execution_not_anthropic_live']),
+    // Real provider responses over injected cohort, pins, prompt, projection or
+    // scheduler are not evidence about production behavior.
+    ...(input.harnessIntegrity === 'default_trusted' ? [] : ['harness_integrity_not_default_trusted']),
     ...(input.providerExecution === 'anthropic_live' && input.responseIdentityVerified === false
       ? ['provider_response_identity_unverified'] : []),
   ];
@@ -227,6 +234,7 @@ export function evaluatePhase17Qualification(
     scoringVersion: PHASE17_SCORING_VERSION,
     state,
     providerExecution: input.providerExecution,
+    harnessIntegrity: input.harnessIntegrity,
     zeroToleranceViolations,
     accuracy: { state: accuracyState, determinateUnits: determinate.length, incorrectUnitKeys },
     repeatability: { state: repeatabilityState, unstableDeterminateUnitKeys,

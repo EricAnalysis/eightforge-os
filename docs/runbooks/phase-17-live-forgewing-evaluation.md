@@ -43,6 +43,17 @@ not a qualification change.
   execution seam — any injected provider is `injected_mock` — and only
   `anthropic_live` evidence can make a result eligible for a production
   qualification recommendation.
+- **Harness integrity is explicit.** Freeze, summary and qualification record
+  `harnessIntegrity`: `default_trusted` or `injected_test_hooks`. The harness
+  resolves every live-critical input itself -- DN cohort builder, committed label
+  artifact, contract pins, prompt loader, durable projection and Phase 16
+  scheduler (via `lib/evaluation/phase17LiveSeams.ts`), repository root, git
+  state, runtime config and environment -- and derives integrity by identity. A
+  run against the real Anthropic seam that is not `default_trusted` refuses to
+  start before any artifact or provider call. Recommendation requires
+  `anthropic_live` AND `default_trusted`. The command accepts operator controls
+  only (mode, ceilings, pricing, artifact root); it cannot select labels, cohort,
+  prompt, pins, projection or scheduler.
 - **Human labels are authoritative.** No provider output may create or change a
   label.
 - **Phase 17 cannot promote qualification.** A passing result can only
@@ -108,7 +119,8 @@ occurring failures; nobody forces rate limits or bad credentials.
      --input-usd-per-mtok <confirmed> --output-usd-per-mtok <confirmed>
    ```
 
-5. **Review.** Confirm `providerExecution` is `anthropic_live`. Commit only
+5. **Review.** Confirm `providerExecution` is `anthropic_live` and `harnessIntegrity` is
+   `default_trusted`. Commit only
    `freeze.json` and `summary.json` from
    `scripts/evaluation/artifacts/phase17/<runId>/`. Never commit `local/`.
 
@@ -119,7 +131,7 @@ occurring failures; nobody forces rate limits or bad credentials.
 
 ## Refusals (all before the freeze and before any call)
 
-Missing or mismatched corpus; wrong page, unit or candidate count; missing,
+A real-provider run with any injected harness hook; missing or mismatched corpus; wrong page, unit or candidate count; missing,
 malformed or unbound labels; incomplete labels (live); a runtime prompt containing
 CR; drifted prompt bytes, request builder or request contract, output schema,
 task, candidate, durable projection, planner or Phase 16 policy pin;

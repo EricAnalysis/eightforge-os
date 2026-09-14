@@ -62,6 +62,7 @@ function baseline(overrides: (unit: number, run: number) => Partial<Phase17Evalu
     effectiveTimeoutMs: 3_000,
     progressionRuns,
     providerExecution: 'anthropic_live',
+    harnessIntegrity: 'default_trusted',
     responseIdentityVerified: true,
   };
 }
@@ -81,6 +82,23 @@ describe('Phase 17 qualification thresholds', () => {
     expect(result).toMatchObject({ state: 'passed', providerExecution: 'injected_mock',
       productionQualificationRecommendable: false, promotionAuthorized: false });
     expect(result.recommendationBlockers).toEqual(['provider_execution_not_anthropic_live']);
+  });
+
+  it('requires BOTH live provenance and a default-trusted harness to recommend', () => {
+    const cases = [
+      ['anthropic_live', 'default_trusted', true, []],
+      ['anthropic_live', 'injected_test_hooks', false, ['harness_integrity_not_default_trusted']],
+      ['injected_mock', 'default_trusted', false, ['provider_execution_not_anthropic_live']],
+      ['injected_mock', 'injected_test_hooks', false,
+        ['provider_execution_not_anthropic_live', 'harness_integrity_not_default_trusted']],
+    ] as const;
+    for (const [providerExecution, harnessIntegrity, recommendable, blockers] of cases) {
+      const result = evaluate({ ...baseline(), providerExecution, harnessIntegrity });
+      expect(result, `${providerExecution}/${harnessIntegrity}`).toMatchObject({ state: 'passed',
+        providerExecution, harnessIntegrity, productionQualificationRecommendable: recommendable,
+        promotionAuthorized: false });
+      expect(result.recommendationBlockers).toEqual(blockers);
+    }
   });
 
   it('blocks a live recommendation whose responses lack Anthropic identity', () => {

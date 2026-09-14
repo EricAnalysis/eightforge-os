@@ -81,6 +81,15 @@ export const PHASE17_PROGRESSION_COHORT = {
 export const PHASE17_PROVIDER_EXECUTIONS = ['dry_run', 'injected_mock', 'anthropic_live'] as const;
 export type Phase17ProviderExecution = typeof PHASE17_PROVIDER_EXECUTIONS[number];
 
+/**
+ * Whether every live-critical harness input was the default trusted
+ * implementation. Derived by identity inside the harness, never accepted from a
+ * caller. A live Anthropic run refuses to start unless it is default_trusted, and
+ * only default_trusted anthropic_live evidence may support a recommendation.
+ */
+export const PHASE17_HARNESS_INTEGRITIES = ['default_trusted', 'injected_test_hooks'] as const;
+export type Phase17HarnessIntegrity = typeof PHASE17_HARNESS_INTEGRITIES[number];
+
 export const PHASE17_KNOWN_LIMITATIONS = [
   'recovery_candidate_v2_cannot_abstain_requires_exactly_one_supplied_candidate',
   'rationale_code_is_free_text_not_enumerated',
@@ -302,6 +311,7 @@ export const Phase17QualificationResultSchema = z.object({
   scoringVersion: z.literal(PHASE17_SCORING_VERSION),
   state: z.enum(PHASE17_QUALIFICATION_STATES),
   providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
+  harnessIntegrity: z.enum(PHASE17_HARNESS_INTEGRITIES),
   zeroToleranceViolations: z.array(z.object({
     code: z.enum(PHASE17_ZERO_TOLERANCE_CODES),
     sequences: z.array(z.number().int().positive()),
@@ -385,6 +395,9 @@ export const Phase17FreezeSchema = z.object({
   createdAt: z.string().datetime(),
   executionMode: z.enum(['dry_run', 'provider_enabled']),
   providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
+  harnessIntegrity: z.enum(PHASE17_HARNESS_INTEGRITIES),
+  /** Names of live-critical overrides that were not the default seam; empty when trusted. */
+  harnessOverrides: z.array(z.string().regex(/^[A-Za-z]+$/)),
   authority: z.literal(PHASE17_AUTHORITY),
   promotionAuthorized: z.literal(false),
   recoveryType: z.literal(PHASE17_RECOVERY_TYPE),
@@ -435,6 +448,7 @@ export const Phase17EvaluationRunSchema = z.object({
   finishedAt: z.string().datetime(),
   executionMode: z.enum(['dry_run', 'provider_enabled']),
   providerExecution: z.enum(PHASE17_PROVIDER_EXECUTIONS),
+  harnessIntegrity: z.enum(PHASE17_HARNESS_INTEGRITIES),
   authority: z.literal(PHASE17_AUTHORITY),
   promotionAuthorized: z.literal(false),
   pins: Phase17PinsSchema,

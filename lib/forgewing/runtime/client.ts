@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { sha256Hex } from '@/lib/extraction/domain/hash';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import {
   COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
@@ -117,7 +118,7 @@ function loadPricingRateClusterRecoveryPrompt(): string {
   );
 }
 
-function loadRecoveryCandidateV2Prompt(): string {
+export function loadRecoveryCandidateV2Prompt(): string {
   return readFileSync(new URL('../prompts/recoveryCandidateV2.md', import.meta.url), 'utf8');
 }
 
@@ -135,40 +136,98 @@ export function loadRepositoryPlanGuidancePrompt(): string {
   );
 }
 
-async function callClaudeWithStructuredOutput(
+/**
+ * Evaluation-only response metadata. Deliberately excludes content, thinking,
+ * and any reasoning: only what a behavioral measurement needs to account for a
+ * call.
+ */
+export type ForgewingProviderObservation = Readonly<{
+  messageId: string | null;
+  requestId: string | null;
+  returnedModel: string | null;
+  stopReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  latencyMs: number;
+  /** sha256 of the exact system prompt string sent in this request. */
+  systemPromptSha256: string;
+}>;
+
+export type ForgewingProviderObserver = (observation: ForgewingProviderObservation) => void;
+
+export type ForgewingStructuredOutputSchema = typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
+  | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
+  | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
+  | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
+  | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
+  | typeof RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA
+  | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
+  | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA;
+
+// forgewing-request-contract:begin
+/**
+ * The single definition of a Forgewing structured-output Claude request: body
+ * and per-request options except the abort signal. Every provider in this module
+ * sends exactly this; Phase 17 pins this region and derives its recorded request
+ * parameters from it rather than from handwritten constants.
+ */
+export function buildForgewingStructuredOutputRequest(
   request: ForgewingProviderRequest,
   prompt: string,
-  schema: typeof REGION_CLASSIFICATION_OUTPUT_JSON_SCHEMA
-    | typeof TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA
-    | typeof COLUMN_MAPPING_OUTPUT_JSON_SCHEMA
-    | typeof OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_INTERPRETATION_V2_OUTPUT_JSON_SCHEMA
-    | typeof PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA
-    | typeof RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA
-    | typeof WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA
-    | typeof REPOSITORY_PLAN_GUIDANCE_OUTPUT_JSON_SCHEMA,
-  detectTruncation = false,
-): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
-  try {
-    const message = await getClaudeClient().messages.create({
+  schema: ForgewingStructuredOutputSchema,
+) {
+  return {
+    body: {
       model: request.model,
       temperature: 0,
       max_tokens: request.maxOutputTokens,
       system: prompt,
-      messages: [{ role: 'user', content: request.inputJson }],
+      messages: [{ role: 'user' as const, content: request.inputJson }],
       output_config: {
         format: {
-          type: 'json_schema',
+          type: 'json_schema' as const,
           schema,
         },
       },
-    }, {
-      signal: controller.signal,
+    },
+    options: {
       timeout: request.timeoutMs,
       maxRetries: 0,
+    },
+  };
+}
+
+async function callClaudeWithStructuredOutput(
+  request: ForgewingProviderRequest,
+  prompt: string,
+  schema: ForgewingStructuredOutputSchema,
+  detectTruncation = false,
+  observer?: ForgewingProviderObserver,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  const startedAt = performance.now();
+  const built = buildForgewingStructuredOutputRequest(request, prompt, schema);
+  try {
+    const message = await getClaudeClient().messages.create(built.body, {
+      signal: controller.signal,
+      ...built.options,
+    });
+    // Observed before content handling so a truncated response is still
+    // accounted for. Absent for every production caller.
+    observer?.({
+      systemPromptSha256: sha256Hex(built.body.system),
+      messageId: typeof message.id === 'string' ? message.id : null,
+      requestId: typeof (message as { _request_id?: unknown })._request_id === 'string'
+        ? (message as { _request_id: string })._request_id : null,
+      returnedModel: typeof message.model === 'string' ? message.model : null,
+      stopReason: typeof message.stop_reason === 'string' ? message.stop_reason : null,
+      inputTokens: typeof message.usage?.input_tokens === 'number' ? message.usage.input_tokens : null,
+      outputTokens: typeof message.usage?.output_tokens === 'number'
+        ? message.usage.output_tokens : null,
+      latencyMs: performance.now() - startedAt,
     });
     const rawOutput = message.content
       .filter((block) => block.type === 'text')
@@ -184,6 +243,7 @@ async function callClaudeWithStructuredOutput(
     clearTimeout(timer);
   }
 }
+// forgewing-request-contract:end
 
 export const callClaudeForRegionClassification: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(
@@ -236,6 +296,26 @@ export const callClaudeForRecoveryCandidateV2: ForgewingProvider = async (reques
     RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
     true,
   );
+
+/**
+ * Evaluation-only observed variant of callClaudeForRecoveryCandidateV2 (Phase 17).
+ *
+ * Same client, prompt bytes, JSON schema, temperature, zero retries, and
+ * truncation detection as the production provider; the only addition is that
+ * response metadata is reported to the evaluation observer. Production callers
+ * continue to use callClaudeForRecoveryCandidateV2 above.
+ */
+export function createObservedRecoveryCandidateV2EvaluationProvider(
+  observer: ForgewingProviderObserver,
+): ForgewingProvider {
+  return async (request) => callClaudeWithStructuredOutput(
+    request,
+    loadRecoveryCandidateV2Prompt(),
+    RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
+    true,
+    observer,
+  );
+}
 
 export const callClaudeForWorkflowAssessment: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(

@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const messagesCreate = vi.hoisted(() => vi.fn());
@@ -11,7 +14,12 @@ import {
   callClaudeForObservationArbitration,
   callClaudeForPricingInterpretation,
   callClaudeForPricingInterpretationWithEvaluationPrompt,
+  callClaudeForRecoveryCandidateV2,
   callClaudeForRegionClassification,
+  buildForgewingStructuredOutputRequest,
+  createObservedRecoveryCandidateV2EvaluationProvider,
+  loadRecoveryCandidateV2Prompt,
+  type ForgewingProviderObservation,
   callClaudeForRepositoryPlanGuidance,
   callClaudeForTableContinuation,
   ForgewingProviderOutputError,
@@ -21,6 +29,7 @@ import {
   loadRepositoryPlanGuidancePrompt,
   normalizeClaudeProviderError,
 } from '@/lib/forgewing/runtime/client';
+import { RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA } from '@/lib/forgewing/runtime/structuredOutput';
 
 describe('Forgewing Claude adapter', () => {
   beforeEach(() => messagesCreate.mockReset());
@@ -48,6 +57,101 @@ describe('Forgewing Claude adapter', () => {
       }),
       expect.objectContaining({ timeout: 500, maxRetries: 0, signal: expect.any(AbortSignal) }),
     );
+  });
+
+  describe('Phase 17 observed Recovery Candidate V2 evaluation seam', () => {
+    const request = { model: 'claude-sonnet-4-6', timeoutMs: 3_000, maxOutputTokens: 400,
+      inputJson: '{"candidates":[],"taskType":"recovery_candidate_v2"}' };
+    const response = {
+      id: 'msg_01', _request_id: 'req_01', model: 'claude-sonnet-4-6', stop_reason: 'end_turn',
+      usage: { input_tokens: 1_234, output_tokens: 56 },
+      content: [{ type: 'text', text: '{"selectedCandidateId":"x","confidence":1,"rationaleCode":"r"}' }],
+    };
+
+    it('sends a request byte-identical to the production provider', async () => {
+      messagesCreate.mockResolvedValue(response);
+      await callClaudeForRecoveryCandidateV2(request);
+      await createObservedRecoveryCandidateV2EvaluationProvider(() => undefined)(request);
+      const [production, observed] = messagesCreate.mock.calls;
+      expect(observed![0]).toEqual(production![0]);
+      expect(observed![0]).toMatchObject({ temperature: 0, max_tokens: 400,
+        system: loadRecoveryCandidateV2Prompt() });
+      expect(observed![1]).toMatchObject({ timeout: 3_000, maxRetries: 0 });
+      expect(production![1]).toMatchObject({ timeout: 3_000, maxRetries: 0 });
+    });
+
+    it('sends the exact runtime prompt bytes, and reports their digest per request', async () => {
+      messagesCreate.mockResolvedValue(response);
+      const observations: ForgewingProviderObservation[] = [];
+      await callClaudeForRecoveryCandidateV2(request);
+      await createObservedRecoveryCandidateV2EvaluationProvider((value) => {
+        observations.push(value);
+      })(request);
+      const [production, observed] = messagesCreate.mock.calls;
+      const sentProduction = production![0].system as string;
+      const sentObserved = observed![0].system as string;
+      expect(Buffer.from(sentObserved, 'utf8').equals(Buffer.from(sentProduction, 'utf8'))).toBe(true);
+      expect(sentObserved.includes('\r')).toBe(false);
+      const digest = createHash('sha256').update(sentObserved, 'utf8').digest('hex');
+      expect(observations[0]!.systemPromptSha256).toBe(digest);
+      expect(digest).toBe(createHash('sha256')
+        .update(readFileSync('lib/forgewing/prompts/recoveryCandidateV2.md')).digest('hex'));
+    });
+
+    it('builds every provider request through the single request builder', async () => {
+      messagesCreate.mockResolvedValue(response);
+      await callClaudeForRecoveryCandidateV2(request);
+      const built = buildForgewingStructuredOutputRequest(request, loadRecoveryCandidateV2Prompt(),
+        RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA);
+      const [body, options] = messagesCreate.mock.calls[0]!;
+      expect(body).toEqual(built.body);
+      const { signal, ...rest } = options as Record<string, unknown>;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(rest).toEqual(built.options);
+    });
+
+    it('returns the same content and reports only accounting metadata', async () => {
+      messagesCreate.mockResolvedValue(response);
+      const observations: ForgewingProviderObservation[] = [];
+      await expect(createObservedRecoveryCandidateV2EvaluationProvider((value) => {
+        observations.push(value);
+      })(request)).resolves.toBe(response.content[0]!.text);
+      expect(observations).toHaveLength(1);
+      expect(observations[0]).toMatchObject({ messageId: 'msg_01', requestId: 'req_01',
+        returnedModel: 'claude-sonnet-4-6', stopReason: 'end_turn', inputTokens: 1_234,
+        outputTokens: 56 });
+      expect(Object.keys(observations[0]!).sort()).toEqual(['inputTokens', 'latencyMs', 'messageId',
+        'outputTokens', 'requestId', 'returnedModel', 'stopReason', 'systemPromptSha256']);
+    });
+
+    it('keeps truncation detection and still accounts for the truncated call', async () => {
+      messagesCreate.mockResolvedValue({ ...response, stop_reason: 'max_tokens',
+        content: [{ type: 'text', text: '{"selectedCandidateId":' }] });
+      const observations: ForgewingProviderObservation[] = [];
+      const error = await createObservedRecoveryCandidateV2EvaluationProvider((value) => {
+        observations.push(value);
+      })(request).catch((value) => value);
+      expect(error).toBeInstanceOf(ForgewingProviderOutputError);
+      expect(error.message).toBe('provider_truncated_output');
+      expect(observations[0]?.stopReason).toBe('max_tokens');
+    });
+
+    it('reports nothing for a failed request and normalizes timeouts', async () => {
+      messagesCreate.mockImplementation(async () => {
+        throw new Error('Request timed out');
+      });
+      const observed: unknown[] = [];
+      const observer = (value: unknown) => { observed.push(value); };
+      const error = await createObservedRecoveryCandidateV2EvaluationProvider(observer)(request)
+        .catch((value: unknown) => value);
+      expect((error as Error).message).toBe('provider_timeout');
+      expect(observed).toEqual([]);
+      const attempts = messagesCreate.mock.calls.length;
+      // Read the count, then clear the rejecting implementation from the shared spy:
+      // asserting on the spy directly while it holds it fails under this runner.
+      messagesCreate.mockReset();
+      expect(attempts).toBe(1);
+    });
   });
 
   it('normalizes the Anthropic SDK timeout class', () => {

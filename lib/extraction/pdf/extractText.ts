@@ -24,6 +24,12 @@ export interface PdfToken {
   // sourced from Tesseract word-level output (see ocrGeometryLayout.ts);
   // undefined for native pdfjs text, which has no per-character OCR confidence.
   confidence?: number | null;
+  /** Original OCR render-pixel geometry retained after canonical normalization. */
+  ocr_source_geometry?: {
+    bbox: { x0: number; y0: number; x1: number; y1: number };
+    pixel_width: number;
+    pixel_height: number;
+  };
   /** Primitive source-observation identity assigned before downstream sorting/grouping. */
   observation_id?: PdfLayoutObservationId;
   observation_identity?: PdfLayoutObservationIdentity;
@@ -47,6 +53,15 @@ export interface PdfLayoutPage {
   height?: number;
   lines: PdfLayoutLine[];
   source?: 'pdfjs' | 'ocr_fallback' | 'mixed';
+  /** Cheap, deterministic pdf.js operator-list evidence used only for OCR admission. */
+  visual_coverage?: {
+    image_operator_count: number;
+    approximate_image_coverage_ratio: number;
+    /** Painted vector paths; outlined text renders visibly with no text layer. */
+    vector_operator_count?: number;
+  };
+  /** Additive identity for the exact reconciled representation consumed downstream. */
+  effective_representation_digest?: string;
 }
 
 export interface PdfLayout {
@@ -183,6 +198,8 @@ export async function loadPdfLayout(
   bytes: ArrayBuffer,
   options?: {
     maxPages?: number;
+    /** Explicitly relevant physical pages may pierce maxPages without expanding the whole cap. */
+    priorityPageNumbers?: readonly number[];
     observationIdentity?: PdfLayoutObservationIdentityContext | null;
   },
 ): Promise<PdfLayout> {
@@ -191,12 +208,21 @@ export async function loadPdfLayout(
     const data = new Uint8Array(bytes);
     const pdfDocument = await pdfjs.getDocument({ data }).promise;
     const maxPages = Math.min(pdfDocument.numPages, options?.maxPages ?? pdfDocument.numPages);
+    const pageNumbers = new Set(Array.from({ length: maxPages }, (_, index) => index + 1));
+    for (const pageNumber of options?.priorityPageNumbers ?? []) {
+      if (Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pdfDocument.numPages) {
+        pageNumbers.add(pageNumber);
+      }
+    }
     const pages: PdfLayoutPage[] = [];
 
-    for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+    for (const pageNumber of [...pageNumbers].sort((left, right) => left - right)) {
       const page = await pdfDocument.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });
-      const textContent = await page.getTextContent();
+      const [textContent, operatorList] = await Promise.all([
+        page.getTextContent(),
+        page.getOperatorList(),
+      ]);
       let strippedControlCount = 0;
       let sanitizedTokenCount = 0;
       const items = (textContent.items ?? []) as Array<{
@@ -286,11 +312,86 @@ export async function loadPdfLayout(
         } satisfies PdfLayoutLine;
       }).filter((line) => line.text.length > 0);
 
+      // PDF image drawing is a unit square transformed by the active CTM. The
+      // determinant therefore gives its rendered area in page coordinates.
+      // Summing and clamping is intentionally approximate: this is an admission
+      // signal, never extracted truth or geometry evidence.
+      const ops = (pdfjs as unknown as { OPS?: Record<string, number> }).OPS ?? {};
+      const imageOps = new Set([
+        ops.paintImageXObject,
+        ops.paintInlineImageXObject,
+        ops.paintImageMaskXObject,
+        ops.paintImageXObjectRepeat,
+        ops.paintImageMaskXObjectRepeat,
+      ].filter((value): value is number => typeof value === 'number'));
+      // Current pdf.js folds the painting operator into constructPath, so path
+      // construction is the portable signal for outlined glyphs and drawn tables.
+      const vectorPaintOps = new Set([
+        ops.constructPath,
+        ops.fill,
+        ops.eoFill,
+        ops.stroke,
+        ops.fillStroke,
+        ops.eoFillStroke,
+        ops.closeStroke,
+        ops.closeFillStroke,
+        ops.closeEOFillStroke,
+      ].filter((value): value is number => typeof value === 'number'));
+      type Matrix = [number, number, number, number, number, number];
+      const multiply = (left: Matrix, right: Matrix): Matrix => [
+        left[0] * right[0] + left[2] * right[1],
+        left[1] * right[0] + left[3] * right[1],
+        left[0] * right[2] + left[2] * right[3],
+        left[1] * right[2] + left[3] * right[3],
+        left[0] * right[4] + left[2] * right[5] + left[4],
+        left[1] * right[4] + left[3] * right[5] + left[5],
+      ];
+      let ctm: Matrix = [1, 0, 0, 1, 0, 0];
+      const stack: Matrix[] = [];
+      let imageOperatorCount = 0;
+      let imageArea = 0;
+      let vectorOperatorCount = 0;
+      const fnArray = operatorList.fnArray ?? [];
+      const argsArray = operatorList.argsArray ?? [];
+      for (let index = 0; index < fnArray.length; index += 1) {
+        const fn = fnArray[index];
+        if (fn === ops.save) stack.push([...ctm] as Matrix);
+        else if (fn === ops.restore) ctm = stack.pop() ?? ctm;
+        else if (fn === ops.paintFormXObjectBegin) {
+          // A form XObject draws through its own matrix; scanned PDFs commonly
+          // wrap the full-page image in one. Its end restores the outer CTM.
+          stack.push([...ctm] as Matrix);
+          const matrix = (argsArray[index] as unknown[] | undefined)?.[0];
+          if (Array.isArray(matrix) && matrix.length >= 6
+            && matrix.slice(0, 6).every((value) => typeof value === 'number')) {
+            ctm = multiply(ctm, matrix.slice(0, 6) as Matrix);
+          }
+        } else if (fn === ops.paintFormXObjectEnd) ctm = stack.pop() ?? ctm;
+        else if (fn === ops.transform) {
+          const args = argsArray[index] as unknown[] | undefined;
+          if (args && args.length >= 6 && args.slice(0, 6).every((value) => typeof value === 'number')) {
+            ctm = multiply(ctm, args.slice(0, 6) as Matrix);
+          }
+        } else if (imageOps.has(fn)) {
+          imageOperatorCount += 1;
+          imageArea += Math.abs((ctm[0] * ctm[3]) - (ctm[1] * ctm[2]));
+        } else if (vectorPaintOps.has(fn)) {
+          vectorOperatorCount += 1;
+        }
+      }
+      const pageArea = Math.max(1, viewport.width * viewport.height);
+
       pages.push({
         page_number: pageNumber,
         width: viewport.width,
         height: viewport.height,
         lines,
+        visual_coverage: {
+          image_operator_count: imageOperatorCount,
+          approximate_image_coverage_ratio: round(Math.min(1, imageArea / pageArea)),
+          vector_operator_count: vectorOperatorCount,
+        },
+        ...(pageRepresentationDigest ? { effective_representation_digest: pageRepresentationDigest } : {}),
       });
     }
 

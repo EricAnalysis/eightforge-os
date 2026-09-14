@@ -43,7 +43,18 @@ beforeAll(async () => {
   vi.resetModules();
 }, 30_000);
 
-function mockCommonPdfPipeline(pageCount: number) {
+type MockLayoutPage = Readonly<{ nativeText?: string; scanned?: boolean }>;
+
+const NATIVE_BODY_PAGES: readonly MockLayoutPage[] = [
+  { nativeText: 'Native agreement body text with enough words to cover this page on its own.', scanned: false },
+  { nativeText: 'Native rate schedule body text with enough words to cover this page on its own.', scanned: false },
+];
+
+/**
+ * Default pages model a scanned page: no native text layer and one full-page
+ * image, which is what the page-level coverage preflight sees on a real scan.
+ */
+function mockCommonPdfPipeline(pageCount: number, layoutPages: readonly MockLayoutPage[] = []) {
   const buildPdfTextExtraction = vi.fn((
     { layout, fallbackText, fallbackPages }: BuildPdfTextArgs,
   ) => ({
@@ -74,10 +85,32 @@ function mockCommonPdfPipeline(pageCount: number) {
   vi.doMock('@/lib/extraction/pdf/extractText', () => ({
     loadPdfLayout: vi.fn(async () => ({
       page_count: pageCount,
-      pages: Array.from({ length: pageCount }, (_, index) => ({
-        page_number: index + 1,
-        lines: [],
-      })),
+      pages: Array.from({ length: pageCount }, (_, index) => {
+        const page = layoutPages[index] ?? { scanned: true };
+        const text = page.nativeText ?? '';
+        return {
+          page_number: index + 1,
+          width: 200,
+          height: 300,
+          lines: text ? [{
+            id: `pdf:line:p${index + 1}:1`,
+            page_number: index + 1,
+            text,
+            tokens: text.split(/\s+/).map((word, wordIndex) => ({
+              text: word, x: 10 + wordIndex * 12, y: 200, width: 10, height: 10, source: 'pdfjs',
+            })),
+            kind: 'text',
+            x_min: 10,
+            x_max: 190,
+            y: 200,
+          }] : [],
+          visual_coverage: {
+            image_operator_count: page.scanned === false ? 0 : 1,
+            approximate_image_coverage_ratio: page.scanned === false ? 0 : 1,
+            vector_operator_count: 0,
+          },
+        };
+      }),
       gaps: [],
     })),
     buildPdfTextExtraction,
@@ -204,7 +237,7 @@ describe('documentExtraction pdf fallback gate', () => {
   it('uses pdf_text when meaningful native page text blocks the weak fallback gate', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, NATIVE_BODY_PAGES);
 
     const nativePageTexts = [
       'Williamson County emergency debris removal agreement page one with enough native text to be meaningful.',
@@ -291,7 +324,7 @@ describe('documentExtraction pdf fallback gate', () => {
   it('keeps short valid native contract text on the pdf_text path when word-rich content is present', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, NATIVE_BODY_PAGES);
 
     const nativePageTexts = [
       'County debris contract scope rates apply to storm cleanup crews today only.',
@@ -356,7 +389,7 @@ describe('documentExtraction pdf fallback gate', () => {
     });
   });
 
-  it('runs full-page OCR recovery only after the weak contract PDF gate fires', async () => {
+  it('OCRs every scanned page of a weak contract through page-level coverage', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { buildPdfTextExtraction } = mockCommonPdfPipeline(3);
@@ -426,17 +459,20 @@ describe('documentExtraction pdf fallback gate', () => {
     const metadata = (payload.extraction.metadata ?? {}) as Record<string, unknown>;
     expect(metadata).toMatchObject({
       extraction_mode: 'ocr_recovery',
-      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_trigger_reason: 'page_visual_coverage_incomplete',
       ocr_pages_attempted: 3,
       canonical_persisted: false,
     });
     expect(metadata.ocr_confidence_avg).toBe(88);
   });
 
-  it('still runs OCR recovery for genuinely weak native text snippets', async () => {
+  it('still OCRs scanned pages whose only native text is a stamp or page number', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, [
+      { nativeText: 'DocuSign Envelope ID 1234', scanned: true },
+      { nativeText: 'Page 2 of 7', scanned: true },
+    ]);
 
     const nativePageTexts = [
       'DocuSign Envelope ID 1234',
@@ -510,14 +546,15 @@ describe('documentExtraction pdf fallback gate', () => {
     expect(payload.extraction.mode).toBe('ocr_recovery');
     const recoveryCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
       typeof args?.fallbackText === 'string'
-      && args.fallbackText.includes('Recovered weak contract page 1')
+      && args.fallbackText.includes('Recovered')
+      && args.fallbackText.includes('Recovered weak contract page 2')
       && Array.isArray(args.fallbackPages)
       && args.fallbackPages.length === 2,
     );
     expect(recoveryCall).toBeTruthy();
     expect((payload.extraction.metadata ?? {}) as Record<string, unknown>).toMatchObject({
       extraction_mode: 'ocr_recovery',
-      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_trigger_reason: 'page_visual_coverage_incomplete',
       ocr_pages_attempted: 2,
       canonical_persisted: false,
     });
@@ -560,10 +597,14 @@ describe('documentExtraction pdf fallback gate', () => {
     expect(JSON.stringify(payload)).not.toContain('render_sha256');
   });
 
-  it('runs targeted front-matter OCR when later contract body text is meaningful but agreement pages are image-only', async () => {
+  it('OCRs only the image-only agreement pages when later contract body text is native', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(12);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(12, [
+      ...Array.from({ length: 10 }, () => ({ scanned: true })),
+      { nativeText: 'EXHIBIT A SCOPE OF WORK 1.1 The County seeks to contract with a qualified Vendor.', scanned: false },
+      { nativeText: 'PROJECT FUNDING PACKAGE EXHIBIT E 1. PROJECT TERM 1.1. The Vendor shall furnish services.', scanned: false },
+    ]);
 
     const nativePageTexts = [
       '', '', '', '', '', '', '', '', '', '',

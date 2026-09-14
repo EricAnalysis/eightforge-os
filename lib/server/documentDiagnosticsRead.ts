@@ -118,6 +118,8 @@ function buildDiagnostic(input: Readonly<{
   processingRunId?: string | null;
   occurredAt: string;
   visualBoxes?: readonly VisualSourceBox[];
+  ocrPixelWidth?: number;
+  ocrPixelHeight?: number;
   proposal?: RecoveryReviewCandidate | null;
   recoveryType?: DiagnosticRecoveryType | null;
 }>): DocumentDiagnostic | null {
@@ -191,6 +193,10 @@ function buildDiagnostic(input: Readonly<{
       sourceDocumentId: input.sourceDocumentId,
       physicalPageNumber: input.physicalPageNumber,
       pageRepresentationDigest: input.pageRepresentationDigest,
+      ...(input.ocrPixelWidth && input.ocrPixelHeight ? {
+        ocrPixelWidth: input.ocrPixelWidth,
+        ocrPixelHeight: input.ocrPixelHeight,
+      } : {}),
       boxes: [...input.visualBoxes],
     } : null;
   return { ...parsed.data, currentState, recoveryProposalId: proposal?.proposalId ?? null,
@@ -208,6 +214,22 @@ function matchingProposal(
   return proposals.find((proposal) => proposal.physicalPageNumber === page
     && proposal.recoveryReason === code
     && proposal.evidence.some((entry) => observationIds.has(entry.observationId))) ?? null;
+}
+
+function exactOcrPageGeometry(
+  observationsLayer: Record<string, unknown> | null,
+  page: number,
+  pageRepresentationDigest: string,
+): Readonly<{ width: number; height: number }> | null {
+  const matches = records(observationsLayer?.source_page_geometries).filter((entry) =>
+    entry.source_layer === 'ocr'
+    && entry.physical_page_number === page
+    && entry.page_representation_digest === pageRepresentationDigest);
+  if (matches.length !== 1) return null;
+  const width = Number(matches[0]!.pixel_width);
+  const height = Number(matches[0]!.pixel_height);
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width, height } : null;
 }
 
 function reconstructionDiagnostics(params: Readonly<{
@@ -252,11 +274,13 @@ function reconstructionDiagnostics(params: Readonly<{
         source: ref.source === 'ocr_fallback' ? 'ocr_fallback' as const : 'pdfjs' as const,
       }));
       const refs = evidenceRefs(sourceRefs);
+      const ocrGeometry = exactOcrPageGeometry(observationsLayer, page, digest);
       const diagnostic = buildDiagnostic({ code: parsedCode.data,
         organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId,
         sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
         summary: typeof raw.raw_text === 'string' ? raw.raw_text : undefined,
         evidenceRefs: refs, visualBoxes: boxes(sourceRefs),
+        ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
         extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
         proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });
       if (diagnostic) output.push(diagnostic);
@@ -277,6 +301,102 @@ function reconstructionDiagnostics(params: Readonly<{
       evidenceRefs: refs, extractionSnapshotId: params.extractionSnapshotId,
       occurredAt: params.occurredAt, proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });
     if (diagnostic) output.push(diagnostic);
+  }
+  return output;
+}
+
+const PAGE_COVERAGE_FINAL_STATES = new Set([
+  'native_complete', 'ocr_required', 'mixed_ocr_required', 'ocr_complete',
+  'empty_page', 'uncertain', 'coverage_failed',
+]);
+const PAGE_COVERAGE_OCR_STATES = new Set([
+  'produced', 'abstained', 'not_eligible', 'not_attempted', 'failed',
+]);
+
+/**
+ * Projects the extraction-owned coverage record without making it authoritative.
+ * The layer is optional for pre-coverage extractions, and every page-scoped item
+ * fails closed unless it binds to one unambiguous current page representation.
+ */
+function extractionCoverageDiagnostics(params: Readonly<{
+  organizationId: string;
+  sourceDocumentId: string;
+  extraction: Record<string, unknown>;
+  extractionSnapshotId: string;
+  occurredAt: string;
+}>): DocumentDiagnostic[] {
+  const extractionRoot = record(params.extraction.extraction);
+  const pdf = record(record(extractionRoot?.content_layers_v1)?.pdf);
+  const coverage = record(pdf?.page_extraction_coverage_v1);
+  if (coverage?.parser_version !== 'page_extraction_coverage_v1'
+    || !Array.isArray(coverage.pages)) return [];
+
+  const sourceArtifactId = trustedCurrentSourceArtifactId(params.extraction);
+  if (!sourceArtifactId) return [];
+  const observationDigests = extractionPageRepresentationDigests(params.extraction);
+  const failedReconstructionPages = new Set(records(
+    record(pdf?.priced_schedule_reconstruction_v1)?.pages,
+  ).flatMap((page) => {
+    const pageNumber = Number(page.physical_page_number);
+    return page.status === 'failed_closed' && Number.isInteger(pageNumber) && pageNumber > 0
+      ? [pageNumber] : [];
+  }));
+  const output: DocumentDiagnostic[] = [];
+
+  for (const page of records(coverage.pages)) {
+    const pageNumber = Number(page.page_number);
+    const finalState = page.final_state;
+    const ocrState = record(page.ocr)?.state;
+    if (!Number.isInteger(pageNumber) || pageNumber < 1
+      || typeof finalState !== 'string' || !PAGE_COVERAGE_FINAL_STATES.has(finalState)
+      || typeof ocrState !== 'string' || !PAGE_COVERAGE_OCR_STATES.has(ocrState)) continue;
+
+    const explicitDigest = page.page_representation_digest;
+    if (explicitDigest !== undefined
+      && (typeof explicitDigest !== 'string' || !/^[a-f0-9]{64}$/.test(explicitDigest))) continue;
+    const observedDigest = observationDigests.get(pageNumber);
+    if (typeof explicitDigest === 'string' && observedDigest && explicitDigest !== observedDigest) continue;
+    const pageRepresentationDigest = typeof explicitDigest === 'string'
+      ? explicitDigest : observedDigest;
+    if (!pageRepresentationDigest) continue;
+
+    const expectedPricing = Array.isArray(page.expected_evidence_types)
+      && page.expected_evidence_types.includes('pricing');
+    const reasons = Array.isArray(page.reasons)
+      ? page.reasons.filter((reason): reason is string => typeof reason === 'string') : [];
+    const codes: DiagnosticCode[] = [];
+    if (reasons.includes('page_skipped_due_evidence_limit')) {
+      codes.push('page_skipped_due_evidence_limit');
+    } else if (ocrState === 'failed') {
+      codes.push('page_ocr_failed');
+    } else if (ocrState === 'abstained' && finalState === 'coverage_failed') {
+      codes.push('page_ocr_abstained');
+    } else if ((finalState === 'ocr_required' || finalState === 'mixed_ocr_required')
+      && ocrState === 'not_attempted') {
+      codes.push('page_ocr_required');
+    } else if (finalState === 'uncertain' || finalState === 'coverage_failed') {
+      // Selective OCR is intentional: a document type that is not eligible for
+      // OCR is recorded as uncertain coverage, not surfaced as a failure,
+      // unless the operator said this page should carry pricing.
+      if (expectedPricing) codes.push('expected_pricing_page_no_usable_evidence');
+      else if (!reasons.includes('ocr_not_eligible_for_document')) {
+        codes.push('page_extraction_coverage_incomplete');
+      }
+    }
+    if (expectedPricing
+      && (finalState === 'native_complete' || finalState === 'ocr_complete')
+      && failedReconstructionPages.has(pageNumber)) {
+      codes.push('pricing_page_reconstruction_failed');
+    }
+
+    for (const code of codes) {
+      const diagnostic = buildDiagnostic({ code,
+        organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId,
+        sourceArtifactId, physicalPageNumber: pageNumber, pageRepresentationDigest,
+        evidenceRefs: [], extractionSnapshotId: params.extractionSnapshotId,
+        occurredAt: params.occurredAt });
+      if (diagnostic) output.push(diagnostic);
+    }
   }
   return output;
 }
@@ -322,6 +442,21 @@ function extractionPageRepresentationDigests(extraction: Record<string, unknown>
       continue;
     }
     digests.set(page, digest);
+  }
+  // A reconciled native+OCR page legitimately carries two observation digests.
+  // It binds only through the extraction-owned effective representation for a
+  // page where both extractors produced evidence; anything else stays unbound.
+  const coverage = record(record(layers?.pdf)?.page_extraction_coverage_v1);
+  if (coverage?.parser_version === 'page_extraction_coverage_v1') {
+    for (const entry of records(coverage.pages)) {
+      const page = Number(entry.page_number);
+      const digest = entry.page_representation_digest;
+      if (!untrustworthyPages.has(page) || typeof digest !== 'string'
+        || !/^[a-f0-9]{64}$/.test(digest)
+        || record(entry.native)?.state !== 'produced'
+        || record(entry.ocr)?.state !== 'produced') continue;
+      digests.set(page, digest);
+    }
   }
   return digests;
 }
@@ -423,6 +558,11 @@ export async function readDocumentDiagnostics(
         sourceDocumentId: query.sourceDocumentId, extraction: latestData,
         extractionSnapshotId: String(latest.id), occurredAt: iso(latest.created_at),
         proposals }) : [];
+  if (latest && latestData) {
+    diagnostics.push(...extractionCoverageDiagnostics({ organizationId: query.organizationId,
+      sourceDocumentId: query.sourceDocumentId, extraction: latestData,
+      extractionSnapshotId: String(latest.id), occurredAt: iso(latest.created_at) }));
+  }
   diagnostics.push(...proposalAuthorityDiagnostics({ organizationId: query.organizationId,
     sourceDocumentId: query.sourceDocumentId,
     extractionSnapshotId: latest ? String(latest.id) : null, proposals }));

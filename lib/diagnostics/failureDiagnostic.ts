@@ -6,6 +6,13 @@ const identifier = z.string().min(1).max(240).refine((value) => value.trim() ===
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const DIAGNOSTIC_CODES = [
+  'page_ocr_required',
+  'page_ocr_abstained',
+  'page_ocr_failed',
+  'page_extraction_coverage_incomplete',
+  'expected_pricing_page_no_usable_evidence',
+  'page_skipped_due_evidence_limit',
+  'pricing_page_reconstruction_failed',
   'ambiguous_row_assignment',
   'ambiguous_rate_clusters',
   'unsupported_trailing_line',

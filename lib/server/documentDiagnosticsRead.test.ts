@@ -83,6 +83,100 @@ describe('document diagnostics read model', () => {
     expect(DIAGNOSTIC_SEVERITY_RANK).toEqual({ blocking: 0, warning: 1, info: 2 });
   });
 
+  it('projects page extraction coverage with registry-owned page-scoped diagnostics', async () => {
+    const coverageExtraction = structuredClone(extraction);
+    const pdf = coverageExtraction.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+    pdf.page_extraction_coverage_v1 = {
+      parser_version: 'page_extraction_coverage_v1',
+      pages: [{
+        page_number: 7, page_representation_digest: DIGEST,
+        expected_evidence_types: ['pricing'], priority: true,
+        native: { state: 'abstained' }, visual: { state: 'produced' },
+        ocr: { state: 'not_attempted' }, final_state: 'ocr_required',
+        reasons: ['operator_expected_pricing_evidence', 'native_text_absent'],
+      }],
+    };
+    (pdf.priced_schedule_reconstruction_v1 as { pages: unknown[] }).pages = [];
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [coverageExtraction], forgewing_recovery_generation_outcomes: [],
+        document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: 'page_ocr_required', stage: 'extraction', severity: 'info',
+      scope: { sourceArtifactId: ARTIFACT, physicalPageNumber: 7,
+        pageRepresentationDigest: DIGEST },
+      evidenceRefs: [], sourceIdentity: { extractionSnapshotId: 'extraction-snapshot-1' },
+      visualEvidence: null, recoveryPolicy: null,
+    });
+  });
+
+  it('distinguishes failed coverage from complete extraction that failed reconstruction', async () => {
+    const coverageExtraction = structuredClone(extraction);
+    const pdf = coverageExtraction.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+    pdf.page_extraction_coverage_v1 = {
+      parser_version: 'page_extraction_coverage_v1',
+      pages: [{
+        page_number: 7, page_representation_digest: DIGEST,
+        expected_evidence_types: ['pricing'], priority: true,
+        native: { state: 'produced' }, visual: { state: 'produced' },
+        ocr: { state: 'produced' }, final_state: 'ocr_complete', reasons: [],
+      }],
+    };
+    (pdf.priced_schedule_reconstruction_v1 as { pages: unknown[] }).pages = [{
+      physical_page_number: 7, status: 'failed_closed', rejected_spines: [], unassigned_lines: [],
+    }];
+    const complete = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [coverageExtraction],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(complete.status === 'ok' && complete.diagnostics.map((entry) => entry.code))
+      .toEqual(['pricing_page_reconstruction_failed']);
+
+    const coverageLayer = pdf.page_extraction_coverage_v1 as { pages: Array<Record<string, unknown>> };
+    coverageLayer.pages[0] = {
+      ...coverageLayer.pages[0],
+      ocr: { state: 'failed' }, final_state: 'coverage_failed', reasons: ['ocr_failed'],
+    };
+    const failed = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [coverageExtraction],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(failed.status === 'ok' && failed.diagnostics.map((entry) => entry.code))
+      .toEqual(['page_ocr_failed']);
+  });
+
+  it('no-ops for absent or malformed coverage and fails closed on page digest conflict', async () => {
+    for (const layer of [
+      undefined,
+      { parser_version: 'future_coverage', pages: [] },
+      { parser_version: 'page_extraction_coverage_v1', pages: [{
+        page_number: 7, page_representation_digest: 'b'.repeat(64),
+        expected_evidence_types: ['pricing'], ocr: { state: 'failed' },
+        final_state: 'coverage_failed', reasons: ['ocr_failed'],
+      }] },
+    ]) {
+      const candidate = structuredClone(extraction);
+      const pdf = candidate.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+      (pdf.priced_schedule_reconstruction_v1 as { pages: unknown[] }).pages = [];
+      if (layer !== undefined) {
+        pdf.page_extraction_coverage_v1 = layer;
+      }
+      const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC }], document_extractions: [candidate],
+          forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      });
+      expect(result).toEqual({ status: 'ok', diagnostics: [] });
+    }
+  });
+
   it('orders returned diagnostics as blocking, warning, then info', async () => {
     const candidateId = CANDIDATE_ID;
     const persistedId = diagnosticId({ code: 'recovery_disabled', scope: {
@@ -125,6 +219,42 @@ describe('document diagnostics read model', () => {
         pageRepresentationDigest: DIGEST },
       visualEvidence: { kind: 'diagnostic', boxes: [{ role: 'candidate_member' }] },
     });
+  });
+
+  it('projects exact OCR render dimensions only when page and representation bind', async () => {
+    const ocrExtraction = structuredClone(extraction);
+    const pdf = ocrExtraction.data.extraction.content_layers_v1.pdf;
+    const observations = pdf.layout_observations_v1 as typeof pdf.layout_observations_v1 & {
+      source_page_geometries: Array<Record<string, unknown>>;
+    };
+    observations.source_page_geometries = [{
+      physical_page_number: 7,
+      source_layer: 'ocr',
+      page_representation_digest: DIGEST,
+      pixel_width: 1224,
+      pixel_height: 1584,
+    }];
+    pdf.priced_schedule_reconstruction_v1.pages[0]!.unassigned_lines[0]!
+      .source_refs[0]!.source = 'ocr_fallback';
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [ocrExtraction],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics[0]?.visualEvidence).toMatchObject({
+      ocrPixelWidth: 1224,
+      ocrPixelHeight: 1584,
+      boxes: [{ sourceLayer: 'ocr' }],
+    });
+
+    observations.source_page_geometries[0]!.page_representation_digest = 'b'.repeat(64);
+    const unbound = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [ocrExtraction],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(unbound.status === 'ok' && unbound.diagnostics[0]?.visualEvidence)
+      .not.toHaveProperty('ocrPixelWidth');
   });
 
   it.each([

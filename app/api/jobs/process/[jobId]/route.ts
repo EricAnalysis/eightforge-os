@@ -23,6 +23,7 @@ import {
 import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
 import { persistUploadedSourceArtifactIdentity } from '@/lib/extraction/persistence/sourceArtifactIdentity';
+import { loadExtractionPageGuidance } from '@/lib/contracts/contractUploadGuidance';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -121,12 +122,14 @@ export async function POST(
     const bytes = await fileData.arrayBuffer();
     const fileName = docRow.name ?? storagePath.split('/').pop() ?? 'file';
     const mimeType = (fileData as Blob & { type?: string }).type ?? null;
+    const pageGuidance = await loadExtractionPageGuidance(admin, job.document_id);
     const metadata = {
       id: docRow.id,
       title: docRow.title ?? null,
       name: docRow.name ?? fileName,
       document_type: docRow.document_type ?? null,
       storage_path: storagePath,
+      ...pageGuidance,
     };
 
     const storageVersionAfterDownload = await captureStorageObjectVersion(

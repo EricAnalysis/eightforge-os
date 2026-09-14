@@ -63,6 +63,18 @@ describe('failure diagnostic registry', () => {
   });
 
   it('keeps frozen authority classifications exact', () => {
+    expect(FAILURE_REGISTRY.page_ocr_required).toMatchObject({
+      stage: 'extraction', severity: 'info', recoverability: 'not_recoverable',
+      recoveryType: null, recommendedNextAction: 'none',
+    });
+    expect(FAILURE_REGISTRY.page_ocr_failed).toMatchObject({
+      stage: 'extraction', severity: 'warning', recoverability: 'retryable_runtime_failure',
+      recoveryType: null, recommendedNextAction: 'reprocess_document',
+    });
+    expect(FAILURE_REGISTRY.pricing_page_reconstruction_failed).toMatchObject({
+      stage: 'reconstruction', severity: 'warning', recoverability: 'engineering_diagnostic',
+      recoveryType: null,
+    });
     expect(FAILURE_REGISTRY.ambiguous_row_assignment).toMatchObject({
       recoverability: 'recoverable_after_human_review',
       recoveryType: 'priced_schedule_continuation_attribution',

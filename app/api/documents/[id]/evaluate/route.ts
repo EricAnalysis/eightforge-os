@@ -37,6 +37,11 @@ export async function POST(
   }
 
   const actorResult = await getActorContext(_request);
+  // Fail closed: evaluation mutates decisions/tasks and can schedule Forgewing
+  // provider work, so an unresolved actor must never fall through to it.
+  if (!actorResult.ok) {
+    return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
+  }
 
   // ── 1. Load document ────────────────────────────────────────────────
   const { data: doc, error: docError } = await admin
@@ -61,7 +66,7 @@ export async function POST(
   };
 
   // ── 1b. Verify actor has access to this document's organization ──────
-  if (actorResult.ok && actorResult.actor.organizationId !== document.organization_id) {
+  if (actorResult.actor.organizationId !== document.organization_id) {
     return NextResponse.json(
       { error: 'Document not found' },
       { status: 404 },
